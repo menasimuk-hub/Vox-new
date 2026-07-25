@@ -18,16 +18,58 @@ router = APIRouter(prefix="/public/expo", tags=["public-expo"])
 
 @router.get("/{token}")
 def get_booth_public(token: str, db: Session = Depends(get_db)):
+    from urllib.parse import quote
+    import re
+
+    from app.models.expo import ExpoExhibition
+    from app.models.organisation import Organisation
+    from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
+    from app.services.expo.booth_service import build_trigger_text
+
     booth = ExpoBoothService.find_by_token(db, token)
     if booth is None:
         raise HTTPException(status_code=404, detail="Booth not found")
     expired = booth_is_expired(booth)
     steps = ExpoSessionFlowService.steps_for_booth(booth)
+    exhibition = db.get(ExpoExhibition, booth.exhibition_id)
+    event_name = exhibition.name if exhibition else "Exhibition"
+    org = db.get(Organisation, booth.org_id)
+    country_code = str(getattr(org, "country_code", None) or "gb")
+    phone = resolve_feedback_wa_phone_for_qr(db, country_code, org_id=booth.org_id)
+    trigger = build_trigger_text(
+        company=booth.company_display_name,
+        booth=booth.booth_code or booth.name,
+        event=event_name,
+        token=booth.qr_token,
+    )
+    digits = re.sub(r"\D+", "", str(phone or ""))
+    wa_url = f"https://wa.me/{digits}?text={quote(trigger)}" if digits else ""
+    urls = ExpoBoothService.booth_public_urls(booth, event_name=event_name)
+    questions = []
+    for step in steps:
+        key = str(step.get("key") or "")
+        if not key:
+            continue
+        questions.append(
+            {
+                "key": key,
+                "prompt": str(step.get("prompt_web") or step.get("prompt") or ""),
+                "label": str(step.get("label") or key),
+            }
+        )
     return {
         "ok": True,
+        "token": booth.qr_token,
+        "wa_url": wa_url,
+        "whatsapp_url": wa_url,
+        "web_url": urls["web_url"],
+        "theme_id": "survey-temp",
+        "company_name": booth.company_display_name,
+        "questions": questions,
         "booth": {
             "name": booth.name,
             "company_display_name": booth.company_display_name,
+            "exhibition_name": event_name,
             "status": "expired" if expired else booth.status,
             "is_expired": expired,
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,

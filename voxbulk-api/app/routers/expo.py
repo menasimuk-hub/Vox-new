@@ -139,7 +139,9 @@ def delete_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends
     try:
         ExpoBoothService.delete_booth(db, org_id=principal.org_id, booth_id=booth_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
+        msg = str(e)
+        code = 404 if "not found" in msg.lower() else 400
+        raise HTTPException(status_code=code, detail=msg) from e
     return {"ok": True}
 
 
@@ -186,6 +188,41 @@ def delete_lead(lead_id: str, db: Session = Depends(get_db), principal=Depends(g
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return {"ok": True}
+
+
+@router.get("/results/leads/{lead_id}")
+def get_lead_detail(lead_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    try:
+        item = ExpoResultsService.lead_detail(
+            db, principal.org_id, lead_id=lead_id, created_by_user_id=owner_filter
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True, "item": item}
+
+
+@router.get("/results/leads/{lead_id}/card-image")
+def get_lead_card_image(lead_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from fastapi.responses import FileResponse
+
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    path = ExpoResultsService.resolve_lead_card_path(
+        db, principal.org_id, lead_id=lead_id, created_by_user_id=owner_filter
+    )
+    if path is None:
+        raise HTTPException(status_code=404, detail="Business card image not found")
+    suffix = path.suffix.lower()
+    media = "image/jpeg"
+    if suffix == ".png":
+        media = "image/png"
+    elif suffix == ".webp":
+        media = "image/webp"
+    elif suffix == ".gif":
+        media = "image/gif"
+    return FileResponse(path, media_type=media, filename=path.name)
 
 
 @router.get("/results/export.csv")

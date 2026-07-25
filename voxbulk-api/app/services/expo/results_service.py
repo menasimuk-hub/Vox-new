@@ -139,6 +139,105 @@ class ExpoResultsService:
         db.commit()
 
     @staticmethod
+    def lead_detail(
+        db: Session,
+        org_id: str,
+        *,
+        lead_id: str,
+        created_by_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        lead = db.execute(
+            select(ExpoLead).where(ExpoLead.id == lead_id, ExpoLead.org_id == org_id)
+        ).scalar_one_or_none()
+        if lead is None:
+            raise ValueError("Lead not found")
+        booth = db.get(ExpoBooth, lead.booth_id)
+        if booth is None or booth.org_id != org_id:
+            raise ValueError("Lead not found")
+        if created_by_user_id and booth.created_by_user_id != created_by_user_id:
+            raise ValueError("Lead not found")
+        data = ExpoResultsService._lead_to_dict(lead, booth)
+        answers: list[dict[str, Any]] = []
+        if lead.session_id:
+            rows = (
+                db.execute(
+                    select(ExpoResponse)
+                    .where(ExpoResponse.session_id == lead.session_id)
+                    .order_by(ExpoResponse.step_order.asc(), ExpoResponse.created_at.asc())
+                )
+                .scalars()
+                .all()
+            )
+            from app.services.expo.question_bank import SELECTABLE_QUESTION_BANK, parse_question_config
+
+            labels = {str(q["key"]): str(q.get("label") or q["key"]) for q in SELECTABLE_QUESTION_BANK}
+            prompts = {str(q["key"]): str(q.get("prompt") or "") for q in SELECTABLE_QUESTION_BANK}
+            labels.update(
+                {
+                    "contact": "Contact",
+                    "name": "Name",
+                    "company": "Company",
+                    "mobile": "Mobile",
+                    "business_card": "Business card",
+                    "consent": "Consent",
+                }
+            )
+            for step in parse_question_config(booth.question_config_json):
+                key = str(step.get("key") or "")
+                if key and step.get("prompt"):
+                    prompts[key] = str(step.get("prompt"))
+                if key and step.get("label"):
+                    labels[key] = str(step.get("label"))
+            for r in rows:
+                key = str(r.question_key or "")
+                answers.append(
+                    {
+                        "question_key": key,
+                        "question_label": labels.get(key, key.replace("_", " ").title()),
+                        "question_prompt": prompts.get(key) or labels.get(key) or key,
+                        "answer_text": r.answer_text,
+                        "original_text": r.original_text,
+                        "answer_text_en": r.answer_text_en,
+                        "answer_source": r.answer_source,
+                        "step_order": r.step_order,
+                    }
+                )
+        data["answers"] = answers
+        return data
+
+    @staticmethod
+    def resolve_lead_card_path(
+        db: Session,
+        org_id: str,
+        *,
+        lead_id: str,
+        created_by_user_id: str | None = None,
+    ):
+        from pathlib import Path
+
+        lead = db.execute(
+            select(ExpoLead).where(ExpoLead.id == lead_id, ExpoLead.org_id == org_id)
+        ).scalar_one_or_none()
+        if lead is None or not lead.business_card_path:
+            return None
+        booth = db.get(ExpoBooth, lead.booth_id)
+        if booth is None or booth.org_id != org_id:
+            return None
+        if created_by_user_id and booth.created_by_user_id != created_by_user_id:
+            return None
+        rel = str(lead.business_card_path).strip().replace("\\", "/")
+        if not rel or ".." in rel.split("/"):
+            return None
+        root = Path(__file__).resolve().parents[3]
+        abs_path = (root / rel).resolve()
+        cards_root = (root / "data" / "expo-cards").resolve()
+        try:
+            abs_path.relative_to(cards_root)
+        except ValueError:
+            return None
+        return abs_path if abs_path.is_file() else None
+
+    @staticmethod
     def _lead_to_dict(lead: ExpoLead, booth: ExpoBooth | None) -> dict[str, Any]:
         try:
             assets_sent = json.loads(lead.assets_sent_json or "[]")
@@ -157,6 +256,10 @@ class ExpoResultsService:
             "company": lead.company,
             "visitor_phone": lead.visitor_phone,
             "visitor_email": lead.visitor_email,
+            "business_card_path": lead.business_card_path,
+            "business_card_url": (
+                f"/expo/results/leads/{lead.id}/card-image" if lead.business_card_path else None
+            ),
             "interest": lead.interest,
             "buying_timeline": lead.buying_timeline,
             "lead_score": lead.lead_score,

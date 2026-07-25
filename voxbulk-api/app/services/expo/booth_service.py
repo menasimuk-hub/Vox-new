@@ -250,7 +250,8 @@ class ExpoBoothService:
         trigger = urls["trigger_text"]
         digits = re.sub(r"\D+", "", str(phone or ""))
         wa_url = f"https://wa.me/{digits}?text={quote(trigger)}" if digits else ""
-        qr_target = wa_url or urls["web_url"]
+        # QR always opens the public landing (WA vs Web choice), same pattern as Customer Feedback.
+        qr_target = urls["web_url"]
         lead_count = db.execute(
             select(func.count()).select_from(ExpoLead).where(ExpoLead.booth_id == booth.id)
         ).scalar() or 0
@@ -458,27 +459,45 @@ class ExpoBoothService:
 
     @staticmethod
     def delete_booth(db: Session, *, org_id: str, booth_id: str) -> None:
+        from sqlalchemy import delete, text
+        from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+
         booth = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=booth_id)
         if booth is None:
             raise ValueError("Booth not found")
-        # Child rows first (responses / voice jobs FK to sessions + booths)
-        for resp in db.execute(select(ExpoResponse).where(ExpoResponse.booth_id == booth.id)).scalars().all():
-            db.delete(resp)
-        for job in db.execute(select(ExpoVoiceNoteJob).where(ExpoVoiceNoteJob.booth_id == booth.id)).scalars().all():
-            db.delete(job)
-        for asset in db.execute(select(ExpoBoothAsset).where(ExpoBoothAsset.booth_id == booth.id)).scalars().all():
-            db.delete(asset)
-        for lead in db.execute(select(ExpoLead).where(ExpoLead.booth_id == booth.id)).scalars().all():
-            db.delete(lead)
-        for session in db.execute(select(ExpoSession).where(ExpoSession.booth_id == booth.id)).scalars().all():
-            db.delete(session)
+        bid = booth.id
         exhibition_id = booth.exhibition_id
-        db.delete(booth)
-        remaining = db.execute(
-            select(func.count()).select_from(ExpoBooth).where(ExpoBooth.exhibition_id == exhibition_id)
-        ).scalar() or 0
-        if int(remaining) == 0:
-            exhibition = db.get(ExpoExhibition, exhibition_id)
-            if exhibition is not None:
-                db.delete(exhibition)
-        db.commit()
+        session_ids = [
+            r[0]
+            for r in db.execute(select(ExpoSession.id).where(ExpoSession.booth_id == bid)).all()
+        ]
+        try:
+            # Bulk deletes — order respects FKs (responses/voice → leads → sessions → assets → booth)
+            db.execute(delete(ExpoResponse).where(ExpoResponse.booth_id == bid))
+            if session_ids:
+                db.execute(delete(ExpoResponse).where(ExpoResponse.session_id.in_(session_ids)))
+                db.execute(delete(ExpoVoiceNoteJob).where(ExpoVoiceNoteJob.session_id.in_(session_ids)))
+            db.execute(delete(ExpoVoiceNoteJob).where(ExpoVoiceNoteJob.booth_id == bid))
+            # Clear soft session link before removing sessions
+            db.execute(
+                text("UPDATE expo_leads SET session_id = NULL WHERE booth_id = :bid"),
+                {"bid": bid},
+            )
+            db.execute(delete(ExpoLead).where(ExpoLead.booth_id == bid))
+            db.execute(delete(ExpoSession).where(ExpoSession.booth_id == bid))
+            db.execute(delete(ExpoBoothAsset).where(ExpoBoothAsset.booth_id == bid))
+            db.execute(delete(ExpoBooth).where(ExpoBooth.id == bid, ExpoBooth.org_id == org_id))
+            remaining = db.execute(
+                select(func.count()).select_from(ExpoBooth).where(ExpoBooth.exhibition_id == exhibition_id)
+            ).scalar() or 0
+            if int(remaining) == 0:
+                # Any stray leads for this exhibition (should be none after booth wipe)
+                db.execute(delete(ExpoLead).where(ExpoLead.exhibition_id == exhibition_id))
+                db.execute(delete(ExpoExhibition).where(ExpoExhibition.id == exhibition_id))
+            db.commit()
+        except (IntegrityError, SQLAlchemyError) as exc:
+            db.rollback()
+            raise ValueError(
+                "Could not delete this booth because related records are still linked. "
+                "Try again, or contact support if it keeps failing."
+            ) from exc

@@ -21,7 +21,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
-import { ExpoWaPhonePreview, ExpoWebPhonePreview } from "@/components/expo-phone-preview";
+import { ExpoScanChoosePreview, ExpoWaPhonePreview, ExpoWebPhonePreview } from "@/components/expo-phone-preview";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,8 +140,8 @@ function CreateExpoBooth() {
   const [uploading, setUploading] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [packageId, setPackageId] = React.useState("");
-  const [previewChannel, setPreviewChannel] = React.useState<"web" | "wa">("web");
-  const [webTemplate] = React.useState("Customer Feedback");
+  const [previewChannel, setPreviewChannel] = React.useState<"scan" | "web" | "wa">("scan");
+  const [webTemplate] = React.useState("Default template");
   const [saving, setSaving] = React.useState(false);
   const [created, setCreated] = React.useState<{
     id: string;
@@ -741,7 +741,8 @@ function CreateExpoBooth() {
             <CardHeader>
               <CardTitle className="text-base">Preview journey</CardTitle>
               <CardDescription>
-                Split preview — WhatsApp session text and the default web form template (iPhone 17 Pro Max).
+                Same as the live QR scan: visitors choose WhatsApp or Web (default template). Switch tabs to preview
+                each path.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -749,10 +750,18 @@ function CreateExpoBooth() {
                 <Button
                   type="button"
                   size="sm"
+                  variant={previewChannel === "scan" ? "default" : "outline"}
+                  onClick={() => setPreviewChannel("scan")}
+                >
+                  Scan choice
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
                   variant={previewChannel === "web" ? "default" : "outline"}
                   onClick={() => setPreviewChannel("web")}
                 >
-                  Web
+                  Web form
                 </Button>
                 <Button
                   type="button"
@@ -763,30 +772,38 @@ function CreateExpoBooth() {
                   WhatsApp
                 </Button>
                 <span className="self-center text-xs text-muted-foreground">
-                  Default web template: {webTemplate}
+                  Default template: {webTemplate}
                 </span>
               </div>
               <div className="grid gap-6 lg:grid-cols-2 lg:justify-items-center">
-                <div className={cn(previewChannel !== "wa" && "opacity-60 lg:opacity-100")}>
-                  <ExpoWaPhonePreview businessName={company || "Your stand"} messages={waMessages} />
+                <div className={cn(previewChannel !== "scan" && "opacity-60 lg:opacity-100")}>
+                  <ExpoScanChoosePreview
+                    companyName={company || "Your stand"}
+                    eventName={exhibitionName}
+                    templateName={webTemplate}
+                  />
                 </div>
                 <div
                   className={cn(
                     "flex flex-col items-center gap-3",
-                    previewChannel !== "web" && "opacity-60 lg:opacity-100",
+                    previewChannel === "scan" && "opacity-60 lg:opacity-100",
                   )}
                 >
-                  <ExpoWebPhonePreview
-                    companyName={company}
-                    eventName={exhibitionName}
-                    contactHint={
-                      contactCapture === "card_only"
-                        ? "Capture a business card photo to continue."
-                        : "Capture a business card photo, or enter name, company and mobile."
-                    }
-                    questions={selectedPrompts}
-                    templateName={webTemplate}
-                  />
+                  {previewChannel === "wa" ? (
+                    <ExpoWaPhonePreview businessName={company || "Your stand"} messages={waMessages} />
+                  ) : (
+                    <ExpoWebPhonePreview
+                      companyName={company}
+                      eventName={exhibitionName}
+                      contactHint={
+                        contactCapture === "card_only"
+                          ? "Capture a business card photo to continue."
+                          : "Capture a business card photo, or enter name, company and mobile."
+                      }
+                      questions={selectedPrompts}
+                      templateName={webTemplate}
+                    />
+                  )}
                   <div className="rounded-xl border bg-background/80 p-3 text-center shadow-sm">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Preview QR
@@ -798,8 +815,8 @@ function CreateExpoBooth() {
                       alt="Expo web QR preview"
                       className="mx-auto mt-2 size-16 rounded-md border bg-white p-1"
                     />
-                    <p className="mt-1.5 max-w-[140px] text-[10px] leading-snug text-muted-foreground">
-                      Live QR opens WhatsApp. After activate you also get a web link.
+                    <p className="mt-1.5 max-w-[160px] text-[10px] leading-snug text-muted-foreground">
+                      Live QR opens the scan landing (WhatsApp or Web) — same as Customer Feedback.
                     </p>
                   </div>
                 </div>

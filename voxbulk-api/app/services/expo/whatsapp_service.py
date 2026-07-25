@@ -75,6 +75,56 @@ class ExpoWhatsappService:
         if not phone:
             return {"handled": False, "reason": "missing_from"}
 
+        # Voice note while in an active Expo session
+        from app.services.expo.voice_note_service import is_audio_inbound, process_voice_for_session
+
+        if is_audio_inbound(record if isinstance(record, dict) else None) and not text:
+            session = ExpoSessionFlowService.find_active_session(db, visitor_phone=phone)
+            if session is not None:
+                ExpoWhatsappService._send(
+                    db,
+                    to_number=phone,
+                    body="Got your voice note — translating…",
+                    org_id=session.org_id,
+                    from_number=reply_from,
+                )
+                voice = process_voice_for_session(
+                    db,
+                    session=session,
+                    record=record if isinstance(record, dict) else None,
+                )
+                if not voice.get("ok"):
+                    ExpoWhatsappService._send(
+                        db,
+                        to_number=phone,
+                        body="Sorry — I couldn't hear that clearly. Please type your answer, or send the voice note again.",
+                        org_id=session.org_id,
+                        from_number=reply_from,
+                    )
+                    return {
+                        "handled": True,
+                        "session_id": session.id,
+                        "org_id": session.org_id,
+                        "via": "voice_failed",
+                    }
+                result = ExpoSessionFlowService.advance(
+                    db,
+                    session=session,
+                    answer=str(voice.get("answer_text_en") or ""),
+                    answer_source="voice",
+                    original_text=str(voice.get("original_text") or ""),
+                    answer_text_en=str(voice.get("answer_text_en") or ""),
+                    detected_language=voice.get("detected_language"),
+                    voice_job_id=voice.get("job_id"),
+                )
+                ExpoWhatsappService._relay(db, session=session, result=result, from_number=reply_from)
+                return {
+                    "handled": True,
+                    "session_id": session.id,
+                    "org_id": session.org_id,
+                    "via": "voice",
+                }
+
         # Business-card photo while in an active Expo session
         image_inbound = ExpoWhatsappService._is_image_inbound(record if isinstance(record, dict) else None)
         if image_inbound and not text:
@@ -82,8 +132,11 @@ class ExpoWhatsappService:
             if session is not None:
                 from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
 
-                fields = ExpoBusinessCardService.extract_from_inbound(
-                    db, record if isinstance(record, dict) else None
+                fields, card_path = ExpoBusinessCardService.save_inbound_image(
+                    db,
+                    org_id=session.org_id,
+                    booth_id=session.booth_id,
+                    record=record if isinstance(record, dict) else None,
                 )
                 result = ExpoSessionFlowService.advance(
                     db,
@@ -91,6 +144,7 @@ class ExpoWhatsappService:
                     answer="[business card image]",
                     answer_source="image",
                     contact_fields=fields or None,
+                    business_card_path=card_path,
                 )
                 ExpoWhatsappService._relay(db, session=session, result=result, from_number=reply_from)
                 return {

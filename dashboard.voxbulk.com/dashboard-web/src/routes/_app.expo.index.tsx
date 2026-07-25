@@ -89,7 +89,7 @@ function ExpoHub() {
       <PageHeader
         eyebrow="VoxBulk Expo"
         title="Saved booths"
-        description="Print these QR codes at your stand — visitors scan, WhatsApp opens, and leads are captured automatically."
+        description="Print these QR codes at your stand — visitors scan, choose WhatsApp or web, and leads are captured automatically."
         actions={
           <Button asChild className="gap-1.5">
             <Link to="/expo/new">
@@ -163,16 +163,6 @@ function ExpoHub() {
                     )}
                   </div>
                   <div className="grid gap-1.5 text-xs">
-                    {it.whatsapp_url ? (
-                      <a
-                        href={it.whatsapp_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="truncate rounded-md border bg-emerald-50 px-2 py-1.5 font-medium text-emerald-800 hover:bg-emerald-100"
-                      >
-                        WhatsApp link (print QR uses this)
-                      </a>
-                    ) : null}
                     {it.web_url ? (
                       <a
                         href={it.web_url}
@@ -180,12 +170,22 @@ function ExpoHub() {
                         rel="noreferrer"
                         className="truncate rounded-md border bg-sky-50 px-2 py-1.5 font-medium text-sky-800 hover:bg-sky-100"
                       >
-                        Web questionnaire link
+                        Scan landing (WhatsApp or Web)
+                      </a>
+                    ) : null}
+                    {it.whatsapp_url ? (
+                      <a
+                        href={it.whatsapp_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate rounded-md border bg-emerald-50 px-2 py-1.5 font-medium text-emerald-800 hover:bg-emerald-100"
+                      >
+                        Direct WhatsApp link
                       </a>
                     ) : null}
                     <p className="px-0.5 text-[10px] leading-snug text-muted-foreground">
-                      On WhatsApp visitors reply with a business-card photo or type their name — there is no separate
-                      button; the first bot message explains both options.
+                      Printed QR opens the scan landing. Visitors choose WhatsApp (any language, voice OK) or the web
+                      form. Business-card photo or typed name works on both.
                     </p>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-center">

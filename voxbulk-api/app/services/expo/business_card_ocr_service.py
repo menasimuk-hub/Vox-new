@@ -6,6 +6,7 @@ import base64
 import json
 import logging
 import re
+import uuid
 from typing import Any
 
 import httpx
@@ -246,6 +247,50 @@ class ExpoBusinessCardService:
         except Exception as exc:
             logger.warning("expo_card_ocr_failed err=%s", exc)
             return {}
+
+    @staticmethod
+    def save_inbound_image(
+        db: Session,
+        *,
+        org_id: str,
+        booth_id: str,
+        record: dict[str, Any] | None,
+    ) -> tuple[dict[str, str | None], str | None]:
+        """OCR + optionally persist card image under data/expo-cards/. Returns (fields, relative_path)."""
+        items = extract_image_media_items(record)
+        if not items:
+            return {}, None
+        item = items[0]
+        url = str(item.get("url") or "").strip()
+        media_id = str(item.get("provider_media_id") or "").strip()
+        if not url and media_id:
+            url = _resolve_meta_media_url(db, media_id) or ""
+        if not url:
+            return {}, None
+        try:
+            raw, ctype = download_image_bytes(db, media_url=url)
+        except Exception as exc:
+            logger.warning("expo_card_download_failed err=%s", exc)
+            return {}, None
+        fields = ExpoBusinessCardService.extract_from_bytes(db, image_bytes=raw, content_type=ctype)
+        rel: str | None = None
+        try:
+            from pathlib import Path
+
+            root = Path(__file__).resolve().parents[3] / "data" / "expo-cards" / str(org_id)
+            root.mkdir(parents=True, exist_ok=True)
+            ext = ".jpg"
+            if "png" in ctype:
+                ext = ".png"
+            elif "webp" in ctype:
+                ext = ".webp"
+            name = f"{booth_id[:8]}-{uuid.uuid4().hex[:10]}{ext}"
+            abs_path = root / name
+            abs_path.write_bytes(raw)
+            rel = f"data/expo-cards/{org_id}/{name}"
+        except Exception as exc:
+            logger.warning("expo_card_save_failed err=%s", exc)
+        return fields, rel
 
     @staticmethod
     def confirmation_message(fields: dict[str, str | None] | None) -> str:

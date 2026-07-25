@@ -135,6 +135,64 @@ type WebProps = {
   qrImageUrl?: string;
 };
 
+/** Live scan landing preview — WhatsApp vs Web choice (same pattern as Customer Feedback). */
+export function ExpoScanChoosePreview({
+  companyName,
+  eventName,
+  size = "md",
+  label = "Scan landing",
+  templateName = "Default template",
+}: {
+  companyName: string;
+  eventName: string;
+  size?: "sm" | "md";
+  label?: string;
+  templateName?: string;
+}) {
+  return (
+    <ExpoIPhoneFrame size={size} label={label}>
+      <div
+        className="flex h-full flex-col overflow-y-auto px-3 pb-8 pt-10"
+        style={{
+          background: "linear-gradient(165deg, #f7f1e6 0%, #efe6d4 45%, #f5efe4 100%)",
+          color: "#2d2926",
+        }}
+      >
+        <p className="text-center text-[10px] font-medium uppercase tracking-wide text-[#2d2926]/70">
+          {templateName}
+        </p>
+        <p className="mt-1 text-center text-[13px] font-semibold">{companyName || "Your stand"}</p>
+        {eventName ? <p className="text-center text-[10px] text-[#2d2926]/55">{eventName}</p> : null}
+        <h2 className="mt-4 font-serif text-[22px] leading-tight tracking-tight">
+          Nice to meet
+          <br />
+          <span className="italic">you</span>
+          <span className="text-[#b8954a]">.</span>
+        </h2>
+        <p className="mt-2 text-[10px] leading-snug text-[#2d2926]/65">
+          Under a minute — choose WhatsApp (any language) or complete here in English.
+        </p>
+        <div className="mt-3 inline-flex self-start rounded-full border border-[#2d2926]/12 bg-white/70 px-2 py-1 text-[9px] text-[#2d2926]/65">
+          WhatsApp = all languages · Web = English
+        </div>
+        <div className="mt-3 grid gap-2">
+          <div className="rounded-xl bg-[#25D366] p-3 text-white shadow-sm">
+            <p className="text-[12px] font-semibold">Continue on WhatsApp</p>
+            <p className="mt-0.5 text-[9px] opacity-90">Reply in your own language · voice OK</p>
+          </div>
+          <div className="rounded-xl border border-[#2d2926]/12 bg-white p-3 shadow-sm">
+            <p className="text-[12px] font-semibold">Complete here</p>
+            <p className="mt-0.5 text-[9px] text-[#2d2926]/60">Quick on-page form · English</p>
+          </div>
+        </div>
+        <p className="mt-auto pt-4 text-center text-[8px] text-[#2d2926]/50">
+          Private — only shared with {companyName || "the exhibitor"}.
+        </p>
+      </div>
+    </ExpoIPhoneFrame>
+  );
+}
+
 export function ExpoWebPhonePreview({
   companyName,
   eventName,

@@ -31,8 +31,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch, downloadAuthenticatedFile } from "@/lib/api";
+import { apiFetch, buildAuthHeaders, downloadAuthenticatedFile, getApiBaseUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+type LeadAnswer = {
+  question_key?: string;
+  question_label?: string;
+  question_prompt?: string;
+  answer_text?: string | null;
+  original_text?: string | null;
+  answer_text_en?: string | null;
+  answer_source?: string | null;
+  step_order?: number;
+};
 
 type LeadRow = {
   id: string;
@@ -52,6 +63,8 @@ type LeadRow = {
   follow_up_status?: string | null;
   assets_sent?: string[];
   consent_acknowledged?: boolean;
+  business_card_url?: string | null;
+  answers?: LeadAnswer[];
 };
 
 export const Route = createFileRoute("/_app/expo/leads")({
@@ -104,6 +117,41 @@ function ExpoLeads() {
     queryKey: ["expo", "leads", boothId, score],
     queryFn: () => apiFetch<{ items: LeadRow[] }>(`/expo/results/leads${qs ? `?${qs}` : ""}`),
   });
+
+  const detailQ = useQuery({
+    queryKey: ["expo", "lead", selected?.id],
+    enabled: Boolean(selected?.id),
+    queryFn: () => apiFetch<{ item: LeadRow }>(`/expo/results/leads/${selected!.id}`),
+  });
+
+  const detail = detailQ.data?.item || selected;
+  const [cardSrc, setCardSrc] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let revoked: string | null = null;
+    let cancelled = false;
+    setCardSrc(null);
+    const path = detail?.business_card_url;
+    if (!path) return;
+    (async () => {
+      try {
+        const base = getApiBaseUrl().replace(/\/+$/, "");
+        const res = await fetch(`${base}${path}`, { headers: buildAuthHeaders() });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setCardSrc(url);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [detail?.business_card_url, detail?.id]);
 
   const summary = summaryQ.data;
   const leads = leadsQ.data?.items || [];
@@ -283,34 +331,48 @@ function ExpoLeads() {
 
       <Sheet open={selected != null} onOpenChange={(open) => !open && setSelected(null)}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
-          {selected ? (
+          {detail ? (
             <>
               <SheetHeader className="space-y-3 border-b pb-4 text-left">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <SheetTitle className="text-xl">{selected.name || "Lead"}</SheetTitle>
+                    <SheetTitle className="text-xl">{detail.name || "Lead"}</SheetTitle>
                     <SheetDescription className="mt-1 flex flex-wrap items-center gap-2">
-                      <ScoreBadge score={selected.lead_score} />
-                      <span>{selected.booth_name || selected.booth_code || "Booth"}</span>
+                      <ScoreBadge score={detail.lead_score} />
+                      <span>{detail.booth_name || detail.booth_code || "Booth"}</span>
                     </SheetDescription>
                   </div>
                 </div>
               </SheetHeader>
               <div className="mt-6 space-y-5">
-                <DetailRow icon={<Building2 className="size-4" />} label="Company" value={selected.company} />
-                <DetailRow icon={<Phone className="size-4" />} label="Phone" value={selected.visitor_phone} />
-                <DetailRow icon={<Mail className="size-4" />} label="Email" value={selected.visitor_email} />
-                <DetailRow label="Interest" value={selected.interest} />
-                <DetailRow label="Timeline" value={selected.buying_timeline} />
-                <DetailRow label="Language" value={selected.detected_language || selected.country_hint} />
-                <DetailRow label="Offer sent" value={selected.offer_sent_at ? formatTs(selected.offer_sent_at) : "No"} />
-                <DetailRow label="Follow-up" value={selected.follow_up_status || "none"} />
-                <DetailRow label="Captured" value={formatTs(selected.created_at)} />
-                {selected.assets_sent && selected.assets_sent.length > 0 ? (
+                {cardSrc ? (
+                  <div>
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Business card
+                    </p>
+                    <img
+                      src={cardSrc}
+                      alt="Business card"
+                      className="mt-2 w-full rounded-lg border object-contain bg-muted/30"
+                    />
+                  </div>
+                ) : detail.business_card_url && detailQ.isLoading ? (
+                  <Skeleton className="h-40 w-full rounded-lg" />
+                ) : null}
+                <DetailRow icon={<Building2 className="size-4" />} label="Company" value={detail.company} />
+                <DetailRow icon={<Phone className="size-4" />} label="Phone" value={detail.visitor_phone} />
+                <DetailRow icon={<Mail className="size-4" />} label="Email" value={detail.visitor_email} />
+                <DetailRow label="Interest" value={detail.interest} />
+                <DetailRow label="Timeline" value={detail.buying_timeline} />
+                <DetailRow label="Language" value={detail.detected_language || detail.country_hint} />
+                <DetailRow label="Offer sent" value={detail.offer_sent_at ? formatTs(detail.offer_sent_at) : "No"} />
+                <DetailRow label="Follow-up" value={detail.follow_up_status || "none"} />
+                <DetailRow label="Captured" value={formatTs(detail.created_at)} />
+                {detail.assets_sent && detail.assets_sent.length > 0 ? (
                   <div>
                     <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Assets sent</p>
                     <ul className="mt-1 space-y-1 text-sm">
-                      {selected.assets_sent.map((a) => (
+                      {detail.assets_sent.map((a) => (
                         <li key={a} className="rounded-md bg-muted/50 px-2 py-1">
                           {a}
                         </li>
@@ -318,11 +380,53 @@ function ExpoLeads() {
                     </ul>
                   </div>
                 ) : null}
+                {(detail.answers || []).length > 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Questions &amp; answers
+                    </p>
+                    {(detail.answers || []).map((a, i) => {
+                      const original = (a.original_text || a.answer_text || "").trim();
+                      const english = (a.answer_text_en || a.answer_text || "").trim();
+                      const showBoth =
+                        original &&
+                        english &&
+                        original.toLowerCase() !== english.toLowerCase();
+                      return (
+                        <div key={`${a.question_key}-${i}`} className="rounded-lg border bg-muted/20 p-3 text-sm">
+                          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                            {a.question_label || a.question_key || "Question"}
+                            {a.answer_source === "voice" ? " · Voice" : null}
+                          </p>
+                          {a.question_prompt ? (
+                            <p className="mt-1 text-[13px] font-medium text-foreground">{a.question_prompt}</p>
+                          ) : null}
+                          {showBoth ? (
+                            <div className="mt-2 space-y-2">
+                              <div>
+                                <p className="text-[10px] text-muted-foreground">Original answer</p>
+                                <p className="whitespace-pre-wrap">{original}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-muted-foreground">English translation</p>
+                                <p className="whitespace-pre-wrap">{english}</p>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-1 whitespace-pre-wrap">{english || original || "—"}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : detailQ.isLoading ? (
+                  <Skeleton className="h-24 w-full rounded-lg" />
+                ) : null}
                 <Button
                   variant="destructive"
                   className="w-full gap-1.5"
                   onClick={() => {
-                    setDeleteTarget(selected);
+                    setDeleteTarget(detail);
                   }}
                 >
                   <Trash2 className="size-4" /> Delete lead

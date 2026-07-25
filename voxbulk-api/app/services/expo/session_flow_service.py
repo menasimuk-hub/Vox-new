@@ -260,6 +260,11 @@ class ExpoSessionFlowService:
         answer: str,
         answer_source: str = "text",
         contact_fields: dict[str, str | None] | None = None,
+        original_text: str | None = None,
+        answer_text_en: str | None = None,
+        detected_language: str | None = None,
+        voice_job_id: str | None = None,
+        business_card_path: str | None = None,
     ) -> dict[str, Any]:
         booth = db.get(ExpoBooth, session.booth_id)
         if booth is None:
@@ -297,38 +302,54 @@ class ExpoSessionFlowService:
                 answer_source=source,
                 steps=steps,
                 contact_fields=contact_fields,
+                business_card_path=business_card_path,
             )
 
+        answer_en = str(answer_text_en or clean).strip() or clean
+        original = str(original_text or clean).strip() or clean
+        if detected_language:
+            session.detected_language = str(detected_language)[:16]
+        response_id = str(uuid.uuid4())
         db.add(
             ExpoResponse(
-                id=str(uuid.uuid4()),
+                id=response_id,
                 session_id=session.id,
                 org_id=session.org_id,
                 booth_id=booth.id,
                 question_key=key,
-                answer_text=clean,
-                original_text=clean,
-                answer_text_en=clean,
+                answer_text=answer_en,
+                original_text=original,
+                answer_text_en=answer_en,
                 step_order=step_index + 1,
                 answer_source=source,
                 created_at=datetime.utcnow(),
             )
         )
+        if voice_job_id:
+            from app.models.expo import ExpoVoiceNoteJob
+
+            job = db.get(ExpoVoiceNoteJob, voice_job_id)
+            if job is not None:
+                job.response_id = response_id
+                job.updated_at = datetime.utcnow()
+                db.add(job)
 
         if lead is not None:
-            ExpoSessionFlowService._apply_answer_to_lead(lead, key, clean)
+            ExpoSessionFlowService._apply_answer_to_lead(lead, key, answer_en)
+            if detected_language and not lead.detected_language:
+                lead.detected_language = str(detected_language)[:32]
             db.add(lead)
 
         session.current_step = step_index + 1
         db.add(session)
 
         if key in {"interest", "need_price_list", "need_catalogue", "products_wanted"} and lead is not None:
-            interest_text = clean
-            if key == "need_price_list" and _looks_affirmative(clean):
+            interest_text = answer_en
+            if key == "need_price_list" and _looks_affirmative(answer_en):
                 interest_text = "price list pricing price"
-            elif key == "need_catalogue" and _looks_affirmative(clean):
+            elif key == "need_catalogue" and _looks_affirmative(answer_en):
                 interest_text = "catalogue catalog brochure"
-            elif key in {"need_price_list", "need_catalogue"} and not _looks_affirmative(clean):
+            elif key in {"need_price_list", "need_catalogue"} and not _looks_affirmative(answer_en):
                 db.commit()
                 return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
             offer_mode, candidates = ExpoSessionFlowService._offer_after_interest(
@@ -364,6 +385,7 @@ class ExpoSessionFlowService:
         answer_source: str,
         steps: list[dict[str, Any]],
         contact_fields: dict[str, str | None] | None = None,
+        business_card_path: str | None = None,
     ) -> dict[str, Any]:
         """Business-card photo OCR fills contact + skips name/company/mobile; otherwise collect them in order."""
         sub = str(state.get("contact_substep") or "awaiting").strip().lower()
@@ -400,10 +422,11 @@ class ExpoSessionFlowService:
                 if fields.get("email"):
                     lead.visitor_email = fields["email"][:255]
                     session.visitor_email = fields["email"][:255]
-                # Prefer card phone only when we don't already have WA from-number
                 if fields.get("phone") and not str(lead.visitor_phone or session.visitor_phone or "").strip():
                     lead.visitor_phone = fields["phone"][:32]
                     session.visitor_phone = fields["phone"][:32]
+                if business_card_path:
+                    lead.business_card_path = str(business_card_path)[:2000]
                 lead.updated_at = datetime.utcnow()
                 db.add(lead)
                 db.add(session)

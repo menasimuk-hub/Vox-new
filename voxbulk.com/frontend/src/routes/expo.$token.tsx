@@ -1,0 +1,17 @@
+import { createFileRoute } from "@tanstack/react-router";
+import { PublicExpoLanding } from "@/components/expo/PublicExpoLanding";
+
+export const Route = createFileRoute("/expo/$token")({
+  head: () => ({
+    meta: [
+      { title: "Expo stand — VoxBulk" },
+      { name: "description", content: "Scan choice: WhatsApp or web. Under a minute." },
+    ],
+  }),
+  component: ExpoRoute,
+});
+
+function ExpoRoute() {
+  const { token } = Route.useParams();
+  return <PublicExpoLanding token={token} />;
+}

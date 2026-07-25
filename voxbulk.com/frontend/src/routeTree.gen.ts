@@ -29,6 +29,7 @@ import { Route as BlogRouteImport } from './routes/blog'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
 import { Route as SurveyPreviewThemeIdRouteImport } from './routes/survey.preview.$themeId'
+import { Route as ExpoTokenRouteImport } from './routes/expo.$token'
 import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as NewsSlugRouteImport } from './routes/news.$slug'
 import { Route as BlogIndexRouteImport } from './routes/blog.index'
@@ -163,6 +164,11 @@ const SurveyTokenRoute = SurveyTokenRouteImport.update({
   path: '/survey/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExpoTokenRoute = ExpoTokenRouteImport.update({
+  id: '/expo/$token',
+  path: '/expo/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
   id: '/survey/preview/$themeId',
   path: '/survey/preview/$themeId',
@@ -231,6 +237,7 @@ export interface FileRoutesByFullPath {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
+  '/expo/$token': typeof ExpoTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -257,6 +264,7 @@ export interface FileRoutesByTo {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
+  '/expo/$token': typeof ExpoTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -284,6 +292,7 @@ export interface FileRoutesById {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
+  '/expo/$token': typeof ExpoTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -312,6 +321,7 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/survey/$token'
+    | '/expo/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -338,6 +348,7 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/survey/$token'
+    | '/expo/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -364,6 +375,7 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/survey/$token'
+    | '/expo/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -394,6 +406,7 @@ export interface RootRouteChildren {
   SurveysRoute: typeof SurveysRoute
   TermsRoute: typeof TermsRoute
   SurveyTokenRoute: typeof SurveyTokenRoute
+  ExpoTokenRoute: typeof ExpoTokenRoute
   SurveyPreviewThemeIdRoute: typeof SurveyPreviewThemeIdRoute
 }
 
@@ -532,6 +545,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SurveyTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/expo/$token': {
+      id: '/expo/$token'
+      path: '/expo/$token'
+      fullPath: '/expo/$token'
+      preLoaderRoute: typeof ExpoTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/survey/preview/$themeId': {
       id: '/survey/preview/$themeId'
       path: '/survey/preview/$themeId'
@@ -643,6 +663,7 @@ const rootRouteChildren: RootRouteChildren = {
   SurveysRoute: SurveysRoute,
   TermsRoute: TermsRoute,
   SurveyTokenRoute: SurveyTokenRoute,
+  ExpoTokenRoute: ExpoTokenRoute,
   SurveyPreviewThemeIdRoute: SurveyPreviewThemeIdRoute,
 }
 export const routeTree = rootRouteImport
