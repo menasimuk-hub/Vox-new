@@ -187,6 +187,16 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const activeCrmView = crm.find((c) => c.connected) || null;
   const activeAtsView = ats.find((a) => a.connected) || null;
 
+  // Keep the open drawer in sync after connect/save refreshes the catalogue.
+  const liveSheetView = React.useMemo(() => {
+    if (!sheetView) return null;
+    const match =
+      booking.find((r) => r.key === sheetView.key) ||
+      crm.find((r) => r.key === sheetView.key) ||
+      ats.find((r) => r.key === sheetView.key);
+    return match ?? sheetView;
+  }, [sheetView, booking, crm, ats]);
+
   const hubspot = (hubspotQ.data || {}) as Record<string, unknown>;
   const hubspotMeta = {
     usesOAuth: hubspot.uses_oauth_connect === true,
@@ -198,9 +208,8 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     setSheetOpen(true);
   };
 
-  const refresh = () => {
-    void catalogueQ.refetch();
-    void hubspotQ.refetch();
+  const refresh = async () => {
+    await Promise.all([catalogueQ.refetch(), hubspotQ.refetch()]);
   };
 
   const connect = async (view: IntegrationView, options?: { dataCenter?: string }) => {
@@ -450,7 +459,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       </Tabs>
 
       <ProviderDetailSheet
-        view={sheetView}
+        view={liveSheetView}
         open={sheetOpen}
         onOpenChange={(v) => {
           setSheetOpen(v);

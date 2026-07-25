@@ -39,7 +39,7 @@ type Props = {
   onConnect: (view: IntegrationView, options?: { dataCenter?: string }) => void;
   onTest: (view: IntegrationView) => Promise<TestResult | null>;
   onDisconnect: (view: IntegrationView) => Promise<void>;
-  onRefresh: () => void;
+  onRefresh: () => void | Promise<void>;
   hubspot?: {
     usesOAuth: boolean;
     usesAccessToken: boolean;
@@ -135,7 +135,7 @@ export function ProviderDetailSheet({
       });
       toast.success("Booking page URL saved");
       setScheduleDraft("");
-      onRefresh();
+      await onRefresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save URL");
     } finally {
@@ -157,7 +157,7 @@ export function ProviderDetailSheet({
       });
       toast.success("HubSpot connected");
       setHubspotTokenDraft("");
-      onRefresh();
+      await onRefresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not connect HubSpot");
     } finally {
@@ -208,7 +208,7 @@ export function ProviderDetailSheet({
       toast.success("Breezy HR connected");
       setBreezyTokenDraft("");
       setBreezyCompanies([]);
-      onRefresh();
+      await onRefresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not connect Breezy HR");
     } finally {
@@ -239,7 +239,7 @@ export function ProviderDetailSheet({
       });
       toast.success("HubSpot meeting URL saved");
       setScheduleDraft("");
-      onRefresh();
+      await onRefresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save URL");
     } finally {
@@ -261,7 +261,7 @@ export function ProviderDetailSheet({
       });
       toast.success("Zoho Bookings URL saved");
       setScheduleDraft("");
-      onRefresh();
+      await onRefresh();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save URL");
     } finally {
