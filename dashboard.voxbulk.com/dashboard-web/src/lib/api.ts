@@ -428,7 +428,16 @@ export async function downloadAuthenticatedFile(path: string, filename = "downlo
   const baseUrl = getApiBaseUrl();
   const url = baseUrl ? `${baseUrl}${path}` : path;
   const headers = buildAuthHeaders();
-  const res = await requestFetch(url, { headers });
+  let res: Response;
+  try {
+    res = await requestFetch(url, { headers });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e || "");
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      throw new ApiError("Could not reach the API to download the file. Check your connection and try again.");
+    }
+    throw e instanceof Error ? e : new ApiError(msg || "Download failed");
+  }
   if (!res.ok) {
     const text = await res.text();
     let message = `${res.status} ${res.statusText}`.trim();

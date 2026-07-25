@@ -174,17 +174,195 @@ def _normalize_card_image_bytes(image_bytes: bytes, content_type: str = "image/j
         elif img.mode == "L":
             img = img.convert("RGB")
         # Cap long edge for vision API cost/latency
-        max_edge = 1600
+        max_edge = 1280
         w, h = img.size
         scale = min(1.0, max_edge / float(max(w, h) or 1))
         if scale < 1.0:
             img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=88, optimize=True)
+        img.save(buf, format="JPEG", quality=82, optimize=True)
         return buf.getvalue(), "image/jpeg"
     except Exception as exc:
         logger.warning("expo_card_image_normalize_failed err=%s mime=%s", exc, mime)
         return image_bytes, mime if mime.startswith("image/") else "image/jpeg"
+
+
+def _parse_card_json(text: str) -> dict[str, Any]:
+    raw = str(text or "").strip()
+    if not raw:
+        return {}
+    # Models often wrap JSON in ```json fences
+    if "```" in raw:
+        start = raw.find("```")
+        chunk = raw[start + 3 :]
+        if chunk.lstrip().lower().startswith("json"):
+            chunk = chunk.lstrip()[4:]
+        end = chunk.find("```")
+        if end >= 0:
+            chunk = chunk[:end]
+        raw = chunk.strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        # Best-effort: first {...} block
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if not m:
+            return {}
+        try:
+            parsed = json.loads(m.group(0))
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+
+def _fields_from_parsed(parsed: dict[str, Any]) -> dict[str, str | None]:
+    return {
+        "name": (str(parsed.get("name") or "").strip() or None),
+        "company": (str(parsed.get("company") or "").strip() or None),
+        "email": _clean_email(parsed.get("email")),
+        "phone": _clean_phone(parsed.get("phone")),
+    }
+
+
+def _ocr_prompt_messages(data_url: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You extract contact details from a business card photo. "
+                "Return JSON only with keys name, company, email, phone. "
+                "Use null when a field is missing or unreadable. "
+                "Prefer the person's full name (not job title) for name. "
+                "Company is the organisation / brand name on the card. "
+                "If no company is printed, use null (do not invent one from the email domain). "
+                "Phone should include country code when visible."
+            ),
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Extract name, company, email, and phone from this business card. JSON only.",
+                },
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        },
+    ]
+
+
+def _extract_via_deepinfra(db: Session, *, data_url: str) -> dict[str, str | None]:
+    """Vision OCR via DeepInfra (Gemma) — avoids OpenAI 429 rate limits on Expo cards."""
+    try:
+        config = OpenAIProviderService._deepinfra_config_from_db_or_env(db)
+    except Exception as exc:
+        logger.warning("expo_card_deepinfra_unavailable err=%s", exc)
+        return {}
+    model = "google/gemma-3-12b-it"
+    payload = {
+        "model": model,
+        "messages": _ocr_prompt_messages(data_url),
+        "max_tokens": 400,
+        "temperature": 0,
+    }
+    try:
+        response = OpenAIProviderService._http_client().post(
+            OpenAIProviderService._endpoint_url({**config, "provider": "deepinfra"}, "/v1/chat/completions"),
+            json=payload,
+            headers=OpenAIProviderService._headers(config),
+            timeout=90.0,
+        )
+        response.raise_for_status()
+        raw = response.json()
+        choices = raw.get("choices") or []
+        message = (choices[0] or {}).get("message") if choices else {}
+        text = str((message or {}).get("content") or "").strip()
+        parsed = _parse_card_json(text)
+        fields = _fields_from_parsed(parsed)
+        if any(fields.values()):
+            logger.info(
+                "expo_card_ocr_ok provider=deepinfra model=%s name=%s company=%s email=%s phone=%s",
+                model,
+                bool(fields.get("name")),
+                bool(fields.get("company")),
+                bool(fields.get("email")),
+                bool(fields.get("phone")),
+            )
+            return fields
+        logger.warning("expo_card_deepinfra_empty_parse text=%s", text[:200])
+        return {}
+    except Exception as exc:
+        logger.warning("expo_card_deepinfra_failed err=%s", exc)
+        return {}
+
+
+def _extract_via_openai(db: Session, *, data_url: str) -> dict[str, str | None]:
+    try:
+        config = OpenAIProviderService._config(db)
+    except Exception as exc:
+        logger.warning("expo_card_openai_unavailable err=%s", exc)
+        return {}
+    models = ("gpt-4o-mini", "gpt-4o")
+    payload_base = {
+        "messages": _ocr_prompt_messages(data_url),
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "business_card_contact",
+                "schema": _CARD_SCHEMA,
+                "strict": True,
+            },
+        },
+        "max_tokens": 400,
+        "temperature": 0,
+    }
+    last_err: Exception | None = None
+    for model in models:
+        payload = {**payload_base, "model": model}
+        for attempt in range(2):
+            try:
+                response = OpenAIProviderService._http_client().post(
+                    OpenAIProviderService._endpoint_url(config, "/v1/chat/completions"),
+                    json=payload,
+                    headers=OpenAIProviderService._headers(config),
+                    timeout=90.0,
+                )
+                if response.status_code == 429:
+                    import time
+
+                    time.sleep(1.2 * (attempt + 1))
+                    last_err = RuntimeError(f"429 Too Many Requests model={model}")
+                    continue
+                response.raise_for_status()
+                raw = response.json()
+                choices = raw.get("choices") or []
+                message = (choices[0] or {}).get("message") if choices else {}
+                text = str((message or {}).get("content") or "").strip()
+                parsed = _parse_card_json(text)
+                fields = _fields_from_parsed(parsed)
+                if any(fields.values()):
+                    logger.info(
+                        "expo_card_ocr_ok provider=openai model=%s name=%s company=%s email=%s phone=%s",
+                        model,
+                        bool(fields.get("name")),
+                        bool(fields.get("company")),
+                        bool(fields.get("email")),
+                        bool(fields.get("phone")),
+                    )
+                    return fields
+                return {}
+            except Exception as exc:
+                last_err = exc
+                logger.warning("expo_card_ocr_failed model=%s attempt=%s err=%s", model, attempt + 1, exc)
+                if "429" in str(exc):
+                    import time
+
+                    time.sleep(1.2 * (attempt + 1))
+                    continue
+                break
+    logger.warning("expo_card_openai_exhausted err=%s", last_err)
+    return {}
 
 
 class ExpoBusinessCardService:
@@ -218,103 +396,15 @@ class ExpoBusinessCardService:
     ) -> dict[str, str | None]:
         if not image_bytes:
             return {}
+        # Cap payload size for vision APIs (DeepInfra / OpenAI)
         image_bytes, mime = _normalize_card_image_bytes(image_bytes, content_type)
         b64 = base64.b64encode(image_bytes).decode("ascii")
         data_url = f"data:{mime};base64,{b64}"
-        try:
-            config = OpenAIProviderService._config(db)
-        except Exception as exc:
-            logger.warning("expo_card_openai_unavailable err=%s", exc)
-            return {}
-        # Always use a cheap vision model for Expo OCR — Admin default (e.g. gpt-5.5)
-        # often rate-limits (429) and is not needed for card extraction.
-        models = ("gpt-4o-mini", "gpt-4o")
-        payload_base = {
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You extract contact details from a business card photo. "
-                        "Return JSON only. Use null when a field is missing or unreadable. "
-                        "Prefer the person's full name (not job title) for name. "
-                        "Company is the organisation / brand name on the card. "
-                        "If no company is printed, use null (do not invent one from the email domain). "
-                        "Phone should include country code when visible."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Extract name, company, email, and phone from this business card.",
-                        },
-                        {"type": "image_url", "image_url": {"url": data_url}},
-                    ],
-                },
-            ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "business_card_contact",
-                    "schema": _CARD_SCHEMA,
-                    "strict": True,
-                },
-            },
-            "max_tokens": 400,
-            "temperature": 0,
-        }
-        last_err: Exception | None = None
-        for model in models:
-            payload = {**payload_base, "model": model}
-            for attempt in range(2):
-                try:
-                    response = OpenAIProviderService._http_client().post(
-                        OpenAIProviderService._endpoint_url(config, "/v1/chat/completions"),
-                        json=payload,
-                        headers=OpenAIProviderService._headers(config),
-                        timeout=90.0,
-                    )
-                    if response.status_code == 429:
-                        import time
-
-                        time.sleep(1.2 * (attempt + 1))
-                        last_err = RuntimeError(f"429 Too Many Requests model={model}")
-                        continue
-                    response.raise_for_status()
-                    raw = response.json()
-                    choices = raw.get("choices") or []
-                    message = (choices[0] or {}).get("message") if choices else {}
-                    text = str((message or {}).get("content") or "").strip()
-                    parsed = json.loads(text) if text else {}
-                    if not isinstance(parsed, dict):
-                        return {}
-                    fields = {
-                        "name": (str(parsed.get("name") or "").strip() or None),
-                        "company": (str(parsed.get("company") or "").strip() or None),
-                        "email": _clean_email(parsed.get("email")),
-                        "phone": _clean_phone(parsed.get("phone")),
-                    }
-                    logger.info(
-                        "expo_card_ocr_ok model=%s name=%s company=%s email=%s phone=%s",
-                        model,
-                        bool(fields.get("name")),
-                        bool(fields.get("company")),
-                        bool(fields.get("email")),
-                        bool(fields.get("phone")),
-                    )
-                    return fields
-                except Exception as exc:
-                    last_err = exc
-                    logger.warning("expo_card_ocr_failed model=%s attempt=%s err=%s", model, attempt + 1, exc)
-                    if "429" in str(exc):
-                        import time
-
-                        time.sleep(1.2 * (attempt + 1))
-                        continue
-                    break
-        logger.warning("expo_card_ocr_exhausted err=%s", last_err)
-        return {}
+        # Prefer DeepInfra Gemma vision — OpenAI is often rate-limited (429) on this account
+        fields = _extract_via_deepinfra(db, data_url=data_url)
+        if any(fields.values()):
+            return fields
+        return _extract_via_openai(db, data_url=data_url)
 
     @staticmethod
     def save_inbound_image(

@@ -431,6 +431,77 @@ class ExpoResultsService:
         return buf.getvalue()
 
     @staticmethod
+    def export_xlsx(
+        db: Session,
+        org_id: str,
+        *,
+        booth_id: str | None = None,
+        created_by_user_id: str | None = None,
+    ) -> bytes:
+        try:
+            import openpyxl
+            from openpyxl.styles import Font
+        except Exception as e:
+            raise RuntimeError("Excel export requires openpyxl on the server.") from e
+
+        leads = ExpoResultsService.customer_leads(
+            db, org_id, booth_id=booth_id, created_by_user_id=created_by_user_id, limit=5000
+        )
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Expo leads"
+        headers = [
+            "Name",
+            "Company",
+            "Phone",
+            "Email",
+            "Interest",
+            "Timeline",
+            "Score",
+            "Consent",
+            "Booth",
+            "Assets sent",
+            "Created at",
+        ]
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        for lead in leads:
+            phone = str(lead.get("visitor_phone") or "")
+            email = str(lead.get("visitor_email") or "")
+            if phone.startswith("web-pending-") or phone.startswith("web-card-"):
+                phone = ""
+            if email.endswith("@expo.local"):
+                email = ""
+            interest = str(lead.get("interest") or "")
+            if interest == "[Translation unavailable]":
+                interest = ""
+            ws.append(
+                [
+                    lead.get("name") or "",
+                    lead.get("company") or "",
+                    phone,
+                    email,
+                    interest,
+                    lead.get("buying_timeline") or "",
+                    lead.get("lead_score") or "",
+                    "Yes" if lead.get("consent_acknowledged") else "No",
+                    lead.get("booth_name") or "",
+                    ", ".join(lead.get("assets_sent") or []),
+                    lead.get("created_at") or "",
+                ]
+            )
+        # Reasonable column widths
+        from openpyxl.utils import get_column_letter
+
+        widths = [22, 22, 18, 28, 36, 16, 10, 10, 22, 28, 20]
+        for idx, width in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(idx)].width = width
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
+    @staticmethod
     def admin_overview(db: Session) -> dict[str, Any]:
         booths_total = int(db.execute(select(func.count()).select_from(ExpoBooth)).scalar() or 0)
         exhibitions_total = int(db.execute(select(func.count()).select_from(ExpoExhibition)).scalar() or 0)

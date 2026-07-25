@@ -234,11 +234,49 @@ def results_export_csv(
     _require_expo_enabled(db, principal.org_id)
     owner_filter = _campaign_owner_user_id(db, principal)
     csv_text = ExpoResultsService.export_csv(
-        db, principal.org_id, booth_id=booth_id, created_by_user_id=owner_filter
+        db, principal.org_id, booth_id=booth_id or None, created_by_user_id=owner_filter
     )
     suffix = (booth_id or "all")[:8]
+    # BOM so Excel opens UTF-8 correctly
+    body = ("\ufeff" + csv_text).encode("utf-8")
     return Response(
-        content=csv_text,
-        media_type="text/csv",
+        content=body,
+        media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="expo-leads-{suffix}.csv"'},
     )
+
+
+@router.get("/results/export.xlsx")
+def results_export_xlsx(
+    booth_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    try:
+        xlsx_bytes = ExpoResultsService.export_xlsx(
+            db, principal.org_id, booth_id=booth_id or None, created_by_user_id=owner_filter
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    suffix = (booth_id or "all")[:8]
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="expo-leads-{suffix}.xlsx"'},
+    )
+
+
+@router.get("/results/export")
+def results_export(
+    format: str = "xlsx",
+    booth_id: str | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Alias without a file extension in the path (avoids nginx static .csv/.xlsx quirks)."""
+    fmt = str(format or "xlsx").strip().lower()
+    if fmt in {"xlsx", "excel", "xls"}:
+        return results_export_xlsx(booth_id=booth_id, db=db, principal=principal)
+    return results_export_csv(booth_id=booth_id, db=db, principal=principal)

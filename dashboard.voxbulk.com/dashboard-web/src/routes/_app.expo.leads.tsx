@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  Download,
+  FileSpreadsheet,
   Flame,
   Mail,
   Phone,
@@ -29,6 +29,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, downloadAuthenticatedFile, getApiBaseUrl } from "@/lib/api";
@@ -186,12 +187,14 @@ function ExpoLeads() {
   const summary = summaryQ.data;
   const leads = leadsQ.data?.items || [];
 
-  async function handleExport() {
+  async function handleExport(scope: "all" | "lead" = "all") {
     try {
-      await downloadAuthenticatedFile(
-        `/expo/results/export.csv${boothId !== "all" ? `?booth_id=${boothId}` : ""}`,
-        "expo-leads.csv",
-      );
+      const params = new URLSearchParams();
+      params.set("format", "xlsx");
+      if (boothId !== "all") params.set("booth_id", boothId);
+      // Path without .xlsx extension — more reliable behind nginx
+      await downloadAuthenticatedFile(`/expo/results/export?${params.toString()}`, "expo-leads.xlsx");
+      toast.success(scope === "lead" ? "Excel downloaded" : "Excel export ready");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Export failed");
     }
@@ -221,8 +224,8 @@ function ExpoLeads() {
         description="Exhibition leads from WhatsApp and web — filter, open a lead, export, or delete."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void handleExport()}>
-              <Download className="size-4" /> Export CSV
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void handleExport("all")}>
+              <FileSpreadsheet className="size-4" /> Export Excel
             </Button>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <Link to="/expo">
@@ -362,113 +365,167 @@ function ExpoLeads() {
       )}
 
       <Sheet open={selected != null} onOpenChange={(open) => !open && setSelected(null)}>
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+        <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
           {detail ? (
             <>
-              <SheetHeader className="space-y-3 border-b pb-4 text-left">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <SheetTitle className="text-xl">{detail.name || "Lead"}</SheetTitle>
-                    <SheetDescription className="mt-1 flex flex-wrap items-center gap-2">
-                      <ScoreBadge score={detail.lead_score} />
-                      <span>{detail.booth_name || detail.booth_code || "Booth"}</span>
-                    </SheetDescription>
+              <div className="border-b bg-muted/30 px-6 py-5">
+                <SheetHeader className="space-y-3 text-left">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                        Lead detail
+                      </p>
+                      <SheetTitle className="mt-1 truncate text-xl font-semibold tracking-tight">
+                        {detail.name || "Unnamed lead"}
+                      </SheetTitle>
+                      <SheetDescription className="mt-2 flex flex-wrap items-center gap-2">
+                        <ScoreBadge score={detail.lead_score} />
+                        <span className="text-sm text-muted-foreground">
+                          {detail.booth_name || detail.booth_code || "Booth"}
+                        </span>
+                        <span className="text-sm text-muted-foreground">· {formatTs(detail.created_at)}</span>
+                      </SheetDescription>
+                    </div>
                   </div>
-                </div>
-              </SheetHeader>
-              <div className="mt-6 space-y-5">
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => void handleExport("lead")}
+                    >
+                      <FileSpreadsheet className="size-3.5" /> Export Excel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1.5 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTarget(detail)}
+                    >
+                      <Trash2 className="size-3.5" /> Delete
+                    </Button>
+                  </div>
+                </SheetHeader>
+              </div>
+
+              <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
                 {cardSrc ? (
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <section>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       Business card
                     </p>
                     <img
                       src={cardSrc}
                       alt="Business card"
-                      className="mt-2 w-full rounded-lg border object-contain bg-muted/30"
+                      className="mt-2 w-full rounded-xl border bg-background object-contain shadow-sm"
+                    />
+                  </section>
+                ) : detail.business_card_url && detailQ.isLoading ? (
+                  <Skeleton className="h-44 w-full rounded-xl" />
+                ) : null}
+
+                <section className="rounded-xl border bg-card p-4 shadow-sm">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Contact
+                  </p>
+                  <div className="mt-3 grid gap-3">
+                    <DetailRow icon={<User className="size-4" />} label="Name" value={detail.name} />
+                    <DetailRow icon={<Building2 className="size-4" />} label="Company" value={detail.company} />
+                    <DetailRow
+                      icon={<Phone className="size-4" />}
+                      label="Phone"
+                      value={displayPhone(detail.visitor_phone)}
+                    />
+                    <DetailRow
+                      icon={<Mail className="size-4" />}
+                      label="Email"
+                      value={displayEmail(detail.visitor_email)}
                     />
                   </div>
-                ) : detail.business_card_url && detailQ.isLoading ? (
-                  <Skeleton className="h-40 w-full rounded-lg" />
-                ) : null}
-                <DetailRow icon={<Building2 className="size-4" />} label="Company" value={detail.company} />
-                <DetailRow icon={<Phone className="size-4" />} label="Phone" value={displayPhone(detail.visitor_phone)} />
-                <DetailRow icon={<Mail className="size-4" />} label="Email" value={displayEmail(detail.visitor_email)} />
-                <DetailRow label="Interest" value={displayInterest(detail.interest) === "—" ? null : displayInterest(detail.interest)} />
-                <DetailRow label="Timeline" value={detail.buying_timeline} />
-                <DetailRow label="Language" value={detail.detected_language || detail.country_hint} />
-                <DetailRow label="Offer sent" value={detail.offer_sent_at ? formatTs(detail.offer_sent_at) : "No"} />
-                <DetailRow label="Follow-up" value={detail.follow_up_status || "none"} />
-                <DetailRow label="Captured" value={formatTs(detail.created_at)} />
+                </section>
+
+                <section className="rounded-xl border bg-card p-4 shadow-sm">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Qualification
+                  </p>
+                  <div className="mt-3 grid gap-3">
+                    <DetailRow
+                      label="Interest"
+                      value={displayInterest(detail.interest) === "—" ? null : displayInterest(detail.interest)}
+                    />
+                    <DetailRow label="Timeline" value={detail.buying_timeline} />
+                    <DetailRow label="Language" value={detail.detected_language || detail.country_hint} />
+                    <DetailRow label="Offer sent" value={detail.offer_sent_at ? formatTs(detail.offer_sent_at) : "No"} />
+                    <DetailRow label="Follow-up" value={detail.follow_up_status || "none"} />
+                  </div>
+                </section>
+
                 {detail.assets_sent && detail.assets_sent.length > 0 ? (
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Assets sent</p>
-                    <ul className="mt-1 space-y-1 text-sm">
+                  <section>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      Assets sent
+                    </p>
+                    <ul className="mt-2 space-y-1.5 text-sm">
                       {detail.assets_sent.map((a) => (
-                        <li key={a} className="rounded-md bg-muted/50 px-2 py-1">
+                        <li key={a} className="rounded-lg border bg-muted/40 px-3 py-2">
                           {a}
                         </li>
                       ))}
                     </ul>
-                  </div>
+                  </section>
                 ) : null}
+
                 {(detail.answers || []).length > 0 ? (
-                  <div className="space-y-3">
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <section className="space-y-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       Questions &amp; answers
                     </p>
                     {(detail.answers || []).map((a, i) => {
                       const original = (a.original_text || a.answer_text || "").trim();
                       const englishRaw = (a.answer_text_en || a.answer_text || "").trim();
                       const english =
-                        !englishRaw || englishRaw === TRANSLATION_UNAVAILABLE
-                          ? ""
-                          : englishRaw;
+                        !englishRaw || englishRaw === TRANSLATION_UNAVAILABLE ? "" : englishRaw;
                       const showBoth =
-                        original &&
-                        english &&
-                        original.toLowerCase() !== english.toLowerCase();
+                        original && english && original.toLowerCase() !== english.toLowerCase();
                       return (
-                        <div key={`${a.question_key}-${i}`} className="rounded-lg border bg-muted/20 p-3 text-sm">
-                          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                        <div key={`${a.question_key}-${i}`} className="rounded-xl border bg-card p-4 text-sm shadow-sm">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
                             {a.question_label || a.question_key || "Question"}
                             {a.answer_source === "voice" ? " · Voice" : null}
                           </p>
                           {a.question_prompt ? (
-                            <p className="mt-1 text-[13px] font-medium text-foreground">{a.question_prompt}</p>
+                            <p className="mt-1.5 text-[13px] font-medium text-foreground">{a.question_prompt}</p>
                           ) : null}
                           {showBoth ? (
-                            <div className="mt-2 space-y-2">
+                            <div className="mt-3 space-y-3">
                               <div>
-                                <p className="text-[10px] text-muted-foreground">Original answer</p>
-                                <p className="whitespace-pre-wrap">{original}</p>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                  Original
+                                </p>
+                                <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{original}</p>
                               </div>
+                              <Separator />
                               <div>
-                                <p className="text-[10px] text-muted-foreground">English translation</p>
-                                <p className="whitespace-pre-wrap">{english}</p>
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                  English
+                                </p>
+                                <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{english}</p>
                               </div>
                             </div>
                           ) : (
-                            <p className="mt-1 whitespace-pre-wrap">
+                            <p className="mt-2 whitespace-pre-wrap leading-relaxed">
                               {displayAnswer(englishRaw, original, a.answer_text)}
                             </p>
                           )}
                         </div>
                       );
                     })}
-                  </div>
+                  </section>
                 ) : detailQ.isLoading ? (
-                  <Skeleton className="h-24 w-full rounded-lg" />
+                  <Skeleton className="h-24 w-full rounded-xl" />
                 ) : null}
-                <Button
-                  variant="destructive"
-                  className="w-full gap-1.5"
-                  onClick={() => {
-                    setDeleteTarget(detail);
-                  }}
-                >
-                  <Trash2 className="size-4" /> Delete lead
-                </Button>
               </div>
             </>
           ) : null}
