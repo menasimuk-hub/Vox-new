@@ -216,10 +216,6 @@ export function AppSidebar() {
     .filter((g): g is Group => Boolean(g))
     .filter((g) => {
       if (billingOnly) return g.key === "account";
-      // Partner channel: lean portal — workspace + partner KPIs + profile only.
-      if (isPartnerChannel) {
-        return g.key === "workspace" || g.key === "settings";
-      }
       if (g.key === "account" && !canAccessBilling(role)) return false;
       if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
       const visibilityKey = g.visibleKey ?? (g.key as ServiceKey);
@@ -227,15 +223,9 @@ export function AppSidebar() {
       if (!loaded) return false;
       if (g.visibleKey) return visible[visibilityKey];
       return visible[g.key as ServiceKey];
-    })
-    .map((g) => {
-      if (isPartnerChannel && g.key === "settings") {
-        return { ...g, items: g.items.filter((item) => item.url === "/settings/profile") };
-      }
-      return g;
     });
 
-  // Sales / Partner Channel workspaces are injected right after Dashboard.
+  // Sales / Partner Channel menus are injected right after Dashboard (full product nav stays).
   let visibleGroups = baseGroups;
   if (isSalesRep) {
     const wsIdx = baseGroups.findIndex((g) => g.key === "workspace");

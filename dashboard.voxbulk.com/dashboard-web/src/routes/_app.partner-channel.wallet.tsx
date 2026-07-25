@@ -1,10 +1,11 @@
 import * as React from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowLeft, CircleDollarSign, Clock3, Wallet } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { CircleDollarSign, Clock3, Wallet } from "lucide-react";
 
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiFetch } from "@/lib/api";
 import { requirePartnerChannel } from "@/lib/guards/settings-route";
 import { cn } from "@/lib/utils";
@@ -62,30 +63,18 @@ function PartnerChannelWallet() {
   const commissions = stats?.commissions || [];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2 h-8 px-2 text-muted-foreground">
-            <Link to="/partner-channel">
-              <ArrowLeft className="mr-1 h-3.5 w-3.5" />
-              Overview
-            </Link>
-          </Button>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-            <Wallet className="h-6 w-6 text-primary" />
-            Wallet & commission
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Your partner earnings wallet. Pending amounts are paid out by VoxBulk admin; paid totals are settled.
-          </p>
-        </div>
-      </div>
+    <div className="flex w-full flex-col gap-6">
+      <PageHeader
+        eyebrow="Partner Channel Sales"
+        title="Wallet & commission"
+        description="Your partner earnings wallet. Pending amounts are paid out by VoxBulk admin; paid totals are settled."
+      />
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Card className="border-primary/20 bg-gradient-to-b from-primary/[0.06] to-card">
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1.5">
-              <CircleDollarSign className="h-3.5 w-3.5" />
+              <CircleDollarSign className="size-3.5" />
               Available in wallet
             </CardDescription>
             <CardTitle className="text-3xl tabular-nums">
@@ -105,7 +94,10 @@ function PartnerChannelWallet() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Lifetime earned</CardDescription>
+            <CardDescription className="flex items-center gap-1.5">
+              <Wallet className="size-3.5" />
+              Lifetime earned
+            </CardDescription>
             <CardTitle className="text-3xl tabular-nums">
               {loading ? "…" : money(stats?.wallet.commission_minor)}
             </CardTitle>
@@ -125,30 +117,30 @@ function PartnerChannelWallet() {
           {loading ? (
             <p className="text-sm text-muted-foreground">Loading wallet…</p>
           ) : commissions.length === 0 ? (
-            <div className="rounded-lg border border-dashed px-4 py-10 text-center">
-              <Clock3 className="mx-auto mb-2 h-8 w-8 text-muted-foreground/70" />
+            <div className="rounded-xl border border-dashed px-4 py-12 text-center">
+              <Clock3 className="mx-auto mb-2 size-8 text-muted-foreground/70" />
               <p className="text-sm font-medium">No commission yet</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 When a customer signs up with your promo code and pays a subscription invoice, it appears here.
               </p>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg border">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2.5 font-medium">Company</th>
-                    <th className="px-3 py-2.5 font-medium">Amount</th>
-                    <th className="px-3 py-2.5 font-medium">Status</th>
-                    <th className="px-3 py-2.5 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <div className="overflow-x-auto rounded-xl border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Company</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Date</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {commissions.map((c) => (
-                    <tr key={c.id} className="border-t">
-                      <td className="px-3 py-2.5 font-medium">{c.org_name || c.org_id || "—"}</td>
-                      <td className="px-3 py-2.5 tabular-nums">{money(c.amount_minor)}</td>
-                      <td className="px-3 py-2.5">
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{c.org_name || c.org_id || "—"}</TableCell>
+                      <TableCell className="tabular-nums">{money(c.amount_minor)}</TableCell>
+                      <TableCell>
                         <Badge
                           variant="secondary"
                           className={cn(
@@ -159,14 +151,14 @@ function PartnerChannelWallet() {
                         >
                           {c.status}
                         </Badge>
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
                         {c.created_at ? String(c.created_at).slice(0, 10) : "—"}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </CardContent>

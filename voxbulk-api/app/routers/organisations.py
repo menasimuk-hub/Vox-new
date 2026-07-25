@@ -148,6 +148,15 @@ def get_my_org(
     org = OrganisationService.get_org(db, principal.org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    try:
+        from app.services.sales_rep_service import SalesRepService
+
+        rep = SalesRepService.get_rep_for_user(db, user_id=principal.user_id)
+        if rep is not None and SalesRepService.is_partner_channel(rep) and rep.is_active:
+            SalesRepService.ensure_partner_org_full_services(db, user_id=principal.user_id, org=org)
+            db.refresh(org)
+    except Exception:
+        pass
     return _org_response(org, db)
 
 

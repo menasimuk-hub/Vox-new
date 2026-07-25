@@ -38,6 +38,11 @@ def _require_partner(db: Session, principal) -> SalesRep:
 @router.get("/me")
 def sales_me(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     rep = _require_rep(db, principal)
+    if SalesRepService.is_partner_channel(rep):
+        try:
+            SalesRepService.ensure_partner_org_full_services(db, user_id=principal.user_id)
+        except Exception:
+            pass
     return {"ok": True, "rep": SalesRepService.rep_to_dict(rep)}
 
 

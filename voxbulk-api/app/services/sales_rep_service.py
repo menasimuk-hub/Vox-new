@@ -191,12 +191,14 @@ class SalesRepService:
         ).scalar_one_or_none()
         display = str(company_name or name or email.split("@")[0]).strip() or email.split("@")[0]
         workspace_label = "Partner Channel" if kind_norm == KIND_PARTNER_CHANNEL else "Sales"
+        partner_org: Organisation | None = None
         if not has_membership:
             org = Organisation(name=f"{display} — {workspace_label}", onboarding_state="onboarding_completed")
             db.add(org)
             db.flush()
             db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="sales"))
             db.flush()
+            partner_org = org
 
         now = datetime.utcnow()
         rep = SalesRep(
@@ -223,9 +225,58 @@ class SalesRepService:
         except Exception:
             logger.exception("Failed to sync promo offer for sales rep %s", rep.id)
 
+        if kind_norm == KIND_PARTNER_CHANNEL:
+            try:
+                SalesRepService.ensure_partner_org_full_services(db, user_id=user.id, org=partner_org)
+            except Exception:
+                logger.exception("Failed to enable partner dashboard services for rep %s", rep.id)
+
         # Demo data is no longer auto-seeded on create. New salesmen start with an empty
         # workspace; seed demo data on demand with scripts/seed_sales_demo.py (./seed-sales-demo.sh).
         return rep
+
+    @staticmethod
+    def ensure_partner_org_full_services(
+        db: Session,
+        *,
+        user_id: str | None = None,
+        org: Organisation | None = None,
+    ) -> None:
+        """Partner accounts use a normal full dashboard — allow + enable all service modules."""
+        from app.models.membership import OrganisationMembership
+        from app.services.org_enabled_services import (
+            SERVICE_KEYS,
+            merge_admin_allowed_services,
+            parse_allowed_services,
+            parse_enabled_services,
+            serialize_allowed_services,
+            serialize_enabled_services,
+        )
+
+        target = org
+        if target is None and user_id:
+            membership = db.execute(
+                select(OrganisationMembership)
+                .where(OrganisationMembership.user_id == user_id)
+                .order_by(OrganisationMembership.created_at.asc())
+            ).scalars().first()
+            if membership is not None:
+                target = db.get(Organisation, membership.org_id)
+        if target is None:
+            return
+
+        all_on = {key: True for key in SERVICE_KEYS}
+        allowed = parse_allowed_services(target.allowed_services_json)
+        enabled = parse_enabled_services(target.enabled_services_json)
+        if all(bool(allowed.get(k)) and bool(enabled.get(k)) for k in SERVICE_KEYS):
+            return
+        new_allowed, _ = merge_admin_allowed_services(allowed, enabled, all_on)
+        target.allowed_services_json = serialize_allowed_services(new_allowed)
+        target.enabled_services_json = serialize_enabled_services(dict(all_on))
+        if not (target.onboarding_state or "").strip():
+            target.onboarding_state = "onboarding_completed"
+        db.add(target)
+        db.commit()
 
     @staticmethod
     def update_rep(db: Session, *, rep: SalesRep, patch: dict[str, Any]) -> SalesRep:
