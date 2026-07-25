@@ -520,15 +520,6 @@ def me(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_
     sales_rep = SalesRepService.get_rep_for_user(db, user_id=principal.user_id)
     sales_rep_active = bool(sales_rep and sales_rep.is_active)
     sales_rep_kind = SalesRepService.rep_kind(sales_rep) if sales_rep_active else None
-    if sales_rep_active and sales_rep_kind == "partner_channel":
-        try:
-            SalesRepService.ensure_partner_org_full_services(
-                db,
-                user_id=principal.user_id,
-                org=org_ent if isinstance(org_ent, Organisation) else None,
-            )
-        except Exception:
-            pass
 
     return {
         "user_id": principal.user_id,

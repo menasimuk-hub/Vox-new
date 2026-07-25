@@ -357,7 +357,7 @@ export default function PartnerChannelSales() {
           <form onSubmit={create} noValidate>
             <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
               <p className='muted' style={{ margin: 0 }}>
-                Creates a dashboard login with the full product workspace plus Partner Channel Sales (Overview, Wallet & commission, Send offer). Commission accrues on every paid subscription using their promo code.
+                Creates a dashboard login like a normal user (only their active services) plus Partner Channel Sales (Overview, Wallet & commission, Send offer). Commission accrues on every paid subscription using their promo code.
               </p>
               {createErr ? (
                 <div className='note' style={{ borderColor: 'rgba(220,38,38,0.45)', margin: 0 }} role='alert'>
