@@ -199,6 +199,7 @@ class ExpoResultsService:
         org_id: str,
         *,
         booth_id: str | None = None,
+        lead_id: str | None = None,
         score: str | None = None,
         created_by_user_id: str | None = None,
         limit: int = 200,
@@ -209,7 +210,9 @@ class ExpoResultsService:
         if not booth_ids:
             return []
 
-        q = select(ExpoLead).where(ExpoLead.booth_id.in_(booth_ids))
+        q = select(ExpoLead).where(ExpoLead.booth_id.in_(booth_ids), ExpoLead.org_id == org_id)
+        if lead_id:
+            q = q.where(ExpoLead.id == str(lead_id).strip())
         if score:
             q = q.where(ExpoLead.lead_score == str(score).strip().lower())
         capped = max(1, min(int(limit or 200), 5000))
@@ -390,10 +393,16 @@ class ExpoResultsService:
         org_id: str,
         *,
         booth_id: str | None = None,
+        lead_id: str | None = None,
         created_by_user_id: str | None = None,
     ) -> str:
         leads = ExpoResultsService.customer_leads(
-            db, org_id, booth_id=booth_id, created_by_user_id=created_by_user_id, limit=5000
+            db,
+            org_id,
+            booth_id=booth_id,
+            lead_id=lead_id,
+            created_by_user_id=created_by_user_id,
+            limit=5000,
         )
         buf = io.StringIO()
         writer = csv.writer(buf)
@@ -436,6 +445,7 @@ class ExpoResultsService:
         org_id: str,
         *,
         booth_id: str | None = None,
+        lead_id: str | None = None,
         created_by_user_id: str | None = None,
     ) -> bytes:
         try:
@@ -445,7 +455,12 @@ class ExpoResultsService:
             raise RuntimeError("Excel export requires openpyxl on the server.") from e
 
         leads = ExpoResultsService.customer_leads(
-            db, org_id, booth_id=booth_id, created_by_user_id=created_by_user_id, limit=5000
+            db,
+            org_id,
+            booth_id=booth_id,
+            lead_id=lead_id,
+            created_by_user_id=created_by_user_id,
+            limit=5000,
         )
         wb = openpyxl.Workbook()
         ws = wb.active

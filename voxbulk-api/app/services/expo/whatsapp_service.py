@@ -17,6 +17,7 @@ from app.models.expo import ExpoBooth, ExpoSession
 from app.services.expo.booth_service import (
     BOOTH_CLOSED_MESSAGE,
     ExpoBoothService,
+    booth_access_block_reason,
     booth_is_expired,
     find_expo_token_in_text,
 )
@@ -184,15 +185,16 @@ class ExpoWhatsappService:
             return {"handled": True, "reason": "booth_not_found", "token": token}
 
         if booth is not None:
-            if booth_is_expired(booth):
+            block = booth_access_block_reason(booth)
+            if block:
                 ExpoWhatsappService._send(
                     db,
                     to_number=phone,
-                    body=BOOTH_CLOSED_MESSAGE,
+                    body=block,
                     org_id=booth.org_id,
                     from_number=reply_from,
                 )
-                return {"handled": True, "reason": "booth_expired", "booth_id": booth.id, "org_id": booth.org_id}
+                return {"handled": True, "reason": "booth_blocked", "booth_id": booth.id, "org_id": booth.org_id}
             if str(booth.status or "").lower() != "active":
                 ExpoWhatsappService._send(
                     db,
@@ -202,7 +204,19 @@ class ExpoWhatsappService:
                     from_number=reply_from,
                 )
                 return {"handled": True, "reason": "booth_paused", "booth_id": booth.id, "org_id": booth.org_id}
-            result = ExpoSessionFlowService.start_session(db, booth=booth, channel="whatsapp", visitor_phone=phone)
+            try:
+                result = ExpoSessionFlowService.start_session(
+                    db, booth=booth, channel="whatsapp", visitor_phone=phone
+                )
+            except ValueError as e:
+                ExpoWhatsappService._send(
+                    db,
+                    to_number=phone,
+                    body=str(e) or BOOTH_CLOSED_MESSAGE,
+                    org_id=booth.org_id,
+                    from_number=reply_from,
+                )
+                return {"handled": True, "reason": "booth_blocked", "booth_id": booth.id, "org_id": booth.org_id}
             prompt = str(result.get("prompt") or "").strip()
             sent = ExpoWhatsappService._send(
                 db,

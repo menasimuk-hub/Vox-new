@@ -192,9 +192,17 @@ function ExpoLeads() {
       const params = new URLSearchParams();
       params.set("format", "xlsx");
       if (boothId !== "all") params.set("booth_id", boothId);
-      // Path without .xlsx extension — more reliable behind nginx
-      await downloadAuthenticatedFile(`/expo/results/export?${params.toString()}`, "expo-leads.xlsx");
-      toast.success(scope === "lead" ? "Excel downloaded" : "Excel export ready");
+      if (scope === "lead") {
+        const id = selected?.id || detail?.id;
+        if (!id) {
+          toast.error("Open a lead first");
+          return;
+        }
+        params.set("lead_id", id);
+      }
+      const filename = scope === "lead" ? "expo-lead.xlsx" : "expo-leads.xlsx";
+      await downloadAuthenticatedFile(`/expo/results/export?${params.toString()}`, filename);
+      toast.success(scope === "lead" ? "This lead downloaded" : "All leads exported");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Export failed");
     }
@@ -395,7 +403,7 @@ function ExpoLeads() {
                       className="gap-1.5"
                       onClick={() => void handleExport("lead")}
                     >
-                      <FileSpreadsheet className="size-3.5" /> Export Excel
+                      <FileSpreadsheet className="size-3.5" /> Export this lead
                     </Button>
                     <Button
                       type="button"

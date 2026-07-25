@@ -63,7 +63,10 @@ type ExpoBooth = {
   web_url?: string;
   expires_at?: string | null;
   is_expired?: boolean;
+  is_before_start?: boolean;
   activated_at?: string | null;
+  preview_tests_remaining?: number;
+  preview_tests_limit?: number;
 };
 
 type ExpoSummary = {
@@ -302,16 +305,19 @@ function ExpoHub() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((it) => {
             const expired = Boolean(it.is_expired);
-            const live = !expired && String(it.status || "").toLowerCase() === "active";
-            const untilLabel = it.expires_at
-              ? new Date(it.expires_at).toLocaleString("en-GB", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : null;
+            const beforeStart = Boolean(it.is_before_start);
+            const live = !expired && !beforeStart && String(it.status || "").toLowerCase() === "active";
+            const fmtDay = (iso?: string | null) =>
+              iso
+                ? new Date(iso).toLocaleDateString("en-GB", {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                  })
+                : null;
+            const startLabel = fmtDay(it.activated_at);
+            const endLabel = fmtDay(it.expires_at);
+            const previewLeft = typeof it.preview_tests_remaining === "number" ? it.preview_tests_remaining : null;
             return (
               <Card key={it.id} className="overflow-hidden">
                 <CardHeader className="flex flex-row items-start justify-between gap-2">
@@ -319,14 +325,23 @@ function ExpoHub() {
                     <CardTitle className="text-base">{it.name}</CardTitle>
                     <p className="mt-0.5 text-xs text-muted-foreground">{it.exhibition_name || "—"}</p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">{it.company_display_name}</p>
-                    {untilLabel ? (
+                    {startLabel || endLabel ? (
                       <p className="mt-1 text-[11px] text-muted-foreground">
-                        {expired ? "Expired" : "Active until"} {untilLabel}
+                        {expired
+                          ? `Expired ${endLabel || ""}`.trim()
+                          : beforeStart
+                            ? `Starts ${startLabel || "soon"}${endLabel ? ` · ends ${endLabel}` : ""}`
+                            : `Live ${startLabel || ""}${endLabel ? ` → ${endLabel}` : ""}`.trim()}
+                      </p>
+                    ) : null}
+                    {beforeStart && previewLeft !== null ? (
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        Preview tests left: {previewLeft}/{it.preview_tests_limit || 15}
                       </p>
                     ) : null}
                   </div>
                   <Badge variant={expired ? "secondary" : live ? "default" : "secondary"}>
-                    {expired ? "Expired" : live ? "Live" : it.status || "Paused"}
+                    {expired ? "Expired" : beforeStart ? "Preview" : live ? "Live" : it.status || "Paused"}
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">

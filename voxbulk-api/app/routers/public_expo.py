@@ -12,7 +12,14 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.expo import ExpoBoothAsset, ExpoLead, ExpoSession
 from app.services.expo.asset_storage_service import resolve_storage_abs_path
-from app.services.expo.booth_service import BOOTH_CLOSED_MESSAGE, ExpoBoothService, booth_is_expired
+from app.services.expo.booth_service import (
+    BOOTH_CLOSED_MESSAGE,
+    ExpoBoothService,
+    booth_access_block_reason,
+    booth_is_before_start,
+    booth_is_expired,
+    booth_preview_remaining,
+)
 from app.services.expo.offer_delivery_service import asset_public_url, load_booth_assets
 from app.services.expo.question_bank import parse_contact_capture, web_ui_for_question_key
 from app.services.expo.session_flow_service import THANK_YOU_TEXT, ExpoSessionFlowService
@@ -103,6 +110,13 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
     if booth is None:
         raise HTTPException(status_code=404, detail="Booth not found")
     expired = booth_is_expired(booth)
+    before_start = booth_is_before_start(booth)
+    preview_remaining = booth_preview_remaining(booth)
+    closed_message = None
+    if expired:
+        closed_message = BOOTH_CLOSED_MESSAGE
+    elif before_start and preview_remaining <= 0:
+        closed_message = booth_access_block_reason(booth)
     steps = ExpoSessionFlowService.steps_for_booth(booth)
     exhibition = db.get(ExpoExhibition, booth.exhibition_id)
     event_name = exhibition.name if exhibition else "Exhibition"
@@ -167,11 +181,13 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
             "name": booth.name,
             "company_display_name": booth.company_display_name,
             "exhibition_name": event_name,
-            "status": "expired" if expired else booth.status,
+            "status": "expired" if expired else ("preview" if before_start else booth.status),
             "is_expired": expired,
+            "is_before_start": before_start,
+            "preview_tests_remaining": preview_remaining,
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
             "question_count": len(steps),
-            "closed_message": BOOTH_CLOSED_MESSAGE if expired else None,
+            "closed_message": closed_message,
             "contact_capture": contact_capture,
         },
     }
@@ -184,6 +200,9 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Booth not found")
     if booth_is_expired(booth):
         raise HTTPException(status_code=400, detail=BOOTH_CLOSED_MESSAGE)
+    block = booth_access_block_reason(booth)
+    if block:
+        raise HTTPException(status_code=400, detail=block)
     if str(booth.status or "").lower() != "active":
         raise HTTPException(status_code=400, detail="This booth is not currently accepting responses.")
 
@@ -202,14 +221,17 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
             detail="mobile and email are required (or start with card_first and upload a business card)",
         )
 
-    result = ExpoSessionFlowService.start_session(
-        db,
-        booth=booth,
-        channel="web",
-        visitor_phone=mobile,
-        visitor_email=email,
-        name=name,
-    )
+    try:
+        result = ExpoSessionFlowService.start_session(
+            db,
+            booth=booth,
+            channel="web",
+            visitor_phone=mobile,
+            visitor_email=email,
+            name=name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     session_id = result["session_id"]
 
     # Typed contact on the landing form → advance name + company (+ mobile already on session)
@@ -242,6 +264,9 @@ async def upload_business_card(
         raise HTTPException(status_code=404, detail="Booth not found")
     if booth_is_expired(booth) or str(booth.status or "").lower() != "active":
         raise HTTPException(status_code=400, detail=BOOTH_CLOSED_MESSAGE)
+    block = booth_access_block_reason(booth)
+    if block:
+        raise HTTPException(status_code=400, detail=block)
     session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
     if session.status != "active":
         return {"ok": True, "done": True, "question": THANK_YOU_TEXT}

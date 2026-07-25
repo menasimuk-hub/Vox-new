@@ -40,7 +40,8 @@ ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trial", "pending_first_paym
 
 class BillingAccessService:
     @staticmethod
-    def is_valid_core_plan(db: Session, plan: Plan | None) -> bool:
+    def is_valid_core_plan(db: Session | None, plan: Plan | None) -> bool:
+        """Return True when plan is a Core (voxbulk) plan. `db` is unused; kept for call-site consistency."""
         if plan is None:
             return False
         kind = str(getattr(plan, "service_kind", None) or "").strip().lower()

@@ -77,7 +77,7 @@ class ProductsHubService:
         code = str(plan.code or "").strip().lower()
         if kind == "customer_feedback" or code.startswith("cf_"):
             return "customer_feedback"
-        if kind == "voxbulk" or BillingAccessService.is_valid_core_plan(plan):
+        if kind == "voxbulk" or BillingAccessService.is_valid_core_plan(None, plan):
             return "voxbulk"
         return None
 

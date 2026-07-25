@@ -267,6 +267,15 @@ class ExpoSessionFlowService:
         visitor_email: str | None = None,
         name: str | None = None,
     ) -> dict[str, Any]:
+        from app.services.expo.booth_service import (
+            booth_access_block_reason,
+            booth_is_before_start,
+        )
+
+        blocked = booth_access_block_reason(booth)
+        if blocked:
+            raise ValueError(blocked)
+
         # One phone → one active Expo booth chat. New QR always wins (stops catalog mix-ups).
         closed = ExpoSessionFlowService.supersede_active_sessions(
             db,
@@ -274,6 +283,8 @@ class ExpoSessionFlowService:
             reason="new_booth_scan",
         )
         booth.scan_count = int(booth.scan_count or 0) + 1
+        if booth_is_before_start(booth):
+            booth.preview_tests_used = int(getattr(booth, "preview_tests_used", 0) or 0) + 1
         db.add(booth)
 
         now = datetime.utcnow()

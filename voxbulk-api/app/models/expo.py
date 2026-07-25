@@ -99,6 +99,7 @@ class ExpoBooth(Base):
     activated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     scan_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    preview_tests_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     question_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

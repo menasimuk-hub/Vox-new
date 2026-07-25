@@ -6,7 +6,7 @@ import json
 import re
 import secrets
 import uuid
-from datetime import datetime, timedelta, time
+from datetime import date, datetime, timedelta, time
 from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -41,8 +41,43 @@ BOOTH_CLOSED_MESSAGE = (
     "Thanks for stopping by! This Expo stand has closed for this exhibition. "
     "Please ask the stand team if you still need information."
 )
+BOOTH_PREVIEW_EXHAUSTED_MESSAGE = (
+    "This Expo booth is not live yet, and the preview test allowance (15) has been used. "
+    "Ask the stand team when the exhibition package starts."
+)
+PREVIEW_TESTS_LIMIT = 15
 _LONDON = ZoneInfo("Europe/London")
 _UTC = ZoneInfo("UTC")
+
+
+def parse_package_start_at(raw: str | datetime | None, *, fallback: datetime | None = None) -> datetime:
+    """Parse YYYY-MM-DD (or ISO) as London start-of-day, return naive UTC."""
+    stamp = fallback or datetime.utcnow()
+    if raw is None or raw == "":
+        return stamp
+    if isinstance(raw, datetime):
+        dt = raw
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_UTC)
+        local = dt.astimezone(_LONDON)
+        start_local = datetime.combine(local.date(), time(0, 0, 0), tzinfo=_LONDON)
+        return start_local.astimezone(_UTC).replace(tzinfo=None)
+    text = str(raw).strip()
+    if not text:
+        return stamp
+    try:
+        if "T" in text:
+            dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=_UTC)
+            local = dt.astimezone(_LONDON)
+        else:
+            day = date.fromisoformat(text[:10])
+            local = datetime.combine(day, time(0, 0, 0), tzinfo=_LONDON)
+        start_local = datetime.combine(local.date(), time(0, 0, 0), tzinfo=_LONDON)
+        return start_local.astimezone(_UTC).replace(tzinfo=None)
+    except ValueError:
+        return stamp
 
 
 def compute_booth_expires_at(*, activated_at: datetime, duration_days: int) -> datetime:
@@ -63,9 +98,38 @@ def booth_is_expired(booth: ExpoBooth, *, now: datetime | None = None) -> bool:
     return booth.expires_at <= (now or datetime.utcnow())
 
 
-def apply_package_window(db: Session, booth: ExpoBooth, *, now: datetime | None = None) -> None:
-    """Set activated_at / expires_at from the booth package duration."""
+def booth_is_before_start(booth: ExpoBooth, *, now: datetime | None = None) -> bool:
+    if booth.activated_at is None:
+        return False
+    return (now or datetime.utcnow()) < booth.activated_at
+
+
+def booth_preview_remaining(booth: ExpoBooth) -> int:
+    used = int(getattr(booth, "preview_tests_used", 0) or 0)
+    return max(0, PREVIEW_TESTS_LIMIT - used)
+
+
+def booth_access_block_reason(booth: ExpoBooth, *, now: datetime | None = None) -> str | None:
+    """Return a visitor-facing error if the booth must not accept a new session."""
     stamp = now or datetime.utcnow()
+    if str(booth.status or "").lower() != "active":
+        return BOOTH_CLOSED_MESSAGE
+    if booth_is_expired(booth, now=stamp):
+        return BOOTH_CLOSED_MESSAGE
+    if booth_is_before_start(booth, now=stamp) and booth_preview_remaining(booth) <= 0:
+        return BOOTH_PREVIEW_EXHAUSTED_MESSAGE
+    return None
+
+
+def apply_package_window(
+    db: Session,
+    booth: ExpoBooth,
+    *,
+    now: datetime | None = None,
+    start_at: datetime | None = None,
+) -> None:
+    """Set activated_at / expires_at from package duration and optional start date."""
+    stamp = start_at or now or datetime.utcnow()
     days = 1
     if booth.package_id:
         pkg = db.get(ExpoPackage, booth.package_id)
@@ -73,7 +137,7 @@ def apply_package_window(db: Session, booth: ExpoBooth, *, now: datetime | None 
             days = max(1, int(getattr(pkg, "duration_days", None) or 1))
     booth.activated_at = stamp
     booth.expires_at = compute_booth_expires_at(activated_at=stamp, duration_days=days)
-    booth.updated_at = stamp
+    booth.updated_at = now or datetime.utcnow()
 
 def _slug_part(text: str, *, max_len: int = 20) -> str:
     """Alphanumeric-only slug segment so QR tokens stay exactly 3 parts (company-booth-xxxxxx)."""
@@ -299,7 +363,11 @@ class ExpoBoothService:
             "activated_at": booth.activated_at.isoformat() if booth.activated_at else None,
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
             "is_expired": booth_is_expired(booth),
+            "is_before_start": booth_is_before_start(booth),
             "scan_count": booth.scan_count,
+            "preview_tests_used": int(getattr(booth, "preview_tests_used", 0) or 0),
+            "preview_tests_limit": PREVIEW_TESTS_LIMIT,
+            "preview_tests_remaining": booth_preview_remaining(booth),
             "lead_count": int(lead_count),
             "hot_count": int(hot_count),
             "question_config": {"steps": parse_question_config(booth.question_config_json)},
@@ -421,6 +489,8 @@ class ExpoBoothService:
             )
 
         package_id = str(payload.get("package_id") or "").strip() or None
+        start_raw = payload.get("start_date") or payload.get("starts_on") or payload.get("package_start_date")
+        start_at = parse_package_start_at(start_raw, fallback=now)
         booth = ExpoBooth(
             id=str(uuid.uuid4()),
             org_id=org_id,
@@ -432,12 +502,17 @@ class ExpoBoothService:
             qr_token=token,
             status="active",
             scan_count=0,
+            preview_tests_used=0,
             question_config_json=question_json,
             created_by_user_id=user_id,
             created_at=now,
             updated_at=now,
         )
-        apply_package_window(db, booth, now=now)
+        apply_package_window(db, booth, now=now, start_at=start_at)
+        exhibition.starts_on = booth.activated_at
+        exhibition.ends_on = booth.expires_at
+        exhibition.updated_at = now
+        db.add(exhibition)
         db.add(booth)
         db.flush()
 

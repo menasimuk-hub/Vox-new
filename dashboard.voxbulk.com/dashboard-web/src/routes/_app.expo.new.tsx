@@ -141,6 +141,13 @@ function CreateExpoBooth() {
   const [uploading, setUploading] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [packageId, setPackageId] = React.useState("");
+  const [packageStartDate, setPackageStartDate] = React.useState(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  });
   const [previewChannel, setPreviewChannel] = React.useState<"scan" | "web" | "wa">("scan");
   const [webTemplate] = React.useState("Default template");
   const [saving, setSaving] = React.useState(false);
@@ -170,6 +177,19 @@ function CreateExpoBooth() {
   }, [questionsQ.data?.items, industry?.addon_question]);
 
   const selectedPrompts = questionBank.filter((q) => selectedQKeys.includes(q.key)).map((q) => q.prompt);
+
+  const selectedPackage = packages.find((p) => p.id === packageId);
+  const packageDays = Math.max(1, selectedPackage?.duration_days || 1);
+  const packageEndDate = React.useMemo(() => {
+    if (!packageStartDate) return "";
+    const start = new Date(`${packageStartDate}T12:00:00`);
+    if (Number.isNaN(start.getTime())) return "";
+    start.setDate(start.getDate() + packageDays - 1);
+    const y = start.getFullYear();
+    const m = String(start.getMonth() + 1).padStart(2, "0");
+    const day = String(start.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }, [packageDays, packageStartDate]);
 
   const draftReady =
     Boolean(draft.title.trim()) &&
@@ -279,6 +299,7 @@ function CreateExpoBooth() {
         free_gift_enabled: freeGiftEnabled,
         free_gift_text: freeGiftEnabled ? freeGiftText.trim() : null,
         package_id: packageId,
+        start_date: packageStartDate,
         assets: assets.map((a, idx) => ({
           title: a.title.trim(),
           short_description: a.short_description.trim() || null,
@@ -892,14 +913,45 @@ function CreateExpoBooth() {
               <CardTitle className="flex items-center gap-2 text-base">
                 <QrCode className="size-4 text-primary" /> Activate QR
               </CardTitle>
+              <CardDescription>
+                Set when the package starts. End date is calculated from the package length. Before the start
+                date you get 15 mobile preview tests.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               {!created ? (
                 <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="expo-start-date">Package start date</Label>
+                      <Input
+                        id="expo-start-date"
+                        type="date"
+                        value={packageStartDate}
+                        onChange={(e) => setPackageStartDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="expo-end-date">Auto end date</Label>
+                      <Input id="expo-end-date" type="date" value={packageEndDate} readOnly disabled />
+                      <p className="text-xs text-muted-foreground">
+                        {selectedPackage
+                          ? `${selectedPackage.name} · ${packageDays} day${packageDays === 1 ? "" : "s"}`
+                          : "Choose a package first"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                    <p className="font-medium text-foreground">15 preview tests</p>
+                    <p className="mt-0.5 text-xs">
+                      Scan the QR on your phone before the start date to test WhatsApp and web — up to 15
+                      sessions. After the start date the booth runs live until the end date.
+                    </p>
+                  </div>
                   <p className="text-sm text-muted-foreground">
                     Creates your booth, WhatsApp trigger text, and downloadable QR.
                   </p>
-                  <Button onClick={() => void activate()} disabled={saving || !packageId}>
+                  <Button onClick={() => void activate()} disabled={saving || !packageId || !packageStartDate}>
                     {saving ? "Activating…" : "Activate Expo booth"}
                   </Button>
                 </>
@@ -914,6 +966,10 @@ function CreateExpoBooth() {
                   ) : null}
                   <div className="space-y-2 text-sm">
                     <p className="font-medium">Booth ready</p>
+                    <p className="text-muted-foreground">
+                      Live {packageStartDate}
+                      {packageEndDate ? ` → ${packageEndDate}` : ""} · 15 preview tests before start
+                    </p>
                     <p className="max-w-md text-muted-foreground">{created.trigger_text}</p>
                     <div className="flex flex-wrap gap-2">
                       <Button asChild variant="outline" size="sm">
