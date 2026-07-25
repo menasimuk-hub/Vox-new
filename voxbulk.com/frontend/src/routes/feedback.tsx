@@ -114,13 +114,17 @@ const faqs: FaqItem[] = [
 ];
 
 function planPriceDisplay(p: PublicFeedbackPlan, billing: Billing, symbol: string) {
-  const minor =
-    billing === "yearly" && p.yearly_price_minor != null
+  const yearly =
+    p.yearly_price_minor != null && p.yearly_price_minor > 0
       ? p.yearly_price_minor
+      : p.monthly_price_minor != null && p.monthly_price_minor > 0
+        ? p.monthly_price_minor * 10
+        : null;
+  const minor =
+    billing === "yearly"
+      ? yearly
       : p.monthly_price_minor != null
-        ? billing === "yearly"
-          ? p.monthly_price_minor * 10
-          : p.monthly_price_minor
+        ? p.monthly_price_minor
         : null;
   if (minor != null) return `${symbol}${(minor / 100).toFixed(0)}`;
   const raw = billing === "yearly" ? p.yearly_price_display : p.monthly_price_display;

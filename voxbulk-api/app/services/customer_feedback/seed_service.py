@@ -326,12 +326,14 @@ class FeedbackSeedService:
                 select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency == currency)
             ).scalar_one_or_none()
             if price_row is None:
+                monthly = int(pkg["price_pence"])
                 db.add(
                     PlanPrice(
                         id=str(uuid.uuid4()),
                         plan_id=plan.id,
                         currency=currency,
-                        monthly_price_minor=int(pkg["price_pence"]),
+                        monthly_price_minor=monthly,
+                        yearly_price_minor=monthly * 10,
                         per_min_minor=0,
                         created_at=now,
                         updated_at=now,

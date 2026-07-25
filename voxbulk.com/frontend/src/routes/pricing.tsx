@@ -183,7 +183,13 @@ function mapFeedbackPlan(p: PublicFeedbackPlan): FeedbackPlan {
 }
 
 function feedbackPriceMinor(p: FeedbackPlan, billing: Billing, apiPlan?: PublicFeedbackPlan | null) {
-  if (apiPlan?.yearly_price_minor != null && billing === "yearly") return apiPlan.yearly_price_minor;
+  const yearly =
+    apiPlan?.yearly_price_minor != null && apiPlan.yearly_price_minor > 0
+      ? apiPlan.yearly_price_minor
+      : apiPlan?.monthly_price_minor != null && apiPlan.monthly_price_minor > 0
+        ? apiPlan.monthly_price_minor * 10
+        : null;
+  if (billing === "yearly" && yearly != null) return yearly;
   if (apiPlan?.monthly_price_minor != null) {
     return billing === "yearly" ? apiPlan.monthly_price_minor * 10 : apiPlan.monthly_price_minor;
   }
@@ -191,7 +197,13 @@ function feedbackPriceMinor(p: FeedbackPlan, billing: Billing, apiPlan?: PublicF
 }
 
 function corePriceMinor(p: CorePlanView, billing: Billing, apiPlan?: PublicPlan | null) {
-  if (apiPlan?.yearly_price_minor != null && billing === "yearly") return apiPlan.yearly_price_minor;
+  const yearly =
+    apiPlan?.yearly_price_minor != null && apiPlan.yearly_price_minor > 0
+      ? apiPlan.yearly_price_minor
+      : apiPlan?.monthly_price_minor != null && apiPlan.monthly_price_minor > 0
+        ? apiPlan.monthly_price_minor * 10
+        : null;
+  if (billing === "yearly" && yearly != null) return yearly;
   if (apiPlan?.monthly_price_minor != null) {
     return billing === "yearly" ? apiPlan.monthly_price_minor * 10 : apiPlan.monthly_price_minor;
   }

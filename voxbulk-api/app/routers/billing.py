@@ -101,11 +101,14 @@ def get_public_feedback_pricing(currency: str = "GBP", market: str = "", db: Ses
             if price_row and price_row.get("monthly_price_minor") is not None
             else None
         )
-        yearly = (
+        yearly_raw = (
             int(price_row["yearly_price_minor"])
             if price_row and price_row.get("yearly_price_minor") is not None
             else None
         )
+        from app.services.plan_price_service import PlanPriceService
+
+        yearly = PlanPriceService.effective_yearly_minor(monthly, yearly_raw)
         features = list(row.get("features") or [])
         if not features and plan:
             fb_pkg = db.get(FeedbackPackage, row.get("id")) if row.get("id") else None

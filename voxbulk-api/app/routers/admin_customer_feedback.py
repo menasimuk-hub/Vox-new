@@ -439,7 +439,7 @@ def create_pricing_row(payload: dict, db: Session = Depends(get_db), _admin=Depe
         plan_id=plan.id,
         currency=currency,
         monthly_price_minor=0,
-        yearly_price_minor=0,
+        yearly_price_minor=None,
         created_at=now,
         updated_at=now,
     )
@@ -526,7 +526,9 @@ def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depen
             db.add(price)
         price.monthly_price_minor = int(row.get("price_minor") or price.monthly_price_minor or 0)
         if "yearly_price_minor" in row:
-            price.yearly_price_minor = int(row.get("yearly_price_minor") or price.yearly_price_minor or 0)
+            yearly = int(row.get("yearly_price_minor") or 0)
+            # Treat blank/0 as “use default 10× monthly” so yearly never sticks at £0.
+            price.yearly_price_minor = yearly if yearly > 0 else (int(price.monthly_price_minor or 0) * 10 or 0)
         elif price.monthly_price_minor:
             price.yearly_price_minor = int(price.monthly_price_minor) * 10
         price.updated_at = now

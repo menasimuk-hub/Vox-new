@@ -147,7 +147,11 @@ function formatFeedbackPackagePrice(pkg: FeedbackPackage, orgCurrency: string, y
   const match = prices.find((p) => p.currency.toUpperCase() === orgCurrency) || prices[0];
   if (!match) return "—";
   const sym = CURRENCY_SYMBOL[match.currency.toUpperCase()] || `${match.currency} `;
-  const minor = yearly ? (match.yearly_price_minor ?? match.monthly_price_minor * 10) : match.monthly_price_minor;
+  const yearlyMinor =
+    match.yearly_price_minor != null && match.yearly_price_minor > 0
+      ? match.yearly_price_minor
+      : match.monthly_price_minor * 10;
+  const minor = yearly ? yearlyMinor : match.monthly_price_minor;
   return `${sym}${(minor / 100).toFixed(0)}/${yearly ? "yr" : "mo"}`;
 }
 

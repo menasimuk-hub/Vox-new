@@ -89,7 +89,10 @@ def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
             {
                 "currency": p.currency,
                 "monthly_price_minor": p.monthly_price_minor,
-                "yearly_price_minor": p.yearly_price_minor,
+                "yearly_price_minor": PlanPriceService.effective_yearly_minor(
+                    p.monthly_price_minor,
+                    p.yearly_price_minor,
+                ),
             }
             for p in prices
         ],

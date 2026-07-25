@@ -240,6 +240,15 @@ class PlanPriceService:
         return "yearly" if str(value or "").strip().lower() == "yearly" else "monthly"
 
     @staticmethod
+    def effective_yearly_minor(monthly_minor: int | None, yearly_minor: int | None) -> int | None:
+        """Yearly list price. Treat missing/0 as 10× monthly (2 months free)."""
+        if yearly_minor is not None and int(yearly_minor) > 0:
+            return int(yearly_minor)
+        if monthly_minor is not None and int(monthly_minor) > 0:
+            return int(monthly_minor) * 10
+        return None
+
+    @staticmethod
     def billing_amount_for_org(
         db: Session,
         org: Organisation | None,
@@ -251,9 +260,8 @@ class PlanPriceService:
         currency, monthly = PlanPriceService.monthly_minor_for_org(db, org, plan)
         if interval == "yearly":
             price_row = PlanPriceService.get_price(db, plan.id, currency)
-            yearly = int(price_row.yearly_price_minor or 0) if price_row else 0
-            if yearly <= 0:
-                yearly = int(monthly or 0) * 10
+            yearly_raw = int(price_row.yearly_price_minor) if price_row and price_row.yearly_price_minor is not None else None
+            yearly = PlanPriceService.effective_yearly_minor(monthly, yearly_raw) or 0
             return currency, yearly, "yearly"
         return currency, int(monthly or 0), "monthly"
 
