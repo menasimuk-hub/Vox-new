@@ -1340,12 +1340,13 @@ def start_google_calendar_oauth(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    from app.services.google_calendar_booking_service import google_calendar_oauth_start
-
-    try:
-        return {"authorize_url": google_calendar_oauth_start(org_id=principal.org_id, db=db, replace=replace)}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "Google Calendar no longer uses OAuth. Open the Google Calendar tile and paste your "
+            "Appointment Schedule URL instead."
+        ),
+    )
 
 
 @router.get("/scheduling/oauth/google-calendar/callback")
@@ -1357,25 +1358,15 @@ def google_calendar_oauth_callback(
     from urllib.parse import quote
 
     from app.core.config import get_settings
-    from app.services.google_calendar_booking_service import google_calendar_oauth_complete
     from fastapi.responses import RedirectResponse
 
     origin = str(get_settings().dashboard_app_origin or "http://localhost:5175").rstrip("/")
-    try:
-        result = google_calendar_oauth_complete(db, code=code, state=state)
-        if not result.get("google_calendar_connected"):
-            msg = (
-                "Google OAuth finished but the connection was not saved correctly. "
-                "Verify ENCRYPTION_KEY on the API server, then reconnect."
-            )
-            return RedirectResponse(
-                url=f"{origin}/settings/integrations?scheduling=error&provider=google_calendar&message={quote(msg)}"
-            )
-    except ValueError as exc:
-        return RedirectResponse(
-            url=f"{origin}/settings/integrations?scheduling=error&provider=google_calendar&message={quote(str(exc)[:200])}"
-        )
-    return RedirectResponse(url=f"{origin}/settings/integrations?scheduling=connected&provider=google_calendar")
+    msg = quote(
+        "Google Calendar OAuth is retired. Paste your Appointment Schedule URL in Settings → Integrations."
+    )
+    return RedirectResponse(
+        url=f"{origin}/settings/integrations?scheduling=error&provider=google_calendar&message={msg}"
+    )
 
 
 @router.get("/scheduling/oauth/microsoft-calendar/start")
@@ -1491,16 +1482,6 @@ def select_cal_com_event_type_route(
     event_type_id = str((body or {}).get("event_type_id") or "").strip()
     try:
         return select_cal_com_event_type(db, principal.org_id, event_type_id=event_type_id)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
-
-@router.get("/scheduling/google-calendar/schedules")
-def list_google_calendar_schedules_route(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    from app.services.google_calendar_booking_service import list_google_calendar_schedules
-
-    try:
-        return {"schedules": list_google_calendar_schedules(db, principal.org_id)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

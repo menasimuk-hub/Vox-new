@@ -64,7 +64,7 @@ PROVIDER_REGISTRY: tuple[ProviderSpec, ...] = (
         group=BOOKING_GROUP,
         admin_provider="google_calendar",
         label="Google Calendar",
-        short_description="Use a Google Appointment Schedule page as the candidate-facing booking flow.",
+        short_description="Paste a Google Appointment Schedule URL for shortlisted candidates (no Google account OAuth).",
         icon_slug="google_calendar",
     ),
     ProviderSpec(
@@ -236,7 +236,9 @@ def _booking_connection_view(spec: ProviderSpec, org: Organisation, db: Session)
         connected = connected and bool(str(cfg.get("meeting_link_url") or "").strip())
     elif spec.key == "zoho_bookings":
         connected = connected and bool(str(cfg.get("service_url") or "").strip())
-    elif spec.key in {"cal_com", "google_calendar", "microsoft_calendar"}:
+    elif spec.key == "google_calendar":
+        connected = connected and bool(str(cfg.get("schedule_url") or "").strip())
+    elif spec.key in {"cal_com", "microsoft_calendar"}:
         connected = connected and token_ready
     else:
         connected = bool(connected_provider)
@@ -347,7 +349,7 @@ def _provider_actions(spec: ProviderSpec) -> dict[str, str]:
         elif spec.key == "cal_com":
             actions["connect_url"] = f"{base}/scheduling/oauth/cal-com/start"
         elif spec.key == "google_calendar":
-            actions["connect_url"] = f"{base}/scheduling/oauth/google-calendar/start"
+            actions["select_url"] = f"{base}/scheduling/google-calendar/select-schedule"
         elif spec.key == "microsoft_calendar":
             actions["connect_url"] = f"{base}/scheduling/oauth/microsoft-calendar/start"
         elif spec.key == "hubspot_meetings":
@@ -386,6 +388,10 @@ def _platform_ready_for(spec: ProviderSpec, db: Session) -> bool:
             from app.services.integration_release_service import IntegrationReleaseService
 
             return IntegrationReleaseService.provider_enabled(db, "zoho_bookings")
+        if spec.key == "google_calendar":
+            from app.services.integration_release_service import IntegrationReleaseService
+
+            return IntegrationReleaseService.provider_enabled(db, "google_calendar")
         if spec.key == "microsoft_calendar":
             from app.services.microsoft_calendar_service import platform_oauth_configured as ms_ready
 

@@ -1021,7 +1021,7 @@ export default function Integrations() {
         if (!config.default_voice_id && config.voice_id) config.default_voice_id = config.voice_id
         if (!config.voice_id && config.default_voice_id) config.voice_id = config.default_voice_id
       }
-      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_calendar' || providerKey === 'google_search_console' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot' || providerKey === 'pipedrive' || providerKey === 'zoho_crm') {
+      if (providerKey === 'calendly' || providerKey === 'cal_com' || providerKey === 'google_search_console' || providerKey === 'microsoft_calendar' || providerKey === 'hubspot' || providerKey === 'pipedrive' || providerKey === 'zoho_crm') {
         const secret = String(draft.client_secret_draft || '').trim()
         if (secret) config.client_secret = secret
       }
@@ -1110,7 +1110,6 @@ export default function Integrations() {
   const deepSeekStatus = activeProvider === 'deepseek' ? deepSeekValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calendlyStatus = activeProvider === 'calendly' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const calComStatus = activeProvider === 'cal_com' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
-  const googleCalendarStatus = activeProvider === 'google_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const googleSearchConsoleStatus = activeProvider === 'google_search_console' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const microsoftCalendarStatus = activeProvider === 'microsoft_calendar' ? oauthSchedulingValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
   const hubspotStatus = activeProvider === 'hubspot' ? hubspotValidation(activeConfig, activeDraft, activeSummary) : { errors: {}, valid: true }
@@ -2695,7 +2694,7 @@ export default function Integrations() {
             ) : activeProvider === 'google_calendar' ? (
               <div className='card'>
                 <div className='cardHead'>
-                  <h3>Google Calendar OAuth (interview scheduling)</h3>
+                  <h3>Google Calendar (interview scheduling)</h3>
                   <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
                 </div>
                 <div className='cardBody'>
@@ -2703,25 +2702,16 @@ export default function Integrations() {
                   <div className='stack' style={{ gap: 12 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('google_calendar', e.target.checked)} />
-                      <span>Enable Google Calendar appointment schedules for interview booking</span>
+                      <span>Enable Google Appointment Schedule links for interview booking</span>
                     </label>
-                    <div className='note'>Use a separate Google Cloud OAuth client from Social login. Enable Google Calendar API and add Calendar scopes.</div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Client ID</label>
-                      <input className='input' style={googleCalendarStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('google_calendar', 'client_id', e.target.value)} />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Client secret</label>
-                      <input className='input' style={googleCalendarStatus.errors.client_secret ? invalidInputStyle : undefined} type='password' value={String(activeDraft.client_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, google_calendar: { ...(s.google_calendar || {}), client_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.client_secret ? 'Leave blank to keep current secret' : 'Paste Google client secret'} />
-                    </div>
-                    <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Redirect URI</label>
-                      <input className='input' style={googleCalendarStatus.errors.redirect_uri ? invalidInputStyle : undefined} value={String(activeConfig.redirect_uri || '')} onChange={(e) => setProviderField('google_calendar', 'redirect_uri', e.target.value)} placeholder='https://api.voxbulk.com/service-orders/scheduling/oauth/google-calendar/callback' />
+                    <div className='note'>
+                      Organisations paste their public Google Appointment Schedule URL in Dashboard → Integrations.
+                      VoxBulk only stores and sends that URL — it does <strong>not</strong> use Google OAuth or Calendar API scopes.
                     </div>
                     {googleCalendarTestResult ? <OAuthPlatformTestPanel result={googleCalendarTestResult} /> : null}
                     <div className='actions'>
-                      <button className='btn primary' onClick={() => saveIntegrationProvider('google_calendar')} disabled={providerSaving || !googleCalendarStatus.valid}>Save Google Calendar</button>
-                      <button className='btn soft' onClick={testGoogleCalendar} disabled={providerSaving || !activeSummary.configured}>Test Google Calendar</button>
+                      <button className='btn primary' onClick={() => saveIntegrationProvider('google_calendar')} disabled={providerSaving}>Save Google Calendar</button>
+                      <button className='btn soft' onClick={testGoogleCalendar} disabled={providerSaving || !activeEnabled}>Test Google Calendar</button>
                     </div>
                   </div>
                 </div>

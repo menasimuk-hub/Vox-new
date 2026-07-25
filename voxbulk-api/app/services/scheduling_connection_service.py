@@ -97,24 +97,31 @@ def save_scheduling_config(db: Session, org_id: str, payload: dict[str, Any]) ->
     if org is None:
         raise ValueError("Organisation not found")
     existing = _loads(getattr(org, "scheduling_config_json", None))
-    cfg = {**existing, **payload}
+    clear_tokens = bool(payload.get("_clear_oauth_tokens"))
+    incoming_payload = {k: v for k, v in payload.items() if k != "_clear_oauth_tokens"}
+    cfg = {**existing, **incoming_payload}
     provider = str(cfg.get("provider") or "").strip().lower()
     if provider in LEGACY_UNSUPPORTED_PROVIDERS:
         raise ValueError(f"{provider_label(provider)} is no longer supported — connect Calendly, Cal.com, Google Calendar, or HubSpot Meetings")
     if provider and provider not in BOOKING_PROVIDERS:
         raise ValueError(f"Unsupported booking provider: {provider}")
     for key in ("access_token", "refresh_token"):
-        if key not in payload:
+        if key not in incoming_payload:
             continue
-        incoming = str(payload.get(key) or "").strip()
+        incoming = str(incoming_payload.get(key) or "").strip()
         existing_value = str(existing.get(key) or "").strip()
         if incoming and not incoming.startswith("enc:"):
             cfg[key] = _encrypt_scheduling_secret(incoming)
+        elif clear_tokens or (not incoming and not existing_value):
+            cfg.pop(key, None)
         elif not incoming and existing_value:
             # Partial updates (e.g. paste Bookings URL) must not wipe stored OAuth tokens.
             cfg[key] = existing_value
         elif not incoming:
             cfg.pop(key, None)
+    if clear_tokens:
+        cfg.pop("expires_at", None)
+    cfg.pop("_clear_oauth_tokens", None)
     cfg["updated_at"] = datetime.utcnow().isoformat()
     org.scheduling_config_json = json.dumps(cfg, ensure_ascii=False)
     db.add(org)
@@ -185,7 +192,9 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         zs = zoho_crm_status(db, org_id)
         if not zs.get("connected"):
             connected = False
-    elif provider in ("cal_com", "google_calendar", "microsoft_calendar"):
+    elif provider == "google_calendar":
+        connected = connected and bool(str(cfg.get("schedule_url") or "").strip())
+    elif provider in ("cal_com", "microsoft_calendar"):
         connected = connected and token_ready
     elif legacy_unsupported:
         connected = False
@@ -202,6 +211,8 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
     google_platform = platform_oauth_configured(db, "google_calendar")
     microsoft_platform = platform_oauth_configured(db, "microsoft_calendar")
     hubspot_platform = platform_oauth_configured(db, "hubspot")
+    # Google Appointment Schedule is paste-URL only — no Calendar API event sync.
+    calendar_event_sync_ready = bool(microsoft_connected and token_ready)
     event_type_uri = str(cfg.get("event_type_uri") or "").strip()
     event_type_configured = False
     if cal_connected:
@@ -233,6 +244,7 @@ def scheduling_status(db: Session, org_id: str) -> dict[str, Any]:
         "microsoft_calendar_connected": microsoft_connected,
         "hubspot_meetings_connected": hubspot_meetings_connected,
         "zoho_bookings_connected": zoho_bookings_connected,
+        "calendar_event_sync_ready": calendar_event_sync_ready,
         "cronofy_connected": False,
         "legacy_unsupported_provider": provider if legacy_unsupported else None,
         "calendly_platform_configured": cal_platform,
@@ -311,9 +323,11 @@ def platform_oauth_configured(db: Session | None, provider: str) -> bool:
 
         client_id, client_secret, redirect = _cal_com_platform_credentials(db)
     elif provider == "google_calendar":
-        from app.services.google_calendar_booking_service import _google_calendar_platform_credentials
+        if db is None:
+            return False
+        from app.services.integration_release_service import IntegrationReleaseService
 
-        client_id, client_secret, redirect = _google_calendar_platform_credentials(db)
+        return IntegrationReleaseService.provider_enabled(db, "google_calendar")
     elif provider == "microsoft_calendar":
         from app.services.microsoft_calendar_service import _ms_platform_credentials
 

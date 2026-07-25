@@ -87,7 +87,7 @@ class ProviderSettingsService:
         "linkedin": {"client_id", "client_secret", "redirect_uri"},
         "calendly": {"client_id", "client_secret", "redirect_uri"},
         "cal_com": {"client_id", "client_secret", "redirect_uri"},
-        "google_calendar": {"client_id", "client_secret", "redirect_uri"},
+        "google_calendar": set(),
         "google_search_console": {"client_id", "client_secret", "redirect_uri"},
         "microsoft_calendar": {"client_id", "client_secret", "redirect_uri"},
         "cronofy": {"client_id", "client_secret", "redirect_uri"},
@@ -120,7 +120,7 @@ class ProviderSettingsService:
         "linkedin": {"client_secret"},
         "calendly": {"client_secret"},
         "cal_com": {"client_secret"},
-        "google_calendar": {"client_secret"},
+        "google_calendar": set(),
         "google_search_console": {"client_secret"},
         "microsoft_calendar": {"client_secret"},
         "cronofy": {"client_secret"},
@@ -934,24 +934,8 @@ class ProviderSettingsService:
 
     @staticmethod
     def _validate_google_calendar_config(config: dict[str, Any]) -> dict[str, Any]:
-        cfg = {**config}
-        errors: dict[str, str] = {}
-        client_id = str(cfg.get("client_id") or "").strip()
-        client_secret = str(cfg.get("client_secret") or "").strip()
-        redirect_uri = str(cfg.get("redirect_uri") or "").strip()
-        if not client_id:
-            errors["client_id"] = "Client ID is required"
-        if not client_secret:
-            errors["client_secret"] = "Client secret is required"
-        if not redirect_uri:
-            errors["redirect_uri"] = "Redirect URI is required"
-        if errors:
-            details = "; ".join(f"{field}: {message}" for field, message in errors.items())
-            raise ValueError(f"Google Calendar settings validation failed: {details}")
-        cfg["client_id"] = client_id
-        cfg["client_secret"] = client_secret
-        cfg["redirect_uri"] = redirect_uri
-        return cfg
+        # Paste-URL booking only — no OAuth client credentials required.
+        return {**config}
 
     @staticmethod
     def _validate_google_search_console_config(config: dict[str, Any]) -> dict[str, Any]:

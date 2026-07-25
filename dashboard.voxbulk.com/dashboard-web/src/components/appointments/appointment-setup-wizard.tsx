@@ -172,7 +172,7 @@ export function AppointmentSetupWizard() {
   const hubspotObjectForSync =
     hubspotObjectMode === "custom" ? String(form.crm_object ?? "").trim() : hubspotObjectMode;
   const schedulingReady = Boolean(schedulingQ.data?.connected);
-  const calendarApiReady = Boolean(schedulingQ.data?.google_calendar_connected || schedulingQ.data?.microsoft_calendar_connected);
+  const calendarApiReady = Boolean(schedulingQ.data?.calendar_event_sync_ready);
   const canNextStep1 =
     crmReady &&
     Boolean(form.workspace_name?.trim());

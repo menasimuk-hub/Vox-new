@@ -216,8 +216,7 @@ export function ProviderDetailSheet({
     }
   };
 
-  const showGoogleScheduleField =
-    isBookingPage && view.key === "google_calendar" && view.connected;
+  const showGoogleScheduleField = isBookingPage && view.key === "google_calendar";
   const showMicrosoftScheduleField =
     isBookingPage && view.key === "microsoft_calendar" && view.connected;
   const showHubspotMeetingsUrlField = isBookingPage && view.key === "hubspot_meetings";
@@ -366,15 +365,16 @@ export function ProviderDetailSheet({
               </div>
               <Input
                 id="google-schedule-url"
-                autoFocus={open && view.extra?.event_type_configured === false}
-                placeholder="https://calendar.google.com/calendar/appointments/schedules/…"
+                autoFocus={open && !view.connected}
+                placeholder="https://calendar.app.google/… or calendar.google.com/calendar/appointments/…"
                 value={scheduleDraft}
                 onChange={(e) => setScheduleDraft(e.target.value)}
               />
               <Button
-                variant="outline"
                 size="sm"
-                disabled={scheduleBusy}
+                disabled={
+                  scheduleBusy || !scheduleDraft.trim() || !view.platform_ready || Boolean(view.blocked_reason)
+                }
                 onClick={() =>
                   void saveScheduleUrl(
                     "/service-orders/scheduling/google-calendar/select-schedule",
@@ -382,8 +382,12 @@ export function ProviderDetailSheet({
                   )
                 }
               >
-                Save schedule
+                <Plug className="size-4" /> {view.connected ? "Update schedule URL" : "Connect with URL"}
               </Button>
+              <p className="text-[11px] text-muted-foreground">
+                Paste your public Google Appointment Schedule link. VoxBulk only stores and sends this URL — it does not
+                access your Google Calendar.
+              </p>
             </div>
           ) : null}
 
@@ -604,7 +608,8 @@ export function ProviderDetailSheet({
             view.actions.connect_url &&
             view.key !== "breezy_hr" &&
             view.key !== "hubspot_meetings" &&
-            view.key !== "zoho_bookings" ? (
+            view.key !== "zoho_bookings" &&
+            view.key !== "google_calendar" ? (
               <Button
                 variant="default"
                 className="gap-1.5"

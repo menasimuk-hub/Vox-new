@@ -23,7 +23,7 @@ MICROSOFT_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/toke
 MICROSOFT_GRAPH_EVENTS = "https://graph.microsoft.com/v1.0/me/events"
 MICROSOFT_GRAPH_CALENDAR_VIEW = "https://graph.microsoft.com/v1.0/me/calendarView"
 
-CALENDAR_API_PROVIDERS = frozenset({"google_calendar", "microsoft_calendar"})
+CALENDAR_API_PROVIDERS = frozenset({"microsoft_calendar"})
 
 
 def _effective_start(appt: Appointment) -> datetime | None:
@@ -62,13 +62,6 @@ def _persist_refreshed_token(db: Session, org_id: str, *, access_token: str, exp
     )
 
 
-def _google_platform_credentials(db: Session) -> tuple[str, str]:
-    from app.services.google_calendar_booking_service import _google_calendar_platform_credentials
-
-    client_id, client_secret, _redirect = _google_calendar_platform_credentials(db)
-    return client_id, client_secret
-
-
 def _microsoft_platform_credentials(db: Session) -> tuple[str, str]:
     from app.services.microsoft_calendar_service import _ms_platform_credentials
 
@@ -91,34 +84,18 @@ def ensure_calendar_access_token(db: Session, org_id: str) -> tuple[str, str, di
     sched = get_scheduling_config(db, org_id)
     provider = str(sched.get("provider") or "").strip().lower()
     if provider not in CALENDAR_API_PROVIDERS:
-        raise ValueError("No calendar API provider connected — connect Google or Microsoft in Integrations")
+        if provider == "google_calendar":
+            raise ValueError(
+                "Google Calendar is link-only (Appointment Schedule URL). "
+                "Appointment Manager cannot sync events to Google without Calendar API scopes."
+            )
+        raise ValueError("No calendar API provider connected — connect Microsoft in Integrations")
     token = str(sched.get("access_token") or "").strip()
     refresh = str(sched.get("refresh_token") or "").strip()
     if token and not _token_expired(sched):
         return token, provider, sched
     if not refresh:
         raise ValueError("Calendar connection expired — reconnect in Settings → Integrations")
-
-    if provider == "google_calendar":
-        client_id, client_secret = _google_platform_credentials(db)
-        with httpx.Client(timeout=30.0) as client:
-            res = client.post(
-                GOOGLE_TOKEN_URL,
-                data={
-                    "grant_type": "refresh_token",
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "refresh_token": refresh,
-                },
-            )
-        if res.status_code >= 400:
-            raise ValueError(f"Google Calendar token refresh failed: {res.text[:200]}")
-        data = res.json() or {}
-        token = str(data.get("access_token") or "").strip()
-        if not token:
-            raise ValueError("Google Calendar token refresh returned no access token")
-        _persist_refreshed_token(db, org_id, access_token=token, expires_in=int(data.get("expires_in") or 3600))
-        return token, provider, get_scheduling_config(db, org_id)
 
     client_id, client_secret = _microsoft_platform_credentials(db)
     with httpx.Client(timeout=30.0) as client:

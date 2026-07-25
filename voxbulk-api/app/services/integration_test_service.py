@@ -218,66 +218,27 @@ def _check_google_calendar(db: Session, org_id: str) -> list[dict[str, Any]]:
     cfg = get_scheduling_config(db, org_id)
     if str(cfg.get("provider") or "").lower() != "google_calendar":
         return [_check("connection", False, "Google Calendar is not the active booking provider")]
-    token = str(cfg.get("access_token") or "").strip()
-    if not token:
-        return [_check("token", False, "Google access token missing — reconnect Google Calendar")]
-    headers = {"Authorization": f"Bearer {token}"}
-    checks: list[dict[str, Any]] = []
-
-    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-        me_res = client.get("https://www.googleapis.com/oauth2/v3/userinfo", headers=headers)
-    if me_res.status_code >= 400:
-        checks.append(_check("token", False, f"Google token rejected ({me_res.status_code})"))
-        return checks
-    me = me_res.json() or {}
-    checks.append(_check("token", True, f"Token valid — connected as {me.get('email') or me.get('name') or 'Google user'}"))
-
-    with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-        cal_res = client.get(
-            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
-            headers=headers,
-        )
-    if cal_res.status_code == 403:
-        detail = ""
-        try:
-            detail = str((cal_res.json() or {}).get("error", {}).get("message") or "").strip()
-        except Exception:
-            detail = (cal_res.text or "")[:240].strip()
-        low = detail.lower()
-        if "has not been used" in low or "is disabled" in low or "accessnotconfigured" in low:
-            checks.append(
-                _check(
-                    "calendars",
-                    False,
-                    "Google Calendar API is disabled on this Cloud project — enable it in Google Cloud Console "
-                    "(APIs & Services → Library → Google Calendar API), wait a few minutes, then Test again",
-                )
-            )
-        else:
-            checks.append(
-                _check(
-                    "scopes",
-                    False,
-                    detail
-                    or "Calendar API returned 403 — disconnect and reconnect Google Calendar, and confirm the "
-                    "calendar scope was granted",
-                )
-            )
-    elif cal_res.status_code >= 400:
-        checks.append(_check("calendars", False, f"Calendar list failed ({cal_res.status_code})"))
-    else:
-        items = (cal_res.json() or {}).get("items") or []
-        checks.append(_check("calendars", True, f"{len(items)} calendars accessible"))
-
     schedule_url = str(cfg.get("schedule_url") or "").strip()
-    checks.append(
+    if not schedule_url.startswith("http"):
+        return [
+            _check(
+                "schedule_url",
+                False,
+                "No appointment schedule URL — paste one in the provider sheet "
+                "(calendar.app.google/… or calendar.google.com/calendar/appointments/…)",
+            )
+        ]
+    low = schedule_url.lower()
+    looks_google = "calendar.app.google" in low or "calendar.google.com" in low or "appointments" in low
+    return [
         _check(
             "schedule_url",
-            bool(schedule_url),
-            "Appointment Schedule URL is set" if schedule_url else "No appointment schedule URL — paste one in the provider sheet",
+            True,
+            "Appointment Schedule URL is set"
+            if looks_google
+            else "Schedule URL is set (confirm it opens your Google Appointment Schedule page)",
         )
-    )
-    return checks
+    ]
 
 
 def _check_microsoft_calendar(db: Session, org_id: str) -> list[dict[str, Any]]:

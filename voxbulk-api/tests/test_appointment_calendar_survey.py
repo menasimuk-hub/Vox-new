@@ -50,10 +50,11 @@ def _seed_org(db) -> tuple[Organisation, User]:
         db,
         org.id,
         {
-            "provider": "google_calendar",
-            "access_token": "google-access",
-            "refresh_token": "google-refresh",
+            "provider": "microsoft_calendar",
+            "access_token": "ms-access",
+            "refresh_token": "ms-refresh",
             "expires_at": (datetime.utcnow() + timedelta(hours=2)).isoformat(),
+            "schedule_url": "https://outlook.office365.com/owa/calendar/foo/bookings/",
         },
     )
     save_config(
@@ -92,31 +93,47 @@ def _make_appt(db, org_id: str, *, when: datetime | None = None) -> Appointment:
     return appt
 
 
-def test_calendar_status_reports_google_api_ready(db):
+def test_calendar_status_reports_microsoft_api_ready(db):
     org, _user = _seed_org(db)
     status = calendar_status(db, org.id)
     assert status["calendar_enabled"] is True
-    assert status["provider"] == "google_calendar"
+    assert status["provider"] == "microsoft_calendar"
     assert status["api_ready"] is True
 
 
+def test_calendar_status_google_url_only_not_api_ready(db):
+    org, _user = _seed_org(db)
+    save_scheduling_config(
+        db,
+        org.id,
+        {
+            "provider": "google_calendar",
+            "schedule_url": "https://calendar.app.google/abc",
+            "connection_mode": "url",
+            "access_token": "",
+            "refresh_token": "",
+            "_clear_oauth_tokens": True,
+        },
+    )
+    status = calendar_status(db, org.id)
+    assert status["provider"] == "google_calendar"
+    assert status["api_ready"] is False
+    assert status["human_scheduling_ready"] is True
+
+
 @patch("app.services.appointment_calendar_service.httpx.Client")
-def test_get_busy_intervals_google(mock_client_cls, db):
+def test_get_busy_intervals_microsoft(mock_client_cls, db):
     mock_client = MagicMock()
     mock_client_cls.return_value.__enter__.return_value = mock_client
-    mock_client.post.return_value = MagicMock(
+    mock_client.get.return_value = MagicMock(
         status_code=200,
         json=lambda: {
-            "calendars": {
-                "primary": {
-                    "busy": [
-                        {
-                            "start": "2026-06-25T10:00:00Z",
-                            "end": "2026-06-25T11:00:00Z",
-                        }
-                    ]
+            "value": [
+                {
+                    "start": {"dateTime": "2026-06-25T10:00:00", "timeZone": "UTC"},
+                    "end": {"dateTime": "2026-06-25T11:00:00", "timeZone": "UTC"},
                 }
-            }
+            ]
         },
     )
 
@@ -125,7 +142,7 @@ def test_get_busy_intervals_google(mock_client_cls, db):
     end = datetime(2026, 6, 25, 18, 0)
     busy = get_busy_intervals(db, org.id, from_dt=start, to_dt=end)
     assert len(busy) == 1
-    assert busy[0][0] == datetime(2026, 6, 25, 10, 0)
+    assert busy[0][0].hour == 10
 
 
 @patch("app.services.appointment_calendar_service.httpx.Client")
