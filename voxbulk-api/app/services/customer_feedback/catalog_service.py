@@ -769,7 +769,7 @@ class FeedbackCatalogService:
         q = (
             select(FeedbackPackage, Plan)
             .join(Plan, Plan.id == FeedbackPackage.plan_id)
-            .where(Plan.service_kind == FEEDBACK_SERVICE_CODE)
+            .where(Plan.service_kind == FEEDBACK_SERVICE_CODE, Plan.is_private.is_(False))
             .order_by(FeedbackPackage.display_order, Plan.name)
         )
         zone = normalize_zone(market_zone)
@@ -790,7 +790,7 @@ class FeedbackCatalogService:
         q = (
             select(Plan, FeedbackPackage)
             .join(FeedbackPackage, FeedbackPackage.plan_id == Plan.id)
-            .where(Plan.service_kind == FEEDBACK_SERVICE_CODE)
+            .where(Plan.service_kind == FEEDBACK_SERVICE_CODE, Plan.is_private.is_(False))
             .order_by(FeedbackPackage.display_order, Plan.name)
         )
         zone = normalize_zone(market_zone)

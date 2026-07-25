@@ -1357,7 +1357,7 @@ export default function OrganisationProfile() {
                 {planSaving ? 'Applying…' : 'Apply Core Platform plan'}
               </button>
               <p className='muted' style={{ fontSize: 12, margin: 0 }}>
-                Assigns the Core Platform subscription only. Does not change the Customer Feedback plan.
+                Assigns the Core Platform subscription only. Private packages (from Pricing → Private packages) appear in the picker as “Private · …”.
               </p>
             </div>
           </div>

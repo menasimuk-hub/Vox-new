@@ -8619,6 +8619,16 @@ body.dark .matrix th {
 }
 .pricingPkgDrawer .toggle.on { background: #2563eb; border-color: #2563eb; }
 .pricingPkgDrawer .toggle.on span { left: 20px; }
+.pricingPrivateOrgList {
+  max-height: 180px; overflow-y: auto; border: 1px solid var(--b1); border-radius: 8px;
+  padding: 6px; margin-bottom: 6px; background: #fff;
+}
+.pricingPrivateOrgRow {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px;
+  font-size: 13px; cursor: pointer;
+}
+.pricingPrivateOrgRow:hover { background: #f1f5f9; }
+.pricingPrivateOrgRow.on { background: #eff6ff; }
 
 /* Zone org detail + dashboard-aligned helpers */
 .grid-2 {

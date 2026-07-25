@@ -393,6 +393,8 @@ class ProductsHubService:
         for row in ProductsHubService.list_catalog(db):
             if row.get("product_type") != "subscription":
                 continue
+            if bool(row.get("is_private")):
+                continue
             line = str(row.get("product_line") or "")
             if want in {"core", "voxbulk"} and line != "voxbulk":
                 continue
@@ -416,8 +418,43 @@ class ProductsHubService:
                     "region": row.get("region"),
                     "price_display": row.get("price_display"),
                     "is_enterprise": bool(row.get("is_enterprise")),
+                    "is_private": False,
                     "is_active": bool(row.get("is_active")),
                     "market_zone": row.get("market_zone"),
+                }
+            )
+        # Private packages (org-only) — available for assignment in org profile
+        from app.services.private_packages_service import PrivatePackagesService
+
+        sk = None
+        if want in {"core", "voxbulk"}:
+            sk = "voxbulk"
+        elif want in {"feedback", "customer_feedback"}:
+            sk = "customer_feedback"
+        for pkg in PrivatePackagesService.list_private_packages(db, service_kind=sk, active_only=True):
+            line = "voxbulk" if pkg.get("service_kind") == "voxbulk" else str(pkg.get("service_kind") or "")
+            if want in {"core", "voxbulk"} and line != "voxbulk":
+                continue
+            if want in {"feedback", "customer_feedback"} and line != "customer_feedback":
+                continue
+            title = str(pkg.get("name") or pkg.get("code"))
+            out.append(
+                {
+                    "id": pkg.get("id"),
+                    "code": pkg.get("code"),
+                    "name": pkg.get("name"),
+                    "product_line": line,
+                    "group_label": "Private package",
+                    "picker_title": title,
+                    "picker_subtitle": "Private · org only",
+                    "picker_label": f"Private · {title}",
+                    "currency": None,
+                    "region": "Private",
+                    "price_display": None,
+                    "is_enterprise": True,
+                    "is_private": True,
+                    "is_active": bool(pkg.get("is_active")),
+                    "market_zone": None,
                 }
             )
         return out

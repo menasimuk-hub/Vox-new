@@ -271,15 +271,28 @@ class PlanPriceService:
     def rates_for_org(db: Session, org: Organisation | None, *, plan: Plan | None = None) -> dict[str, Any]:
         """Resolve the effective billing currency + unit rates for an org.
 
-        Org custom pricing (enterprise) overrides are applied on top of the currency defaults.
+        Private org package overrides (if assigned) win; else org custom pricing (GBP);
+        else plan prices + currency defaults. Missing fields fall back to defaults.
         """
         currency = resolve_org_currency(db, org)
         unit = PlanPriceService.get_currency_settings(db, currency)
-        plan_price = PlanPriceService.get_price(db, plan.id, currency) if plan is not None else None
+
+        effective_plan = plan
+        if org is not None:
+            try:
+                from app.services.private_packages_service import PrivatePackagesService
+
+                private = PrivatePackagesService.get_private_plan_for_org(db, org.id, "voxbulk")
+                if private is not None:
+                    effective_plan = private
+            except Exception:
+                pass
+
+        plan_price = PlanPriceService.get_price(db, effective_plan.id, currency) if effective_plan is not None else None
 
         per_min = int(plan_price.per_min_minor or 0) if plan_price else 0
         extra_per_min = int(plan_price.extra_per_min_minor or 0) if plan_price else 0
-        monthly = plan_price.monthly_price_minor if plan_price else (plan.price_gbp_pence if plan is not None and currency == "GBP" else None)
+        monthly = plan_price.monthly_price_minor if plan_price else (effective_plan.price_gbp_pence if effective_plan is not None and currency == "GBP" else None)
         if per_min <= 0:
             per_min = int(unit.interview_per_min_minor or 0)
         if extra_per_min <= 0:
@@ -295,10 +308,39 @@ class PlanPriceService:
             "wa_package_fee_minor": int(unit.wa_package_fee_minor or 0),
             "wa_extra_minor": int(unit.wa_extra_minor or 0),
             "cv_scan_fee_minor": int(unit.cv_scan_fee_minor or 0),
+            "plan_id": effective_plan.id if effective_plan is not None else None,
+            "plan_code": effective_plan.code if effective_plan is not None else None,
+            "is_private_package": bool(getattr(effective_plan, "is_private", False)) if effective_plan is not None else False,
         }
 
-        # Enterprise org-specific overrides (stored in GBP-era pence; only applied for GBP orgs)
-        if org is not None and currency == "GBP":
+        # Private package unit rates (per currency) — null fields keep defaults above
+        if effective_plan is not None and getattr(effective_plan, "is_private", False):
+            try:
+                from app.models.org_package_assignment import PlanUnitRate
+
+                ur = db.execute(
+                    select(PlanUnitRate).where(
+                        PlanUnitRate.plan_id == effective_plan.id,
+                        PlanUnitRate.currency == currency,
+                    )
+                ).scalar_one_or_none()
+            except Exception:
+                ur = None
+            if ur is not None:
+                if ur.connection_fee_minor is not None:
+                    rates["connection_fee_minor"] = int(ur.connection_fee_minor)
+                if ur.interview_per_min_minor is not None:
+                    rates["interview_per_min_minor"] = int(ur.interview_per_min_minor)
+                    rates["per_min_minor"] = int(ur.interview_per_min_minor)
+                if ur.wa_package_fee_minor is not None:
+                    rates["wa_package_fee_minor"] = int(ur.wa_package_fee_minor)
+                if ur.wa_extra_minor is not None:
+                    rates["wa_extra_minor"] = int(ur.wa_extra_minor)
+                if ur.cv_scan_fee_minor is not None:
+                    rates["cv_scan_fee_minor"] = int(ur.cv_scan_fee_minor)
+
+        # Legacy enterprise org-specific overrides (GBP only) — applied if no private package unit rates
+        elif org is not None and currency == "GBP":
             try:
                 from app.services.voxbulk_pricing_service import VoxbulkPricingService
 

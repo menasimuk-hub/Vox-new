@@ -4,6 +4,7 @@ import { PricingSettingsProvider } from './pricingUtils'
 
 const LINKS = [
   ['Packages', 'packages'],
+  ['Private packages', 'private'],
   ['Currency rates', 'currency-rates'],
   ['Connection fee', 'connection-fee'],
   ['Service rates', 'services'],

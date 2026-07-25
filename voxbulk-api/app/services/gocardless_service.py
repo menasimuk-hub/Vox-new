@@ -219,6 +219,7 @@ class BillingService:
         q = select(Plan).order_by(Plan.sort_order.asc(), Plan.price_gbp_pence.asc())
         if active_only:
             q = q.where(Plan.is_active.is_(True))
+        q = q.where(Plan.is_private.is_(False))
         return list(db.execute(q).scalars().all())
 
     @staticmethod

@@ -3487,6 +3487,19 @@ def admin_set_org_subscription(org_id: str, payload: dict, db: Session = Depends
         db.commit()
         db.refresh(sub)
     UsageWalletService.sync_plan_limits(db, org_id=org_id, plan=plan, subscription=sub)
+    if getattr(plan, "is_private", False):
+        try:
+            from app.services.private_packages_service import PrivatePackagesService
+
+            existing_orgs = [
+                o["org_id"]
+                for o in (PrivatePackagesService.package_to_dict(db, plan).get("orgs") or [])
+            ]
+            if org_id not in existing_orgs:
+                existing_orgs.append(org_id)
+            PrivatePackagesService.set_orgs(db, plan.id, existing_orgs, apply_subscription=False)
+        except Exception:
+            pass
     return {
         "ok": True,
         "org_id": org_id,
@@ -3525,6 +3538,19 @@ def admin_set_org_feedback_subscription(
         )
     except FeedbackBillingError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if getattr(plan, "is_private", False):
+        try:
+            from app.services.private_packages_service import PrivatePackagesService
+
+            existing_orgs = [
+                o["org_id"]
+                for o in (PrivatePackagesService.package_to_dict(db, plan).get("orgs") or [])
+            ]
+            if org_id not in existing_orgs:
+                existing_orgs.append(org_id)
+            PrivatePackagesService.set_orgs(db, plan.id, existing_orgs, apply_subscription=False)
+        except Exception:
+            pass
     return {
         "ok": True,
         "org_id": org_id,

@@ -501,6 +501,7 @@ class VoxbulkPricingService:
         plans = [p for p in PlanAdminService.list_plans(db, active_only=True) if getattr(p, "service_kind", "") == "voxbulk"]
         if not plans:
             plans = PlanAdminService.list_plans(db, active_only=True)
+        plans = [p for p in plans if not getattr(p, "is_private", False)]
         custom = VoxbulkPricingService.get_org_custom_pricing(db, org_id) if org_id else None
         org = db.get(Organisation, org_id) if org_id else None
         rates = PlanPriceService.rates_for_org(db, org) if org is not None else None

@@ -184,6 +184,7 @@ export const NAV = [
       ['Calls cost', '/billing/calls-cost'],
       ['Products hub', '/billing/products'],
       ['Core platform pricing', '/pricing/packages'],
+      ['Private packages', '/pricing/private'],
       ['Service orders (cash)', '/billing/service-orders'],
     ],
   ],

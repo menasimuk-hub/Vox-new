@@ -64,6 +64,7 @@ class PlanAdminService:
             "service_kind": row.service_kind,
             "is_featured": bool(getattr(row, "is_featured", False)),
             "is_enterprise": bool(getattr(row, "is_enterprise", False)),
+            "is_private": bool(getattr(row, "is_private", False)),
             "is_active": bool(row.is_active),
             "sort_order": int(row.sort_order or 100),
             "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -87,11 +88,13 @@ class PlanAdminService:
         }
 
     @staticmethod
-    def list_plans(db: Session, *, active_only: bool = False) -> list[Plan]:
+    def list_plans(db: Session, *, active_only: bool = False, include_private: bool = False) -> list[Plan]:
         BillingService.ensure_default_plans(db)
         q = select(Plan).order_by(Plan.sort_order.asc(), Plan.price_gbp_pence.asc())
         if active_only:
             q = q.where(Plan.is_active.is_(True))
+        if not include_private:
+            q = q.where(Plan.is_private.is_(False))
         return list(db.execute(q).scalars().all())
 
     @staticmethod
@@ -145,6 +148,7 @@ class PlanAdminService:
             is_active=bool(payload.get("is_active", True)),
             is_featured=bool(payload.get("is_featured", False)),
             is_enterprise=bool(payload.get("is_enterprise", False)),
+            is_private=bool(payload.get("is_private", False)),
             sort_order=int(payload.get("sort_order") or 100),
             created_at=now,
             updated_at=now,
@@ -197,6 +201,8 @@ class PlanAdminService:
             row.is_enterprise = bool(payload.get("is_enterprise"))
             if row.is_enterprise and "price_gbp_pence" not in payload:
                 row.price_gbp_pence = None
+        if payload.get("is_private") is not None:
+            row.is_private = bool(payload.get("is_private"))
         row.updated_at = datetime.utcnow()
         if row.service_kind == "voxbulk" and not row.is_enterprise:
             from app.services.voxbulk_pricing_service import VoxbulkPricingService

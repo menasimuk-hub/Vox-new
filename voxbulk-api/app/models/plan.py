@@ -36,8 +36,9 @@ class Plan(Base):
     is_enterprise: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Hidden from public/catalog pricing; assigned to orgs via org_package_assignments.
+    is_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-

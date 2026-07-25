@@ -153,6 +153,7 @@ export default function App() {
         <Route path='/pricing/*' element={<P.PricingShell />}>
           <Route index element={<Navigate to='/pricing/packages' replace />} />
           <Route path='packages' element={<P.PricingPackages />} />
+          <Route path='private' element={<P.PricingPrivatePackages />} />
           <Route path='plans' element={<Navigate to='/pricing/packages?service=core' replace />} />
           <Route path='connection-fee' element={<P.PricingConnectionFee />} />
           <Route path='services' element={<P.PricingServices />} />
@@ -162,7 +163,7 @@ export default function App() {
           <Route path='invoice-settings' element={<P.PricingInvoiceSettings />} />
           <Route path='fx' element={<Navigate to='/pricing/currency-rates' replace />} />
           <Route path='estimator' element={<P.PricingEstimator />} />
-          <Route path='custom' element={<P.PricingCustomOrg />} />
+          <Route path='custom' element={<Navigate to='/pricing/private' replace />} />
         </Route>
 
         <Route path='/support/inbox' element={<P.SupportTickets />} />

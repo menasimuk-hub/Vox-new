@@ -434,6 +434,114 @@ def deactivate_pricing_package(plan_id: str, db: Session = Depends(get_db), _adm
     return _run_pricing_db(db, work)
 
 
+# ------------------------------------------------------------------ private org packages
+
+
+@router.get("/private-packages/defaults")
+def private_package_defaults(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.private_packages_service import PrivatePackagesService
+
+        return {"ok": True, **PrivatePackagesService.defaults_payload(db)}
+
+    return _run_pricing_db(db, work)
+
+
+@router.get("/private-packages")
+def list_private_packages(
+    service_kind: str | None = Query(None),
+    active_only: bool = Query(True),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.private_packages_service import PrivatePackagesService
+
+        items = PrivatePackagesService.list_private_packages(db, service_kind=service_kind, active_only=active_only)
+        return {"ok": True, "items": items}
+
+    return _run_pricing_db(db, work)
+
+
+@router.post("/private-packages")
+def create_private_package(payload: dict = Body(...), db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.private_packages_service import PrivatePackagesError, PrivatePackagesService
+
+        try:
+            item = PrivatePackagesService.create_package(db, payload)
+        except PrivatePackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.put("/private-packages/{plan_id}")
+def update_private_package(
+    plan_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.private_packages_service import PrivatePackagesError, PrivatePackagesService
+
+        try:
+            item = PrivatePackagesService.update_package(db, plan_id, payload)
+        except PrivatePackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.put("/private-packages/{plan_id}/orgs")
+def set_private_package_orgs(
+    plan_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.private_packages_service import PrivatePackagesError, PrivatePackagesService
+
+        org_ids = payload.get("org_ids") if isinstance(payload, dict) else None
+        if not isinstance(org_ids, list):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_ids must be a list")
+        try:
+            item = PrivatePackagesService.set_orgs(db, plan_id, org_ids, apply_subscription=True)
+        except PrivatePackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.delete("/private-packages/{plan_id}")
+def deactivate_private_package(plan_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.private_packages_service import PrivatePackagesError, PrivatePackagesService
+
+        try:
+            item = PrivatePackagesService.deactivate_package(db, plan_id)
+        except PrivatePackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.get("/private-packages/org/{org_id}")
+def list_org_private_assignments(org_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.private_packages_service import PrivatePackagesService
+
+        return {"ok": True, "items": PrivatePackagesService.assignments_for_org(db, org_id)}
+
+    return _run_pricing_db(db, work)
+
+
 # ------------------------------------------------------------------ billing settings (company / VAT / invoice numbering)
 
 

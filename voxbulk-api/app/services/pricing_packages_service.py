@@ -72,7 +72,7 @@ class PricingPackagesService:
 
     @staticmethod
     def _list_voxbulk(db: Session, *, active_only: bool) -> list[dict[str, Any]]:
-        q = select(Plan).where(Plan.service_kind == "voxbulk").order_by(Plan.sort_order.asc(), Plan.name.asc())
+        q = select(Plan).where(Plan.service_kind == "voxbulk", Plan.is_private.is_(False)).order_by(Plan.sort_order.asc(), Plan.name.asc())
         if active_only:
             q = q.where(Plan.is_active.is_(True))
         rows = list(db.execute(q).scalars().all())
@@ -98,7 +98,7 @@ class PricingPackagesService:
         q = (
             select(Plan, FeedbackPackage)
             .join(FeedbackPackage, FeedbackPackage.plan_id == Plan.id)
-            .where(Plan.service_kind == FEEDBACK_SERVICE_CODE)
+            .where(Plan.service_kind == FEEDBACK_SERVICE_CODE, Plan.is_private.is_(False))
             .order_by(FeedbackPackage.display_order.asc(), Plan.name.asc())
         )
         if active_only:
@@ -155,7 +155,7 @@ class PricingPackagesService:
         q = (
             select(Plan, ExpoPackage)
             .join(ExpoPackage, ExpoPackage.plan_id == Plan.id)
-            .where(Plan.service_kind == EXPO_SERVICE_CODE, ExpoPackage.market_zone == "all")
+            .where(Plan.service_kind == EXPO_SERVICE_CODE, ExpoPackage.market_zone == "all", Plan.is_private.is_(False))
             .order_by(ExpoPackage.display_order.asc(), Plan.name.asc())
         )
         if active_only:
