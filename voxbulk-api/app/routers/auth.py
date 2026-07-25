@@ -518,13 +518,17 @@ def me(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_
     from app.services.sales_rep_service import SalesRepService
 
     sales_rep = SalesRepService.get_rep_for_user(db, user_id=principal.user_id)
+    sales_rep_active = bool(sales_rep and sales_rep.is_active)
+    sales_rep_kind = SalesRepService.rep_kind(sales_rep) if sales_rep_active else None
 
     return {
         "user_id": principal.user_id,
         "org_id": principal.org_id,
         "email": user.email,
-        "is_sales_rep": bool(sales_rep and sales_rep.is_active),
-        "sales_rep_id": sales_rep.id if sales_rep else None,
+        "is_sales_rep": bool(sales_rep_active and sales_rep_kind == "salesman"),
+        "is_partner_channel": bool(sales_rep_active and sales_rep_kind == "partner_channel"),
+        "sales_rep_kind": sales_rep_kind,
+        "sales_rep_id": sales_rep.id if sales_rep_active else None,
         "deletion_status": deletion.get("deletion_status"),
         "deletion_label": deletion.get("deletion_label"),
         "deletion_requested_at": deletion.get("deletion_requested_at"),

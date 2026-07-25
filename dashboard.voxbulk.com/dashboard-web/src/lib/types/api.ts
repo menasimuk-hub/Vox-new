@@ -41,6 +41,8 @@ export type UserProfile = {
   org_id?: string;
   phone?: UserPhoneStatus;
   is_sales_rep?: boolean;
+  is_partner_channel?: boolean;
+  sales_rep_kind?: string | null;
   sales_rep_id?: string | null;
 };
 

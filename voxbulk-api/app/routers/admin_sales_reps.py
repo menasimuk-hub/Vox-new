@@ -1,10 +1,8 @@
-"""Admin API — Salesmen (Task 8). Create/list/update sales reps and view their performance."""
+"""Admin API — Salesmen and Partner Channel Sales. Create/list/update reps and commissions."""
 
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,14 +10,22 @@ from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
 from app.models.sales_rep import SalesRep
 from app.models.user import User
-from app.services.sales_rep_service import SalesRepError, SalesRepService
+from app.services.sales_rep_service import KIND_SALESMAN, SalesRepError, SalesRepService
 
 router = APIRouter(prefix="/admin/sales-reps", tags=["admin-sales-reps"])
 
 
 @router.get("")
-def list_sales_reps(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
-    return {"ok": True, "items": SalesRepService.list_reps(db)}
+def list_sales_reps(
+    kind: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    try:
+        items = SalesRepService.list_reps(db, kind=kind)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "items": items}
 
 
 @router.post("")
@@ -33,6 +39,9 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
             promo_code=payload.get("promo_code", ""),
             country=payload.get("country"),
             caller_id=payload.get("caller_id"),
+            kind=payload.get("kind") or KIND_SALESMAN,
+            commission_pct=payload.get("commission_pct"),
+            company_name=payload.get("company_name"),
         )
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -7,6 +7,7 @@ type MeRole = {
   role?: string | null;
   tenant_role?: string | null;
   is_sales_rep?: boolean;
+  is_partner_channel?: boolean;
 };
 
 export async function requireOrgSettingsAccess() {
@@ -19,8 +20,8 @@ export async function requireOrgSettingsAccess() {
 
 export async function requireBillingOnlyHome() {
   const me = await apiFetch<MeRole>("/auth/me");
-  // Salesmen now use the full dashboard, so they stay on the home route.
-  if (me.is_sales_rep) return;
+  // Sales / partner channel accounts stay on the home route.
+  if (me.is_sales_rep || me.is_partner_channel) return;
   const role = me.role ?? me.tenant_role;
   if (isBillingOnlyRole(role)) {
     throw redirect({ to: "/account/billing" });
@@ -31,6 +32,16 @@ export async function requireSalesRep() {
   try {
     const me = await apiFetch<MeRole>("/auth/me");
     if (!me?.is_sales_rep) throw redirect({ to: "/" });
+  } catch (e) {
+    if (e && typeof e === "object" && "to" in (e as Record<string, unknown>)) throw e;
+    throw redirect({ to: "/login" });
+  }
+}
+
+export async function requirePartnerChannel() {
+  try {
+    const me = await apiFetch<MeRole>("/auth/me");
+    if (!me?.is_partner_channel) throw redirect({ to: "/" });
   } catch (e) {
     if (e && typeof e === "object" && "to" in (e as Record<string, unknown>)) throw e;
     throw redirect({ to: "/login" });

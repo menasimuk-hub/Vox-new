@@ -24,6 +24,7 @@ import { Route as AppAppointmentsRouteImport } from './routes/_app.appointments'
 import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app.settings.index'
 import { Route as AppSalesIndexRouteImport } from './routes/_app.sales.index'
+import { Route as AppPartnerChannelIndexRouteImport } from './routes/_app.partner-channel.index'
 import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
 import { Route as AppInterviewsIndexRouteImport } from './routes/_app.interviews.index'
 import { Route as AppFeedbackIndexRouteImport } from './routes/_app.feedback.index'
@@ -146,6 +147,11 @@ const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
 const AppSalesIndexRoute = AppSalesIndexRouteImport.update({
   id: '/sales/',
   path: '/sales/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerChannelIndexRoute = AppPartnerChannelIndexRouteImport.update({
+  id: '/partner-channel/',
+  path: '/partner-channel/',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRecoveryIndexRoute = AppRecoveryIndexRouteImport.update({
@@ -453,6 +459,7 @@ export interface FileRoutesByFullPath {
   '/interviews/': typeof AppInterviewsIndexRoute
   '/recovery/': typeof AppRecoveryIndexRoute
   '/sales/': typeof AppSalesIndexRoute
+  '/partner-channel/': typeof AppPartnerChannelIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/surveys/': typeof AppSurveysIndexRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
@@ -511,6 +518,7 @@ export interface FileRoutesByTo {
   '/interviews': typeof AppInterviewsIndexRoute
   '/recovery': typeof AppRecoveryIndexRoute
   '/sales': typeof AppSalesIndexRoute
+  '/partner-channel': typeof AppPartnerChannelIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/surveys': typeof AppSurveysIndexRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
@@ -578,6 +586,7 @@ export interface FileRoutesById {
   '/_app/interviews/': typeof AppInterviewsIndexRoute
   '/_app/recovery/': typeof AppRecoveryIndexRoute
   '/_app/sales/': typeof AppSalesIndexRoute
+  '/_app/partner-channel/': typeof AppPartnerChannelIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/surveys/': typeof AppSurveysIndexRoute
   '/_app/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
@@ -645,6 +654,7 @@ export interface FileRouteTypes {
     | '/interviews/'
     | '/recovery/'
     | '/sales/'
+    | '/partner-channel/'
     | '/settings/'
     | '/surveys/'
     | '/account/feedback/packages'
@@ -703,6 +713,7 @@ export interface FileRouteTypes {
     | '/interviews'
     | '/recovery'
     | '/sales'
+    | '/partner-channel'
     | '/settings'
     | '/surveys'
     | '/account/feedback/packages'
@@ -769,6 +780,7 @@ export interface FileRouteTypes {
     | '/_app/interviews/'
     | '/_app/recovery/'
     | '/_app/sales/'
+    | '/_app/partner-channel/'
     | '/_app/settings/'
     | '/_app/surveys/'
     | '/_app/account/feedback/packages'
@@ -895,6 +907,13 @@ declare module '@tanstack/react-router' {
       path: '/sales'
       fullPath: '/sales/'
       preLoaderRoute: typeof AppSalesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-channel/': {
+      id: '/_app/partner-channel/'
+      path: '/partner-channel'
+      fullPath: '/partner-channel/'
+      preLoaderRoute: typeof AppPartnerChannelIndexRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/recovery/': {
@@ -1399,6 +1418,7 @@ interface AppRouteChildren {
   AppAccountIndexRoute: typeof AppAccountIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppSalesIndexRoute: typeof AppSalesIndexRoute
+  AppPartnerChannelIndexRoute: typeof AppPartnerChannelIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppAccountFeedbackPackagesRoute: typeof AppAccountFeedbackPackagesRoute
   AppSalesCustomersIdRoute: typeof AppSalesCustomersIdRoute
@@ -1432,6 +1452,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountIndexRoute: AppAccountIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppSalesIndexRoute: AppSalesIndexRoute,
+  AppPartnerChannelIndexRoute: AppPartnerChannelIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppAccountFeedbackPackagesRoute: AppAccountFeedbackPackagesRoute,
   AppSalesCustomersIdRoute: AppSalesCustomersIdRoute,

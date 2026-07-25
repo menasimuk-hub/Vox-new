@@ -14,7 +14,7 @@ function Modal({ title, onClose, children, wide }) {
       <div
         className='occ-modal'
         role='dialog'
-        style={wide ? { maxWidth: 900, width: '92vw' } : undefined}
+        style={wide ? { maxWidth: 960, width: '94vw' } : undefined}
         onClick={(e) => e.stopPropagation()}
       >
         <div className='occ-modal-head'>
@@ -27,21 +27,18 @@ function Modal({ title, onClose, children, wide }) {
   )
 }
 
-const EMPTY_FORM = { name: '', email: '', password: '', promo_code: '', country: '', caller_id: '', commission_pct: '15' }
-const PROMO_CODE_RE = /^[A-Z0-9]{4,12}$/
-const SALESMAN_EMAIL_DOMAIN = 'voxbulk.com'
-
-// Suggest the next free salesman{N}@voxbulk.com based on existing reps.
-function nextSalesmanEmail(reps) {
-  let max = 0
-  for (const r of reps || []) {
-    const m = /^salesman(\d+)@voxbulk\.com$/i.exec(String(r?.email || '').trim())
-    if (m) max = Math.max(max, parseInt(m[1], 10))
-  }
-  return `salesman${max + 1}@${SALESMAN_EMAIL_DOMAIN}`
+const EMPTY_FORM = {
+  company_name: '',
+  name: '',
+  email: '',
+  password: '',
+  promo_code: '',
+  country: '',
+  commission_pct: '15',
 }
+const PROMO_CODE_RE = /^[A-Z0-9]{4,12}$/
 
-export default function Salesmen() {
+export default function PartnerChannelSales() {
   const [reps, setReps] = useState([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState('')
@@ -53,7 +50,13 @@ export default function Salesmen() {
   const [createErr, setCreateErr] = useState('')
 
   const [editRep, setEditRep] = useState(null)
-  const [editForm, setEditForm] = useState({ name: '', promo_code: '', country: '', caller_id: '', commission_pct: '15' })
+  const [editForm, setEditForm] = useState({
+    company_name: '',
+    name: '',
+    promo_code: '',
+    country: '',
+    commission_pct: '15',
+  })
 
   const [pwRep, setPwRep] = useState(null)
   const [pwValue, setPwValue] = useState('')
@@ -65,10 +68,10 @@ export default function Salesmen() {
     setLoading(true)
     setErr('')
     try {
-      const res = await apiFetch('/admin/sales-reps?kind=salesman')
+      const res = await apiFetch('/admin/sales-reps?kind=partner_channel')
       setReps(res?.items || [])
     } catch (e) {
-      setErr(e?.message || 'Failed to load salesmen')
+      setErr(e?.message || 'Failed to load partner channel accounts')
     } finally {
       setLoading(false)
     }
@@ -85,13 +88,15 @@ export default function Salesmen() {
     setCreateErr('')
     setMsg('')
 
-    const name = createForm.name.trim()
+    const companyName = createForm.company_name.trim()
+    const name = createForm.name.trim() || companyName
     const email = createForm.email.trim().toLowerCase()
     const password = createForm.password
     const promoCode = createForm.promo_code.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+    const commissionPct = Number(createForm.commission_pct || 15)
 
-    if (!name) {
-      setCreateErr('Full name is required.')
+    if (!companyName) {
+      setCreateErr('Company / partner name is required.')
       setBusy(false)
       return
     }
@@ -106,7 +111,7 @@ export default function Salesmen() {
       return
     }
     if (!PROMO_CODE_RE.test(promoCode)) {
-      setCreateErr('Promo code must be 4–12 letters or numbers (e.g. UK4F2A).')
+      setCreateErr('Promo code must be 4–12 letters or numbers (e.g. PARTNER01).')
       setBusy(false)
       return
     }
@@ -115,17 +120,19 @@ export default function Salesmen() {
       const res = await apiFetch('/admin/sales-reps', {
         method: 'POST',
         body: JSON.stringify({
-          kind: 'salesman',
+          kind: 'partner_channel',
+          company_name: companyName,
           name,
           email,
           password,
           promo_code: promoCode,
           country: createForm.country.trim().toUpperCase(),
-          caller_id: createForm.caller_id.trim(),
-          commission_pct: Number(createForm.commission_pct || 15),
+          commission_pct: commissionPct,
         }),
       })
-      setMsg(`Created ${res?.rep?.email || email} · promo code ${res?.rep?.promo_code || promoCode} · commission ${res?.rep?.commission_pct ?? 15}%. They sign in at the dashboard with this email + password.`)
+      setMsg(
+        `Created ${res?.rep?.email || email} · promo ${res?.rep?.promo_code || promoCode} · ${res?.rep?.commission_pct ?? commissionPct}% on every paid subscription. They sign in at the dashboard.`,
+      )
       setCreateForm(EMPTY_FORM)
       setCreateErr('')
       setShowCreate(false)
@@ -142,10 +149,10 @@ export default function Salesmen() {
   const openEdit = (rep) => {
     setEditRep(rep)
     setEditForm({
+      company_name: rep.company_name || '',
       name: rep.name || '',
       promo_code: rep.promo_code || '',
       country: rep.country || '',
-      caller_id: rep.caller_id || '',
       commission_pct: String(rep.commission_pct ?? 15),
     })
   }
@@ -159,14 +166,14 @@ export default function Salesmen() {
       await apiFetch(`/admin/sales-reps/${editRep.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
+          company_name: editForm.company_name.trim(),
           name: editForm.name.trim(),
           promo_code: editForm.promo_code.trim().toUpperCase(),
           country: editForm.country.trim().toUpperCase(),
-          caller_id: editForm.caller_id.trim(),
           commission_pct: Number(editForm.commission_pct || 15),
         }),
       })
-      setMsg(`Updated ${editForm.name || editRep.email}.`)
+      setMsg(`Updated ${editForm.company_name || editForm.name || editRep.email}.`)
       setEditRep(null)
       load()
     } catch (e2) {
@@ -186,35 +193,43 @@ export default function Salesmen() {
         method: 'POST',
         body: JSON.stringify({ password: pwValue }),
       })
-      setMsg(`Password reset for ${pwRep.name || pwRep.email}.`)
+      setMsg(`Password reset for ${pwRep.email || pwRep.name}.`)
       setPwRep(null)
       setPwValue('')
     } catch (e2) {
-      setErr(e2?.message || 'Reset failed')
+      setErr(e2?.message || 'Password reset failed')
     } finally {
       setBusy(false)
     }
   }
 
   const toggleActive = async (rep) => {
+    setBusy(true)
     setErr('')
     try {
-      await apiFetch(`/admin/sales-reps/${rep.id}`, { method: 'PATCH', body: JSON.stringify({ is_active: !rep.is_active }) })
+      await apiFetch(`/admin/sales-reps/${rep.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ is_active: !rep.is_active }),
+      })
       load()
-    } catch (e) {
-      setErr(e?.message || 'Update failed')
+    } catch (e2) {
+      setErr(e2?.message || 'Update failed')
+    } finally {
+      setBusy(false)
     }
   }
 
   const remove = async (rep) => {
-    if (!window.confirm(`Delete salesman ${rep.name || rep.email}? Their login is disabled and their pipeline records are removed.`)) return
+    if (!window.confirm(`Delete partner channel ${rep.company_name || rep.name || rep.email}?`)) return
+    setBusy(true)
     setErr('')
     try {
       await apiFetch(`/admin/sales-reps/${rep.id}`, { method: 'DELETE' })
-      setMsg(`Deleted ${rep.name || rep.email}.`)
       load()
-    } catch (e) {
-      setErr(e?.message || 'Delete failed')
+    } catch (e2) {
+      setErr(e2?.message || 'Delete failed')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -222,13 +237,31 @@ export default function Salesmen() {
     setProfileRep(rep)
     setProfile(null)
     try {
-      const [cust, dash] = await Promise.all([
-        apiFetch(`/admin/sales-reps/${rep.id}/customers`),
-        apiFetch(`/admin/sales-reps/${rep.id}/dashboard`),
-      ])
-      setProfile({ customers: cust?.items || [], stats: dash?.stats || null, sample: false })
-    } catch (e) {
-      setProfile({ customers: [], stats: null, sample: false })
+      const dash = await apiFetch(`/admin/sales-reps/${rep.id}/dashboard`)
+      setProfile({ stats: dash?.stats || null })
+    } catch (e2) {
+      setErr(e2?.message || 'Failed to load profile')
+      setProfileRep(null)
+    }
+  }
+
+  const markAllPaid = async (rep) => {
+    if (!window.confirm(`Mark all pending commissions paid for ${rep.company_name || rep.name}?`)) return
+    setBusy(true)
+    setErr('')
+    setMsg('')
+    try {
+      const res = await apiFetch(`/admin/sales-reps/${rep.id}/commissions/mark-paid`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      })
+      setMsg(`Marked ${res?.marked_paid ?? 0} commission(s) paid · ${money(res?.amount_minor)}.`)
+      if (profileRep?.id === rep.id) openProfile(rep)
+      load()
+    } catch (e2) {
+      setErr(e2?.message || 'Mark paid failed')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -236,13 +269,25 @@ export default function Salesmen() {
     <>
       <div className='pageTop'>
         <div>
-          <h1>Salesmen</h1>
-          <p>Field reps who sign in to the dashboard and see only the Sales portal. Create a login, assign their promo code, and track their pipeline.</p>
+          <h1>Partner Channel Sales</h1>
+          <p>
+            Sales companies and working partners. They get a promo code, earn commission on every paid subscription
+            when customers use that code, and see KPIs + commission only in the dashboard.
+          </p>
         </div>
         <div className='actions'>
           <button className='btn soft' onClick={load}>Refresh</button>
-          <button className='btn primary' onClick={() => { setErr(''); setMsg(''); setCreateErr(''); setCreateForm({ ...EMPTY_FORM, email: nextSalesmanEmail(reps) }); setShowCreate(true) }}>
-            + Create salesman
+          <button
+            className='btn primary'
+            onClick={() => {
+              setErr('')
+              setMsg('')
+              setCreateErr('')
+              setCreateForm(EMPTY_FORM)
+              setShowCreate(true)
+            }}
+          >
+            + Create partner
           </button>
         </div>
       </div>
@@ -252,23 +297,24 @@ export default function Salesmen() {
 
       <div className='card'>
         <div className='cardHead'>
-          <h3>Salesmen ({reps.length})</h3>
+          <h3>Partners ({reps.length})</h3>
         </div>
         <div className='cardBody'>
           {loading ? (
             <div className='muted'>Loading…</div>
           ) : reps.length === 0 ? (
-            <div className='muted'>No salesmen yet. Click <strong>Create salesman</strong> to add one.</div>
+            <div className='muted'>No partner channel accounts yet. Click <strong>Create partner</strong> to add one.</div>
           ) : (
             <div className='tableWrap'>
               <table className='table'>
                 <thead>
                   <tr>
-                    <th>Name</th>
+                    <th>Company</th>
+                    <th>Contact</th>
                     <th>Email</th>
                     <th>Promo code</th>
                     <th>Rate</th>
-                    <th>Customers</th>
+                    <th>Companies</th>
                     <th>Commission</th>
                     <th>Status</th>
                     <th style={{ width: 1 }} />
@@ -277,7 +323,8 @@ export default function Salesmen() {
                 <tbody>
                   {reps.map((r) => (
                     <tr key={r.id}>
-                      <td><strong>{r.name}</strong></td>
+                      <td><strong>{r.company_name || r.name}</strong></td>
+                      <td className='muted'>{r.name}</td>
                       <td className='muted'>{r.email}</td>
                       <td style={{ fontFamily: 'ui-monospace, monospace' }}>{r.promo_code}</td>
                       <td>{Number(r.commission_pct ?? 15)}%</td>
@@ -288,7 +335,8 @@ export default function Salesmen() {
                       </td>
                       <td>
                         <div className='actions' style={{ flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
-                          <button className='btn soft' onClick={() => openProfile(r)}>Profile</button>
+                          <button className='btn soft' onClick={() => openProfile(r)}>KPIs</button>
+                          <button className='btn soft' onClick={() => markAllPaid(r)}>Mark paid</button>
                           <button className='btn soft' onClick={() => openEdit(r)}>Edit</button>
                           <button className='btn soft' onClick={() => { setErr(''); setMsg(''); setPwValue(''); setPwRep(r) }}>Reset password</button>
                           <button className='btn soft' onClick={() => toggleActive(r)}>{r.is_active ? 'Disable' : 'Enable'}</button>
@@ -305,10 +353,12 @@ export default function Salesmen() {
       </div>
 
       {showCreate ? (
-        <Modal title='Create salesman' onClose={() => { if (!busy) { setShowCreate(false); setCreateErr('') } }}>
+        <Modal title='Create partner channel' onClose={() => { if (!busy) { setShowCreate(false); setCreateErr('') } }}>
           <form onSubmit={create} noValidate>
             <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
-              <p className='muted' style={{ margin: 0 }}>Creates a dashboard login. The salesman signs in with this email + password and sees only the Sales portal.</p>
+              <p className='muted' style={{ margin: 0 }}>
+                Creates a dashboard login. The partner sees only Partner Channel Sales (KPIs + commission). Commission accrues on every paid subscription using their promo code.
+              </p>
               {createErr ? (
                 <div className='note' style={{ borderColor: 'rgba(220,38,38,0.45)', margin: 0 }} role='alert'>
                   {createErr}
@@ -316,52 +366,55 @@ export default function Salesmen() {
               ) : null}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Full name</span>
-                  <input className='input' value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} placeholder='Jane Smith' required />
+                  <span className='label'>Company / partner name</span>
+                  <input className='input' value={createForm.company_name} onChange={(e) => setCreateForm({ ...createForm, company_name: e.target.value })} placeholder='Acme Partners Ltd' required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Contact name</span>
+                  <input className='input' value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} placeholder='Jane Smith' />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className='label'>Email (login)</span>
-                  <input className='input' type='email' value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder='jane@voxbulk.com' required />
+                  <input className='input' type='email' value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder='partner@company.com' required />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className='label'>Temporary password</span>
                   <input className='input' type='password' value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} placeholder='Min 6 characters' minLength={6} required />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Promo code (you type it)</span>
-                  <input className='input' style={{ textTransform: 'uppercase', fontFamily: 'ui-monospace, monospace' }} value={createForm.promo_code} onChange={(e) => setCreateForm({ ...createForm, promo_code: e.target.value })} placeholder='UK4F2A' required />
-                </label>
-                <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Country (ISO, optional)</span>
-                  <input className='input' style={{ textTransform: 'uppercase' }} value={createForm.country} onChange={(e) => setCreateForm({ ...createForm, country: e.target.value })} placeholder='GB' maxLength={2} />
-                </label>
-                <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Demo caller ID (optional)</span>
-                  <input className='input' value={createForm.caller_id} onChange={(e) => setCreateForm({ ...createForm, caller_id: e.target.value })} placeholder='+4420…' />
+                  <span className='label'>Promo code</span>
+                  <input className='input' style={{ textTransform: 'uppercase', fontFamily: 'ui-monospace, monospace' }} value={createForm.promo_code} onChange={(e) => setCreateForm({ ...createForm, promo_code: e.target.value })} placeholder='PARTNER01' required />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className='label'>Commission %</span>
                   <input className='input' type='number' min='0' max='100' step='0.01' value={createForm.commission_pct} onChange={(e) => setCreateForm({ ...createForm, commission_pct: e.target.value })} required />
                 </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Country (ISO, optional)</span>
+                  <input className='input' style={{ textTransform: 'uppercase' }} value={createForm.country} onChange={(e) => setCreateForm({ ...createForm, country: e.target.value })} placeholder='GB' maxLength={2} />
+                </label>
               </div>
-              <p className='muted' style={{ margin: 0, fontSize: 12 }}>Default 15%. Applied to the 2nd monthly invoice (or 1/12 of yearly) when the customer pays.</p>
             </div>
             <div className='occ-modal-foot'>
               <button type='button' className='btn soft' onClick={() => setShowCreate(false)} disabled={busy}>Cancel</button>
-              <button type='submit' className='btn primary' disabled={busy}>{busy ? 'Creating…' : 'Create salesman'}</button>
+              <button type='submit' className='btn primary' disabled={busy}>{busy ? 'Creating…' : 'Create partner'}</button>
             </div>
           </form>
         </Modal>
       ) : null}
 
       {editRep ? (
-        <Modal title={`Edit ${editRep.name || editRep.email}`} onClose={() => setEditRep(null)}>
+        <Modal title={`Edit ${editRep.company_name || editRep.name || editRep.email}`} onClose={() => setEditRep(null)}>
           <form onSubmit={saveEdit}>
             <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
               <div className='muted' style={{ fontSize: 12 }}>{editRep.email}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Full name</span>
+                  <span className='label'>Company / partner name</span>
+                  <input className='input' value={editForm.company_name} onChange={(e) => setEditForm({ ...editForm, company_name: e.target.value })} />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Contact name</span>
                   <input className='input' value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} required />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
@@ -369,16 +422,12 @@ export default function Salesmen() {
                   <input className='input' style={{ textTransform: 'uppercase', fontFamily: 'ui-monospace, monospace' }} value={editForm.promo_code} onChange={(e) => setEditForm({ ...editForm, promo_code: e.target.value })} required />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Country (ISO)</span>
-                  <input className='input' style={{ textTransform: 'uppercase' }} value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} maxLength={2} />
-                </label>
-                <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Demo caller ID</span>
-                  <input className='input' value={editForm.caller_id} onChange={(e) => setEditForm({ ...editForm, caller_id: e.target.value })} placeholder='+4420…' />
-                </label>
-                <label style={{ display: 'grid', gap: 6 }}>
                   <span className='label'>Commission %</span>
                   <input className='input' type='number' min='0' max='100' step='0.01' value={editForm.commission_pct} onChange={(e) => setEditForm({ ...editForm, commission_pct: e.target.value })} required />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>Country (ISO)</span>
+                  <input className='input' style={{ textTransform: 'uppercase' }} value={editForm.country} onChange={(e) => setEditForm({ ...editForm, country: e.target.value })} maxLength={2} />
                 </label>
               </div>
             </div>
@@ -391,10 +440,10 @@ export default function Salesmen() {
       ) : null}
 
       {pwRep ? (
-        <Modal title={`Reset password — ${pwRep.name || pwRep.email}`} onClose={() => setPwRep(null)}>
+        <Modal title={`Reset password — ${pwRep.company_name || pwRep.name || pwRep.email}`} onClose={() => setPwRep(null)}>
           <form onSubmit={savePassword}>
             <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
-              <p className='muted' style={{ margin: 0 }}>Set a new dashboard password for this salesman. Share it with them securely.</p>
+              <p className='muted' style={{ margin: 0 }}>Set a new dashboard password for this partner. Share it securely.</p>
               <label style={{ display: 'grid', gap: 6 }}>
                 <span className='label'>New password</span>
                 <input className='input' type='text' value={pwValue} onChange={(e) => setPwValue(e.target.value)} placeholder='Min 6 characters' minLength={6} required />
@@ -409,7 +458,7 @@ export default function Salesmen() {
       ) : null}
 
       {profileRep ? (
-        <Modal title={`${profileRep.name || profileRep.email} — profile`} onClose={() => { setProfileRep(null); setProfile(null) }} wide>
+        <Modal title={`${profileRep.company_name || profileRep.name || profileRep.email} — KPIs`} onClose={() => { setProfileRep(null); setProfile(null) }} wide>
           <div className='occ-modal-body' style={{ display: 'grid', gap: 14 }}>
             {!profile ? (
               <div className='muted'>Loading…</div>
@@ -417,38 +466,34 @@ export default function Salesmen() {
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span className='pill p-cyan' style={{ fontFamily: 'ui-monospace, monospace' }}>{profileRep.promo_code}</span>
-                  <span className='pill p-cyan'>{Number(profileRep.commission_pct ?? 15)}% commission</span>
+                  <span className='pill p-cyan'>{Number(profileRep.commission_pct ?? 15)}% every paid invoice</span>
                   <span className={`pill ${profileRep.is_active ? 'p-green' : 'p-amber'}`}>{profileRep.is_active ? 'Active' : 'Disabled'}</span>
-                  {profileRep.country ? <span className='muted'>{profileRep.country}</span> : null}
-                  {profile.sample ? <span className='pill p-amber'>Sample data</span> : null}
                 </div>
                 {profile.stats ? (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12 }}>
-                    <div className='note'><div className='muted'>Won deals</div><strong>{profile.stats.won_deals.count}</strong></div>
                     <div className='note'><div className='muted'>Active companies</div><strong>{profile.stats.wallet.active_companies}</strong></div>
+                    <div className='note'><div className='muted'>Codes used</div><strong>{profile.stats.wallet.codes_used}</strong></div>
                     <div className='note'><div className='muted'>Revenue</div><strong>{money(profile.stats.wallet.revenue_minor)}</strong></div>
-                    <div className='note'><div className='muted'>Commission (pending)</div><strong>{money(profile.stats.wallet.commission_pending_minor)}</strong></div>
+                    <div className='note'><div className='muted'>Commission pending</div><strong>{money(profile.stats.wallet.commission_pending_minor)}</strong></div>
                   </div>
                 ) : null}
                 <div>
-                  <strong>Customers ({profile.customers.length})</strong>
-                  {profile.customers.length === 0 ? (
-                    <div className='muted' style={{ marginTop: 8 }}>No customers yet — they appear once this salesman adds prospects or converts a sale.</div>
+                  <strong>Commission ledger ({(profile.stats?.commissions || []).length})</strong>
+                  {(profile.stats?.commissions || []).length === 0 ? (
+                    <div className='muted' style={{ marginTop: 8 }}>No commissions yet — they appear when attributed customers pay a subscription invoice.</div>
                   ) : (
                     <table className='table' style={{ marginTop: 6 }}>
                       <thead>
-                        <tr><th>Company</th><th>Contact</th><th>Mobile</th><th>Type</th><th>Branches</th><th>Status</th><th>Converted</th></tr>
+                        <tr><th>Company</th><th>Amount</th><th>Status</th><th>Note</th><th>Date</th></tr>
                       </thead>
                       <tbody>
-                        {profile.customers.map((c) => (
+                        {(profile.stats.commissions || []).map((c) => (
                           <tr key={c.id}>
-                            <td>{c.company_name || c.full_name}</td>
-                            <td className='muted'>{c.full_name}</td>
-                            <td className='muted'>{c.mobile || '—'}</td>
-                            <td className='muted'>{c.business_type || '—'}</td>
-                            <td>{c.branches ?? '—'}</td>
-                            <td><span className={`pill ${c.status === 'won' ? 'p-green' : c.status === 'contacted' ? 'p-cyan' : 'p-amber'}`}>{c.status}</span></td>
-                            <td className='muted'>{c.org_id ? 'Yes' : '—'}</td>
+                            <td>{c.org_name || c.org_id}</td>
+                            <td>{money(c.amount_minor, c.currency)}</td>
+                            <td><span className={`pill ${c.status === 'paid' ? 'p-green' : 'p-amber'}`}>{c.status}</span></td>
+                            <td className='muted'>{c.note || '—'}</td>
+                            <td className='muted'>{c.created_at ? String(c.created_at).slice(0, 10) : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -460,7 +505,7 @@ export default function Salesmen() {
           </div>
           <div className='occ-modal-foot'>
             <button type='button' className='btn soft' onClick={() => { setProfileRep(null); setProfile(null) }}>Close</button>
-            <button type='button' className='btn primary' onClick={() => { const r = profileRep; setProfileRep(null); setProfile(null); openEdit(r) }}>Edit salesman</button>
+            <button type='button' className='btn primary' onClick={() => markAllPaid(profileRep)} disabled={busy}>Mark pending paid</button>
           </div>
         </Modal>
       ) : null}

@@ -3,23 +3,28 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
 
 class SalesRep(Base):
-    """A salesman: a dashboard user who sells VoxBulk subscriptions via a promo code."""
+    """A salesman or partner-channel account that sells via a promo code."""
 
     __tablename__ = "sales_reps"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # salesman | partner_channel
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="salesman", index=True)
     promo_code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     caller_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Percent of commission base / invoice (e.g. 15.00 = 15%).
+    commission_pct: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=15.0)
     # commission_kind controls payout: "subscription" = full 2nd month (monthly) / one month (yearly).
     commission_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="subscription")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

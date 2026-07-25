@@ -19,6 +19,10 @@ from app.models.sales_rep import SalesCommission, SalesCustomer, SalesRep
 from app.models.user import User
 
 _CODE_RE = re.compile(r"^[A-Z0-9]{4,12}$")
+KIND_SALESMAN = "salesman"
+KIND_PARTNER_CHANNEL = "partner_channel"
+VALID_KINDS = frozenset({KIND_SALESMAN, KIND_PARTNER_CHANNEL})
+DEFAULT_COMMISSION_PCT = 15.0
 logger = logging.getLogger(__name__)
 
 # Fixed script for the salesman "Call & Survey" demo (matches the 'sales ai survey' agent).
@@ -47,15 +51,62 @@ class SalesRepService:
         return re.sub(r"[^A-Za-z0-9]", "", str(raw or "")).upper()
 
     @staticmethod
+    def normalize_kind(raw: str | None) -> str:
+        kind = str(raw or KIND_SALESMAN).strip().lower()
+        if kind not in VALID_KINDS:
+            raise SalesRepError("kind must be 'salesman' or 'partner_channel'.")
+        return kind
+
+    @staticmethod
+    def normalize_commission_pct(raw: Any) -> float:
+        if raw is None or raw == "":
+            return DEFAULT_COMMISSION_PCT
+        try:
+            pct = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise SalesRepError("Commission % must be a number.") from exc
+        if pct < 0 or pct > 100:
+            raise SalesRepError("Commission % must be between 0 and 100.")
+        return round(pct, 2)
+
+    @staticmethod
+    def rep_kind(rep: SalesRep) -> str:
+        kind = str(getattr(rep, "kind", None) or KIND_SALESMAN).strip().lower()
+        return kind if kind in VALID_KINDS else KIND_SALESMAN
+
+    @staticmethod
+    def is_partner_channel(rep: SalesRep) -> bool:
+        return SalesRepService.rep_kind(rep) == KIND_PARTNER_CHANNEL
+
+    @staticmethod
+    def is_salesman(rep: SalesRep) -> bool:
+        return SalesRepService.rep_kind(rep) == KIND_SALESMAN
+
+    @staticmethod
+    def commission_pct_of(rep: SalesRep) -> float:
+        try:
+            pct = float(getattr(rep, "commission_pct", None) or DEFAULT_COMMISSION_PCT)
+        except (TypeError, ValueError):
+            pct = DEFAULT_COMMISSION_PCT
+        return max(0.0, min(100.0, pct))
+
+    @staticmethod
+    def apply_commission_pct(base_minor: int, pct: float) -> int:
+        return max(0, int(round(int(base_minor or 0) * float(pct) / 100.0)))
+
+    @staticmethod
     def rep_to_dict(rep: SalesRep, user: User | None = None) -> dict[str, Any]:
         return {
             "id": rep.id,
             "user_id": rep.user_id,
             "name": rep.name,
+            "company_name": getattr(rep, "company_name", None),
+            "kind": SalesRepService.rep_kind(rep),
             "email": user.email if user else None,
             "promo_code": rep.promo_code,
             "country": rep.country,
             "caller_id": rep.caller_id,
+            "commission_pct": SalesRepService.commission_pct_of(rep),
             "is_active": bool(rep.is_active),
             "created_at": rep.created_at.isoformat() if rep.created_at else None,
         }
@@ -65,8 +116,11 @@ class SalesRepService:
         return db.execute(select(SalesRep).where(SalesRep.user_id == str(user_id))).scalar_one_or_none()
 
     @staticmethod
-    def list_reps(db: Session) -> list[dict[str, Any]]:
-        rows = db.execute(select(SalesRep).order_by(SalesRep.created_at.desc())).scalars().all()
+    def list_reps(db: Session, *, kind: str | None = None) -> list[dict[str, Any]]:
+        q = select(SalesRep).order_by(SalesRep.created_at.desc())
+        if kind:
+            q = q.where(SalesRep.kind == SalesRepService.normalize_kind(kind))
+        rows = db.execute(q).scalars().all()
         out: list[dict[str, Any]] = []
         for rep in rows:
             user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
@@ -87,12 +141,17 @@ class SalesRepService:
         promo_code: str,
         country: str | None = None,
         caller_id: str | None = None,
+        kind: str = KIND_SALESMAN,
+        commission_pct: Any = DEFAULT_COMMISSION_PCT,
+        company_name: str | None = None,
     ) -> SalesRep:
         email = str(email or "").strip().lower()
         if not email or "@" not in email:
             raise SalesRepError("A valid email is required.")
         if len(str(password or "")) < 6:
             raise SalesRepError("Password must be at least 6 characters.")
+        kind_norm = SalesRepService.normalize_kind(kind)
+        pct = SalesRepService.normalize_commission_pct(commission_pct)
         code = SalesRepService.normalize_code(promo_code)
         if not _CODE_RE.match(code):
             raise SalesRepError("Promo code must be 4–12 letters/numbers (e.g. UK4F2A).")
@@ -112,21 +171,22 @@ class SalesRepService:
             db.flush()
         else:
             if db.execute(select(SalesRep).where(SalesRep.user_id == user.id)).scalar_one_or_none():
-                raise SalesRepError("This user is already a salesman.")
+                raise SalesRepError("This user is already a salesman or partner channel account.")
             # Existing user row (e.g. prior signup) — always apply the admin-provided password.
             user.password_hash = hash_password(password)
             user.is_active = True
 
-        # A salesman needs an organisation membership so the dashboard login flow issues a token.
-        # Give them a dedicated personal "Sales" workspace.
+        # Needs an organisation membership so the dashboard login flow issues a token.
         from app.models.membership import OrganisationMembership
         from app.models.organisation import Organisation
 
         has_membership = db.execute(
             select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
         ).scalar_one_or_none()
+        display = str(company_name or name or email.split("@")[0]).strip() or email.split("@")[0]
+        workspace_label = "Partner Channel" if kind_norm == KIND_PARTNER_CHANNEL else "Sales"
         if not has_membership:
-            org = Organisation(name=f"{(name or email.split('@')[0])} — Sales", onboarding_state="onboarding_completed")
+            org = Organisation(name=f"{display} — {workspace_label}", onboarding_state="onboarding_completed")
             db.add(org)
             db.flush()
             db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="sales"))
@@ -136,9 +196,12 @@ class SalesRepService:
         rep = SalesRep(
             user_id=user.id,
             name=str(name or "").strip() or email.split("@")[0],
+            company_name=(str(company_name or "").strip() or None),
+            kind=kind_norm,
             promo_code=code,
             country=(str(country or "").strip().upper()[:2] or None),
             caller_id=(str(caller_id or "").strip() or None),
+            commission_pct=pct,
             is_active=True,
             created_at=now,
             updated_at=now,
@@ -162,6 +225,10 @@ class SalesRepService:
     def update_rep(db: Session, *, rep: SalesRep, patch: dict[str, Any]) -> SalesRep:
         if "name" in patch:
             rep.name = str(patch["name"] or "").strip()
+        if "company_name" in patch:
+            rep.company_name = (str(patch["company_name"] or "").strip() or None)
+        if "commission_pct" in patch:
+            rep.commission_pct = SalesRepService.normalize_commission_pct(patch["commission_pct"])
         if "country" in patch:
             rep.country = (str(patch["country"] or "").strip().upper()[:2] or None)
         if "caller_id" in patch:
@@ -719,15 +786,19 @@ class SalesRepService:
     def accrue_commission_for_paid_invoice(
         db: Session, invoice: BillingInvoice, *, force_subscription: bool = False
     ) -> SalesCommission | None:
-        """Best-effort: accrue a salesman commission when a linked org pays a subscription invoice.
+        """Best-effort: accrue commission when a linked org pays a subscription invoice.
 
-        Rule (commission_kind="subscription"):
-          - Monthly plans: full 2nd month → commission equals the 2nd paid subscription invoice amount.
-          - Yearly plans: one month of a yearly plan → commission equals invoice amount / 12.
-        Idempotent: at most one subscription commission per (rep, org). Never raises.
+        Salesman (kind=salesman):
+          - Monthly: 2nd paid subscription invoice × commission_pct
+          - Yearly: (invoice / 12) × commission_pct
+          - Idempotent: one salesman subscription commission per (rep, org)
 
-        Pass force_subscription=True for flows that are known subscription payments but where the
-        invoice row is not tagged kind="subscription" (e.g. GoCardless Direct Debit webhook).
+        Partner channel (kind=partner_channel):
+          - Every paid subscription invoice × commission_pct
+          - Idempotent per invoice_id
+
+        Never raises. Pass force_subscription=True for known subscription payments whose
+        invoice row is not tagged kind="subscription" (e.g. GoCardless DD webhook).
         """
         try:
             if str(getattr(invoice, "status", "") or "").lower() != "paid":
@@ -741,39 +812,55 @@ class SalesRepService:
             if rep is None or not rep.is_active:
                 return None
 
-            # Idempotency: one subscription commission per rep+org.
-            existing = db.execute(
-                select(SalesCommission).where(
-                    SalesCommission.sales_rep_id == rep.id,
-                    SalesCommission.org_id == org_id,
-                    SalesCommission.kind.in_(["monthly_2nd", "yearly_1mo"]),
-                )
-            ).scalar_one_or_none()
-            if existing is not None:
-                return None
-
-            interval = SalesRepService._org_plan_interval(db, org_id)
             amount = int(getattr(invoice, "amount_gbp_pence", 0) or 0)
             currency = str(getattr(invoice, "currency", "") or "GBP")
+            invoice_id = getattr(invoice, "id", None)
+            pct = SalesRepService.commission_pct_of(rep)
 
-            if interval == "yearly":
-                kind = "yearly_1mo"
-                commission_minor = max(0, round(amount / 12))
-                note = "One month of a yearly plan."
+            if SalesRepService.is_partner_channel(rep):
+                if invoice_id:
+                    already = db.execute(
+                        select(SalesCommission).where(
+                            SalesCommission.sales_rep_id == rep.id,
+                            SalesCommission.invoice_id == invoice_id,
+                        )
+                    ).scalar_one_or_none()
+                    if already is not None:
+                        return None
+                kind = "partner_invoice"
+                commission_minor = SalesRepService.apply_commission_pct(amount, pct)
+                note = f"Partner channel {pct:g}% of paid subscription invoice."
             else:
-                # Monthly: only accrue once the 2nd subscription invoice is paid.
-                paid_count = db.execute(
-                    select(BillingInvoice).where(
-                        BillingInvoice.org_id == org_id,
-                        BillingInvoice.kind == "subscription",
-                        BillingInvoice.status == "paid",
+                # Idempotency: one salesman subscription commission per rep+org.
+                existing = db.execute(
+                    select(SalesCommission).where(
+                        SalesCommission.sales_rep_id == rep.id,
+                        SalesCommission.org_id == org_id,
+                        SalesCommission.kind.in_(["monthly_2nd", "yearly_1mo"]),
                     )
-                ).scalars().all()
-                if len(paid_count) < 2:
+                ).scalar_one_or_none()
+                if existing is not None:
                     return None
-                kind = "monthly_2nd"
-                commission_minor = amount
-                note = "Full 2nd month subscription."
+
+                interval = SalesRepService._org_plan_interval(db, org_id)
+                if interval == "yearly":
+                    kind = "yearly_1mo"
+                    base_minor = max(0, round(amount / 12))
+                    note = f"{pct:g}% of one month of a yearly plan."
+                else:
+                    paid_count = db.execute(
+                        select(BillingInvoice).where(
+                            BillingInvoice.org_id == org_id,
+                            BillingInvoice.kind == "subscription",
+                            BillingInvoice.status == "paid",
+                        )
+                    ).scalars().all()
+                    if len(paid_count) < 2:
+                        return None
+                    kind = "monthly_2nd"
+                    base_minor = amount
+                    note = f"{pct:g}% of 2nd month subscription."
+                commission_minor = SalesRepService.apply_commission_pct(base_minor, pct)
 
             if commission_minor <= 0:
                 return None
@@ -788,7 +875,7 @@ class SalesRepService:
                 sales_rep_id=rep.id,
                 sales_customer_id=link_cust.id if link_cust is not None else None,
                 org_id=org_id,
-                invoice_id=getattr(invoice, "id", None),
+                invoice_id=invoice_id,
                 amount_minor=commission_minor,
                 currency=currency,
                 kind=kind,
@@ -843,13 +930,25 @@ class SalesRepService:
         total_paid_minor = sum(int(getattr(inv, "amount_gbp_pence", 0) or 0) for inv in paid_invoices)
 
         commissions = db.execute(
-            select(SalesCommission).where(SalesCommission.sales_rep_id == rep.id)
+            select(SalesCommission)
+            .where(SalesCommission.sales_rep_id == rep.id)
+            .order_by(SalesCommission.created_at.desc())
         ).scalars().all()
         commission_minor = sum(int(c.amount_minor or 0) for c in commissions)
         commission_paid_minor = sum(int(c.amount_minor or 0) for c in commissions if c.status == "paid")
 
         won = [c for c in customers if c.status == "won" or c.org_id]
+        codes_used = len(org_ids) if SalesRepService.is_partner_channel(rep) else len(
+            [c for c in customers if c.offer_sent_at]
+        )
+        org_names: dict[str, str] = {}
+        if org_ids:
+            for org in db.execute(select(Organisation).where(Organisation.id.in_(list(org_ids)))).scalars().all():
+                org_names[str(org.id)] = str(org.name or org.id)
+
         return {
+            "kind": SalesRepService.rep_kind(rep),
+            "commission_pct": SalesRepService.commission_pct_of(rep),
             "won_deals": {
                 "count": len(won),
                 "total_value_minor": total_paid_minor,
@@ -860,11 +959,26 @@ class SalesRepService:
             },
             "wallet": {
                 "active_companies": len(org_ids),
-                "codes_used": len([c for c in customers if c.offer_sent_at]),
+                "codes_used": codes_used,
                 "revenue_minor": total_paid_minor,
                 "commission_minor": commission_minor,
                 "commission_paid_minor": commission_paid_minor,
                 "commission_pending_minor": commission_minor - commission_paid_minor,
             },
+            "commissions": [
+                {
+                    "id": c.id,
+                    "org_id": c.org_id,
+                    "org_name": org_names.get(str(c.org_id or ""), c.org_id),
+                    "invoice_id": c.invoice_id,
+                    "amount_minor": int(c.amount_minor or 0),
+                    "currency": c.currency or "GBP",
+                    "kind": c.kind,
+                    "status": c.status,
+                    "note": c.note,
+                    "created_at": c.created_at.isoformat() if c.created_at else None,
+                }
+                for c in commissions
+            ],
             "visited_count": len(customers),
         }

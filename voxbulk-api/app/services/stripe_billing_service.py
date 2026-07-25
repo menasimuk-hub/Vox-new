@@ -269,4 +269,10 @@ class StripeBillingService:
                 db, sub=sub, provider="stripe", period_key=period_key
             )
         BillingLifecycleService._advance_subscription_period(db, sub, plan)
+        try:
+            from app.services.sales_rep_service import SalesRepService
+
+            SalesRepService.accrue_commission_for_paid_invoice(db, invoice)
+        except Exception:  # noqa: BLE001 — commission must never break renewal
+            pass
         return {"ok": True, "renewal_paid": True, "invoice_id": invoice.id, "subscription_id": sub.id}

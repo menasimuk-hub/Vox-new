@@ -5,19 +5,21 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.core.security import hash_password
+from app.models.billing_invoice import BillingInvoice
 from app.models.membership import OrganisationMembership
+from app.models.org_usage_period import OrgUsagePeriod
 from app.models.organisation import Organisation
 from app.models.promo_offer import PromoOffer
-from app.models.sales_rep import SalesCustomer, SalesRep
+from app.models.sales_rep import SalesCommission, SalesCustomer, SalesRep
 from app.models.user import User
 from app.services.promo_offer_service import PromoOfferService
-from app.services.sales_rep_service import SalesRepService
+from app.services.sales_rep_service import KIND_PARTNER_CHANNEL, SalesRepService
 from app.services.wallet_service import PromoWalletRestricted, WalletService
 
 
@@ -37,14 +39,25 @@ def db():
         session.close()
 
 
-def _seed_rep(db, *, code: str = "UKTEST20") -> SalesRep:
-    user = User(email="rep@test.com", password_hash=hash_password("pass123"), is_active=True)
+def _seed_rep(
+    db,
+    *,
+    code: str = "UKTEST20",
+    email: str = "rep@test.com",
+    kind: str = "salesman",
+    commission_pct: float = 15.0,
+    company_name: str | None = None,
+) -> SalesRep:
+    user = User(email=email, password_hash=hash_password("pass123"), is_active=True)
     db.add(user)
     db.flush()
     rep = SalesRep(
         user_id=user.id,
         name="Test Rep",
+        company_name=company_name,
+        kind=kind,
         promo_code=code,
+        commission_pct=commission_pct,
         is_active=True,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -53,6 +66,42 @@ def _seed_rep(db, *, code: str = "UKTEST20") -> SalesRep:
     db.commit()
     db.refresh(rep)
     return rep
+
+
+def _link_org_via_promo(db, *, rep: SalesRep, org_name: str = "Attributed Co") -> Organisation:
+    org = Organisation(name=org_name)
+    db.add(org)
+    db.flush()
+    db.add(
+        OrgUsagePeriod(
+            org_id=org.id,
+            period_start=datetime.utcnow(),
+            period_end=datetime.utcnow(),
+            status="active",
+            promo_code=rep.promo_code,
+        )
+    )
+    db.commit()
+    db.refresh(org)
+    return org
+
+
+def _paid_sub_invoice(db, *, org_id: str, amount: int, ext: str) -> BillingInvoice:
+    inv = BillingInvoice(
+        org_id=org_id,
+        provider="internal",
+        external_invoice_id=ext,
+        client_email="bill@test.com",
+        amount_gbp_pence=amount,
+        currency="GBP",
+        status="paid",
+        kind="subscription",
+        created_at=datetime.utcnow(),
+    )
+    db.add(inv)
+    db.commit()
+    db.refresh(inv)
+    return inv
 
 
 def test_upsert_for_sales_rep_creates_wallet_voucher(db):
@@ -148,3 +197,57 @@ def test_link_customer_on_promo_redeem_matches_email(db):
     db.refresh(cust)
     assert cust.org_id == org.id
     assert cust.status == "won"
+
+
+def test_salesman_commission_applies_pct_on_second_monthly_invoice(db):
+    rep = _seed_rep(db, code="SALE15PCT", commission_pct=15.0)
+    org = _link_org_via_promo(db, rep=rep, org_name="Monthly Customer")
+    inv1 = _paid_sub_invoice(db, org_id=org.id, amount=10000, ext="sub-m1")
+    assert SalesRepService.accrue_commission_for_paid_invoice(db, inv1) is None
+
+    inv2 = _paid_sub_invoice(db, org_id=org.id, amount=10000, ext="sub-m2")
+    comm = SalesRepService.accrue_commission_for_paid_invoice(db, inv2)
+    assert comm is not None
+    assert comm.kind == "monthly_2nd"
+    assert int(comm.amount_minor) == 1500  # 15% of £100
+    assert SalesRepService.accrue_commission_for_paid_invoice(db, inv2) is None
+
+
+def test_partner_channel_commission_every_paid_invoice(db):
+    rep = _seed_rep(
+        db,
+        code="PART20",
+        email="partner@test.com",
+        kind=KIND_PARTNER_CHANNEL,
+        commission_pct=20.0,
+        company_name="Partner Co",
+    )
+    org = _link_org_via_promo(db, rep=rep, org_name="Partner Customer")
+    inv1 = _paid_sub_invoice(db, org_id=org.id, amount=10000, ext="part-m1")
+    c1 = SalesRepService.accrue_commission_for_paid_invoice(db, inv1)
+    assert c1 is not None
+    assert c1.kind == "partner_invoice"
+    assert int(c1.amount_minor) == 2000
+
+    inv2 = _paid_sub_invoice(db, org_id=org.id, amount=10000, ext="part-m2")
+    c2 = SalesRepService.accrue_commission_for_paid_invoice(db, inv2)
+    assert c2 is not None
+    assert int(c2.amount_minor) == 2000
+    assert c2.id != c1.id
+
+    # Same invoice must not double-count
+    assert SalesRepService.accrue_commission_for_paid_invoice(db, inv1) is None
+
+    rows = db.execute(select(SalesCommission).where(SalesCommission.sales_rep_id == rep.id)).scalars().all()
+    assert len(rows) == 2
+
+
+def test_partner_channel_cannot_use_customer_crm_flag(db):
+    rep = _seed_rep(
+        db,
+        code="PARTCRM",
+        email="partner2@test.com",
+        kind=KIND_PARTNER_CHANNEL,
+    )
+    assert SalesRepService.is_partner_channel(rep)
+    assert not SalesRepService.is_salesman(rep)

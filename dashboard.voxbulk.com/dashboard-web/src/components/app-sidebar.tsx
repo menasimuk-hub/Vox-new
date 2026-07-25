@@ -38,7 +38,7 @@ type Item = {
   /** When set, item is shown only if this service is visible. */
   requiresService?: ServiceKey;
 };
-type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "sales";
+type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "sales" | "partner_channel";
 type Group = {
   key: GroupKey;
   label: string;
@@ -68,6 +68,19 @@ const salesGroup: Group = {
     },
     { title: "Won deals", url: "/sales/deals", icon: Handshake },
     { title: "Wallet & commission", url: "/sales/wallet", icon: Wallet },
+  ],
+};
+
+const partnerChannelGroup: Group = {
+  key: "partner_channel",
+  label: "Partner Channel Sales",
+  items: [
+    {
+      title: "Overview & commission",
+      url: "/partner-channel",
+      icon: Wallet,
+      isActive: (path) => normalizePath(path) === "/partner-channel" || path.startsWith("/partner-channel/"),
+    },
   ],
 };
 
@@ -167,7 +180,8 @@ export function AppSidebar() {
   const orgLogo = useOrgLogoPreview(orgQ.data?.logo_url);
   const role = normalizeOrgRole(session?.profile?.role);
   const isSalesRep = Boolean(session?.profile?.is_sales_rep);
-  const billingOnly = isBillingOnlyRole(role) && !isSalesRep;
+  const isPartnerChannel = Boolean(session?.profile?.is_partner_channel);
+  const billingOnly = isBillingOnlyRole(role) && !isSalesRep && !isPartnerChannel;
 
   const baseGroups = groups
     .map((g) => {
@@ -190,6 +204,10 @@ export function AppSidebar() {
     .filter((g): g is Group => Boolean(g))
     .filter((g) => {
       if (billingOnly) return g.key === "account";
+      // Partner channel: lean portal — workspace + partner KPIs + profile only.
+      if (isPartnerChannel) {
+        return g.key === "workspace" || g.key === "settings";
+      }
       if (g.key === "account" && !canAccessBilling(role)) return false;
       if (g.key === "workspace" || g.key === "settings" || g.key === "account") return true;
       const visibilityKey = g.visibleKey ?? (g.key as ServiceKey);
@@ -197,9 +215,15 @@ export function AppSidebar() {
       if (!loaded) return false;
       if (g.visibleKey) return visible[visibilityKey];
       return visible[g.key as ServiceKey];
+    })
+    .map((g) => {
+      if (isPartnerChannel && g.key === "settings") {
+        return { ...g, items: g.items.filter((item) => item.url === "/settings/profile") };
+      }
+      return g;
     });
 
-  // The Sales workspace is visible only to salesman users — injected right after Dashboard.
+  // Sales / Partner Channel workspaces are injected right after Dashboard.
   let visibleGroups = baseGroups;
   if (isSalesRep) {
     const wsIdx = baseGroups.findIndex((g) => g.key === "workspace");
@@ -207,6 +231,12 @@ export function AppSidebar() {
       wsIdx >= 0
         ? [...baseGroups.slice(0, wsIdx + 1), salesGroup, ...baseGroups.slice(wsIdx + 1)]
         : [salesGroup, ...baseGroups];
+  } else if (isPartnerChannel) {
+    const wsIdx = baseGroups.findIndex((g) => g.key === "workspace");
+    visibleGroups =
+      wsIdx >= 0
+        ? [...baseGroups.slice(0, wsIdx + 1), partnerChannelGroup, ...baseGroups.slice(wsIdx + 1)]
+        : [partnerChannelGroup, ...baseGroups];
   }
 
   return (
@@ -381,6 +411,7 @@ function headIcon(key: GroupKey) {
     case "settings": return SettingsIcon;
     case "account": return User2;
     case "sales": return Briefcase;
+    case "partner_channel": return Handshake;
     default: return LayoutDashboard;
   }
 }

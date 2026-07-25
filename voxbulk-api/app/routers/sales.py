@@ -1,4 +1,4 @@
-"""Salesman portal API (Task 8). Used by the dashboard Sales section for sales-role users."""
+"""Salesman + Partner Channel portal API. Used by the dashboard Sales / Partner Channel sections."""
 
 from __future__ import annotations
 
@@ -16,7 +16,14 @@ router = APIRouter(prefix="/sales", tags=["sales"])
 def _require_rep(db: Session, principal) -> SalesRep:
     rep = SalesRepService.get_rep_for_user(db, user_id=principal.user_id)
     if rep is None or not rep.is_active:
-        raise HTTPException(status_code=403, detail="This account is not an active salesman.")
+        raise HTTPException(status_code=403, detail="This account is not an active sales or partner channel user.")
+    return rep
+
+
+def _require_salesman(db: Session, principal) -> SalesRep:
+    rep = _require_rep(db, principal)
+    if not SalesRepService.is_salesman(rep):
+        raise HTTPException(status_code=403, detail="Customer CRM is only available to salesmen.")
     return rep
 
 
@@ -28,13 +35,13 @@ def sales_me(db: Session = Depends(get_db), principal=Depends(get_current_princi
 
 @router.get("/customers")
 def list_customers(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    rep = _require_rep(db, principal)
+    rep = _require_salesman(db, principal)
     return {"ok": True, "items": SalesRepService.list_customers(db, rep_id=rep.id)}
 
 
 @router.post("/customers")
 def upsert_customer(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    rep = _require_rep(db, principal)
+    rep = _require_salesman(db, principal)
     try:
         cust = SalesRepService.upsert_customer(db, rep_id=rep.id, payload=payload or {})
     except SalesRepError as e:
@@ -44,7 +51,7 @@ def upsert_customer(payload: dict, db: Session = Depends(get_db), principal=Depe
 
 @router.get("/customers/{customer_id}")
 def get_customer(customer_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    rep = _require_rep(db, principal)
+    rep = _require_salesman(db, principal)
     detail = SalesRepService.get_customer_detail(db, rep_id=rep.id, customer_id=customer_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -53,7 +60,7 @@ def get_customer(customer_id: str, db: Session = Depends(get_db), principal=Depe
 
 @router.delete("/customers/{customer_id}")
 def delete_customer(customer_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    rep = _require_rep(db, principal)
+    rep = _require_salesman(db, principal)
     try:
         SalesRepService.delete_customer(db, rep_id=rep.id, customer_id=customer_id)
     except SalesRepError as e:
@@ -63,7 +70,7 @@ def delete_customer(customer_id: str, db: Session = Depends(get_db), principal=D
 
 @router.post("/customers/{customer_id}/offer")
 def send_offer(customer_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    rep = _require_rep(db, principal)
+    rep = _require_salesman(db, principal)
     cust = SalesRepService.get_customer(db, rep_id=rep.id, customer_id=customer_id)
     if cust is None:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -77,7 +84,7 @@ def send_offer(customer_id: str, payload: dict, db: Session = Depends(get_db), p
 
 @router.post("/customers/{customer_id}/demo-wa")
 def demo_wa(customer_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    rep = _require_rep(db, principal)
+    rep = _require_salesman(db, principal)
     cust = SalesRepService.get_customer(db, rep_id=rep.id, customer_id=customer_id)
     if cust is None:
         raise HTTPException(status_code=404, detail="Customer not found")
@@ -86,7 +93,7 @@ def demo_wa(customer_id: str, db: Session = Depends(get_db), principal=Depends(g
 
 @router.post("/customers/{customer_id}/demo-call")
 def demo_call(customer_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    rep = _require_rep(db, principal)
+    rep = _require_salesman(db, principal)
     cust = SalesRepService.get_customer(db, rep_id=rep.id, customer_id=customer_id)
     if cust is None:
         raise HTTPException(status_code=404, detail="Customer not found")

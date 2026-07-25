@@ -50,6 +50,10 @@ const map: Record<string, T> = {
   "/account/support": { title: "Support", subtitle: "Get help" },
   "/account/support/faq": { title: "Documentation & FAQ", subtitle: "Help centre" },
   "/account/support/tickets": { title: "Support tickets", subtitle: "Email conversations" },
+
+  "/sales": { title: "My customers", subtitle: "Sales pipeline" },
+  "/sales/wallet": { title: "Wallet & commission", subtitle: "Sales earnings" },
+  "/partner-channel": { title: "Partner Channel Sales", subtitle: "KPIs & commission" },
 };
 
 export function titleForPath(path: string): T {
