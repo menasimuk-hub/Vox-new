@@ -24,13 +24,13 @@ from app.services.expo.offer_delivery_service import (
 from app.services.expo.question_bank import (
     CONTACT_COMPANY_PROMPT,
     CONTACT_MOBILE_PROMPT,
-    CONTACT_PROMPT_WA,
-    CONTACT_PROMPT_WEB,
     CONTACT_STEP_KEY,
     build_thank_you_message,
+    contact_prompt_for_mode,
     parse_contact_capture,
     parse_question_config,
 )
+from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
 from app.services.expo.scoring_service import score_lead
 
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
@@ -224,11 +224,11 @@ class ExpoSessionFlowService:
         first = steps[0]
         channel_l = str(channel or "whatsapp").lower()
         if str(first.get("key") or "") == CONTACT_STEP_KEY:
-            prompt = (
-                str(first.get("prompt_web") or CONTACT_PROMPT_WEB)
-                if channel_l == "web"
-                else str(first.get("prompt") or CONTACT_PROMPT_WA)
-            )
+            capture = parse_contact_capture(booth.question_config_json)
+            prompt = contact_prompt_for_mode(capture, channel=channel_l)
+            if channel_l == "web" and first.get("prompt_web"):
+                # Prefer mode-aware prompt; stored prompt_web may be stale
+                prompt = contact_prompt_for_mode(capture, channel="web")
             state = {"contact_substep": "awaiting"}
             session.session_state_json = json.dumps(state)
             db.add(session)
@@ -253,7 +253,14 @@ class ExpoSessionFlowService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def advance(db: Session, *, session: ExpoSession, answer: str, answer_source: str = "text") -> dict[str, Any]:
+    def advance(
+        db: Session,
+        *,
+        session: ExpoSession,
+        answer: str,
+        answer_source: str = "text",
+        contact_fields: dict[str, str | None] | None = None,
+    ) -> dict[str, Any]:
         booth = db.get(ExpoBooth, session.booth_id)
         if booth is None:
             session.status = "failed"
@@ -289,6 +296,7 @@ class ExpoSessionFlowService:
                 answer=clean,
                 answer_source=source,
                 steps=steps,
+                contact_fields=contact_fields,
             )
 
         db.add(
@@ -355,8 +363,9 @@ class ExpoSessionFlowService:
         answer: str,
         answer_source: str,
         steps: list[dict[str, Any]],
+        contact_fields: dict[str, str | None] | None = None,
     ) -> dict[str, Any]:
-        """Business-card photo skips name/company/mobile; otherwise collect them in order."""
+        """Business-card photo OCR fills contact + skips name/company/mobile; otherwise collect them in order."""
         sub = str(state.get("contact_substep") or "awaiting").strip().lower()
         channel = str(session.channel or "whatsapp").lower()
         capture = parse_contact_capture(booth.question_config_json)
@@ -379,29 +388,54 @@ class ExpoSessionFlowService:
                 )
             )
 
-        # Photo of business card → skip typed contact fields
+        # Photo of business card → OCR + skip typed contact fields
         if sub == "awaiting" and is_image and capture != "manual_only":
+            fields = {k: (str(v).strip() if v else None) for k, v in (contact_fields or {}).items()}
             _log("business_card", answer or "[business card image]", "image")
+            if lead is not None:
+                if fields.get("name"):
+                    lead.name = fields["name"][:255]
+                if fields.get("company"):
+                    lead.company = fields["company"][:255]
+                if fields.get("email"):
+                    lead.visitor_email = fields["email"][:255]
+                    session.visitor_email = fields["email"][:255]
+                # Prefer card phone only when we don't already have WA from-number
+                if fields.get("phone") and not str(lead.visitor_phone or session.visitor_phone or "").strip():
+                    lead.visitor_phone = fields["phone"][:32]
+                    session.visitor_phone = fields["phone"][:32]
+                lead.updated_at = datetime.utcnow()
+                db.add(lead)
+                db.add(session)
+            for fk in ("name", "company", "email", "phone"):
+                if fields.get(fk):
+                    _log(f"card_{fk}", str(fields[fk]), "ocr")
             state["contact_substep"] = "done"
             state["contact_via"] = "card"
+            state["card_fields"] = {k: v for k, v in fields.items() if v}
             ExpoSessionFlowService._save_state(session, state)
-            # Move past the contact step
             if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
                 session.current_step = 1
             db.add(session)
             db.commit()
-            return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+            confirm = ExpoBusinessCardService.confirmation_message(fields)
+            nxt = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+            next_prompt = str(nxt.get("prompt") or "").strip()
+            nxt["prompt"] = f"{confirm}\n\n{next_prompt}".strip() if next_prompt else confirm
+            nxt["contact_via"] = "card"
+            nxt["card_fields"] = fields
+            return nxt
 
         if sub == "awaiting" and capture == "card_only" and not is_image:
             return _empty_step_result(
                 done=False,
-                prompt="Please send a photo of your business card to continue.",
+                prompt=contact_prompt_for_mode("card_only", channel=channel),
             )
 
         if sub == "awaiting":
             # Typed name
             if not answer:
-                prompt = CONTACT_PROMPT_WEB if channel == "web" else CONTACT_PROMPT_WA
+                prompt = contact_prompt_for_mode(capture, channel=channel)
                 return _empty_step_result(done=False, prompt=prompt)
             _log("name", answer, answer_source)
             if lead is not None:

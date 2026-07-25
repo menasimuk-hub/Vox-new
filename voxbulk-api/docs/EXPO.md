@@ -44,6 +44,9 @@ Inbound is wired on **both** Meta and Telnyx WhatsApp webhooks (Expo before Cust
 session. Scanning a new booth QR (or starting web again) **supersedes** any prior active
 session for that phone, so Stand A questions / price lists never continue after Stand B.
 
+**Business card photo:** visitor sends an image on WhatsApp → OpenAI vision OCR extracts
+name / company / email / phone → reply “Got your details…” → skips typed name/company/mobile.
+
 ## Deploy
 
 ```bash

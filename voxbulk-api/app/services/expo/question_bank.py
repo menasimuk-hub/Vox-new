@@ -17,14 +17,28 @@ DEFAULT_FREE_GIFT_TEXT = (
 CONTACT_STEP_KEY = "contact"
 CONTACT_PROMPT_WA = (
     "Send a photo of your business card, or reply with your full name "
-    "(photo skips name, company and mobile)."
+    "(photo skips typing name, company and mobile)."
 )
 CONTACT_PROMPT_WEB = (
     "Upload a photo of your business card, or enter your name and company "
-    "(photo skips name, company and mobile)."
+    "(photo skips typing name, company and mobile)."
 )
+CONTACT_PROMPT_WA_CARD_ONLY = "Please send a photo of your business card to continue."
+CONTACT_PROMPT_WEB_CARD_ONLY = "Please upload a photo of your business card to continue."
+CONTACT_PROMPT_WA_MANUAL = "What's your full name?"
+CONTACT_PROMPT_WEB_MANUAL = "What's your full name?"
 CONTACT_COMPANY_PROMPT = "Which company or organisation do you represent?"
 CONTACT_MOBILE_PROMPT = "What's the best mobile number to reach you on?"
+
+
+def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp") -> str:
+    m = str(mode or "offer_both").strip().lower()
+    web = str(channel or "").lower() == "web"
+    if m == "card_only":
+        return CONTACT_PROMPT_WEB_CARD_ONLY if web else CONTACT_PROMPT_WA_CARD_ONLY
+    if m == "manual_only":
+        return CONTACT_PROMPT_WEB_MANUAL if web else CONTACT_PROMPT_WA_MANUAL
+    return CONTACT_PROMPT_WEB if web else CONTACT_PROMPT_WA
 
 # Extra qualifying questions exhibitors can toggle on (in addition to fixed contact).
 # Keys with matches_products=True help route Step 4 product PDFs (price list / catalogue).
@@ -224,6 +238,8 @@ def default_question_config(
     mode = str(contact_capture or "offer_both").strip().lower()
     if mode not in {"offer_both", "manual_only", "card_only"}:
         mode = "offer_both"
+    steps[0]["prompt"] = contact_prompt_for_mode(mode, channel="whatsapp")
+    steps[0]["prompt_web"] = contact_prompt_for_mode(mode, channel="web")
     return {
         "steps": steps,
         "version": 2,

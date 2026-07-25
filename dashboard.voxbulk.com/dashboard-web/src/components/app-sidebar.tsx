@@ -8,6 +8,7 @@ import {
   ClipboardList, MessageSquareText, ListChecks,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
   CalendarClock, Repeat, QrCode, GitCompare, Sparkles, Send,
+  Ticket,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus,
 } from "lucide-react";
@@ -113,7 +114,7 @@ const groups: Group[] = [
     { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true, requiresService: "feedbackCampaigns" },
   ]},
   { key: "expo", label: "VoxBulk Expo", items: [
-    { title: "Create Expo booth", url: "/expo/new", icon: QrCode },
+    { title: "Create Expo booth", url: "/expo/new", icon: Ticket },
     { title: "Saved booths", url: "/expo", icon: ListChecks },
     { title: "Lead results", url: "/expo/leads", icon: BarChart3 },
     { title: "Packages & pricing", url: "/account/expo/packages", icon: Package },
@@ -372,7 +373,7 @@ function headIcon(key: GroupKey) {
     case "interviews": return PhoneCall;
     case "surveys": return ClipboardList;
     case "feedback": return QrCode;
-    case "expo": return QrCode;
+    case "expo": return Ticket;
     case "appointments": return CalendarClock;
     case "campaigns": return Megaphone;
     case "recovery": return HeartPulse;

@@ -428,8 +428,9 @@ function CreateExpoBooth() {
             <CardHeader>
               <CardTitle className="text-base">Qualifying questions</CardTitle>
               <CardDescription>
-                Fixed contact first (business card photo or name / company — web also asks for mobile). Then pick
-                extra questions for your stand.
+                Fixed contact first — visitors see this as the first WhatsApp / web message:
+                <span className="font-medium text-foreground"> photo of a business card</span>, or type name /
+                company (and mobile on web). Choose which options are allowed below.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -786,19 +787,19 @@ function CreateExpoBooth() {
                     questions={selectedPrompts}
                     templateName={webTemplate}
                   />
-                  <div className="rounded-xl border bg-white p-3 text-center shadow-sm">
+                  <div className="rounded-xl border bg-background/80 p-3 text-center shadow-sm">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Preview QR
                     </p>
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
                         `https://voxbulk.com/expo/preview-${encodeURIComponent((company || "stand").slice(0, 24))}`,
                       )}`}
                       alt="Expo web QR preview"
-                      className="mx-auto mt-2 size-28 rounded-lg"
+                      className="mx-auto mt-2 size-16 rounded-md border bg-white p-1"
                     />
-                    <p className="mt-1 text-[10px] text-muted-foreground">
-                      Visitors scan this at the stand (live URL after activate)
+                    <p className="mt-1.5 max-w-[140px] text-[10px] leading-snug text-muted-foreground">
+                      Live QR opens WhatsApp. After activate you also get a web link.
                     </p>
                   </div>
                 </div>

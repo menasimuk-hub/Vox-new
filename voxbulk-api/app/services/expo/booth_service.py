@@ -22,7 +22,9 @@ from app.models.expo import (
     ExpoIndustry,
     ExpoLead,
     ExpoPackage,
+    ExpoResponse,
     ExpoSession,
+    ExpoVoiceNoteJob,
 )
 from app.models.organisation import Organisation
 from app.models.plan import Plan
@@ -459,7 +461,11 @@ class ExpoBoothService:
         booth = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=booth_id)
         if booth is None:
             raise ValueError("Booth not found")
-        db.execute(select(ExpoBoothAsset).where(ExpoBoothAsset.booth_id == booth.id))
+        # Child rows first (responses / voice jobs FK to sessions + booths)
+        for resp in db.execute(select(ExpoResponse).where(ExpoResponse.booth_id == booth.id)).scalars().all():
+            db.delete(resp)
+        for job in db.execute(select(ExpoVoiceNoteJob).where(ExpoVoiceNoteJob.booth_id == booth.id)).scalars().all():
+            db.delete(job)
         for asset in db.execute(select(ExpoBoothAsset).where(ExpoBoothAsset.booth_id == booth.id)).scalars().all():
             db.delete(asset)
         for lead in db.execute(select(ExpoLead).where(ExpoLead.booth_id == booth.id)).scalars().all():

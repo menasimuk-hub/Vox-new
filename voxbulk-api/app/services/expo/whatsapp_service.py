@@ -80,8 +80,17 @@ class ExpoWhatsappService:
         if image_inbound and not text:
             session = ExpoSessionFlowService.find_active_session(db, visitor_phone=phone)
             if session is not None:
+                from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
+
+                fields = ExpoBusinessCardService.extract_from_inbound(
+                    db, record if isinstance(record, dict) else None
+                )
                 result = ExpoSessionFlowService.advance(
-                    db, session=session, answer="[business card image]", answer_source="image"
+                    db,
+                    session=session,
+                    answer="[business card image]",
+                    answer_source="image",
+                    contact_fields=fields or None,
                 )
                 ExpoWhatsappService._relay(db, session=session, result=result, from_number=reply_from)
                 return {
@@ -89,6 +98,7 @@ class ExpoWhatsappService:
                     "session_id": session.id,
                     "org_id": session.org_id,
                     "via": "business_card",
+                    "card_fields": fields or None,
                 }
 
         lower = text.lower().strip()

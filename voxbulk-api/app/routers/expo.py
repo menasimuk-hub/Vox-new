@@ -171,6 +171,23 @@ def results_leads(
     return {"ok": True, "items": items}
 
 
+@router.delete("/results/leads/{lead_id}")
+def delete_lead(lead_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    owner_filter = _campaign_owner_user_id(db, principal)
+    try:
+        ExpoResultsService.delete_lead(
+            db, principal.org_id, lead_id=lead_id, created_by_user_id=owner_filter
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True}
+
+
 @router.get("/results/export.csv")
 def results_export_csv(
     booth_id: str | None = None,

@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.expo import ExpoBooth, ExpoExhibition, ExpoLead, ExpoSession
+from app.models.expo import ExpoBooth, ExpoExhibition, ExpoLead, ExpoResponse, ExpoSession, ExpoVoiceNoteJob
 
 _EMPTY_SUMMARY: dict[str, Any] = {
     "ok": True,
@@ -105,6 +105,38 @@ class ExpoResultsService:
             b.id: b for b in db.execute(select(ExpoBooth).where(ExpoBooth.id.in_(booth_ids))).scalars().all()
         }
         return [ExpoResultsService._lead_to_dict(lead, booths.get(lead.booth_id)) for lead in rows]
+
+    @staticmethod
+    def delete_lead(
+        db: Session,
+        org_id: str,
+        *,
+        lead_id: str,
+        created_by_user_id: str | None = None,
+    ) -> None:
+        lead = db.execute(
+            select(ExpoLead).where(ExpoLead.id == lead_id, ExpoLead.org_id == org_id)
+        ).scalar_one_or_none()
+        if lead is None:
+            raise ValueError("Lead not found")
+        booth = db.get(ExpoBooth, lead.booth_id)
+        if booth is None or booth.org_id != org_id:
+            raise ValueError("Lead not found")
+        if created_by_user_id and booth.created_by_user_id != created_by_user_id:
+            raise ValueError("Lead not found")
+        session_id = lead.session_id
+        db.delete(lead)
+        if session_id:
+            for resp in db.execute(select(ExpoResponse).where(ExpoResponse.session_id == session_id)).scalars().all():
+                db.delete(resp)
+            for job in db.execute(
+                select(ExpoVoiceNoteJob).where(ExpoVoiceNoteJob.session_id == session_id)
+            ).scalars().all():
+                db.delete(job)
+            session = db.get(ExpoSession, session_id)
+            if session is not None:
+                db.delete(session)
+        db.commit()
 
     @staticmethod
     def _lead_to_dict(lead: ExpoLead, booth: ExpoBooth | None) -> dict[str, Any]:

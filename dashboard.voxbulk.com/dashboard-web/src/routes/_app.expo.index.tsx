@@ -32,6 +32,8 @@ type ExpoBooth = {
   lead_count?: number;
   hot_count?: number;
   qr_image_url?: string;
+  whatsapp_url?: string;
+  web_url?: string;
   expires_at?: string | null;
   is_expired?: boolean;
   activated_at?: string | null;
@@ -155,10 +157,36 @@ function ExpoHub() {
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-center rounded-xl border border-dashed border-border bg-background/40 p-3">
                     {it.qr_image_url ? (
-                      <img src={it.qr_image_url} alt={`QR for ${it.name}`} className="size-40 rounded-md bg-white p-1" />
+                      <img src={it.qr_image_url} alt={`QR for ${it.name}`} className="size-28 rounded-md bg-white p-1" />
                     ) : (
-                      <QrCode className="size-16 text-muted-foreground" />
+                      <QrCode className="size-12 text-muted-foreground" />
                     )}
+                  </div>
+                  <div className="grid gap-1.5 text-xs">
+                    {it.whatsapp_url ? (
+                      <a
+                        href={it.whatsapp_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate rounded-md border bg-emerald-50 px-2 py-1.5 font-medium text-emerald-800 hover:bg-emerald-100"
+                      >
+                        WhatsApp link (print QR uses this)
+                      </a>
+                    ) : null}
+                    {it.web_url ? (
+                      <a
+                        href={it.web_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate rounded-md border bg-sky-50 px-2 py-1.5 font-medium text-sky-800 hover:bg-sky-100"
+                      >
+                        Web questionnaire link
+                      </a>
+                    ) : null}
+                    <p className="px-0.5 text-[10px] leading-snug text-muted-foreground">
+                      On WhatsApp visitors reply with a business-card photo or type their name — there is no separate
+                      button; the first bot message explains both options.
+                    </p>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-center">
                     <div className="rounded-lg border border-border bg-background/40 p-2">
