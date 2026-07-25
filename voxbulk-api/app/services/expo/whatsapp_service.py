@@ -148,9 +148,10 @@ class ExpoWhatsappService:
                 from_number=reply_from,
             )
             logger.info(
-                "expo_wa_session_started booth_id=%s session_id=%s sent=%s from_line=%s",
+                "expo_wa_session_started booth_id=%s session_id=%s superseded=%s sent=%s from_line=%s",
                 booth.id,
                 result.get("session_id"),
+                result.get("superseded_sessions"),
                 sent,
                 reply_from,
             )
@@ -167,6 +168,7 @@ class ExpoWhatsappService:
                 "session_id": result.get("session_id"),
                 "org_id": booth.org_id,
                 "booth_id": booth.id,
+                "superseded_sessions": result.get("superseded_sessions"),
                 "sent": sent,
             }
 

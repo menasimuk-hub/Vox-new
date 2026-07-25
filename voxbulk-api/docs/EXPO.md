@@ -40,6 +40,10 @@ links (or the visitor’s external URL). Hybrid match-or-list against booth asse
 
 Inbound is wired on **both** Meta and Telnyx WhatsApp webhooks (Expo before Customer Feedback).
 
+**Session isolation (shared WA line):** one visitor phone may only have one **active** Expo
+session. Scanning a new booth QR (or starting web again) **supersedes** any prior active
+session for that phone, so Stand A questions / price lists never continue after Stand B.
+
 ## Deploy
 
 ```bash

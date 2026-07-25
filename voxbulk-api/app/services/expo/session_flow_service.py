@@ -74,6 +74,51 @@ class ExpoSessionFlowService:
         ).scalar_one_or_none()
 
     @staticmethod
+    def supersede_active_sessions(
+        db: Session,
+        *,
+        visitor_phone: str,
+        reason: str = "new_booth_scan",
+        except_session_id: str | None = None,
+    ) -> int:
+        """End every active Expo session for this phone (shared WA line, many booths).
+
+        Prevents Stand A questions/PDFs from continuing after the visitor scans Stand B.
+        Does not send thank-you or mark leads completed — status becomes ``superseded``.
+        """
+        phone = str(visitor_phone or "").strip()
+        if not phone:
+            return 0
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        rows = (
+            db.execute(
+                select(ExpoSession).where(
+                    ExpoSession.visitor_phone == phone,
+                    ExpoSession.status == "active",
+                    ExpoSession.started_at >= cutoff,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        now = datetime.utcnow()
+        closed = 0
+        for session in rows:
+            if except_session_id and session.id == except_session_id:
+                continue
+            state = ExpoSessionFlowService._load_state(session)
+            state["superseded_reason"] = str(reason or "new_booth_scan")[:64]
+            state["superseded_at"] = now.isoformat()
+            ExpoSessionFlowService._save_state(session, state)
+            session.status = "superseded"
+            session.completed_at = now
+            db.add(session)
+            closed += 1
+        if closed:
+            db.flush()
+        return closed
+
+    @staticmethod
     def phone_has_recent_expo_activity(db: Session, *, visitor_phone: str, hours: int = 24) -> bool:
         """True when this phone recently ran an Expo booth chat (active or just completed).
 
@@ -124,6 +169,12 @@ class ExpoSessionFlowService:
         visitor_email: str | None = None,
         name: str | None = None,
     ) -> dict[str, Any]:
+        # One phone → one active Expo booth chat. New QR always wins (stops catalog mix-ups).
+        closed = ExpoSessionFlowService.supersede_active_sessions(
+            db,
+            visitor_phone=visitor_phone,
+            reason="new_booth_scan",
+        )
         booth.scan_count = int(booth.scan_count or 0) + 1
         db.add(booth)
 
@@ -163,7 +214,12 @@ class ExpoSessionFlowService:
             session.status = "failed"
             db.add(session)
             db.commit()
-            return {"session_id": session.id, "done": True, "prompt": build_thank_you_message(booth.question_config_json)}
+            return {
+                "session_id": session.id,
+                "done": True,
+                "prompt": build_thank_you_message(booth.question_config_json),
+                "superseded_sessions": closed,
+            }
 
         first = steps[0]
         channel_l = str(channel or "whatsapp").lower()
@@ -185,7 +241,12 @@ class ExpoSessionFlowService:
             db.add(lead)
 
         db.commit()
-        return {"session_id": session.id, "done": False, "prompt": prompt}
+        return {
+            "session_id": session.id,
+            "done": False,
+            "prompt": prompt,
+            "superseded_sessions": closed,
+        }
 
     # ------------------------------------------------------------------
     # Advancing an existing session
