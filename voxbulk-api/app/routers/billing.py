@@ -143,10 +143,11 @@ def get_public_expo_pricing(currency: str = "GBP", market: str = "", db: Session
     zone_by_currency = {"GBP": "gb", "EUR": "eu", "USD": "us", "CAD": "ca", "AUD": "au"}
     zone = zone_by_currency.get(code, "gb")
     ExpoSeedService.ensure_seeded(db)
-    rows = ExpoBoothService.list_packages(db, market_zone=zone)
+    rows = ExpoBoothService.list_packages(db, market_zone=zone, currency=code)
     plans: list[dict] = []
     for row in rows:
         minor = int(row.get("price_minor") or 0)
+        yearly = row.get("yearly_price_minor")
         days = int(row.get("duration_days") or 1)
         plans.append(
             {
@@ -158,6 +159,8 @@ def get_public_expo_pricing(currency: str = "GBP", market: str = "", db: Session
                 "is_featured": bool(row.get("is_featured")),
                 "price_minor": minor,
                 "price_display": money_display(minor, code) if minor else None,
+                "yearly_price_minor": int(yearly) if yearly is not None else None,
+                "yearly_price_display": money_display(int(yearly), code) if yearly is not None else None,
                 "market_zone": zone,
             }
         )

@@ -16,9 +16,9 @@ import {
 import './productsHubTheme.css'
 
 const GROUP_ACTIONS = {
-  voxbulk: [{ label: 'Edit core pricing', to: '/pricing/plans' }],
+  voxbulk: [{ label: 'Edit core pricing', to: '/pricing/packages?service=core' }],
   customer_feedback: [
-    { label: 'Edit feedback pricing', to: '/customer-feedback/packages' },
+    { label: 'Edit feedback pricing', to: '/pricing/packages?service=feedback' },
     { label: 'Feedback hub', to: '/customer-feedback/overview' },
   ],
   campaign: [{ label: 'Campaign pricing', to: '/pricing/services' }],
@@ -205,7 +205,7 @@ function DetailPanel({ row, draft, setDraft, onClose, onSave, saving, isMobile }
             {saving ? 'Saving…' : 'Save status'}
           </button>
         )}
-        <Link className="phBtn phBtnLink" to={row.pricing_url || '/pricing/plans'}>
+        <Link className="phBtn phBtnLink" to={row.pricing_url || '/pricing/packages'}>
           Edit pricing →
         </Link>
         {row.preview_dashboard_url ? (
@@ -445,8 +445,8 @@ export default function ProductsHub() {
             <h1>Products hub</h1>
             <p>
               Catalogue for Core platform, Customer Feedback, and campaign packs. Edit marketing copy here; change
-              prices in <Link className="phIntroLink" to="/pricing/plans">Core platform pricing</Link> or{' '}
-              <Link className="phIntroLink" to="/customer-feedback/packages">Customer feedback pricing</Link>.
+              prices in <Link className="phIntroLink" to="/pricing/packages">Core platform pricing</Link> or{' '}
+              <Link className="phIntroLink" to="/pricing/packages?service=feedback">Customer feedback pricing</Link>.
             </p>
           </div>
         </div>

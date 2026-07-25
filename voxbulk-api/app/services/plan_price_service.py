@@ -141,6 +141,8 @@ class PlanPriceService:
             "currency": c,
             "monthly_price_minor": row.monthly_price_minor,
             "monthly_price_display": money_display(row.monthly_price_minor, c),
+            "yearly_price_minor": row.yearly_price_minor,
+            "yearly_price_display": money_display(row.yearly_price_minor, c) if row.yearly_price_minor is not None else None,
             "per_min_minor": int(row.per_min_minor or 0),
             "per_min_display": money_display(int(row.per_min_minor or 0), c),
             "extra_per_min_minor": int(row.extra_per_min_minor or 0),
@@ -162,6 +164,9 @@ class PlanPriceService:
         if "monthly_price_minor" in payload:
             value = payload["monthly_price_minor"]
             row.monthly_price_minor = None if value is None else max(0, int(value))
+        if "yearly_price_minor" in payload:
+            value = payload["yearly_price_minor"]
+            row.yearly_price_minor = None if value is None else max(0, int(value))
         for key in ("per_min_minor", "extra_per_min_minor"):
             if key in payload and payload[key] is not None:
                 value = int(payload[key])

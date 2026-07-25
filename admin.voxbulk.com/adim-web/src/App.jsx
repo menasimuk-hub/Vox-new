@@ -52,7 +52,7 @@ export default function App() {
         <Route path='/customer-feedback' element={<Navigate to='/customer-feedback/overview' replace />} />
         <Route path='/customer-feedback/industries' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
         <Route path='/customer-feedback/industries/:industryId' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
-        <Route path='/customer-feedback/packages' element={<P.FeedbackPackagesPricing />} />
+        <Route path='/customer-feedback/packages' element={<Navigate to='/pricing/packages?service=feedback' replace />} />
         <Route path='/customer-feedback/survey-types' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
         <Route path='/customer-feedback/survey-types/:typeId' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
         <Route path='/customer-feedback/system-templates' element={<Navigate to='/ai/wa-templates?tab=feedback' replace />} />
@@ -151,12 +151,13 @@ export default function App() {
         <Route path='/billing/service-orders' element={<P.ServiceOrdersAdmin />} />
 
         <Route path='/pricing/*' element={<P.PricingShell />}>
-          <Route index element={<Navigate to='/pricing/plans' replace />} />
-          <Route path='plans' element={<P.PricingPlans />} />
+          <Route index element={<Navigate to='/pricing/packages' replace />} />
+          <Route path='packages' element={<P.PricingPackages />} />
+          <Route path='plans' element={<Navigate to='/pricing/packages?service=core' replace />} />
           <Route path='connection-fee' element={<P.PricingConnectionFee />} />
           <Route path='services' element={<P.PricingServices />} />
           <Route path='topups' element={<P.PricingTopups />} />
-          <Route path='plan-prices' element={<P.PricingPlanPrices />} />
+          <Route path='plan-prices' element={<Navigate to='/pricing/packages' replace />} />
           <Route path='currency-rates' element={<P.PricingCurrencyRates />} />
           <Route path='invoice-settings' element={<P.PricingInvoiceSettings />} />
           <Route path='fx' element={<Navigate to='/pricing/currency-rates' replace />} />

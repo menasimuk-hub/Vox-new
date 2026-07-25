@@ -342,6 +342,98 @@ def update_currency_settings(
     return PlanPriceService.currency_settings_to_dict(row)
 
 
+# ------------------------------------------------------------------ per-service packages (Core / Feedback / Expo)
+
+
+@router.get("/packages")
+def list_pricing_packages(
+    service_kind: str | None = Query(None),
+    active_only: bool = Query(True),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.expo.seed_service import ExpoSeedService
+        from app.services.pricing_packages_service import PricingPackagesError, PricingPackagesService
+
+        ExpoSeedService.ensure_seeded(db)
+        try:
+            return PricingPackagesService.list_packages(db, service_kind=service_kind, active_only=active_only)
+        except PricingPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    return _run_pricing_db(db, work)
+
+
+@router.post("/packages")
+def create_pricing_package(payload: dict = Body(...), db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.pricing_packages_service import PricingPackagesError, PricingPackagesService
+
+        try:
+            item = PricingPackagesService.create_package(db, payload)
+        except PricingPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.put("/packages/{plan_id}")
+def update_pricing_package(
+    plan_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.pricing_packages_service import PricingPackagesError, PricingPackagesService
+
+        try:
+            item = PricingPackagesService.update_package(db, plan_id, payload)
+        except PricingPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.put("/packages/{plan_id}/prices")
+def upsert_pricing_package_prices(
+    plan_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.pricing_packages_service import PricingPackagesError, PricingPackagesService
+
+        prices = payload.get("prices") if isinstance(payload, dict) else None
+        if prices is None:
+            prices = payload
+        try:
+            item = PricingPackagesService.upsert_prices(db, plan_id, prices)
+        except PricingPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.delete("/packages/{plan_id}")
+def deactivate_pricing_package(plan_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.pricing_packages_service import PricingPackagesError, PricingPackagesService
+
+        try:
+            item = PricingPackagesService.deactivate_package(db, plan_id)
+        except PricingPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
 # ------------------------------------------------------------------ billing settings (company / VAT / invoice numbering)
 
 

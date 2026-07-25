@@ -16,15 +16,19 @@ Members only see booths they created (same campaign-owner filter as Feedback).
 
 ## Price list (seeded)
 
-Per exhibition (`service_kind=expo`, interval `one_time`) — duration packages:
+Per exhibition (`service_kind=expo`, interval `one_time`) — three duration packages with
+explicit multi-currency `PlanPrice` rows (GBP / EUR / USD / CAD / AUD). One-time amount lives
+in `monthly_price_minor`; optional annual subscription in `yearly_price_minor` (nullable).
 
-| Package | Days active | GB price | Scoring |
+| Package | Days active | GB one-time | Scoring |
 |---|---|---|---|
-| Expo 1 Day (`expo_day1_gb`) | 1 | £49 | Yes |
-| Expo 3 Days (`expo_day3_gb`) | 3 | £99 (featured) | Yes |
-| Expo 7 Days (`expo_day7_gb`) | 7 | £149 | Yes |
+| Expo 1 Day (`expo_day1`) | 1 | £49 | Yes |
+| Expo 3 Days (`expo_day3`) | 3 | £99 (featured) | Yes |
+| Expo 7 Days (`expo_day7`) | 7 | £149 | Yes |
 
-Also seeded for `eu` / `us` / `ca` / `au` zones. Legacy Starter/Pro/Premium codes are deactivated on seed. Checkout is not wired yet — selecting a package activates the booth for N days from activation (`expires_at`).
+Legacy zone codes (`expo_day1_gb`, …) and Starter/Pro/Premium are deactivated on seed; booths
+are re-pointed to the canonical duration package. Checkout is not wired yet — selecting a
+package activates the booth for N days from activation (`expires_at`).
 
 ## Messaging
 

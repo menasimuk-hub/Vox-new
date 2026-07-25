@@ -147,24 +147,42 @@ def find_expo_token_in_text(db: Session, text: str) -> str | None:
 
 class ExpoBoothService:
     @staticmethod
-    def list_packages(db: Session, *, market_zone: str = "gb") -> list[dict[str, Any]]:
+    def list_packages(
+        db: Session,
+        *,
+        market_zone: str = "gb",
+        currency: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return active Expo duration packages priced in the requested currency.
+
+        ``market_zone`` is accepted for backward compatibility and mapped to currency
+        when ``currency`` is not provided. Catalog rows are zone-agnostic (``market_zone=all``).
+        """
+        currency_by_zone = {"gb": "GBP", "eu": "EUR", "us": "USD", "ca": "CAD", "au": "AUD"}
         zone = str(market_zone or "gb").lower()
+        want = str(currency or currency_by_zone.get(zone, "GBP")).upper()
         rows = db.execute(
-            select(ExpoPackage, Plan, PlanPrice)
+            select(ExpoPackage, Plan)
             .join(Plan, Plan.id == ExpoPackage.plan_id)
-            .outerjoin(PlanPrice, (PlanPrice.plan_id == Plan.id) & (PlanPrice.currency == ("GBP" if zone == "gb" else PlanPrice.currency)))
-            .where(ExpoPackage.is_active.is_(True), ExpoPackage.market_zone == zone)
+            .where(
+                ExpoPackage.is_active.is_(True),
+                Plan.is_active.is_(True),
+                ExpoPackage.market_zone.in_(("all", zone)),
+            )
             .order_by(ExpoPackage.display_order.asc())
         ).all()
-        # Prefer currency match via zone map
-        currency_by_zone = {"gb": "GBP", "eu": "EUR", "us": "USD", "ca": "CAD", "au": "AUD"}
-        want = currency_by_zone.get(zone, "GBP")
         out: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for pkg, plan, _ in rows:
-            if pkg.id in seen:
+        seen_tiers: set[str] = set()
+        for pkg, plan in rows:
+            tier_key = str(pkg.tier or plan.code or pkg.id)
+            if tier_key in seen_tiers:
                 continue
-            seen.add(pkg.id)
+            # Prefer canonical ``all`` over any leftover zone row for the same tier.
+            if pkg.market_zone != "all" and any(
+                other.market_zone == "all" and other.tier == pkg.tier for other, _ in rows
+            ):
+                continue
+            seen_tiers.add(tier_key)
             price = db.execute(
                 select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency == want)
             ).scalar_one_or_none()
@@ -173,6 +191,7 @@ class ExpoBoothService:
                 features = json.loads(plan.features_json or "[]")
             except (json.JSONDecodeError, TypeError):
                 features = []
+            yearly = int(price.yearly_price_minor) if price and price.yearly_price_minor is not None else None
             out.append(
                 {
                     "id": pkg.id,
@@ -183,7 +202,8 @@ class ExpoBoothService:
                     "duration_days": int(getattr(pkg, "duration_days", None) or 1),
                     "market_zone": pkg.market_zone,
                     "currency": want,
-                    "price_minor": int(price.monthly_price_minor) if price else int(plan.price_gbp_pence or 0),
+                    "price_minor": int(price.monthly_price_minor) if price and price.monthly_price_minor is not None else int(plan.price_gbp_pence or 0),
+                    "yearly_price_minor": yearly,
                     "max_booths": pkg.max_booths,
                     "max_assets": pkg.max_assets,
                     "lead_scoring_enabled": pkg.lead_scoring_enabled,

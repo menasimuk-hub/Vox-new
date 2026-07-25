@@ -69,7 +69,7 @@ export const NAV = [
     'Customer feedback',
     [
       ['Overview', '/customer-feedback/overview'],
-      ['Packages & pricing', '/customer-feedback/packages'],
+      ['Packages & pricing', '/pricing/packages?service=feedback'],
       ['Subscriptions', '/customer-feedback/subscriptions'],
       ['Locations', '/customer-feedback/locations'],
       ['Results', '/customer-feedback/results'],
@@ -183,7 +183,7 @@ export const NAV = [
       ['Billing exceptions', '/billing/exceptions'],
       ['Calls cost', '/billing/calls-cost'],
       ['Products hub', '/billing/products'],
-      ['Core platform pricing', '/pricing/plans'],
+      ['Core platform pricing', '/pricing/packages'],
       ['Service orders (cash)', '/billing/service-orders'],
     ],
   ],

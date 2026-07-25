@@ -270,8 +270,8 @@ class ProductsHubService:
         line = ProductsHubService.product_line_for_plan(plan)
         code = str(plan.code or "")
         if line == "customer_feedback":
-            return f"/customer-feedback/packages?currency={normalize_currency(currency)}&plan={code}"
-        return f"/pricing/plans?plan={code}"
+            return f"/pricing/packages?service=feedback&plan={code}"
+        return f"/pricing/packages?service=core&plan={code}"
 
     @staticmethod
     def preview_urls(plan: Plan) -> dict[str, str]:

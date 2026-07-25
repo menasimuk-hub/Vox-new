@@ -56,7 +56,7 @@ type ExpoPlanView = {
 
 const FALLBACK_EXPO: ExpoPlanView[] = [
   {
-    code: "expo_day1_gb",
+    code: "expo_day1",
     name: "1 Day",
     durationDays: 1,
     price: 49,
@@ -70,7 +70,7 @@ const FALLBACK_EXPO: ExpoPlanView[] = [
     ],
   },
   {
-    code: "expo_day3_gb",
+    code: "expo_day3",
     name: "3 Days",
     durationDays: 3,
     price: 99,
@@ -85,7 +85,7 @@ const FALLBACK_EXPO: ExpoPlanView[] = [
     ],
   },
   {
-    code: "expo_day7_gb",
+    code: "expo_day7",
     name: "7 Days",
     durationDays: 7,
     price: 149,

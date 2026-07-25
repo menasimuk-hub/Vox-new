@@ -1,8 +1,9 @@
-"""Seed Expo industries and 1 / 3 / 7 day duration packages."""
+"""Seed Expo industries and 1 / 3 / 7 day duration packages (multi-currency)."""
 
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime
 
@@ -67,10 +68,11 @@ UNIVERSAL_QUESTIONS: list[dict] = [
     },
 ]
 
-# Per-exhibition duration packages (£49 / £99 / £149) — 1 / 3 / 7 days
+# Canonical duration packages — one plan per tier, prices per currency on PlanPrice.
 PACKAGE_TIERS: list[dict] = [
     {
         "tier": "day1",
+        "code": "expo_day1",
         "name": "Expo 1 Day",
         "duration_days": 1,
         "order": 10,
@@ -94,6 +96,7 @@ PACKAGE_TIERS: list[dict] = [
     },
     {
         "tier": "day3",
+        "code": "expo_day3",
         "name": "Expo 3 Days",
         "duration_days": 3,
         "order": 20,
@@ -117,6 +120,7 @@ PACKAGE_TIERS: list[dict] = [
     },
     {
         "tier": "day7",
+        "code": "expo_day7",
         "name": "Expo 7 Days",
         "duration_days": 7,
         "order": 30,
@@ -140,38 +144,7 @@ PACKAGE_TIERS: list[dict] = [
     },
 ]
 
-LEGACY_EXPO_TIER_PREFIXES = ("expo_starter_", "expo_pro_", "expo_premium_")
-
-PACKAGE_ZONES: list[dict] = [
-    {"zone": "gb", "currency": "GBP"},
-    {"zone": "eu", "currency": "EUR"},
-    {"zone": "us", "currency": "USD"},
-    {"zone": "ca", "currency": "CAD"},
-    {"zone": "au", "currency": "AUD"},
-]
-
-PACKAGE_SEEDS: list[dict] = [
-    {
-        "code": f"expo_{tier['tier']}_{zone['zone']}",
-        "name": tier["name"],
-        "zone": zone["zone"],
-        "currency": zone["currency"],
-        "tier": tier["tier"],
-        "duration_days": int(tier["duration_days"]),
-        "max_booths": tier["max_booths"],
-        "max_assets": tier["max_assets"],
-        "lead_scoring": tier["lead_scoring"],
-        "post_show_followup": tier["post_show_followup"],
-        "post_event_survey": tier["post_event_survey"],
-        "ai_summary": tier["ai_summary"],
-        "price_pence": tier["prices"][zone["currency"]],
-        "order": tier["order"],
-        "featured": tier["featured"],
-        "features": tier["features"],
-    }
-    for zone in PACKAGE_ZONES
-    for tier in PACKAGE_TIERS
-]
+CANONICAL_EXPO_CODES = {str(t["code"]) for t in PACKAGE_TIERS}
 
 
 class ExpoSeedService:
@@ -299,13 +272,24 @@ class ExpoSeedService:
         db.flush()
 
     @staticmethod
-    def _deactivate_legacy_packages(db: Session, *, now: datetime) -> None:
-        plans = db.execute(
-            select(Plan).where(Plan.service_kind == EXPO_SERVICE_CODE, Plan.is_active.is_(True))
-        ).scalars().all()
+    def _tier_from_plan_code(code: str) -> str | None:
+        raw = str(code or "").strip().lower()
+        if raw in CANONICAL_EXPO_CODES:
+            return raw.replace("expo_", "")
+        m = re.match(r"^expo_(day[137]|starter|pro|premium)(?:_(?:gb|eu|us|ca|au))?$", raw)
+        if not m:
+            return None
+        tier = m.group(1)
+        if tier in ("day1", "day3", "day7"):
+            return tier
+        return None
+
+    @staticmethod
+    def _deactivate_non_canonical_packages(db: Session, *, now: datetime) -> None:
+        plans = db.execute(select(Plan).where(Plan.service_kind == EXPO_SERVICE_CODE)).scalars().all()
         for plan in plans:
             code = str(plan.code or "")
-            if not any(code.startswith(prefix) for prefix in LEGACY_EXPO_TIER_PREFIXES):
+            if code in CANONICAL_EXPO_CODES:
                 continue
             plan.is_active = False
             plan.updated_at = now
@@ -317,24 +301,46 @@ class ExpoSeedService:
                 db.add(expo_pkg)
 
     @staticmethod
+    def _repoint_booths_to_canonical(db: Session, *, now: datetime, canonical_by_tier: dict[str, ExpoPackage]) -> None:
+        booths = db.execute(select(ExpoBooth).where(ExpoBooth.package_id.is_not(None))).scalars().all()
+        for booth in booths:
+            old = db.get(ExpoPackage, booth.package_id)
+            if old is None:
+                continue
+            if old.market_zone == "all" and old.tier in canonical_by_tier and old.id == canonical_by_tier[old.tier].id:
+                continue
+            plan = db.get(Plan, old.plan_id) if old.plan_id else None
+            tier = old.tier if old.tier in canonical_by_tier else ExpoSeedService._tier_from_plan_code(plan.code if plan else "")
+            if not tier or tier not in canonical_by_tier:
+                continue
+            target = canonical_by_tier[tier]
+            if booth.package_id == target.id:
+                continue
+            booth.package_id = target.id
+            booth.updated_at = now
+            db.add(booth)
+
+    @staticmethod
     def _ensure_packages(db: Session) -> None:
         now = datetime.utcnow()
-        ExpoSeedService._deactivate_legacy_packages(db, now=now)
-        for pkg in PACKAGE_SEEDS:
-            currency = str(pkg["currency"])
+        canonical_by_tier: dict[str, ExpoPackage] = {}
+
+        for pkg in PACKAGE_TIERS:
+            code = str(pkg["code"])
             features_json = json.dumps(pkg["features"])
             days = int(pkg["duration_days"])
+            gbp = int(pkg["prices"]["GBP"])
             description = (
                 f"VoxBulk Expo — {pkg['name']} ({days} day{'s' if days != 1 else ''} active) "
-                f"per exhibition (£{int(pkg['price_pence']) / 100:.0f} GBP list for GB zone)"
+                f"per exhibition (one-time; optional annual available)"
             )
-            plan = db.execute(select(Plan).where(Plan.code == pkg["code"])).scalar_one_or_none()
+            plan = db.execute(select(Plan).where(Plan.code == code)).scalar_one_or_none()
             if plan is None:
                 plan = Plan(
                     id=str(uuid.uuid4()),
-                    code=pkg["code"],
+                    code=code,
                     name=pkg["name"],
-                    price_gbp_pence=int(pkg["price_pence"]) if currency == "GBP" else 0,
+                    price_gbp_pence=gbp,
                     interval="one_time",
                     description=description,
                     features_json=features_json,
@@ -349,9 +355,7 @@ class ExpoSeedService:
                 )
                 db.add(plan)
                 db.flush()
-            elif bool(plan.is_frozen):
-                continue
-            else:
+            elif not bool(plan.is_frozen):
                 plan.name = pkg["name"]
                 plan.service_kind = EXPO_SERVICE_CODE
                 plan.description = description
@@ -360,54 +364,57 @@ class ExpoSeedService:
                 plan.is_active = True
                 plan.is_featured = bool(pkg.get("featured"))
                 plan.sort_order = int(pkg["order"])
+                plan.price_gbp_pence = gbp
                 plan.updated_at = now
-                if currency == "GBP":
-                    plan.price_gbp_pence = int(pkg["price_pence"])
                 db.add(plan)
 
-            price_row = db.execute(
-                select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency == currency)
-            ).scalar_one_or_none()
-            if price_row is None:
-                db.add(
-                    PlanPrice(
-                        id=str(uuid.uuid4()),
-                        plan_id=plan.id,
-                        currency=currency,
-                        monthly_price_minor=int(pkg["price_pence"]),
-                        yearly_price_minor=int(pkg["price_pence"]),
-                        per_min_minor=0,
-                        created_at=now,
-                        updated_at=now,
+            for currency, amount in pkg["prices"].items():
+                price_row = db.execute(
+                    select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency == currency)
+                ).scalar_one_or_none()
+                if price_row is None:
+                    db.add(
+                        PlanPrice(
+                            id=str(uuid.uuid4()),
+                            plan_id=plan.id,
+                            currency=currency,
+                            monthly_price_minor=int(amount),
+                            yearly_price_minor=None,
+                            per_min_minor=0,
+                            created_at=now,
+                            updated_at=now,
+                        )
                     )
-                )
-            elif not bool(plan.is_frozen):
-                price_row.monthly_price_minor = int(pkg["price_pence"])
-                price_row.yearly_price_minor = int(pkg["price_pence"])
-                price_row.updated_at = now
-                db.add(price_row)
+                elif not bool(plan.is_frozen):
+                    # Keep admin-edited amounts; only fill missing one-time if empty.
+                    if price_row.monthly_price_minor is None:
+                        price_row.monthly_price_minor = int(amount)
+                        price_row.updated_at = now
+                        db.add(price_row)
 
             expo_pkg = db.execute(select(ExpoPackage).where(ExpoPackage.plan_id == plan.id)).scalar_one_or_none()
             if expo_pkg is None:
-                db.add(
-                    ExpoPackage(
-                        id=str(uuid.uuid4()),
-                        plan_id=plan.id,
-                        market_zone=pkg["zone"],
-                        tier=pkg["tier"],
-                        duration_days=days,
-                        max_booths=int(pkg["max_booths"]),
-                        max_assets=int(pkg["max_assets"]),
-                        lead_scoring_enabled=bool(pkg["lead_scoring"]),
-                        post_show_followup_enabled=bool(pkg["post_show_followup"]),
-                        post_event_survey_enabled=bool(pkg["post_event_survey"]),
-                        ai_summary_report_enabled=bool(pkg["ai_summary"]),
-                        display_order=int(pkg["order"]),
-                        created_at=now,
-                        updated_at=now,
-                    )
+                expo_pkg = ExpoPackage(
+                    id=str(uuid.uuid4()),
+                    plan_id=plan.id,
+                    market_zone="all",
+                    tier=pkg["tier"],
+                    duration_days=days,
+                    max_booths=int(pkg["max_booths"]),
+                    max_assets=int(pkg["max_assets"]),
+                    lead_scoring_enabled=bool(pkg["lead_scoring"]),
+                    post_show_followup_enabled=bool(pkg["post_show_followup"]),
+                    post_event_survey_enabled=bool(pkg["post_event_survey"]),
+                    ai_summary_report_enabled=bool(pkg["ai_summary"]),
+                    display_order=int(pkg["order"]),
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
                 )
+                db.add(expo_pkg)
+                db.flush()
             elif not bool(plan.is_frozen):
+                expo_pkg.market_zone = "all"
                 expo_pkg.tier = pkg["tier"]
                 expo_pkg.duration_days = days
                 expo_pkg.max_booths = int(pkg["max_booths"])
@@ -420,4 +427,8 @@ class ExpoSeedService:
                 expo_pkg.is_active = True
                 expo_pkg.updated_at = now
                 db.add(expo_pkg)
+            canonical_by_tier[str(pkg["tier"])] = expo_pkg
+
+        ExpoSeedService._deactivate_non_canonical_packages(db, now=now)
+        ExpoSeedService._repoint_booths_to_canonical(db, now=now, canonical_by_tier=canonical_by_tier)
         db.flush()
