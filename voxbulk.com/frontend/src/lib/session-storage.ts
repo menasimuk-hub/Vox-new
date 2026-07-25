@@ -60,6 +60,15 @@ export function clearSessionStorage() {
   removeKey(STORAGE_KEYS.accessToken, LEGACY_KEYS.accessToken);
   removeKey(STORAGE_KEYS.orgId, LEGACY_KEYS.orgId);
   removeKey(STORAGE_KEYS.userId, LEGACY_KEYS.userId);
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem(STORAGE_KEYS.accessToken);
+    localStorage.removeItem(LEGACY_KEYS.accessToken);
+    localStorage.removeItem(STORAGE_KEYS.orgId);
+    localStorage.removeItem(LEGACY_KEYS.orgId);
+    localStorage.removeItem(STORAGE_KEYS.userId);
+    localStorage.removeItem(LEGACY_KEYS.userId);
+  }
 }
 
 /** Clear session when admin/dashboard redirect here after logout (`?voxbulk_logout=1`). */

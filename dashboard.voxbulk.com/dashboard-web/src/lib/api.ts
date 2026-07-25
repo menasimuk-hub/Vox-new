@@ -279,7 +279,9 @@ function marketingOriginAfterLogout() {
 }
 
 function getPublicLogoutLandingUrl() {
-  const u = new URL(`${marketingOriginAfterLogout().replace(/\/+$/, "")}/`);
+  // Public site and dashboard are different origins — they do not share localStorage.
+  // Land on marketing /signin with a logout flag so the public token is cleared too.
+  const u = new URL(`${marketingOriginAfterLogout().replace(/\/+$/, "")}/signin`);
   u.searchParams.set(LOGOUT_QUERY, "1");
   return u.toString();
 }
@@ -291,7 +293,8 @@ export function logoutDashboard() {
   } catch {
     /* ignore */
   }
-  window.location.replace("/login?logout=1");
+  // Always leave the dashboard origin after logout so a stale dashboard token cannot bounce back in.
+  window.location.replace(getPublicLogoutLandingUrl());
 }
 
 export function redirectToSignIn() {

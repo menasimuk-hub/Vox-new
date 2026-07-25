@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { brandAssets } from "@/lib/brand";
 import { getAccessToken, oauthStartUrl } from "@/lib/api";
-import { writeSessionToStorage } from "@/lib/session-storage";
+import { clearAllSessionStorage, writeSessionToStorage } from "@/lib/session-storage";
 
 export const Route = createFileRoute("/login")({
   component: DashboardLoginPage,
@@ -28,10 +28,18 @@ function DashboardLoginPage() {
   const loggedOut = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("logout") === "1";
 
   React.useEffect(() => {
+    if (loggedOut) {
+      try {
+        clearAllSessionStorage();
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
     if (getAccessToken()) {
       void navigate({ to: "/" });
     }
-  }, [navigate]);
+  }, [navigate, loggedOut]);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);

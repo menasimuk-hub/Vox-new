@@ -114,6 +114,9 @@ function SignInPage() {
   useEffect(() => {
     if (auth.loading) return;
     if (!auth.user) return;
+    // Never auto-bounce into the app right after an explicit logout.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("voxbulk_logout") || params.get("retover_logout")) return;
     routeAfterAuth(auth.user);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.loading, auth.user?.user_id, auth.user?.admin_access, auth.user?.is_superuser]);

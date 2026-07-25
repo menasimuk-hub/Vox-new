@@ -139,6 +139,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = React.useCallback(() => {
     clearSession();
     setUser(null);
+    if (typeof window !== "undefined") {
+      const url = new URL("/signin", window.location.origin);
+      url.searchParams.set("voxbulk_logout", "1");
+      window.location.replace(url.toString());
+    }
   }, []);
 
   const startOAuth = React.useCallback((provider: string, inviteToken?: string, promoCode?: string) => {
