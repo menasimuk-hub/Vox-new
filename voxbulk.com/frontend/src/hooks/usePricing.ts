@@ -87,6 +87,24 @@ export function usePublicPricing() {
   return { data, loading, error };
 }
 
+export type PublicExpoPlan = {
+  code: string;
+  name: string;
+  tier?: string;
+  duration_days: number;
+  features: string[];
+  is_featured?: boolean;
+  price_minor?: number | null;
+  price_display?: string | null;
+  market_zone?: string;
+};
+
+export type PublicExpoPricing = {
+  currency: string;
+  market_zone: string;
+  plans: PublicExpoPlan[];
+};
+
 export function usePublicFeedbackPricing() {
   const { currency } = useCurrency();
   const [data, setData] = React.useState<PublicFeedbackPricing | null>(null);
@@ -105,6 +123,34 @@ export function usePublicFeedbackPricing() {
       })
       .catch((e: Error) => {
         if (!cancelled) setError(e.message || "Could not load feedback pricing");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currency]);
+
+  return { data, loading, error };
+}
+
+export function usePublicExpoPricing() {
+  const { currency } = useCurrency();
+  const [data, setData] = React.useState<PublicExpoPricing | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void apiFetch<PublicExpoPricing>(`/billing/expo-pricing/public?market=${encodeURIComponent(currency)}`)
+      .then((payload) => {
+        if (!cancelled) setData(payload);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message || "Could not load Expo pricing");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

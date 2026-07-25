@@ -132,6 +132,39 @@ def get_public_feedback_pricing(currency: str = "GBP", market: str = "", db: Ses
     return {"currency": code, "market_zone": zone, "plans": plans}
 
 
+@router.get("/expo-pricing/public")
+def get_public_expo_pricing(currency: str = "GBP", market: str = "", db: Session = Depends(get_db)):
+    """Anonymous Expo duration packages for the marketing pricing page (read-only)."""
+    from app.services.billing_currency import money_display, normalize_currency
+    from app.services.expo.booth_service import ExpoBoothService
+    from app.services.expo.seed_service import ExpoSeedService
+
+    code = normalize_currency(str(market or currency or "GBP"))
+    zone_by_currency = {"GBP": "gb", "EUR": "eu", "USD": "us", "CAD": "ca", "AUD": "au"}
+    zone = zone_by_currency.get(code, "gb")
+    ExpoSeedService.ensure_seeded(db)
+    rows = ExpoBoothService.list_packages(db, market_zone=zone)
+    plans: list[dict] = []
+    for row in rows:
+        minor = int(row.get("price_minor") or 0)
+        days = int(row.get("duration_days") or 1)
+        plans.append(
+            {
+                "code": row.get("plan_code"),
+                "name": row.get("name"),
+                "tier": row.get("tier"),
+                "duration_days": days,
+                "features": list(row.get("features") or []),
+                "is_featured": bool(row.get("is_featured")),
+                "price_minor": minor,
+                "price_display": money_display(minor, code) if minor else None,
+                "market_zone": zone,
+            }
+        )
+    plans.sort(key=lambda p: (int(p.get("duration_days") or 0), str(p.get("code") or "")))
+    return {"currency": code, "market_zone": zone, "plans": plans}
+
+
 @router.get("/wallet")
 def get_wallet(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     from app.models.organisation import Organisation

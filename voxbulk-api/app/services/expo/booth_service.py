@@ -6,9 +6,10 @@ import json
 import re
 import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, time
 from typing import Any
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -34,6 +35,43 @@ from app.services.expo.question_bank import (
 from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
 
 TRIGGER_TEMPLATE = "Hi! I visited {company} at {booth} at {event}. {token}"
+BOOTH_CLOSED_MESSAGE = (
+    "Thanks for stopping by! This Expo stand has closed for this exhibition. "
+    "Please ask the stand team if you still need information."
+)
+_LONDON = ZoneInfo("Europe/London")
+_UTC = ZoneInfo("UTC")
+
+
+def compute_booth_expires_at(*, activated_at: datetime, duration_days: int) -> datetime:
+    """End of (activation London calendar day + duration_days - 1), stored as naive UTC."""
+    days = max(1, int(duration_days or 1))
+    if activated_at.tzinfo is None:
+        act_local = activated_at.replace(tzinfo=_UTC).astimezone(_LONDON)
+    else:
+        act_local = activated_at.astimezone(_LONDON)
+    end_date = act_local.date() + timedelta(days=days - 1)
+    end_local = datetime.combine(end_date, time(23, 59, 59), tzinfo=_LONDON)
+    return end_local.astimezone(_UTC).replace(tzinfo=None)
+
+
+def booth_is_expired(booth: ExpoBooth, *, now: datetime | None = None) -> bool:
+    if booth.expires_at is None:
+        return False
+    return booth.expires_at <= (now or datetime.utcnow())
+
+
+def apply_package_window(db: Session, booth: ExpoBooth, *, now: datetime | None = None) -> None:
+    """Set activated_at / expires_at from the booth package duration."""
+    stamp = now or datetime.utcnow()
+    days = 1
+    if booth.package_id:
+        pkg = db.get(ExpoPackage, booth.package_id)
+        if pkg is not None:
+            days = max(1, int(getattr(pkg, "duration_days", None) or 1))
+    booth.activated_at = stamp
+    booth.expires_at = compute_booth_expires_at(activated_at=stamp, duration_days=days)
+    booth.updated_at = stamp
 
 def _slug_part(text: str, *, max_len: int = 20) -> str:
     """Alphanumeric-only slug segment so QR tokens stay exactly 3 parts (company-booth-xxxxxx)."""
@@ -140,6 +178,7 @@ class ExpoBoothService:
                     "plan_code": plan.code,
                     "name": plan.name,
                     "tier": pkg.tier,
+                    "duration_days": int(getattr(pkg, "duration_days", None) or 1),
                     "market_zone": pkg.market_zone,
                     "currency": want,
                     "price_minor": int(price.monthly_price_minor) if price else int(plan.price_gbp_pence or 0),
@@ -234,6 +273,9 @@ class ExpoBoothService:
             "booth_code": booth.booth_code,
             "qr_token": booth.qr_token,
             "status": booth.status,
+            "activated_at": booth.activated_at.isoformat() if booth.activated_at else None,
+            "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
+            "is_expired": booth_is_expired(booth),
             "scan_count": booth.scan_count,
             "lead_count": int(lead_count),
             "hot_count": int(hot_count),
@@ -359,6 +401,7 @@ class ExpoBoothService:
             created_at=now,
             updated_at=now,
         )
+        apply_package_window(db, booth, now=now)
         db.add(booth)
         db.flush()
 

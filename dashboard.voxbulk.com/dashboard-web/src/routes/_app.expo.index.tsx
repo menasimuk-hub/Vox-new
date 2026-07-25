@@ -32,6 +32,9 @@ type ExpoBooth = {
   lead_count?: number;
   hot_count?: number;
   qr_image_url?: string;
+  expires_at?: string | null;
+  is_expired?: boolean;
+  activated_at?: string | null;
 };
 
 export const Route = createFileRoute("/_app/expo/")({
@@ -121,7 +124,17 @@ function ExpoHub() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((it) => {
-            const live = String(it.status || "").toLowerCase() === "active";
+            const expired = Boolean(it.is_expired);
+            const live = !expired && String(it.status || "").toLowerCase() === "active";
+            const untilLabel = it.expires_at
+              ? new Date(it.expires_at).toLocaleString("en-GB", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : null;
             return (
               <Card key={it.id} className="overflow-hidden">
                 <CardHeader className="flex flex-row items-start justify-between gap-2">
@@ -129,8 +142,15 @@ function ExpoHub() {
                     <CardTitle className="text-base">{it.name}</CardTitle>
                     <p className="mt-0.5 text-xs text-muted-foreground">{it.exhibition_name || "—"}</p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">{it.company_display_name}</p>
+                    {untilLabel ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {expired ? "Expired" : "Active until"} {untilLabel}
+                      </p>
+                    ) : null}
                   </div>
-                  <Badge variant={live ? "default" : "secondary"}>{live ? "Live" : it.status || "Paused"}</Badge>
+                  <Badge variant={expired ? "secondary" : live ? "default" : "secondary"}>
+                    {expired ? "Expired" : live ? "Live" : it.status || "Paused"}
+                  </Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-center rounded-xl border border-dashed border-border bg-background/40 p-3">

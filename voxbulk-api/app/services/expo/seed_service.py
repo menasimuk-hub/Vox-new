@@ -1,4 +1,4 @@
-"""Seed Expo industries and Starter / Pro / Premium price list."""
+"""Seed Expo industries and 1 / 3 / 7 day duration packages."""
 
 from __future__ import annotations
 
@@ -67,68 +67,80 @@ UNIVERSAL_QUESTIONS: list[dict] = [
     },
 ]
 
-# Per-exhibition packages (£49 / £99 / £149) — proposal price list
+# Per-exhibition duration packages (£49 / £99 / £149) — 1 / 3 / 7 days
 PACKAGE_TIERS: list[dict] = [
     {
-        "tier": "starter",
-        "name": "Expo Starter",
+        "tier": "day1",
+        "name": "Expo 1 Day",
+        "duration_days": 1,
         "order": 10,
         "featured": False,
         "max_booths": 1,
         "max_assets": 5,
-        "lead_scoring": False,
+        "lead_scoring": True,
         "post_show_followup": False,
         "post_event_survey": False,
         "ai_summary": False,
         "prices": {"GBP": 4900, "EUR": 5900, "USD": 6500, "CAD": 8900, "AUD": 9900},
         "features": [
+            "Booth active for 1 day",
             "Unique QR code per exhibitor",
-            "Up to 5 custom qualifying questions",
-            "Text + voice note support, any language",
-            "Whisper AI transcription + translation",
-            "Automated offer / file delivery",
-            "Full structured lead export",
+            "WhatsApp qualifying questions",
+            "Optional product / brochure delivery",
+            "Hot / Warm / Cold lead scoring",
+            "Full structured lead export (CSV)",
             "GDPR / international privacy compliance",
         ],
     },
     {
-        "tier": "pro",
-        "name": "Expo Pro",
+        "tier": "day3",
+        "name": "Expo 3 Days",
+        "duration_days": 3,
         "order": 20,
         "featured": True,
         "max_booths": 1,
         "max_assets": 5,
         "lead_scoring": True,
-        "post_show_followup": True,
+        "post_show_followup": False,
         "post_event_survey": False,
         "ai_summary": False,
         "prices": {"GBP": 9900, "EUR": 11900, "USD": 12900, "CAD": 16900, "AUD": 18900},
         "features": [
-            "Everything in Starter",
-            "AI lead scoring (Hot / Warm / Cold)",
-            "Automated post-show follow-up messages",
+            "Booth active for 3 days",
+            "Unique QR code per exhibitor",
+            "WhatsApp qualifying questions",
+            "Optional product / brochure delivery",
+            "Hot / Warm / Cold lead scoring",
+            "Full structured lead export (CSV)",
+            "GDPR / international privacy compliance",
         ],
     },
     {
-        "tier": "premium",
-        "name": "Expo Premium",
+        "tier": "day7",
+        "name": "Expo 7 Days",
+        "duration_days": 7,
         "order": 30,
         "featured": False,
-        "max_booths": 3,
+        "max_booths": 1,
         "max_assets": 5,
         "lead_scoring": True,
-        "post_show_followup": True,
-        "post_event_survey": True,
-        "ai_summary": True,
+        "post_show_followup": False,
+        "post_event_survey": False,
+        "ai_summary": False,
         "prices": {"GBP": 14900, "EUR": 17900, "USD": 19900, "CAD": 24900, "AUD": 27900},
         "features": [
-            "Everything in Pro",
-            "Post-event visitor feedback survey",
-            "AI-written lead summary report",
-            "Up to 3 booth QR codes per exhibition",
+            "Booth active for 7 days",
+            "Unique QR code per exhibitor",
+            "WhatsApp qualifying questions",
+            "Optional product / brochure delivery",
+            "Hot / Warm / Cold lead scoring",
+            "Full structured lead export (CSV)",
+            "GDPR / international privacy compliance",
         ],
     },
 ]
+
+LEGACY_EXPO_TIER_PREFIXES = ("expo_starter_", "expo_pro_", "expo_premium_")
 
 PACKAGE_ZONES: list[dict] = [
     {"zone": "gb", "currency": "GBP"},
@@ -145,6 +157,7 @@ PACKAGE_SEEDS: list[dict] = [
         "zone": zone["zone"],
         "currency": zone["currency"],
         "tier": tier["tier"],
+        "duration_days": int(tier["duration_days"]),
         "max_booths": tier["max_booths"],
         "max_assets": tier["max_assets"],
         "lead_scoring": tier["lead_scoring"],
@@ -269,15 +282,34 @@ class ExpoSeedService:
         db.flush()
 
     @staticmethod
+    def _deactivate_legacy_packages(db: Session, *, now: datetime) -> None:
+        plans = db.execute(
+            select(Plan).where(Plan.service_kind == EXPO_SERVICE_CODE, Plan.is_active.is_(True))
+        ).scalars().all()
+        for plan in plans:
+            code = str(plan.code or "")
+            if not any(code.startswith(prefix) for prefix in LEGACY_EXPO_TIER_PREFIXES):
+                continue
+            plan.is_active = False
+            plan.updated_at = now
+            db.add(plan)
+            expo_pkg = db.execute(select(ExpoPackage).where(ExpoPackage.plan_id == plan.id)).scalar_one_or_none()
+            if expo_pkg is not None:
+                expo_pkg.is_active = False
+                expo_pkg.updated_at = now
+                db.add(expo_pkg)
+
+    @staticmethod
     def _ensure_packages(db: Session) -> None:
         now = datetime.utcnow()
+        ExpoSeedService._deactivate_legacy_packages(db, now=now)
         for pkg in PACKAGE_SEEDS:
             currency = str(pkg["currency"])
             features_json = json.dumps(pkg["features"])
+            days = int(pkg["duration_days"])
             description = (
-                f"VoxBulk Expo — {pkg['name']} per exhibition "
-                f"(£{int(pkg['price_pence']) / 100:.0f} GBP list for GB zone; "
-                f"scoring={'yes' if pkg['lead_scoring'] else 'no'})"
+                f"VoxBulk Expo — {pkg['name']} ({days} day{'s' if days != 1 else ''} active) "
+                f"per exhibition (£{int(pkg['price_pence']) / 100:.0f} GBP list for GB zone)"
             )
             plan = db.execute(select(Plan).where(Plan.code == pkg["code"])).scalar_one_or_none()
             if plan is None:
@@ -303,11 +335,14 @@ class ExpoSeedService:
             elif bool(plan.is_frozen):
                 continue
             else:
+                plan.name = pkg["name"]
                 plan.service_kind = EXPO_SERVICE_CODE
                 plan.description = description
                 plan.features_json = features_json
                 plan.interval = "one_time"
                 plan.is_active = True
+                plan.is_featured = bool(pkg.get("featured"))
+                plan.sort_order = int(pkg["order"])
                 plan.updated_at = now
                 if currency == "GBP":
                     plan.price_gbp_pence = int(pkg["price_pence"])
@@ -343,6 +378,7 @@ class ExpoSeedService:
                         plan_id=plan.id,
                         market_zone=pkg["zone"],
                         tier=pkg["tier"],
+                        duration_days=days,
                         max_booths=int(pkg["max_booths"]),
                         max_assets=int(pkg["max_assets"]),
                         lead_scoring_enabled=bool(pkg["lead_scoring"]),
@@ -356,12 +392,14 @@ class ExpoSeedService:
                 )
             elif not bool(plan.is_frozen):
                 expo_pkg.tier = pkg["tier"]
+                expo_pkg.duration_days = days
                 expo_pkg.max_booths = int(pkg["max_booths"])
                 expo_pkg.max_assets = int(pkg["max_assets"])
                 expo_pkg.lead_scoring_enabled = bool(pkg["lead_scoring"])
                 expo_pkg.post_show_followup_enabled = bool(pkg["post_show_followup"])
                 expo_pkg.post_event_survey_enabled = bool(pkg["post_event_survey"])
                 expo_pkg.ai_summary_report_enabled = bool(pkg["ai_summary"])
+                expo_pkg.display_order = int(pkg["order"])
                 expo_pkg.is_active = True
                 expo_pkg.updated_at = now
                 db.add(expo_pkg)

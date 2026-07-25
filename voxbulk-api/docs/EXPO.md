@@ -16,15 +16,15 @@ Members only see booths they created (same campaign-owner filter as Feedback).
 
 ## Price list (seeded)
 
-Per exhibition (`service_kind=expo`, interval `one_time`):
+Per exhibition (`service_kind=expo`, interval `one_time`) — duration packages:
 
-| Package | GB price | Scoring | Post-show follow-up | Post-event survey | AI summary |
-|---|---|---|---|---|---|
-| Expo Starter (`expo_starter_gb`) | £49 | No | No | No | No |
-| Expo Pro (`expo_pro_gb`) | £99 | Yes | Yes | No | No |
-| Expo Premium (`expo_premium_gb`) | £149 | Yes | Yes | Yes | Yes |
+| Package | Days active | GB price | Scoring |
+|---|---|---|---|
+| Expo 1 Day (`expo_day1_gb`) | 1 | £49 | Yes |
+| Expo 3 Days (`expo_day3_gb`) | 3 | £99 (featured) | Yes |
+| Expo 7 Days (`expo_day7_gb`) | 7 | £149 | Yes |
 
-Also seeded for `eu` / `us` / `ca` / `au` zones. Checkout is not wired yet — packages are assignable/visible.
+Also seeded for `eu` / `us` / `ca` / `au` zones. Legacy Starter/Pro/Premium codes are deactivated on seed. Checkout is not wired yet — selecting a package activates the booth for N days from activation (`expires_at`).
 
 ## Messaging
 

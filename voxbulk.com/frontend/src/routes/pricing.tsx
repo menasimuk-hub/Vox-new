@@ -7,14 +7,17 @@ import {
   BillingToggle, type Billing,
 } from "@/components/VOXBULKHome";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
-import { usePublicFeedbackPricing, usePublicPricing, type PublicFeedbackPlan, type PublicPlan } from "@/hooks/usePricing";
+import { usePublicFeedbackPricing, usePublicPricing, usePublicExpoPricing, type PublicFeedbackPlan, type PublicPlan, type PublicExpoPlan } from "@/hooks/usePricing";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/pricing")({
   validateSearch: (search: Record<string, unknown>) => ({
     plan: typeof search.plan === "string" && search.plan.trim() ? search.plan.trim() : undefined,
-    product: search.product === "feedback" ? ("feedback" as const) : undefined,
+    product:
+      search.product === "feedback" || search.product === "expo"
+        ? (search.product as "feedback" | "expo")
+        : undefined,
   }),
   loader: async () => ({ settings: await fetchSeoSettings() }),
   head: ({ loaderData }) => ({
@@ -41,6 +44,79 @@ const FALLBACK_FEEDBACK: FeedbackPlan[] = [
   { code: "feedback_growth_gb", name: "Growth", price: 99, featured: true, waSurveys: 600, webSurveys: 300, extraFeatures: ["3 locations", "Weekly report", "Live dashboard", "Priority support"] },
   { code: "feedback_pro_gb", name: "Pro", price: 199, waSurveys: "Unlimited", webSurveys: "Unlimited", extraFeatures: ["10 locations", "Real-time dashboard", "Branded PDF report", "Dedicated AM"] },
 ];
+
+type ExpoPlanView = {
+  code: string;
+  name: string;
+  durationDays: number;
+  price: number;
+  featured?: boolean;
+  features: string[];
+};
+
+const FALLBACK_EXPO: ExpoPlanView[] = [
+  {
+    code: "expo_day1_gb",
+    name: "1 Day",
+    durationDays: 1,
+    price: 49,
+    features: [
+      "Booth active for 1 day",
+      "Unique QR code per exhibitor",
+      "WhatsApp qualifying questions",
+      "Optional product / brochure delivery",
+      "Hot / Warm / Cold lead scoring",
+      "Full structured lead export (CSV)",
+    ],
+  },
+  {
+    code: "expo_day3_gb",
+    name: "3 Days",
+    durationDays: 3,
+    price: 99,
+    featured: true,
+    features: [
+      "Booth active for 3 days",
+      "Unique QR code per exhibitor",
+      "WhatsApp qualifying questions",
+      "Optional product / brochure delivery",
+      "Hot / Warm / Cold lead scoring",
+      "Full structured lead export (CSV)",
+    ],
+  },
+  {
+    code: "expo_day7_gb",
+    name: "7 Days",
+    durationDays: 7,
+    price: 149,
+    features: [
+      "Booth active for 7 days",
+      "Unique QR code per exhibitor",
+      "WhatsApp qualifying questions",
+      "Optional product / brochure delivery",
+      "Hot / Warm / Cold lead scoring",
+      "Full structured lead export (CSV)",
+    ],
+  },
+];
+
+function mapExpoPlan(p: PublicExpoPlan): ExpoPlanView {
+  const price =
+    p.price_minor != null
+      ? p.price_minor / 100
+      : Number.parseFloat(String(p.price_display || "").replace(/[^\d.]/g, "")) || 0;
+  const days = Math.max(1, Number(p.duration_days) || 1);
+  const shortName =
+    /1\s*day/i.test(p.name) ? "1 Day" : /3\s*day/i.test(p.name) ? "3 Days" : /7\s*day/i.test(p.name) ? "7 Days" : p.name;
+  return {
+    code: p.code,
+    name: shortName,
+    durationDays: days,
+    price,
+    featured: Boolean(p.is_featured),
+    features: p.features?.length ? p.features : [`Booth active for ${days} day${days === 1 ? "" : "s"}`],
+  };
+}
 
 const FALLBACK_NAME_TO_CODE: Record<string, string> = {
   "Pay as you go": "payg",
@@ -210,6 +286,7 @@ function PricingPage() {
   const { plan: highlightPlan, product: highlightProduct } = Route.useSearch();
   const corePricing = usePublicPricing();
   const feedbackPricing = usePublicFeedbackPricing();
+  const expoPricing = usePublicExpoPricing();
   const s = SYM[cur];
   const fx = FX[cur];
   const [topup, setTopup] = useState(50);
@@ -228,17 +305,26 @@ function PricingPage() {
     () => (feedbackApiPlans.length ? feedbackApiPlans.map(mapFeedbackPlan) : FALLBACK_FEEDBACK),
     [feedbackApiPlans],
   );
+  const expoApiPlans = expoPricing.data?.plans ?? [];
+  const expoPlans = useMemo(
+    () => (expoApiPlans.length ? expoApiPlans.map(mapExpoPlan) : FALLBACK_EXPO),
+    [expoApiPlans],
+  );
   const services = corePricing.data?.services;
 
   useEffect(() => {
     if (!highlightPlan) return;
-    const isFeedback = highlightProduct === "feedback";
-    const id = isFeedback ? `pricing-feedback-${highlightPlan}` : `pricing-core-${highlightPlan}`;
+    const id =
+      highlightProduct === "feedback"
+        ? `pricing-feedback-${highlightPlan}`
+        : highlightProduct === "expo"
+          ? `pricing-expo-${highlightPlan}`
+          : `pricing-core-${highlightPlan}`;
     const timer = window.setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [highlightPlan, highlightProduct, corePlans.length, feedbackPlans.length]);
+  }, [highlightPlan, highlightProduct, corePlans.length, feedbackPlans.length, expoPlans.length]);
 
   const waRate = services?.whatsapp_survey_display
     ? Number.parseFloat(String(services.whatsapp_survey_display).replace(/[^\d.]/g, "")) || WA_GBP * fx
@@ -258,7 +344,7 @@ function PricingPage() {
               Simple pricing across <span className="serif-italic text-primary">every product</span>.
             </h1>
             <p className="mt-5 text-[17px] text-body max-w-[620px] mx-auto">
-              Pick the plan that fits. Use one product or all three.
+              Pick the plan that fits. Use one product or all four.
             </p>
             <div className="mt-4 text-[12.5px] text-muted-text">
               Prices shown in <span className="font-semibold text-heading">{s} {cur.toUpperCase()}</span> ┬╖ change country in footer
@@ -278,7 +364,7 @@ function PricingPage() {
               {corePlans.map((p) => {
                 const apiPlan = coreApiPlans.find((row) => row.code === p.code);
                 const featured = p.badge === "Most popular";
-                const highlighted = highlightProduct !== "feedback" && highlightPlan === p.code;
+                const highlighted = highlightProduct !== "feedback" && highlightProduct !== "expo" && highlightPlan === p.code;
                 const priceMinor = corePriceMinor(p, coreBilling, apiPlan);
                 const displayPrice = priceMinor != null ? (priceMinor / 100).toFixed(0) : null;
                 const perMinDisplay = apiPlan?.per_min_display
@@ -405,8 +491,71 @@ function PricingPage() {
           </div>
         </section>
 
-        {/* What each service costs */}
+        {/* Group 4 — VoxBulk Expo (per exhibition, duration packages) */}
         <section className="py-16 bg-white">
+          <div className="max-w-[1080px] mx-auto px-5 md:px-10">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">VoxBulk Expo</div>
+            <p className="mb-8 text-[14px] text-body max-w-[680px]">
+              Exhibition lead capture on WhatsApp. Pay once per show — your booth stays active for 1, 3, or 7 days.
+            </p>
+            <div className="grid md:grid-cols-3 gap-5">
+              {expoPlans.map((p) => {
+                const featured = Boolean(p.featured);
+                const highlighted = highlightProduct === "expo" && highlightPlan === p.code;
+                const displayPrice = Math.round(p.price * fx);
+                return (
+                  <div
+                    key={p.code}
+                    id={`pricing-expo-${p.code}`}
+                    className={`relative rounded-2xl p-6 flex flex-col transition-shadow ${highlighted ? "ring-2 ring-gold shadow-elevated" : ""} ${
+                      featured
+                        ? "bg-navy text-white border-2 border-gold shadow-elevated"
+                        : "bg-white border border-border shadow-elegant"
+                    }`}
+                  >
+                    {featured && (
+                      <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">
+                        Most popular
+                      </span>
+                    )}
+                    <div className={`text-[14px] font-semibold ${featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
+                    <div className={`mt-1 text-[12.5px] ${featured ? "text-white/65" : "text-muted-text"}`}>
+                      Booth active for {p.durationDays} day{p.durationDays === 1 ? "" : "s"}
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-1">
+                      <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>
+                        {s}{displayPrice}
+                      </span>
+                      <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/exhibition</span>
+                    </div>
+                    <ul className={`mt-5 space-y-2.5 text-[13.5px] flex-1 ${featured ? "text-white/80" : "text-body"}`}>
+                      {p.features.map((f) => (
+                        <li key={f} className="flex items-start gap-2">
+                          <Check size={13} className={`mt-0.5 shrink-0 ${featured ? "text-gold" : "text-primary"}`} />
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Link
+                      to="/contact"
+                      className={`mt-6 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] transition-all ${
+                        featured ? "bg-gold text-navy hover:brightness-105" : "bg-navy text-white hover:bg-navy/90"
+                      }`}
+                    >
+                      Get started <ArrowRight size={13} />
+                    </Link>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-10 text-center text-[13px] text-muted-text">
+              One-off per exhibition · No monthly subscription · Leads exportable after the show
+            </p>
+          </div>
+        </section>
+
+        {/* What each service costs */}
+        <section className="py-16 bg-beige">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text mb-4">What each service costs</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

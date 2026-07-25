@@ -14,7 +14,12 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.expo import ExpoBooth, ExpoSession
-from app.services.expo.booth_service import ExpoBoothService, find_expo_token_in_text
+from app.services.expo.booth_service import (
+    BOOTH_CLOSED_MESSAGE,
+    ExpoBoothService,
+    booth_is_expired,
+    find_expo_token_in_text,
+)
 from app.services.expo.offer_delivery_service import deliver_asset_link_message, format_asset_list_message
 from app.services.expo.session_flow_service import ExpoSessionFlowService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
@@ -115,6 +120,15 @@ class ExpoWhatsappService:
             return {"handled": True, "reason": "booth_not_found", "token": token}
 
         if booth is not None:
+            if booth_is_expired(booth):
+                ExpoWhatsappService._send(
+                    db,
+                    to_number=phone,
+                    body=BOOTH_CLOSED_MESSAGE,
+                    org_id=booth.org_id,
+                    from_number=reply_from,
+                )
+                return {"handled": True, "reason": "booth_expired", "booth_id": booth.id, "org_id": booth.org_id}
             if str(booth.status or "").lower() != "active":
                 ExpoWhatsappService._send(
                     db,

@@ -162,13 +162,6 @@ export function ExpoWebPhonePreview({
           <p className="text-[11px] text-white/80">{eventName || "Exhibition"}</p>
         </div>
         <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3 pb-10">
-          {qrImageUrl ? (
-            <div className="rounded-xl border border-white bg-white p-3 text-center shadow-sm">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Preview QR</p>
-              <img src={qrImageUrl} alt="Expo web QR preview" className="mx-auto mt-2 size-28 rounded-lg" />
-              <p className="mt-1 text-[10px] text-slate-500">Scan to open this questionnaire on the web</p>
-            </div>
-          ) : null}
           <div className="rounded-xl border border-white bg-white p-3 shadow-sm">
             <p className="text-[11px] font-medium text-slate-700">Contact</p>
             <p className="mt-1 text-[10px] leading-snug text-slate-500">{contactHint}</p>

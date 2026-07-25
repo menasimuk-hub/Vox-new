@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.expo import ExpoBoothAsset, ExpoSession
 from app.services.expo.asset_storage_service import resolve_storage_abs_path
-from app.services.expo.booth_service import ExpoBoothService
+from app.services.expo.booth_service import BOOTH_CLOSED_MESSAGE, ExpoBoothService, booth_is_expired
 from app.services.expo.session_flow_service import THANK_YOU_TEXT, ExpoSessionFlowService
 
 router = APIRouter(prefix="/public/expo", tags=["public-expo"])
@@ -21,14 +21,18 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
     booth = ExpoBoothService.find_by_token(db, token)
     if booth is None:
         raise HTTPException(status_code=404, detail="Booth not found")
+    expired = booth_is_expired(booth)
     steps = ExpoSessionFlowService.steps_for_booth(booth)
     return {
         "ok": True,
         "booth": {
             "name": booth.name,
             "company_display_name": booth.company_display_name,
-            "status": booth.status,
+            "status": "expired" if expired else booth.status,
+            "is_expired": expired,
+            "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
             "question_count": len(steps),
+            "closed_message": BOOTH_CLOSED_MESSAGE if expired else None,
         },
     }
 
@@ -38,6 +42,8 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
     booth = ExpoBoothService.find_by_token(db, token)
     if booth is None:
         raise HTTPException(status_code=404, detail="Booth not found")
+    if booth_is_expired(booth):
+        raise HTTPException(status_code=400, detail=BOOTH_CLOSED_MESSAGE)
     if str(booth.status or "").lower() != "active":
         raise HTTPException(status_code=400, detail="This booth is not currently accepting responses.")
 

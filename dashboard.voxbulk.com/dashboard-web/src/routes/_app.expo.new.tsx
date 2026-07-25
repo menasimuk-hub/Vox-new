@@ -43,6 +43,7 @@ type Package = {
   id: string;
   name: string;
   tier: string;
+  duration_days?: number;
   price_minor: number;
   currency: string;
   features: string[];
@@ -178,7 +179,7 @@ function CreateExpoBooth() {
     1: Boolean(industryId),
     2: Boolean(exhibitionName.trim() && company.trim()),
     3: selectedQKeys.length > 0,
-    4: savedAssets.length > 0 || draftReady,
+    4: true,
     5: true,
     6: Boolean(packageId),
     7: true,
@@ -538,8 +539,8 @@ function CreateExpoBooth() {
             <CardHeader>
               <CardTitle className="text-base">Products & files</CardTitle>
               <CardDescription>
-                Add one product at a time (PDF, image, or Excel). Saved products appear in the list with edit /
-                delete.
+                Optional — add PDFs or links if you want to send brochures after questions. You can skip this step and
+                capture leads only.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -768,7 +769,12 @@ function CreateExpoBooth() {
                 <div className={cn(previewChannel !== "wa" && "opacity-60 lg:opacity-100")}>
                   <ExpoWaPhonePreview businessName={company || "Your stand"} messages={waMessages} />
                 </div>
-                <div className={cn(previewChannel !== "web" && "opacity-60 lg:opacity-100")}>
+                <div
+                  className={cn(
+                    "flex flex-col items-center gap-3",
+                    previewChannel !== "web" && "opacity-60 lg:opacity-100",
+                  )}
+                >
                   <ExpoWebPhonePreview
                     companyName={company}
                     eventName={exhibitionName}
@@ -779,10 +785,22 @@ function CreateExpoBooth() {
                     }
                     questions={selectedPrompts}
                     templateName={webTemplate}
-                    qrImageUrl={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-                      `https://voxbulk.com/expo/preview-${encodeURIComponent((company || "stand").slice(0, 24))}`,
-                    )}`}
                   />
+                  <div className="rounded-xl border bg-white p-3 text-center shadow-sm">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Preview QR
+                    </p>
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                        `https://voxbulk.com/expo/preview-${encodeURIComponent((company || "stand").slice(0, 24))}`,
+                      )}`}
+                      alt="Expo web QR preview"
+                      className="mx-auto mt-2 size-28 rounded-lg"
+                    />
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      Visitors scan this at the stand (live URL after activate)
+                    </p>
+                  </div>
                 </div>
               </div>
               {freeGiftEnabled ? (
@@ -798,32 +816,48 @@ function CreateExpoBooth() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Choose package</CardTitle>
+              <CardDescription>How many days should this booth QR stay active?</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-3">
-              {packages.map((pkg) => (
-                <button
-                  key={pkg.id}
-                  type="button"
-                  onClick={() => setPackageId(pkg.id)}
-                  className={cn(
-                    "rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md",
-                    packageId === pkg.id
-                      ? "border-primary bg-primary/5 ring-2 ring-primary/20"
-                      : "hover:border-primary/40",
-                  )}
-                >
-                  <p className="font-medium">{pkg.name}</p>
-                  <p className="mt-1 text-lg font-semibold">
-                    £{(pkg.price_minor / 100).toFixed(0)}
-                    <span className="text-sm font-normal text-muted-foreground"> / show</span>
-                  </p>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {(pkg.features || []).slice(0, 4).map((f) => (
-                      <li key={f}>• {f}</li>
-                    ))}
-                  </ul>
-                </button>
-              ))}
+              {packages.map((pkg) => {
+                const days = pkg.duration_days || 1;
+                const featured = Boolean(pkg.is_featured);
+                return (
+                  <button
+                    key={pkg.id}
+                    type="button"
+                    onClick={() => setPackageId(pkg.id)}
+                    className={cn(
+                      "relative rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md",
+                      packageId === pkg.id
+                        ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                        : "hover:border-primary/40",
+                      featured && packageId !== pkg.id && "border-primary/25",
+                    )}
+                  >
+                    {featured ? (
+                      <span className="absolute -top-2 left-3 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                        Most popular
+                      </span>
+                    ) : null}
+                    <p className="font-medium">{pkg.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Active for {days} day{days === 1 ? "" : "s"}
+                    </p>
+                    <p className="mt-2 text-lg font-semibold">
+                      £{(pkg.price_minor / 100).toFixed(0)}
+                      <span className="text-sm font-normal text-muted-foreground"> / exhibition</span>
+                    </p>
+                    <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                      {(pkg.features || []).slice(0, 4).map((f) => (
+                        <li key={f} className="flex gap-1.5">
+                          <span className="text-primary">✓</span> {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                );
+              })}
             </CardContent>
           </Card>
         )}
