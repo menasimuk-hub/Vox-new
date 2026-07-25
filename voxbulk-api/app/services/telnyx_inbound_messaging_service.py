@@ -545,9 +545,9 @@ class TelnyxInboundMessagingService:
             handled_expo = False
             expo_result: dict[str, Any] | None = None
             try:
-                from app.services.expo.booth_service import extract_expo_token
+                from app.services.expo.booth_service import find_expo_token_in_text
 
-                expo_trigger_token = extract_expo_token(inbound_text)
+                expo_trigger_token = find_expo_token_in_text(db, inbound_text)
             except Exception:
                 expo_trigger_token = None
             if expo_trigger_token:
@@ -562,6 +562,13 @@ class TelnyxInboundMessagingService:
                         record=record if isinstance(record, dict) else None,
                     )
                     handled_expo = bool(expo_result.get("handled"))
+                    logger.info(
+                        "expo_wa_inbound_result handled=%s reason=%s token=%s from=%r",
+                        handled_expo,
+                        (expo_result or {}).get("reason"),
+                        expo_trigger_token,
+                        from_norm or from_number,
+                    )
                 except Exception:
                     logger.exception(
                         "expo_wa_inbound_handler_failed body=%r from=%r",

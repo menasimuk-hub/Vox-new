@@ -166,7 +166,45 @@ class ExpoSeedService:
     def ensure_seeded(db: Session) -> None:
         ExpoSeedService._ensure_industries(db)
         ExpoSeedService._ensure_packages(db)
+        ExpoSeedService._ensure_connection_profile_expo_service(db)
         db.commit()
+
+    @staticmethod
+    def _ensure_connection_profile_expo_service(db: Session) -> None:
+        """Existing WA profiles pre-date SERVICE_EXPO — add enabled expo rows so outbound resolves."""
+        from app.models.connection_profile import CHANNEL_WHATSAPP, ConnectionProfile, ConnectionProfileService
+        from app.services.connection.constants import SERVICE_EXPO
+
+        now = datetime.utcnow()
+        profiles = db.execute(
+            select(ConnectionProfile).where(
+                ConnectionProfile.channel == CHANNEL_WHATSAPP,
+                ConnectionProfile.is_active.is_(True),
+            )
+        ).scalars().all()
+        for profile in profiles:
+            row = db.execute(
+                select(ConnectionProfileService).where(
+                    ConnectionProfileService.profile_id == profile.id,
+                    ConnectionProfileService.service_code == SERVICE_EXPO,
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                db.add(
+                    ConnectionProfileService(
+                        id=str(uuid.uuid4()),
+                        profile_id=profile.id,
+                        service_code=SERVICE_EXPO,
+                        enabled=True,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            elif not bool(row.enabled):
+                row.enabled = True
+                row.updated_at = now
+                db.add(row)
+        db.flush()
 
     @staticmethod
     def _ensure_industries(db: Session) -> None:

@@ -34,11 +34,10 @@ from app.services.expo.question_bank import (
 from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
 
 TRIGGER_TEMPLATE = "Hi! I visited {company} at {booth} at {event}. {token}"
-TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
-
 
 def _slug_part(text: str, *, max_len: int = 20) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
+    """Alphanumeric-only slug segment so QR tokens stay exactly 3 parts (company-booth-xxxxxx)."""
+    base = re.sub(r"[^a-z0-9]+", "", str(text or "").lower())
     return (base or "booth")[:max_len]
 
 
@@ -64,9 +63,42 @@ def _qr_image_for(target_url: str) -> str:
     return f"https://api.qrserver.com/v1/create-qr-code/?size=280x280&data={quote(target_url, safe='')}"
 
 
+# Strict 3-part tokens (new booths) + looser fallback for any …-xxxxxx suffix.
+TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
+TOKEN_SUFFIX_PATTERN = re.compile(r"\b([a-z0-9]+(?:-[a-z0-9]+)+-[a-z0-9]{6})\b", re.IGNORECASE)
+
+
 def extract_expo_token(text: str) -> str | None:
-    m = TOKEN_PATTERN.search(str(text or ""))
-    return m.group(1).lower() if m else None
+    raw = str(text or "")
+    m = TOKEN_PATTERN.search(raw)
+    if m:
+        return m.group(1).lower()
+    m2 = TOKEN_SUFFIX_PATTERN.search(raw)
+    return m2.group(1).lower() if m2 else None
+
+
+def find_expo_token_in_text(db: Session, text: str) -> str | None:
+    """Prefer an exact booth qr_token that appears in the inbound message (most reliable)."""
+    raw = str(text or "").lower()
+    if not raw.strip():
+        return None
+    # Fast path: regex candidates
+    candidates: list[str] = []
+    for pat in (TOKEN_PATTERN, TOKEN_SUFFIX_PATTERN):
+        for m in pat.finditer(raw):
+            tok = m.group(1).lower()
+            if tok not in candidates:
+                candidates.append(tok)
+    for tok in candidates:
+        if db.execute(select(ExpoBooth.id).where(ExpoBooth.qr_token == tok).limit(1)).scalar_one_or_none():
+            return tok
+    # Slow path: known tokens contained in message (handles odd punctuation)
+    rows = db.execute(select(ExpoBooth.qr_token).where(ExpoBooth.status == "active")).scalars().all()
+    for tok in rows:
+        t = str(tok or "").strip().lower()
+        if t and t in raw:
+            return t
+    return extract_expo_token(raw)
 
 
 class ExpoBoothService:
