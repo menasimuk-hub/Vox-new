@@ -35,22 +35,40 @@ if ! python -c "import main"; then
 fi
 info "import main OK"
 
-info "Step 2: restart services"
-bash "$VOX_SH" restart
+info "Step 2: restart services (systemd when installed)"
+if [[ -f /etc/systemd/system/voxbulk-api.service ]]; then
+  info "systemctl restart voxbulk-api …"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    systemctl restart voxbulk-api.service || true
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo -n systemctl restart voxbulk-api.service 2>/dev/null \
+      || sudo systemctl restart voxbulk-api.service || true
+  fi
+  systemctl --no-pager --full status voxbulk-api.service 2>/dev/null | head -n 15 || true
+fi
+# vox.sh prefers systemd units when present; also restarts public + Celery.
+VOX_SKIP_MIGRATE=1 VOX_SKIP_DASHBOARD_PREVIEW=1 bash "$VOX_SH" restart
 
 info "Step 3: wait for /health"
 for i in $(seq 1 30); do
-  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1; then
+  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1 \
+    || curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health >/dev/null 2>&1; then
     info "API healthy"
-    curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health && echo
+    curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health 2>/dev/null \
+      || curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health
+    echo
     exit 0
   fi
   sleep 1
 done
 
 warn "API still not healthy after 30s"
+if [[ -f /etc/systemd/system/voxbulk-api.service ]]; then
+  echo "--- systemctl status voxbulk-api ---"
+  systemctl --no-pager --full status voxbulk-api.service 2>/dev/null | head -n 25 || true
+fi
 if [[ -f "$API_LOG" ]]; then
   echo "--- tail $API_LOG ---"
   tail -n 40 "$API_LOG"
 fi
-fail "Recovery incomplete — check errors above"
+fail "Recovery incomplete — check errors above. Tip: ./vox.sh install-service && ./vox.sh restart"

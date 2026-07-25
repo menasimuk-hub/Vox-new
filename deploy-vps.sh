@@ -237,9 +237,48 @@ _poll_api_health() {
   return 1
 }
 
-# Force-start uvicorn as a fully detached daemon (own session), independent of
-# this deploy shell. Mirrors vox.sh start_api so recovery matches normal boot.
+ensure_api_systemd() {
+  # Idempotent always-on install (non-fatal if sudo unavailable).
+  local setup="$ROOT/scripts/vps-setup-api-systemd.sh"
+  [[ -f "$setup" ]] || return 0
+  chmod +x "$setup" "$ROOT/scripts/run-public-preview.sh" 2>/dev/null || true
+
+  if [[ -f /etc/systemd/system/voxbulk-api.service ]]; then
+    info "Systemd unit voxbulk-api already installed"
+    return 0
+  fi
+
+  info "Installing systemd always-on units (voxbulk-api / voxbulk-public) …"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    VOX_SYSTEMD_SKIP_START=1 bash "$setup" || warn "systemd install failed — API will use nohup fallback"
+    return 0
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    warn "sudo missing — run once: sudo bash scripts/vps-setup-api-systemd.sh"
+    return 0
+  fi
+  if sudo -n true 2>/dev/null; then
+    sudo env VOX_SYSTEMD_SKIP_START=1 bash "$setup" || warn "systemd install failed — API will use nohup fallback"
+  elif sudo env VOX_SYSTEMD_SKIP_START=1 bash "$setup"; then
+    :
+  else
+    warn "Could not install systemd units — run: sudo bash scripts/vps-setup-api-systemd.sh"
+    warn "  (or: ./vox.sh install-service)"
+  fi
+}
+
+# Force-start API: prefer systemd (Restart=always); fall back to detached nohup.
 _force_start_api() {
+  if [[ -f /etc/systemd/system/voxbulk-api.service ]]; then
+    info "Recovery start via systemctl start voxbulk-api …"
+    if [[ "$(id -u)" -eq 0 ]]; then
+      systemctl start voxbulk-api.service && return 0
+    elif command -v sudo >/dev/null 2>&1; then
+      sudo -n systemctl start voxbulk-api.service 2>/dev/null && return 0
+      sudo systemctl start voxbulk-api.service && return 0
+    fi
+    warn "systemctl start failed — falling back to nohup"
+  fi
   (
     cd "$API_DIR" || exit 1
     # shellcheck disable=SC1091
@@ -298,10 +337,12 @@ restart_services() {
   nginx_test_if_present
   verify_api_import
   ensure_auth_url_env
+  ensure_api_systemd
   info "Restarting API + public preview (+ Celery if configured in supervisor) …"
   # Flags already supported by vox.sh — deploy already migrated DB and rsynced
   # dashboard/admin to wwwroot. Without these, restart re-runs alembic and a full
   # dashboard npm build, which looks like a hang on :8000.
+  # When systemd units are installed, vox.sh uses systemctl restart (Restart=always).
   VOX_SKIP_MIGRATE=1 VOX_SKIP_DASHBOARD_BUILD=1 VOX_SKIP_DASHBOARD_PREVIEW=1 \
     bash "$VOX_SH" restart
   require_api_health 30

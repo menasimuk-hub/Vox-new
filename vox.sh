@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # VOXBULK VPS — start / stop / restart API + public site (nginx serves admin/dashboard static)
+# Prefers systemd units (voxbulk-api / voxbulk-public) when installed; falls back to nohup.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -9,8 +10,51 @@ DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
 API_LOG="/tmp/voxbulk-api.log"
 PUBLIC_LOG="/tmp/voxbulk-public.log"
 DASH_LOG="/tmp/voxbulk-dashboard.log"
+SETUP_SYSTEMD="$ROOT/scripts/vps-setup-api-systemd.sh"
+API_UNIT_NAME="voxbulk-api"
+PUBLIC_UNIT_NAME="voxbulk-public"
 
-stop_api() {
+# ── systemd helpers ──────────────────────────────────────────────────────────
+
+_sys() {
+  # Mutating ops need root/sudo; status/is-active are readable without sudo and
+  # may return non-zero when the unit is inactive (that is not a permission error).
+  case "${1:-}" in
+    start|stop|restart|enable|disable|daemon-reload|kill|reload|reload-or-restart)
+      if [[ "$(id -u)" -eq 0 ]]; then
+        systemctl "$@"
+        return $?
+      fi
+      if command -v sudo >/dev/null 2>&1; then
+        if sudo -n systemctl "$@" 2>/dev/null; then
+          return 0
+        fi
+        sudo systemctl "$@"
+        return $?
+      fi
+      systemctl "$@"
+      return $?
+      ;;
+    *)
+      systemctl "$@"
+      return $?
+      ;;
+  esac
+}
+
+api_systemd_installed() {
+  [[ -f "/etc/systemd/system/${API_UNIT_NAME}.service" ]] \
+    || _sys cat "${API_UNIT_NAME}.service" >/dev/null 2>&1
+}
+
+public_systemd_installed() {
+  [[ -f "/etc/systemd/system/${PUBLIC_UNIT_NAME}.service" ]] \
+    || _sys cat "${PUBLIC_UNIT_NAME}.service" >/dev/null 2>&1
+}
+
+# ── process stop (nohup / orphans) ───────────────────────────────────────────
+
+stop_api_processes() {
   pkill -f "uvicorn.*main:app" 2>/dev/null || true
   pkill -f "python -m uvicorn.*main:app" 2>/dev/null || true
   sleep 1
@@ -20,7 +64,7 @@ stop_api() {
   sleep 1
 }
 
-stop_public() {
+stop_public_processes() {
   pkill -f "vite preview.*5173" 2>/dev/null || true
   pkill -f "npm run preview.*5173" 2>/dev/null || true
 }
@@ -29,6 +73,27 @@ stop_dashboard() {
   pkill -f "vite preview.*5175" 2>/dev/null || true
   pkill -f "npm run preview.*5175" 2>/dev/null || true
 }
+
+stop_api() {
+  if api_systemd_installed; then
+    _sys stop "${API_UNIT_NAME}.service" 2>/dev/null || true
+    # Clear orphans that predate systemd adoption.
+    stop_api_processes
+  else
+    stop_api_processes
+  fi
+}
+
+stop_public() {
+  if public_systemd_installed; then
+    _sys stop "${PUBLIC_UNIT_NAME}.service" 2>/dev/null || true
+    stop_public_processes
+  else
+    stop_public_processes
+  fi
+}
+
+# ── Celery (Supervisor — unchanged) ──────────────────────────────────────────
 
 celery_supervisor_name() {
   if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status voxbulk-celery >/dev/null 2>&1; then
@@ -160,20 +225,41 @@ show_log_tail() {
   fi
 }
 
-start_api() {
+migrate_api_if_needed() {
+  if [[ "${VOX_SKIP_MIGRATE:-0}" == "1" ]]; then
+    return 0
+  fi
   cd "$API_DIR"
   # shellcheck disable=SC1091
   source .venv/bin/activate
-  if [[ "${VOX_SKIP_MIGRATE:-0}" != "1" ]]; then
-    python -m alembic upgrade head || echo "Warning: alembic upgrade failed — API will retry migrations on boot"
-  fi
+  python -m alembic upgrade head || echo "Warning: alembic upgrade failed — API will retry migrations on boot"
+}
+
+start_api_nohup() {
+  cd "$API_DIR"
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
   # setsid + </dev/null fully detaches uvicorn into its own session so it keeps
   # running after the launching shell (e.g. deploy-vps.sh) exits or aborts.
   setsid nohup uvicorn main:app --host 127.0.0.1 --port 8000 --workers "${VOX_UVICORN_WORKERS:-1}" >>"$API_LOG" 2>&1 </dev/null &
-  echo "API started (log: $API_LOG)"
+  echo "API started via nohup (log: $API_LOG)"
 }
 
-start_public() {
+start_api() {
+  migrate_api_if_needed
+  if api_systemd_installed; then
+    # Clear any leftover nohup process fighting systemd for :8000.
+    stop_api_processes
+    if _sys start "${API_UNIT_NAME}.service" || _sys restart "${API_UNIT_NAME}.service"; then
+      echo "API started via systemd ($API_UNIT_NAME)"
+      return 0
+    fi
+    echo "Warning: systemctl start $API_UNIT_NAME failed — falling back to nohup"
+  fi
+  start_api_nohup
+}
+
+start_public_nohup() {
   cd "$PUBLIC_DIR"
   if [[ ! -d dist/client ]]; then
     echo "Building public frontend (first run)…"
@@ -187,7 +273,19 @@ start_public() {
   fi
   : >>"$log" 2>/dev/null || true
   nohup npm run preview -- --host 127.0.0.1 --port 5173 >>"$log" 2>&1 &
-  echo "Public site started on 127.0.0.1:5173 (log: $log)"
+  echo "Public site started via nohup on 127.0.0.1:5173 (log: $log)"
+}
+
+start_public() {
+  if public_systemd_installed; then
+    stop_public_processes
+    if _sys start "${PUBLIC_UNIT_NAME}.service" || _sys restart "${PUBLIC_UNIT_NAME}.service"; then
+      echo "Public site started via systemd ($PUBLIC_UNIT_NAME)"
+      return 0
+    fi
+    echo "Warning: systemctl start $PUBLIC_UNIT_NAME failed — falling back to nohup"
+  fi
+  start_public_nohup
 }
 
 start_dashboard() {
@@ -215,12 +313,55 @@ start_dashboard() {
   echo "Dashboard started on 127.0.0.1:5175 (log: $log)"
 }
 
+install_service() {
+  if [[ ! -f "$SETUP_SYSTEMD" ]]; then
+    echo "Missing $SETUP_SYSTEMD"
+    exit 1
+  fi
+  chmod +x "$SETUP_SYSTEMD" "$ROOT/scripts/run-public-preview.sh" 2>/dev/null || true
+  if [[ "$(id -u)" -eq 0 ]]; then
+    bash "$SETUP_SYSTEMD"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo bash "$SETUP_SYSTEMD"
+  else
+    echo "Need root or sudo to install systemd units"
+    exit 1
+  fi
+}
+
+status_systemd() {
+  echo ""
+  echo "=== Systemd (always-on) ==="
+  if api_systemd_installed; then
+    _sys --no-pager --full status "${API_UNIT_NAME}.service" 2>/dev/null | head -n 12 || true
+    if _sys is-active --quiet "${API_UNIT_NAME}.service" 2>/dev/null; then
+      echo "voxbulk-api: active (enabled on boot)"
+    else
+      echo "voxbulk-api: installed but not active — try: ./vox.sh start"
+    fi
+  else
+    echo "voxbulk-api: not installed — run: ./vox.sh install-service"
+  fi
+  if public_systemd_installed; then
+    if _sys is-active --quiet "${PUBLIC_UNIT_NAME}.service" 2>/dev/null; then
+      echo "voxbulk-public: active (enabled on boot)"
+    else
+      echo "voxbulk-public: installed but not active"
+    fi
+  else
+    echo "voxbulk-public: not installed"
+  fi
+}
+
 status() {
   local wait_attempts="${1:-15}"
   local api_ok=0
   local public_ok=0
   local dashboard_ok=0
 
+  status_systemd
+
+  echo ""
   echo "=== API (8000) ==="
   # Direct localhost check (works when TRUSTED_HOSTS is localhost-only on VPS)
   if wait_for_http "http://127.0.0.1:8000/health" "127.0.0.1" "$wait_attempts"; then
@@ -263,6 +404,7 @@ status() {
   echo "  admin:      /www/wwwroot/admin.voxbulk.com"
   echo "  dashboard:  /www/wwwroot/dashboard.voxbulk.com (static) or 127.0.0.1:5175 preview in dev"
   echo "  Deploy UI:  ./deploy-vps.sh  (build + rsync admin + restart)"
+  echo "  Always-on:  ./vox.sh install-service  (systemd Restart=always)"
 
   echo ""
   echo "=== Processes ==="
@@ -291,13 +433,27 @@ case "${1:-}" in
     echo "Stopped API + public preview + dashboard preview"
     ;;
   restart)
-    stop_public
+    if api_systemd_installed; then
+      migrate_api_if_needed
+      stop_api_processes
+      _sys restart "${API_UNIT_NAME}.service" || start_api_nohup
+      echo "API restarted via systemd ($API_UNIT_NAME)"
+    else
+      stop_api
+      sleep 1
+      start_api
+    fi
+    if public_systemd_installed; then
+      stop_public_processes
+      _sys restart "${PUBLIC_UNIT_NAME}.service" || start_public_nohup
+      echo "Public restarted via systemd ($PUBLIC_UNIT_NAME)"
+    else
+      stop_public
+      sleep 1
+      start_public
+    fi
     stop_dashboard
-    stop_api
     sleep 1
-    start_api
-    sleep 2
-    start_public
     start_dashboard
     restart_celery
     echo "Waiting for API, public preview, and dashboard preview to become ready…"
@@ -305,6 +461,9 @@ case "${1:-}" in
     ;;
   status)
     status
+    ;;
+  install-service|install_service)
+    install_service
     ;;
   update|deploy)
     DEPLOY_SCRIPT="$ROOT/deploy-vps.sh"
@@ -323,7 +482,7 @@ case "${1:-}" in
     bash "$SYNC_SCRIPT"
     ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status|update|deploy|sync-dashboard|dashboard}"
+    echo "Usage: $0 {start|stop|restart|status|install-service|update|deploy|sync-dashboard|dashboard}"
     exit 1
     ;;
 esac

@@ -1,5 +1,24 @@
 # VOXBULK VPS deploy
 
+## Always-on API (systemd)
+
+API + public preview can run under **systemd** (`Restart=always`) so they come back after a crash or VPS reboot — no manual `./vox.sh start` after reboot.
+
+**One-time on the VPS** (after `git pull`):
+
+```bash
+cd /www/voxbulk
+./vox.sh install-service
+# same as: sudo bash scripts/vps-setup-api-systemd.sh
+./deploy-vps.sh
+systemctl status voxbulk-api
+./vox.sh status
+```
+
+Afterwards, `./deploy-vps.sh` and `./vox.sh restart` use `systemctl` when the unit is installed. Celery stays under Supervisor (`sudo bash scripts/vps-setup-celery.sh`).
+
+---
+
 ## Push to GitHub ≠ live site
 
 **Pushing from your PC updates GitHub only.** Run the deploy **on the VPS** (Baota → Terminal).
