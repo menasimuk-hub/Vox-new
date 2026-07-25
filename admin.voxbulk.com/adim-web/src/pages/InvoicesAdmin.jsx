@@ -170,14 +170,18 @@ export default function InvoicesAdmin() {
 
   const downloadPdf = async (invoiceId, invoiceNumber) => {
     setBusy(invoiceId)
+    setError('')
     try {
       const blob = await apiFetchBlob(`/admin/billing/invoices/${encodeURIComponent(invoiceId)}/pdf`)
+      if (!blob || blob.size === 0) throw new Error('PDF was empty — check invoice template and server PDF libraries.')
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = `invoice-${invoiceNumber || invoiceId}.pdf`
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 30_000)
     } catch (e) {
       setError(e?.message || 'PDF download failed')
     } finally {
@@ -187,11 +191,29 @@ export default function InvoicesAdmin() {
 
   const viewHtml = async (invoiceId) => {
     setBusy(invoiceId)
+    setError('')
+    // Open synchronously on the click gesture so the browser does not block the tab.
+    const win = window.open('about:blank', '_blank')
     try {
       const html = await apiFetchText(`/admin/billing/invoices/${encodeURIComponent(invoiceId)}/html`)
+      if (!html || !String(html).trim()) throw new Error('Invoice HTML was empty — check the Invoice template tab.')
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener')
+      const url = URL.createObjectURL(blob)
+      if (win && !win.closed) {
+        win.location.href = url
+      } else {
+        const a = document.createElement('a')
+        a.href = url
+        a.target = '_blank'
+        a.rel = 'noopener'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setError('Pop-up was blocked — allow pop-ups for Admin, or use the link that just opened.')
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
     } catch (e) {
+      if (win && !win.closed) win.close()
       setError(e?.message || 'Could not open invoice HTML')
     } finally {
       setBusy('')
