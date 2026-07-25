@@ -8,6 +8,7 @@ import {
   RefreshCw,
   ShoppingBag,
   Sparkles,
+  Store,
   Trash2,
   Wand2,
 } from 'lucide-react'
@@ -17,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import { apiFetch } from '../lib/api'
 import { formatActionSuccess, formatWaSurveyError } from '../lib/waSurveyFeedback'
 import WaIndustryBrowser from '../components/wa-templates/WaIndustryBrowser'
+import WaExpoTemplatesPanel from '../components/wa-templates/WaExpoTemplatesPanel'
 import WaConvertPanel from '../components/wa-templates/WaConvertPanel'
 import WaTemplatesTable from '../components/wa-templates/WaTemplatesTable'
 import WaEditSheet from '../components/wa-templates/WaEditSheet'
@@ -64,6 +66,7 @@ const TAGS = [
   { id: 'ai', label: 'AI Interview', icon: Sparkles },
   { id: 'survey', label: 'Survey', icon: ClipboardList },
   { id: 'feedback', label: 'Customer Feedback', icon: MessageSquareHeart },
+  { id: 'expo', label: 'Expo', icon: Store },
   { id: 'convert', label: 'Convert', icon: Wand2 },
   { id: 'companies', label: 'Companies', icon: Building2 },
   { id: 'marketing', label: 'Marketing', icon: Megaphone },
@@ -1620,6 +1623,10 @@ export default function WaTemplatesHub() {
                     backupSyncProfileId={backupSyncProfile?.id}
                     onRequestSyncConfirm={requestSyncConfirm}
                   />
+                ) : null}
+
+                {tg.id === 'expo' ? (
+                  <WaExpoTemplatesPanel onError={setError} onMessage={setMsg} />
                 ) : null}
 
                 {tg.id === 'convert' ? (

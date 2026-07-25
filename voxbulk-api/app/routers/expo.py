@@ -55,7 +55,7 @@ def list_question_bank(db: Session = Depends(get_db), principal=Depends(get_curr
     _require_expo_enabled(db, principal.org_id)
     from app.services.expo.question_bank import list_selectable_questions
 
-    return {"ok": True, "items": list_selectable_questions()}
+    return {"ok": True, "items": list_selectable_questions(db)}
 
 
 @router.get("/packages")

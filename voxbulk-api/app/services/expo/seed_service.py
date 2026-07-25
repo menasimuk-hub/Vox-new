@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.expo import EXPO_SERVICE_CODE, ExpoIndustry, ExpoPackage
+from app.models.expo import EXPO_SERVICE_CODE, ExpoIndustry, ExpoPackage, ExpoQuestionTemplate
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
 
@@ -165,9 +165,46 @@ class ExpoSeedService:
     @staticmethod
     def ensure_seeded(db: Session) -> None:
         ExpoSeedService._ensure_industries(db)
+        ExpoSeedService._ensure_question_templates(db)
         ExpoSeedService._ensure_packages(db)
         ExpoSeedService._ensure_connection_profile_expo_service(db)
         db.commit()
+
+    @staticmethod
+    def _ensure_question_templates(db: Session) -> None:
+        from app.services.expo.question_bank import SELECTABLE_QUESTION_BANK
+
+        now = datetime.utcnow()
+        for idx, q in enumerate(SELECTABLE_QUESTION_BANK):
+            key = str(q["key"])
+            row = db.execute(
+                select(ExpoQuestionTemplate).where(ExpoQuestionTemplate.question_key == key)
+            ).scalar_one_or_none()
+            if row is None:
+                db.add(
+                    ExpoQuestionTemplate(
+                        id=str(uuid.uuid4()),
+                        question_key=key,
+                        label=str(q.get("label") or key)[:128],
+                        prompt=str(q.get("prompt") or "")[:4000],
+                        description=str(q.get("description") or "")[:2000] or None,
+                        matches_products=bool(q.get("matches_products")),
+                        is_active=True,
+                        sort_order=(idx + 1) * 10,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            else:
+                row.label = str(q.get("label") or row.label)[:128]
+                row.prompt = str(q.get("prompt") or row.prompt)[:4000]
+                row.description = str(q.get("description") or "")[:2000] or None
+                row.matches_products = bool(q.get("matches_products"))
+                row.is_active = True
+                row.sort_order = (idx + 1) * 10
+                row.updated_at = now
+                db.add(row)
+        db.flush()
 
     @staticmethod
     def _ensure_connection_profile_expo_service(db: Session) -> None:

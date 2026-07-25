@@ -132,6 +132,7 @@ type WebProps = {
   size?: "sm" | "md";
   label?: string;
   templateName?: string;
+  qrImageUrl?: string;
 };
 
 export function ExpoWebPhonePreview({
@@ -141,42 +142,81 @@ export function ExpoWebPhonePreview({
   questions,
   size = "md",
   label = "Web",
-  templateName = "Default",
+  templateName = "Customer Feedback",
+  qrImageUrl,
 }: WebProps) {
+  const cameraRef = React.useRef<HTMLInputElement>(null);
+  const [cardPreview, setCardPreview] = React.useState<string | null>(null);
+
   return (
     <ExpoIPhoneFrame size={size} label={label}>
-      <div className="flex h-full flex-col bg-white text-[#0f172a]">
-        <div className="border-b border-slate-200 bg-gradient-to-br from-slate-50 to-white px-4 pb-3 pt-10">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{templateName} template</p>
+      <div className="flex h-full flex-col bg-[#f0f2f5] text-[#0f172a]">
+        <div
+          className="border-b border-emerald-800/20 px-4 pb-3 pt-10 text-white"
+          style={{ background: "linear-gradient(180deg,#075e54 0%, #128c7e 100%)" }}
+        >
+          <p className="text-[10px] font-medium uppercase tracking-wide text-white/70">
+            {templateName} style
+          </p>
           <p className="mt-1 text-[15px] font-semibold leading-tight">{companyName || "Your company"}</p>
-          <p className="text-[11px] text-slate-500">{eventName || "Exhibition"}</p>
+          <p className="text-[11px] text-white/80">{eventName || "Exhibition"}</p>
         </div>
-        <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 pb-10">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3 pb-10">
+          {qrImageUrl ? (
+            <div className="rounded-xl border border-white bg-white p-3 text-center shadow-sm">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Preview QR</p>
+              <img src={qrImageUrl} alt="Expo web QR preview" className="mx-auto mt-2 size-28 rounded-lg" />
+              <p className="mt-1 text-[10px] text-slate-500">Scan to open this questionnaire on the web</p>
+            </div>
+          ) : null}
+          <div className="rounded-xl border border-white bg-white p-3 shadow-sm">
             <p className="text-[11px] font-medium text-slate-700">Contact</p>
             <p className="mt-1 text-[10px] leading-snug text-slate-500">{contactHint}</p>
             <div className="mt-2 grid gap-1.5">
-              <div className="h-7 rounded-md border border-dashed border-slate-300 bg-white text-center text-[10px] leading-7 text-slate-400">
-                Upload business card photo
-              </div>
-              <div className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[10px] leading-7 text-slate-400">
+              <input
+                ref={cameraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const url = URL.createObjectURL(file);
+                  setCardPreview(url);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => cameraRef.current?.click()}
+                className="flex h-9 items-center justify-center gap-1.5 rounded-md border border-dashed border-emerald-600/40 bg-emerald-50 text-[10px] font-medium text-emerald-800"
+              >
+                <Camera className="size-3.5" />
+                {cardPreview ? "Retake business card" : "Camera · capture business card"}
+              </button>
+              {cardPreview ? (
+                <img src={cardPreview} alt="Card preview" className="h-20 w-full rounded-md object-cover" />
+              ) : null}
+              <div className="h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] leading-7 text-slate-400">
                 Name
               </div>
-              <div className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[10px] leading-7 text-slate-400">
+              <div className="h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] leading-7 text-slate-400">
                 Company
               </div>
-              <div className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[10px] leading-7 text-slate-400">
+              <div className="h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[10px] leading-7 text-slate-400">
                 Mobile
               </div>
             </div>
           </div>
           {questions.slice(0, 3).map((q, i) => (
-            <div key={i} className="rounded-xl border border-slate-200 p-3">
+            <div key={i} className="rounded-xl border border-white bg-white p-3 shadow-sm">
               <p className="text-[11px] font-medium text-slate-700">{q}</p>
               <div className="mt-2 h-8 rounded-md border border-slate-200 bg-slate-50" />
             </div>
           ))}
-          <div className="rounded-full bg-slate-900 py-2 text-center text-[11px] font-semibold text-white">Continue</div>
+          <div className="rounded-full bg-[#075e54] py-2 text-center text-[11px] font-semibold text-white">
+            Continue
+          </div>
         </div>
       </div>
     </ExpoIPhoneFrame>

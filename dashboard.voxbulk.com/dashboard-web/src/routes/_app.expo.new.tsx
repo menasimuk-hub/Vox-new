@@ -49,7 +49,13 @@ type Package = {
   is_featured?: boolean;
   lead_scoring_enabled?: boolean;
 };
-type QuestionOpt = { key: string; prompt: string; label: string };
+type QuestionOpt = {
+  key: string;
+  prompt: string;
+  label: string;
+  description?: string;
+  matches_products?: boolean;
+};
 type AssetDraft = {
   id: string;
   title: string;
@@ -73,7 +79,7 @@ const EXPO_STEPS: WizardStepDef[] = [
   { id: 7, title: "Activate", icon: Rocket },
 ];
 
-const DEFAULT_Q_KEYS = ["interest", "timeline", "consent_info"];
+const DEFAULT_Q_KEYS = ["interest", "need_price_list", "need_catalogue", "timeline", "consent_info"];
 
 function newAssetId() {
   return `a-${Math.random().toString(36).slice(2, 10)}`;
@@ -134,7 +140,7 @@ function CreateExpoBooth() {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [packageId, setPackageId] = React.useState("");
   const [previewChannel, setPreviewChannel] = React.useState<"web" | "wa">("web");
-  const [webTemplate] = React.useState("Default");
+  const [webTemplate] = React.useState("Customer Feedback");
   const [saving, setSaving] = React.useState(false);
   const [created, setCreated] = React.useState<{
     id: string;
@@ -475,8 +481,18 @@ function CreateExpoBooth() {
                           }}
                         />
                         <span className="min-w-0">
-                          <span className="block text-sm font-medium">{q.label}</span>
+                          <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            {q.label}
+                            {q.matches_products ? (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-normal text-primary">
+                                Matches products
+                              </span>
+                            ) : null}
+                          </span>
                           <span className="mt-0.5 block text-xs text-muted-foreground">{q.prompt}</span>
+                          {q.description ? (
+                            <span className="mt-1 block text-[11px] text-muted-foreground/80">{q.description}</span>
+                          ) : null}
                         </span>
                       </label>
                     );
@@ -621,6 +637,17 @@ function CreateExpoBooth() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label>Match keywords (optional)</Label>
+                  <Input
+                    value={draft.match_keywords}
+                    onChange={(e) => setDraft((d) => ({ ...d, match_keywords: e.target.value }))}
+                    placeholder="price, pricing, catalogue, brochure"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used when visitors ask for a price list or catalogue — match these words to this file.
+                  </p>
+                </div>
+                <div className="space-y-2">
                   <Label>Short description</Label>
                   <Textarea
                     value={draft.short_description}
@@ -634,17 +661,19 @@ function CreateExpoBooth() {
                     type="button"
                     size="sm"
                     variant={draft.source === "upload" ? "default" : "outline"}
-                    onClick={() =>
+                    disabled={uploading}
+                    onClick={() => {
                       setDraft((d) => ({
                         ...d,
                         source: "upload",
                         external_url: "",
                         kind: d.kind || "pdf",
-                      }))
-                    }
+                      }));
+                      fileInputRef.current?.click();
+                    }}
                   >
                     <Upload className="mr-1.5 size-3.5" />
-                    Upload file
+                    {uploading ? "Uploading…" : draft.storage_path ? "Replace file" : "Upload file"}
                   </Button>
                   <Button
                     type="button"
@@ -664,37 +693,21 @@ function CreateExpoBooth() {
                     Paste link
                   </Button>
                 </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xls,.xlsx,.csv,application/pdf,image/*,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void uploadFile(file);
+                  }}
+                />
                 {draft.source === "upload" ? (
-                  <div className="space-y-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xls,.xlsx,.csv,application/pdf,image/*,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) void uploadFile(file);
-                      }}
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={uploading}
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full sm:w-auto"
-                    >
-                      <Upload className="mr-2 size-4" />
-                      {uploading
-                        ? "Uploading…"
-                        : draft.storage_path
-                          ? "Replace file"
-                          : "Upload PDF, image or Excel"}
-                    </Button>
-                    <p className="text-xs text-muted-foreground">
-                      PDF, PNG, JPG, Excel (.xls / .xlsx) or CSV — max 20 MB.
-                      {draft.storage_path ? ` Uploaded: ${draft.original_filename || "file"}` : ""}
-                    </p>
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    PDF, image or Excel (max 20 MB).
+                    {draft.storage_path ? ` Uploaded: ${draft.original_filename || "file"}` : ""}
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     <Label>PDF / brochure / Excel URL</Label>
@@ -705,14 +718,6 @@ function CreateExpoBooth() {
                     />
                   </div>
                 )}
-                <div className="space-y-2">
-                  <Label>Match keywords (optional)</Label>
-                  <Input
-                    value={draft.match_keywords}
-                    onChange={(e) => setDraft((d) => ({ ...d, match_keywords: e.target.value }))}
-                    placeholder="price, bulk, pricing"
-                  />
-                </div>
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={draft.is_default}
@@ -769,11 +774,14 @@ function CreateExpoBooth() {
                     eventName={exhibitionName}
                     contactHint={
                       contactCapture === "card_only"
-                        ? "Upload a business card photo to continue."
-                        : "Upload a business card photo, or enter name, company and mobile."
+                        ? "Capture a business card photo to continue."
+                        : "Capture a business card photo, or enter name, company and mobile."
                     }
                     questions={selectedPrompts}
                     templateName={webTemplate}
+                    qrImageUrl={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                      `https://voxbulk.com/expo/preview-${encodeURIComponent((company || "stand").slice(0, 24))}`,
+                    )}`}
                   />
                 </div>
               </div>

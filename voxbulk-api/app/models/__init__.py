@@ -139,6 +139,7 @@ from app.models.expo import (  # noqa: F401
     ExpoIndustry,
     ExpoLead,
     ExpoPackage,
+    ExpoQuestionTemplate,
     ExpoResponse,
     ExpoSession,
     ExpoVoiceNoteJob,

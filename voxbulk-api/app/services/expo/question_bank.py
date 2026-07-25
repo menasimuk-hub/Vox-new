@@ -27,73 +27,140 @@ CONTACT_COMPANY_PROMPT = "Which company or organisation do you represent?"
 CONTACT_MOBILE_PROMPT = "What's the best mobile number to reach you on?"
 
 # Extra qualifying questions exhibitors can toggle on (in addition to fixed contact).
-SELECTABLE_QUESTION_BANK: list[dict[str, str]] = [
+# Keys with matches_products=True help route Step 4 product PDFs (price list / catalogue).
+SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     {
         "key": "interest",
         "prompt": "What is the main thing you're looking for or interested in right now?",
         "label": "Main interest",
+        "description": "Open interest — used for general matching.",
+        "matches_products": True,
     },
     {
-        "key": "timeline",
-        "prompt": "When are you planning to make a decision or take action on this?",
-        "label": "Buying timeline",
+        "key": "need_price_list",
+        "prompt": "Would you like our latest price list?",
+        "label": "Need price list",
+        "description": "Matches Step 4 products tagged with price / pricing keywords.",
+        "matches_products": True,
     },
     {
-        "key": "sourcing",
-        "prompt": "Are you sourcing for your business, or for events?",
-        "label": "Business or events",
-    },
-    {
-        "key": "role",
-        "prompt": "What's your role or job title?",
-        "label": "Job title",
-    },
-    {
-        "key": "decision_maker",
-        "prompt": "Are you the decision-maker for this, or recommending to someone else?",
-        "label": "Decision-maker",
-    },
-    {
-        "key": "budget",
-        "prompt": "Do you have a rough budget in mind for this?",
-        "label": "Budget",
-    },
-    {
-        "key": "volume",
-        "prompt": "Roughly what volume or quantity are you thinking about?",
-        "label": "Volume / quantity",
+        "key": "need_catalogue",
+        "prompt": "Would you like our product catalogue or brochure?",
+        "label": "Need catalogue",
+        "description": "Matches Step 4 products tagged with catalogue / brochure keywords.",
+        "matches_products": True,
     },
     {
         "key": "products_wanted",
         "prompt": "Which product or brochure should we send you?",
         "label": "Product request",
+        "description": "Visitor names a product — matched to your uploaded files.",
+        "matches_products": True,
+    },
+    {
+        "key": "timeline",
+        "prompt": "When are you planning to make a decision or take action on this?",
+        "label": "Buying timeline",
+        "description": "Used for Hot / Warm / Cold scoring.",
+        "matches_products": False,
+    },
+    {
+        "key": "sourcing",
+        "prompt": "Are you sourcing for your business, or for events?",
+        "label": "Business or events",
+        "description": "Useful for hospitality / trade stands.",
+        "matches_products": False,
+    },
+    {
+        "key": "role",
+        "prompt": "What's your role or job title?",
+        "label": "Job title",
+        "description": "Contact role for follow-up.",
+        "matches_products": False,
+    },
+    {
+        "key": "decision_maker",
+        "prompt": "Are you the decision-maker for this, or recommending to someone else?",
+        "label": "Decision-maker",
+        "description": "Buying authority signal.",
+        "matches_products": False,
+    },
+    {
+        "key": "budget",
+        "prompt": "Do you have a rough budget in mind for this?",
+        "label": "Budget",
+        "description": "Optional budget band.",
+        "matches_products": False,
+    },
+    {
+        "key": "volume",
+        "prompt": "Roughly what volume or quantity are you thinking about?",
+        "label": "Volume / quantity",
+        "description": "Order size / volume.",
+        "matches_products": False,
     },
     {
         "key": "follow_up",
         "prompt": "How would you prefer we follow up — WhatsApp, email, or a call?",
         "label": "Follow-up preference",
+        "description": "Preferred contact channel after the show.",
+        "matches_products": False,
     },
     {
         "key": "consent_info",
         "prompt": "Would you like us to send you our latest information and special offers? (Yes / No)",
         "label": "Marketing consent",
+        "description": "GDPR-style consent for offers.",
+        "matches_products": False,
     },
 ]
 
-_DEFAULT_SELECTED_KEYS = ("interest", "timeline", "consent_info")
+_DEFAULT_SELECTED_KEYS = ("interest", "need_price_list", "need_catalogue", "timeline", "consent_info")
 _BANK_BY_KEY = {q["key"]: q for q in SELECTABLE_QUESTION_BANK}
 
 
-def list_selectable_questions(*, addon_question: str | None = None) -> list[dict[str, str]]:
-    rows = [dict(q) for q in SELECTABLE_QUESTION_BANK]
+def list_selectable_questions(
+    db: Any | None = None,
+    *,
+    addon_question: str | None = None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if db is not None:
+        try:
+            from sqlalchemy import select
+
+            from app.models.expo import ExpoQuestionTemplate
+
+            db_rows = db.execute(
+                select(ExpoQuestionTemplate)
+                .where(ExpoQuestionTemplate.is_active.is_(True))
+                .order_by(ExpoQuestionTemplate.sort_order.asc())
+            ).scalars().all()
+            for r in db_rows:
+                rows.append(
+                    {
+                        "key": r.question_key,
+                        "prompt": r.prompt,
+                        "label": r.label,
+                        "description": r.description or "",
+                        "matches_products": bool(r.matches_products),
+                        "id": r.id,
+                    }
+                )
+        except Exception:
+            rows = []
+    if not rows:
+        rows = [dict(q) for q in SELECTABLE_QUESTION_BANK]
     addon = str(addon_question or "").strip()
-    if addon:
+    if addon and not any(r.get("key") == "industry_addon" for r in rows):
         rows.insert(
-            2,
+            min(2, len(rows)),
             {
                 "key": "industry_addon",
                 "prompt": addon,
                 "label": "Industry question",
+                "description": "Industry-specific follow-up from the Expo industry.",
+                "matches_products": False,
             },
         )
     return rows

@@ -253,8 +253,18 @@ class ExpoSessionFlowService:
         session.current_step = step_index + 1
         db.add(session)
 
-        if key == "interest" and lead is not None:
-            offer_mode, candidates = ExpoSessionFlowService._offer_after_interest(db, booth=booth, interest_text=clean)
+        if key in {"interest", "need_price_list", "need_catalogue", "products_wanted"} and lead is not None:
+            interest_text = clean
+            if key == "need_price_list" and _looks_affirmative(clean):
+                interest_text = "price list pricing price"
+            elif key == "need_catalogue" and _looks_affirmative(clean):
+                interest_text = "catalogue catalog brochure"
+            elif key in {"need_price_list", "need_catalogue"} and not _looks_affirmative(clean):
+                db.commit()
+                return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+            offer_mode, candidates = ExpoSessionFlowService._offer_after_interest(
+                db, booth=booth, interest_text=interest_text
+            )
             if offer_mode in ("list", "full") and candidates:
                 state["pending_asset_pick"] = candidates
                 ExpoSessionFlowService._save_state(session, state)
