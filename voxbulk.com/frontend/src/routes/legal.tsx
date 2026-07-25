@@ -29,13 +29,6 @@ export const Route = createFileRoute("/legal")({
           <Link to="/privacy">Privacy Policy</Link>
         </li>
         <li>
-          <Link to="/dpa">Data Processing Agreement</Link> (
-          <a href="/legal/voxbulk-dpa.pdf" download>
-            PDF
-          </a>
-          )
-        </li>
-        <li>
           <Link to="/cookies">Cookie Policy</Link>
         </li>
         <li>
@@ -43,6 +36,10 @@ export const Route = createFileRoute("/legal")({
         </li>
         <li>
           <Link to="/legal-policies">Full legal pack</Link>
+        </li>
+        <li>
+          Data Processing Agreement — available on request from{" "}
+          <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>
         </li>
       </ul>
 

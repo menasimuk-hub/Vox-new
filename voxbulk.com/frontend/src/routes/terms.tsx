@@ -21,8 +21,9 @@ export const Route = createFileRoute("/terms")({
         These Terms govern your access to and use of the VoxBulk platform, websites and APIs (&quot;Service&quot;)
         provided by VoxBulk Ltd (company number 15466735), registered in England and Wales, London, United Kingdom.
         The Service is offered to <strong>business customers only</strong>. By creating an account you confirm you
-        act in a business capacity and agree to these Terms, our <Link to="/privacy">Privacy Policy</Link>, and our{" "}
-        <Link to="/dpa">Data Processing Agreement</Link>.
+        act in a business capacity and agree to these Terms, our <Link to="/privacy">Privacy Policy</Link>, and our
+        Data Processing Agreement (accepted at signup; PDF available on request from{" "}
+        <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>).
       </p>
 
       <h2>2. The service</h2>
@@ -43,13 +44,10 @@ export const Route = createFileRoute("/terms")({
 
       <h2>4. Data processing</h2>
       <p>
-        When we process personal data of your end users, we act as processor under our{" "}
-        <Link to="/dpa">Data Processing Agreement</Link>, which you can also{" "}
-        <a href="/legal/voxbulk-dpa.pdf" download>
-          download as PDF
-        </a>
-        . Default retention: call recordings and full transcripts 30 days; other operational data on our servers 90
-        days (see the DPA and Privacy Policy).
+        When we process personal data of your end users, we act as processor under our Data Processing Agreement,
+        which forms part of your agreement with us at signup. A PDF copy is available on request from{" "}
+        <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>. Default retention: call recordings and full
+        transcripts 30 days; other operational data on our servers 90 days (see the Privacy Policy).
       </p>
 
       <h2>5. Fees &amp; cancellation</h2>

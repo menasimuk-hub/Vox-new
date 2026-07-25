@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { PageShell } from "@/components/SiteShell";
 
 export const Route = createFileRoute("/privacy")({
@@ -35,8 +35,9 @@ export const Route = createFileRoute("/privacy")({
       <h2>3. Lawful basis</h2>
       <p>
         We rely on contract and legitimate interests for service operation, and consent for marketing where required.
-        End-user conversations are processed under the customer&apos;s lawful basis. See our{" "}
-        <Link to="/dpa">Data Processing Agreement</Link> for processor terms.
+        End-user conversations are processed under the customer&apos;s lawful basis. Processor terms are in our Data
+        Processing Agreement (accepted at signup; PDF on request from{" "}
+        <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>).
       </p>
 
       <h2>4. Retention</h2>

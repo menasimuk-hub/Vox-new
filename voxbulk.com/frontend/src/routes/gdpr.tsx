@@ -22,13 +22,10 @@ export const Route = createFileRoute("/gdpr")({
 
       <h2>Data Processing Agreement</h2>
       <p>
-        Every customer accepts our <Link to="/dpa">Data Processing Agreement</Link> at signup (required checkbox).
-        You can also{" "}
-        <a href="/legal/voxbulk-dpa.pdf" download>
-          download the DPA as PDF
-        </a>
-        . It covers Article 28 obligations, sub-processor categories, breach notification and assistance with data
-        subject requests.
+        Every business customer accepts our Data Processing Agreement at signup (required checkbox). A PDF copy is
+        available on request from{" "}
+        <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>. It covers Article 28 obligations,
+        sub-processor categories, breach notification and assistance with data subject requests.
       </p>
 
       <h2>Retention</h2>
