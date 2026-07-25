@@ -51,7 +51,7 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
 
 @router.post("/partner-channel/reset-services")
 def reset_partner_channel_services(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
-    """Reset all Partner Channel orgs to default active services (Interview + Survey)."""
+    """Reset Partner Channel orgs to normal service defaults (inherit Admin grants; Interview+Survey visible)."""
     return SalesRepService.reset_all_partner_org_services(db)
 
 

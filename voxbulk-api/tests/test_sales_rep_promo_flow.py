@@ -18,6 +18,7 @@ from app.models.organisation import Organisation
 from app.models.promo_offer import PromoOffer
 from app.models.sales_rep import SalesCommission, SalesCustomer, SalesRep
 from app.models.user import User
+from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401
 from app.services.promo_offer_service import PromoOfferService
 from app.services.sales_rep_service import KIND_PARTNER_CHANNEL, SalesRepService
 from app.services.wallet_service import PromoWalletRestricted, WalletService
@@ -251,3 +252,74 @@ def test_partner_channel_cannot_use_customer_crm_flag(db):
     )
     assert SalesRepService.is_partner_channel(rep)
     assert not SalesRepService.is_salesman(rep)
+
+
+def test_partner_channel_create_uses_normal_service_defaults(db):
+    """Partners must not get forced all-on services; Admin Off stays hidden."""
+    from app.services.org_enabled_services import (
+        DEFAULT_ENABLED_SERVICES,
+        SERVICE_KEYS,
+        org_service_maps,
+        serialize_allowed_services,
+        serialize_enabled_services,
+    )
+    from app.services.platform_services_settings_service import ensure_row, update_platform_default_allowed
+
+    ensure_row(db)
+    # Platform grants interview+survey only; feedback explicitly Off.
+    update_platform_default_allowed(
+        db,
+        {
+            "interview": True,
+            "survey": True,
+            "customer_feedback": False,
+            "feedback_campaigns": False,
+            "expo": False,
+            "appointments": False,
+            "recovery": False,
+            "follow_up": False,
+            "campaigns": False,
+        },
+    )
+
+    rep = SalesRepService.create_rep(
+        db,
+        email="partner-services@test.com",
+        password="pass123",
+        name="Partner Services",
+        promo_code="PARTSVC1",
+        kind=KIND_PARTNER_CHANNEL,
+        company_name="Partner Services Co",
+    )
+    org = SalesRepService.partner_org_for_user(db, user_id=rep.user_id)
+    assert org is not None
+    assert org.allowed_services_json is None  # inherit platform
+    allowed, enabled, visible = org_service_maps(org, db)
+    assert visible["interview"] is True
+    assert visible["survey"] is True
+    assert visible["customer_feedback"] is False
+    assert allowed["customer_feedback"] is False
+    for key in SERVICE_KEYS:
+        if key not in ("interview", "survey"):
+            assert visible[key] is False
+
+    # Simulate polluted force-all state, then reset.
+    all_on = {key: True for key in SERVICE_KEYS}
+    org.allowed_services_json = serialize_allowed_services(all_on)
+    org.enabled_services_json = serialize_enabled_services(all_on)
+    db.add(org)
+    db.commit()
+    db.refresh(org)
+    _, _, polluted = org_service_maps(org, db)
+    assert all(polluted[k] for k in SERVICE_KEYS)
+
+    SalesRepService.reset_partner_org_services_to_defaults(db, org)
+    db.commit()
+    db.refresh(org)
+    assert org.allowed_services_json is None
+    _, _, cleaned = org_service_maps(org, db)
+    assert cleaned["interview"] is True
+    assert cleaned["survey"] is True
+    assert cleaned["customer_feedback"] is False
+    for key in SERVICE_KEYS:
+        assert cleaned[key] == bool(DEFAULT_ENABLED_SERVICES.get(key) and allowed.get(key))

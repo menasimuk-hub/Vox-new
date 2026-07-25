@@ -265,20 +265,48 @@ export default function PartnerChannelSales() {
     }
   }
 
+  const resetPartnerServices = async () => {
+    if (
+      !window.confirm(
+        'Reset all Partner Channel workspaces to normal service defaults?\n\n' +
+          'They will inherit Admin Onboarding Services grants, start with Interview + Survey visible, ' +
+          'and modules you turned Off will stay hidden. Forced “all services on” overrides are cleared.',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    setErr('')
+    setMsg('')
+    try {
+      const res = await apiFetch('/admin/sales-reps/partner-channel/reset-services', { method: 'POST', body: '{}' })
+      setMsg(`Reset services for ${res?.reset ?? 0} partner workspace(s).`)
+    } catch (e2) {
+      setErr(e2?.message || 'Reset services failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <>
       <div className='pageTop'>
         <div>
           <h1>Partner Channel Sales</h1>
           <p>
-            Sales companies and working partners. They get a promo code, earn commission on every paid subscription
-            when customers use that code, and see KPIs + commission only in the dashboard.
+            Partners get the normal user dashboard (only Admin-granted / active services) plus Partner Channel Sales
+            (Overview, Wallet & commission, Send offer). They can use wallet balance from commission or any
+            payment method on enabled modules.
           </p>
         </div>
         <div className='actions'>
-          <button className='btn soft' onClick={load}>Refresh</button>
+          <button className='btn soft' onClick={load} disabled={busy}>Refresh</button>
+          <button className='btn soft' onClick={resetPartnerServices} disabled={busy}>
+            Reset partner services
+          </button>
           <button
             className='btn primary'
+            disabled={busy}
             onClick={() => {
               setErr('')
               setMsg('')
@@ -357,7 +385,9 @@ export default function PartnerChannelSales() {
           <form onSubmit={create} noValidate>
             <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
               <p className='muted' style={{ margin: 0 }}>
-                Creates a dashboard login like a normal user (only their active services) plus Partner Channel Sales (Overview, Wallet & commission, Send offer). Commission accrues on every paid subscription using their promo code.
+                Creates a normal dashboard login that follows Admin Onboarding Services (disabled modules stay hidden),
+                plus Partner Channel Sales (Overview, Wallet & commission, Send offer). Starts with Interview + Survey
+                visible. Commission accrues on every paid subscription using their promo code.
               </p>
               {createErr ? (
                 <div className='note' style={{ borderColor: 'rgba(220,38,38,0.45)', margin: 0 }} role='alert'>

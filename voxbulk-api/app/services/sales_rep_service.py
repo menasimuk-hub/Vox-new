@@ -140,16 +140,29 @@ class SalesRepService:
 
     @staticmethod
     def reset_partner_org_services_to_defaults(db: Session, org: Organisation) -> None:
-        """Restore Interview + Survey defaults (same as a new normal org). Inactive modules stay off."""
+        """Partner workspace = normal dashboard service model (no forced all-on).
+
+        - `allowed` inherits Admin platform grants (null override), so modules Admin turned Off stay hidden.
+        - `enabled` starts as Interview + Survey (clamped to allowed), same as a typical new org.
+        Partners can turn on other Admin-granted modules in Settings like any owner.
+        """
         from app.services.org_enabled_services import (
             DEFAULT_ENABLED_SERVICES,
-            serialize_allowed_services,
+            SERVICE_KEYS,
+            any_service_enabled,
+            clamp_enabled_to_allowed,
+            effective_services,
             serialize_enabled_services,
         )
+        from app.services.platform_services_settings_service import get_platform_default_allowed
 
-        defaults = dict(DEFAULT_ENABLED_SERVICES)
-        org.allowed_services_json = serialize_allowed_services(defaults)
-        org.enabled_services_json = serialize_enabled_services(defaults)
+        # Drop forced all-allowed overrides so Admin Onboarding Services (platform) apply.
+        org.allowed_services_json = None
+        allowed = get_platform_default_allowed(db)
+        enabled = clamp_enabled_to_allowed(allowed, dict(DEFAULT_ENABLED_SERVICES))
+        if not any_service_enabled(effective_services(allowed, enabled)):
+            enabled = {key: bool(allowed.get(key)) for key in SERVICE_KEYS}
+        org.enabled_services_json = serialize_enabled_services(enabled)
         db.add(org)
 
     @staticmethod
@@ -239,12 +252,14 @@ class SalesRepService:
         ).scalar_one_or_none()
         display = str(company_name or name or email.split("@")[0]).strip() or email.split("@")[0]
         workspace_label = "Partner Channel" if kind_norm == KIND_PARTNER_CHANNEL else "Sales"
+        partner_org: Organisation | None = None
         if not has_membership:
             org = Organisation(name=f"{display} — {workspace_label}", onboarding_state="onboarding_completed")
             db.add(org)
             db.flush()
             db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="sales"))
             db.flush()
+            partner_org = org
 
         now = datetime.utcnow()
         rep = SalesRep(
@@ -261,6 +276,15 @@ class SalesRepService:
             updated_at=now,
         )
         db.add(rep)
+
+        if kind_norm == KIND_PARTNER_CHANNEL:
+            try:
+                target = partner_org or SalesRepService.partner_org_for_user(db, user_id=user.id)
+                if target is not None:
+                    SalesRepService.reset_partner_org_services_to_defaults(db, target)
+            except Exception:
+                logger.exception("Failed to apply partner dashboard service defaults for user %s", user.id)
+
         db.commit()
         db.refresh(rep)
 

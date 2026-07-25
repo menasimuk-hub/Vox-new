@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Reset Partner Channel orgs to default active services (Interview + Survey only).
+"""Reset Partner Channel orgs to normal dashboard service defaults.
+
+Clears forced all-on overrides: inherit Admin platform grants, start with
+Interview + Survey visible (same as a typical new org). Modules Admin turned
+Off stay hidden.
 
 Run on VPS from voxbulk-api/:
 
