@@ -78,11 +78,15 @@ def extract_expo_token(text: str) -> str | None:
 
 
 def find_expo_token_in_text(db: Session, text: str) -> str | None:
-    """Prefer an exact booth qr_token that appears in the inbound message (most reliable)."""
+    """Prefer an exact booth qr_token that appears in the inbound message (most reliable).
+
+    Only returns tokens that exist on an ExpoBooth row — never a bare regex match that could
+    steal Customer Feedback QR tokens on the shared WhatsApp line.
+    """
     raw = str(text or "").lower()
     if not raw.strip():
         return None
-    # Fast path: regex candidates
+    # Fast path: regex candidates that match a booth
     candidates: list[str] = []
     for pat in (TOKEN_PATTERN, TOKEN_SUFFIX_PATTERN):
         for m in pat.finditer(raw):
@@ -93,12 +97,12 @@ def find_expo_token_in_text(db: Session, text: str) -> str | None:
         if db.execute(select(ExpoBooth.id).where(ExpoBooth.qr_token == tok).limit(1)).scalar_one_or_none():
             return tok
     # Slow path: known tokens contained in message (handles odd punctuation)
-    rows = db.execute(select(ExpoBooth.qr_token).where(ExpoBooth.status == "active")).scalars().all()
+    rows = db.execute(select(ExpoBooth.qr_token)).scalars().all()
     for tok in rows:
         t = str(tok or "").strip().lower()
         if t and t in raw:
             return t
-    return extract_expo_token(raw)
+    return None
 
 
 class ExpoBoothService:

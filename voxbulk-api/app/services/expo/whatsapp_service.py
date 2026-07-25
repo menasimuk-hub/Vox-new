@@ -191,11 +191,13 @@ class ExpoWhatsappService:
         org_id: str | None,
         from_number: str | None = None,
     ) -> bool:
+        """Send Expo Q&A / offer copy as plain WhatsApp session text (never a Meta HSM template)."""
         clean = str(body or "").strip()
         if not clean:
             return False
         # QR opens the Customer Feedback WhatsApp line — prefer that route so the reply
         # lands in the same chat. Then expo, then platform default.
+        # Intentionally omit template_name / template_id so providers send type=text only.
         for code in ("customer_feedback", "expo", None):
             result = TelnyxMessagingService.send_whatsapp(
                 db,
@@ -205,10 +207,14 @@ class ExpoWhatsappService:
                 org_id=org_id,
                 meter_usage=False,
                 service_code=code,
+                template_name=None,
+                template_id=None,
+                template_language=None,
+                template_components=None,
             )
             if result.ok:
                 logger.info(
-                    "expo_wa_sent to=%s service_code=%s from_line=%s org_id=%s",
+                    "expo_wa_session_text_sent to=%s service_code=%s from_line=%s org_id=%s",
                     to_number,
                     code,
                     from_number,

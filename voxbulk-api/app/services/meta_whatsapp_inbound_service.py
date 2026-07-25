@@ -173,20 +173,62 @@ def _route_inbound_handlers(
     message_id: str | None,
     log_id: int,
     record: dict[str, Any],
+    business_number: str | None = None,
 ) -> dict[str, Any]:
     from app.services.telnyx_inbound_messaging_service import extract_wa_button_reply
 
     button_reply = extract_wa_button_reply(record)
     button_id = normalized.button_id or button_reply.get("id") or (inbound_text if _looks_like_uuid(inbound_text) else "")
 
-    result: dict[str, Any] = {"handled_survey": False, "handled_feedback": False, "handled_interview": False}
+    result: dict[str, Any] = {
+        "handled_expo": False,
+        "handled_survey": False,
+        "handled_feedback": False,
+        "handled_interview": False,
+    }
+    reply_from = str(business_number or "").strip() or None
+
+    # Expo before Feedback — same QR WhatsApp line; Expo replies are plain session text (no Meta HSM).
+    handled_expo = False
+    try:
+        from app.services.expo.booth_service import find_expo_token_in_text
+        from app.services.expo.whatsapp_service import ExpoWhatsappService
+
+        expo_trigger_token = find_expo_token_in_text(db, inbound_text)
+        if expo_trigger_token:
+            expo_result = ExpoWhatsappService.try_handle_inbound(
+                db,
+                from_phone=from_phone,
+                body=inbound_text,
+                org_id=org_id,
+                record=record if isinstance(record, dict) else None,
+                business_number=reply_from,
+            )
+            handled_expo = bool(expo_result.get("handled"))
+            result["handled_expo"] = handled_expo
+            result["expo_result"] = expo_result
+            logger.info(
+                "meta_expo_wa_inbound_result handled=%s reason=%s sent=%s token=%s from=%r to_line=%r",
+                handled_expo,
+                (expo_result or {}).get("reason"),
+                (expo_result or {}).get("sent"),
+                expo_trigger_token,
+                from_phone,
+                reply_from,
+            )
+    except Exception:
+        logger.exception(
+            "meta_expo_wa_inbound_handler_failed body_len=%s from_hash=%s",
+            len(inbound_text or ""),
+            hashlib.sha256((from_phone or "").encode()).hexdigest()[:12] if from_phone else "",
+        )
 
     handled_feedback = False
     feedback_result: dict[str, Any] | None = None
     from app.services.customer_feedback.location_service import FeedbackLocationService
 
     feedback_trigger_token = FeedbackLocationService.parse_trigger_ref(inbound_text)
-    if feedback_trigger_token:
+    if not handled_expo and feedback_trigger_token:
         try:
             from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -208,7 +250,7 @@ def _route_inbound_handlers(
 
     handled_survey = False
     survey_session_bug = False
-    if not handled_feedback:
+    if not handled_expo and not handled_feedback:
         try:
             from app.services.survey_whatsapp_conversation_service import try_handle_survey_whatsapp_inbound
 
@@ -230,7 +272,33 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_survey_wa_inbound_handler_failed log_id=%s from=%r", log_id, from_phone)
 
-    if not handled_feedback and not handled_survey:
+    if not handled_expo and not handled_feedback and not handled_survey:
+        try:
+            from app.services.expo.whatsapp_service import ExpoWhatsappService
+
+            expo_result = ExpoWhatsappService.try_handle_inbound(
+                db,
+                from_phone=from_phone,
+                body=inbound_text,
+                org_id=org_id,
+                record=record if isinstance(record, dict) else None,
+                business_number=reply_from,
+            )
+            handled_expo = bool(expo_result.get("handled"))
+            result["handled_expo"] = handled_expo
+            result["expo_result"] = expo_result
+            logger.info(
+                "meta_expo_wa_session_result handled=%s reason=%s sent=%s from=%r to_line=%r",
+                handled_expo,
+                (expo_result or {}).get("reason"),
+                (expo_result or {}).get("sent"),
+                from_phone,
+                reply_from,
+            )
+        except Exception:
+            logger.exception("meta_expo_wa_session_handler_failed from=%r", from_phone)
+
+    if not handled_expo and not handled_feedback and not handled_survey:
         try:
             from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -246,7 +314,7 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_feedback_wa_session_handler_failed from=%r", from_phone)
 
-    if not handled_feedback and not handled_survey:
+    if not handled_expo and not handled_feedback and not handled_survey:
         try:
             from app.services.appointment_wa_inbound_service import try_handle_inbound as try_handle_appointment_inbound
 
@@ -254,7 +322,7 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_appointment_wa_inbound_handler_failed from=%r", from_phone)
 
-    if not handled_survey and not survey_session_bug:
+    if not handled_survey and not survey_session_bug and not handled_expo:
         try:
             from app.services.interview_whatsapp_inbound_service import (
                 find_active_booking_context,
@@ -285,7 +353,13 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_interview_wa_inbound_handler_failed from=%r", from_phone)
 
-    if not result.get("handled_interview") and not handled_survey and not survey_session_bug and not handled_feedback:
+    if (
+        not result.get("handled_interview")
+        and not handled_survey
+        and not survey_session_bug
+        and not handled_feedback
+        and not handled_expo
+    ):
         try:
             from app.services.sales_automation_service import SalesAutomationService
 
@@ -367,6 +441,7 @@ class MetaWhatsappInboundService:
                         message_id=message_id,
                         log_id=int(existing.id),
                         record=msg,
+                        business_number=to_number,
                     )
                     continue
 
@@ -386,10 +461,17 @@ class MetaWhatsappInboundService:
                     message_id=message_id,
                     log_id=int(cross.id),
                     record=msg,
+                    business_number=to_number,
                 )
                 if any(
                     route_result.get(key)
-                    for key in ("handled_survey", "handled_feedback", "handled_interview", "handled_appointment")
+                    for key in (
+                        "handled_expo",
+                        "handled_survey",
+                        "handled_feedback",
+                        "handled_interview",
+                        "handled_appointment",
+                    )
                 ):
                     routed += 1
                 continue
@@ -434,10 +516,17 @@ class MetaWhatsappInboundService:
                 message_id=message_id,
                 log_id=int(row.id),
                 record=msg,
+                business_number=to_number,
             )
             if any(
                 route_result.get(key)
-                for key in ("handled_survey", "handled_feedback", "handled_interview", "handled_appointment")
+                for key in (
+                    "handled_expo",
+                    "handled_survey",
+                    "handled_feedback",
+                    "handled_interview",
+                    "handled_appointment",
+                )
             ):
                 routed += 1
 

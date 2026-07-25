@@ -28,7 +28,11 @@ Also seeded for `eu` / `us` / `ca` / `au` zones. Checkout is not wired yet — p
 
 ## Messaging
 
-Visitor opens WhatsApp first (QR) → **24h session window** → questions and PDF links sent as **session text** (no Meta HSM for live Q&A). Product delivery uses hybrid match-or-list against booth assets.
+Visitor opens WhatsApp first (QR) → **24h session window** → questions and PDF links sent as
+**plain session text from the server** (Meta Cloud API or Telnyx `type=text`). **No Meta HSM
+templates** are used for live booth Q&A. Product delivery uses hybrid match-or-list against booth assets.
+
+Inbound is wired on **both** Meta and Telnyx WhatsApp webhooks (Expo before Customer Feedback).
 
 ## Deploy
 
