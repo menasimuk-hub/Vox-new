@@ -11,6 +11,10 @@ const SERVICES = [
   { key: 'expo', label: 'Expo' },
 ]
 
+function defaultInterval(serviceKey) {
+  return serviceKey === 'expo' ? 'one_time' : 'monthly'
+}
+
 function emptyMoneyMap() {
   const out = {}
   for (const c of CURRENCIES) out[c] = { monthly: '', yearly: '', perMin: '', extraPerMin: '' }
@@ -70,6 +74,7 @@ function packageToDraft(pkg) {
   }
   return {
     ...pkg,
+    interval: pkg.interval || defaultInterval(pkg.service_kind),
     org_ids: Array.isArray(pkg.org_ids) ? pkg.org_ids : (pkg.orgs || []).map((o) => o.org_id),
     prices,
     unitRates,
@@ -77,6 +82,7 @@ function packageToDraft(pkg) {
 }
 
 function draftToPayload(draft) {
+  const isExpo = draft.service_kind === 'expo'
   const prices = {}
   const unit_rates = {}
   for (const c of CURRENCIES) {
@@ -85,21 +91,24 @@ function draftToPayload(draft) {
     prices[c] = {
       monthly_price_minor: p.monthly === '' ? null : poundsToPence(p.monthly),
       yearly_price_minor: p.yearly === '' ? null : poundsToPence(p.yearly),
-      per_min_minor: poundsToPence(p.perMin || 0),
-      extra_per_min_minor: poundsToPence(p.extraPerMin || 0),
+      per_min_minor: isExpo ? 0 : poundsToPence(p.perMin || 0),
+      extra_per_min_minor: isExpo ? 0 : poundsToPence(p.extraPerMin || 0),
     }
-    unit_rates[c] = {
-      connection_fee_minor: u.connection === '' ? null : poundsToPence(u.connection),
-      interview_per_min_minor: u.interview === '' ? null : poundsToPence(u.interview),
-      wa_package_fee_minor: u.waPackage === '' ? null : poundsToPence(u.waPackage),
-      wa_extra_minor: u.waExtra === '' ? null : poundsToPence(u.waExtra),
-      cv_scan_fee_minor: u.cvScan === '' ? null : poundsToPence(u.cvScan),
+    if (!isExpo) {
+      unit_rates[c] = {
+        connection_fee_minor: u.connection === '' ? null : poundsToPence(u.connection),
+        interview_per_min_minor: u.interview === '' ? null : poundsToPence(u.interview),
+        wa_package_fee_minor: u.waPackage === '' ? null : poundsToPence(u.waPackage),
+        wa_extra_minor: u.waExtra === '' ? null : poundsToPence(u.waExtra),
+        cv_scan_fee_minor: u.cvScan === '' ? null : poundsToPence(u.cvScan),
+      }
     }
   }
   const payload = {
     service_kind: draft.service_kind,
     name: draft.name,
     code: draft.code,
+    interval: draft.interval || defaultInterval(draft.service_kind),
     is_active: Boolean(draft.is_active ?? true),
     calls_included: Number(draft.calls_included || 0),
     whatsapp_included: Number(draft.whatsapp_included || draft.wa_units_included || 0),
@@ -110,9 +119,15 @@ function draftToPayload(draft) {
     duration_days: Number(draft.duration_days || 1),
     org_ids: Array.isArray(draft.org_ids) ? draft.org_ids : [],
     prices,
-    unit_rates,
   }
+  if (!isExpo) payload.unit_rates = unit_rates
   return payload
+}
+
+function formatMinor(minor, currency = 'GBP') {
+  if (minor == null) return '—'
+  const sym = CURRENCY_SYMBOLS[currency] || ''
+  return `${sym}${(Number(minor) / 100).toFixed(2)}`
 }
 
 function MoneyInput({ value, onChange }) {
@@ -181,9 +196,10 @@ export default function PricingPrivatePackages() {
         service_kind: serviceKey,
         name: '',
         code: '',
+        interval: defaultInterval(serviceKey),
         is_active: true,
         calls_included: 0,
-        whatsapp_included: 100,
+        whatsapp_included: 0,
         cv_scans_included: 0,
         max_locations: 1,
         wa_units_included: 100,
@@ -275,6 +291,12 @@ export default function PricingPrivatePackages() {
     return map
   }, [items])
 
+  const isExpo = drawer?.draft?.service_kind === 'expo'
+  const isFeedback = drawer?.draft?.service_kind === 'customer_feedback'
+  const pricePrimaryLabel = isExpo
+    ? (drawer?.draft?.interval === 'yearly' ? 'Yearly' : 'Price')
+    : 'Monthly'
+
   return (
     <PricingLoadGate
       loading={loading}
@@ -285,7 +307,7 @@ export default function PricingPrivatePackages() {
     >
       <PricingPageFrame
         title="Private packages"
-        description="Create a private Core / Feedback / Expo package, set prices (defaults prefilled), and assign multiple orgs. Billing and overage use these rates for assigned orgs only."
+        description="Create a private Core / Feedback / Expo package, set prices (defaults prefilled), and assign multiple orgs. Billing and overage use these rates for assigned orgs only. Create as many yearly packages as you need."
         error={error}
         msg={msg}
       >
@@ -305,24 +327,34 @@ export default function PricingPrivatePackages() {
                     <tr>
                       <th>Package</th>
                       <th>Code</th>
+                      <th>Billing</th>
                       <th>Orgs</th>
-                      <th>Monthly (GBP)</th>
+                      <th>Monthly / price (GBP)</th>
+                      <th>Yearly (GBP)</th>
                       <th />
                     </tr>
                   </thead>
                   <tbody>
                     {(byService[svc.key] || []).length === 0 ? (
-                      <tr><td colSpan={5} className="muted">No private packages yet.</td></tr>
+                      <tr><td colSpan={7} className="muted">No private packages yet.</td></tr>
                     ) : (
                       (byService[svc.key] || []).map((pkg) => {
-                        const gbp = pkg.prices?.GBP?.monthly_price_minor
+                        const gbp = pkg.prices?.GBP || {}
                         const orgNames = (pkg.orgs || []).map((o) => o.org_name).filter(Boolean)
+                        const interval = String(pkg.interval || defaultInterval(svc.key)).replace(/_/g, ' ')
                         return (
                           <tr key={pkg.id}>
-                            <td><strong>{pkg.name}</strong></td>
+                            <td>
+                              <strong>{pkg.name}</strong>
+                              {svc.key === 'expo' && pkg.duration_days != null ? (
+                                <div className="muted" style={{ fontSize: 12 }}>{pkg.duration_days} day{pkg.duration_days === 1 ? '' : 's'}</div>
+                              ) : null}
+                            </td>
                             <td className="muted">{pkg.code}</td>
+                            <td className="muted" style={{ textTransform: 'capitalize' }}>{interval}</td>
                             <td>{orgNames.length ? orgNames.join(', ') : <span className="muted">None</span>}</td>
-                            <td>{gbp == null ? '—' : `£${(gbp / 100).toFixed(2)}`}</td>
+                            <td>{formatMinor(gbp.monthly_price_minor)}</td>
+                            <td>{formatMinor(gbp.yearly_price_minor)}</td>
                             <td className="pricingPkgActions">
                               <button className="btn soft pricingSaveBtn" type="button" onClick={() => openEdit(pkg)}>Edit</button>
                               <button className="btn ghost pricingSaveBtn" type="button" onClick={() => void deactivate(pkg)}>Off</button>
@@ -359,24 +391,22 @@ export default function PricingPrivatePackages() {
                   <input className="input" value={drawer.draft.code || ''} onChange={(e) => setDraftField('code', e.target.value)} disabled={drawer.mode === 'edit'} placeholder="auto if blank" />
                 </div>
 
-                {drawer.draft.service_kind === 'voxbulk' ? (
-                  <div className="pricingPkgFieldGrid">
-                    <div className="pricingPkgField">
-                      <label>Minutes included</label>
-                      <input className="input" type="number" value={drawer.draft.calls_included ?? 0} onChange={(e) => setDraftField('calls_included', e.target.value)} />
-                    </div>
-                    <div className="pricingPkgField">
-                      <label>WA included</label>
-                      <input className="input" type="number" value={drawer.draft.whatsapp_included ?? 0} onChange={(e) => setDraftField('whatsapp_included', e.target.value)} />
-                    </div>
-                    <div className="pricingPkgField">
-                      <label>CV scans</label>
-                      <input className="input" type="number" value={drawer.draft.cv_scans_included ?? 0} onChange={(e) => setDraftField('cv_scans_included', e.target.value)} />
-                    </div>
-                  </div>
-                ) : null}
+                <div className="pricingPkgField">
+                  <label>Billing</label>
+                  {isExpo ? (
+                    <select className="input" value={drawer.draft.interval || 'one_time'} onChange={(e) => setDraftField('interval', e.target.value)}>
+                      <option value="one_time">One-time</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                  ) : (
+                    <select className="input" value={drawer.draft.interval || 'monthly'} onChange={(e) => setDraftField('interval', e.target.value)}>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                  )}
+                </div>
 
-                {drawer.draft.service_kind === 'customer_feedback' ? (
+                {isFeedback ? (
                   <div className="pricingPkgFieldGrid">
                     <div className="pricingPkgField">
                       <label>Locations</label>
@@ -393,7 +423,7 @@ export default function PricingPrivatePackages() {
                   </div>
                 ) : null}
 
-                {drawer.draft.service_kind === 'expo' ? (
+                {isExpo ? (
                   <div className="pricingPkgField">
                     <label>Duration days</label>
                     <input className="input" type="number" min="1" value={drawer.draft.duration_days ?? 1} onChange={(e) => setDraftField('duration_days', e.target.value)} />
@@ -420,56 +450,76 @@ export default function PricingPrivatePackages() {
                   <thead>
                     <tr>
                       <th>Currency</th>
-                      <th>Monthly / one-time</th>
-                      <th>Yearly</th>
-                      <th>Per min</th>
-                      <th>Extra / min</th>
+                      <th>{isExpo ? (drawer.draft.interval === 'yearly' ? 'Yearly' : 'Price') : pricePrimaryLabel}</th>
+                      {!isExpo || drawer.draft.interval !== 'yearly' ? <th>Yearly{isExpo ? ' (optional)' : ''}</th> : null}
+                      {!isExpo ? (
+                        <>
+                          <th>Per min</th>
+                          <th>Extra / min</th>
+                        </>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
                     {CURRENCIES.map((c) => {
                       const row = drawer.draft.prices?.[c] || {}
+                      const showYearlyCol = !isExpo || drawer.draft.interval !== 'yearly'
                       return (
                         <tr key={c}>
                           <td><strong>{CURRENCY_SYMBOLS[c] || c} {c}</strong></td>
-                          <td><MoneyInput value={row.monthly ?? ''} onChange={(v) => setPrice(c, 'monthly', v)} /></td>
-                          <td><MoneyInput value={row.yearly ?? ''} onChange={(v) => setPrice(c, 'yearly', v)} /></td>
-                          <td><MoneyInput value={row.perMin ?? ''} onChange={(v) => setPrice(c, 'perMin', v)} /></td>
-                          <td><MoneyInput value={row.extraPerMin ?? ''} onChange={(v) => setPrice(c, 'extraPerMin', v)} /></td>
+                          <td>
+                            <MoneyInput
+                              value={isExpo && drawer.draft.interval === 'yearly' ? (row.yearly ?? '') : (row.monthly ?? '')}
+                              onChange={(v) => setPrice(c, isExpo && drawer.draft.interval === 'yearly' ? 'yearly' : 'monthly', v)}
+                            />
+                          </td>
+                          {showYearlyCol ? (
+                            <td><MoneyInput value={row.yearly ?? ''} onChange={(v) => setPrice(c, 'yearly', v)} /></td>
+                          ) : null}
+                          {!isExpo ? (
+                            <>
+                              <td><MoneyInput value={row.perMin ?? ''} onChange={(v) => setPrice(c, 'perMin', v)} /></td>
+                              <td><MoneyInput value={row.extraPerMin ?? ''} onChange={(v) => setPrice(c, 'extraPerMin', v)} /></td>
+                            </>
+                          ) : null}
                         </tr>
                       )
                     })}
                   </tbody>
                 </table>
 
-                <h4 className="pricingPkgPricesTitle">Unit rates (blank = platform default)</h4>
-                <table className="pricingPlanPriceTable">
-                  <thead>
-                    <tr>
-                      <th>Currency</th>
-                      <th>Connection</th>
-                      <th>Interview / min</th>
-                      <th>WA package</th>
-                      <th>WA extra</th>
-                      <th>CV scan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {CURRENCIES.map((c) => {
-                      const row = drawer.draft.unitRates?.[c] || {}
-                      return (
-                        <tr key={c}>
-                          <td><strong>{c}</strong></td>
-                          <td><MoneyInput value={row.connection ?? ''} onChange={(v) => setUnit(c, 'connection', v)} /></td>
-                          <td><MoneyInput value={row.interview ?? ''} onChange={(v) => setUnit(c, 'interview', v)} /></td>
-                          <td><MoneyInput value={row.waPackage ?? ''} onChange={(v) => setUnit(c, 'waPackage', v)} /></td>
-                          <td><MoneyInput value={row.waExtra ?? ''} onChange={(v) => setUnit(c, 'waExtra', v)} /></td>
-                          <td><MoneyInput value={row.cvScan ?? ''} onChange={(v) => setUnit(c, 'cvScan', v)} /></td>
+                {!isExpo ? (
+                  <>
+                    <h4 className="pricingPkgPricesTitle">Unit rates (blank = platform default)</h4>
+                    <table className="pricingPlanPriceTable">
+                      <thead>
+                        <tr>
+                          <th>Currency</th>
+                          <th>Connection</th>
+                          <th>Interview / min</th>
+                          <th>WA package</th>
+                          <th>WA extra</th>
+                          <th>CV scan</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {CURRENCIES.map((c) => {
+                          const row = drawer.draft.unitRates?.[c] || {}
+                          return (
+                            <tr key={c}>
+                              <td><strong>{c}</strong></td>
+                              <td><MoneyInput value={row.connection ?? ''} onChange={(v) => setUnit(c, 'connection', v)} /></td>
+                              <td><MoneyInput value={row.interview ?? ''} onChange={(v) => setUnit(c, 'interview', v)} /></td>
+                              <td><MoneyInput value={row.waPackage ?? ''} onChange={(v) => setUnit(c, 'waPackage', v)} /></td>
+                              <td><MoneyInput value={row.waExtra ?? ''} onChange={(v) => setUnit(c, 'waExtra', v)} /></td>
+                              <td><MoneyInput value={row.cvScan ?? ''} onChange={(v) => setUnit(c, 'cvScan', v)} /></td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </>
+                ) : null}
               </div>
               <div className="pricingPkgDrawerFooter">
                 <button className="btn ghost" type="button" onClick={closeDrawer}>Cancel</button>

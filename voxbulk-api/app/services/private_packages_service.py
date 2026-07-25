@@ -21,6 +21,8 @@ from app.services.plan_admin_service import PlanAdminError, PlanAdminService
 from app.services.plan_price_service import PlanPriceService
 
 PRIVATE_SERVICE_KINDS = ("voxbulk", "customer_feedback", "expo")
+CORE_CF_INTERVALS = frozenset({"monthly", "yearly"})
+EXPO_INTERVALS = frozenset({"one_time", "yearly"})
 
 
 class PrivatePackagesError(ValueError):
@@ -31,6 +33,17 @@ class PrivatePackagesService:
     @staticmethod
     def _now() -> datetime:
         return datetime.utcnow()
+
+    @staticmethod
+    def _normalize_interval(service_kind: str, raw: Any) -> str:
+        value = str(raw or "").strip().lower()
+        if service_kind == EXPO_SERVICE_CODE:
+            if value in EXPO_INTERVALS:
+                return value
+            return "one_time"
+        if value in CORE_CF_INTERVALS:
+            return value
+        return "monthly"
 
     @staticmethod
     def get_assignment(db: Session, org_id: str, service_kind: str) -> OrgPackageAssignment | None:
@@ -163,7 +176,7 @@ class PrivatePackagesService:
 
         now = PrivatePackagesService._now()
         defaults = PrivatePackagesService.defaults_payload(db)
-        interval = "one_time" if kind == EXPO_SERVICE_CODE else str(payload.get("interval") or "monthly")
+        interval = PrivatePackagesService._normalize_interval(kind, payload.get("interval"))
         plan = Plan(
             id=str(uuid.uuid4()),
             code=code[:50],
@@ -247,6 +260,11 @@ class PrivatePackagesService:
             plan.description = str(payload.get("description") or "") or None
         if isinstance(payload.get("features"), list):
             plan.features_json = json.dumps([str(x) for x in payload["features"]])
+        if "interval" in payload and payload.get("interval") is not None:
+            plan.interval = PrivatePackagesService._normalize_interval(
+                str(plan.service_kind or "voxbulk"),
+                payload.get("interval"),
+            )
         for field, key in (
             ("calls_included", "calls_included"),
             ("calls_included", "minutes_included"),
