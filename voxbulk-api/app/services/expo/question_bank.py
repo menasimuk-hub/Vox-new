@@ -8,15 +8,35 @@ from typing import Any
 
 from app.services.expo.seed_service import UNIVERSAL_QUESTIONS
 
+DEFAULT_THANK_YOU = "Thanks so much for stopping by our stand — we'll be in touch soon!"
+DEFAULT_FREE_GIFT_TEXT = (
+    "Please collect your free gift from our stand team — thanks for completing the short questionnaire!"
+)
 
-def default_question_config(*, include_industry_addon: bool = False, addon_question: str | None = None) -> dict[str, Any]:
+
+def default_question_config(
+    *,
+    include_industry_addon: bool = False,
+    addon_question: str | None = None,
+    free_gift_enabled: bool = False,
+    free_gift_text: str | None = None,
+    thank_you_message: str | None = None,
+) -> dict[str, Any]:
     steps = [{"key": q["key"], "prompt": q["prompt"], "kind": "text"} for q in UNIVERSAL_QUESTIONS]
     if include_industry_addon and str(addon_question or "").strip():
         # Insert before consent so interest matching still has context
         consent = steps.pop()
         steps.append({"key": "industry_addon", "prompt": str(addon_question).strip(), "kind": "text"})
         steps.append(consent)
-    return {"steps": steps, "version": 1}
+    gift_on = bool(free_gift_enabled)
+    gift_text = str(free_gift_text or "").strip() or DEFAULT_FREE_GIFT_TEXT
+    return {
+        "steps": steps,
+        "version": 1,
+        "thank_you_message": str(thank_you_message or "").strip() or DEFAULT_THANK_YOU,
+        "free_gift_enabled": gift_on,
+        "free_gift_text": gift_text if gift_on else "",
+    }
 
 
 def parse_question_config(raw: str | None) -> list[dict[str, Any]]:
@@ -38,6 +58,40 @@ def parse_question_config(raw: str | None) -> list[dict[str, Any]]:
         if key and prompt:
             out.append({"key": key, "prompt": prompt, "kind": str(step.get("kind") or "text")})
     return out or list(default_question_config()["steps"])
+
+
+def parse_closing_config(raw: str | None) -> dict[str, Any]:
+    """Thank-you + optional free-gift settings stored alongside question steps."""
+    if not raw:
+        return {
+            "thank_you_message": DEFAULT_THANK_YOU,
+            "free_gift_enabled": False,
+            "free_gift_text": DEFAULT_FREE_GIFT_TEXT,
+        }
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    gift_on = bool(data.get("free_gift_enabled"))
+    gift_text = str(data.get("free_gift_text") or "").strip() or DEFAULT_FREE_GIFT_TEXT
+    thank = str(data.get("thank_you_message") or "").strip() or DEFAULT_THANK_YOU
+    return {
+        "thank_you_message": thank,
+        "free_gift_enabled": gift_on,
+        "free_gift_text": gift_text,
+    }
+
+
+def build_thank_you_message(raw_config: str | None) -> str:
+    closing = parse_closing_config(raw_config)
+    thank = str(closing.get("thank_you_message") or DEFAULT_THANK_YOU).strip()
+    if closing.get("free_gift_enabled"):
+        gift = str(closing.get("free_gift_text") or DEFAULT_FREE_GIFT_TEXT).strip()
+        if gift:
+            return f"{thank}\n\n{gift}"
+    return thank
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
@@ -84,7 +138,6 @@ def pick_assets_for_interest(
         return "direct", strong
     if len(strong) >= 2:
         return "list", strong[:5]
-    # Vague / weak: prefer defaults then full list
     defaults = [a for a in assets if a.get("is_default")]
     if defaults and not str(interest_text or "").strip():
         return "direct", defaults[:1]

@@ -39,3 +39,9 @@ git pull origin main
 ```
 
 Migration `0180_expo_foundation` applies on deploy. Boot seed creates industries + packages.
+
+## Closing message
+
+After the questionnaire completes, Expo always sends a **thank-you** message.
+
+Optional wizard toggle: **Offer a free gift after the questionnaire**. When enabled, the thank-you is followed by the exhibitor’s gift instructions (e.g. “Please collect your free gift from our stand team…”).

@@ -64,6 +64,10 @@ function CreateExpoBooth() {
   const [boothCode, setBoothCode] = React.useState("");
   const [company, setCompany] = React.useState(session?.org?.name || "");
   const [includeAddon, setIncludeAddon] = React.useState(true);
+  const [freeGiftEnabled, setFreeGiftEnabled] = React.useState(false);
+  const [freeGiftText, setFreeGiftText] = React.useState(
+    "Please collect your free gift from our stand team — thanks for completing the short questionnaire!",
+  );
   const [assets, setAssets] = React.useState<AssetDraft[]>([
     { title: "", short_description: "", external_url: "", match_keywords: "", kind: "pdf", is_default: true },
   ]);
@@ -111,6 +115,8 @@ function CreateExpoBooth() {
         name: boothCode.trim() || exhibitionName.trim(),
         company_display_name: company.trim(),
         include_industry_addon: includeAddon,
+        free_gift_enabled: freeGiftEnabled,
+        free_gift_text: freeGiftEnabled ? freeGiftText.trim() : null,
         package_id: packageId,
         assets: assets
           .filter((a) => a.title.trim())
@@ -228,6 +234,28 @@ function CreateExpoBooth() {
                   </span>
                 </label>
               ) : null}
+              <div className="space-y-3 rounded-lg border p-3">
+                <label className="flex items-start gap-3 text-sm">
+                  <Checkbox checked={freeGiftEnabled} onCheckedChange={(v) => setFreeGiftEnabled(Boolean(v))} />
+                  <span>
+                    <span className="font-medium">Offer a free gift after the questionnaire</span>
+                    <span className="mt-1 block text-muted-foreground">
+                      After the thank-you message, tell visitors how to collect their gift at the stand.
+                    </span>
+                  </span>
+                </label>
+                {freeGiftEnabled ? (
+                  <div className="space-y-2 pl-7">
+                    <Label>Gift message</Label>
+                    <Textarea
+                      value={freeGiftText}
+                      onChange={(e) => setFreeGiftText(e.target.value)}
+                      rows={3}
+                      placeholder="Please collect your free gift from our stand team…"
+                    />
+                  </div>
+                ) : null}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -340,7 +368,8 @@ function CreateExpoBooth() {
               <p>1. Visitor scans QR → opens WhatsApp with welcome trigger</p>
               <p>2. AI asks name → company → interest → timeline → consent</p>
               <p>3. Interest matched to your products → PDF link or numbered list</p>
-              <p>4. Lead scored Hot / Warm / Cold and saved to your results</p>
+              <p>4. Thank-you message{freeGiftEnabled ? " + free gift instructions" : ""}</p>
+              <p>5. Lead scored Hot / Warm / Cold and saved to your results</p>
             </CardContent>
           </Card>
         )}

@@ -21,7 +21,7 @@ from app.services.expo.offer_delivery_service import (
     pick_assets_for_interest,
     resolve_pick_reply,
 )
-from app.services.expo.question_bank import parse_question_config
+from app.services.expo.question_bank import build_thank_you_message, parse_question_config
 from app.services.expo.scoring_service import score_lead
 
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
@@ -133,7 +133,7 @@ class ExpoSessionFlowService:
             session.status = "failed"
             db.add(session)
             db.commit()
-            return {"session_id": session.id, "done": True, "prompt": THANK_YOU_TEXT}
+            return {"session_id": session.id, "done": True, "prompt": build_thank_you_message(booth.question_config_json)}
 
         db.commit()
         return {"session_id": session.id, "done": False, "prompt": str(steps[0].get("prompt") or "")}
@@ -163,7 +163,7 @@ class ExpoSessionFlowService:
         steps = ExpoSessionFlowService.steps_for_booth(booth)
         step_index = int(session.current_step or 0)
         if step_index >= len(steps):
-            return ExpoSessionFlowService._complete(db, session=session, lead=lead)
+            return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
 
         step = steps[step_index]
         key = str(step.get("key") or "")
@@ -283,12 +283,18 @@ class ExpoSessionFlowService:
         steps = ExpoSessionFlowService.steps_for_booth(booth)
         step_index = int(session.current_step or 0)
         if step_index >= len(steps):
-            return ExpoSessionFlowService._complete(db, session=session, lead=lead)
+            return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
         next_step = steps[step_index]
         return _empty_step_result(done=False, prompt=str(next_step.get("prompt") or ""))
 
     @staticmethod
-    def _complete(db: Session, *, session: ExpoSession, lead: ExpoLead | None) -> dict[str, Any]:
+    def _complete(
+        db: Session,
+        *,
+        session: ExpoSession,
+        lead: ExpoLead | None,
+        booth: ExpoBooth | None = None,
+    ) -> dict[str, Any]:
         if lead is None:
             lead = ExpoSessionFlowService._lead_for_session(db, session)
         if lead is not None:
@@ -305,11 +311,15 @@ class ExpoSessionFlowService:
         session.status = "completed"
         session.completed_at = datetime.utcnow()
         db.add(session)
+        if booth is None:
+            booth = db.get(ExpoBooth, session.booth_id)
+        thank = build_thank_you_message(booth.question_config_json if booth else None)
         db.commit()
-        return _empty_step_result(done=True, prompt=THANK_YOU_TEXT)
+        return _empty_step_result(done=True, prompt=thank)
 
     @staticmethod
     def stop(db: Session, *, session: ExpoSession) -> dict[str, Any]:
         """Visitor sent a STOP-family keyword — end the session politely, same as normal completion."""
         lead = ExpoSessionFlowService._lead_for_session(db, session)
-        return ExpoSessionFlowService._complete(db, session=session, lead=lead)
+        booth = db.get(ExpoBooth, session.booth_id)
+        return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)

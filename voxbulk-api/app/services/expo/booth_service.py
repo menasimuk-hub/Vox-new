@@ -26,7 +26,11 @@ from app.models.expo import (
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
-from app.services.expo.question_bank import default_question_config, parse_question_config
+from app.services.expo.question_bank import (
+    default_question_config,
+    parse_closing_config,
+    parse_question_config,
+)
 from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
 
 TRIGGER_TEMPLATE = "Hi! I visited {company} at {booth} at {event}. {token}"
@@ -192,6 +196,7 @@ class ExpoBoothService:
             "lead_count": int(lead_count),
             "hot_count": int(hot_count),
             "question_config": {"steps": parse_question_config(booth.question_config_json)},
+            "closing": parse_closing_config(booth.question_config_json),
             "trigger_text": trigger,
             "whatsapp_url": wa_url,
             "web_url": urls["web_url"],
@@ -259,11 +264,30 @@ class ExpoBoothService:
 
         include_addon = bool(payload.get("include_industry_addon"))
         addon = industry.addon_question if industry else None
+        free_gift_enabled = bool(payload.get("free_gift_enabled"))
+        free_gift_text = str(payload.get("free_gift_text") or "").strip() or None
+        thank_you_message = str(payload.get("thank_you_message") or "").strip() or None
         qcfg = payload.get("question_config")
         if isinstance(qcfg, dict) and qcfg.get("steps"):
-            question_json = json.dumps(qcfg)
+            merged = dict(qcfg)
+            merged["free_gift_enabled"] = free_gift_enabled if "free_gift_enabled" not in qcfg else bool(qcfg.get("free_gift_enabled"))
+            if free_gift_text is not None:
+                merged["free_gift_text"] = free_gift_text
+            if thank_you_message is not None:
+                merged["thank_you_message"] = thank_you_message
+            elif not merged.get("thank_you_message"):
+                merged["thank_you_message"] = default_question_config()["thank_you_message"]
+            question_json = json.dumps(merged)
         else:
-            question_json = json.dumps(default_question_config(include_industry_addon=include_addon, addon_question=addon))
+            question_json = json.dumps(
+                default_question_config(
+                    include_industry_addon=include_addon,
+                    addon_question=addon,
+                    free_gift_enabled=free_gift_enabled,
+                    free_gift_text=free_gift_text,
+                    thank_you_message=thank_you_message,
+                )
+            )
 
         package_id = str(payload.get("package_id") or "").strip() or None
         booth = ExpoBooth(
