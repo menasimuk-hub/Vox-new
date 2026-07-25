@@ -101,12 +101,18 @@ def _mirror_survey(*, dry_run: bool, delay_sec: float, batch_size: int, backup_i
             )
             batches += 1
             content_updated += int(summary.get("content_updated") or 0)
-            errors.extend(summary.get("errors") or [])
+            batch_errors = summary.get("errors") or []
+            errors.extend(batch_errors)
             _log(
                 f"  survey batch#{batches} offset={offset} "
                 f"updated={summary.get('content_updated')} errors={summary.get('error_count')} "
                 f"has_more={summary.get('has_more')}"
             )
+            for err in batch_errors[:3]:
+                _log(
+                    f"    ERR {err.get('template') or err.get('label') or '?'}: "
+                    f"{err.get('error') or err}"
+                )
             if not summary.get("has_more"):
                 break
             offset = int(summary.get("next_offset") or (offset + batch_size))
