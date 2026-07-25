@@ -25,6 +25,8 @@ import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index
 import { Route as AppSettingsIndexRouteImport } from './routes/_app.settings.index'
 import { Route as AppSalesIndexRouteImport } from './routes/_app.sales.index'
 import { Route as AppPartnerChannelIndexRouteImport } from './routes/_app.partner-channel.index'
+import { Route as AppPartnerChannelWalletRouteImport } from './routes/_app.partner-channel.wallet'
+import { Route as AppPartnerChannelSendOfferRouteImport } from './routes/_app.partner-channel.send-offer'
 import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
 import { Route as AppInterviewsIndexRouteImport } from './routes/_app.interviews.index'
 import { Route as AppFeedbackIndexRouteImport } from './routes/_app.feedback.index'
@@ -152,6 +154,16 @@ const AppSalesIndexRoute = AppSalesIndexRouteImport.update({
 const AppPartnerChannelIndexRoute = AppPartnerChannelIndexRouteImport.update({
   id: '/partner-channel/',
   path: '/partner-channel/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerChannelWalletRoute = AppPartnerChannelWalletRouteImport.update({
+  id: '/partner-channel/wallet',
+  path: '/partner-channel/wallet',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerChannelSendOfferRoute = AppPartnerChannelSendOfferRouteImport.update({
+  id: '/partner-channel/send-offer',
+  path: '/partner-channel/send-offer',
   getParentRoute: () => AppRoute,
 } as any)
 const AppRecoveryIndexRoute = AppRecoveryIndexRouteImport.update({
@@ -441,6 +453,8 @@ export interface FileRoutesByFullPath {
   '/sales/deals': typeof AppSalesDealsRoute
   '/sales/new': typeof AppSalesNewRoute
   '/sales/wallet': typeof AppSalesWalletRoute
+  '/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
+  '/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -500,6 +514,8 @@ export interface FileRoutesByTo {
   '/sales/deals': typeof AppSalesDealsRoute
   '/sales/new': typeof AppSalesNewRoute
   '/sales/wallet': typeof AppSalesWalletRoute
+  '/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
+  '/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -568,6 +584,8 @@ export interface FileRoutesById {
   '/_app/sales/deals': typeof AppSalesDealsRoute
   '/_app/sales/new': typeof AppSalesNewRoute
   '/_app/sales/wallet': typeof AppSalesWalletRoute
+  '/_app/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
+  '/_app/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -636,6 +654,8 @@ export interface FileRouteTypes {
     | '/sales/deals'
     | '/sales/new'
     | '/sales/wallet'
+    | '/partner-channel/wallet'
+    | '/partner-channel/send-offer'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/opt-out'
@@ -695,6 +715,8 @@ export interface FileRouteTypes {
     | '/sales/deals'
     | '/sales/new'
     | '/sales/wallet'
+    | '/partner-channel/wallet'
+    | '/partner-channel/send-offer'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/opt-out'
@@ -762,6 +784,8 @@ export interface FileRouteTypes {
     | '/_app/sales/deals'
     | '/_app/sales/new'
     | '/_app/sales/wallet'
+    | '/_app/partner-channel/wallet'
+    | '/_app/partner-channel/send-offer'
     | '/_app/settings/audit'
     | '/_app/settings/integrations'
     | '/_app/settings/opt-out'
@@ -1040,6 +1064,20 @@ declare module '@tanstack/react-router' {
       path: '/sales/wallet'
       fullPath: '/sales/wallet'
       preLoaderRoute: typeof AppSalesWalletRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-channel/wallet': {
+      id: '/_app/partner-channel/wallet'
+      path: '/partner-channel/wallet'
+      fullPath: '/partner-channel/wallet'
+      preLoaderRoute: typeof AppPartnerChannelWalletRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-channel/send-offer': {
+      id: '/_app/partner-channel/send-offer'
+      path: '/partner-channel/send-offer'
+      fullPath: '/partner-channel/send-offer'
+      preLoaderRoute: typeof AppPartnerChannelSendOfferRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/sales/new': {
@@ -1408,6 +1446,8 @@ interface AppRouteChildren {
   AppSalesDealsRoute: typeof AppSalesDealsRoute
   AppSalesNewRoute: typeof AppSalesNewRoute
   AppSalesWalletRoute: typeof AppSalesWalletRoute
+  AppPartnerChannelWalletRoute: typeof AppPartnerChannelWalletRoute
+  AppPartnerChannelSendOfferRoute: typeof AppPartnerChannelSendOfferRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsOptOutRoute: typeof AppSettingsOptOutRoute
@@ -1442,6 +1482,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppSalesDealsRoute: AppSalesDealsRoute,
   AppSalesNewRoute: AppSalesNewRoute,
   AppSalesWalletRoute: AppSalesWalletRoute,
+  AppPartnerChannelWalletRoute: AppPartnerChannelWalletRoute,
+  AppPartnerChannelSendOfferRoute: AppPartnerChannelSendOfferRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsOptOutRoute: AppSettingsOptOutRoute,

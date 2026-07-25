@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -24,6 +25,13 @@ def _require_salesman(db: Session, principal) -> SalesRep:
     rep = _require_rep(db, principal)
     if not SalesRepService.is_salesman(rep):
         raise HTTPException(status_code=403, detail="Customer CRM is only available to salesmen.")
+    return rep
+
+
+def _require_partner(db: Session, principal) -> SalesRep:
+    rep = _require_rep(db, principal)
+    if not SalesRepService.is_partner_channel(rep):
+        raise HTTPException(status_code=403, detail="This action is only available to Partner Channel accounts.")
     return rep
 
 
@@ -104,3 +112,54 @@ def demo_call(customer_id: str, db: Session = Depends(get_db), principal=Depends
 def dashboard(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     rep = _require_rep(db, principal)
     return {"ok": True, "stats": SalesRepService.dashboard_stats(db, rep)}
+
+
+@router.get("/partner/offer-template.xlsx")
+def partner_offer_template(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_partner(db, principal)
+    try:
+        content = SalesRepService.partner_offer_template_xlsx()
+    except SalesRepError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="partner-offer-contacts.xlsx"'},
+    )
+
+
+@router.post("/partner/bulk-offers/preview")
+async def partner_bulk_offers_preview(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_partner(db, principal)
+    raw = await file.read()
+    try:
+        parsed = SalesRepService.parse_partner_offer_recipients(raw, filename=file.filename or "")
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return parsed
+
+
+@router.post("/partner/bulk-offers")
+async def partner_bulk_offers(
+    file: UploadFile = File(...),
+    offer_details: str = Form("Special VoxBulk partner offer"),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    rep = _require_partner(db, principal)
+    raw = await file.read()
+    try:
+        parsed = SalesRepService.parse_partner_offer_recipients(raw, filename=file.filename or "")
+        result = SalesRepService.send_bulk_partner_offers(
+            db,
+            rep=rep,
+            recipients=parsed.get("recipients") or [],
+            offer_details=offer_details,
+        )
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return result

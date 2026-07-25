@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import re
 from datetime import datetime
+from email.utils import parseaddr
 from typing import Any
 
 from sqlalchemy import select
@@ -19,10 +22,13 @@ from app.models.sales_rep import SalesCommission, SalesCustomer, SalesRep
 from app.models.user import User
 
 _CODE_RE = re.compile(r"^[A-Z0-9]{4,12}$")
+_EMAIL_RE = re.compile(r"^[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}$", re.I)
 KIND_SALESMAN = "salesman"
 KIND_PARTNER_CHANNEL = "partner_channel"
 VALID_KINDS = frozenset({KIND_SALESMAN, KIND_PARTNER_CHANNEL})
 DEFAULT_COMMISSION_PCT = 15.0
+PARTNER_BULK_OFFER_MAX = 500
+PARTNER_BULK_OFFER_MAX_BYTES = 2 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 # Fixed script for the salesman "Call & Survey" demo (matches the 'sales ai survey' agent).
@@ -514,6 +520,224 @@ class SalesRepService:
         customer.updated_at = datetime.utcnow()
         db.commit()
         return {"ok": ok, "message": "Sent." if ok else f"Send failed: {log.get('error') or 'unknown error'}"}
+
+    @staticmethod
+    def normalize_offer_email(raw: Any) -> str | None:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+        _name, addr = parseaddr(text)
+        email = (addr or text).strip().lower()
+        if not _EMAIL_RE.match(email):
+            return None
+        return email
+
+    @staticmethod
+    def partner_offer_template_xlsx() -> bytes:
+        try:
+            import openpyxl
+        except ImportError as exc:
+            raise SalesRepError("Excel support requires openpyxl on the server.") from exc
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Contacts"
+        ws.append(["email", "name"])
+        ws.append(["alex@example.com", "Alex Example"])
+        ws.append(["sam@example.com", "Sam Example"])
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    @staticmethod
+    def parse_partner_offer_recipients(content: bytes, filename: str = "") -> dict[str, Any]:
+        if not content:
+            raise SalesRepError("Empty file.")
+        if len(content) > PARTNER_BULK_OFFER_MAX_BYTES:
+            raise SalesRepError("File too large (max 2MB).")
+
+        name = str(filename or "").lower()
+        rows: list[dict[str, Any]] = []
+        if name.endswith((".xlsx", ".xls", ".xlsm")) or content[:2] == b"PK":
+            try:
+                import openpyxl
+            except ImportError as exc:
+                raise SalesRepError("Excel support requires openpyxl on the server.") from exc
+            try:
+                wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            except Exception as exc:  # noqa: BLE001
+                raise SalesRepError("Could not read Excel file.") from exc
+            ws = wb.active
+            header: list[str] | None = None
+            for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+                values = [("" if v is None else str(v).strip()) for v in row]
+                if not any(values):
+                    continue
+                if header is None:
+                    lowered = [v.lower() for v in values]
+                    if any("email" in v or "e-mail" in v or v == "mail" for v in lowered):
+                        header = lowered
+                        continue
+                    # No header — treat first non-empty cell as email
+                    email = SalesRepService.normalize_offer_email(values[0] if values else "")
+                    if email:
+                        rows.append(
+                            {
+                                "email": email,
+                                "name": values[1] if len(values) > 1 and values[1] else None,
+                                "row": i,
+                            }
+                        )
+                    continue
+                email_idx = next(
+                    (idx for idx, h in enumerate(header) if "email" in h or "e-mail" in h or h == "mail"),
+                    0,
+                )
+                name_idx = next((idx for idx, h in enumerate(header) if h in ("name", "full_name", "fullname")), None)
+                email = SalesRepService.normalize_offer_email(values[email_idx] if email_idx < len(values) else "")
+                if not email:
+                    continue
+                contact_name = None
+                if name_idx is not None and name_idx < len(values) and values[name_idx]:
+                    contact_name = values[name_idx]
+                rows.append({"email": email, "name": contact_name, "row": i})
+        else:
+            try:
+                text = content.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = content.decode("latin-1", errors="replace")
+            reader = csv.reader(io.StringIO(text))
+            header = None
+            for i, values in enumerate(reader, start=1):
+                values = [str(v or "").strip() for v in values]
+                if not any(values):
+                    continue
+                if header is None:
+                    lowered = [v.lower() for v in values]
+                    if any("email" in v or "e-mail" in v or v == "mail" for v in lowered):
+                        header = lowered
+                        continue
+                    email = SalesRepService.normalize_offer_email(values[0] if values else "")
+                    if email:
+                        rows.append(
+                            {
+                                "email": email,
+                                "name": values[1] if len(values) > 1 and values[1] else None,
+                                "row": i,
+                            }
+                        )
+                    continue
+                email_idx = next(
+                    (idx for idx, h in enumerate(header) if "email" in h or "e-mail" in h or h == "mail"),
+                    0,
+                )
+                name_idx = next((idx for idx, h in enumerate(header) if h in ("name", "full_name", "fullname")), None)
+                email = SalesRepService.normalize_offer_email(values[email_idx] if email_idx < len(values) else "")
+                if not email:
+                    continue
+                contact_name = None
+                if name_idx is not None and name_idx < len(values) and values[name_idx]:
+                    contact_name = values[name_idx]
+                rows.append({"email": email, "name": contact_name, "row": i})
+
+        deduped: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        skipped = 0
+        for row in rows:
+            email = row["email"]
+            if email in seen:
+                skipped += 1
+                continue
+            seen.add(email)
+            deduped.append(row)
+
+        if len(deduped) > PARTNER_BULK_OFFER_MAX:
+            raise SalesRepError(f"Too many recipients (max {PARTNER_BULK_OFFER_MAX}).")
+
+        return {
+            "ok": True,
+            "count": len(deduped),
+            "skipped": skipped,
+            "recipients": deduped,
+            "message": None if deduped else "No valid emails found in this file.",
+        }
+
+    @staticmethod
+    def send_bulk_partner_offers(
+        db: Session,
+        *,
+        rep: SalesRep,
+        recipients: list[dict[str, Any]],
+        offer_details: str,
+    ) -> dict[str, Any]:
+        if not SalesRepService.is_partner_channel(rep):
+            raise SalesRepError("Bulk partner offers are only available to Partner Channel accounts.")
+        if not recipients:
+            raise SalesRepError("No recipients to send.")
+        if len(recipients) > PARTNER_BULK_OFFER_MAX:
+            raise SalesRepError(f"Too many recipients (max {PARTNER_BULK_OFFER_MAX}).")
+
+        from app.services.promo_offer_service import PromoOfferService
+        from app.services.sales_offer_send_service import SalesOfferSendService
+        from app.services.transactional_email_service import TransactionalEmailService
+
+        offer_details = str(offer_details or "").strip() or "Special VoxBulk partner offer"
+        try:
+            PromoOfferService.upsert_for_sales_rep(db, rep)
+        except Exception:
+            logger.exception("Promo sync before partner bulk offer failed rep=%s", rep.id)
+        promo = PromoOfferService.get_by_code(db, rep.promo_code)
+        signup_url = PromoOfferService.signup_url(rep.promo_code)
+        promo_name = promo.name if promo else f"{rep.promo_code} — VoxBulk offer"
+        offer_line = "£20 welcome credit"
+
+        results: list[dict[str, Any]] = []
+        sent = 0
+        failed = 0
+        for item in recipients:
+            email = SalesRepService.normalize_offer_email(item.get("email"))
+            if not email:
+                failed += 1
+                results.append({"email": str(item.get("email") or ""), "name": item.get("name"), "ok": False, "error": "Invalid email"})
+                continue
+            name = str(item.get("name") or "").strip() or None
+            first_name = SalesOfferSendService._first_name(name)
+            offer_summary = (
+                f"{offer_details}. Includes £20 wallet credit after signup "
+                "(not usable for campaign launches or Customer feedback promo sends)."
+            )
+            variables = {
+                "first_name": first_name,
+                "offer_line": offer_line,
+                "promo_name": promo_name,
+                "offer_summary": offer_summary,
+                "signup_url": signup_url,
+                "promo_code": rep.promo_code,
+            }
+            try:
+                ok, err = TransactionalEmailService.send_templated_optional(
+                    db,
+                    template_key="sales_offer",
+                    to_email=email,
+                    variables=variables,
+                )
+                if ok:
+                    sent += 1
+                    results.append({"email": email, "name": name, "ok": True, "error": None})
+                else:
+                    failed += 1
+                    results.append({"email": email, "name": name, "ok": False, "error": err or "Send failed"})
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                results.append({"email": email, "name": name, "ok": False, "error": str(exc)})
+
+        return {
+            "ok": sent > 0,
+            "sent": sent,
+            "failed": failed,
+            "total": len(recipients),
+            "results": results,
+            "message": f"Sent {sent} of {len(recipients)}." if sent else "All sends failed.",
+        }
 
     @staticmethod
     def _mark_demoed(db: Session, customer: SalesCustomer, *, channel: str) -> None:

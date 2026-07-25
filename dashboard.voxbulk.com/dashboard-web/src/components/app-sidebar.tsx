@@ -76,10 +76,22 @@ const partnerChannelGroup: Group = {
   label: "Partner Channel Sales",
   items: [
     {
-      title: "Overview & commission",
+      title: "Overview",
       url: "/partner-channel",
+      icon: LayoutDashboard,
+      isActive: (path) => normalizePath(path) === "/partner-channel",
+    },
+    {
+      title: "Wallet & commission",
+      url: "/partner-channel/wallet",
       icon: Wallet,
-      isActive: (path) => normalizePath(path) === "/partner-channel" || path.startsWith("/partner-channel/"),
+      isActive: (path) => normalizePath(path) === "/partner-channel/wallet",
+    },
+    {
+      title: "Send offer",
+      url: "/partner-channel/send-offer",
+      icon: Send,
+      isActive: (path) => normalizePath(path) === "/partner-channel/send-offer",
     },
   ],
 };

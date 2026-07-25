@@ -1,27 +1,17 @@
 import * as React from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { Building2, DollarSign, Percent, Tag, Wallet } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Building2, Copy, DollarSign, Percent, Send, Tag, Wallet } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch } from "@/lib/api";
 import { requirePartnerChannel } from "@/lib/guards/settings-route";
-import "@/styles/sales-portal.css";
 
 export const Route = createFileRoute("/_app/partner-channel/")({
-  head: () => ({ meta: [{ title: "Partner Channel Sales — VoxBulk" }] }),
+  head: () => ({ meta: [{ title: "Partner overview — VoxBulk" }] }),
   beforeLoad: () => requirePartnerChannel(),
-  component: PartnerChannelHome,
+  component: PartnerChannelOverview,
 });
-
-type CommissionRow = {
-  id: string;
-  org_id?: string | null;
-  org_name?: string | null;
-  amount_minor: number;
-  currency?: string;
-  status: string;
-  note?: string | null;
-  created_at?: string | null;
-};
 
 type Stats = {
   commission_pct?: number;
@@ -33,7 +23,6 @@ type Stats = {
     commission_paid_minor: number;
     commission_pending_minor: number;
   };
-  commissions?: CommissionRow[];
 };
 
 type Rep = {
@@ -48,10 +37,11 @@ function money(minor?: number) {
   return `£${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function PartnerChannelHome() {
+function PartnerChannelOverview() {
   const [stats, setStats] = React.useState<Stats | null>(null);
   const [rep, setRep] = React.useState<Rep | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const [copied, setCopied] = React.useState(false);
 
   React.useEffect(() => {
     void (async () => {
@@ -72,110 +62,114 @@ function PartnerChannelHome() {
     })();
   }, []);
 
-  const commissions = stats?.commissions || [];
   const pct = Number(rep?.commission_pct ?? stats?.commission_pct ?? 15);
+  const promo = rep?.promo_code || "";
+
+  const copyPromo = async () => {
+    if (!promo) return;
+    try {
+      await navigator.clipboard.writeText(promo);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
-    <div className="salesPortal salesPortal--embedded">
-      <div className="sp-app">
-        <div className="sp-simple">
-          <h2>
-            <Wallet size={20} /> Partner Channel Sales
-          </h2>
-          <p>
-            {rep?.company_name || rep?.name || "Your partner account"} — track attributed revenue and commission
-            when customers pay with your promo code.
+    <div className="mx-auto max-w-5xl space-y-6 p-4 md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {rep?.company_name || rep?.name || "Your partner account"} — track customers who sign up with your promo
+            code.
           </p>
-
-          <div className="sp-kpi-grid" style={{ marginBottom: 8 }}>
-            <div className="sp-kpi">
-              <div className="label">
-                <Tag size={14} /> Promo code
-              </div>
-              <div className="value" style={{ fontSize: "1.15rem", fontFamily: "ui-monospace, monospace" }}>
-                {rep?.promo_code || "—"}
-              </div>
-              <div className="sub">{pct}% on every paid subscription</div>
-            </div>
-            <div className="sp-kpi">
-              <div className="label">
-                <Building2 size={14} /> Active companies
-              </div>
-              <div className="value">{loading ? "…" : (stats?.wallet.active_companies ?? 0)}</div>
-            </div>
-            <div className="sp-kpi">
-              <div className="label">
-                <Tag size={14} /> Codes used
-              </div>
-              <div className="value">{loading ? "…" : (stats?.wallet.codes_used ?? 0)}</div>
-            </div>
-            <div className="sp-kpi">
-              <div className="label">
-                <DollarSign size={14} /> Customer revenue
-              </div>
-              <div className="value">{loading ? "…" : money(stats?.wallet.revenue_minor)}</div>
-            </div>
-          </div>
-
-          <div className="sp-kpi-grid">
-            <div className="sp-kpi">
-              <div className="label">
-                <Percent size={14} /> Total commission
-              </div>
-              <div className="value">{loading ? "…" : money(stats?.wallet.commission_minor)}</div>
-            </div>
-            <div className="sp-kpi">
-              <div className="label">
-                <Wallet size={14} /> Pending
-              </div>
-              <div className="value">{loading ? "…" : money(stats?.wallet.commission_pending_minor)}</div>
-            </div>
-            <div className="sp-kpi">
-              <div className="label">
-                <Wallet size={14} /> Paid out
-              </div>
-              <div className="value">{loading ? "…" : money(stats?.wallet.commission_paid_minor)}</div>
-            </div>
-          </div>
-
-          <h4 style={{ margin: "24px 0 12px", fontWeight: 600 }}>Commission ledger</h4>
-          {loading ? (
-            <p style={{ color: "#7a6b58" }}>Loading…</p>
-          ) : commissions.length === 0 ? (
-            <p style={{ color: "#7a6b58" }}>
-              No commission yet. When a customer signs up with your promo code and pays a subscription invoice, it
-              appears here.
-            </p>
-          ) : (
-            <div className="sp-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Company</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {commissions.map((c) => (
-                    <tr key={c.id}>
-                      <td>{c.org_name || c.org_id || "—"}</td>
-                      <td>{money(c.amount_minor)}</td>
-                      <td>
-                        <span className={`sp-stage ${c.status === "paid" ? "stage-won" : "stage-interested"}`}>
-                          {c.status}
-                        </span>
-                      </td>
-                      <td>{c.created_at ? String(c.created_at).slice(0, 10) : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link to="/partner-channel/wallet">
+              <Wallet className="mr-1.5 h-4 w-4" />
+              Wallet
+            </Link>
+          </Button>
+          <Button asChild size="sm">
+            <Link to="/partner-channel/send-offer">
+              <Send className="mr-1.5 h-4 w-4" />
+              Send offer
+            </Link>
+          </Button>
         </div>
       </div>
+
+      <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/[0.04] via-background to-background">
+        <CardHeader className="pb-3">
+          <CardDescription>Your promo code</CardDescription>
+          <CardTitle className="flex flex-wrap items-center gap-3 font-mono text-2xl tracking-wide">
+            <Tag className="h-5 w-5 text-primary" />
+            {loading ? "…" : promo || "—"}
+            {promo ? (
+              <Button type="button" variant="outline" size="sm" className="h-8 font-sans" onClick={() => void copyPromo()}>
+                <Copy className="mr-1.5 h-3.5 w-3.5" />
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            ) : null}
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Earn <span className="font-medium text-foreground">{pct}%</span> commission on every paid subscription
+            invoice attributed to this code.
+          </p>
+        </CardHeader>
+      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi
+          icon={<Building2 className="h-4 w-4" />}
+          label="Active companies"
+          value={loading ? "…" : String(stats?.wallet.active_companies ?? 0)}
+        />
+        <Kpi
+          icon={<Tag className="h-4 w-4" />}
+          label="Codes used"
+          value={loading ? "…" : String(stats?.wallet.codes_used ?? 0)}
+        />
+        <Kpi
+          icon={<DollarSign className="h-4 w-4" />}
+          label="Customer revenue"
+          value={loading ? "…" : money(stats?.wallet.revenue_minor)}
+        />
+        <Kpi
+          icon={<Percent className="h-4 w-4" />}
+          label="Total commission"
+          value={loading ? "…" : money(stats?.wallet.commission_minor)}
+          hint={`${money(stats?.wallet.commission_pending_minor)} pending`}
+        />
+      </div>
     </div>
+  );
+}
+
+function Kpi({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          {icon}
+          {label}
+        </div>
+        <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+        {hint ? <div className="mt-1 text-xs text-muted-foreground">{hint}</div> : null}
+      </CardContent>
+    </Card>
   );
 }
