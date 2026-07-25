@@ -6,11 +6,11 @@ endobj
 << /Type /Pages /Kids [4 0 R 6 0 R] /Count 2 >>
 endobj
 3 0 obj
-<< /Length 3220 >>
+<< /Length 2795 >>
 stream
 BT
 /F1 10 Tf
-1 0 0 1 50 800 Tm (VoxBulk Ltd - Data Processing Agreement) Tj
+1 0 0 1 54 720 Tm (VoxBulk Ltd - Data Processing Agreement) Tj
 0 -14 Td (Company No. 15466735 | London, United Kingdom | Last updated: 25 July 2026) Tj
 0 -14 Td (Contact: Data.Pro@voxbulk.com | https://voxbulk.com/dpa) Tj
 0 -14 Td () Tj
@@ -52,12 +52,6 @@ BT
 0 -14 Td () Tj
 0 -14 Td (7. Our obligations) Tj
 0 -14 Td (Process only on instructions; confidentiality; appropriate security; assist with) Tj
-0 -14 Td (data subject requests; notify breaches without undue delay; delete/return data at) Tj
-0 -14 Td (end of services subject to retention and legal holds; provide compliance information.) Tj
-0 -14 Td () Tj
-0 -14 Td (8. Sub-processors) Tj
-0 -14 Td (You authorise categories: hosting; telephony and messaging partners; AI speech,) Tj
-0 -14 Td (transcription and language providers; payment processors; email delivery.) Tj
 ET
 endstream
 endobj
@@ -65,11 +59,17 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 3 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>
 endobj
 5 0 obj
-<< /Length 1273 >>
+<< /Length 1698 >>
 stream
 BT
 /F1 10 Tf
-1 0 0 1 50 800 Tm (Individual vendor names available on request from Data.Pro@voxbulk.com.) Tj
+1 0 0 1 54 720 Tm (data subject requests; notify breaches without undue delay; delete/return data at) Tj
+0 -14 Td (end of services subject to retention and legal holds; provide compliance information.) Tj
+0 -14 Td () Tj
+0 -14 Td (8. Sub-processors) Tj
+0 -14 Td (You authorise categories: hosting; telephony and messaging partners; AI speech,) Tj
+0 -14 Td (transcription and language providers; payment processors; email delivery.) Tj
+0 -14 Td (Individual vendor names available on request from Data.Pro@voxbulk.com.) Tj
 0 -14 Td () Tj
 0 -14 Td (9. International transfers) Tj
 0 -14 Td (Production data is intended for UK/EU. Transfers outside UK/EU use appropriate) Tj
@@ -105,8 +105,8 @@ xref
 0000000009 00000 n 
 0000000058 00000 n 
 0000000121 00000 n 
-0000003393 00000 n 
-0000003568 00000 n 
+0000002968 00000 n 
+0000003143 00000 n 
 0000004893 00000 n 
 trailer
 << /Size 7 /Root 1 0 R >>
