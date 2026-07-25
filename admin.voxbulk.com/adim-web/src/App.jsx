@@ -71,7 +71,7 @@ export default function App() {
         <Route path='/operations/call-queue' element={<P.OperationsQueue mode='call-queue' />} />
         <Route path='/operations/whatsapp-queue' element={<P.OperationsQueue mode='whatsapp-queue' />} />
         <Route path='/operations/failed-jobs' element={<P.OperationsQueue mode='failed-jobs' />} />
-        <Route path='/operations/manual-retry' element={<P.OperationsQueue mode='manual-retry' />} />
+        <Route path='/operations/manual-retry' element={<Navigate to='/operations/failed-jobs' replace />} />
         <Route path='/operations/recovery-events' element={<P.OperationsQueue mode='recovery-events' />} />
 
         <Route path='/marketing/lead-sources' element={<P.LeadSources />} />
@@ -79,6 +79,7 @@ export default function App() {
         <Route path='/marketing/lead-sales/settings' element={<P.LeadSalesSettings />} />
         <Route path='/marketing/lead-sales/offer-templates' element={<P.SalesOfferTemplates />} />
         <Route path='/marketing/salesmen' element={<P.Salesmen />} />
+        <Route path='/marketing/partner-channel-sales' element={<P.PartnerChannelSales />} />
         <Route path='/marketing/lead-sales/:taskId' element={<P.LeadSalesEdit />} />
         <Route path='/marketing/ai-team' element={<P.AiTeam />} />
         <Route path='/marketing/promo-offers' element={<P.PromoOffers />} />

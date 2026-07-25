@@ -8,32 +8,30 @@ const RECOVERY_STATES = ['queued', 'calling', 'messaged', 'recovered', 'failed',
 
 const MODE_META = {
   'failed-jobs': {
-    title: 'Failed jobs',
-    subtitle: 'Recovery jobs and webhooks that failed. Review the error, open the organisation, then retry.',
-    showWebhooks: true,
-    retryEmphasis: true,
-  },
-  'manual-retry': {
-    title: 'Manual retry',
-    subtitle: 'Retry workbench for failed recovery jobs and supported webhook providers (Vapi, GoCardless). Invalid signatures cannot be retried.',
+    title: 'Failed jobs & retries',
+    subtitle:
+      'Failed appointment-recovery jobs and failed webhooks. Review the error, open the organisation, then retry. Vapi and GoCardless webhooks can be retried only when the signature is valid.',
     showWebhooks: true,
     retryEmphasis: true,
   },
   'recovery-events': {
     title: 'Recovery events',
-    subtitle: 'Full recovery job history across all states. Filter by status to investigate the pipeline.',
+    subtitle:
+      'Full appointment-recovery job history across all states. Filter by status to investigate the missed-appointment recovery pipeline.',
     showWebhooks: false,
     retryEmphasis: false,
   },
   'call-queue': {
-    title: 'Call queue',
-    subtitle: 'Recovery jobs currently queued or in a voice call step.',
+    title: 'Recovery call queue',
+    subtitle:
+      'Appointment-recovery jobs that are queued or currently in a voice call step. This is not the AI Interview dial queue.',
     showWebhooks: false,
     retryEmphasis: false,
   },
   'whatsapp-queue': {
-    title: 'WhatsApp queue',
-    subtitle: 'Recovery jobs that reached the WhatsApp / messaged step.',
+    title: 'Recovery WhatsApp queue',
+    subtitle:
+      'Appointment-recovery jobs in the WhatsApp / messaged step. This is not the WA Survey or AI Interview WhatsApp flow.',
     showWebhooks: false,
     retryEmphasis: false,
   },
@@ -72,14 +70,13 @@ function webhookCanRetry(w) {
   return Boolean(w?.signature_valid) && RETRYABLE_WEBHOOK_PROVIDERS.has(provider)
 }
 
-function jobCanRetry(job, mode) {
-  if (mode === 'manual-retry' || mode === 'failed-jobs') return String(job?.state || '').toLowerCase() === 'failed'
+function jobCanRetry(job) {
   return String(job?.state || '').toLowerCase() === 'failed'
 }
 
 async function fetchJobsForMode(mode, stateChip) {
   const limit = 75
-  if (mode === 'failed-jobs' || mode === 'manual-retry') {
+  if (mode === 'failed-jobs') {
     return apiFetch(`/admin/operations/recovery-jobs?state_filter=failed&limit=${limit}`)
   }
   if (mode === 'whatsapp-queue') {
@@ -106,13 +103,21 @@ async function fetchJobsForMode(mode, stateChip) {
 }
 
 async function fetchWebhooksForMode(mode) {
-  if (mode !== 'failed-jobs' && mode !== 'manual-retry') return []
+  if (mode !== 'failed-jobs') return []
   return apiFetch('/admin/operations/webhooks?status_filter=failed&limit=75')
+}
+
+function jobsPanelTitle(mode) {
+  if (mode === 'failed-jobs') return 'Failed recovery jobs'
+  if (mode === 'call-queue') return 'Recovery call pipeline'
+  if (mode === 'whatsapp-queue') return 'Recovery WhatsApp pipeline'
+  return 'Recovery jobs'
 }
 
 export default function OperationsQueue({ mode = 'recovery-events', title }) {
   const navigate = useNavigate()
-  const meta = MODE_META[mode] || MODE_META['recovery-events']
+  const resolvedMode = mode === 'manual-retry' ? 'failed-jobs' : mode
+  const meta = MODE_META[resolvedMode] || MODE_META['recovery-events']
   const pageTitle = title || meta.title
 
   const [loading, setLoading] = useState(true)
@@ -130,8 +135,8 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
     try {
       const [data, jobRows, webhookRows] = await Promise.all([
         apiFetch('/admin/operations/overview'),
-        fetchJobsForMode(mode, stateChip),
-        fetchWebhooksForMode(mode),
+        fetchJobsForMode(resolvedMode, stateChip),
+        fetchWebhooksForMode(resolvedMode),
       ])
       setOverview(data)
       setJobs(Array.isArray(jobRows) ? jobRows : [])
@@ -144,7 +149,7 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
     } finally {
       setLoading(false)
     }
-  }, [mode, stateChip])
+  }, [resolvedMode, stateChip])
 
   useEffect(() => {
     load()
@@ -161,7 +166,7 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
     setStateChip('all')
     setMessage('')
     setError('')
-  }, [mode])
+  }, [resolvedMode])
 
   const retryRecoveryJob = async (jobId) => {
     setBusy(`job-${jobId}`)
@@ -197,12 +202,32 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
   const hooks = overview?.webhooks || {}
 
   const emptyJobsLabel = useMemo(() => {
-    if (mode === 'failed-jobs' || mode === 'manual-retry') return 'No failed recovery jobs right now.'
-    if (mode === 'call-queue') return 'No jobs currently queued or calling.'
-    if (mode === 'whatsapp-queue') return 'No jobs currently in the WhatsApp / messaged step.'
-    if (stateChip !== 'all') return `No recovery jobs with status “${stateChip}”.`
-    return 'No recovery jobs found yet.'
-  }, [mode, stateChip])
+    if (resolvedMode === 'failed-jobs') {
+      return 'No failed appointment-recovery jobs right now. An empty list usually means the recovery pipeline is healthy.'
+    }
+    if (resolvedMode === 'call-queue') {
+      return 'No appointment-recovery jobs are queued or calling right now.'
+    }
+    if (resolvedMode === 'whatsapp-queue') {
+      return 'No appointment-recovery jobs are in the WhatsApp / messaged step right now.'
+    }
+    if (stateChip !== 'all') {
+      return `No appointment-recovery jobs with status “${stateChip}” in this view.`
+    }
+    return 'No appointment-recovery jobs recorded yet. Rows appear when missed appointments enter the recovery pipeline.'
+  }, [resolvedMode, stateChip])
+
+  const emptyTableMessage = loading
+    ? 'Loading…'
+    : error
+      ? 'Could not load jobs — see the error above.'
+      : emptyJobsLabel
+
+  const emptyWebhooksMessage = loading
+    ? 'Loading…'
+    : error
+      ? 'Could not load webhooks — see the error above.'
+      : 'No failed webhooks right now. An empty list usually means webhook processing is healthy.'
 
   return (
     <div className='opsConsole'>
@@ -244,7 +269,7 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
         </div>
       </div>
 
-      {mode === 'recovery-events' ? (
+      {resolvedMode === 'recovery-events' ? (
         <div className='opsConsole-filters'>
           <button type='button' className={`opsConsole-chip ${stateChip === 'all' ? 'active' : ''}`} onClick={() => setStateChip('all')}>
             All
@@ -265,15 +290,7 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
 
       <div className='opsConsole-panel'>
         <div className='opsConsole-panelHead'>
-          <h3>
-            {mode === 'failed-jobs' || mode === 'manual-retry'
-              ? 'Failed recovery jobs'
-              : mode === 'call-queue'
-                ? 'Call pipeline jobs'
-                : mode === 'whatsapp-queue'
-                  ? 'WhatsApp pipeline jobs'
-                  : 'Recovery jobs'}
-          </h3>
+          <h3>{jobsPanelTitle(resolvedMode)}</h3>
           <span className='opsConsole-panelHint'>
             {loading ? 'Refreshing…' : `${jobs.length} shown`}
             {meta.retryEmphasis ? ' · Retry resets the job and re-queues the worker' : ''}
@@ -296,7 +313,7 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
               </thead>
               <tbody>
                 {jobs.map((j) => {
-                  const canRetry = jobCanRetry(j, mode)
+                  const canRetry = jobCanRetry(j)
                   return (
                     <tr key={j.id}>
                       <td>
@@ -368,7 +385,7 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
               </tbody>
             </table>
           ) : (
-            <div className='opsConsole-empty'>{loading ? 'Loading…' : emptyJobsLabel}</div>
+            <div className='opsConsole-empty'>{emptyTableMessage}</div>
           )}
         </div>
       </div>
@@ -462,7 +479,7 @@ export default function OperationsQueue({ mode = 'recovery-events', title }) {
                 </tbody>
               </table>
             ) : (
-              <div className='opsConsole-empty'>{loading ? 'Loading…' : 'No failed webhooks right now.'}</div>
+              <div className='opsConsole-empty'>{emptyWebhooksMessage}</div>
             )}
           </div>
         </div>
