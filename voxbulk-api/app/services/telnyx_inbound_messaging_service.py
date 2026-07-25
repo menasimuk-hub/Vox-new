@@ -560,14 +560,17 @@ class TelnyxInboundMessagingService:
                         body=inbound_text,
                         org_id=org_id,
                         record=record if isinstance(record, dict) else None,
+                        business_number=to_norm or to_number or None,
                     )
                     handled_expo = bool(expo_result.get("handled"))
                     logger.info(
-                        "expo_wa_inbound_result handled=%s reason=%s token=%s from=%r",
+                        "expo_wa_inbound_result handled=%s reason=%s sent=%s token=%s from=%r to_line=%r",
                         handled_expo,
                         (expo_result or {}).get("reason"),
+                        (expo_result or {}).get("sent"),
                         expo_trigger_token,
                         from_norm or from_number,
+                        to_norm or to_number,
                     )
                 except Exception:
                     logger.exception(
@@ -677,8 +680,17 @@ class TelnyxInboundMessagingService:
                         body=inbound_text,
                         org_id=org_id,
                         record=record if isinstance(record, dict) else None,
+                        business_number=to_norm or to_number or None,
                     )
                     handled_expo = bool(expo_result.get("handled"))
+                    logger.info(
+                        "expo_wa_session_result handled=%s reason=%s sent=%s from=%r to_line=%r",
+                        handled_expo,
+                        (expo_result or {}).get("reason"),
+                        (expo_result or {}).get("sent"),
+                        from_norm or from_number,
+                        to_norm or to_number,
+                    )
                 except Exception:
                     logger.exception("expo_wa_session_handler_failed from=%r", from_norm or from_number)
 
