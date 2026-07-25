@@ -9,8 +9,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.models.expo import ExpoBoothAsset, ExpoLead
+from app.services.brand_assets import api_public_origin
 from app.services.expo.question_bank import (
     format_asset_list_message,
     pick_assets_for_interest,
@@ -52,15 +52,20 @@ def load_booth_assets(db: Session, booth_id: str) -> list[dict[str, Any]]:
 
 
 def asset_public_url(asset: dict[str, Any], booth_token: str) -> str:
+    """Absolute HTTPS link visitors can open in WhatsApp / web (never a relative path)."""
     external = str(asset.get("external_url") or "").strip()
     if external:
-        return external
-    settings = get_settings()
-    api = str(
-        getattr(settings, "public_api_base_url", None) or getattr(settings, "api_public_origin", "") or ""
-    ).rstrip("/")
-    path = f"/public/expo/assets/{booth_token}/{asset.get('id')}"
-    return f"{api}{path}" if api else path
+        if external.startswith("http://") or external.startswith("https://"):
+            return external
+        return f"https://{external.lstrip('/')}"
+
+    from app.services.brand_assets import api_public_origin
+
+    api = api_public_origin().rstrip("/")
+    asset_id = str(asset.get("id") or "").strip()
+    token = str(booth_token or "").strip()
+    path = f"/public/expo/assets/{token}/{asset_id}"
+    return f"{api}{path}" if api else f"https://api.voxbulk.com{path}"
 
 
 def deliver_asset_link_message(asset: dict[str, Any], booth_token: str) -> str:

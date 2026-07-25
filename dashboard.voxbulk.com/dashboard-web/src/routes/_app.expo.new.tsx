@@ -1,8 +1,27 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Briefcase, ChevronLeft, ChevronRight, FileUp, QrCode, Rocket, Target } from "lucide-react";
+import {
+  Briefcase,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  FileUp,
+  Package,
+  Pencil,
+  Plus,
+  QrCode,
+  Rocket,
+  Target,
+  Trash2,
+  Upload,
+  Link2,
+  X,
+} from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
+import { ExpoWaPhonePreview, ExpoWebPhonePreview } from "@/components/expo-phone-preview";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +33,7 @@ import { apiFetch, apiUploadFiles } from "@/lib/api";
 import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import { waIndustryIcon } from "@/lib/wa-industry-icon";
 import { useQuery } from "@tanstack/react-query";
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -29,7 +49,9 @@ type Package = {
   is_featured?: boolean;
   lead_scoring_enabled?: boolean;
 };
+type QuestionOpt = { key: string; prompt: string; label: string };
 type AssetDraft = {
+  id: string;
   title: string;
   short_description: string;
   source: "link" | "upload";
@@ -39,8 +61,23 @@ type AssetDraft = {
   match_keywords: string;
   kind: string;
   is_default: boolean;
-  uploading?: boolean;
 };
+
+const EXPO_STEPS: WizardStepDef[] = [
+  { id: 1, title: "Industry", icon: Briefcase },
+  { id: 2, title: "Event", icon: CalendarDays },
+  { id: 3, title: "Questions", icon: Target },
+  { id: 4, title: "Products", icon: FileUp },
+  { id: 5, title: "Preview", icon: Eye },
+  { id: 6, title: "Package", icon: Package },
+  { id: 7, title: "Activate", icon: Rocket },
+];
+
+const DEFAULT_Q_KEYS = ["interest", "timeline", "consent_info"];
+
+function newAssetId() {
+  return `a-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export const Route = createFileRoute("/_app/expo/new")({
   head: () => ({ meta: [{ title: "Create Expo booth — VoxBulk" }] }),
@@ -51,6 +88,7 @@ function CreateExpoBooth() {
   const { session } = useSession();
   const role = normalizeOrgRole(session?.profile?.role);
   const canCreate = canLaunchCampaigns(role);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const industriesQ = useQuery({
     queryKey: ["expo", "industries"],
@@ -60,6 +98,10 @@ function CreateExpoBooth() {
     queryKey: ["expo", "packages"],
     queryFn: () => apiFetch<{ items: Package[] }>("/expo/packages?zone=gb"),
   });
+  const questionsQ = useQuery({
+    queryKey: ["expo", "questions"],
+    queryFn: () => apiFetch<{ items: QuestionOpt[] }>("/expo/catalog/questions"),
+  });
 
   const [step, setStep] = React.useState<Step>(1);
   const [industryId, setIndustryId] = React.useState("");
@@ -67,25 +109,32 @@ function CreateExpoBooth() {
   const [venue, setVenue] = React.useState("");
   const [boothCode, setBoothCode] = React.useState("");
   const [company, setCompany] = React.useState(session?.org?.name || "");
+  const [selectedQKeys, setSelectedQKeys] = React.useState<string[]>([...DEFAULT_Q_KEYS]);
   const [includeAddon, setIncludeAddon] = React.useState(true);
+  const [contactCapture, setContactCapture] = React.useState<"offer_both" | "manual_only" | "card_only">(
+    "offer_both",
+  );
   const [freeGiftEnabled, setFreeGiftEnabled] = React.useState(false);
   const [freeGiftText, setFreeGiftText] = React.useState(
     "Please collect your free gift from our stand team — thanks for completing the short questionnaire!",
   );
-  const [assets, setAssets] = React.useState<AssetDraft[]>([
-    {
-      title: "",
-      short_description: "",
-      source: "upload",
-      external_url: "",
-      storage_path: "",
-      original_filename: "",
-      match_keywords: "",
-      kind: "pdf",
-      is_default: true,
-    },
-  ]);
+  const [savedAssets, setSavedAssets] = React.useState<AssetDraft[]>([]);
+  const [draft, setDraft] = React.useState<Omit<AssetDraft, "id">>({
+    title: "",
+    short_description: "",
+    source: "upload",
+    external_url: "",
+    storage_path: "",
+    original_filename: "",
+    match_keywords: "",
+    kind: "pdf",
+    is_default: true,
+  });
+  const [uploading, setUploading] = React.useState(false);
+  const [editingId, setEditingId] = React.useState<string | null>(null);
   const [packageId, setPackageId] = React.useState("");
+  const [previewChannel, setPreviewChannel] = React.useState<"web" | "wa">("web");
+  const [webTemplate] = React.useState("Default");
   const [saving, setSaving] = React.useState(false);
   const [created, setCreated] = React.useState<{
     id: string;
@@ -98,18 +147,92 @@ function CreateExpoBooth() {
   const packages = packagesQ.data?.items || [];
   const industry = industries.find((i) => i.id === industryId);
 
+  const questionBank = React.useMemo(() => {
+    const base = questionsQ.data?.items || [];
+    const addon = String(industry?.addon_question || "").trim();
+    if (!addon) return base;
+    if (base.some((q) => q.key === "industry_addon")) {
+      return base.map((q) => (q.key === "industry_addon" ? { ...q, prompt: addon, label: "Industry question" } : q));
+    }
+    return [
+      ...base.slice(0, 2),
+      { key: "industry_addon", prompt: addon, label: "Industry question" },
+      ...base.slice(2),
+    ];
+  }, [questionsQ.data?.items, industry?.addon_question]);
+
+  const selectedPrompts = questionBank.filter((q) => selectedQKeys.includes(q.key)).map((q) => q.prompt);
+
+  const draftReady =
+    Boolean(draft.title.trim()) &&
+    ((draft.source === "link" && Boolean(draft.external_url.trim())) ||
+      (draft.source === "upload" && Boolean(draft.storage_path.trim())));
+
   const canNext: Record<Step, boolean> = {
     1: Boolean(industryId),
     2: Boolean(exhibitionName.trim() && company.trim()),
-    3: true,
-    4: assets.some(
-      (a) =>
-        a.title.trim() &&
-        ((a.source === "link" && a.external_url.trim()) || (a.source === "upload" && a.storage_path.trim())),
-    ),
+    3: selectedQKeys.length > 0,
+    4: savedAssets.length > 0 || draftReady,
     5: true,
     6: Boolean(packageId),
     7: true,
+  };
+
+  const addOrUpdateProduct = () => {
+    if (!draftReady) {
+      toast.error("Add a title and upload a file or paste a link");
+      return;
+    }
+    const item: AssetDraft = { ...draft, id: editingId || newAssetId() };
+    setSavedAssets((rows) => {
+      const without = rows.filter((r) => r.id !== item.id);
+      const next = [...without, item];
+      if (item.is_default) {
+        return next.map((r) => ({ ...r, is_default: r.id === item.id }));
+      }
+      if (!next.some((r) => r.is_default)) {
+        next[0] = { ...next[0], is_default: true };
+      }
+      return next;
+    });
+    setDraft({
+      title: "",
+      short_description: "",
+      source: "upload",
+      external_url: "",
+      storage_path: "",
+      original_filename: "",
+      match_keywords: "",
+      kind: "pdf",
+      is_default: false,
+    });
+    setEditingId(null);
+    toast.success(editingId ? "Product updated" : "Product added");
+  };
+
+  const uploadFile = async (file: File) => {
+    setUploading(true);
+    try {
+      const res = (await apiUploadFiles("/expo/assets/upload", [file], "file")) as {
+        item?: { storage_path?: string; original_filename?: string; kind?: string };
+      };
+      const item = res?.item || {};
+      setDraft((d) => ({
+        ...d,
+        source: "upload",
+        storage_path: String(item.storage_path || ""),
+        original_filename: String(item.original_filename || file.name),
+        kind: String(item.kind || "pdf"),
+        title: d.title.trim() || String(item.original_filename || file.name),
+        external_url: "",
+      }));
+      toast.success("File uploaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   if (!canCreate) {
@@ -123,8 +246,22 @@ function CreateExpoBooth() {
   }
 
   const activate = async () => {
+    const assets =
+      savedAssets.length > 0
+        ? savedAssets
+        : draftReady
+          ? [{ ...draft, id: newAssetId() }]
+          : [];
+    if (!assets.length) {
+      toast.error("Add at least one product file or link");
+      return;
+    }
     setSaving(true);
     try {
+      const keys = [...selectedQKeys];
+      if (includeAddon && industry?.addon_question && !keys.includes("industry_addon")) {
+        keys.splice(Math.max(0, keys.indexOf("consent_info")), 0, "industry_addon");
+      }
       const payload = {
         industry_id: industryId,
         exhibition_name: exhibitionName.trim(),
@@ -133,25 +270,21 @@ function CreateExpoBooth() {
         name: boothCode.trim() || exhibitionName.trim(),
         company_display_name: company.trim(),
         include_industry_addon: includeAddon,
+        selected_question_keys: keys,
+        contact_capture: contactCapture,
         free_gift_enabled: freeGiftEnabled,
         free_gift_text: freeGiftEnabled ? freeGiftText.trim() : null,
         package_id: packageId,
-        assets: assets
-          .filter(
-            (a) =>
-              a.title.trim() &&
-              ((a.source === "link" && a.external_url.trim()) || (a.source === "upload" && a.storage_path.trim())),
-          )
-          .map((a, idx) => ({
-            title: a.title.trim(),
-            short_description: a.short_description.trim() || null,
-            external_url: a.source === "link" ? a.external_url.trim() || null : null,
-            storage_path: a.source === "upload" ? a.storage_path.trim() || null : null,
-            match_keywords: a.match_keywords.trim() || null,
-            kind: a.kind || (a.source === "upload" ? "pdf" : "link"),
-            is_default: a.is_default || idx === 0,
-            sort_order: (idx + 1) * 10,
-          })),
+        assets: assets.map((a, idx) => ({
+          title: a.title.trim(),
+          short_description: a.short_description.trim() || null,
+          external_url: a.source === "link" ? a.external_url.trim() || null : null,
+          storage_path: a.source === "upload" ? a.storage_path.trim() || null : null,
+          match_keywords: a.match_keywords.trim() || null,
+          kind: a.kind || (a.source === "upload" ? "pdf" : "link"),
+          is_default: a.is_default || idx === 0,
+          sort_order: (idx + 1) * 10,
+        })),
       };
       const res = await apiFetch<{ ok: boolean; item: typeof created & { id: string } }>("/expo/booths", {
         method: "POST",
@@ -167,6 +300,28 @@ function CreateExpoBooth() {
     }
   };
 
+  const waMessages = [
+    {
+      from: "user" as const,
+      text: `Hi! I visited ${company || "your stand"} at ${boothCode || "Stand"} at ${exhibitionName || "the exhibition"}.`,
+    },
+    {
+      from: "bot" as const,
+      text:
+        contactCapture === "card_only"
+          ? "Please send a photo of your business card to continue."
+          : contactCapture === "manual_only"
+            ? "Thanks for stopping by — what's your full name?"
+            : "Send a photo of your business card, or reply with your full name (photo skips name, company and mobile).",
+    },
+    ...(selectedPrompts[0]
+      ? [
+          { from: "user" as const, text: "Alex Carter" },
+          { from: "bot" as const, text: selectedPrompts[0] },
+        ]
+      : []),
+  ];
+
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
@@ -175,33 +330,57 @@ function CreateExpoBooth() {
         description="Set up your exhibition QR, qualifying questions, and product PDF library."
       />
 
-      <Stepper current={step} onJump={(n) => n < step && setStep(n as Step)} />
+      <Stepper
+        steps={EXPO_STEPS}
+        current={step}
+        onStepClick={(n) => n <= step && setStep(n as Step)}
+      />
 
       <div key={step} className="animate-fade-in">
         {step === 1 && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Briefcase className="size-4 text-primary" /> Step 1 · Choose your industry
-              </CardTitle>
+              <CardTitle className="text-base">Choose your industry</CardTitle>
+              <CardDescription>We'll tailor a suggested qualifying question for your stand.</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {industries.map((ind) => (
-                <button
-                  key={ind.id}
-                  type="button"
-                  onClick={() => setIndustryId(ind.id)}
-                  className={cn(
-                    "rounded-xl border p-4 text-left transition",
-                    industryId === ind.id ? "border-primary bg-primary/5" : "hover:border-primary/40",
-                  )}
-                >
-                  <p className="font-medium">{ind.name}</p>
-                  {ind.addon_question ? (
-                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{ind.addon_question}</p>
-                  ) : null}
-                </button>
-              ))}
+              {industries.map((ind) => {
+                const Icon = waIndustryIcon(ind.name, ind.slug);
+                const selected = industryId === ind.id;
+                return (
+                  <button
+                    key={ind.id}
+                    type="button"
+                    onClick={() => setIndustryId(ind.id)}
+                    className={cn(
+                      "group rounded-xl border p-4 text-left transition-all duration-200",
+                      "hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md",
+                      selected
+                        ? "border-primary bg-primary/5 shadow-md shadow-primary/10 ring-2 ring-primary/20"
+                        : "border-border bg-background",
+                    )}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className={cn(
+                          "grid size-10 place-items-center rounded-xl border transition",
+                          selected
+                            ? "border-primary/30 bg-primary text-primary-foreground"
+                            : "border-border bg-muted/40 text-muted-foreground group-hover:border-primary/30 group-hover:text-primary",
+                        )}
+                      >
+                        <Icon className="size-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-medium">{ind.name}</p>
+                        {ind.addon_question ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{ind.addon_question}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </CardContent>
           </Card>
         )}
@@ -209,24 +388,29 @@ function CreateExpoBooth() {
         {step === 2 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Step 2 · Event & booth</CardTitle>
+              <CardTitle className="text-base">Event & booth</CardTitle>
+              <CardDescription>Two fields per row — keep stand details clear for the QR message.</CardDescription>
             </CardHeader>
-            <CardContent className="grid max-w-xl gap-4">
+            <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Exhibition name</Label>
-                <Input value={exhibitionName} onChange={(e) => setExhibitionName(e.target.value)} placeholder="UK Construction Week 2026" />
+                <Input
+                  value={exhibitionName}
+                  onChange={(e) => setExhibitionName(e.target.value)}
+                  placeholder="UK Construction Week"
+                />
               </div>
               <div className="space-y-2">
-                <Label>Venue (optional)</Label>
-                <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="NEC Birmingham" />
+                <Label>Venue</Label>
+                <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Excel London" />
               </div>
               <div className="space-y-2">
-                <Label>Stand / booth code</Label>
+                <Label>Booth / stand code</Label>
                 <Input value={boothCode} onChange={(e) => setBoothCode(e.target.value)} placeholder="H45" />
               </div>
               <div className="space-y-2">
-                <Label>Company display name</Label>
-                <Input value={company} onChange={(e) => setCompany(e.target.value)} />
+                <Label>Company name on WhatsApp</Label>
+                <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Supplies" />
               </div>
             </CardContent>
           </Card>
@@ -235,48 +419,98 @@ function CreateExpoBooth() {
         {step === 3 && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Target className="size-4 text-primary" /> Step 3 · Qualifying questions
-              </CardTitle>
-              <CardDescription>Universal questions are included. Optionally add your industry question.</CardDescription>
+              <CardTitle className="text-base">Qualifying questions</CardTitle>
+              <CardDescription>
+                Fixed contact first (business card photo or name / company — web also asks for mobile). Then pick
+                extra questions for your stand.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                <li>What’s your name?</li>
-                <li>Which company do you represent?</li>
-                <li>What are you interested in right now?</li>
-                <li>When are you planning to decide?</li>
-                <li>Would you like our latest information?</li>
-              </ul>
-              {industry?.addon_question ? (
-                <label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
-                  <Checkbox checked={includeAddon} onCheckedChange={(v) => setIncludeAddon(Boolean(v))} />
-                  <span>
-                    <span className="font-medium">Include industry question</span>
-                    <span className="mt-1 block text-muted-foreground">{industry.addon_question}</span>
-                  </span>
-                </label>
-              ) : null}
-              <div className="space-y-3 rounded-lg border p-3">
-                <label className="flex items-start gap-3 text-sm">
-                  <Checkbox checked={freeGiftEnabled} onCheckedChange={(v) => setFreeGiftEnabled(Boolean(v))} />
+            <CardContent className="space-y-6">
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <p className="text-sm font-medium">Fixed · Contact capture</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  WhatsApp & web: visitor can send a business-card photo (skips name, company, mobile) or type
+                  details. Web always collects mobile when typing.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["offer_both", "Photo or type details"],
+                      ["manual_only", "Name / company only"],
+                      ["card_only", "Business card photo only"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      size="sm"
+                      variant={contactCapture === value ? "default" : "outline"}
+                      onClick={() => setContactCapture(value)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-medium">Select more questions</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {questionBank.map((q) => {
+                    const checked = selectedQKeys.includes(q.key);
+                    return (
+                      <label
+                        key={q.key}
+                        className={cn(
+                          "flex cursor-pointer gap-3 rounded-xl border p-3 transition hover:border-primary/40",
+                          checked && "border-primary bg-primary/5",
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) => {
+                            setSelectedQKeys((keys) =>
+                              v ? [...keys, q.key] : keys.filter((k) => k !== q.key),
+                            );
+                          }}
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium">{q.label}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{q.prompt}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {industry?.addon_question ? (
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <Checkbox checked={includeAddon} onCheckedChange={(v) => setIncludeAddon(Boolean(v))} />
+                    Include industry question: {industry.addon_question}
+                  </label>
+                ) : null}
+              </div>
+
+              <div className="rounded-xl border p-4">
+                <label className="flex items-start gap-3">
+                  <Checkbox
+                    checked={freeGiftEnabled}
+                    onCheckedChange={(v) => setFreeGiftEnabled(Boolean(v))}
+                    className="mt-0.5"
+                  />
                   <span>
                     <span className="font-medium">Offer a free gift after the questionnaire</span>
-                    <span className="mt-1 block text-muted-foreground">
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
                       After the thank-you message, tell visitors how to collect their gift at the stand.
                     </span>
                   </span>
                 </label>
                 {freeGiftEnabled ? (
-                  <div className="space-y-2 pl-7">
-                    <Label>Gift message</Label>
-                    <Textarea
-                      value={freeGiftText}
-                      onChange={(e) => setFreeGiftText(e.target.value)}
-                      rows={3}
-                      placeholder="Please collect your free gift from our stand team…"
-                    />
-                  </div>
+                  <Textarea
+                    className="mt-3"
+                    value={freeGiftText}
+                    onChange={(e) => setFreeGiftText(e.target.value)}
+                    rows={2}
+                  />
                 ) : null}
               </div>
             </CardContent>
@@ -286,194 +520,211 @@ function CreateExpoBooth() {
         {step === 4 && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <FileUp className="size-4 text-primary" /> Step 4 · Products & files
-              </CardTitle>
+              <CardTitle className="text-base">Products & files</CardTitle>
               <CardDescription>
-                Add up to 5 products. When a visitor says what they want, AI matches or sends a numbered list.
+                Add one product at a time (PDF, image, or Excel). Saved products appear in the list with edit /
+                delete.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {assets.map((asset, idx) => (
-                <div key={idx} className="grid gap-3 rounded-xl border p-4">
-                  <div className="space-y-2">
-                    <Label>Title</Label>
-                    <Input
-                      value={asset.title}
-                      onChange={(e) =>
-                        setAssets((rows) => rows.map((r, i) => (i === idx ? { ...r, title: e.target.value } : r)))
-                      }
-                      placeholder="2026 Price List"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Short description</Label>
-                    <Textarea
-                      value={asset.short_description}
-                      onChange={(e) =>
-                        setAssets((rows) =>
-                          rows.map((r, i) => (i === idx ? { ...r, short_description: e.target.value } : r)),
-                        )
-                      }
-                      placeholder="Bulk & trade pricing for UK distributors"
-                      rows={2}
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={asset.source === "upload" ? "default" : "outline"}
-                      onClick={() =>
-                        setAssets((rows) =>
-                          rows.map((r, i) =>
-                            i === idx
-                              ? { ...r, source: "upload", external_url: "", kind: r.kind || "pdf" }
-                              : r,
-                          ),
-                        )
-                      }
+            <CardContent className="space-y-5">
+              {savedAssets.length > 0 ? (
+                <ul className="space-y-2">
+                  {savedAssets.map((a) => (
+                    <li
+                      key={a.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2"
                     >
-                      Upload PDF / image
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={asset.source === "link" ? "default" : "outline"}
-                      onClick={() =>
-                        setAssets((rows) =>
-                          rows.map((r, i) =>
-                            i === idx
-                              ? { ...r, source: "link", storage_path: "", original_filename: "", kind: "link" }
-                              : r,
-                          ),
-                        )
-                      }
-                    >
-                      Paste link
-                    </Button>
-                  </div>
-                  {asset.source === "upload" ? (
-                    <div className="space-y-2">
-                      <Label>Upload file (PDF or image, max 20 MB)</Label>
-                      <Input
-                        type="file"
-                        accept=".pdf,image/png,image/jpeg,image/webp,image/gif"
-                        disabled={asset.uploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (!file) return;
-                          void (async () => {
-                            setAssets((rows) =>
-                              rows.map((r, i) => (i === idx ? { ...r, uploading: true } : r)),
-                            );
-                            try {
-                              const res = (await apiUploadFiles("/expo/assets/upload", [file], "file")) as {
-                                item?: {
-                                  storage_path?: string;
-                                  original_filename?: string;
-                                  kind?: string;
-                                };
-                              };
-                              const item = res?.item || {};
-                              setAssets((rows) =>
-                                rows.map((r, i) =>
-                                  i === idx
-                                    ? {
-                                        ...r,
-                                        uploading: false,
-                                        storage_path: String(item.storage_path || ""),
-                                        original_filename: String(item.original_filename || file.name),
-                                        kind: String(item.kind || "pdf"),
-                                        title: r.title.trim() || String(item.original_filename || file.name),
-                                      }
-                                    : r,
-                                ),
-                              );
-                              toast.success("File uploaded");
-                            } catch (err) {
-                              setAssets((rows) =>
-                                rows.map((r, i) => (i === idx ? { ...r, uploading: false } : r)),
-                              );
-                              toast.error(err instanceof Error ? err.message : "Upload failed");
-                            }
-                          })();
-                        }}
-                      />
-                      {asset.uploading ? (
-                        <p className="text-xs text-muted-foreground">Uploading…</p>
-                      ) : asset.storage_path ? (
-                        <p className="text-xs text-muted-foreground">
-                          Uploaded: {asset.original_filename || "file"}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {a.title}
+                          {a.is_default ? (
+                            <span className="ml-2 text-[10px] font-normal uppercase text-primary">Default</span>
+                          ) : null}
                         </p>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <Label>PDF / video / brochure URL</Label>
-                      <Input
-                        value={asset.external_url}
-                        onChange={(e) =>
-                          setAssets((rows) =>
-                            rows.map((r, i) => (i === idx ? { ...r, external_url: e.target.value } : r)),
-                          )
-                        }
-                        placeholder="https://…"
-                      />
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    <Label>Match keywords (optional)</Label>
-                    <Input
-                      value={asset.match_keywords}
-                      onChange={(e) =>
-                        setAssets((rows) =>
-                          rows.map((r, i) => (i === idx ? { ...r, match_keywords: e.target.value } : r)),
-                        )
-                      }
-                      placeholder="price, bulk, pricing"
-                    />
-                  </div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={asset.is_default}
-                      onCheckedChange={(v) =>
-                        setAssets((rows) =>
-                          rows.map((r, i) => ({
-                            ...r,
-                            is_default: i === idx ? Boolean(v) : Boolean(v) ? false : r.is_default,
-                          })),
-                        )
-                      }
-                    />
-                    Default when visitor just says “send info”
-                  </label>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {a.source === "upload"
+                            ? a.original_filename || a.kind
+                            : a.external_url}
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          aria-label="Edit"
+                          onClick={() => {
+                            setEditingId(a.id);
+                            setDraft({
+                              title: a.title,
+                              short_description: a.short_description,
+                              source: a.source,
+                              external_url: a.external_url,
+                              storage_path: a.storage_path,
+                              original_filename: a.original_filename,
+                              match_keywords: a.match_keywords,
+                              kind: a.kind,
+                              is_default: a.is_default,
+                            });
+                          }}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          aria-label="Delete"
+                          onClick={() => setSavedAssets((rows) => rows.filter((r) => r.id !== a.id))}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <div className="grid gap-3 rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">{editingId ? "Edit product" : "Add a product"}</p>
+                  {editingId ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditingId(null);
+                        setDraft({
+                          title: "",
+                          short_description: "",
+                          source: "upload",
+                          external_url: "",
+                          storage_path: "",
+                          original_filename: "",
+                          match_keywords: "",
+                          kind: "pdf",
+                          is_default: false,
+                        });
+                      }}
+                    >
+                      <X className="mr-1 size-3.5" /> Cancel
+                    </Button>
+                  ) : null}
                 </div>
-              ))}
-              {assets.length < 5 ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() =>
-                    setAssets((rows) => [
-                      ...rows,
-                      {
-                        title: "",
-                        short_description: "",
+                <div className="space-y-2">
+                  <Label>Title</Label>
+                  <Input
+                    value={draft.title}
+                    onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                    placeholder="2026 Price List"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Short description</Label>
+                  <Textarea
+                    value={draft.short_description}
+                    onChange={(e) => setDraft((d) => ({ ...d, short_description: e.target.value }))}
+                    placeholder="Bulk & trade pricing for UK distributors"
+                    rows={2}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={draft.source === "upload" ? "default" : "outline"}
+                    onClick={() =>
+                      setDraft((d) => ({
+                        ...d,
                         source: "upload",
                         external_url: "",
+                        kind: d.kind || "pdf",
+                      }))
+                    }
+                  >
+                    <Upload className="mr-1.5 size-3.5" />
+                    Upload file
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={draft.source === "link" ? "default" : "outline"}
+                    onClick={() =>
+                      setDraft((d) => ({
+                        ...d,
+                        source: "link",
                         storage_path: "",
                         original_filename: "",
-                        match_keywords: "",
-                        kind: "pdf",
-                        is_default: false,
-                      },
-                    ])
-                  }
-                >
-                  Add another product
+                        kind: "link",
+                      }))
+                    }
+                  >
+                    <Link2 className="mr-1.5 size-3.5" />
+                    Paste link
+                  </Button>
+                </div>
+                {draft.source === "upload" ? (
+                  <div className="space-y-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xls,.xlsx,.csv,application/pdf,image/*,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void uploadFile(file);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={uploading}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full sm:w-auto"
+                    >
+                      <Upload className="mr-2 size-4" />
+                      {uploading
+                        ? "Uploading…"
+                        : draft.storage_path
+                          ? "Replace file"
+                          : "Upload PDF, image or Excel"}
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      PDF, PNG, JPG, Excel (.xls / .xlsx) or CSV — max 20 MB.
+                      {draft.storage_path ? ` Uploaded: ${draft.original_filename || "file"}` : ""}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label>PDF / brochure / Excel URL</Label>
+                    <Input
+                      value={draft.external_url}
+                      onChange={(e) => setDraft((d) => ({ ...d, external_url: e.target.value }))}
+                      placeholder="https://…"
+                    />
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Match keywords (optional)</Label>
+                  <Input
+                    value={draft.match_keywords}
+                    onChange={(e) => setDraft((d) => ({ ...d, match_keywords: e.target.value }))}
+                    placeholder="price, bulk, pricing"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={draft.is_default}
+                    onCheckedChange={(v) => setDraft((d) => ({ ...d, is_default: Boolean(v) }))}
+                  />
+                  Default when visitor just says “send info”
+                </label>
+                <Button type="button" onClick={addOrUpdateProduct} disabled={!draftReady || uploading}>
+                  <Plus className="mr-1.5 size-4" />
+                  {editingId ? "Save changes" : "Add to product list"}
                 </Button>
-              ) : null}
+              </div>
             </CardContent>
           </Card>
         )}
@@ -481,14 +732,56 @@ function CreateExpoBooth() {
         {step === 5 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Step 5 · Preview journey</CardTitle>
+              <CardTitle className="text-base">Preview journey</CardTitle>
+              <CardDescription>
+                Split preview — WhatsApp session text and the default web form template (iPhone 17 Pro Max).
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2 text-sm text-muted-foreground">
-              <p>1. Visitor scans QR → opens WhatsApp with welcome trigger</p>
-              <p>2. AI asks name → company → interest → timeline → consent</p>
-              <p>3. Interest matched to your products → PDF link or numbered list</p>
-              <p>4. Thank-you message{freeGiftEnabled ? " + free gift instructions" : ""}</p>
-              <p>5. Lead scored Hot / Warm / Cold and saved to your results</p>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={previewChannel === "web" ? "default" : "outline"}
+                  onClick={() => setPreviewChannel("web")}
+                >
+                  Web
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={previewChannel === "wa" ? "default" : "outline"}
+                  onClick={() => setPreviewChannel("wa")}
+                >
+                  WhatsApp
+                </Button>
+                <span className="self-center text-xs text-muted-foreground">
+                  Default web template: {webTemplate}
+                </span>
+              </div>
+              <div className="grid gap-6 lg:grid-cols-2 lg:justify-items-center">
+                <div className={cn(previewChannel !== "wa" && "opacity-60 lg:opacity-100")}>
+                  <ExpoWaPhonePreview businessName={company || "Your stand"} messages={waMessages} />
+                </div>
+                <div className={cn(previewChannel !== "web" && "opacity-60 lg:opacity-100")}>
+                  <ExpoWebPhonePreview
+                    companyName={company}
+                    eventName={exhibitionName}
+                    contactHint={
+                      contactCapture === "card_only"
+                        ? "Upload a business card photo to continue."
+                        : "Upload a business card photo, or enter name, company and mobile."
+                    }
+                    questions={selectedPrompts}
+                    templateName={webTemplate}
+                  />
+                </div>
+              </div>
+              {freeGiftEnabled ? (
+                <p className="text-center text-xs text-muted-foreground">
+                  Closing includes thank-you + free gift instructions.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         )}
@@ -496,31 +789,28 @@ function CreateExpoBooth() {
         {step === 6 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Step 6 · Choose package</CardTitle>
-              <CardDescription>Per-exhibition pricing: Starter £49 · Pro £99 · Premium £149</CardDescription>
+              <CardTitle className="text-base">Choose package</CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-3">
+            <CardContent className="grid gap-3 sm:grid-cols-3">
               {packages.map((pkg) => (
                 <button
                   key={pkg.id}
                   type="button"
                   onClick={() => setPackageId(pkg.id)}
                   className={cn(
-                    "rounded-xl border p-4 text-left",
-                    packageId === pkg.id ? "border-primary bg-primary/5" : "hover:border-primary/40",
-                    pkg.is_featured && "ring-1 ring-primary/30",
+                    "rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md",
+                    packageId === pkg.id
+                      ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                      : "hover:border-primary/40",
                   )}
                 >
-                  <p className="font-semibold">{pkg.name}</p>
-                  <p className="mt-1 text-2xl font-semibold tabular-nums">
-                    {(pkg.price_minor / 100).toLocaleString("en-GB", {
-                      style: "currency",
-                      currency: pkg.currency || "GBP",
-                      maximumFractionDigits: 0,
-                    })}
+                  <p className="font-medium">{pkg.name}</p>
+                  <p className="mt-1 text-lg font-semibold">
+                    £{(pkg.price_minor / 100).toFixed(0)}
+                    <span className="text-sm font-normal text-muted-foreground"> / show</span>
                   </p>
-                  <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
-                    {(pkg.features || []).slice(0, 5).map((f) => (
+                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    {(pkg.features || []).slice(0, 4).map((f) => (
                       <li key={f}>• {f}</li>
                     ))}
                   </ul>
@@ -534,31 +824,41 @@ function CreateExpoBooth() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Rocket className="size-4 text-primary" /> Step 7 · Activate QR
+                <QrCode className="size-4 text-primary" /> Activate QR
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {!created ? (
-                <Button onClick={() => void activate()} disabled={saving || !canNext[6]}>
-                  {saving ? "Activating…" : "Activate Expo booth"}
-                </Button>
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Creates your booth, WhatsApp trigger text, and downloadable QR.
+                  </p>
+                  <Button onClick={() => void activate()} disabled={saving || !packageId}>
+                    {saving ? "Activating…" : "Activate Expo booth"}
+                  </Button>
+                </>
               ) : (
-                <div className="space-y-4">
+                <div className="flex flex-col items-start gap-4 sm:flex-row">
                   {created.qr_image_url ? (
-                    <img src={created.qr_image_url} alt="Expo QR" className="size-48 rounded-md border bg-white p-2" />
-                  ) : (
-                    <QrCode className="size-16" />
-                  )}
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{created.trigger_text}</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button asChild>
-                      <Link to="/expo">View saved booths</Link>
-                    </Button>
-                    <Button variant="outline" asChild>
-                      <Link to="/expo/leads" search={{ booth_id: created.id }}>
-                        Open leads
-                      </Link>
-                    </Button>
+                    <img
+                      src={created.qr_image_url}
+                      alt="Expo QR"
+                      className="size-40 rounded-xl border bg-white p-2"
+                    />
+                  ) : null}
+                  <div className="space-y-2 text-sm">
+                    <p className="font-medium">Booth ready</p>
+                    <p className="max-w-md text-muted-foreground">{created.trigger_text}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild variant="outline" size="sm">
+                        <Link to="/expo">View saved booths</Link>
+                      </Button>
+                      <Button asChild size="sm">
+                        <Link to="/expo/leads" search={{ booth_id: created.id }}>
+                          View leads
+                        </Link>
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -568,54 +868,35 @@ function CreateExpoBooth() {
       </div>
 
       {step < 7 || !created ? (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <Button
+            type="button"
             variant="outline"
-            className="gap-1.5"
-            onClick={() => setStep((s) => Math.max(1, s - 1) as Step)}
             disabled={step === 1}
+            onClick={() => setStep((s) => (s > 1 ? ((s - 1) as Step) : s))}
           >
-            <ChevronLeft className="size-4" /> Back
+            <ChevronLeft className="mr-1 size-4" /> Back
           </Button>
-          {step < 6 ? (
+          {step < 7 ? (
             <Button
-              className="gap-1.5"
-              onClick={() => setStep((s) => Math.min(6, s + 1) as Step)}
+              type="button"
               disabled={!canNext[step]}
+              onClick={() => {
+                if (step === 4 && draftReady && savedAssets.length === 0) {
+                  addOrUpdateProduct();
+                }
+                setStep((s) => (s < 7 ? ((s + 1) as Step) : s));
+              }}
             >
-              Next <ChevronRight className="size-4" />
+              Next <ChevronRight className="ml-1 size-4" />
             </Button>
-          ) : step === 6 ? (
-            <Button className="gap-1.5" onClick={() => setStep(7)} disabled={!canNext[6]}>
-              Next <ChevronRight className="size-4" />
+          ) : (
+            <Button type="button" disabled={saving || !packageId || Boolean(created)} onClick={() => void activate()}>
+              {saving ? "Activating…" : "Activate"}
             </Button>
-          ) : null}
+          )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function Stepper({ current, onJump }: { current: Step; onJump: (n: number) => void }) {
-  const labels = ["Industry", "Event", "Questions", "Products", "Preview", "Package", "Activate"];
-  return (
-    <div className="flex flex-wrap gap-2">
-      {labels.map((label, idx) => {
-        const n = (idx + 1) as Step;
-        return (
-          <button
-            key={label}
-            type="button"
-            onClick={() => onJump(n)}
-            className={cn(
-              "rounded-full px-3 py-1 text-xs",
-              n === current ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-            )}
-          >
-            {n}. {label}
-          </button>
-        );
-      })}
     </div>
   );
 }

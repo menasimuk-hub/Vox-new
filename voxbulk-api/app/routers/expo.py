@@ -49,6 +49,15 @@ def list_industries(db: Session = Depends(get_db), principal=Depends(get_current
     return {"ok": True, "items": ExpoBoothService.list_industries(db)}
 
 
+@router.get("/catalog/questions")
+def list_question_bank(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Selectable qualifying questions for the Expo wizard (plus optional industry addon)."""
+    _require_expo_enabled(db, principal.org_id)
+    from app.services.expo.question_bank import list_selectable_questions
+
+    return {"ok": True, "items": list_selectable_questions()}
+
+
 @router.get("/packages")
 def list_packages(zone: str = "gb", db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     # Price list: campaign users need Expo enabled; billing roles may view packages for purchasing.

@@ -13,6 +13,91 @@ DEFAULT_FREE_GIFT_TEXT = (
     "Please collect your free gift from our stand team — thanks for completing the short questionnaire!"
 )
 
+# Fixed contact capture — visitor can send a business-card photo OR type details.
+CONTACT_STEP_KEY = "contact"
+CONTACT_PROMPT_WA = (
+    "Send a photo of your business card, or reply with your full name "
+    "(photo skips name, company and mobile)."
+)
+CONTACT_PROMPT_WEB = (
+    "Upload a photo of your business card, or enter your name and company "
+    "(photo skips name, company and mobile)."
+)
+CONTACT_COMPANY_PROMPT = "Which company or organisation do you represent?"
+CONTACT_MOBILE_PROMPT = "What's the best mobile number to reach you on?"
+
+# Extra qualifying questions exhibitors can toggle on (in addition to fixed contact).
+SELECTABLE_QUESTION_BANK: list[dict[str, str]] = [
+    {
+        "key": "interest",
+        "prompt": "What is the main thing you're looking for or interested in right now?",
+        "label": "Main interest",
+    },
+    {
+        "key": "timeline",
+        "prompt": "When are you planning to make a decision or take action on this?",
+        "label": "Buying timeline",
+    },
+    {
+        "key": "sourcing",
+        "prompt": "Are you sourcing for your business, or for events?",
+        "label": "Business or events",
+    },
+    {
+        "key": "role",
+        "prompt": "What's your role or job title?",
+        "label": "Job title",
+    },
+    {
+        "key": "decision_maker",
+        "prompt": "Are you the decision-maker for this, or recommending to someone else?",
+        "label": "Decision-maker",
+    },
+    {
+        "key": "budget",
+        "prompt": "Do you have a rough budget in mind for this?",
+        "label": "Budget",
+    },
+    {
+        "key": "volume",
+        "prompt": "Roughly what volume or quantity are you thinking about?",
+        "label": "Volume / quantity",
+    },
+    {
+        "key": "products_wanted",
+        "prompt": "Which product or brochure should we send you?",
+        "label": "Product request",
+    },
+    {
+        "key": "follow_up",
+        "prompt": "How would you prefer we follow up — WhatsApp, email, or a call?",
+        "label": "Follow-up preference",
+    },
+    {
+        "key": "consent_info",
+        "prompt": "Would you like us to send you our latest information and special offers? (Yes / No)",
+        "label": "Marketing consent",
+    },
+]
+
+_DEFAULT_SELECTED_KEYS = ("interest", "timeline", "consent_info")
+_BANK_BY_KEY = {q["key"]: q for q in SELECTABLE_QUESTION_BANK}
+
+
+def list_selectable_questions(*, addon_question: str | None = None) -> list[dict[str, str]]:
+    rows = [dict(q) for q in SELECTABLE_QUESTION_BANK]
+    addon = str(addon_question or "").strip()
+    if addon:
+        rows.insert(
+            2,
+            {
+                "key": "industry_addon",
+                "prompt": addon,
+                "label": "Industry question",
+            },
+        )
+    return rows
+
 
 def default_question_config(
     *,
@@ -21,18 +106,62 @@ def default_question_config(
     free_gift_enabled: bool = False,
     free_gift_text: str | None = None,
     thank_you_message: str | None = None,
+    selected_question_keys: list[str] | None = None,
+    contact_capture: str = "offer_both",
 ) -> dict[str, Any]:
-    steps = [{"key": q["key"], "prompt": q["prompt"], "kind": "text"} for q in UNIVERSAL_QUESTIONS]
-    if include_industry_addon and str(addon_question or "").strip():
-        # Insert before consent so interest matching still has context
-        consent = steps.pop()
-        steps.append({"key": "industry_addon", "prompt": str(addon_question).strip(), "kind": "text"})
-        steps.append(consent)
+    keys = list(selected_question_keys) if selected_question_keys else list(_DEFAULT_SELECTED_KEYS)
+    if include_industry_addon and str(addon_question or "").strip() and "industry_addon" not in keys:
+        # Place before consent when present
+        if "consent_info" in keys:
+            keys.insert(keys.index("consent_info"), "industry_addon")
+        else:
+            keys.append("industry_addon")
+
+    steps: list[dict[str, Any]] = [
+        {
+            "key": CONTACT_STEP_KEY,
+            "kind": "contact",
+            "prompt": CONTACT_PROMPT_WA,
+            "prompt_web": CONTACT_PROMPT_WEB,
+        }
+    ]
+    for key in keys:
+        if key == CONTACT_STEP_KEY:
+            continue
+        if key == "industry_addon":
+            prompt = str(addon_question or "").strip()
+            if not prompt:
+                continue
+            steps.append({"key": key, "prompt": prompt, "kind": "text", "label": "Industry question"})
+            continue
+        bank = _BANK_BY_KEY.get(key)
+        if bank:
+            steps.append(
+                {
+                    "key": bank["key"],
+                    "prompt": bank["prompt"],
+                    "kind": "text",
+                    "label": bank["label"],
+                }
+            )
+
+    # Legacy fallback if somehow empty after contact
+    if len(steps) == 1:
+        for q in UNIVERSAL_QUESTIONS:
+            if q["key"] in {"name", "company"}:
+                continue
+            steps.append({"key": q["key"], "prompt": q["prompt"], "kind": "text"})
+
     gift_on = bool(free_gift_enabled)
     gift_text = str(free_gift_text or "").strip() or DEFAULT_FREE_GIFT_TEXT
+    mode = str(contact_capture or "offer_both").strip().lower()
+    if mode not in {"offer_both", "manual_only", "card_only"}:
+        mode = "offer_both"
     return {
         "steps": steps,
-        "version": 1,
+        "version": 2,
+        "contact_capture": mode,
+        "selected_question_keys": [s["key"] for s in steps if s["key"] != CONTACT_STEP_KEY],
         "thank_you_message": str(thank_you_message or "").strip() or DEFAULT_THANK_YOU,
         "free_gift_enabled": gift_on,
         "free_gift_text": gift_text if gift_on else "",
@@ -50,14 +179,36 @@ def parse_question_config(raw: str | None) -> list[dict[str, Any]]:
     if not isinstance(steps, list) or not steps:
         return list(default_question_config()["steps"])
     out: list[dict[str, Any]] = []
-    for step in steps[:5]:
+    for step in steps[:12]:
         if not isinstance(step, dict):
             continue
         key = str(step.get("key") or "").strip()
         prompt = str(step.get("prompt") or "").strip()
         if key and prompt:
-            out.append({"key": key, "prompt": prompt, "kind": str(step.get("kind") or "text")})
+            item: dict[str, Any] = {
+                "key": key,
+                "prompt": prompt,
+                "kind": str(step.get("kind") or "text"),
+            }
+            if step.get("prompt_web"):
+                item["prompt_web"] = str(step.get("prompt_web"))
+            if step.get("label"):
+                item["label"] = str(step.get("label"))
+            out.append(item)
     return out or list(default_question_config()["steps"])
+
+
+def parse_contact_capture(raw: str | None) -> str:
+    if not raw:
+        return "offer_both"
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return "offer_both"
+    if not isinstance(data, dict):
+        return "offer_both"
+    mode = str(data.get("contact_capture") or "offer_both").strip().lower()
+    return mode if mode in {"offer_both", "manual_only", "card_only"} else "offer_both"
 
 
 def parse_closing_config(raw: str | None) -> dict[str, Any]:

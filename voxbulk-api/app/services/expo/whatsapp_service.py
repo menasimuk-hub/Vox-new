@@ -31,6 +31,29 @@ UNKNOWN_QR_MESSAGE = (
 
 class ExpoWhatsappService:
     @staticmethod
+    def _is_image_inbound(record: dict[str, Any] | None) -> bool:
+        if not isinstance(record, dict):
+            return False
+        msg_type = str(record.get("type") or record.get("message_type") or "").strip().lower()
+        if msg_type in {"image", "photo", "sticker"}:
+            return True
+        if isinstance(record.get("image"), dict):
+            return True
+        # Telnyx nested shapes
+        content = record.get("content") if isinstance(record.get("content"), dict) else {}
+        if str(content.get("type") or "").lower() == "image":
+            return True
+        media = record.get("media") or record.get("medias") or []
+        if isinstance(media, list):
+            for item in media:
+                if not isinstance(item, dict):
+                    continue
+                ct = str(item.get("content_type") or item.get("mime_type") or "").lower()
+                if ct.startswith("image/"):
+                    return True
+        return False
+
+    @staticmethod
     def try_handle_inbound(
         db: Session,
         *,
@@ -40,13 +63,28 @@ class ExpoWhatsappService:
         record: dict[str, Any] | None = None,
         business_number: str | None = None,
     ) -> dict[str, Any]:
-        del record  # voice-note capture is not implemented for Expo yet
         phone = str(from_phone or "").strip()
         text = str(body or "").strip()
         # Reply on the same WhatsApp business line the visitor messaged (QR uses CF number).
         reply_from = str(business_number or "").strip() or None
         if not phone:
             return {"handled": False, "reason": "missing_from"}
+
+        # Business-card photo while in an active Expo session
+        image_inbound = ExpoWhatsappService._is_image_inbound(record if isinstance(record, dict) else None)
+        if image_inbound and not text:
+            session = ExpoSessionFlowService.find_active_session(db, visitor_phone=phone)
+            if session is not None:
+                result = ExpoSessionFlowService.advance(
+                    db, session=session, answer="[business card image]", answer_source="image"
+                )
+                ExpoWhatsappService._relay(db, session=session, result=result, from_number=reply_from)
+                return {
+                    "handled": True,
+                    "session_id": session.id,
+                    "org_id": session.org_id,
+                    "via": "business_card",
+                }
 
         lower = text.lower().strip()
         if lower in STOP_WORDS:

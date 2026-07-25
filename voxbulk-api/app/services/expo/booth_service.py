@@ -174,9 +174,15 @@ class ExpoBoothService:
     @staticmethod
     def booth_public_urls(booth: ExpoBooth, *, event_name: str) -> dict[str, str]:
         """URLs that don't need a DB-resolved WhatsApp number. See serialize_booth for whatsapp_url."""
+        from app.services.brand_assets import api_public_origin
+
         settings = get_settings()
-        api = str(getattr(settings, "public_api_base_url", None) or getattr(settings, "api_public_origin", "") or "").rstrip("/")
-        site = str(getattr(settings, "public_site_url", None) or "https://voxbulk.com").rstrip("/")
+        api = api_public_origin().rstrip("/")
+        site = str(
+            getattr(settings, "public_site_base_url", None)
+            or getattr(settings, "public_site_url", None)
+            or "https://voxbulk.com"
+        ).rstrip("/")
         trigger = build_trigger_text(
             company=booth.company_display_name,
             booth=booth.booth_code or booth.name,
@@ -189,7 +195,7 @@ class ExpoBoothService:
             "whatsapp_url": "",
             "web_url": web_url,
             "qr_image_url": _qr_image_for(web_url),
-            "api_asset_base": f"{api}/public/expo/assets/{booth.qr_token}" if api else f"/public/expo/assets/{booth.qr_token}",
+            "api_asset_base": f"{api}/public/expo/assets/{booth.qr_token}",
         }
 
     @staticmethod
@@ -303,6 +309,13 @@ class ExpoBoothService:
         free_gift_enabled = bool(payload.get("free_gift_enabled"))
         free_gift_text = str(payload.get("free_gift_text") or "").strip() or None
         thank_you_message = str(payload.get("thank_you_message") or "").strip() or None
+        selected_keys_raw = payload.get("selected_question_keys")
+        selected_keys = (
+            [str(k).strip() for k in selected_keys_raw if str(k).strip()]
+            if isinstance(selected_keys_raw, list)
+            else None
+        )
+        contact_capture = str(payload.get("contact_capture") or "offer_both").strip().lower()
         qcfg = payload.get("question_config")
         if isinstance(qcfg, dict) and qcfg.get("steps"):
             merged = dict(qcfg)
@@ -313,6 +326,8 @@ class ExpoBoothService:
                 merged["thank_you_message"] = thank_you_message
             elif not merged.get("thank_you_message"):
                 merged["thank_you_message"] = default_question_config()["thank_you_message"]
+            if contact_capture:
+                merged["contact_capture"] = contact_capture
             question_json = json.dumps(merged)
         else:
             question_json = json.dumps(
@@ -322,6 +337,8 @@ class ExpoBoothService:
                     free_gift_enabled=free_gift_enabled,
                     free_gift_text=free_gift_text,
                     thank_you_message=thank_you_message,
+                    selected_question_keys=selected_keys,
+                    contact_capture=contact_capture,
                 )
             )
 

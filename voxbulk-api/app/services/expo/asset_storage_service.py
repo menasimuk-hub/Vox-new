@@ -12,7 +12,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPO_ASSETS_ROOT = _REPO_ROOT / "data" / "expo-assets"
 
 MAX_EXPO_ASSET_BYTES = 20 * 1024 * 1024  # 20 MB
-ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"})
+ALLOWED_EXTENSIONS = frozenset(
+    {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".xls", ".xlsx", ".csv"}
+)
 ALLOWED_CONTENT_TYPES = frozenset(
     {
         "application/pdf",
@@ -21,6 +23,10 @@ ALLOWED_CONTENT_TYPES = frozenset(
         "image/jpg",
         "image/webp",
         "image/gif",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+        "application/csv",
         "application/octet-stream",
     }
 )
@@ -59,7 +65,7 @@ async def save_expo_asset_upload(*, org_id: str, upload: UploadFile) -> dict:
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only PDF or image files are allowed (pdf, png, jpg, webp, gif).",
+            detail="Only PDF, Excel, CSV, or image files are allowed (pdf, xls, xlsx, csv, png, jpg, webp, gif).",
         )
 
     content_type = str(upload.content_type or "").strip().lower()
@@ -85,7 +91,12 @@ async def save_expo_asset_upload(*, org_id: str, upload: UploadFile) -> dict:
     abs_path.write_bytes(raw)
 
     rel = abs_path.relative_to(_REPO_ROOT).as_posix()
-    kind = "pdf" if ext == ".pdf" else "image"
+    if ext == ".pdf":
+        kind = "pdf"
+    elif ext in {".xls", ".xlsx", ".csv"}:
+        kind = "spreadsheet"
+    else:
+        kind = "image"
     return {
         "storage_path": rel,
         "original_filename": original,

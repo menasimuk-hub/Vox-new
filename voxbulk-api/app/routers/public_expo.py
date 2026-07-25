@@ -44,8 +44,14 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
     mobile = str(payload.get("mobile") or "").strip()
     email = str(payload.get("email") or "").strip()
     name = str(payload.get("name") or "").strip() or None
-    if not mobile or not email:
-        raise HTTPException(status_code=400, detail="mobile and email are required")
+    company = str(payload.get("company") or "").strip() or None
+    card_uploaded = bool(payload.get("business_card") or payload.get("has_business_card"))
+    # Card photo skips name/company/mobile; otherwise mobile + email required.
+    if card_uploaded:
+        mobile = mobile or f"web-card-{token[:8]}"
+        email = email or "card@expo.local"
+    elif not mobile or not email:
+        raise HTTPException(status_code=400, detail="mobile and email are required (or upload a business card)")
 
     result = ExpoSessionFlowService.start_session(
         db,
@@ -55,11 +61,30 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
         visitor_email=email,
         name=name,
     )
+    session_id = result["session_id"]
+    # If visitor already provided card or typed contact on the landing form, advance contact.
+    if card_uploaded:
+        session = db.get(ExpoSession, session_id)
+        if session is not None:
+            result = ExpoSessionFlowService.advance(
+                db, session=session, answer="[business card image]", answer_source="image"
+            )
+    elif name and company:
+        session = db.get(ExpoSession, session_id)
+        if session is not None:
+            ExpoSessionFlowService.advance(db, session=session, answer=name, answer_source="text")
+            session = db.get(ExpoSession, session_id)
+            if session is not None and session.status == "active":
+                result = ExpoSessionFlowService.advance(db, session=session, answer=company, answer_source="text")
+
     return {
         "ok": True,
-        "session_id": result["session_id"],
+        "session_id": session_id,
         "done": result.get("done", False),
         "question": result.get("prompt"),
+        "awaiting_pick": result.get("awaiting_pick", False),
+        "candidates": result.get("candidates"),
+        "assets": result.get("assets"),
     }
 
 
@@ -108,6 +133,15 @@ def get_booth_asset(token: str, asset_id: str, db: Session = Depends(get_db)):
     abs_path = resolve_storage_abs_path(asset.storage_path)
     if abs_path is not None:
         filename = abs_path.name
-        media = "application/pdf" if abs_path.suffix.lower() == ".pdf" else None
+        suffix = abs_path.suffix.lower()
+        media = None
+        if suffix == ".pdf":
+            media = "application/pdf"
+        elif suffix in {".xls"}:
+            media = "application/vnd.ms-excel"
+        elif suffix in {".xlsx"}:
+            media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif suffix == ".csv":
+            media = "text/csv"
         return FileResponse(abs_path, filename=filename, media_type=media)
     raise HTTPException(status_code=404, detail="Asset file not available yet")

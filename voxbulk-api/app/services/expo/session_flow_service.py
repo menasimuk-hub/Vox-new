@@ -21,7 +21,16 @@ from app.services.expo.offer_delivery_service import (
     pick_assets_for_interest,
     resolve_pick_reply,
 )
-from app.services.expo.question_bank import build_thank_you_message, parse_question_config
+from app.services.expo.question_bank import (
+    CONTACT_COMPANY_PROMPT,
+    CONTACT_MOBILE_PROMPT,
+    CONTACT_PROMPT_WA,
+    CONTACT_PROMPT_WEB,
+    CONTACT_STEP_KEY,
+    build_thank_you_message,
+    parse_contact_capture,
+    parse_question_config,
+)
 from app.services.expo.scoring_service import score_lead
 
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
@@ -156,8 +165,27 @@ class ExpoSessionFlowService:
             db.commit()
             return {"session_id": session.id, "done": True, "prompt": build_thank_you_message(booth.question_config_json)}
 
+        first = steps[0]
+        channel_l = str(channel or "whatsapp").lower()
+        if str(first.get("key") or "") == CONTACT_STEP_KEY:
+            prompt = (
+                str(first.get("prompt_web") or CONTACT_PROMPT_WEB)
+                if channel_l == "web"
+                else str(first.get("prompt") or CONTACT_PROMPT_WA)
+            )
+            state = {"contact_substep": "awaiting"}
+            session.session_state_json = json.dumps(state)
+            db.add(session)
+        else:
+            prompt = str(first.get("prompt") or "")
+
+        # Web start may already include name
+        if name and lead is not None:
+            lead.name = str(name)[:255]
+            db.add(lead)
+
         db.commit()
-        return {"session_id": session.id, "done": False, "prompt": str(steps[0].get("prompt") or "")}
+        return {"session_id": session.id, "done": False, "prompt": prompt}
 
     # ------------------------------------------------------------------
     # Advancing an existing session
@@ -175,6 +203,7 @@ class ExpoSessionFlowService:
         lead = ExpoSessionFlowService._lead_for_session(db, session)
         state = ExpoSessionFlowService._load_state(session)
         clean = str(answer or "").strip()
+        source = str(answer_source or "text").strip().lower() or "text"
 
         if state.get("pending_asset_pick"):
             return ExpoSessionFlowService._resolve_pick(
@@ -189,6 +218,18 @@ class ExpoSessionFlowService:
         step = steps[step_index]
         key = str(step.get("key") or "")
 
+        if key == CONTACT_STEP_KEY or state.get("contact_substep"):
+            return ExpoSessionFlowService._advance_contact(
+                db,
+                session=session,
+                booth=booth,
+                lead=lead,
+                state=state,
+                answer=clean,
+                answer_source=source,
+                steps=steps,
+            )
+
         db.add(
             ExpoResponse(
                 id=str(uuid.uuid4()),
@@ -200,7 +241,7 @@ class ExpoSessionFlowService:
                 original_text=clean,
                 answer_text_en=clean,
                 step_order=step_index + 1,
-                answer_source=answer_source or "text",
+                answer_source=source,
                 created_at=datetime.utcnow(),
             )
         )
@@ -230,6 +271,125 @@ class ExpoSessionFlowService:
                 return result
 
         db.commit()
+        return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+
+    @staticmethod
+    def _advance_contact(
+        db: Session,
+        *,
+        session: ExpoSession,
+        booth: ExpoBooth,
+        lead: ExpoLead | None,
+        state: dict[str, Any],
+        answer: str,
+        answer_source: str,
+        steps: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Business-card photo skips name/company/mobile; otherwise collect them in order."""
+        sub = str(state.get("contact_substep") or "awaiting").strip().lower()
+        channel = str(session.channel or "whatsapp").lower()
+        capture = parse_contact_capture(booth.question_config_json)
+        is_image = answer_source in {"image", "photo", "business_card", "card"}
+
+        def _log(key: str, text: str, source: str) -> None:
+            db.add(
+                ExpoResponse(
+                    id=str(uuid.uuid4()),
+                    session_id=session.id,
+                    org_id=session.org_id,
+                    booth_id=booth.id,
+                    question_key=key,
+                    answer_text=text[:4000],
+                    original_text=text[:4000],
+                    answer_text_en=text[:4000],
+                    step_order=int(session.current_step or 0) + 1,
+                    answer_source=source,
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+        # Photo of business card → skip typed contact fields
+        if sub == "awaiting" and is_image and capture != "manual_only":
+            _log("business_card", answer or "[business card image]", "image")
+            state["contact_substep"] = "done"
+            state["contact_via"] = "card"
+            ExpoSessionFlowService._save_state(session, state)
+            # Move past the contact step
+            if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
+                session.current_step = 1
+            db.add(session)
+            db.commit()
+            return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+
+        if sub == "awaiting" and capture == "card_only" and not is_image:
+            return _empty_step_result(
+                done=False,
+                prompt="Please send a photo of your business card to continue.",
+            )
+
+        if sub == "awaiting":
+            # Typed name
+            if not answer:
+                prompt = CONTACT_PROMPT_WEB if channel == "web" else CONTACT_PROMPT_WA
+                return _empty_step_result(done=False, prompt=prompt)
+            _log("name", answer, answer_source)
+            if lead is not None:
+                lead.name = answer[:255]
+                lead.updated_at = datetime.utcnow()
+                db.add(lead)
+            state["contact_substep"] = "company"
+            state["contact_via"] = "manual"
+            ExpoSessionFlowService._save_state(session, state)
+            db.add(session)
+            db.commit()
+            return _empty_step_result(done=False, prompt=CONTACT_COMPANY_PROMPT)
+
+        if sub == "company":
+            if not answer:
+                return _empty_step_result(done=False, prompt=CONTACT_COMPANY_PROMPT)
+            _log("company", answer, answer_source)
+            if lead is not None:
+                lead.company = answer[:255]
+                lead.updated_at = datetime.utcnow()
+                db.add(lead)
+            # WhatsApp already has the visitor mobile; web still needs it if not set
+            need_mobile = channel == "web" and not str(session.visitor_phone or "").strip()
+            if need_mobile:
+                state["contact_substep"] = "mobile"
+                ExpoSessionFlowService._save_state(session, state)
+                db.add(session)
+                db.commit()
+                return _empty_step_result(done=False, prompt=CONTACT_MOBILE_PROMPT)
+            state["contact_substep"] = "done"
+            ExpoSessionFlowService._save_state(session, state)
+            if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
+                session.current_step = 1
+            db.add(session)
+            db.commit()
+            return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+
+        if sub == "mobile":
+            if not answer:
+                return _empty_step_result(done=False, prompt=CONTACT_MOBILE_PROMPT)
+            _log("mobile", answer, answer_source)
+            session.visitor_phone = answer[:32]
+            if lead is not None:
+                lead.visitor_phone = answer[:32]
+                lead.updated_at = datetime.utcnow()
+                db.add(lead)
+            state["contact_substep"] = "done"
+            ExpoSessionFlowService._save_state(session, state)
+            if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
+                session.current_step = 1
+            db.add(session)
+            db.commit()
+            return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+
+        # Already done — advance past contact
+        if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY and int(session.current_step or 0) == 0:
+            session.current_step = 1
+            db.add(session)
+            db.commit()
         return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
 
     @staticmethod

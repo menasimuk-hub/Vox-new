@@ -30,7 +30,13 @@ Also seeded for `eu` / `us` / `ca` / `au` zones. Checkout is not wired yet — p
 
 Visitor opens WhatsApp first (QR) → **24h session window** → questions and PDF links sent as
 **plain session text from the server** (Meta Cloud API or Telnyx `type=text`). **No Meta HSM
-templates** are used for live booth Q&A. Product delivery uses hybrid match-or-list against booth assets.
+templates** are used for live booth Q&A.
+
+Contact capture (fixed): business-card photo **or** name / company (web also asks for mobile).
+Photo skips typed contact fields. Exhibitors then select extra qualifying questions from a bank.
+
+Product files: PDF, image, or Excel — delivered as absolute `https://api.voxbulk.com/public/expo/assets/...`
+links (or the visitor’s external URL). Hybrid match-or-list against booth assets.
 
 Inbound is wired on **both** Meta and Telnyx WhatsApp webhooks (Expo before Customer Feedback).
 
