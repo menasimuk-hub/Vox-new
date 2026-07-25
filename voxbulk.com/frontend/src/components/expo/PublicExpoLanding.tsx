@@ -1,9 +1,20 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
-import { apiFetch } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { apiFetch, apiUpload, getApiBaseUrl } from "@/lib/api";
 import { getThemePack, resolveThemeId } from "@/components/feedback-survey/theme-registry";
 import type { Theme } from "@/components/feedback-survey/types";
+import { VoiceDetail, type VoiceDetailHandle } from "@/components/feedback-survey/VoiceDetail";
 import "@/components/feedback-survey/survey-themes.css";
+
+type ExpoOption = { value: string; label: string };
+type ExpoQuestion = {
+  key: string;
+  prompt: string;
+  label?: string;
+  input?: string;
+  options?: ExpoOption[];
+  allow_voice?: boolean;
+};
 
 type ExpoPublicPayload = {
   ok?: boolean;
@@ -13,18 +24,32 @@ type ExpoPublicPayload = {
   web_url?: string;
   theme_id?: string;
   company_name?: string;
-  questions?: Array<{ key: string; prompt: string; label?: string }>;
+  logo_url?: string | null;
+  contact_capture?: string;
+  questions?: ExpoQuestion[];
   booth?: {
     name?: string;
     company_display_name?: string;
     exhibition_name?: string;
     is_expired?: boolean;
     closed_message?: string | null;
-    question_count?: number;
+    contact_capture?: string;
   };
 };
 
+type AdvanceResult = {
+  ok?: boolean;
+  session_id?: string;
+  done?: boolean;
+  question?: string;
+  awaiting_pick?: boolean;
+  candidates?: Array<{ id?: string; title?: string; short_description?: string }>;
+  assets?: unknown;
+  card_fields?: Record<string, string | null>;
+};
+
 type Phase = "loading" | "error" | "choose" | "web" | "thanks" | "closed";
+type WebStep = "contact" | "question" | "pick";
 
 function themeStyleVars(theme: Theme): CSSProperties {
   return {
@@ -36,6 +61,11 @@ function themeStyleVars(theme: Theme): CSSProperties {
     "--survey-accent2": theme.accent2,
     color: theme.ink,
   } as CSSProperties;
+}
+
+function logoSrc(logoUrl?: string | null) {
+  if (!logoUrl) return "";
+  return `${getApiBaseUrl().replace(/\/+$/, "")}${logoUrl}`;
 }
 
 function WhatsAppGlyph() {
@@ -74,7 +104,6 @@ function ArrowGlyph({ className = "" }: { className?: string }) {
 
 export type PublicExpoLandingProps = {
   token: string;
-  /** Wizard / dashboard preview — skip API fetch */
   preview?: boolean;
   previewCompanyName?: string;
   previewEventName?: string;
@@ -98,20 +127,62 @@ export function PublicExpoLanding({
           theme_id: "survey-temp",
           company_name: previewCompanyName || "Your stand",
           wa_url: previewWaUrl || "#",
+          contact_capture: "offer_both",
           booth: {
             company_display_name: previewCompanyName || "Your stand",
             exhibition_name: previewEventName || "Exhibition",
             is_expired: false,
+            contact_capture: "offer_both",
           },
-          questions: [],
+          questions: [
+            {
+              key: "contact",
+              prompt: "Upload a business card or enter your details",
+              input: "contact",
+              options: [],
+            },
+            {
+              key: "interest",
+              prompt: "What is the main thing you're looking for or interested in right now?",
+              input: "text",
+              allow_voice: true,
+              options: [],
+            },
+            {
+              key: "timeline",
+              prompt: "When are you planning to make a decision?",
+              input: "choice",
+              options: [
+                { value: "This week", label: "This week" },
+                { value: "This month", label: "This month" },
+                { value: "Later", label: "Later" },
+              ],
+            },
+          ],
         }
       : null,
   );
+
   const [sessionId, setSessionId] = useState("");
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState("");
+  const [webStep, setWebStep] = useState<WebStep>("contact");
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [promptOverride, setPromptOverride] = useState("");
+  const [selectedValue, setSelectedValue] = useState("");
+  const [textAnswer, setTextAnswer] = useState("");
   const [contact, setContact] = useState({ name: "", company: "", mobile: "", email: "" });
-  const [started, setStarted] = useState(false);
+  const [cardPreview, setCardPreview] = useState<string | null>(null);
+  const [cardFile, setCardFile] = useState<File | null>(null);
+  const [candidates, setCandidates] = useState<Array<{ id?: string; title?: string; short_description?: string }>>([]);
+  const cardInputRef = useRef<HTMLInputElement>(null);
+  const voiceRef = useRef<VoiceDetailHandle>(null);
+
+  const questions = useMemo(
+    () => (payload?.questions || []).filter((q) => q.key !== "contact"),
+    [payload?.questions],
+  );
+  const currentQ = questions[questionIndex] || null;
+  const contactCapture =
+    payload?.contact_capture || payload?.booth?.contact_capture || "offer_both";
 
   const themeId = resolveThemeId(payload?.theme_id || "survey-temp");
   const company =
@@ -124,6 +195,7 @@ export function PublicExpoLanding({
   const Art = pack.Art;
   const eventName = payload?.booth?.exhibition_name || previewEventName || "";
   const waUrl = payload?.wa_url || payload?.whatsapp_url || previewWaUrl || "";
+  const logo = logoSrc(payload?.logo_url);
 
   useEffect(() => {
     if (preview) return;
@@ -133,11 +205,8 @@ export function PublicExpoLanding({
         const data = await apiFetch<ExpoPublicPayload>(`/public/expo/${encodeURIComponent(token)}`);
         if (cancelled) return;
         setPayload(data);
-        if (data?.booth?.is_expired) {
-          setPhase("closed");
-        } else {
-          setPhase("choose");
-        }
+        if (data?.booth?.is_expired) setPhase("closed");
+        else setPhase("choose");
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Booth not found");
@@ -149,97 +218,222 @@ export function PublicExpoLanding({
     };
   }, [token, preview]);
 
-  const startWeb = useCallback(async () => {
-    if (preview) {
-      setPhase("web");
-      setQuestion("What's your full name?");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      setPhase("web");
-    } finally {
-      setBusy(false);
-    }
-  }, [preview]);
+  const applyAdvance = useCallback(
+    (res: AdvanceResult, opts?: { afterContact?: boolean }) => {
+      if (res.session_id) setSessionId(String(res.session_id));
+      if (res.done) {
+        setPhase("thanks");
+        return;
+      }
+      if (res.awaiting_pick && res.candidates?.length) {
+        setCandidates(res.candidates);
+        setWebStep("pick");
+        setPromptOverride(String(res.question || "Which would you like?"));
+        setSelectedValue("");
+        return;
+      }
+      if (opts?.afterContact) {
+        setWebStep("question");
+        setQuestionIndex(0);
+      } else if (webStep === "question") {
+        setQuestionIndex((i) => Math.min(i + 1, Math.max(0, questions.length - 1)));
+      }
+      setPromptOverride(String(res.question || ""));
+      setSelectedValue("");
+      setTextAnswer("");
+      setCandidates([]);
+      if (!res.awaiting_pick) setWebStep("question");
+    },
+    [questions.length, webStep],
+  );
 
-  const submitStart = useCallback(async () => {
+  const startWeb = useCallback(async () => {
+    setError("");
+    setPhase("web");
+    setWebStep("contact");
+    setQuestionIndex(0);
+    setSessionId("");
+    setPromptOverride("");
+    setSelectedValue("");
+    setTextAnswer("");
+    setCardFile(null);
+    setCardPreview(null);
+  }, []);
+
+  const submitCardOrContact = useCallback(async () => {
     if (preview) {
-      setStarted(true);
-      setQuestion("What is the main thing you're looking for or interested in right now?");
-      return;
-    }
-    const mobile = contact.mobile.trim();
-    const email = contact.email.trim();
-    if (!mobile || !email) {
-      setError("Mobile and email are required for the web path.");
+      setWebStep("question");
+      setQuestionIndex(0);
+      setPromptOverride(questions[0]?.prompt || "");
       return;
     }
     setBusy(true);
     setError("");
     try {
-      const res = await apiFetch<{
-        ok?: boolean;
-        session_id?: string;
-        done?: boolean;
-        question?: string;
-      }>(`/public/expo/${encodeURIComponent(token)}/start`, {
+      if (cardFile) {
+        const start = await apiFetch<AdvanceResult>(`/public/expo/${encodeURIComponent(token)}/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ card_first: true, defer_contact: true }),
+        });
+        const sid = String(start.session_id || "");
+        if (!sid) throw new Error("Could not start session");
+        setSessionId(sid);
+        const form = new FormData();
+        form.append("file", cardFile, cardFile.name || "card.jpg");
+        const res = await apiUpload<AdvanceResult>(
+          `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sid)}/card`,
+          form,
+        );
+        applyAdvance(res, { afterContact: true });
+        return;
+      }
+
+      if (contactCapture === "card_only") {
+        setError("Please take or upload a photo of your business card.");
+        return;
+      }
+      const mobile = contact.mobile.trim();
+      const email = contact.email.trim();
+      const name = contact.name.trim();
+      const companyVal = contact.company.trim();
+      if (!mobile || !email) {
+        setError("Mobile and email are required.");
+        return;
+      }
+      if (!name || !companyVal) {
+        setError("Name and company are required (or upload a business card).");
+        return;
+      }
+      const res = await apiFetch<AdvanceResult>(`/public/expo/${encodeURIComponent(token)}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           mobile,
           email,
-          name: contact.name.trim() || undefined,
-          company: contact.company.trim() || undefined,
+          name,
+          company: companyVal,
         }),
       });
-      if (res.done) {
-        setPhase("thanks");
-        return;
-      }
-      setSessionId(String(res.session_id || ""));
-      setStarted(true);
-      setQuestion(String(res.question || "Thanks — next question coming up."));
+      applyAdvance(res, { afterContact: true });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start");
+      setError(e instanceof Error ? e.message : "Could not continue");
     } finally {
       setBusy(false);
     }
-  }, [contact, preview, token]);
+  }, [applyAdvance, cardFile, contact, contactCapture, preview, questions, token]);
 
-  const submitAnswer = useCallback(async () => {
-    const text = answer.trim();
-    if (!text) return;
+  const submitAnswer = useCallback(
+    async (rawAnswer?: string) => {
+      const answer = (rawAnswer ?? selectedValue || textAnswer).trim();
+      if (preview) {
+        if (questionIndex >= questions.length - 1) setPhase("thanks");
+        else {
+          setQuestionIndex((i) => i + 1);
+          setSelectedValue("");
+          setTextAnswer("");
+          setPromptOverride(questions[questionIndex + 1]?.prompt || "");
+        }
+        return;
+      }
+      if (!sessionId) {
+        setError("Session missing — go back and start again.");
+        return;
+      }
+      if (!answer) {
+        setError("Please choose or type an answer.");
+        return;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        const res = await apiFetch<AdvanceResult>(`/public/expo/${encodeURIComponent(token)}/answer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId, answer }),
+        });
+        if (res.done) {
+          setPhase("thanks");
+          return;
+        }
+        if (res.awaiting_pick && res.candidates?.length) {
+          setCandidates(res.candidates);
+          setWebStep("pick");
+          setPromptOverride(String(res.question || "Which would you like?"));
+          setSelectedValue("");
+          setTextAnswer("");
+          return;
+        }
+        // Move to next known question index for progress UI
+        setQuestionIndex((i) => Math.min(i + 1, Math.max(0, questions.length - 1)));
+        setPromptOverride(String(res.question || ""));
+        setSelectedValue("");
+        setTextAnswer("");
+        setWebStep("question");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not save answer");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [preview, questionIndex, questions, selectedValue, sessionId, textAnswer, token],
+  );
+
+  const submitVoice = useCallback(async () => {
     if (preview) {
-      setPhase("thanks");
+      await submitAnswer(textAnswer || "Voice note");
       return;
     }
-    if (!sessionId) return;
+    const blob = voiceRef.current?.getBlob() || null;
+    const typed = (voiceRef.current?.getText() || textAnswer).trim();
+    if (!blob && typed) {
+      await submitAnswer(typed);
+      return;
+    }
+    if (!blob) {
+      setError("Record a voice note or type your answer.");
+      return;
+    }
+    if (!sessionId) {
+      setError("Session missing — go back and start again.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      const res = await apiFetch<{
-        ok?: boolean;
-        done?: boolean;
-        question?: string;
-      }>(`/public/expo/${encodeURIComponent(token)}/answer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, answer: text }),
-      });
-      setAnswer("");
+      const form = new FormData();
+      form.append("file", blob, "voice.webm");
+      const res = await apiUpload<AdvanceResult>(
+        `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sessionId)}/voice`,
+        form,
+      );
       if (res.done) {
         setPhase("thanks");
         return;
       }
-      setQuestion(String(res.question || ""));
+      if (res.awaiting_pick && res.candidates?.length) {
+        setCandidates(res.candidates);
+        setWebStep("pick");
+        setPromptOverride(String(res.question || "Which would you like?"));
+        return;
+      }
+      setQuestionIndex((i) => Math.min(i + 1, Math.max(0, questions.length - 1)));
+      setPromptOverride(String(res.question || ""));
+      setSelectedValue("");
+      setTextAnswer("");
+      setWebStep("question");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save answer");
+      setError(e instanceof Error ? e.message : "Could not process voice note");
     } finally {
       setBusy(false);
     }
-  }, [answer, preview, sessionId, token]);
+  }, [preview, questions.length, sessionId, submitAnswer, textAnswer, token]);
+
+  const onCardPicked = (file: File | null) => {
+    if (cardPreview) URL.revokeObjectURL(cardPreview);
+    setCardFile(file);
+    setCardPreview(file ? URL.createObjectURL(file) : null);
+  };
 
   if (phase === "loading") {
     return (
@@ -306,96 +500,241 @@ export function PublicExpoLanding({
   }
 
   if (phase === "web") {
+    const progressTotal = Math.max(1, questions.length + 1);
+    const progressIndex = webStep === "contact" ? 0 : webStep === "pick" ? progressTotal - 1 : questionIndex + 1;
+    const progressPct = Math.round(((progressIndex + 1) / progressTotal) * 100);
+    const displayPrompt =
+      promptOverride ||
+      (webStep === "contact"
+        ? contactCapture === "card_only"
+          ? "Please upload a photo of your business card to continue."
+          : "Upload a business card, or enter your details."
+        : webStep === "pick"
+          ? promptOverride || "Which would you like?"
+          : currentQ?.prompt || "");
+
     return (
       <main className={`relative min-h-[100svh] overflow-hidden ${theme.bgClass}`} style={themeStyleVars(theme)}>
         <Art />
-        <div className="relative mx-auto flex min-h-[100svh] w-full max-w-md flex-col px-5 pb-8 pt-6">
-          <header className="text-center">
+        <div className="relative mx-auto flex min-h-[100svh] w-full max-w-md flex-col px-5 pb-8 pt-4 sm:max-w-lg sm:px-6">
+          <header className="flex flex-col items-center gap-2 text-center">
+            {logo ? (
+              <img
+                src={logo}
+                alt=""
+                className="h-10 w-10 rounded-xl object-contain p-1 shadow-lift ring-1"
+                style={{ background: theme.card, borderColor: theme.border }}
+              />
+            ) : null}
             <span className="font-display text-[15px] tracking-tight">{company}</span>
             {eventName ? (
-              <p className="mt-1 text-[12px]" style={{ color: theme.sub }}>
+              <p className="text-[12px]" style={{ color: theme.sub }}>
                 {eventName}
               </p>
             ) : null}
           </header>
-          {!started ? (
-            <div className="mt-8 space-y-3">
-              <h1 className="font-display text-3xl leading-tight">
-                Quick intro
-                <span style={{ color: theme.accent }}>.</span>
-              </h1>
-              <p className="text-[13px]" style={{ color: theme.sub }}>
-                Web path is in English. Prefer another language? Use WhatsApp.
-              </p>
-              {(
-                [
-                  ["name", "Name"],
-                  ["company", "Company"],
-                  ["mobile", "Mobile *"],
-                  ["email", "Email *"],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key} className="block text-[12px] font-medium" style={{ color: theme.sub }}>
-                  {label}
-                  <input
-                    className="mt-1 w-full rounded-xl border px-3 py-2.5 text-[15px]"
+
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full" style={{ background: `${theme.border}` }}>
+            <div className="h-full rounded-full transition-all" style={{ width: `${progressPct}%`, background: theme.gradientProgress }} />
+          </div>
+          <p className="mt-2 text-center text-[11px] uppercase tracking-[0.18em]" style={{ color: theme.sub }}>
+            Step {progressIndex + 1} of {progressTotal}
+          </p>
+
+          <div className="mt-5 flex-1 space-y-4">
+            {webStep === "contact" ? (
+              <>
+                <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
+                  Contact
+                </p>
+                <h1 className="font-display text-[28px] leading-tight" style={{ color: theme.ink }}>
+                  {displayPrompt}
+                </h1>
+                <input
+                  ref={cardInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => onCardPicked(e.target.files?.[0] || null)}
+                />
+                {contactCapture !== "manual_only" ? (
+                  <button
+                    type="button"
+                    onClick={() => cardInputRef.current?.click()}
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed px-4 py-3.5 text-[14px] font-medium"
                     style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
-                    value={contact[key]}
-                    onChange={(e) => setContact((c) => ({ ...c, [key]: e.target.value }))}
-                    autoComplete={key === "email" ? "email" : key === "mobile" ? "tel" : "off"}
-                  />
-                </label>
-              ))}
-              {error ? <p className="text-[13px] text-red-600">{error}</p> : null}
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void submitStart()}
-                className="mt-2 w-full rounded-2xl py-3.5 text-[15px] font-semibold text-white shadow-lift disabled:opacity-60"
-                style={{ background: theme.gradientButton }}
-              >
-                Continue
-              </button>
-              <button
-                type="button"
-                className="w-full text-center text-[12px] underline"
-                style={{ color: theme.sub }}
-                onClick={() => setPhase("choose")}
-              >
-                Back to options
-              </button>
-            </div>
-          ) : (
-            <div className="mt-8 space-y-4">
-              <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
-                Question
-              </p>
-              <h1 className="font-display text-[26px] leading-tight">{question}</h1>
-              <textarea
-                className="min-h-[120px] w-full rounded-2xl border px-3 py-3 text-[15px]"
-                style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder="Type your answer…"
-              />
-              {error ? <p className="text-[13px] text-red-600">{error}</p> : null}
-              <button
-                type="button"
-                disabled={busy || !answer.trim()}
-                onClick={() => void submitAnswer()}
-                className="w-full rounded-2xl py-3.5 text-[15px] font-semibold text-white shadow-lift disabled:opacity-60"
-                style={{ background: theme.gradientButton }}
-              >
-                Send answer
-              </button>
-            </div>
-          )}
+                  >
+                    {cardPreview ? "Retake / change business card" : "Camera · take or upload business card"}
+                  </button>
+                ) : null}
+                {cardPreview ? (
+                  <img src={cardPreview} alt="Business card preview" className="h-36 w-full rounded-xl object-cover shadow-soft" />
+                ) : null}
+
+                {contactCapture !== "card_only" && !cardFile ? (
+                  <div className="grid gap-2.5">
+                    {(
+                      [
+                        ["name", "Name"],
+                        ["company", "Company"],
+                        ["mobile", "Mobile *"],
+                        ["email", "Email *"],
+                      ] as const
+                    ).map(([key, label]) => (
+                      <label key={key} className="block text-[12px] font-medium" style={{ color: theme.sub }}>
+                        {label}
+                        <input
+                          className="mt-1 w-full rounded-xl border px-3 py-2.5 text-[15px]"
+                          style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
+                          value={contact[key]}
+                          onChange={(e) => setContact((c) => ({ ...c, [key]: e.target.value }))}
+                          autoComplete={key === "email" ? "email" : key === "mobile" ? "tel" : "off"}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            {webStep === "question" && currentQ ? (
+              currentQ.input === "choice" && (currentQ.options || []).length > 0 ? (
+                <>
+                  <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
+                    Question {questionIndex + 1}
+                  </p>
+                  <h1 className="font-display text-[28px] leading-[1.15]" style={{ color: theme.ink }}>
+                    {displayPrompt || currentQ.prompt}
+                  </h1>
+                  <div className="mt-2 grid gap-2.5">
+                    {(currentQ.options || []).map((opt) => {
+                      const selected = selectedValue === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setSelectedValue(opt.value)}
+                          className="flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-[15px] font-medium transition-all active:scale-[0.98] disabled:opacity-50"
+                          style={
+                            selected
+                              ? {
+                                  background: theme.gradientButton,
+                                  color: "#fff",
+                                  borderColor: "transparent",
+                                  boxShadow: theme.selectedShadow,
+                                }
+                              : { background: theme.card, borderColor: theme.border, color: theme.ink }
+                          }
+                        >
+                          <span>{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <VoiceDetail
+                  ref={voiceRef}
+                  theme={theme}
+                  eyebrow={`Question ${questionIndex + 1}`}
+                  title={displayPrompt || currentQ.prompt}
+                  hint={
+                    currentQ.allow_voice
+                      ? "Type in English, or record a voice note in any language — we translate to English."
+                      : "Type your answer."
+                  }
+                  text={textAnswer}
+                  onTextChange={setTextAnswer}
+                  allowVoice={Boolean(currentQ.allow_voice)}
+                  disabled={busy}
+                  placeholder="Your answer…"
+                />
+              )
+            ) : null}
+
+            {webStep === "pick" ? (
+              <>
+                <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
+                  Choose a pack
+                </p>
+                <h1 className="font-display text-[26px] leading-tight" style={{ color: theme.ink }}>
+                  {displayPrompt}
+                </h1>
+                <div className="grid gap-2.5">
+                  {candidates.map((c, i) => {
+                    const value = String(i + 1);
+                    const selected = selectedValue === value || selectedValue === c.id;
+                    return (
+                      <button
+                        key={c.id || value}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setSelectedValue(value)}
+                        className="rounded-2xl border px-4 py-3.5 text-left transition-all active:scale-[0.98]"
+                        style={
+                          selected
+                            ? { background: theme.gradientButton, color: "#fff", borderColor: "transparent" }
+                            : { background: theme.card, borderColor: theme.border, color: theme.ink }
+                        }
+                      >
+                        <div className="text-[15px] font-semibold">
+                          {i + 1}. {c.title || "Product"}
+                        </div>
+                        {c.short_description ? (
+                          <div className="mt-0.5 text-[12px]" style={{ opacity: selected ? 0.9 : 0.65 }}>
+                            {c.short_description}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            {error ? <p className="text-[13px] text-red-600">{error}</p> : null}
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="button"
+              className="rounded-full border px-4 py-2.5 text-sm font-medium"
+              style={{ background: theme.card, borderColor: theme.border, color: theme.sub }}
+              onClick={() => {
+                if (webStep === "contact") setPhase("choose");
+                else if (webStep === "pick") setWebStep("question");
+                else if (questionIndex > 0) {
+                  setQuestionIndex((i) => i - 1);
+                  setPromptOverride("");
+                } else setWebStep("contact");
+              }}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (webStep === "contact") void submitCardOrContact();
+                else if (webStep === "pick") void submitAnswer(selectedValue);
+                else if (currentQ?.input === "choice") void submitAnswer(selectedValue);
+                else if (currentQ?.allow_voice) void submitVoice();
+                else void submitAnswer(textAnswer);
+              }}
+              className="flex-1 rounded-full py-2.5 text-sm font-semibold text-white shadow-lift disabled:opacity-60"
+              style={{ background: theme.gradientButton }}
+            >
+              {busy ? "Please wait…" : "Continue"}
+            </button>
+          </div>
         </div>
       </main>
     );
   }
 
-  // choose — same pattern as Customer Feedback WelcomeChoose
+  // choose — CF WelcomeChoose pattern
   const bgClass = theme.bgClass || "bg-warm-gradient";
   return (
     <main className={`relative h-[100svh] overflow-hidden ${bgClass}`} style={themeStyleVars(theme)}>
@@ -406,6 +745,14 @@ export function PublicExpoLanding({
 
       <div className="relative mx-auto flex h-[100svh] w-full max-w-md flex-col px-5 pb-5 pt-4 sm:max-w-lg sm:px-6 sm:pt-6">
         <header className="animate-rise flex flex-col items-center gap-2 text-center" style={{ animationDelay: "60ms" }}>
+          {logo ? (
+            <img
+              src={logo}
+              alt=""
+              className="h-10 w-10 rounded-xl object-contain p-1 shadow-lift ring-1"
+              style={{ background: theme.card, borderColor: theme.border }}
+            />
+          ) : null}
           <span className="font-display text-[15px] tracking-tight" style={{ color: theme.ink }}>
             {company}
           </span>
@@ -483,7 +830,7 @@ export function PublicExpoLanding({
               <div className="min-w-0 flex-1">
                 <div className="text-[15.5px] font-semibold tracking-tight">Complete here</div>
                 <div className="mt-0.5 text-[11.5px]" style={{ color: theme.sub }}>
-                  Quick on-page form · English
+                  Buttons · card photo · voice · English
                 </div>
               </div>
               <ArrowGlyph className="opacity-60" />

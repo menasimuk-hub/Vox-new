@@ -273,12 +273,25 @@ class ExpoBusinessCardService:
             logger.warning("expo_card_download_failed err=%s", exc)
             return {}, None
         fields = ExpoBusinessCardService.extract_from_bytes(db, image_bytes=raw, content_type=ctype)
-        rel: str | None = None
+        rel = ExpoBusinessCardService.persist_card_bytes(
+            org_id=org_id, booth_id=booth_id, image_bytes=raw, content_type=ctype
+        )
+        return fields, rel
+
+    @staticmethod
+    def persist_card_bytes(
+        *,
+        org_id: str,
+        booth_id: str,
+        image_bytes: bytes,
+        content_type: str = "image/jpeg",
+    ) -> str | None:
         try:
             from pathlib import Path
 
             root = Path(__file__).resolve().parents[3] / "data" / "expo-cards" / str(org_id)
             root.mkdir(parents=True, exist_ok=True)
+            ctype = str(content_type or "").lower()
             ext = ".jpg"
             if "png" in ctype:
                 ext = ".png"
@@ -286,10 +299,33 @@ class ExpoBusinessCardService:
                 ext = ".webp"
             name = f"{booth_id[:8]}-{uuid.uuid4().hex[:10]}{ext}"
             abs_path = root / name
-            abs_path.write_bytes(raw)
-            rel = f"data/expo-cards/{org_id}/{name}"
+            abs_path.write_bytes(image_bytes)
+            return f"data/expo-cards/{org_id}/{name}"
         except Exception as exc:
             logger.warning("expo_card_save_failed err=%s", exc)
+            return None
+
+    @staticmethod
+    def save_from_bytes(
+        db: Session,
+        *,
+        org_id: str,
+        booth_id: str,
+        image_bytes: bytes,
+        content_type: str = "image/jpeg",
+    ) -> tuple[dict[str, str | None], str | None]:
+        """OCR + persist a browser-uploaded business card image."""
+        if not image_bytes:
+            return {}, None
+        fields = ExpoBusinessCardService.extract_from_bytes(
+            db, image_bytes=image_bytes, content_type=content_type
+        )
+        rel = ExpoBusinessCardService.persist_card_bytes(
+            org_id=org_id,
+            booth_id=booth_id,
+            image_bytes=image_bytes,
+            content_type=content_type,
+        )
         return fields, rel
 
     @staticmethod

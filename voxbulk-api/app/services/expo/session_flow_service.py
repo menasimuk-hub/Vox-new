@@ -291,7 +291,9 @@ class ExpoSessionFlowService:
         step = steps[step_index]
         key = str(step.get("key") or "")
 
-        if key == CONTACT_STEP_KEY or state.get("contact_substep"):
+        contact_sub = str(state.get("contact_substep") or "").strip().lower()
+        contact_in_progress = contact_sub in {"awaiting", "company", "mobile"}
+        if key == CONTACT_STEP_KEY or contact_in_progress:
             return ExpoSessionFlowService._advance_contact(
                 db,
                 session=session,
@@ -433,7 +435,7 @@ class ExpoSessionFlowService:
             for fk in ("name", "company", "email", "phone"):
                 if fields.get(fk):
                     _log(f"card_{fk}", str(fields[fk]), "ocr")
-            state["contact_substep"] = "done"
+            state.pop("contact_substep", None)
             state["contact_via"] = "card"
             state["card_fields"] = {k: v for k, v in fields.items() if v}
             ExpoSessionFlowService._save_state(session, state)
@@ -488,7 +490,7 @@ class ExpoSessionFlowService:
                 db.add(session)
                 db.commit()
                 return _empty_step_result(done=False, prompt=CONTACT_MOBILE_PROMPT)
-            state["contact_substep"] = "done"
+            state.pop("contact_substep", None)
             ExpoSessionFlowService._save_state(session, state)
             if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
                 session.current_step = 1
@@ -505,7 +507,7 @@ class ExpoSessionFlowService:
                 lead.visitor_phone = answer[:32]
                 lead.updated_at = datetime.utcnow()
                 db.add(lead)
-            state["contact_substep"] = "done"
+            state.pop("contact_substep", None)
             ExpoSessionFlowService._save_state(session, state)
             if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
                 session.current_step = 1

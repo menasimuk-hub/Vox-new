@@ -210,3 +210,86 @@ def process_expo_voice_job(db: Session, job_id: str) -> dict[str, Any]:
         db.commit()
         logger.warning("%s failed job=%s err=%s", LOG_PREFIX, job_id, exc)
         return {"ok": False, "error": str(exc)[:500]}
+
+
+def process_web_voice_bytes(
+    db: Session,
+    *,
+    session: ExpoSession,
+    audio_bytes: bytes,
+    filename: str = "voice.webm",
+    content_type: str = "audio/webm",
+) -> dict[str, Any]:
+    """Browser voice upload → Whisper STT + English translation (sync, like WA path)."""
+    if not audio_bytes:
+        return {"ok": False, "error": "empty_upload"}
+
+    now = datetime.utcnow()
+    job = ExpoVoiceNoteJob(
+        id=str(uuid.uuid4()),
+        org_id=session.org_id,
+        session_id=session.id,
+        booth_id=session.booth_id,
+        response_id=None,
+        inbound_message_id=f"web:{uuid.uuid4().hex[:12]}"[:128],
+        provider_media_id=None,
+        media_url=None,
+        status="transcribing",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(job)
+    db.commit()
+
+    try:
+        from app.services.voice_transcription_service import VoiceTranscriptionService
+
+        stt = VoiceTranscriptionService.transcribe_uploaded_audio(
+            db,
+            audio_bytes=audio_bytes,
+            filename=filename or "voice.webm",
+            content_type=content_type or "audio/webm",
+            language="auto",
+        )
+        text = str(getattr(stt, "transcript", None) or getattr(stt, "text", None) or "").strip()
+        detected = getattr(stt, "detected_language", None)
+        if not getattr(stt, "ok", False) or not text or is_low_quality_transcript(text):
+            raise RuntimeError("empty_transcript")
+
+        translated = translate_answer_to_english(
+            db,
+            answer=text,
+            detected_language=detected,
+            tpl=None,
+            source_language=detected,
+        )
+        original = str(translated.get("original_text") or text).strip()
+        answer_en = str(translated.get("answer_text_en") or original).strip()
+
+        job.original_text = original
+        job.translated_text = answer_en
+        job.transcript_text = original
+        job.detected_language = str(detected)[:32] if detected else None
+        job.status = "completed"
+        job.error_detail = None
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        if detected:
+            session.detected_language = str(detected)[:16]
+            db.add(session)
+        db.commit()
+        return {
+            "ok": True,
+            "job_id": job.id,
+            "original_text": original,
+            "answer_text_en": answer_en,
+            "detected_language": detected,
+        }
+    except Exception as exc:
+        job.status = "failed"
+        job.error_detail = str(exc)[:2000]
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        db.commit()
+        logger.warning("%s web_voice_failed job=%s err=%s", LOG_PREFIX, job.id, exc)
+        return {"ok": False, "error": str(exc)[:500], "job_id": job.id}

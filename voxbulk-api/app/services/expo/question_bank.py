@@ -132,6 +132,64 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
 _DEFAULT_SELECTED_KEYS = ("interest", "need_price_list", "need_catalogue", "timeline", "consent_info")
 _BANK_BY_KEY = {q["key"]: q for q in SELECTABLE_QUESTION_BANK}
 
+# Closed-choice UI for Expo web (CF-style buttons). Open keys stay text+voice.
+WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
+    "need_price_list": [
+        {"value": "Yes", "label": "Yes"},
+        {"value": "No", "label": "No"},
+    ],
+    "need_catalogue": [
+        {"value": "Yes", "label": "Yes"},
+        {"value": "No", "label": "No"},
+    ],
+    "consent_info": [
+        {"value": "Yes", "label": "Yes"},
+        {"value": "No", "label": "No"},
+    ],
+    "timeline": [
+        {"value": "This week", "label": "This week"},
+        {"value": "This month", "label": "This month"},
+        {"value": "This quarter", "label": "This quarter"},
+        {"value": "Later", "label": "Later"},
+        {"value": "Just exploring", "label": "Just exploring"},
+    ],
+    "sourcing": [
+        {"value": "Business", "label": "For my business"},
+        {"value": "Events", "label": "For events"},
+    ],
+    "decision_maker": [
+        {"value": "Decision-maker", "label": "I'm the decision-maker"},
+        {"value": "Recommending", "label": "Recommending to someone else"},
+    ],
+    "follow_up": [
+        {"value": "WhatsApp", "label": "WhatsApp"},
+        {"value": "Email", "label": "Email"},
+        {"value": "Call", "label": "Call"},
+    ],
+}
+
+WEB_VOICE_KEYS = frozenset(
+    {
+        "interest",
+        "products_wanted",
+        "role",
+        "budget",
+        "volume",
+        "industry_addon",
+    }
+)
+
+
+def web_ui_for_question_key(key: str) -> dict[str, Any]:
+    """Return input type + options for Expo public web questions."""
+    k = str(key or "").strip()
+    opts = WEB_CHOICE_OPTIONS.get(k)
+    if opts:
+        return {"input": "choice", "options": list(opts), "allow_voice": False}
+    if k == CONTACT_STEP_KEY:
+        return {"input": "contact", "options": [], "allow_voice": False}
+    return {"input": "text", "options": [], "allow_voice": k in WEB_VOICE_KEYS or k not in WEB_CHOICE_OPTIONS}
+
 
 def list_selectable_questions(
     db: Any | None = None,

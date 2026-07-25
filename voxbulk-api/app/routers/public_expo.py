@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,9 +11,50 @@ from app.core.database import get_db
 from app.models.expo import ExpoBoothAsset, ExpoSession
 from app.services.expo.asset_storage_service import resolve_storage_abs_path
 from app.services.expo.booth_service import BOOTH_CLOSED_MESSAGE, ExpoBoothService, booth_is_expired
+from app.services.expo.question_bank import parse_contact_capture, web_ui_for_question_key
 from app.services.expo.session_flow_service import THANK_YOU_TEXT, ExpoSessionFlowService
 
 router = APIRouter(prefix="/public/expo", tags=["public-expo"])
+
+
+def _session_for_booth(db: Session, *, booth_id: str, session_id: str) -> ExpoSession:
+    session = db.execute(
+        select(ExpoSession).where(ExpoSession.id == session_id, ExpoSession.booth_id == booth_id)
+    ).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+def _advance_payload(result: dict) -> dict:
+    return {
+        "ok": True,
+        "done": result.get("done", False),
+        "awaiting_pick": result.get("awaiting_pick", False),
+        "question": result.get("prompt"),
+        "candidates": result.get("candidates"),
+        "assets": result.get("assets"),
+        "contact_via": result.get("contact_via"),
+        "card_fields": result.get("card_fields"),
+    }
+
+
+@router.get("/{token}/logo")
+def get_booth_logo(token: str, db: Session = Depends(get_db)):
+    from app.models.organisation import Organisation
+    from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
+
+    booth = ExpoBoothService.find_by_token(db, token)
+    if booth is None:
+        raise HTTPException(status_code=404, detail="Booth not found")
+    org = db.get(Organisation, booth.org_id)
+    storage_key = getattr(org, "logo_storage_key", None) if org else None
+    if not storage_key:
+        raise HTTPException(status_code=404, detail="Logo not found")
+    path = resolve_logo_path(str(storage_key))
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="Logo not found")
+    return FileResponse(path, media_type=media_type_for_key(str(storage_key)))
 
 
 @router.get("/{token}")
@@ -45,16 +86,22 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
     digits = re.sub(r"\D+", "", str(phone or ""))
     wa_url = f"https://wa.me/{digits}?text={quote(trigger)}" if digits else ""
     urls = ExpoBoothService.booth_public_urls(booth, event_name=event_name)
+    has_logo = bool(org and getattr(org, "logo_storage_key", None))
+    contact_capture = parse_contact_capture(booth.question_config_json)
     questions = []
     for step in steps:
         key = str(step.get("key") or "")
         if not key:
             continue
+        ui = web_ui_for_question_key(key)
         questions.append(
             {
                 "key": key,
                 "prompt": str(step.get("prompt_web") or step.get("prompt") or ""),
                 "label": str(step.get("label") or key),
+                "input": ui["input"],
+                "options": ui["options"],
+                "allow_voice": bool(ui.get("allow_voice")),
             }
         )
     return {
@@ -65,6 +112,8 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
         "web_url": urls["web_url"],
         "theme_id": "survey-temp",
         "company_name": booth.company_display_name,
+        "logo_url": f"/public/expo/{booth.qr_token}/logo" if has_logo else None,
+        "contact_capture": contact_capture,
         "questions": questions,
         "booth": {
             "name": booth.name,
@@ -75,6 +124,7 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
             "question_count": len(steps),
             "closed_message": BOOTH_CLOSED_MESSAGE if expired else None,
+            "contact_capture": contact_capture,
         },
     }
 
@@ -93,13 +143,16 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
     email = str(payload.get("email") or "").strip()
     name = str(payload.get("name") or "").strip() or None
     company = str(payload.get("company") or "").strip() or None
-    card_uploaded = bool(payload.get("business_card") or payload.get("has_business_card"))
-    # Card photo skips name/company/mobile; otherwise mobile + email required.
-    if card_uploaded:
-        mobile = mobile or f"web-card-{token[:8]}"
-        email = email or "card@expo.local"
+    # Real card OCR is POST /sessions/{id}/card after start — start needs phone+email or placeholders for card-first.
+    defer_contact = bool(payload.get("defer_contact") or payload.get("card_first"))
+    if defer_contact:
+        mobile = mobile or f"web-pending-{token[:8]}"
+        email = email or "pending@expo.local"
     elif not mobile or not email:
-        raise HTTPException(status_code=400, detail="mobile and email are required (or upload a business card)")
+        raise HTTPException(
+            status_code=400,
+            detail="mobile and email are required (or start with card_first and upload a business card)",
+        )
 
     result = ExpoSessionFlowService.start_session(
         db,
@@ -110,30 +163,122 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
         name=name,
     )
     session_id = result["session_id"]
-    # If visitor already provided card or typed contact on the landing form, advance contact.
-    if card_uploaded:
-        session = db.get(ExpoSession, session_id)
-        if session is not None:
-            result = ExpoSessionFlowService.advance(
-                db, session=session, answer="[business card image]", answer_source="image"
-            )
-    elif name and company:
+
+    # Typed contact on the landing form → advance name + company (+ mobile already on session)
+    if not defer_contact and name and company:
         session = db.get(ExpoSession, session_id)
         if session is not None:
             ExpoSessionFlowService.advance(db, session=session, answer=name, answer_source="text")
             session = db.get(ExpoSession, session_id)
             if session is not None and session.status == "active":
-                result = ExpoSessionFlowService.advance(db, session=session, answer=company, answer_source="text")
+                result = ExpoSessionFlowService.advance(
+                    db, session=session, answer=company, answer_source="text"
+                )
 
-    return {
-        "ok": True,
-        "session_id": session_id,
-        "done": result.get("done", False),
-        "question": result.get("prompt"),
-        "awaiting_pick": result.get("awaiting_pick", False),
-        "candidates": result.get("candidates"),
-        "assets": result.get("assets"),
-    }
+    out = _advance_payload(result)
+    out["session_id"] = session_id
+    return out
+
+
+@router.post("/{token}/sessions/{session_id}/card")
+async def upload_business_card(
+    token: str,
+    session_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
+
+    booth = ExpoBoothService.find_by_token(db, token)
+    if booth is None:
+        raise HTTPException(status_code=404, detail="Booth not found")
+    if booth_is_expired(booth) or str(booth.status or "").lower() != "active":
+        raise HTTPException(status_code=400, detail=BOOTH_CLOSED_MESSAGE)
+    session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
+    if session.status != "active":
+        return {"ok": True, "done": True, "question": THANK_YOU_TEXT}
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty image upload")
+    ctype = str(file.content_type or "image/jpeg")
+    fields, card_path = ExpoBusinessCardService.save_from_bytes(
+        db,
+        org_id=booth.org_id,
+        booth_id=booth.id,
+        image_bytes=raw,
+        content_type=ctype,
+    )
+    # Prefer OCR phone/email over web pending placeholders
+    if fields.get("phone"):
+        session.visitor_phone = str(fields["phone"])[:32]
+    if fields.get("email"):
+        session.visitor_email = str(fields["email"])[:255]
+    db.add(session)
+    db.commit()
+
+    result = ExpoSessionFlowService.advance(
+        db,
+        session=session,
+        answer="[business card image]",
+        answer_source="image",
+        contact_fields=fields,
+        business_card_path=card_path,
+    )
+    out = _advance_payload(result)
+    out["session_id"] = session_id
+    out["card_fields"] = fields
+    return out
+
+
+@router.post("/{token}/sessions/{session_id}/voice")
+async def upload_voice_answer(
+    token: str,
+    session_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    from app.services.expo.voice_note_service import process_web_voice_bytes
+
+    booth = ExpoBoothService.find_by_token(db, token)
+    if booth is None:
+        raise HTTPException(status_code=404, detail="Booth not found")
+    session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
+    if session.status != "active":
+        return {"ok": True, "done": True, "question": THANK_YOU_TEXT}
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty audio upload")
+    voice = process_web_voice_bytes(
+        db,
+        session=session,
+        audio_bytes=raw,
+        filename=file.filename or "voice.webm",
+        content_type=str(file.content_type or "audio/webm"),
+    )
+    if not voice.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail="Sorry — I couldn't hear that clearly. Please type your answer, or record again.",
+        )
+
+    session = db.get(ExpoSession, session_id) or session
+    result = ExpoSessionFlowService.advance(
+        db,
+        session=session,
+        answer=str(voice.get("answer_text_en") or ""),
+        answer_source="voice",
+        original_text=str(voice.get("original_text") or ""),
+        answer_text_en=str(voice.get("answer_text_en") or ""),
+        detected_language=voice.get("detected_language"),
+        voice_job_id=voice.get("job_id"),
+    )
+    out = _advance_payload(result)
+    out["session_id"] = session_id
+    out["original_text"] = voice.get("original_text")
+    out["answer_text_en"] = voice.get("answer_text_en")
+    return out
 
 
 @router.post("/{token}/answer")
@@ -146,24 +291,17 @@ def answer_web_session(token: str, payload: dict, db: Session = Depends(get_db))
     answer = str(payload.get("answer") or "").strip()
     if not session_id:
         raise HTTPException(status_code=400, detail="session_id required")
+    if not answer:
+        raise HTTPException(status_code=400, detail="answer required")
 
-    session = db.execute(
-        select(ExpoSession).where(ExpoSession.id == session_id, ExpoSession.booth_id == booth.id)
-    ).scalar_one_or_none()
-    if session is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
     if session.status != "active":
         return {"ok": True, "done": True, "question": THANK_YOU_TEXT}
 
     result = ExpoSessionFlowService.advance(db, session=session, answer=answer, answer_source="text")
-    return {
-        "ok": True,
-        "done": result.get("done", False),
-        "awaiting_pick": result.get("awaiting_pick", False),
-        "question": result.get("prompt"),
-        "candidates": result.get("candidates"),
-        "assets": result.get("assets"),
-    }
+    out = _advance_payload(result)
+    out["session_id"] = session_id
+    return out
 
 
 @router.get("/assets/{token}/{asset_id}")
