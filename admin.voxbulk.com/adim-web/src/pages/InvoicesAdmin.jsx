@@ -59,14 +59,15 @@ function resolveInvoiceLifecycle(inv) {
   if (inv?.lifecycle) return inv.lifecycle
   const st = String(inv?.status || '').toLowerCase()
   const ddActive = st === 'collecting' || (st === 'pending' && inv?.dd_payment_id)
-  const locked = ['paid', 'void', 'cancelled', 'refunded', 'disputed', 'credited'].includes(st) || Boolean(inv?.disputed)
+  const locked = ['paid', 'void', 'cancelled', 'canceled', 'refunded', 'disputed', 'credited'].includes(st) || Boolean(inv?.disputed)
   if (ddActive) {
     return {
       can_edit: false,
       can_void: false,
       is_locked: true,
+      suggested_action: 'stop_collection',
       lock_reason: 'Direct Debit collection is in progress.',
-      suggested_action_label: 'Stop DD collection before editing or voiding.',
+      suggested_action_label: 'Stop DD collection before editing or cancelling.',
     }
   }
   if (locked) {
@@ -74,7 +75,7 @@ function resolveInvoiceLifecycle(inv) {
       can_edit: false,
       can_void: false,
       is_locked: true,
-      lock_reason: st === 'paid' ? 'Paid invoices cannot be edited or voided.' : 'This invoice is locked.',
+      lock_reason: st === 'paid' ? 'Paid invoices cannot be edited or cancelled.' : 'This invoice is locked.',
       suggested_action_label: 'Use credit note, refund, or reissue instead.',
     }
   }
@@ -103,6 +104,8 @@ export default function InvoicesAdmin() {
   const [editDue, setEditDue] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [editBusy, setEditBusy] = useState(false)
+  const [menuOpenId, setMenuOpenId] = useState('')
+  const [viewInvoice, setViewInvoice] = useState(null)
 
   const previewHtml = useMemo(
     () => substitutePlaceholders(templateDraft.body, buildEmailTestVariables('invoice_document')),
@@ -302,18 +305,20 @@ export default function InvoicesAdmin() {
 
   const voidInvoice = async (row) => {
     if (!row?.id) return
-    const reason = window.prompt('Reason for voiding this invoice (required for audit):', 'Voided by support')
+    const reason = window.prompt('Reason for cancelling this invoice (required for audit):', 'Cancelled by support')
     if (!reason) return
+    if (!window.confirm(`Cancel invoice ${row.invoice_number || row.id?.slice(0, 8)}?`)) return
     setBusy(row.id)
     setError('')
+    setMenuOpenId('')
     try {
-      await billingInvoice(row.id, '/void', {
+      await billingInvoice(row.id, '/cancel', {
         method: 'POST',
         body: JSON.stringify({ reason }),
       })
       await loadInvoices()
     } catch (e) {
-      setError(e?.message || 'Void failed')
+      setError(e?.message || 'Cancel failed')
     } finally {
       setBusy('')
     }
@@ -472,120 +477,102 @@ export default function InvoicesAdmin() {
     const lifecycle = resolveInvoiceLifecycle(row)
     const st = String(row.status || '').toLowerCase()
     const isPaid = st === 'paid'
+    const isCancelled = st === 'void' || st === 'cancelled' || st === 'canceled'
+    const menuOpen = menuOpenId === row.id
+    const tags = buildInvoiceTags(row)
     return (
       <tr key={row.id} className="invoiceListRow">
         <td>
-          <code className="invoiceIdPill" title={number}>{number}</code>
+          <button type="button" className="invoiceIdLink" onClick={() => setViewInvoice(row)} title="View details">
+            <code className="invoiceIdPill">{number}</code>
+          </button>
+          {row.description ? <div className="invoiceSubLine muted" title={row.description}>{truncate(row.description, 40)}</div> : null}
         </td>
         <td className="invoiceListDate muted">{dateShort(row.created_at)}</td>
-        <td className="invoiceListOrg" title={row.organisation_name || ''}>
-          {truncate(row.organisation_name, 28)}
-        </td>
-        <td className="invoiceListEmail muted" title={row.client_email}>
-          {truncate(row.client_email, 26)}
+        <td className="invoiceListOrg" title={row.organisation_name || row.client_email || ''}>
+          <div className="invoiceOrgName">{truncate(row.organisation_name, 32)}</div>
+          {row.client_email ? <div className="invoiceSubLine muted">{truncate(row.client_email, 28)}</div> : null}
         </td>
         <td className="invoiceListAmount">
           <strong>{money(row.amount_gbp_pence, row.currency)}</strong>
         </td>
         <td>
-          <span className={`pill invoiceStatusPill ${statusPillClass(row.status)}`}>{row.status || '—'}</span>
-          {row.disputed ? <span className="invoiceTag invoiceTagMuted" style={{ marginLeft: 6 }}>disputed</span> : null}
-          {row.dd_retry_count > 0 ? (
-            <span className="invoiceTag invoiceTagMuted" style={{ marginLeft: 6 }} title={row.dd_next_retry_at || ''}>
-              DD retry {row.dd_retry_count}
-            </span>
+          <span className={`pill invoiceStatusPill ${statusPillClass(isCancelled ? 'failed' : row.status)}`}>
+            {isCancelled ? 'cancelled' : (row.status || '—')}
+          </span>
+          {row.disputed ? <span className="invoiceMiniFlag">disputed</span> : null}
+          {row.emailed_at ? <span className="invoiceMiniFlag ok" title={dateText(row.emailed_at)}>sent</span> : null}
+          {tags.length ? (
+            <div className="invoiceMiniTags">
+              {tags.slice(0, 2).map((label) => (
+                <span key={`${row.id}-${label}`} className="invoiceTag">{label}</span>
+              ))}
+            </div>
           ) : null}
         </td>
-        <td className="invoiceListTags">
-          <div className="invoiceListTagWrap">
-            {buildInvoiceTags(row).map((label) => (
-              <span key={`${row.id}-${label}`} className="invoiceTag">{label}</span>
-            ))}
-          </div>
-        </td>
-        <td className="invoiceListNotify">
-          {row.emailed_at ? (
-            <span className="invoiceTag invoiceTagOk" title={dateText(row.emailed_at)}>
-              <i className="ti ti-mail-check" /> Sent
-            </span>
-          ) : (
-            <span className="invoiceTag invoiceTagMuted">Not sent</span>
-          )}
-        </td>
-        <td className="invoiceListDesc muted" title={row.description || ''}>
-          {truncate(row.description, 36)}
-        </td>
         <td className="invoiceListActions">
-          <div className="actions invoiceRowActions" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4 }}>
-            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => viewHtml(row.id)} title="View invoice">
-              View
+          <div className="invoiceIconActions">
+            <button type="button" className="invoiceIconBtn" disabled={isBusy} onClick={() => setViewInvoice(row)} title="View">
+              <i className="ti ti-eye" />
             </button>
-            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => downloadPdf(row.id, number)} title="Download PDF">
-              PDF
+            <button type="button" className="invoiceIconBtn" disabled={isBusy} onClick={() => viewHtml(row.id)} title="Open HTML">
+              <i className="ti ti-file-text" />
+            </button>
+            <button type="button" className="invoiceIconBtn" disabled={isBusy} onClick={() => downloadPdf(row.id, number)} title="Download PDF">
+              <i className="ti ti-download" />
             </button>
             {lifecycle.can_edit ? (
-              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => openEditInvoice(row)} title="Edit invoice">
-                Edit
+              <button type="button" className="invoiceIconBtn" disabled={isBusy} onClick={() => openEditInvoice(row)} title="Edit">
+                <i className="ti ti-pencil" />
               </button>
             ) : null}
             {lifecycle.can_void ? (
-              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => voidInvoice(row)} title="Void invoice">
-                Void
-              </button>
-            ) : lifecycle.is_locked ? (
-              lifecycle.suggested_action === 'stop_collection' ? (
-                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => stopDdCollection(row)} title="Stop DD collection">
-                  Stop DD
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn soft xs"
-                  title={lifecycle.suggested_action_label || lifecycle.lock_reason || ''}
-                  onClick={() => setError(lifecycle.suggested_action_label || lifecycle.lock_reason || 'Invoice is locked')}
-                >
-                  Locked
-                </button>
-              )
-            ) : null}
-            {!isPaid ? (
-              <>
-                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => collectInvoiceWallet(row)} title="Collect from wallet">
-                  Wallet
-                </button>
-                <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => collectInvoiceDD(row)} title="Collect via Direct Debit">
-                  DD
-                </button>
-                <button type="button" className="btn primary xs" disabled={isBusy} onClick={() => markInvoicePaid(row)} title="Mark paid">
-                  Mark paid
-                </button>
-              </>
-            ) : (
-              <span className="pill p-green">Paid</span>
-            )}
-            <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resendEmail(row.id)} title="Resend email">
-              Resend
-            </button>
-            {row.org_id ? (
-              <Link className="btn soft xs" to="/organisations/all-users" title="Open Organisation Control Center">
-                OCC
-              </Link>
-            ) : null}
-            {!row.disputed && st !== 'refunded' ? (
-              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => disputeInvoice(row)} title="Mark disputed">
-                Dispute
+              <button type="button" className="invoiceIconBtn danger" disabled={isBusy} onClick={() => voidInvoice(row)} title="Cancel invoice">
+                <i className="ti ti-x" />
               </button>
             ) : null}
-            {row.disputed ? (
-              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => resolveDispute(row)} title="Resolve dispute">
-                Resolve
+            {lifecycle.suggested_action === 'stop_collection' ? (
+              <button type="button" className="invoiceIconBtn warn" disabled={isBusy} onClick={() => stopDdCollection(row)} title="Stop DD collection">
+                <i className="ti ti-player-stop" />
               </button>
             ) : null}
-            {st !== 'refunded' ? (
-              <button type="button" className="btn soft xs" disabled={isBusy} onClick={() => bankRefund(row)} title="Log bank refund">
-                Refund
+            <div className="invoiceMoreWrap">
+              <button
+                type="button"
+                className={`invoiceIconBtn${menuOpen ? ' on' : ''}`}
+                disabled={isBusy}
+                onClick={() => setMenuOpenId(menuOpen ? '' : row.id)}
+                title="More actions"
+              >
+                <i className="ti ti-dots-vertical" />
               </button>
-            ) : null}
+              {menuOpen ? (
+                <div className="invoiceMoreMenu">
+                  {!isPaid && !isCancelled ? (
+                    <>
+                      <button type="button" onClick={() => { setMenuOpenId(''); markInvoicePaid(row) }}>Mark paid</button>
+                      <button type="button" onClick={() => { setMenuOpenId(''); collectInvoiceWallet(row) }}>Collect wallet</button>
+                      <button type="button" onClick={() => { setMenuOpenId(''); collectInvoiceDD(row) }}>Collect Direct Debit</button>
+                    </>
+                  ) : null}
+                  <button type="button" onClick={() => { setMenuOpenId(''); resendEmail(row.id) }}>Resend email</button>
+                  {row.org_id ? (
+                    <Link to={`/organisations/${encodeURIComponent(row.org_id)}/control-center`} onClick={() => setMenuOpenId('')}>
+                      Open org billing
+                    </Link>
+                  ) : null}
+                  {!row.disputed && st !== 'refunded' && !isCancelled ? (
+                    <button type="button" onClick={() => { setMenuOpenId(''); disputeInvoice(row) }}>Dispute</button>
+                  ) : null}
+                  {row.disputed ? (
+                    <button type="button" onClick={() => { setMenuOpenId(''); resolveDispute(row) }}>Resolve dispute</button>
+                  ) : null}
+                  {st !== 'refunded' && !isCancelled ? (
+                    <button type="button" onClick={() => { setMenuOpenId(''); bankRefund(row) }}>Log bank refund</button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </td>
       </tr>
@@ -599,7 +586,7 @@ export default function InvoicesAdmin() {
           <h1>Invoices</h1>
           <p>All billing invoices, printable PDF template, and VAT rates by country.</p>
           <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-            Use <strong>Edit</strong> / <strong>Void</strong> on unpaid rows below, or open <Link to="/organisations/all-users">Organisation Control Center</Link> → select org → <strong>Invoices</strong> tab for wallet credits and full billing controls.
+            Compact invoice list — use icons to view, edit, or cancel. More actions (collect, mark paid, refund) are under ⋮.
           </p>
         </div>
         <div className="actions">
@@ -639,9 +626,9 @@ export default function InvoicesAdmin() {
                     Cancellation and refund reviews awaiting admin action.
                   </div>
                 </div>
-                <Link className="btn" to="/invoices?tab=requests">
+                <button type="button" className="btn" onClick={() => setTab('requests')}>
                   View billing requests
-                </Link>
+                </button>
               </div>
             </div>
           ) : null}
@@ -706,13 +693,9 @@ export default function InvoicesAdmin() {
                       <th>Invoice</th>
                       <th>Date</th>
                       <th>Organisation</th>
-                      <th>Email</th>
                       <th>Amount</th>
                       <th>Status</th>
-                      <th>Tags</th>
-                      <th>Sent</th>
-                      <th>Description</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
+                      <th style={{ textAlign: 'right', width: 168 }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>{sortedInvoices.map(renderInvoiceRow)}</tbody>
@@ -908,10 +891,13 @@ export default function InvoicesAdmin() {
       ) : null}
 
       {editInvoice ? (
-        <div className="card" style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="card" style={{ width: 'min(420px, 92vw)' }}>
-            <div className="cardHead"><h3>Edit invoice {editInvoice.invoice_number || editInvoice.id?.slice(0, 8)}</h3></div>
-            <div className="cardBody invoiceFilterGrid">
+        <div className="invoiceModalScrim" onClick={() => !editBusy && setEditInvoice(null)}>
+          <div className="invoiceModalCard" onClick={(e) => e.stopPropagation()}>
+            <div className="invoiceModalHead">
+              <h3>Edit invoice {editInvoice.invoice_number || editInvoice.id?.slice(0, 8)}</h3>
+              <button type="button" className="invoiceIconBtn" onClick={() => setEditInvoice(null)} disabled={editBusy}><i className="ti ti-x" /></button>
+            </div>
+            <div className="invoiceModalBody">
               <label className="msgFieldBlockTight">
                 <span className="label">Amount ({editInvoice?.currency ? `${currencySymbol(editInvoice.currency)} ex VAT` : 'ex VAT'})</span>
                 <input className="input" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
@@ -924,9 +910,40 @@ export default function InvoicesAdmin() {
                 <span className="label">Description</span>
                 <input className="input" type="text" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
               </label>
-              <div className="actions">
-                <button type="button" className="btn soft" onClick={() => setEditInvoice(null)} disabled={editBusy}>Cancel</button>
-                <button type="button" className="btn primary" onClick={saveEditInvoice} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save'}</button>
+              <div className="invoiceModalActions">
+                <button type="button" className="btn soft" onClick={() => setEditInvoice(null)} disabled={editBusy}>Close</button>
+                <button type="button" className="btn primary" onClick={saveEditInvoice} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save changes'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {viewInvoice ? (
+        <div className="invoiceModalScrim" onClick={() => setViewInvoice(null)}>
+          <div className="invoiceModalCard invoiceViewCard" onClick={(e) => e.stopPropagation()}>
+            <div className="invoiceModalHead">
+              <h3>{viewInvoice.invoice_number || viewInvoice.external_invoice_id || 'Invoice'}</h3>
+              <button type="button" className="invoiceIconBtn" onClick={() => setViewInvoice(null)}><i className="ti ti-x" /></button>
+            </div>
+            <div className="invoiceModalBody invoiceViewGrid">
+              <div><span className="label">Organisation</span><strong>{viewInvoice.organisation_name || '—'}</strong></div>
+              <div><span className="label">Email</span><strong>{viewInvoice.client_email || '—'}</strong></div>
+              <div><span className="label">Amount</span><strong>{money(viewInvoice.amount_gbp_pence, viewInvoice.currency)}</strong></div>
+              <div><span className="label">Status</span><strong>{viewInvoice.status || '—'}</strong></div>
+              <div><span className="label">Created</span><strong>{dateText(viewInvoice.created_at)}</strong></div>
+              <div><span className="label">Due</span><strong>{dateShort(viewInvoice.due_date)}</strong></div>
+              <div className="invoiceViewFull"><span className="label">Description</span><strong>{viewInvoice.description || '—'}</strong></div>
+              <div className="invoiceViewFull"><span className="label">Provider / method</span><strong>{[viewInvoice.provider, viewInvoice.payment_method].filter(Boolean).join(' · ') || '—'}</strong></div>
+              <div className="invoiceModalActions invoiceViewFull">
+                <button type="button" className="btn soft" onClick={() => viewHtml(viewInvoice.id)}><i className="ti ti-file-text" /> HTML</button>
+                <button type="button" className="btn soft" onClick={() => downloadPdf(viewInvoice.id, viewInvoice.invoice_number)}><i className="ti ti-download" /> PDF</button>
+                {resolveInvoiceLifecycle(viewInvoice).can_edit ? (
+                  <button type="button" className="btn soft" onClick={() => { setViewInvoice(null); openEditInvoice(viewInvoice) }}><i className="ti ti-pencil" /> Edit</button>
+                ) : null}
+                {resolveInvoiceLifecycle(viewInvoice).can_void ? (
+                  <button type="button" className="btn soft" onClick={() => { setViewInvoice(null); voidInvoice(viewInvoice) }}><i className="ti ti-x" /> Cancel</button>
+                ) : null}
               </div>
             </div>
           </div>

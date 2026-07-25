@@ -5264,6 +5264,16 @@ def admin_void_billing_invoice(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.post("/billing/invoices/{invoice_id}/cancel")
+def admin_cancel_billing_invoice(
+    invoice_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(require_cap(CAP_BILLING)),
+):
+    """Alias of void — admin UI labels this Cancel."""
+    return admin_void_billing_invoice(invoice_id, payload, db, principal)
+
 @router.post("/billing/invoices/{invoice_id}/mark-paid")
 def admin_mark_billing_invoice_paid(
     invoice_id: str,
