@@ -43,6 +43,7 @@ import {
   queryKeys,
 } from "@/lib/queries";
 import { useSession } from "@/lib/session";
+import { useServices } from "@/lib/services";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 import { SubscriptionSummaryBar } from "@/components/billing/subscription-summary-bar";
 import type { FeedbackPackage } from "@/lib/queries";
@@ -207,6 +208,7 @@ function PackagesPage() {
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
   const { session, refetch: refetchSession } = useSession();
   const qc = useQueryClient();
+  const { visible } = useServices();
   const orgQ = useOrganisation();
   const orgCountry = String(orgQ.data?.country || "").trim();
   const pricingQ = useBillingPricing("auto", orgCountry);
@@ -216,7 +218,19 @@ function PackagesPage() {
   const subsSummaryQ = useBillingSubscriptionsSummary();
   const createTicketM = useCreateSupportTicket();
   const [topupOpen, setTopupOpen] = React.useState(false);
-  const [packagesTab, setPackagesTab] = React.useState<ServiceTab>(tabFromUrl || "core");
+  const visibleTabs = React.useMemo((): ServiceTab[] => {
+    const tabs: ServiceTab[] = ["core", "feedback"];
+    if (visible.campaigns) tabs.push("campaigns");
+    return tabs;
+  }, [visible.campaigns]);
+  const resolveTab = React.useCallback(
+    (tab: ServiceTab | undefined): ServiceTab => {
+      if (tab && visibleTabs.includes(tab)) return tab;
+      return "core";
+    },
+    [visibleTabs],
+  );
+  const [packagesTab, setPackagesTab] = React.useState<ServiceTab>(() => resolveTab(tabFromUrl));
   const [busyFeedbackPlanId, setBusyFeedbackPlanId] = React.useState<string | null>(null);
   const [coreBillingInterval, setCoreBillingInterval] = React.useState<BillingInterval>("monthly");
   const [feedbackBillingInterval, setFeedbackBillingInterval] = React.useState<BillingInterval>("monthly");
@@ -386,10 +400,8 @@ function PackagesPage() {
   const hasActiveFeedbackSub = Boolean(feedbackSub?.active && currentFeedbackPlanId);
 
   React.useEffect(() => {
-    if (tabFromUrl) {
-      setPackagesTab(tabFromUrl);
-    }
-  }, [tabFromUrl]);
+    setPackagesTab((prev) => resolveTab(tabFromUrl ?? prev));
+  }, [tabFromUrl, resolveTab]);
 
   React.useEffect(() => {
     if (!highlightPlan) return;
@@ -454,8 +466,10 @@ function PackagesPage() {
       />
 
       <Tabs value={packagesTab} onValueChange={(v) => setPackagesTab(v as ServiceTab)} className="w-full">
-        <TabsList className="grid h-auto w-full grid-cols-3 gap-1 p-1">
-          {(Object.keys(SERVICE_TABS) as ServiceTab[]).map((key) => {
+        <TabsList
+          className={`grid h-auto w-full gap-1 p-1 ${visibleTabs.length >= 3 ? "grid-cols-3" : "grid-cols-2"}`}
+        >
+          {visibleTabs.map((key) => {
             const s = SERVICE_TABS[key];
             const Icon = s.icon;
             const productActive =
@@ -481,7 +495,7 @@ function PackagesPage() {
           })}
         </TabsList>
 
-        {(Object.keys(SERVICE_TABS) as ServiceTab[]).map((key) => {
+        {visibleTabs.map((key) => {
           const s = SERVICE_TABS[key];
           const Icon = s.icon;
           return (
