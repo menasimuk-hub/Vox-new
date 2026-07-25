@@ -7,6 +7,7 @@ adapter can format it however it needs to (WhatsApp text messages vs. JSON for t
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.expo import ExpoBooth, ExpoLead, ExpoResponse, ExpoSession
 from app.services.expo.offer_delivery_service import (
+    asset_public_url,
     load_booth_assets,
     mark_lead_offer_sent,
     pick_assets_for_interest,
@@ -74,10 +76,86 @@ def _empty_step_result(
     )
 
 
+def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep catalogue / price-list style assets for the download question."""
+    kept: list[dict[str, Any]] = []
+    for a in assets:
+        blob = " ".join(
+            [
+                str(a.get("title") or ""),
+                str(a.get("short_description") or ""),
+                str(a.get("asset_key") or ""),
+                str(a.get("match_keywords") or ""),
+            ]
+        ).lower()
+        if any(
+            w in blob
+            for w in (
+                "catalogue",
+                "catalog",
+                "brochure",
+                "price",
+                "pricing",
+                "pricelist",
+                "price list",
+                "pdf",
+            )
+        ) or bool(a.get("is_default")):
+            kept.append(a)
+    return kept or list(assets)
+
+
 class ExpoSessionFlowService:
     @staticmethod
     def steps_for_booth(booth: ExpoBooth) -> list[dict[str, Any]]:
         return parse_question_config(booth.question_config_json)
+
+    @staticmethod
+    def _attach_progress(result: dict[str, Any], *, session: ExpoSession, booth: ExpoBooth | None) -> dict[str, Any]:
+        out = dict(result or {})
+        steps = ExpoSessionFlowService.steps_for_booth(booth) if booth is not None else []
+        total = max(1, len(steps))
+        idx = int(session.current_step or 0)
+        if out.get("awaiting_pick"):
+            # Product pick is an interstitial — keep the same slide number as the current step.
+            display = min(max(idx, 1), total)
+        elif out.get("done"):
+            display = total
+        else:
+            display = min(idx + 1, total) if total else 1
+        out["step_index"] = display
+        out["step_total"] = total
+        return out
+
+    @staticmethod
+    def _lead_summary(db: Session, *, session: ExpoSession, lead: ExpoLead | None) -> dict[str, Any]:
+        if lead is None:
+            lead = ExpoSessionFlowService._lead_for_session(db, session)
+        answers = (
+            db.execute(
+                select(ExpoResponse)
+                .where(ExpoResponse.session_id == session.id)
+                .order_by(ExpoResponse.step_order.asc(), ExpoResponse.created_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            "name": (lead.name if lead else None) or None,
+            "company": (lead.company if lead else None) or None,
+            "email": (lead.visitor_email if lead else None) or session.visitor_email,
+            "mobile": (lead.visitor_phone if lead else None) or session.visitor_phone,
+            "interest": (lead.interest if lead else None) or None,
+            "timeline": (lead.buying_timeline if lead else None) or None,
+            "answers": [
+                {
+                    "key": r.question_key,
+                    "answer": r.answer_text_en or r.answer_text,
+                }
+                for r in answers
+                if r.question_key and str(r.answer_text or "").strip()
+            ],
+        }
 
     @staticmethod
     def find_active_session(db: Session, *, visitor_phone: str) -> ExpoSession | None:
@@ -379,6 +457,17 @@ class ExpoSessionFlowService:
 
         session.current_step = step_index + 1
         db.add(session)
+
+        # Catalogue / price-list download step — deliver selected assets then continue.
+        if key == "consent_info" and lead is not None:
+            delivered = ExpoSessionFlowService._deliver_consent_assets(
+                db, booth=booth, lead=lead, answer=answer_en
+            )
+            db.commit()
+            result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+            if delivered:
+                result["assets"] = delivered
+            return result
 
         if key in {"interest", "need_price_list", "need_catalogue", "products_wanted"} and lead is not None:
             interest_text = answer_en
@@ -788,9 +877,110 @@ class ExpoSessionFlowService:
             lead.interest = clean
         elif key == "timeline":
             lead.buying_timeline = clean[:255]
+        elif key == "follow_up":
+            lead.follow_up_status = clean[:32] if len(clean) <= 32 else "requested"
         elif key in ("consent_info", "consent"):
-            lead.consent_acknowledged = _looks_affirmative(clean)
+            # Affirmative / any asset pick counts as interested in materials.
+            lower = clean.lower()
+            lead.consent_acknowledged = (
+                _looks_affirmative(clean)
+                or ("no thanks" not in lower and lower not in _NO_WORDS and lower != "no")
+            )
         lead.updated_at = datetime.utcnow()
+
+    @staticmethod
+    def _deliver_consent_assets(
+        db: Session,
+        *,
+        booth: ExpoBooth,
+        lead: ExpoLead,
+        answer: str,
+    ) -> list[dict[str, Any]]:
+        """Map catalogue/price-list multi-select answer to downloadable assets."""
+        lower = str(answer or "").strip().lower()
+        tokens = [t.strip() for t in re.split(r"[,|;]+", str(answer or "")) if t.strip()]
+        meaningful = [
+            t
+            for t in tokens
+            if t.lower() not in _NO_WORDS and t.lower() not in {"no thanks", "no, thanks"}
+        ]
+        if not meaningful:
+            return []
+        assets = _classify_booth_assets(load_booth_assets(db, booth.id))
+        if not assets:
+            return []
+        # Comma-separated values from multi_choice (titles, ids, or Yes).
+        if len(meaningful) == 1 and meaningful[0].lower() in _YES_WORDS | {"yes, please", "yes please"}:
+            chosen = list(assets)
+        else:
+            chosen = []
+            for a in assets:
+                aid = str(a.get("id") or "")
+                title = str(a.get("title") or "").strip().lower()
+                key = str(a.get("asset_key") or "").strip().lower()
+                for tok in meaningful:
+                    tl = tok.lower()
+                    if tl in {aid.lower(), title, key} or (title and title in tl) or (tl and tl in title):
+                        chosen.append(a)
+                        break
+            if not chosen and _looks_affirmative(lower):
+                chosen = list(assets)
+        delivered: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for asset in chosen:
+            aid = str(asset.get("id") or "")
+            if not aid or aid in seen:
+                continue
+            seen.add(aid)
+            mark_lead_offer_sent(db, lead, asset)
+            delivered.append(asset)
+        if delivered:
+            db.add(lead)
+        return delivered
+
+    @staticmethod
+    def _consent_prompt_with_assets(
+        db: Session,
+        *,
+        booth: ExpoBooth,
+        channel: str,
+        base_prompt: str,
+    ) -> dict[str, Any] | None:
+        """Build catalogue/price-list multi-select UI, or None to skip when no assets."""
+        assets = _classify_booth_assets(load_booth_assets(db, booth.id))
+        if not assets:
+            return None
+        options = [
+            {"value": str(a.get("id") or a.get("title") or ""), "label": str(a.get("title") or "Download")}
+            for a in assets
+            if a.get("id") or a.get("title")
+        ]
+        options.append({"value": "No thanks", "label": "No thanks"})
+        titles = [str(a.get("title") or "file") for a in assets[:4]]
+        named = ", ".join(titles)
+        prompt = (
+            f"Would you like our catalogue or price list? "
+            f"We have: {named}. Select what you'd like to download."
+        )
+        return {
+            "done": False,
+            "awaiting_pick": False,
+            "candidates": None,
+            "assets": [
+                {
+                    "id": a.get("id"),
+                    "title": a.get("title"),
+                    "short_description": a.get("short_description"),
+                    "kind": a.get("kind"),
+                }
+                for a in assets
+            ],
+            "prompt": prompt,
+            "question_key": "consent_info",
+            "input": "multi_choice",
+            "options": options,
+            "allow_voice": False,
+        }
 
     # ------------------------------------------------------------------
     # Hybrid asset offer (fires right after the "interest" answer)
@@ -846,20 +1036,38 @@ class ExpoSessionFlowService:
     def _next_prompt(db: Session, *, session: ExpoSession, booth: ExpoBooth, lead: ExpoLead | None) -> dict[str, Any]:
         steps = ExpoSessionFlowService.steps_for_booth(booth)
         step_index = int(session.current_step or 0)
-        if step_index >= len(steps):
-            return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
-        next_step = steps[step_index]
-        key = str(next_step.get("key") or "")
         channel = str(session.channel or "whatsapp").lower()
-        prompt = str(next_step.get("prompt") or "")
-        if channel == "web" and next_step.get("prompt_web"):
-            prompt = str(next_step.get("prompt_web") or prompt)
-        return _empty_step_result(
-            done=False,
-            prompt=prompt,
-            question_key=key,
-            channel=channel,
-        )
+
+        # Skip catalogue step when the booth has nothing to download.
+        while step_index < len(steps):
+            next_step = steps[step_index]
+            key = str(next_step.get("key") or "")
+            if key == "consent_info":
+                consent_ui = ExpoSessionFlowService._consent_prompt_with_assets(
+                    db,
+                    booth=booth,
+                    channel=channel,
+                    base_prompt=str(next_step.get("prompt_web") or next_step.get("prompt") or ""),
+                )
+                if consent_ui is None:
+                    session.current_step = step_index + 1
+                    db.add(session)
+                    step_index += 1
+                    continue
+                db.commit()
+                return consent_ui
+            prompt = str(next_step.get("prompt") or "")
+            if channel == "web" and next_step.get("prompt_web"):
+                prompt = str(next_step.get("prompt_web") or prompt)
+            return _empty_step_result(
+                done=False,
+                prompt=prompt,
+                question_key=key,
+                channel=channel,
+            )
+
+        db.commit()
+        return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
 
     @staticmethod
     def _complete(
@@ -888,12 +1096,113 @@ class ExpoSessionFlowService:
         if booth is None:
             booth = db.get(ExpoBooth, session.booth_id)
         thank = build_thank_you_message(booth.question_config_json if booth else None)
+        summary = ExpoSessionFlowService._lead_summary(db, session=session, lead=lead)
         db.commit()
-        return _empty_step_result(done=True, prompt=thank)
+        out = _empty_step_result(done=True, prompt=thank)
+        out["summary"] = summary
+        return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
 
     @staticmethod
     def stop(db: Session, *, session: ExpoSession) -> dict[str, Any]:
-        """Visitor sent a STOP-family keyword — end the session politely, same as normal completion."""
+        """Visitor stopped mid-flow — keep collected data, mark completed, return summary."""
         lead = ExpoSessionFlowService._lead_for_session(db, session)
         booth = db.get(ExpoBooth, session.booth_id)
+        if session.status != "active":
+            out = _empty_step_result(done=True, prompt=THANK_YOU_TEXT)
+            out["summary"] = ExpoSessionFlowService._lead_summary(db, session=session, lead=lead)
+            return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
         return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
+
+    @staticmethod
+    def go_back(db: Session, *, session: ExpoSession) -> dict[str, Any]:
+        """Rewind one questionnaire step (web Back). Keeps lead data; removes last answer row."""
+        if session.status != "active":
+            return ExpoSessionFlowService.stop(db, session=session)
+
+        booth = db.get(ExpoBooth, session.booth_id)
+        if booth is None:
+            return ExpoSessionFlowService.stop(db, session=session)
+
+        lead = ExpoSessionFlowService._lead_for_session(db, session)
+        state = ExpoSessionFlowService._load_state(session)
+        channel = str(session.channel or "whatsapp").lower()
+
+        # Cancel interstitial product pick without losing the interest answer.
+        if state.get("pending_asset_pick"):
+            state.pop("pending_asset_pick", None)
+            ExpoSessionFlowService._save_state(session, state)
+            db.add(session)
+            db.commit()
+            return ExpoSessionFlowService._attach_progress(
+                ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead),
+                session=session,
+                booth=booth,
+            )
+
+        step_index = int(session.current_step or 0)
+        steps = ExpoSessionFlowService.steps_for_booth(booth)
+
+        if step_index <= 0:
+            # Already on contact — reset contact UI for re-edit.
+            state["contact_substep"] = "awaiting"
+            ExpoSessionFlowService._save_state(session, state)
+            session.current_step = 0
+            db.add(session)
+            db.commit()
+            prompt = contact_prompt_for_mode(parse_contact_capture(booth.question_config_json), channel=channel)
+            out = _empty_step_result(
+                done=False,
+                prompt=prompt,
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="awaiting",
+                channel=channel,
+            )
+            out["at_start"] = True
+            return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
+
+        # Delete the answer that advanced us onto the current step.
+        prev_index = step_index - 1
+        prev_key = str(steps[prev_index].get("key") or "") if prev_index < len(steps) else ""
+        last = (
+            db.execute(
+                select(ExpoResponse)
+                .where(ExpoResponse.session_id == session.id)
+                .order_by(ExpoResponse.created_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if last is not None and (not prev_key or last.question_key == prev_key or last.question_key == CONTACT_STEP_KEY):
+            db.delete(last)
+
+        session.current_step = prev_index
+        db.add(session)
+
+        if prev_key == CONTACT_STEP_KEY or prev_index == 0:
+            state["contact_substep"] = "confirm"
+            ExpoSessionFlowService._save_state(session, state)
+            db.commit()
+            out = _empty_step_result(
+                done=False,
+                prompt=CONTACT_CONFIRM_PROMPT,
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="confirm",
+                channel=channel,
+            )
+            if lead is not None:
+                out["card_fields"] = {
+                    "name": lead.name,
+                    "company": lead.company,
+                    "email": lead.visitor_email,
+                    "phone": lead.visitor_phone,
+                }
+            return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
+
+        db.commit()
+        result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+        return ExpoSessionFlowService._attach_progress(result, session=session, booth=booth)
+
+    # ------------------------------------------------------------------
+    # Hybrid asset offer helpers already defined above
+    # ------------------------------------------------------------------

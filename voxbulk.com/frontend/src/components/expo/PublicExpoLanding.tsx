@@ -30,6 +30,8 @@ type ExpoPublicPayload = {
   logo_url?: string | null;
   contact_capture?: string;
   questions?: ExpoQuestion[];
+  assets?: ExpoAsset[];
+  step_total?: number;
   booth?: {
     name?: string;
     company_display_name?: string;
@@ -37,7 +39,26 @@ type ExpoPublicPayload = {
     is_expired?: boolean;
     closed_message?: string | null;
     contact_capture?: string;
+    question_count?: number;
   };
+};
+
+type ExpoAsset = {
+  id?: string;
+  title?: string;
+  short_description?: string;
+  kind?: string;
+  url?: string;
+};
+
+type ExpoSummary = {
+  name?: string | null;
+  company?: string | null;
+  email?: string | null;
+  mobile?: string | null;
+  interest?: string | null;
+  timeline?: string | null;
+  answers?: Array<{ key?: string; answer?: string }>;
 };
 
 type AdvanceResult = {
@@ -52,9 +73,13 @@ type AdvanceResult = {
   allow_voice?: boolean;
   awaiting_pick?: boolean;
   candidates?: Array<{ id?: string; title?: string; short_description?: string }>;
-  assets?: unknown;
+  assets?: ExpoAsset[] | unknown;
   card_fields?: Record<string, string | null>;
   error?: string;
+  summary?: ExpoSummary;
+  at_start?: boolean;
+  step_index?: number;
+  step_total?: number;
 };
 
 type Phase = "loading" | "error" | "choose" | "web" | "thanks" | "closed";
@@ -199,9 +224,15 @@ export function PublicExpoLanding({
   const [cardPreview, setCardPreview] = useState<string | null>(null);
   const [cardFile, setCardFile] = useState<File | null>(null);
   const [candidates, setCandidates] = useState<Array<{ id?: string; title?: string; short_description?: string }>>([]);
-  const [stepCount, setStepCount] = useState(1);
+  const [progressIndex, setProgressIndex] = useState(1);
+  const [progressTotal, setProgressTotal] = useState(6);
+  const [selectedValues, setSelectedValues] = useState<string[]>([]);
+  const [downloadAssets, setDownloadAssets] = useState<ExpoAsset[]>([]);
+  const [summary, setSummary] = useState<ExpoSummary | null>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceDetailHandle>(null);
+  const sessionIdRef = useRef("");
+  sessionIdRef.current = sessionId;
 
   const questions = useMemo(
     () => (payload?.questions || []).filter((q) => q.key !== "contact"),
@@ -252,6 +283,24 @@ export function PublicExpoLanding({
     if (res.session_id) setSessionId(String(res.session_id));
     if (res.error) setError(String(res.error));
     else setError("");
+    if (typeof res.step_index === "number" && res.step_index > 0) setProgressIndex(res.step_index);
+    if (typeof res.step_total === "number" && res.step_total > 0) setProgressTotal(res.step_total);
+    if (res.summary) setSummary(res.summary);
+    if (Array.isArray(res.assets) && res.assets.length) {
+      const next = (res.assets as ExpoAsset[]).filter((a) => a && (a.url || a.id));
+      if (next.length) setDownloadAssets((prev) => {
+        const seen = new Set(prev.map((p) => p.id || p.url));
+        const merged = [...prev];
+        for (const a of next) {
+          const k = a.id || a.url;
+          if (k && !seen.has(k)) {
+            seen.add(k);
+            merged.push(a);
+          }
+        }
+        return merged;
+      });
+    }
     if (res.done) {
       setPhase("thanks");
       return;
@@ -267,7 +316,7 @@ export function PublicExpoLanding({
         allow_voice: false,
       });
       setSelectedValue("");
-      setStepCount((n) => n + 1);
+      setSelectedValues([]);
       return;
     }
 
@@ -290,7 +339,6 @@ export function PublicExpoLanding({
         }
       } else {
         setWebStep("contact");
-        // OCR failed / still collecting — allow typed fields even if a photo was tried
         if (sub === "awaiting" || sub === "card_retry" || !res.card_fields) {
           setCardFile(null);
         }
@@ -300,6 +348,7 @@ export function PublicExpoLanding({
       }
       setLiveQ(null);
       setSelectedValue("");
+      setSelectedValues([]);
       setTextAnswer("");
       setCandidates([]);
       return;
@@ -314,9 +363,9 @@ export function PublicExpoLanding({
       allow_voice: Boolean(res.allow_voice),
     });
     setSelectedValue("");
+    setSelectedValues([]);
     setTextAnswer("");
     setCandidates([]);
-    setStepCount((n) => n + 1);
   }, []);
 
   const startWeb = useCallback(async () => {
@@ -326,12 +375,89 @@ export function PublicExpoLanding({
     setLiveQ(null);
     setSessionId("");
     setSelectedValue("");
+    setSelectedValues([]);
     setTextAnswer("");
     setCardFile(null);
     setCardPreview(null);
-    setStepCount(1);
+    setProgressIndex(1);
+    setProgressTotal(
+      Math.max(2, payload?.step_total || payload?.booth?.question_count || questions.length + 1),
+    );
+    setDownloadAssets([]);
+    setSummary(null);
     setContact({ name: "", company: "", mobile: "", email: "" });
-  }, []);
+  }, [payload?.booth?.question_count, payload?.step_total, questions.length]);
+
+  const stopAndFinish = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid || preview) {
+      setPhase("thanks");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await apiFetch<AdvanceResult>(
+        `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sid)}/stop`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      applyAdvance(res);
+    } catch {
+      setPhase("thanks");
+    } finally {
+      setBusy(false);
+    }
+  }, [applyAdvance, preview, token]);
+
+  const handleBack = useCallback(async () => {
+    if (busy) return;
+    if (webStep === "contact") {
+      if (sessionId) await stopAndFinish();
+      else setPhase("choose");
+      return;
+    }
+    if (preview) {
+      if (webStep === "confirm") setWebStep("contact");
+      else if (webStep === "pick") setWebStep("question");
+      else setWebStep("contact");
+      setProgressIndex((n) => Math.max(1, n - 1));
+      return;
+    }
+    if (!sessionId) {
+      setPhase("choose");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await apiFetch<AdvanceResult>(
+        `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sessionId)}/back`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      applyAdvance(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not go back");
+    } finally {
+      setBusy(false);
+    }
+  }, [applyAdvance, busy, preview, sessionId, stopAndFinish, token, webStep]);
+
+  useEffect(() => {
+    if (preview || phase !== "web") return;
+    const onLeave = () => {
+      const sid = sessionIdRef.current;
+      if (!sid) return;
+      try {
+        const url = `${getApiBaseUrl().replace(/\/+$/, "")}/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sid)}/stop`;
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(url, new Blob(["{}"], { type: "application/json" }));
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener("pagehide", onLeave);
+    return () => window.removeEventListener("pagehide", onLeave);
+  }, [phase, preview, token]);
 
   const submitCardOrContact = useCallback(async () => {
     if (preview) {
@@ -577,6 +703,14 @@ export function PublicExpoLanding({
   }
 
   if (phase === "thanks") {
+    const rows = [
+      summary?.name ? ["Name", summary.name] : null,
+      summary?.company ? ["Company", summary.company] : null,
+      summary?.mobile && !String(summary.mobile).startsWith("web-pending") ? ["Mobile", summary.mobile] : null,
+      summary?.email && summary.email !== "pending@expo.local" ? ["Email", summary.email] : null,
+      summary?.interest ? ["Interest", summary.interest] : null,
+      summary?.timeline ? ["Timeline", summary.timeline] : null,
+    ].filter(Boolean) as Array<[string, string]>;
     return (
       <div className="feedback-survey-root">
         <main
@@ -615,6 +749,44 @@ export function PublicExpoLanding({
             >
               {copy.thankYouSubtitle}
             </p>
+            {rows.length ? (
+              <div
+                className="animate-confetti-rise mt-5 rounded-2xl border p-4 text-left shadow-soft"
+                style={{
+                  animationDelay: "300ms",
+                  background: theme.card,
+                  borderColor: theme.border,
+                }}
+              >
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: theme.sub }}>
+                  We saved
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {rows.map(([label, value]) => (
+                    <li key={label} className="text-[13px]">
+                      <span style={{ color: theme.sub }}>{label}: </span>
+                      <span style={{ color: theme.ink }}>{value}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {downloadAssets.length ? (
+              <div className="animate-confetti-rise mt-4 grid gap-2" style={{ animationDelay: "360ms" }}>
+                {downloadAssets.map((a) => (
+                  <a
+                    key={a.id || a.url}
+                    href={a.url || "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-lift"
+                    style={{ background: theme.gradientButton }}
+                  >
+                    Download {a.title || "file"}
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </div>
         </main>
       </div>
@@ -622,14 +794,7 @@ export function PublicExpoLanding({
   }
 
   if (phase === "web") {
-    const progressTotal = Math.max(2, questions.length + 1);
-    const progressIndex =
-      webStep === "contact" || webStep === "confirm"
-        ? 0
-        : webStep === "pick"
-          ? progressTotal - 1
-          : Math.min(stepCount, progressTotal - 1);
-    const progressPct = Math.round(((progressIndex + 1) / progressTotal) * 100);
+    const progressPct = Math.round((progressIndex / Math.max(1, progressTotal)) * 100);
     const displayPrompt =
       webStep === "contact"
         ? contactCapture === "card_only"
@@ -640,6 +805,7 @@ export function PublicExpoLanding({
           : webStep === "pick"
             ? liveQ?.prompt || "Which would you like?"
             : liveQ?.prompt || "";
+    const isMulti = liveQ?.input === "multi_choice";
 
     return (
       <div className="feedback-survey-root">
@@ -677,7 +843,7 @@ export function PublicExpoLanding({
                 </div>
               </div>
               <span className="text-[11px] font-medium" style={{ color: theme.sub }}>
-                {progressIndex + 1} / {progressTotal}
+                {progressIndex} / {progressTotal}
               </span>
             </div>
 
@@ -710,10 +876,23 @@ export function PublicExpoLanding({
                       <button
                         type="button"
                         onClick={() => cardInputRef.current?.click()}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed px-4 py-3.5 text-[14px] font-medium shadow-soft"
-                        style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
+                        className="flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-6 text-[15px] font-semibold shadow-lift transition-transform active:scale-[0.98]"
+                        style={{
+                          background: theme.gradientButton,
+                          borderColor: "transparent",
+                          color: "#fff",
+                          boxShadow: theme.selectedShadow,
+                        }}
                       >
-                        {cardPreview ? "Retake / change business card" : "Camera · take or upload business card"}
+                        <span className="text-2xl" aria-hidden>
+                          📷
+                        </span>
+                        <span>
+                          {cardPreview ? "Retake / change business card" : "Take photo of business card"}
+                        </span>
+                        <span className="text-[12px] font-medium opacity-90">
+                          Camera or upload — we read the details for you
+                        </span>
                       </button>
                     ) : null}
                     {cardPreview ? (
@@ -783,7 +962,8 @@ export function PublicExpoLanding({
                 ) : null}
 
                 {webStep === "question" && liveQ ? (
-                  liveQ.input === "choice" && liveQ.options.length > 0 ? (
+                  liveQ.input === "choice" || liveQ.input === "multi_choice" ? (
+                    liveQ.options.length > 0 ? (
                     <>
                       <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
                         Question
@@ -791,15 +971,34 @@ export function PublicExpoLanding({
                       <h1 className="font-display text-[28px] leading-[1.15] sm:text-[32px]" style={{ color: theme.ink }}>
                         {liveQ.prompt}
                       </h1>
+                      {isMulti ? (
+                        <p className="text-[12.5px]" style={{ color: theme.sub }}>
+                          Select all that apply
+                        </p>
+                      ) : null}
                       <div className="mt-2 grid gap-2.5">
                         {liveQ.options.map((opt) => {
-                          const selected = selectedValue === opt.value;
+                          const selected = isMulti
+                            ? selectedValues.includes(opt.value)
+                            : selectedValue === opt.value;
                           return (
                             <button
                               key={opt.value}
                               type="button"
                               disabled={busy}
-                              onClick={() => setSelectedValue(opt.value)}
+                              onClick={() => {
+                                if (!isMulti) {
+                                  setSelectedValue(opt.value);
+                                  return;
+                                }
+                                const isNo = /no thanks|^no$/i.test(opt.value);
+                                setSelectedValues((prev) => {
+                                  if (isNo) return selected ? [] : [opt.value];
+                                  const withoutNo = prev.filter((v) => !/no thanks|^no$/i.test(v));
+                                  if (selected) return withoutNo.filter((v) => v !== opt.value);
+                                  return [...withoutNo, opt.value];
+                                });
+                              }}
                               className="group flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-[15px] font-medium transition-all active:scale-[0.98] disabled:opacity-50"
                               style={
                                 selected
@@ -840,7 +1039,41 @@ export function PublicExpoLanding({
                           );
                         })}
                       </div>
+                      {downloadAssets.length && liveQ.key === "consent_info" ? (
+                        <div className="mt-3 grid gap-2">
+                          {downloadAssets.map((a) => (
+                            <a
+                              key={a.id || a.url}
+                              href={a.url || "#"}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="rounded-xl border px-3 py-2 text-left text-[13px] font-medium"
+                              style={{ background: theme.card, borderColor: theme.border, color: theme.accent }}
+                            >
+                              ⬇ {a.title || "Download"}
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
                     </>
+                    ) : (
+                      <VoiceDetail
+                        ref={voiceRef}
+                        theme={theme}
+                        eyebrow="Question"
+                        title={liveQ.prompt}
+                        hint={
+                          liveQ.allow_voice
+                            ? "Type in English, or record a voice note in any language — we translate to English."
+                            : "Type your answer."
+                        }
+                        text={textAnswer}
+                        onTextChange={setTextAnswer}
+                        allowVoice={Boolean(liveQ.allow_voice)}
+                        disabled={busy}
+                        placeholder="Your answer…"
+                      />
+                    )
                   ) : (
                     <VoiceDetail
                       ref={voiceRef}
@@ -913,13 +1146,9 @@ export function PublicExpoLanding({
             <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => {
-                  if (webStep === "contact") setPhase("choose");
-                  else if (webStep === "confirm") setWebStep("contact");
-                  else if (webStep === "pick") setWebStep("question");
-                  else setWebStep("contact");
-                }}
-                className="inline-flex h-12 items-center gap-1.5 rounded-full border px-4 text-sm font-medium shadow-soft transition-all active:scale-[0.97]"
+                disabled={busy}
+                onClick={() => void handleBack()}
+                className="inline-flex h-12 items-center gap-1.5 rounded-full border px-4 text-sm font-medium shadow-soft transition-all active:scale-[0.97] disabled:opacity-40"
                 style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
               >
                 <svg
@@ -943,6 +1172,7 @@ export function PublicExpoLanding({
                   if (webStep === "contact") void submitCardOrContact();
                   else if (webStep === "confirm") void submitConfirmContact();
                   else if (webStep === "pick") void submitAnswer(selectedValue);
+                  else if (liveQ?.input === "multi_choice") void submitAnswer(selectedValues.join(", "));
                   else if (liveQ?.input === "choice") void submitAnswer(selectedValue);
                   else if (liveQ?.allow_voice) void submitVoice();
                   else void submitAnswer(textAnswer);

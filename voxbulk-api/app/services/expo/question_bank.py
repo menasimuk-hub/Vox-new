@@ -66,16 +66,16 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     },
     {
         "key": "follow_up",
-        "prompt": "How should we follow up after the show?",
+        "prompt": "How should we follow up after the show? (you can pick more than one)",
         "label": "Follow-up preference",
         "description": "Preferred contact channel after the show.",
         "matches_products": False,
     },
     {
         "key": "consent_info",
-        "prompt": "Can we send you product info and special offers? (Yes / No)",
-        "label": "Marketing consent",
-        "description": "GDPR-style consent for offers.",
+        "prompt": "Would you like our catalogue or price list?",
+        "label": "Catalogue / price list",
+        "description": "Shown when the booth has catalogue or price-list files — visitor can download what they want.",
         "matches_products": False,
     },
     # Optional extras (not selected by default)
@@ -154,8 +154,8 @@ WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
         {"value": "Call", "label": "Call"},
     ],
     "consent_info": [
-        {"value": "Yes", "label": "Yes"},
-        {"value": "No", "label": "No"},
+        {"value": "Yes", "label": "Yes, please"},
+        {"value": "No", "label": "No thanks"},
     ],
     "need_price_list": [
         {"value": "Yes", "label": "Yes"},
@@ -185,13 +185,17 @@ WEB_VOICE_KEYS = frozenset(
     }
 )
 
+# Multi-select on Expo web (visitor can pick several options).
+WEB_MULTI_CHOICE_KEYS = frozenset({"follow_up"})
+
 
 def web_ui_for_question_key(key: str) -> dict[str, Any]:
     """Return input type + options for Expo public web questions."""
     k = str(key or "").strip()
     opts = WEB_CHOICE_OPTIONS.get(k)
     if opts:
-        return {"input": "choice", "options": list(opts), "allow_voice": False}
+        input_kind = "multi_choice" if k in WEB_MULTI_CHOICE_KEYS else "choice"
+        return {"input": input_kind, "options": list(opts), "allow_voice": False}
     if k == CONTACT_STEP_KEY:
         return {"input": "contact", "options": [], "allow_voice": False}
     return {"input": "text", "options": [], "allow_voice": k in WEB_VOICE_KEYS or k not in WEB_CHOICE_OPTIONS}
