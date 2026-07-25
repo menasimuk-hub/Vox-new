@@ -34,7 +34,8 @@ _OFFER_KEYWORD_RE = re.compile(
 )
 _STOP_RE = re.compile(r"\b(stop|unsubscribe|opt\s*out|leave\s*me\s*alone|do\s*not\s*contact|dont\s*contact)\b", re.I)
 _HELP_RE = re.compile(
-    r"\b(help|can't|cannot|dont\s*know|don't\s*know|how\s*do|confused|issue|problem|broken|stuck|support)\b",
+    r"\b(help|can't|cannot|dont\s*know|don't\s*know|how\s*do|confused|issue|broken|stuck|support)\b"
+    r"|\b(?<!no\s)problem\b",
     re.I,
 )
 

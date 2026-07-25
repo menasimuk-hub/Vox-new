@@ -842,14 +842,23 @@ class TelnyxInboundMessagingService:
                     extra={"body": inbound_text[:120]},
                 )
                 try:
+                    from app.services.expo.session_flow_service import ExpoSessionFlowService
                     from app.services.sales_automation_service import SalesAutomationService
 
-                    SalesAutomationService.handle_inbound_whatsapp(
-                        db,
-                        from_phone=from_norm or from_number,
-                        body=body,
-                        log_id=row.id,
-                    )
+                    sales_phone = from_norm or from_number or ""
+                    if ExpoSessionFlowService.phone_has_recent_expo_activity(db, visitor_phone=sales_phone):
+                        logger.info(
+                            "sales_skipped_recent_expo from=%r body=%r",
+                            sales_phone,
+                            (inbound_text or "")[:80],
+                        )
+                    else:
+                        SalesAutomationService.handle_inbound_whatsapp(
+                            db,
+                            from_phone=sales_phone,
+                            body=body,
+                            log_id=row.id,
+                        )
                 except Exception:
                     pass
 

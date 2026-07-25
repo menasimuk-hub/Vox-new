@@ -65,6 +65,27 @@ class ExpoSessionFlowService:
         ).scalar_one_or_none()
 
     @staticmethod
+    def phone_has_recent_expo_activity(db: Session, *, visitor_phone: str, *, hours: int = 24) -> bool:
+        """True when this phone recently ran an Expo booth chat (active or just completed).
+
+        Used to keep post-questionnaire replies (e.g. “No problem”) from falling into
+        sales-automation keyword handlers on the shared WhatsApp line.
+        """
+        phone = str(visitor_phone or "").strip()
+        if not phone:
+            return False
+        cutoff = datetime.utcnow() - timedelta(hours=max(1, int(hours or 24)))
+        row = db.execute(
+            select(ExpoSession.id)
+            .where(
+                ExpoSession.visitor_phone == phone,
+                ExpoSession.started_at >= cutoff,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        return row is not None
+
+    @staticmethod
     def _lead_for_session(db: Session, session: ExpoSession) -> ExpoLead | None:
         return db.execute(select(ExpoLead).where(ExpoLead.session_id == session.id)).scalar_one_or_none()
 

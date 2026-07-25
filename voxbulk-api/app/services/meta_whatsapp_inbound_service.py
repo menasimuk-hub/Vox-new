@@ -361,14 +361,23 @@ def _route_inbound_handlers(
         and not handled_expo
     ):
         try:
-            from app.services.sales_automation_service import SalesAutomationService
+            from app.services.expo.session_flow_service import ExpoSessionFlowService
 
-            SalesAutomationService.handle_inbound_whatsapp(
-                db,
-                from_phone=from_phone,
-                body=inbound_text,
-                log_id=log_id,
-            )
+            if ExpoSessionFlowService.phone_has_recent_expo_activity(db, visitor_phone=from_phone):
+                logger.info(
+                    "meta_sales_skipped_recent_expo from=%r body=%r",
+                    from_phone,
+                    (inbound_text or "")[:80],
+                )
+            else:
+                from app.services.sales_automation_service import SalesAutomationService
+
+                SalesAutomationService.handle_inbound_whatsapp(
+                    db,
+                    from_phone=from_phone,
+                    body=inbound_text,
+                    log_id=log_id,
+                )
         except Exception:
             pass
 
