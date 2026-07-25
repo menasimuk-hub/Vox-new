@@ -74,7 +74,7 @@ class ExpoSessionFlowService:
         ).scalar_one_or_none()
 
     @staticmethod
-    def phone_has_recent_expo_activity(db: Session, *, visitor_phone: str, *, hours: int = 24) -> bool:
+    def phone_has_recent_expo_activity(db: Session, *, visitor_phone: str, hours: int = 24) -> bool:
         """True when this phone recently ran an Expo booth chat (active or just completed).
 
         Used to keep post-questionnaire replies (e.g. “No problem”) from falling into
