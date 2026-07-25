@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -309,11 +309,24 @@ class ExpoBoothService:
 
     @staticmethod
     def list_booths(db: Session, *, org_id: str, owner_user_id: str | None = None) -> list[dict[str, Any]]:
+        import logging
+
         q = select(ExpoBooth).where(ExpoBooth.org_id == org_id).order_by(ExpoBooth.created_at.desc())
         if owner_user_id:
-            q = q.where(ExpoBooth.created_by_user_id == owner_user_id)
+            # Members see their own booths; also include legacy rows with no owner stamp
+            q = q.where(
+                or_(ExpoBooth.created_by_user_id == owner_user_id, ExpoBooth.created_by_user_id.is_(None))
+            )
         rows = db.execute(q).scalars().all()
-        return [ExpoBoothService.serialize_booth(db, b) for b in rows]
+        items: list[dict[str, Any]] = []
+        for booth in rows:
+            try:
+                items.append(ExpoBoothService.serialize_booth(db, booth))
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "expo_serialize_booth_failed booth_id=%s err=%s", booth.id, str(exc)[:200]
+                )
+        return items
 
     @staticmethod
     def create_booth(

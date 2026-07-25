@@ -34,7 +34,7 @@ import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { waIndustryIcon } from "@/lib/wa-industry-icon";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
@@ -93,6 +93,7 @@ export const Route = createFileRoute("/_app/expo/new")({
 
 function CreateExpoBooth() {
   const { session } = useSession();
+  const queryClient = useQueryClient();
   const role = normalizeOrgRole(session?.profile?.role);
   const canCreate = canLaunchCampaigns(role);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -259,10 +260,6 @@ function CreateExpoBooth() {
         : draftReady
           ? [{ ...draft, id: newAssetId() }]
           : [];
-    if (!assets.length) {
-      toast.error("Add at least one product file or link");
-      return;
-    }
     setSaving(true);
     try {
       const keys = [...selectedQKeys];
@@ -299,7 +296,16 @@ function CreateExpoBooth() {
       });
       setCreated(res.item);
       setStep(7);
-      toast.success("Expo booth activated");
+      // Seed Saved booths cache so the new QR appears immediately
+      queryClient.setQueryData<{ ok: boolean; items: Array<typeof res.item> }>(["expo", "booths"], (prev) => {
+        const items = prev?.items ? [...prev.items] : [];
+        if (!items.some((b) => b.id === res.item.id)) {
+          items.unshift(res.item);
+        }
+        return { ok: true, items };
+      });
+      await queryClient.invalidateQueries({ queryKey: ["expo"] });
+      toast.success("Expo booth activated — saved under Saved booths");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create booth");
     } finally {

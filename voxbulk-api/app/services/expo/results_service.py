@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -15,13 +16,39 @@ from app.models.expo import ExpoBooth, ExpoExhibition, ExpoLead, ExpoResponse, E
 _EMPTY_SUMMARY: dict[str, Any] = {
     "ok": True,
     "scans": 0,
+    "scans_today": 0,
+    "scans_yesterday": 0,
     "sessions_started": 0,
+    "sessions_today": 0,
     "completed_leads": 0,
+    "leads_today": 0,
+    "leads_yesterday": 0,
     "hot": 0,
     "warm": 0,
     "cold": 0,
     "offers_sent": 0,
+    "booths_total": 0,
+    "booths_live": 0,
+    "daily": [],
 }
+
+
+def _london_day_window(*, days_ago: int = 0, now: datetime | None = None) -> tuple[datetime, datetime]:
+    """Return naive-UTC [start, end) for a London calendar day (0 = today)."""
+    from datetime import time, timedelta
+    from zoneinfo import ZoneInfo
+
+    london = ZoneInfo("Europe/London")
+    utc = ZoneInfo("UTC")
+    stamp = now or datetime.now(utc)
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=utc)
+    local = stamp.astimezone(london) - timedelta(days=max(0, int(days_ago)))
+    start_local = datetime.combine(local.date(), time.min, tzinfo=london)
+    end_local = start_local + timedelta(days=1)
+    start = start_local.astimezone(utc).replace(tzinfo=None)
+    end = end_local.astimezone(utc).replace(tzinfo=None)
+    return start, end
 
 
 class ExpoResultsService:
@@ -48,18 +75,18 @@ class ExpoResultsService:
         booth_id: str | None = None,
         created_by_user_id: str | None = None,
     ) -> dict[str, Any]:
+        from app.services.expo.booth_service import booth_is_expired
+
         booth_ids = ExpoResultsService._booth_ids_for_org(
             db, org_id, booth_id=booth_id, created_by_user_id=created_by_user_id
         )
         if not booth_ids:
             return dict(_EMPTY_SUMMARY)
 
-        scans = int(
-            db.execute(
-                select(func.coalesce(func.sum(ExpoBooth.scan_count), 0)).where(ExpoBooth.id.in_(booth_ids))
-            ).scalar()
-            or 0
-        )
+        booths = db.execute(select(ExpoBooth).where(ExpoBooth.id.in_(booth_ids))).scalars().all()
+        scans = int(sum(int(b.scan_count or 0) for b in booths))
+        booths_live = sum(1 for b in booths if not booth_is_expired(b) and str(b.status or "").lower() == "active")
+
         sessions_started = int(
             db.execute(
                 select(func.count()).select_from(ExpoSession).where(ExpoSession.booth_id.in_(booth_ids))
@@ -68,15 +95,102 @@ class ExpoResultsService:
         )
         leads = db.execute(select(ExpoLead).where(ExpoLead.booth_id.in_(booth_ids))).scalars().all()
 
+        today_start, today_end = _london_day_window(days_ago=0)
+        yday_start, yday_end = _london_day_window(days_ago=1)
+
+        sessions_today = int(
+            db.execute(
+                select(func.count())
+                .select_from(ExpoSession)
+                .where(
+                    ExpoSession.booth_id.in_(booth_ids),
+                    ExpoSession.started_at >= today_start,
+                    ExpoSession.started_at < today_end,
+                )
+            ).scalar()
+            or 0
+        )
+        sessions_yesterday = int(
+            db.execute(
+                select(func.count())
+                .select_from(ExpoSession)
+                .where(
+                    ExpoSession.booth_id.in_(booth_ids),
+                    ExpoSession.started_at >= yday_start,
+                    ExpoSession.started_at < yday_end,
+                )
+            ).scalar()
+            or 0
+        )
+        leads_today = sum(
+            1
+            for lead in leads
+            if lead.created_at and today_start <= lead.created_at < today_end
+        )
+        leads_yesterday = sum(
+            1
+            for lead in leads
+            if lead.created_at and yday_start <= lead.created_at < yday_end
+        )
+
+        # Prefer session starts as "scans today" (each visitor chat open); fall back stays consistent with total.
+        scans_today = sessions_today
+        scans_yesterday = sessions_yesterday
+
+        daily: list[dict[str, Any]] = []
+        for ago in range(6, -1, -1):
+            start, end = _london_day_window(days_ago=ago)
+            day_sessions = int(
+                db.execute(
+                    select(func.count())
+                    .select_from(ExpoSession)
+                    .where(
+                        ExpoSession.booth_id.in_(booth_ids),
+                        ExpoSession.started_at >= start,
+                        ExpoSession.started_at < end,
+                    )
+                ).scalar()
+                or 0
+            )
+            day_leads = sum(
+                1 for lead in leads if lead.created_at and start <= lead.created_at < end
+            )
+            day_hot = sum(
+                1
+                for lead in leads
+                if lead.lead_score == "hot" and lead.created_at and start <= lead.created_at < end
+            )
+            from zoneinfo import ZoneInfo
+
+            london = ZoneInfo("Europe/London")
+            utc = ZoneInfo("UTC")
+            label = start.replace(tzinfo=utc).astimezone(london).strftime("%a")
+            daily.append(
+                {
+                    "day": label,
+                    "scans": day_sessions,
+                    "leads": day_leads,
+                    "hot": day_hot,
+                }
+            )
+
         return {
             "ok": True,
             "scans": scans,
+            "scans_today": scans_today,
+            "scans_yesterday": scans_yesterday,
             "sessions_started": sessions_started,
+            "sessions_today": sessions_today,
             "completed_leads": sum(1 for lead in leads if lead.lead_score),
+            "leads_today": leads_today,
+            "leads_yesterday": leads_yesterday,
             "hot": sum(1 for lead in leads if lead.lead_score == "hot"),
             "warm": sum(1 for lead in leads if lead.lead_score == "warm"),
             "cold": sum(1 for lead in leads if lead.lead_score == "cold"),
             "offers_sent": sum(1 for lead in leads if lead.offer_sent_at is not None),
+            "booths_total": len(booths),
+            "booths_live": booths_live,
+            "daily": daily,
         }
 
     @staticmethod

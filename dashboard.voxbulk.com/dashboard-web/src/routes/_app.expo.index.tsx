@@ -1,7 +1,34 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Download, Eye, Plus, QrCode, Trash2 } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  Download,
+  Eye,
+  Flame,
+  Minus,
+  Plus,
+  QrCode,
+  Trash2,
+  User,
+  Mail,
+} from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { PageHeader } from "@/components/page-header";
 import {
@@ -19,7 +46,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
 
 type ExpoBooth = {
   id: string;
@@ -39,35 +66,54 @@ type ExpoBooth = {
   activated_at?: string | null;
 };
 
+type ExpoSummary = {
+  ok?: boolean;
+  scans: number;
+  scans_today?: number;
+  scans_yesterday?: number;
+  sessions_started: number;
+  sessions_today?: number;
+  completed_leads: number;
+  leads_today?: number;
+  leads_yesterday?: number;
+  hot: number;
+  warm: number;
+  cold: number;
+  offers_sent: number;
+  booths_total?: number;
+  booths_live?: number;
+  daily?: Array<{ day: string; scans: number; leads: number; hot: number }>;
+};
+
 export const Route = createFileRoute("/_app/expo/")({
   head: () => ({ meta: [{ title: "Saved Expo booths — VoxBulk" }] }),
   component: ExpoHub,
 });
+
+function deltaMeta(today: number, yesterday: number) {
+  const diff = today - yesterday;
+  if (diff > 0) return { trend: "up" as const, labelDelta: `+${diff} vs yesterday` };
+  if (diff < 0) return { trend: "down" as const, labelDelta: `${diff} vs yesterday` };
+  return { trend: "flat" as const, labelDelta: "Same as yesterday" };
+}
 
 function ExpoHub() {
   const queryClient = useQueryClient();
   const boothsQ = useQuery({
     queryKey: ["expo", "booths"],
     queryFn: () => apiFetch<{ ok: boolean; items: ExpoBooth[] }>("/expo/booths"),
+    refetchOnMount: "always",
   });
   const summaryQ = useQuery({
     queryKey: ["expo", "summary"],
-    queryFn: () =>
-      apiFetch<{
-        ok: boolean;
-        scans: number;
-        sessions_started: number;
-        completed_leads: number;
-        hot: number;
-        warm: number;
-        cold: number;
-        offers_sent: number;
-      }>("/expo/results/summary"),
+    queryFn: () => apiFetch<ExpoSummary>("/expo/results/summary"),
+    refetchOnMount: "always",
   });
   const [deleteTarget, setDeleteTarget] = React.useState<ExpoBooth | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const items = boothsQ.data?.items || [];
   const summary = summaryQ.data;
+  const daily = summary?.daily || [];
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -84,6 +130,12 @@ function ExpoHub() {
     }
   };
 
+  const scorePie = [
+    { name: "Hot", value: summary?.hot || 0, color: "#ea580c" },
+    { name: "Warm", value: summary?.warm || 0, color: "#d97706" },
+    { name: "Cold", value: summary?.cold || 0, color: "#0ea5e9" },
+  ].filter((d) => d.value > 0);
+
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
@@ -99,15 +151,138 @@ function ExpoHub() {
         }
       />
 
-      {summary ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Kpi title="Scans" value={summary.scans} />
-          <Kpi title="Completed leads" value={summary.completed_leads} />
-          <Kpi title="Hot leads" value={summary.hot} />
-          <Kpi title="Offers sent" value={summary.offers_sent} />
+      {summaryQ.isLoading ? (
+        <Skeleton className="h-40 rounded-2xl" />
+      ) : summary ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <RichKpi
+              label="Scans total"
+              value={summary.scans}
+              sub={`${summary.booths_live ?? 0} live · ${summary.booths_total ?? items.length} booths`}
+              {...deltaMeta(summary.scans_today ?? 0, summary.scans_yesterday ?? 0)}
+              todayLabel={`${summary.scans_today ?? 0} today`}
+              icon={<QrCode className="size-4" />}
+              spark={daily.map((d) => d.scans)}
+              accent="sky"
+            />
+            <RichKpi
+              label="Leads total"
+              value={summary.completed_leads}
+              sub={`${summary.sessions_started} sessions started`}
+              {...deltaMeta(summary.leads_today ?? 0, summary.leads_yesterday ?? 0)}
+              todayLabel={`${summary.leads_today ?? 0} today`}
+              icon={<User className="size-4" />}
+              spark={daily.map((d) => d.leads)}
+              accent="emerald"
+            />
+            <RichKpi
+              label="Hot leads"
+              value={summary.hot}
+              sub={`${summary.warm} warm · ${summary.cold} cold`}
+              trend="up"
+              labelDelta={`${summary.hot} hot`}
+              todayLabel="Priority follow-up"
+              icon={<Flame className="size-4" />}
+              spark={daily.map((d) => d.hot)}
+              accent="orange"
+            />
+            <RichKpi
+              label="Offers sent"
+              value={summary.offers_sent}
+              sub="Product packs delivered"
+              trend="flat"
+              labelDelta="In-session"
+              todayLabel={`${summary.sessions_today ?? 0} chats today`}
+              icon={<Mail className="size-4" />}
+              spark={daily.map((d) => d.leads)}
+              accent="violet"
+            />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Last 7 days</CardTitle>
+                <p className="text-xs text-muted-foreground">Scans and completed leads (UK calendar days)</p>
+              </CardHeader>
+              <CardContent className="h-[220px]">
+                {daily.length === 0 ? (
+                  <p className="grid h-full place-items-center text-sm text-muted-foreground">No activity yet</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={daily} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="expoScans" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="expoLeads" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        contentStyle={{
+                          background: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: 8,
+                          fontSize: 12,
+                        }}
+                      />
+                      <Area type="monotone" dataKey="scans" name="Scans" stroke="#0ea5e9" strokeWidth={2} fill="url(#expoScans)" />
+                      <Area type="monotone" dataKey="leads" name="Leads" stroke="#10b981" strokeWidth={2} fill="url(#expoLeads)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Lead temperature</CardTitle>
+                <p className="text-xs text-muted-foreground">Hot · Warm · Cold</p>
+              </CardHeader>
+              <CardContent className="h-[220px]">
+                {scorePie.length === 0 ? (
+                  <p className="grid h-full place-items-center text-sm text-muted-foreground">No scored leads yet</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={scorePie} dataKey="value" innerRadius={52} outerRadius={78} paddingAngle={3} stroke="transparent">
+                        {scorePie.map((d) => (
+                          <Cell key={d.name} fill={d.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{
+                          background: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: 8,
+                          fontSize: 12,
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="mt-1 flex flex-wrap justify-center gap-3 text-[11px] text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <span className="size-2 rounded-full bg-orange-600" /> Hot {summary.hot}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="size-2 rounded-full bg-amber-600" /> Warm {summary.warm}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="size-2 rounded-full bg-sky-500" /> Cold {summary.cold}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      ) : summaryQ.isLoading ? (
-        <Skeleton className="h-24 rounded-xl" />
       ) : null}
 
       {boothsQ.isLoading ? (
@@ -183,10 +358,6 @@ function ExpoHub() {
                         Direct WhatsApp link
                       </a>
                     ) : null}
-                    <p className="px-0.5 text-[10px] leading-snug text-muted-foreground">
-                      Printed QR opens the scan landing. Visitors choose WhatsApp (any language, voice OK) or the web
-                      form. Business-card photo or typed name works on both.
-                    </p>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-center">
                     <div className="rounded-lg border border-border bg-background/40 p-2">
@@ -198,6 +369,15 @@ function ExpoHub() {
                       <p className="text-lg font-semibold tabular-nums">{it.lead_count ?? 0}</p>
                     </div>
                   </div>
+                  {daily.length > 0 ? (
+                    <div className="h-12">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={daily} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                          <Bar dataKey="scans" fill="#0ea5e9" radius={[2, 2, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap items-center gap-2">
                     {it.qr_image_url ? (
                       <Button size="sm" variant="outline" className="gap-1.5" asChild>
@@ -266,12 +446,71 @@ function ExpoHub() {
   );
 }
 
-function Kpi({ title, value }: { title: string; value: number }) {
+function RichKpi({
+  label,
+  value,
+  sub,
+  todayLabel,
+  trend,
+  labelDelta,
+  icon,
+  spark,
+  accent,
+}: {
+  label: string;
+  value: number;
+  sub?: string;
+  todayLabel: string;
+  trend: "up" | "down" | "flat";
+  labelDelta?: string;
+  icon: React.ReactNode;
+  spark: number[];
+  accent: "sky" | "emerald" | "orange" | "violet";
+}) {
+  const meta =
+    trend === "up"
+      ? { Arrow: ArrowUpRight, cls: "text-emerald-700 bg-emerald-500/10 border-emerald-500/20", stroke: "#10b981" }
+      : trend === "down"
+        ? { Arrow: ArrowDownRight, cls: "text-rose-700 bg-rose-500/10 border-rose-500/20", stroke: "#f43f5e" }
+        : { Arrow: Minus, cls: "text-muted-foreground bg-muted border-border", stroke: "#94a3b8" };
+  const { Arrow } = meta;
+  const iconBg =
+    accent === "sky"
+      ? "bg-sky-500/10 text-sky-700"
+      : accent === "emerald"
+        ? "bg-emerald-500/10 text-emerald-700"
+        : accent === "orange"
+          ? "bg-orange-500/10 text-orange-700"
+          : "bg-violet-500/10 text-violet-700";
+  const deltaText = labelDelta || todayLabel;
+
   return (
-    <Card>
-      <CardContent className="p-4">
-        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{title}</p>
-        <p className="mt-1 text-2xl font-semibold tabular-nums">{value.toLocaleString()}</p>
+    <Card className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
+      <CardContent className="flex flex-col gap-3 p-4">
+        <div className="flex items-start justify-between gap-2">
+          <span className={cn("grid size-9 place-items-center rounded-lg", iconBg)}>{icon}</span>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
+              meta.cls,
+            )}
+          >
+            <Arrow className="size-3" /> {deltaText}
+          </span>
+        </div>
+        <div>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums">{value.toLocaleString()}</p>
+          {sub ? <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p> : null}
+          <p className="mt-1 text-xs font-medium text-foreground/80">{todayLabel}</p>
+        </div>
+        <div className="-mx-1 -mb-1 h-10">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={(spark.length ? spark : [0, 0, 0]).map((v, i) => ({ i, v }))} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+              <Area type="monotone" dataKey="v" stroke={meta.stroke} strokeWidth={1.75} fill={meta.stroke} fillOpacity={0.12} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </CardContent>
     </Card>
   );

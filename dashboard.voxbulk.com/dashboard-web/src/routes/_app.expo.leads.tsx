@@ -104,12 +104,15 @@ function ExpoLeads() {
     queryFn: () =>
       apiFetch<{
         scans: number;
+        scans_today?: number;
         sessions_started: number;
         completed_leads: number;
+        leads_today?: number;
         hot: number;
         warm: number;
         cold: number;
         offers_sent: number;
+        daily?: Array<{ day: string; scans: number; leads: number; hot: number }>;
       }>(`/expo/results/summary${boothId !== "all" ? `?booth_id=${boothId}` : ""}`),
   });
 
@@ -233,14 +236,16 @@ function ExpoLeads() {
       ) : summary ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Kpi
-            title="Scans"
+            title="Scans total"
             value={summary.scans}
+            hint={`${summary.scans_today ?? 0} today`}
             accent="from-sky-500/15 to-sky-500/5"
             icon={<QrCode className="size-4 text-sky-600" />}
           />
           <Kpi
             title="Completed leads"
             value={summary.completed_leads}
+            hint={`${summary.leads_today ?? 0} today`}
             accent="from-emerald-500/15 to-emerald-500/5"
             icon={<User className="size-4 text-emerald-600" />}
           />
@@ -467,11 +472,13 @@ function ExpoLeads() {
 function Kpi({
   title,
   value,
+  hint,
   accent,
   icon,
 }: {
   title: string;
   value: number | string;
+  hint?: string;
   accent: string;
   icon: React.ReactNode;
 }) {
@@ -485,6 +492,7 @@ function Kpi({
         <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
           {typeof value === "number" ? value.toLocaleString() : value}
         </p>
+        {hint ? <p className="mt-1 text-xs font-medium text-foreground/70">{hint}</p> : null}
       </CardContent>
     </Card>
   );
