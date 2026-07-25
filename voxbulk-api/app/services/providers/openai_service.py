@@ -317,8 +317,12 @@ class OpenAIProviderService:
         if not api_key:
             raise ValueError("DeepInfra API key is not configured")
         base_url = OpenAIProviderService._deepinfra_chat_base_url_from_config(config)
+        # Admin DeepInfra model_name is often Whisper STT — never use that for chat/LLM.
+        raw_model = str(config.get("model_name") or "").strip()
+        if "whisper" in raw_model.lower() or "/inference/" in raw_model.lower():
+            raw_model = ""
         model = str(
-            config.get("model_name")
+            raw_model
             or config.get("moderation_model")
             or os.getenv("DEEPINFRA_LLM_MODEL")
             or "mistralai/Mistral-Small-3.2-24B-Instruct-2506"

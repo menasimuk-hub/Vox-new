@@ -27,17 +27,20 @@ from app.services.expo.question_bank import (
     CONTACT_STEP_KEY,
     build_thank_you_message,
     contact_prompt_for_mode,
+    enrich_step_payload,
     parse_contact_capture,
     parse_question_config,
 )
 from app.services.customer_feedback.feedback_answer_service import TRANSLATION_UNAVAILABLE_EN
 from app.services.expo.business_card_ocr_service import (
     ExpoBusinessCardService,
+    is_placeholder_email,
     is_placeholder_phone,
 )
 from app.services.expo.scoring_service import score_lead
 
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
+CONTACT_CONFIRM_PROMPT = "Please check your details and continue."
 
 _YES_WORDS = frozenset({"yes", "y", "yeah", "yep", "sure", "ok", "okay", "please", "affirmative"})
 _NO_WORDS = frozenset({"no", "n", "nope", "nah", "negative", "not interested", "no thanks"})
@@ -54,8 +57,21 @@ def _looks_affirmative(text: str) -> bool:
     return lower.startswith("yes")
 
 
-def _empty_step_result(*, done: bool, prompt: str | None) -> dict[str, Any]:
-    return {"done": done, "awaiting_pick": False, "candidates": None, "assets": None, "prompt": prompt}
+def _empty_step_result(
+    *,
+    done: bool,
+    prompt: str | None,
+    question_key: str | None = None,
+    contact_substep: str | None = None,
+    channel: str = "web",
+) -> dict[str, Any]:
+    base = {"done": done, "awaiting_pick": False, "candidates": None, "assets": None, "prompt": prompt}
+    return enrich_step_payload(
+        base,
+        question_key=question_key,
+        contact_substep=contact_substep,
+        channel=channel,
+    )
 
 
 class ExpoSessionFlowService:
@@ -245,12 +261,24 @@ class ExpoSessionFlowService:
             db.add(lead)
 
         db.commit()
-        return {
+        out = {
             "session_id": session.id,
             "done": False,
             "prompt": prompt,
             "superseded_sessions": closed,
         }
+        if str(first.get("key") or "") == CONTACT_STEP_KEY:
+            return enrich_step_payload(
+                out,
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="awaiting",
+                channel=channel_l,
+            )
+        return enrich_step_payload(
+            out,
+            question_key=str(first.get("key") or ""),
+            channel=channel_l,
+        )
 
     # ------------------------------------------------------------------
     # Advancing an existing session
@@ -296,7 +324,7 @@ class ExpoSessionFlowService:
         key = str(step.get("key") or "")
 
         contact_sub = str(state.get("contact_substep") or "").strip().lower()
-        contact_in_progress = contact_sub in {"awaiting", "company", "mobile"}
+        contact_in_progress = contact_sub in {"awaiting", "company", "mobile", "confirm", "card_retry"}
         if key == CONTACT_STEP_KEY or contact_in_progress:
             return ExpoSessionFlowService._advance_contact(
                 db,
@@ -444,7 +472,7 @@ class ExpoSessionFlowService:
                 if fields.get(fk):
                     _log(f"card_{fk}", str(fields[fk]), "ocr")
 
-            has_identity = bool(fields.get("name") or fields.get("company"))
+            has_identity = bool(fields.get("name") or fields.get("company") or fields.get("email") or fields.get("phone"))
             if not has_identity:
                 # OCR failed / unreadable — keep contact open so visitor can retry or type
                 state["contact_substep"] = "awaiting"
@@ -457,25 +485,41 @@ class ExpoSessionFlowService:
                 return _empty_step_result(
                     done=False,
                     prompt=(
-                        "I couldn't read a name or company from that photo. "
-                        "Please try a clearer shot of the card, or type your full name."
+                        "I couldn't read that card clearly. "
+                        "Please try a clearer photo, or enter your name, company, mobile and email below."
                     ),
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="awaiting",
+                    channel=channel,
                 )
 
             state["contact_via"] = "card"
             state["card_fields"] = {k: v for k, v in fields.items() if v}
             confirm = ExpoBusinessCardService.confirmation_message(fields)
 
-            # Web card-first starts with a placeholder phone — still collect real mobile
-            if channel == "web" and is_placeholder_phone(session.visitor_phone):
-                state["contact_substep"] = "mobile"
+            # Web: always show editable confirm so placeholders never stick and visitor can fix OCR
+            if channel == "web":
+                state["contact_substep"] = "confirm"
                 ExpoSessionFlowService._save_state(session, state)
                 db.add(session)
                 db.commit()
-                return _empty_step_result(
+                out = _empty_step_result(
                     done=False,
-                    prompt=f"{confirm}\n\n{CONTACT_MOBILE_PROMPT}".strip(),
+                    prompt=CONTACT_CONFIRM_PROMPT,
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="confirm",
+                    channel="web",
                 )
+                out["contact_via"] = "card"
+                out["card_fields"] = {
+                    "name": fields.get("name") or (lead.name if lead else None),
+                    "company": fields.get("company") or (lead.company if lead else None),
+                    "email": fields.get("email")
+                    or (None if lead is None or is_placeholder_email(lead.visitor_email) else lead.visitor_email),
+                    "phone": fields.get("phone")
+                    or (None if is_placeholder_phone(session.visitor_phone) else session.visitor_phone),
+                }
+                return out
 
             state.pop("contact_substep", None)
             ExpoSessionFlowService._save_state(session, state)
@@ -490,17 +534,36 @@ class ExpoSessionFlowService:
             nxt["card_fields"] = fields
             return nxt
 
+        if sub == "confirm":
+            # Structured confirm is handled by confirm_contact(); text fallback treats answer as name
+            return _empty_step_result(
+                done=False,
+                prompt=CONTACT_CONFIRM_PROMPT,
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="confirm",
+                channel=channel,
+            )
+
         if sub == "awaiting" and capture == "card_only" and not is_image:
             return _empty_step_result(
                 done=False,
                 prompt=contact_prompt_for_mode("card_only", channel=channel),
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="awaiting",
+                channel=channel,
             )
 
         if sub == "awaiting":
             # Typed name
             if not answer:
                 prompt = contact_prompt_for_mode(capture, channel=channel)
-                return _empty_step_result(done=False, prompt=prompt)
+                return _empty_step_result(
+                    done=False,
+                    prompt=prompt,
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="awaiting",
+                    channel=channel,
+                )
             _log("name", answer, answer_source)
             if lead is not None:
                 lead.name = answer[:255]
@@ -511,11 +574,23 @@ class ExpoSessionFlowService:
             ExpoSessionFlowService._save_state(session, state)
             db.add(session)
             db.commit()
-            return _empty_step_result(done=False, prompt=CONTACT_COMPANY_PROMPT)
+            return _empty_step_result(
+                done=False,
+                prompt=CONTACT_COMPANY_PROMPT,
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="company",
+                channel=channel,
+            )
 
         if sub == "company":
             if not answer:
-                return _empty_step_result(done=False, prompt=CONTACT_COMPANY_PROMPT)
+                return _empty_step_result(
+                    done=False,
+                    prompt=CONTACT_COMPANY_PROMPT,
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="company",
+                    channel=channel,
+                )
             _log("company", answer, answer_source)
             if lead is not None:
                 lead.company = answer[:255]
@@ -528,7 +603,13 @@ class ExpoSessionFlowService:
                 ExpoSessionFlowService._save_state(session, state)
                 db.add(session)
                 db.commit()
-                return _empty_step_result(done=False, prompt=CONTACT_MOBILE_PROMPT)
+                return _empty_step_result(
+                    done=False,
+                    prompt=CONTACT_MOBILE_PROMPT,
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="mobile",
+                    channel=channel,
+                )
             state.pop("contact_substep", None)
             ExpoSessionFlowService._save_state(session, state)
             if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
@@ -539,7 +620,21 @@ class ExpoSessionFlowService:
 
         if sub == "mobile":
             if not answer:
-                return _empty_step_result(done=False, prompt=CONTACT_MOBILE_PROMPT)
+                return _empty_step_result(
+                    done=False,
+                    prompt=CONTACT_MOBILE_PROMPT,
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="mobile",
+                    channel=channel,
+                )
+            if answer.lower() in _YES_WORDS or answer.lower() in _NO_WORDS:
+                return _empty_step_result(
+                    done=False,
+                    prompt="Please enter a real mobile number (with country code if possible).",
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="mobile",
+                    channel=channel,
+                )
             _log("mobile", answer, answer_source)
             session.visitor_phone = answer[:32]
             if lead is not None:
@@ -559,6 +654,125 @@ class ExpoSessionFlowService:
             session.current_step = 1
             db.add(session)
             db.commit()
+        return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+
+    @staticmethod
+    def confirm_contact(
+        db: Session,
+        *,
+        session: ExpoSession,
+        name: str | None = None,
+        company: str | None = None,
+        mobile: str | None = None,
+        email: str | None = None,
+    ) -> dict[str, Any]:
+        """Web editable confirm after card OCR (or manual fill). Rejects placeholder email/phone."""
+        booth = db.get(ExpoBooth, session.booth_id)
+        if booth is None:
+            return _empty_step_result(done=True, prompt=THANK_YOU_TEXT)
+        lead = ExpoSessionFlowService._lead_for_session(db, session)
+        state = ExpoSessionFlowService._load_state(session)
+        channel = str(session.channel or "web").lower()
+
+        clean_name = str(name or "").strip()
+        clean_company = str(company or "").strip()
+        clean_mobile = str(mobile or "").strip()
+        clean_email = str(email or "").strip().lower()
+
+        if not clean_name:
+            out = _empty_step_result(
+                done=False,
+                prompt="Please enter your full name to continue.",
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="confirm",
+                channel=channel,
+            )
+            out["card_fields"] = {
+                "name": clean_name or None,
+                "company": clean_company or None,
+                "email": clean_email or None,
+                "phone": clean_mobile or None,
+            }
+            return out
+        if not clean_mobile or is_placeholder_phone(clean_mobile) or clean_mobile.lower() in _YES_WORDS | _NO_WORDS:
+            out = _empty_step_result(
+                done=False,
+                prompt="Please enter a real mobile number.",
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="confirm",
+                channel=channel,
+            )
+            out["card_fields"] = {
+                "name": clean_name,
+                "company": clean_company or None,
+                "email": clean_email or None,
+                "phone": None,
+            }
+            return out
+        if not clean_email or is_placeholder_email(clean_email) or "@expo.local" in clean_email:
+            out = _empty_step_result(
+                done=False,
+                prompt="Please enter a real email address.",
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="confirm",
+                channel=channel,
+            )
+            out["card_fields"] = {
+                "name": clean_name,
+                "company": clean_company or None,
+                "email": None,
+                "phone": clean_mobile,
+            }
+            return out
+
+        now = datetime.utcnow()
+        session.visitor_phone = clean_mobile[:32]
+        session.visitor_email = clean_email[:255]
+        if lead is not None:
+            lead.name = clean_name[:255]
+            lead.company = (clean_company[:255] if clean_company else lead.company)
+            lead.visitor_phone = clean_mobile[:32]
+            lead.visitor_email = clean_email[:255]
+            lead.updated_at = now
+            db.add(lead)
+        for key, val, src in (
+            ("name", clean_name, "confirm"),
+            ("company", clean_company or "", "confirm"),
+            ("mobile", clean_mobile, "confirm"),
+            ("email", clean_email, "confirm"),
+        ):
+            if not val:
+                continue
+            db.add(
+                ExpoResponse(
+                    id=str(uuid.uuid4()),
+                    session_id=session.id,
+                    org_id=session.org_id,
+                    booth_id=booth.id,
+                    question_key=key,
+                    answer_text=val[:4000],
+                    original_text=val[:4000],
+                    answer_text_en=val[:4000],
+                    step_order=1,
+                    answer_source=src,
+                    created_at=now,
+                )
+            )
+
+        state["contact_via"] = state.get("contact_via") or "confirm"
+        state.pop("contact_substep", None)
+        state["card_fields"] = {
+            "name": clean_name,
+            "company": clean_company or None,
+            "email": clean_email,
+            "phone": clean_mobile,
+        }
+        ExpoSessionFlowService._save_state(session, state)
+        steps = ExpoSessionFlowService.steps_for_booth(booth)
+        if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
+            session.current_step = 1
+        db.add(session)
+        db.commit()
         return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
 
     @staticmethod
@@ -635,7 +849,17 @@ class ExpoSessionFlowService:
         if step_index >= len(steps):
             return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
         next_step = steps[step_index]
-        return _empty_step_result(done=False, prompt=str(next_step.get("prompt") or ""))
+        key = str(next_step.get("key") or "")
+        channel = str(session.channel or "whatsapp").lower()
+        prompt = str(next_step.get("prompt") or "")
+        if channel == "web" and next_step.get("prompt_web"):
+            prompt = str(next_step.get("prompt_web") or prompt)
+        return _empty_step_result(
+            done=False,
+            prompt=prompt,
+            question_key=key,
+            channel=channel,
+        )
 
     @staticmethod
     def _complete(

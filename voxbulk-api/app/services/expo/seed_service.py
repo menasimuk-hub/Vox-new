@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.expo import EXPO_SERVICE_CODE, ExpoIndustry, ExpoPackage, ExpoQuestionTemplate
+from app.models.expo import EXPO_SERVICE_CODE, ExpoBooth, ExpoIndustry, ExpoPackage, ExpoQuestionTemplate
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
 
@@ -179,6 +179,7 @@ class ExpoSeedService:
     def ensure_seeded(db: Session) -> None:
         ExpoSeedService._ensure_industries(db)
         ExpoSeedService._ensure_question_templates(db)
+        ExpoSeedService._upgrade_legacy_booth_questions(db)
         ExpoSeedService._ensure_packages(db)
         ExpoSeedService._ensure_connection_profile_expo_service(db)
         db.commit()
@@ -217,6 +218,22 @@ class ExpoSeedService:
                 row.sort_order = (idx + 1) * 10
                 row.updated_at = now
                 db.add(row)
+        db.flush()
+
+    @staticmethod
+    def _upgrade_legacy_booth_questions(db: Session) -> None:
+        """Rewrite booths still using price-list/catalogue Yes/No defaults to the smart lead set."""
+        from app.services.expo.question_bank import upgrade_booth_question_config
+
+        now = datetime.utcnow()
+        booths = db.execute(select(ExpoBooth)).scalars().all()
+        for booth in booths:
+            upgraded = upgrade_booth_question_config(booth.question_config_json)
+            if not upgraded:
+                continue
+            booth.question_config_json = upgraded
+            booth.updated_at = now
+            db.add(booth)
         db.flush()
 
     @staticmethod

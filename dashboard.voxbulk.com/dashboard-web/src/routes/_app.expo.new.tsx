@@ -80,7 +80,7 @@ const EXPO_STEPS: WizardStepDef[] = [
   { id: 7, title: "Activate", icon: Rocket },
 ];
 
-const DEFAULT_Q_KEYS = ["interest", "need_price_list", "need_catalogue", "timeline", "consent_info"];
+const DEFAULT_Q_KEYS = ["interest", "role", "timeline", "follow_up", "consent_info"];
 
 function newAssetId() {
   return `a-${Math.random().toString(36).slice(2, 10)}`;

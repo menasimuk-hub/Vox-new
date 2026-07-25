@@ -34,6 +34,11 @@ def _advance_payload(result: dict) -> dict:
         "done": result.get("done", False),
         "awaiting_pick": result.get("awaiting_pick", False),
         "question": result.get("prompt"),
+        "question_key": result.get("question_key"),
+        "contact_substep": result.get("contact_substep"),
+        "input": result.get("input"),
+        "options": result.get("options") or [],
+        "allow_voice": bool(result.get("allow_voice")),
         "candidates": result.get("candidates"),
         "assets": result.get("assets"),
         "contact_via": result.get("contact_via"),
@@ -245,7 +250,34 @@ async def upload_business_card(
     )
     out = _advance_payload(result)
     out["session_id"] = session_id
-    out["card_fields"] = fields
+    out["card_fields"] = fields or result.get("card_fields")
+    return out
+
+
+@router.post("/{token}/sessions/{session_id}/contact")
+def confirm_web_contact(token: str, session_id: str, payload: dict, db: Session = Depends(get_db)):
+    """Editable confirm after business-card OCR (rejects pending@expo.local placeholders)."""
+    booth = ExpoBoothService.find_by_token(db, token)
+    if booth is None:
+        raise HTTPException(status_code=404, detail="Booth not found")
+    session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
+    if session.status != "active":
+        return {"ok": True, "done": True, "question": THANK_YOU_TEXT}
+
+    result = ExpoSessionFlowService.confirm_contact(
+        db,
+        session=session,
+        name=str(payload.get("name") or "").strip() or None,
+        company=str(payload.get("company") or "").strip() or None,
+        mobile=str(payload.get("mobile") or payload.get("phone") or "").strip() or None,
+        email=str(payload.get("email") or "").strip() or None,
+    )
+    out = _advance_payload(result)
+    out["session_id"] = session_id
+    if result.get("card_fields"):
+        out["card_fields"] = result["card_fields"]
+    if not result.get("done") and result.get("contact_substep") == "confirm" and str(result.get("prompt") or "").startswith("Please"):
+        out["error"] = str(result.get("prompt") or "")
     return out
 
 

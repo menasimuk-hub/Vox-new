@@ -45,59 +45,46 @@ def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp") -> str:
 SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     {
         "key": "interest",
-        "prompt": "What is the main thing you're looking for or interested in right now?",
-        "label": "Main interest",
-        "description": "Open interest — used for general matching.",
+        "prompt": "What are you looking for today at our stand?",
+        "label": "What they're looking for",
+        "description": "Open interest — used for product matching and lead scoring.",
         "matches_products": True,
     },
     {
-        "key": "need_price_list",
-        "prompt": "Would you like our latest price list?",
-        "label": "Need price list",
-        "description": "Matches Step 4 products tagged with price / pricing keywords.",
-        "matches_products": True,
+        "key": "role",
+        "prompt": "Which best describes your role?",
+        "label": "Role",
+        "description": "Buyer / specifier / influencer — qualifies the lead.",
+        "matches_products": False,
     },
     {
-        "key": "need_catalogue",
-        "prompt": "Would you like our product catalogue or brochure?",
-        "label": "Need catalogue",
-        "description": "Matches Step 4 products tagged with catalogue / brochure keywords.",
-        "matches_products": True,
+        "key": "timeline",
+        "prompt": "When are you planning to decide or take the next step?",
+        "label": "Buying timeline",
+        "description": "Used for Hot / Warm / Cold scoring.",
+        "matches_products": False,
     },
+    {
+        "key": "follow_up",
+        "prompt": "How should we follow up after the show?",
+        "label": "Follow-up preference",
+        "description": "Preferred contact channel after the show.",
+        "matches_products": False,
+    },
+    {
+        "key": "consent_info",
+        "prompt": "Can we send you product info and special offers? (Yes / No)",
+        "label": "Marketing consent",
+        "description": "GDPR-style consent for offers.",
+        "matches_products": False,
+    },
+    # Optional extras (not selected by default)
     {
         "key": "products_wanted",
         "prompt": "Which product or brochure should we send you?",
         "label": "Product request",
         "description": "Visitor names a product — matched to your uploaded files.",
         "matches_products": True,
-    },
-    {
-        "key": "timeline",
-        "prompt": "When are you planning to make a decision or take action on this?",
-        "label": "Buying timeline",
-        "description": "Used for Hot / Warm / Cold scoring.",
-        "matches_products": False,
-    },
-    {
-        "key": "sourcing",
-        "prompt": "Are you sourcing for your business, or for events?",
-        "label": "Business or events",
-        "description": "Useful for hospitality / trade stands.",
-        "matches_products": False,
-    },
-    {
-        "key": "role",
-        "prompt": "What's your role or job title?",
-        "label": "Job title",
-        "description": "Contact role for follow-up.",
-        "matches_products": False,
-    },
-    {
-        "key": "decision_maker",
-        "prompt": "Are you the decision-maker for this, or recommending to someone else?",
-        "label": "Decision-maker",
-        "description": "Buying authority signal.",
-        "matches_products": False,
     },
     {
         "key": "budget",
@@ -114,37 +101,45 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
         "matches_products": False,
     },
     {
-        "key": "follow_up",
-        "prompt": "How would you prefer we follow up — WhatsApp, email, or a call?",
-        "label": "Follow-up preference",
-        "description": "Preferred contact channel after the show.",
+        "key": "decision_maker",
+        "prompt": "Are you the decision-maker for this, or recommending to someone else?",
+        "label": "Decision-maker",
+        "description": "Buying authority signal.",
         "matches_products": False,
     },
     {
-        "key": "consent_info",
-        "prompt": "Would you like us to send you our latest information and special offers? (Yes / No)",
-        "label": "Marketing consent",
-        "description": "GDPR-style consent for offers.",
+        "key": "sourcing",
+        "prompt": "Are you sourcing for your business, or for events?",
+        "label": "Business or events",
+        "description": "Useful for hospitality / trade stands.",
         "matches_products": False,
+    },
+    {
+        "key": "need_price_list",
+        "prompt": "Would you like our latest price list?",
+        "label": "Need price list",
+        "description": "Optional — usually covered by automatic product matching after interest.",
+        "matches_products": True,
+    },
+    {
+        "key": "need_catalogue",
+        "prompt": "Would you like our product catalogue or brochure?",
+        "label": "Need catalogue",
+        "description": "Optional — usually covered by automatic product matching after interest.",
+        "matches_products": True,
     },
 ]
 
-_DEFAULT_SELECTED_KEYS = ("interest", "need_price_list", "need_catalogue", "timeline", "consent_info")
+_DEFAULT_SELECTED_KEYS = ("interest", "role", "timeline", "follow_up", "consent_info")
 _BANK_BY_KEY = {q["key"]: q for q in SELECTABLE_QUESTION_BANK}
 
 # Closed-choice UI for Expo web (CF-style buttons). Open keys stay text+voice.
 WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
-    "need_price_list": [
-        {"value": "Yes", "label": "Yes"},
-        {"value": "No", "label": "No"},
-    ],
-    "need_catalogue": [
-        {"value": "Yes", "label": "Yes"},
-        {"value": "No", "label": "No"},
-    ],
-    "consent_info": [
-        {"value": "Yes", "label": "Yes"},
-        {"value": "No", "label": "No"},
+    "role": [
+        {"value": "Buyer", "label": "Buyer / purchasing"},
+        {"value": "Specifier", "label": "Specifier / technical"},
+        {"value": "Influencer", "label": "Influencer / recommender"},
+        {"value": "Other", "label": "Other"},
     ],
     "timeline": [
         {"value": "This week", "label": "This week"},
@@ -152,6 +147,23 @@ WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
         {"value": "This quarter", "label": "This quarter"},
         {"value": "Later", "label": "Later"},
         {"value": "Just exploring", "label": "Just exploring"},
+    ],
+    "follow_up": [
+        {"value": "WhatsApp", "label": "WhatsApp"},
+        {"value": "Email", "label": "Email"},
+        {"value": "Call", "label": "Call"},
+    ],
+    "consent_info": [
+        {"value": "Yes", "label": "Yes"},
+        {"value": "No", "label": "No"},
+    ],
+    "need_price_list": [
+        {"value": "Yes", "label": "Yes"},
+        {"value": "No", "label": "No"},
+    ],
+    "need_catalogue": [
+        {"value": "Yes", "label": "Yes"},
+        {"value": "No", "label": "No"},
     ],
     "sourcing": [
         {"value": "Business", "label": "For my business"},
@@ -161,18 +173,12 @@ WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
         {"value": "Decision-maker", "label": "I'm the decision-maker"},
         {"value": "Recommending", "label": "Recommending to someone else"},
     ],
-    "follow_up": [
-        {"value": "WhatsApp", "label": "WhatsApp"},
-        {"value": "Email", "label": "Email"},
-        {"value": "Call", "label": "Call"},
-    ],
 }
 
 WEB_VOICE_KEYS = frozenset(
     {
         "interest",
         "products_wanted",
-        "role",
         "budget",
         "volume",
         "industry_addon",
@@ -189,6 +195,96 @@ def web_ui_for_question_key(key: str) -> dict[str, Any]:
     if k == CONTACT_STEP_KEY:
         return {"input": "contact", "options": [], "allow_voice": False}
     return {"input": "text", "options": [], "allow_voice": k in WEB_VOICE_KEYS or k not in WEB_CHOICE_OPTIONS}
+
+
+def enrich_step_payload(
+    result: dict[str, Any],
+    *,
+    question_key: str | None = None,
+    contact_substep: str | None = None,
+    channel: str = "web",
+) -> dict[str, Any]:
+    """Attach web UI metadata so the public client never desyncs buttons from prompts."""
+    out = dict(result or {})
+    key = str(question_key or out.get("question_key") or "").strip()
+    sub = str(contact_substep or out.get("contact_substep") or "").strip().lower()
+    if key:
+        out["question_key"] = key
+    if sub:
+        out["contact_substep"] = sub
+    if out.get("done"):
+        out.setdefault("input", "done")
+        out.setdefault("options", [])
+        out.setdefault("allow_voice", False)
+        return out
+    if out.get("awaiting_pick"):
+        out["question_key"] = "product_pick"
+        out["input"] = "pick"
+        out["options"] = []
+        out["allow_voice"] = False
+        return out
+    if key == CONTACT_STEP_KEY or sub in {"awaiting", "company", "mobile", "confirm", "card_retry"}:
+        out["question_key"] = CONTACT_STEP_KEY
+        if sub == "confirm":
+            out["input"] = "contact_confirm"
+        elif sub in {"company", "mobile"}:
+            out["input"] = "text"
+        else:
+            out["input"] = "contact"
+        out["options"] = []
+        out["allow_voice"] = False
+        return out
+    ui = web_ui_for_question_key(key)
+    out["input"] = ui["input"]
+    out["options"] = list(ui["options"])
+    out["allow_voice"] = bool(ui["allow_voice"])
+    if channel == "web" and key and not out.get("prompt"):
+        bank = _BANK_BY_KEY.get(key)
+        if bank:
+            out["prompt"] = bank["prompt"]
+    return out
+
+
+def upgrade_booth_question_config(raw: str | None) -> str | None:
+    """Rewrite legacy booth configs that still use price-list/catalogue Yes/No defaults."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    steps = data.get("steps")
+    if not isinstance(steps, list):
+        return None
+    keys = [str(s.get("key") or "") for s in steps if isinstance(s, dict)]
+    legacy_markers = {"need_price_list", "need_catalogue"}
+    if not (legacy_markers & set(keys)):
+        return None
+    # Preserve industry addon + closing settings; replace middle with smart defaults.
+    has_addon = any(k == "industry_addon" for k in keys)
+    addon_prompt = ""
+    for s in steps:
+        if isinstance(s, dict) and str(s.get("key") or "") == "industry_addon":
+            addon_prompt = str(s.get("prompt") or "").strip()
+            break
+    selected = list(_DEFAULT_SELECTED_KEYS)
+    if has_addon and addon_prompt:
+        if "consent_info" in selected:
+            selected.insert(selected.index("consent_info"), "industry_addon")
+        else:
+            selected.append("industry_addon")
+    upgraded = default_question_config(
+        include_industry_addon=bool(addon_prompt),
+        addon_question=addon_prompt or None,
+        free_gift_enabled=bool(data.get("free_gift_enabled")),
+        free_gift_text=str(data.get("free_gift_text") or "") or None,
+        thank_you_message=str(data.get("thank_you_message") or "") or None,
+        selected_question_keys=selected,
+        contact_capture=str(data.get("contact_capture") or "offer_both"),
+    )
+    return json.dumps(upgraded, ensure_ascii=False)
 
 
 def list_selectable_questions(

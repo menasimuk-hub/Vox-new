@@ -42,14 +42,28 @@ type AdvanceResult = {
   session_id?: string;
   done?: boolean;
   question?: string;
+  question_key?: string;
+  contact_substep?: string;
+  input?: string;
+  options?: ExpoOption[];
+  allow_voice?: boolean;
   awaiting_pick?: boolean;
   candidates?: Array<{ id?: string; title?: string; short_description?: string }>;
   assets?: unknown;
   card_fields?: Record<string, string | null>;
+  error?: string;
 };
 
 type Phase = "loading" | "error" | "choose" | "web" | "thanks" | "closed";
-type WebStep = "contact" | "question" | "pick";
+type WebStep = "contact" | "confirm" | "question" | "pick";
+
+type LiveQuestion = {
+  key: string;
+  prompt: string;
+  input: string;
+  options: ExpoOption[];
+  allow_voice: boolean;
+};
 
 function themeStyleVars(theme: Theme): CSSProperties {
   return {
@@ -143,14 +157,24 @@ export function PublicExpoLanding({
             },
             {
               key: "interest",
-              prompt: "What is the main thing you're looking for or interested in right now?",
+              prompt: "What are you looking for today at our stand?",
               input: "text",
               allow_voice: true,
               options: [],
             },
             {
+              key: "role",
+              prompt: "Which best describes your role?",
+              input: "choice",
+              options: [
+                { value: "Buyer", label: "Buyer / purchasing" },
+                { value: "Specifier", label: "Specifier / technical" },
+                { value: "Influencer", label: "Influencer / recommender" },
+              ],
+            },
+            {
               key: "timeline",
-              prompt: "When are you planning to make a decision?",
+              prompt: "When are you planning to decide or take the next step?",
               input: "choice",
               options: [
                 { value: "This week", label: "This week" },
@@ -165,14 +189,14 @@ export function PublicExpoLanding({
 
   const [sessionId, setSessionId] = useState("");
   const [webStep, setWebStep] = useState<WebStep>("contact");
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [promptOverride, setPromptOverride] = useState("");
+  const [liveQ, setLiveQ] = useState<LiveQuestion | null>(null);
   const [selectedValue, setSelectedValue] = useState("");
   const [textAnswer, setTextAnswer] = useState("");
   const [contact, setContact] = useState({ name: "", company: "", mobile: "", email: "" });
   const [cardPreview, setCardPreview] = useState<string | null>(null);
   const [cardFile, setCardFile] = useState<File | null>(null);
   const [candidates, setCandidates] = useState<Array<{ id?: string; title?: string; short_description?: string }>>([]);
+  const [stepCount, setStepCount] = useState(1);
   const cardInputRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceDetailHandle>(null);
 
@@ -180,7 +204,6 @@ export function PublicExpoLanding({
     () => (payload?.questions || []).filter((q) => q.key !== "contact"),
     [payload?.questions],
   );
-  const currentQ = questions[questionIndex] || null;
   const contactCapture =
     payload?.contact_capture || payload?.booth?.contact_capture || "offer_both";
 
@@ -218,53 +241,101 @@ export function PublicExpoLanding({
     };
   }, [token, preview]);
 
-  const applyAdvance = useCallback(
-    (res: AdvanceResult, opts?: { afterContact?: boolean }) => {
-      if (res.session_id) setSessionId(String(res.session_id));
-      if (res.done) {
-        setPhase("thanks");
-        return;
+  const applyAdvance = useCallback((res: AdvanceResult) => {
+    if (res.session_id) setSessionId(String(res.session_id));
+    if (res.error) setError(String(res.error));
+    else setError("");
+    if (res.done) {
+      setPhase("thanks");
+      return;
+    }
+    if (res.awaiting_pick && res.candidates?.length) {
+      setCandidates(res.candidates);
+      setWebStep("pick");
+      setLiveQ({
+        key: "product_pick",
+        prompt: String(res.question || "Which would you like?"),
+        input: "pick",
+        options: [],
+        allow_voice: false,
+      });
+      setSelectedValue("");
+      setStepCount((n) => n + 1);
+      return;
+    }
+
+    const key = String(res.question_key || "").trim();
+    const sub = String(res.contact_substep || "").trim().toLowerCase();
+    const input = String(res.input || "").trim();
+    const prompt = String(res.question || "").trim();
+    const options = Array.isArray(res.options) ? res.options : [];
+
+    if (key === "contact" || input === "contact" || input === "contact_confirm" || sub) {
+      if (input === "contact_confirm" || sub === "confirm") {
+        setWebStep("confirm");
+        if (res.card_fields) {
+          setContact({
+            name: String(res.card_fields.name || "").trim(),
+            company: String(res.card_fields.company || "").trim(),
+            mobile: String(res.card_fields.phone || "").trim(),
+            email: String(res.card_fields.email || "").trim(),
+          });
+        }
+      } else {
+        setWebStep("contact");
+        // OCR failed / still collecting — allow typed fields even if a photo was tried
+        if (sub === "awaiting" || sub === "card_retry" || !res.card_fields) {
+          setCardFile(null);
+        }
+        if (prompt && /couldn'?t read|enter your|please try/i.test(prompt)) {
+          setError(prompt);
+        }
       }
-      if (res.awaiting_pick && res.candidates?.length) {
-        setCandidates(res.candidates);
-        setWebStep("pick");
-        setPromptOverride(String(res.question || "Which would you like?"));
-        setSelectedValue("");
-        return;
-      }
-      if (opts?.afterContact) {
-        setWebStep("question");
-        setQuestionIndex(0);
-      } else if (webStep === "question") {
-        setQuestionIndex((i) => Math.min(i + 1, Math.max(0, questions.length - 1)));
-      }
-      setPromptOverride(String(res.question || ""));
+      setLiveQ(null);
       setSelectedValue("");
       setTextAnswer("");
       setCandidates([]);
-      if (!res.awaiting_pick) setWebStep("question");
-    },
-    [questions.length, webStep],
-  );
+      return;
+    }
+
+    setWebStep("question");
+    setLiveQ({
+      key: key || "question",
+      prompt: prompt || "Your answer",
+      input: input || (options.length ? "choice" : "text"),
+      options,
+      allow_voice: Boolean(res.allow_voice),
+    });
+    setSelectedValue("");
+    setTextAnswer("");
+    setCandidates([]);
+    setStepCount((n) => n + 1);
+  }, []);
 
   const startWeb = useCallback(async () => {
     setError("");
     setPhase("web");
     setWebStep("contact");
-    setQuestionIndex(0);
+    setLiveQ(null);
     setSessionId("");
-    setPromptOverride("");
     setSelectedValue("");
     setTextAnswer("");
     setCardFile(null);
     setCardPreview(null);
+    setStepCount(1);
+    setContact({ name: "", company: "", mobile: "", email: "" });
   }, []);
 
   const submitCardOrContact = useCallback(async () => {
     if (preview) {
       setWebStep("question");
-      setQuestionIndex(0);
-      setPromptOverride(questions[0]?.prompt || "");
+      setLiveQ({
+        key: questions[0]?.key || "interest",
+        prompt: questions[0]?.prompt || "What are you looking for today?",
+        input: questions[0]?.input || "text",
+        options: questions[0]?.options || [],
+        allow_voice: Boolean(questions[0]?.allow_voice),
+      });
       return;
     }
     setBusy(true);
@@ -285,7 +356,7 @@ export function PublicExpoLanding({
           `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sid)}/card`,
           form,
         );
-        applyAdvance(res, { afterContact: true });
+        applyAdvance(res);
         return;
       }
 
@@ -315,7 +386,7 @@ export function PublicExpoLanding({
           company: companyVal,
         }),
       });
-      applyAdvance(res, { afterContact: true });
+      applyAdvance(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not continue");
     } finally {
@@ -323,18 +394,65 @@ export function PublicExpoLanding({
     }
   }, [applyAdvance, cardFile, contact, contactCapture, preview, questions, token]);
 
+  const submitConfirmContact = useCallback(async () => {
+    if (preview) {
+      setWebStep("question");
+      setLiveQ({
+        key: "interest",
+        prompt: "What are you looking for today at our stand?",
+        input: "text",
+        options: [],
+        allow_voice: true,
+      });
+      return;
+    }
+    if (!sessionId) {
+      setError("Session missing — go back and start again.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await apiFetch<AdvanceResult>(
+        `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sessionId)}/contact`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: contact.name.trim(),
+            company: contact.company.trim(),
+            mobile: contact.mobile.trim(),
+            email: contact.email.trim(),
+          }),
+        },
+      );
+      applyAdvance(res);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save contact details");
+    } finally {
+      setBusy(false);
+    }
+  }, [applyAdvance, contact, preview, sessionId, token]);
+
   const submitAnswer = useCallback(
     async (rawAnswer?: string) => {
       const answer = String(
         rawAnswer !== undefined && rawAnswer !== null ? rawAnswer : selectedValue || textAnswer,
       ).trim();
       if (preview) {
-        if (questionIndex >= questions.length - 1) setPhase("thanks");
+        const idx = questions.findIndex((q) => q.key === liveQ?.key);
+        const next = questions[idx + 1];
+        if (!next) setPhase("thanks");
         else {
-          setQuestionIndex((i) => i + 1);
+          setLiveQ({
+            key: next.key,
+            prompt: next.prompt,
+            input: next.input || "text",
+            options: next.options || [],
+            allow_voice: Boolean(next.allow_voice),
+          });
           setSelectedValue("");
           setTextAnswer("");
-          setPromptOverride(questions[questionIndex + 1]?.prompt || "");
         }
         return;
       }
@@ -354,31 +472,14 @@ export function PublicExpoLanding({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sessionId, answer }),
         });
-        if (res.done) {
-          setPhase("thanks");
-          return;
-        }
-        if (res.awaiting_pick && res.candidates?.length) {
-          setCandidates(res.candidates);
-          setWebStep("pick");
-          setPromptOverride(String(res.question || "Which would you like?"));
-          setSelectedValue("");
-          setTextAnswer("");
-          return;
-        }
-        // Move to next known question index for progress UI
-        setQuestionIndex((i) => Math.min(i + 1, Math.max(0, questions.length - 1)));
-        setPromptOverride(String(res.question || ""));
-        setSelectedValue("");
-        setTextAnswer("");
-        setWebStep("question");
+        applyAdvance(res);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not save answer");
       } finally {
         setBusy(false);
       }
     },
-    [preview, questionIndex, questions, selectedValue, sessionId, textAnswer, token],
+    [applyAdvance, liveQ?.key, preview, questions, selectedValue, sessionId, textAnswer, token],
   );
 
   const submitVoice = useCallback(async () => {
@@ -409,27 +510,13 @@ export function PublicExpoLanding({
         `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sessionId)}/voice`,
         form,
       );
-      if (res.done) {
-        setPhase("thanks");
-        return;
-      }
-      if (res.awaiting_pick && res.candidates?.length) {
-        setCandidates(res.candidates);
-        setWebStep("pick");
-        setPromptOverride(String(res.question || "Which would you like?"));
-        return;
-      }
-      setQuestionIndex((i) => Math.min(i + 1, Math.max(0, questions.length - 1)));
-      setPromptOverride(String(res.question || ""));
-      setSelectedValue("");
-      setTextAnswer("");
-      setWebStep("question");
+      applyAdvance(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not process voice note");
     } finally {
       setBusy(false);
     }
-  }, [preview, questions.length, sessionId, submitAnswer, textAnswer, token]);
+  }, [applyAdvance, preview, sessionId, submitAnswer, textAnswer, token]);
 
   const onCardPicked = (file: File | null) => {
     if (cardPreview) URL.revokeObjectURL(cardPreview);
@@ -502,18 +589,24 @@ export function PublicExpoLanding({
   }
 
   if (phase === "web") {
-    const progressTotal = Math.max(1, questions.length + 1);
-    const progressIndex = webStep === "contact" ? 0 : webStep === "pick" ? progressTotal - 1 : questionIndex + 1;
+    const progressTotal = Math.max(2, questions.length + 1);
+    const progressIndex =
+      webStep === "contact" || webStep === "confirm"
+        ? 0
+        : webStep === "pick"
+          ? progressTotal - 1
+          : Math.min(stepCount, progressTotal - 1);
     const progressPct = Math.round(((progressIndex + 1) / progressTotal) * 100);
     const displayPrompt =
-      promptOverride ||
-      (webStep === "contact"
+      webStep === "contact"
         ? contactCapture === "card_only"
           ? "Please upload a photo of your business card to continue."
           : "Upload a business card, or enter your details."
-        : webStep === "pick"
-          ? promptOverride || "Which would you like?"
-          : currentQ?.prompt || "");
+        : webStep === "confirm"
+          ? "Check your details, then continue"
+          : webStep === "pick"
+            ? liveQ?.prompt || "Which would you like?"
+            : liveQ?.prompt || "";
 
     return (
       <main className={`relative min-h-[100svh] overflow-hidden ${theme.bgClass}`} style={themeStyleVars(theme)}>
@@ -600,17 +693,49 @@ export function PublicExpoLanding({
               </>
             ) : null}
 
-            {webStep === "question" && currentQ ? (
-              currentQ.input === "choice" && (currentQ.options || []).length > 0 ? (
+            {webStep === "confirm" ? (
+              <>
+                <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
+                  Confirm details
+                </p>
+                <h1 className="font-display text-[28px] leading-tight" style={{ color: theme.ink }}>
+                  {displayPrompt}
+                </h1>
+                <div className="grid gap-2.5">
+                  {(
+                    [
+                      ["name", "Name *"],
+                      ["company", "Company"],
+                      ["mobile", "Mobile *"],
+                      ["email", "Email *"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key} className="block text-[12px] font-medium" style={{ color: theme.sub }}>
+                      {label}
+                      <input
+                        className="mt-1 w-full rounded-xl border px-3 py-2.5 text-[15px]"
+                        style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
+                        value={contact[key]}
+                        onChange={(e) => setContact((c) => ({ ...c, [key]: e.target.value }))}
+                        autoComplete={key === "email" ? "email" : key === "mobile" ? "tel" : "off"}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </>
+            ) : null}
+
+            {webStep === "question" && liveQ ? (
+              liveQ.input === "choice" && liveQ.options.length > 0 ? (
                 <>
                   <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
-                    Question {questionIndex + 1}
+                    Question
                   </p>
                   <h1 className="font-display text-[28px] leading-[1.15]" style={{ color: theme.ink }}>
-                    {displayPrompt || currentQ.prompt}
+                    {liveQ.prompt}
                   </h1>
                   <div className="mt-2 grid gap-2.5">
-                    {(currentQ.options || []).map((opt) => {
+                    {liveQ.options.map((opt) => {
                       const selected = selectedValue === opt.value;
                       return (
                         <button
@@ -640,16 +765,16 @@ export function PublicExpoLanding({
                 <VoiceDetail
                   ref={voiceRef}
                   theme={theme}
-                  eyebrow={`Question ${questionIndex + 1}`}
-                  title={displayPrompt || currentQ.prompt}
+                  eyebrow="Question"
+                  title={liveQ.prompt}
                   hint={
-                    currentQ.allow_voice
+                    liveQ.allow_voice
                       ? "Type in English, or record a voice note in any language — we translate to English."
                       : "Type your answer."
                   }
                   text={textAnswer}
                   onTextChange={setTextAnswer}
-                  allowVoice={Boolean(currentQ.allow_voice)}
+                  allowVoice={Boolean(liveQ.allow_voice)}
                   disabled={busy}
                   placeholder="Your answer…"
                 />
@@ -706,11 +831,9 @@ export function PublicExpoLanding({
               style={{ background: theme.card, borderColor: theme.border, color: theme.sub }}
               onClick={() => {
                 if (webStep === "contact") setPhase("choose");
+                else if (webStep === "confirm") setWebStep("contact");
                 else if (webStep === "pick") setWebStep("question");
-                else if (questionIndex > 0) {
-                  setQuestionIndex((i) => i - 1);
-                  setPromptOverride("");
-                } else setWebStep("contact");
+                else setWebStep("contact");
               }}
             >
               Back
@@ -720,15 +843,16 @@ export function PublicExpoLanding({
               disabled={busy}
               onClick={() => {
                 if (webStep === "contact") void submitCardOrContact();
+                else if (webStep === "confirm") void submitConfirmContact();
                 else if (webStep === "pick") void submitAnswer(selectedValue);
-                else if (currentQ?.input === "choice") void submitAnswer(selectedValue);
-                else if (currentQ?.allow_voice) void submitVoice();
+                else if (liveQ?.input === "choice") void submitAnswer(selectedValue);
+                else if (liveQ?.allow_voice) void submitVoice();
                 else void submitAnswer(textAnswer);
               }}
               className="flex-1 rounded-full py-2.5 text-sm font-semibold text-white shadow-lift disabled:opacity-60"
               style={{ background: theme.gradientButton }}
             >
-              {busy ? "Please wait…" : "Continue"}
+              {busy ? "Please wait…" : webStep === "confirm" ? "Confirm & continue" : "Continue"}
             </button>
           </div>
         </div>

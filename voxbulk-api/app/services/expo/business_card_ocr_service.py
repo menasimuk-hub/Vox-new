@@ -226,16 +226,10 @@ class ExpoBusinessCardService:
         except Exception as exc:
             logger.warning("expo_card_openai_unavailable err=%s", exc)
             return {}
-        model = str(config.get("default_model") or "gpt-4o-mini").strip() or "gpt-4o-mini"
-        # Prefer a vision-capable model when admin set something odd
-        if "realtime" in model.lower() or model.startswith("whisper") or "audio" in model.lower():
-            model = "gpt-4o-mini"
-        if model in {"gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"} or "gpt-4o" in model:
-            pass
-        elif "gpt-3.5" in model.lower():
-            model = "gpt-4o-mini"
-        payload = {
-            "model": model,
+        # Always use a cheap vision model for Expo OCR — Admin default (e.g. gpt-5.5)
+        # often rate-limits (429) and is not needed for card extraction.
+        models = ("gpt-4o-mini", "gpt-4o")
+        payload_base = {
             "messages": [
                 {
                     "role": "system",
@@ -244,6 +238,7 @@ class ExpoBusinessCardService:
                         "Return JSON only. Use null when a field is missing or unreadable. "
                         "Prefer the person's full name (not job title) for name. "
                         "Company is the organisation / brand name on the card. "
+                        "If no company is printed, use null (do not invent one from the email domain). "
                         "Phone should include country code when visible."
                     ),
                 },
@@ -269,38 +264,57 @@ class ExpoBusinessCardService:
             "max_tokens": 400,
             "temperature": 0,
         }
-        try:
-            response = OpenAIProviderService._http_client().post(
-                OpenAIProviderService._endpoint_url(config, "/v1/chat/completions"),
-                json=payload,
-                headers=OpenAIProviderService._headers(config),
-                timeout=90.0,
-            )
-            response.raise_for_status()
-            raw = response.json()
-            choices = raw.get("choices") or []
-            message = (choices[0] or {}).get("message") if choices else {}
-            text = str((message or {}).get("content") or "").strip()
-            parsed = json.loads(text) if text else {}
-            if not isinstance(parsed, dict):
-                return {}
-            fields = {
-                "name": (str(parsed.get("name") or "").strip() or None),
-                "company": (str(parsed.get("company") or "").strip() or None),
-                "email": _clean_email(parsed.get("email")),
-                "phone": _clean_phone(parsed.get("phone")),
-            }
-            logger.info(
-                "expo_card_ocr_ok name=%s company=%s email=%s phone=%s",
-                bool(fields.get("name")),
-                bool(fields.get("company")),
-                bool(fields.get("email")),
-                bool(fields.get("phone")),
-            )
-            return fields
-        except Exception as exc:
-            logger.warning("expo_card_ocr_failed err=%s", exc)
-            return {}
+        last_err: Exception | None = None
+        for model in models:
+            payload = {**payload_base, "model": model}
+            for attempt in range(2):
+                try:
+                    response = OpenAIProviderService._http_client().post(
+                        OpenAIProviderService._endpoint_url(config, "/v1/chat/completions"),
+                        json=payload,
+                        headers=OpenAIProviderService._headers(config),
+                        timeout=90.0,
+                    )
+                    if response.status_code == 429:
+                        import time
+
+                        time.sleep(1.2 * (attempt + 1))
+                        last_err = RuntimeError(f"429 Too Many Requests model={model}")
+                        continue
+                    response.raise_for_status()
+                    raw = response.json()
+                    choices = raw.get("choices") or []
+                    message = (choices[0] or {}).get("message") if choices else {}
+                    text = str((message or {}).get("content") or "").strip()
+                    parsed = json.loads(text) if text else {}
+                    if not isinstance(parsed, dict):
+                        return {}
+                    fields = {
+                        "name": (str(parsed.get("name") or "").strip() or None),
+                        "company": (str(parsed.get("company") or "").strip() or None),
+                        "email": _clean_email(parsed.get("email")),
+                        "phone": _clean_phone(parsed.get("phone")),
+                    }
+                    logger.info(
+                        "expo_card_ocr_ok model=%s name=%s company=%s email=%s phone=%s",
+                        model,
+                        bool(fields.get("name")),
+                        bool(fields.get("company")),
+                        bool(fields.get("email")),
+                        bool(fields.get("phone")),
+                    )
+                    return fields
+                except Exception as exc:
+                    last_err = exc
+                    logger.warning("expo_card_ocr_failed model=%s attempt=%s err=%s", model, attempt + 1, exc)
+                    if "429" in str(exc):
+                        import time
+
+                        time.sleep(1.2 * (attempt + 1))
+                        continue
+                    break
+        logger.warning("expo_card_ocr_exhausted err=%s", last_err)
+        return {}
 
     @staticmethod
     def save_inbound_image(

@@ -167,42 +167,55 @@ class SurveyWaTranslationService:
                 "detected_language": detected_language,
                 "translation_status": "not_needed",
             }
-        try:
-            lang_hint = str(detected_language or "").strip() or "unknown"
-            if SurveyWaTranslationService.looks_like_franco_arabic(original):
-                lang_hint = f"{lang_hint}; likely Franco-Arabic / Levantine dialect (Latin script)"
-            result = OpenAIProviderService.complete(
-                db,
-                system_prompt=_TRANSLATE_SYSTEM,
-                messages=[
-                    AgentMessage(
-                        role="user",
-                        content=(
-                            f"Source language hint: {lang_hint}\n\n"
-                            "Translate the respondent message below into clear English.\n\n"
-                            f"Message:\n{original}"
-                        ),
-                    )
-                ],
-                max_tokens=900,
-                temperature=0.1,
-                provider="deepseek",
-            )
-            translated = str(result.assistant_text or "").strip()
-            return {
-                "original_text": original,
-                "translated_text": translated or original,
-                "detected_language": detected_language,
-                "translation_status": "completed" if translated else "failed",
-            }
-        except Exception as exc:
-            logger.warning("survey_wa_translation_failed: %s", str(exc)[:300])
-            return {
-                "original_text": original,
-                "translated_text": None,
-                "detected_language": detected_language,
-                "translation_status": "failed",
-            }
+        lang_hint = str(detected_language or "").strip() or "unknown"
+        if SurveyWaTranslationService.looks_like_franco_arabic(original):
+            lang_hint = f"{lang_hint}; likely Franco-Arabic / Levantine dialect (Latin script)"
+        user_content = (
+            f"Source language hint: {lang_hint}\n\n"
+            "Translate the respondent message below into clear English.\n\n"
+            f"Message:\n{original}"
+        )
+        # Prefer DeepInfra Mistral (Admin DeepInfra). DeepSeek is fallback only.
+        providers: list[tuple[str, str | None]] = [
+            ("deepinfra", "mistralai/Mistral-Small-3.2-24B-Instruct-2506"),
+            ("deepseek", "deepseek-v4-flash"),
+        ]
+        last_err: Exception | None = None
+        for provider, model in providers:
+            try:
+                result = OpenAIProviderService.complete(
+                    db,
+                    system_prompt=_TRANSLATE_SYSTEM,
+                    messages=[AgentMessage(role="user", content=user_content)],
+                    max_tokens=900,
+                    temperature=0.1,
+                    provider=provider,
+                    model=model,
+                )
+                translated = str(result.assistant_text or "").strip()
+                if translated:
+                    return {
+                        "original_text": original,
+                        "translated_text": translated,
+                        "detected_language": detected_language,
+                        "translation_status": "completed",
+                    }
+            except Exception as exc:
+                last_err = exc
+                logger.warning(
+                    "survey_wa_translation_failed provider=%s: %s",
+                    provider,
+                    str(exc)[:300],
+                )
+                continue
+        if last_err is not None:
+            logger.warning("survey_wa_translation_exhausted: %s", str(last_err)[:300])
+        return {
+            "original_text": original,
+            "translated_text": None,
+            "detected_language": detected_language,
+            "translation_status": "failed",
+        }
 
     @staticmethod
     def apply_to_answer(answer: dict[str, Any], translation: dict[str, Any]) -> dict[str, Any]:
