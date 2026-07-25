@@ -325,7 +325,9 @@ export function PublicExpoLanding({
 
   const submitAnswer = useCallback(
     async (rawAnswer?: string) => {
-      const answer = (rawAnswer ?? selectedValue || textAnswer).trim();
+      const answer = String(
+        rawAnswer !== undefined && rawAnswer !== null ? rawAnswer : selectedValue || textAnswer,
+      ).trim();
       if (preview) {
         if (questionIndex >= questions.length - 1) setPhase("thanks");
         else {
