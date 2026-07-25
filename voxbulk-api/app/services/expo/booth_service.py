@@ -45,7 +45,12 @@ BOOTH_PREVIEW_EXHAUSTED_MESSAGE = (
     "This Expo booth is not live yet, and the preview test allowance (15) has been used. "
     "Ask the stand team when the exhibition package starts."
 )
+BOOTH_UNPAID_EXHAUSTED_MESSAGE = (
+    "This Expo booth is saved for testing only. Preview tests are used up — "
+    "the exhibitor must pay for the package before it can go live."
+)
 PREVIEW_TESTS_LIMIT = 15
+EXPO_PACKAGE_CHECKOUT_KIND = "expo_package_checkout"
 _LONDON = ZoneInfo("Europe/London")
 _UTC = ZoneInfo("UTC")
 
@@ -104,6 +109,27 @@ def booth_is_before_start(booth: ExpoBooth, *, now: datetime | None = None) -> b
     return (now or datetime.utcnow()) < booth.activated_at
 
 
+def booth_is_paid(booth: ExpoBooth) -> bool:
+    return str(getattr(booth, "payment_status", "") or "").strip().lower() == "paid"
+
+
+def booth_requires_preview_quota(booth: ExpoBooth, *, now: datetime | None = None) -> bool:
+    """Unpaid booths are always preview-only; paid booths use preview only before start."""
+    if not booth_is_paid(booth):
+        return True
+    return booth_is_before_start(booth, now=now)
+
+
+def booth_is_live(booth: ExpoBooth, *, now: datetime | None = None) -> bool:
+    stamp = now or datetime.utcnow()
+    return (
+        booth_is_paid(booth)
+        and str(booth.status or "").lower() == "active"
+        and not booth_is_expired(booth, now=stamp)
+        and not booth_is_before_start(booth, now=stamp)
+    )
+
+
 def booth_preview_remaining(booth: ExpoBooth) -> int:
     used = int(getattr(booth, "preview_tests_used", 0) or 0)
     return max(0, PREVIEW_TESTS_LIMIT - used)
@@ -116,7 +142,9 @@ def booth_access_block_reason(booth: ExpoBooth, *, now: datetime | None = None) 
         return BOOTH_CLOSED_MESSAGE
     if booth_is_expired(booth, now=stamp):
         return BOOTH_CLOSED_MESSAGE
-    if booth_is_before_start(booth, now=stamp) and booth_preview_remaining(booth) <= 0:
+    if booth_requires_preview_quota(booth, now=stamp) and booth_preview_remaining(booth) <= 0:
+        if not booth_is_paid(booth):
+            return BOOTH_UNPAID_EXHAUSTED_MESSAGE
         return BOOTH_PREVIEW_EXHAUSTED_MESSAGE
     return None
 
@@ -364,6 +392,11 @@ class ExpoBoothService:
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
             "is_expired": booth_is_expired(booth),
             "is_before_start": booth_is_before_start(booth),
+            "is_live": booth_is_live(booth),
+            "is_paid": booth_is_paid(booth),
+            "payment_status": str(getattr(booth, "payment_status", None) or "unpaid"),
+            "paid_at": booth.paid_at.isoformat() if getattr(booth, "paid_at", None) else None,
+            "payment_provider": getattr(booth, "payment_provider", None),
             "scan_count": booth.scan_count,
             "preview_tests_used": int(getattr(booth, "preview_tests_used", 0) or 0),
             "preview_tests_limit": PREVIEW_TESTS_LIMIT,
@@ -503,6 +536,7 @@ class ExpoBoothService:
             status="active",
             scan_count=0,
             preview_tests_used=0,
+            payment_status="unpaid",
             question_config_json=question_json,
             created_by_user_id=user_id,
             created_at=now,

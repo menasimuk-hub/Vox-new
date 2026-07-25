@@ -412,6 +412,13 @@ class AirwallexPaymentService:
             )
             return {"ok": True, "paid": True, "invoice_id": invoice_id}
 
+        if payment_kind == "expo_package_checkout":
+            from app.services.expo.booth_payment_service import ExpoBoothPaymentService
+
+            return ExpoBoothPaymentService.mark_paid_from_webhook(
+                db, org=org, intent=intent, provider="airwallex"
+            )
+
         if payment_kind == "subscription_checkout":
             from app.services.card_subscription_activation_service import CardSubscriptionActivationService
             from app.services.airwallex_billing_service import AirwallexBillingService

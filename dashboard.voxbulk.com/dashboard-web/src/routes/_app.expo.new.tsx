@@ -21,6 +21,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
+import { ExpoPayDialog } from "@/components/expo-pay-dialog";
 import { ExpoScanChoosePreview, ExpoWaPhonePreview, ExpoWebPhonePreview } from "@/components/expo-phone-preview";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -156,7 +157,12 @@ function CreateExpoBooth() {
     qr_image_url?: string;
     trigger_text?: string;
     whatsapp_url?: string;
+    is_paid?: boolean;
+    is_live?: boolean;
+    payment_status?: string;
+    activated_at?: string | null;
   } | null>(null);
+  const [payOpen, setPayOpen] = React.useState(false);
 
   const industries = industriesQ.data?.items || [];
   const packages = packagesQ.data?.items || [];
@@ -326,7 +332,7 @@ function CreateExpoBooth() {
         return { ok: true, items };
       });
       await queryClient.invalidateQueries({ queryKey: ["expo"] });
-      toast.success("Expo booth activated — saved under Saved booths");
+      toast.success("Booth saved — pay to go live, or use up to 15 preview tests unpaid");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create booth");
     } finally {
@@ -942,17 +948,17 @@ function CreateExpoBooth() {
                     </div>
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                    <p className="font-medium text-foreground">15 preview tests</p>
+                    <p className="font-medium text-foreground">Save unpaid · pay to go live</p>
                     <p className="mt-0.5 text-xs">
-                      Scan the QR on your phone before the start date to test WhatsApp and web — up to 15
-                      sessions. After the start date the booth runs live until the end date.
+                      Save your design and QR now. You get up to 15 preview tests unpaid. The booth goes live for
+                      the package window only after Stripe or Airwallex payment.
                     </p>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Creates your booth, WhatsApp trigger text, and downloadable QR.
+                    Creates your booth, WhatsApp trigger text, and downloadable QR (status: Unpaid).
                   </p>
                   <Button onClick={() => void activate()} disabled={saving || !packageId || !packageStartDate}>
-                    {saving ? "Activating…" : "Activate Expo booth"}
+                    {saving ? "Saving…" : "Save Expo booth"}
                   </Button>
                 </>
               ) : (
@@ -965,17 +971,31 @@ function CreateExpoBooth() {
                     />
                   ) : null}
                   <div className="space-y-2 text-sm">
-                    <p className="font-medium">Booth ready</p>
+                    <p className="font-medium">
+                      {created.is_paid || created.payment_status === "paid"
+                        ? created.is_live
+                          ? "Booth live"
+                          : "Booth paid — waiting for start date"
+                        : "Booth saved (unpaid)"}
+                    </p>
                     <p className="text-muted-foreground">
-                      Live {packageStartDate}
-                      {packageEndDate ? ` → ${packageEndDate}` : ""} · 15 preview tests before start
+                      Window {packageStartDate}
+                      {packageEndDate ? ` → ${packageEndDate}` : ""} ·{" "}
+                      {created.is_paid || created.payment_status === "paid"
+                        ? "Paid — live after start date"
+                        : "Pay to go live · 15 preview tests unpaid"}
                     </p>
                     <p className="max-w-md text-muted-foreground">{created.trigger_text}</p>
                     <div className="flex flex-wrap gap-2">
+                      {!(created.is_paid || created.payment_status === "paid") ? (
+                        <Button size="sm" onClick={() => setPayOpen(true)}>
+                          Pay with card
+                        </Button>
+                      ) : null}
                       <Button asChild variant="outline" size="sm">
                         <Link to="/expo">View saved booths</Link>
                       </Button>
-                      <Button asChild size="sm">
+                      <Button asChild size="sm" variant={created.is_paid ? "outline" : "ghost"}>
                         <Link to="/expo/leads" search={{ booth_id: created.id }}>
                           View leads
                         </Link>
@@ -988,6 +1008,25 @@ function CreateExpoBooth() {
           </Card>
         )}
       </div>
+
+      <ExpoPayDialog
+        boothId={created?.id || null}
+        boothName={boothCode.trim() || exhibitionName.trim() || company.trim() || "Expo booth"}
+        open={payOpen}
+        onOpenChange={setPayOpen}
+        onPaid={(booth) => {
+          if (booth && created) {
+            setCreated({
+              ...created,
+              is_paid: Boolean(booth.is_paid ?? true),
+              is_live: Boolean(booth.is_live),
+              payment_status: String(booth.payment_status || "paid"),
+              activated_at: (booth.activated_at as string | null | undefined) ?? created.activated_at,
+            });
+          }
+          void queryClient.invalidateQueries({ queryKey: ["expo"] });
+        }}
+      />
 
       {step < 7 || !created ? (
         <div className="flex items-center justify-between gap-3">
@@ -1014,7 +1053,7 @@ function CreateExpoBooth() {
             </Button>
           ) : (
             <Button type="button" disabled={saving || !packageId || Boolean(created)} onClick={() => void activate()}>
-              {saving ? "Activating…" : "Activate"}
+              {saving ? "Saving…" : "Save booth"}
             </Button>
           )}
         </div>

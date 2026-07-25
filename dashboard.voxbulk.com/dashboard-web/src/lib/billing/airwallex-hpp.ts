@@ -1,9 +1,10 @@
 export const AWX_PENDING_KEY = "voxbulk_awx_pending";
 
 export type AirwallexPending = {
-  flow: "wallet" | "invoice" | "subscription";
+  flow: "wallet" | "invoice" | "subscription" | "feedback_subscription" | "expo";
   payment_intent_id: string;
   invoice_id?: string;
+  booth_id?: string;
 };
 
 const loadedScripts: Record<string, Promise<void>> = {};

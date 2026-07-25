@@ -269,7 +269,7 @@ class ExpoSessionFlowService:
     ) -> dict[str, Any]:
         from app.services.expo.booth_service import (
             booth_access_block_reason,
-            booth_is_before_start,
+            booth_requires_preview_quota,
         )
 
         blocked = booth_access_block_reason(booth)
@@ -283,7 +283,7 @@ class ExpoSessionFlowService:
             reason="new_booth_scan",
         )
         booth.scan_count = int(booth.scan_count or 0) + 1
-        if booth_is_before_start(booth):
+        if booth_requires_preview_quota(booth):
             booth.preview_tests_used = int(getattr(booth, "preview_tests_used", 0) or 0) + 1
         db.add(booth)
 

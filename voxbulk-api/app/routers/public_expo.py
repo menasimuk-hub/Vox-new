@@ -18,6 +18,8 @@ from app.services.expo.booth_service import (
     booth_access_block_reason,
     booth_is_before_start,
     booth_is_expired,
+    booth_is_live,
+    booth_is_paid,
     booth_preview_remaining,
 )
 from app.services.expo.offer_delivery_service import asset_public_url, load_booth_assets
@@ -112,11 +114,20 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
     expired = booth_is_expired(booth)
     before_start = booth_is_before_start(booth)
     preview_remaining = booth_preview_remaining(booth)
-    closed_message = None
+    paid = booth_is_paid(booth)
+    live = booth_is_live(booth)
+    closed_message = booth_access_block_reason(booth)
     if expired:
         closed_message = BOOTH_CLOSED_MESSAGE
-    elif before_start and preview_remaining <= 0:
-        closed_message = booth_access_block_reason(booth)
+    public_status = (
+        "expired"
+        if expired
+        else (
+            "unpaid"
+            if not paid
+            else ("preview" if before_start else ("live" if live else str(booth.status or "paused")))
+        )
+    )
     steps = ExpoSessionFlowService.steps_for_booth(booth)
     exhibition = db.get(ExpoExhibition, booth.exhibition_id)
     event_name = exhibition.name if exhibition else "Exhibition"
@@ -181,9 +192,12 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
             "name": booth.name,
             "company_display_name": booth.company_display_name,
             "exhibition_name": event_name,
-            "status": "expired" if expired else ("preview" if before_start else booth.status),
+            "status": public_status,
             "is_expired": expired,
             "is_before_start": before_start,
+            "is_paid": paid,
+            "is_live": live,
+            "payment_status": str(getattr(booth, "payment_status", None) or "unpaid"),
             "preview_tests_remaining": preview_remaining,
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
             "question_count": len(steps),

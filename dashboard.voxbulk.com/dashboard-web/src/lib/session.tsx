@@ -190,6 +190,37 @@ function GoCardlessReturnHandler({
             await completeFeedbackCardSubscription(pending.payment_intent_id);
             clearFeedbackCardSubscriptionState();
             toast.success("Customer feedback subscription activated");
+          } else if (pending.flow === "expo" && pending.booth_id) {
+            const res = await apiFetch<{
+              paid?: boolean;
+              duplicate?: boolean;
+              booth?: { is_live?: boolean; activated_at?: string | null };
+            }>(`/expo/booths/${encodeURIComponent(pending.booth_id)}/pay/confirm`, {
+              method: "POST",
+              body: JSON.stringify({
+                provider: "airwallex",
+                payment_intent_id: pending.payment_intent_id,
+              }),
+            });
+            if (res.paid || res.duplicate) {
+              if (res.booth?.is_live) {
+                toast.success("Paid — Expo booth is live");
+              } else {
+                const activated = res.booth?.activated_at;
+                const startLabel = activated
+                  ? new Date(activated).toLocaleDateString("en-GB", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })
+                  : "your start date";
+                toast.success(`Paid — goes live on ${startLabel}`);
+              }
+            } else {
+              toast.message("Payment is still processing", {
+                description: "Your booth will unlock as soon as the payment settles.",
+              });
+            }
           } else {
             toast.error("Payment completed but checkout session was not found.");
             return;

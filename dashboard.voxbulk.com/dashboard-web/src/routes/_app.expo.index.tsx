@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  CreditCard,
   Download,
   Eye,
   Flame,
@@ -30,6 +31,7 @@ import {
 } from "recharts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ExpoPayDialog } from "@/components/expo-pay-dialog";
 import { PageHeader } from "@/components/page-header";
 import {
   AlertDialog,
@@ -64,6 +66,9 @@ type ExpoBooth = {
   expires_at?: string | null;
   is_expired?: boolean;
   is_before_start?: boolean;
+  is_live?: boolean;
+  is_paid?: boolean;
+  payment_status?: string;
   activated_at?: string | null;
   preview_tests_remaining?: number;
   preview_tests_limit?: number;
@@ -113,6 +118,7 @@ function ExpoHub() {
     refetchOnMount: "always",
   });
   const [deleteTarget, setDeleteTarget] = React.useState<ExpoBooth | null>(null);
+  const [payTarget, setPayTarget] = React.useState<ExpoBooth | null>(null);
   const [deleting, setDeleting] = React.useState(false);
   const items = boothsQ.data?.items || [];
   const summary = summaryQ.data;
@@ -306,7 +312,18 @@ function ExpoHub() {
           {items.map((it) => {
             const expired = Boolean(it.is_expired);
             const beforeStart = Boolean(it.is_before_start);
-            const live = !expired && !beforeStart && String(it.status || "").toLowerCase() === "active";
+            const paid = Boolean(it.is_paid) || String(it.payment_status || "").toLowerCase() === "paid";
+            const live = Boolean(it.is_live) || (paid && !expired && !beforeStart && String(it.status || "").toLowerCase() === "active");
+            const unpaid = !paid && !expired;
+            const badgeLabel = expired
+              ? "Expired"
+              : unpaid
+                ? "Unpaid"
+                : beforeStart
+                  ? "Preview"
+                  : live
+                    ? "Live"
+                    : it.status || "Paused";
             const fmtDay = (iso?: string | null) =>
               iso
                 ? new Date(iso).toLocaleDateString("en-GB", {
@@ -318,6 +335,7 @@ function ExpoHub() {
             const startLabel = fmtDay(it.activated_at);
             const endLabel = fmtDay(it.expires_at);
             const previewLeft = typeof it.preview_tests_remaining === "number" ? it.preview_tests_remaining : null;
+            const showPreviewQuota = (unpaid || beforeStart) && previewLeft !== null;
             return (
               <Card key={it.id} className="overflow-hidden">
                 <CardHeader className="flex flex-row items-start justify-between gap-2">
@@ -329,19 +347,21 @@ function ExpoHub() {
                       <p className="mt-1 text-[11px] text-muted-foreground">
                         {expired
                           ? `Expired ${endLabel || ""}`.trim()
-                          : beforeStart
-                            ? `Starts ${startLabel || "soon"}${endLabel ? ` · ends ${endLabel}` : ""}`
-                            : `Live ${startLabel || ""}${endLabel ? ` → ${endLabel}` : ""}`.trim()}
+                          : unpaid
+                            ? `Pay to go live${startLabel ? ` from ${startLabel}` : ""}${endLabel ? ` · ends ${endLabel}` : ""}`
+                            : beforeStart
+                              ? `Starts ${startLabel || "soon"}${endLabel ? ` · ends ${endLabel}` : ""}`
+                              : `Live ${startLabel || ""}${endLabel ? ` → ${endLabel}` : ""}`.trim()}
                       </p>
                     ) : null}
-                    {beforeStart && previewLeft !== null ? (
+                    {showPreviewQuota ? (
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         Preview tests left: {previewLeft}/{it.preview_tests_limit || 15}
                       </p>
                     ) : null}
                   </div>
-                  <Badge variant={expired ? "secondary" : live ? "default" : "secondary"}>
-                    {expired ? "Expired" : beforeStart ? "Preview" : live ? "Live" : it.status || "Paused"}
+                  <Badge variant={expired || unpaid ? "secondary" : live ? "default" : "secondary"}>
+                    {badgeLabel}
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -394,6 +414,11 @@ function ExpoHub() {
                     </div>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2">
+                    {unpaid ? (
+                      <Button size="sm" className="gap-1.5" onClick={() => setPayTarget(it)}>
+                        <CreditCard className="size-3.5" /> Pay
+                      </Button>
+                    ) : null}
                     {it.qr_image_url ? (
                       <Button size="sm" variant="outline" className="gap-1.5" asChild>
                         <a href={it.qr_image_url} download={`expo-qr-${it.id}.png`}>
@@ -433,6 +458,17 @@ function ExpoHub() {
           </Link>
         </div>
       )}
+
+      <ExpoPayDialog
+        boothId={payTarget?.id || null}
+        boothName={payTarget?.name}
+        open={payTarget != null}
+        onOpenChange={(open) => !open && setPayTarget(null)}
+        onPaid={() => {
+          setPayTarget(null);
+          void queryClient.invalidateQueries({ queryKey: ["expo"] });
+        }}
+      />
 
       <AlertDialog open={deleteTarget != null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>

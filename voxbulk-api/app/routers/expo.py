@@ -127,6 +127,96 @@ def get_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(ge
     return {"ok": True, "item": ExpoBoothService.serialize_booth(db, booth)}
 
 
+@router.get("/booths/{booth_id}/pay/options")
+def booth_pay_options(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Available Stripe / Airwallex rails + package amount for Expo go-live checkout."""
+    from app.services.expo.booth_payment_service import ExpoBoothPaymentError, ExpoBoothPaymentService
+
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    booth = _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    try:
+        return ExpoBoothPaymentService.pay_options(db, org=org, booth=booth)
+    except ExpoBoothPaymentError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/booths/{booth_id}/pay/intent")
+def booth_pay_intent(
+    booth_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.airwallex_payment_service import (
+        AirwallexConfigError,
+        AirwallexProviderError,
+    )
+    from app.services.expo.booth_payment_service import ExpoBoothPaymentError, ExpoBoothPaymentService
+    from app.services.stripe_payment_service import StripeConfigError, StripeProviderError
+
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    owner_filter = _campaign_owner_user_id(db, principal)
+    booth = _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    provider = str((payload or {}).get("provider") or "").strip().lower()
+    try:
+        return ExpoBoothPaymentService.create_intent(db, org=org, booth=booth, provider=provider)
+    except ExpoBoothPaymentError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (StripeConfigError, AirwallexConfigError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (StripeProviderError, AirwallexProviderError) as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.post("/booths/{booth_id}/pay/confirm")
+def booth_pay_confirm(
+    booth_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.airwallex_payment_service import (
+        AirwallexConfigError,
+        AirwallexProviderError,
+    )
+    from app.services.expo.booth_payment_service import ExpoBoothPaymentError, ExpoBoothPaymentService
+    from app.services.stripe_payment_service import StripeConfigError, StripeProviderError
+
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    owner_filter = _campaign_owner_user_id(db, principal)
+    booth = _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    provider = str((payload or {}).get("provider") or "").strip().lower()
+    intent_id = str((payload or {}).get("payment_intent_id") or "").strip()
+    try:
+        return ExpoBoothPaymentService.confirm(
+            db, org=org, booth=booth, provider=provider, payment_intent_id=intent_id
+        )
+    except ExpoBoothPaymentError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (StripeConfigError, AirwallexConfigError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (StripeProviderError, AirwallexProviderError) as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
 @router.delete("/booths/{booth_id}")
 def delete_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_expo_enabled(db, principal.org_id)
