@@ -161,7 +161,7 @@ function ExpoHub() {
       />
 
       {summaryQ.isLoading ? (
-        <Skeleton className="h-40 rounded-2xl" />
+        <Skeleton className="h-32 rounded-2xl" />
       ) : summary ? (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -537,9 +537,9 @@ function RichKpi({
 
   return (
     <Card className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
-      <CardContent className="flex flex-col gap-3 p-4">
+      <CardContent className="flex flex-col gap-3 p-3">
         <div className="flex items-start justify-between gap-2">
-          <span className={cn("grid size-9 place-items-center rounded-lg", iconBg)}>{icon}</span>
+          <span className={cn("grid size-7 place-items-center rounded-lg", iconBg)}>{icon}</span>
           <span
             className={cn(
               "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
@@ -551,11 +551,11 @@ function RichKpi({
         </div>
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-2xl font-semibold tracking-tight tabular-nums">{value.toLocaleString()}</p>
+          <p className="mt-0.5 text-lg font-semibold tracking-tight tabular-nums">{value.toLocaleString()}</p>
           {sub ? <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p> : null}
           <p className="mt-1 text-xs font-medium text-foreground/80">{todayLabel}</p>
         </div>
-        <div className="-mx-1 -mb-1 h-10">
+        <div className="-mx-1 -mb-1 h-8">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={(spark.length ? spark : [0, 0, 0]).map((v, i) => ({ i, v }))} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
               <Area type="monotone" dataKey="v" stroke={meta.stroke} strokeWidth={1.75} fill={meta.stroke} fillOpacity={0.12} />

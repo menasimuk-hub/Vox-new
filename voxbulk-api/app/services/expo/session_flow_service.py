@@ -25,6 +25,7 @@ from app.services.expo.question_bank import (
     CONTACT_COMPANY_PROMPT,
     CONTACT_MOBILE_PROMPT,
     CONTACT_STEP_KEY,
+    WEB_CHOICE_OPTIONS,
     build_thank_you_message,
     contact_prompt_for_mode,
     enrich_step_payload,
@@ -44,6 +45,14 @@ CONTACT_CONFIRM_PROMPT = "Please check your details and continue."
 
 _YES_WORDS = frozenset({"yes", "y", "yeah", "yep", "sure", "ok", "okay", "please", "affirmative"})
 _NO_WORDS = frozenset({"no", "n", "nope", "nah", "negative", "not interested", "no thanks"})
+
+_EMOJI_DIGITS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
+
+
+def _emoji_digit(n: int) -> str:
+    if 1 <= n <= len(_EMOJI_DIGITS):
+        return _EMOJI_DIGITS[n - 1]
+    return f"{n}."
 
 
 def _looks_affirmative(text: str) -> bool:
@@ -232,6 +241,57 @@ class ExpoSessionFlowService:
         if closed:
             db.flush()
         return closed
+
+    @staticmethod
+    def find_recent_completed_session(db: Session, *, visitor_phone: str, hours: int = 48) -> ExpoSession | None:
+        """Most recent completed Expo session for this phone — for post-questionnaire handoff."""
+        phone = str(visitor_phone or "").strip()
+        if not phone:
+            return None
+        cutoff = datetime.utcnow() - timedelta(hours=max(1, int(hours or 48)))
+        return db.execute(
+            select(ExpoSession)
+            .where(
+                ExpoSession.visitor_phone == phone,
+                ExpoSession.status == "completed",
+                ExpoSession.completed_at >= cutoff,
+            )
+            .order_by(ExpoSession.completed_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def record_post_complete_question(
+        db: Session,
+        *,
+        session: ExpoSession,
+        lead: ExpoLead | None,
+        text: str,
+    ) -> None:
+        """Log a message sent after the questionnaire completed — doesn't reopen the flow."""
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        db.add(
+            ExpoResponse(
+                id=str(uuid.uuid4()),
+                session_id=session.id,
+                org_id=session.org_id,
+                booth_id=session.booth_id,
+                question_key="visitor_question",
+                answer_text=clean[:4000],
+                original_text=clean[:4000],
+                answer_text_en=clean[:4000],
+                step_order=0,
+                answer_source="text",
+                created_at=datetime.utcnow(),
+            )
+        )
+        if lead is not None:
+            lead.follow_up_status = "visitor_question"
+            lead.updated_at = datetime.utcnow()
+            db.add(lead)
+        db.commit()
 
     @staticmethod
     def phone_has_recent_expo_activity(db: Session, *, visitor_phone: str, hours: int = 24) -> bool:
@@ -453,6 +513,16 @@ class ExpoSessionFlowService:
         # Never persist the CF sentinel — Expo leads should show the original transcript
         if not answer_en or answer_en == TRANSLATION_UNAVAILABLE_EN:
             answer_en = original or clean
+        # WhatsApp choice questions are relayed as numbered options — a bare digit reply
+        # maps back to the matching option's value instead of being stored as "2".
+        if key in WEB_CHOICE_OPTIONS and answer_en.strip().isdigit():
+            opts = WEB_CHOICE_OPTIONS[key]
+            idx = int(answer_en.strip())
+            if 1 <= idx <= len(opts):
+                mapped_val = str(opts[idx - 1].get("value") or "").strip()
+                if mapped_val:
+                    original = mapped_val
+                    answer_en = mapped_val
         if detected_language:
             session.detected_language = str(detected_language)[:16]
         response_id = str(uuid.uuid4())
@@ -491,13 +561,30 @@ class ExpoSessionFlowService:
 
         # Catalogue / price-list download step — deliver selected assets then continue.
         if key == "consent_info" and lead is not None:
-            delivered = ExpoSessionFlowService._deliver_consent_assets(
+            delivered, clarify = ExpoSessionFlowService._deliver_consent_assets(
                 db, booth=booth, lead=lead, answer=answer_en
             )
+            if clarify:
+                # Bare "Yes" on a multi-asset booth — stay on consent and ask which one(s).
+                session.current_step = step_index
+                db.add(session)
             db.commit()
+            if clarify:
+                consent_ui = ExpoSessionFlowService._consent_prompt_with_assets(
+                    db,
+                    booth=booth,
+                    channel=str(session.channel or "whatsapp").lower(),
+                    base_prompt="",
+                    lead=lead,
+                )
+                if consent_ui is not None:
+                    consent_ui["prompt"] = clarify
+                    return consent_ui
             result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
             if delivered:
                 result["assets"] = delivered
+                if result.get("done"):
+                    result["thank_you_followup"] = result.get("prompt")
             return result
 
         # Interest / product answers only enrich the lead — do NOT send files before consent.
@@ -546,8 +633,9 @@ class ExpoSessionFlowService:
                 )
             )
 
-        # Photo of business card → OCR + skip typed contact fields
-        if sub == "awaiting" and is_image and capture != "manual_only":
+        # Photo of business card → OCR + skip typed contact fields (also accepted mid-flow
+        # while we're still collecting company/mobile, not only on the first prompt).
+        if sub in {"awaiting", "company", "mobile"} and is_image and capture != "manual_only":
             fields = {k: (str(v).strip() if v else None) for k, v in (contact_fields or {}).items()}
             _log("business_card", answer or "[business card image]", "image")
             if lead is not None:
@@ -618,6 +706,25 @@ class ExpoSessionFlowService:
                     "phone": fields.get("phone")
                     or (None if is_placeholder_phone(session.visitor_phone) else session.visitor_phone),
                 }
+                return out
+
+            # WhatsApp: the visitor's mobile is already known from the sender number, so the
+            # only common gap after a business-card scan is a missing company name.
+            company_present = bool((lead.company if lead else None) or fields.get("company"))
+            if not company_present:
+                state["contact_substep"] = "company"
+                ExpoSessionFlowService._save_state(session, state)
+                db.add(session)
+                db.commit()
+                out = _empty_step_result(
+                    done=False,
+                    prompt=f"{confirm}\n\n{CONTACT_COMPANY_PROMPT}".strip(),
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="company",
+                    channel=channel,
+                )
+                out["contact_via"] = "card"
+                out["card_fields"] = fields
                 return out
 
             state.pop("contact_substep", None)
@@ -905,45 +1012,87 @@ class ExpoSessionFlowService:
         booth: ExpoBooth,
         lead: ExpoLead,
         answer: str,
-    ) -> list[dict[str, Any]]:
-        """Map catalogue/price-list multi-select answer to downloadable assets."""
-        lower = str(answer or "").strip().lower()
-        tokens = [t.strip() for t in re.split(r"[,|;]+", str(answer or "")) if t.strip()]
-        meaningful = [
-            t
-            for t in tokens
-            if t.lower() not in _NO_WORDS and t.lower() not in {"no thanks", "no, thanks"}
-        ]
-        if not meaningful:
-            return []
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Map a catalogue/price-list reply to downloadable assets.
+
+        Returns ``(delivered, clarify)``. Accepts numbered picks ("1", "2", "1,2", "both") and
+        purpose words ("catalogue", "price list") in addition to titles/ids. When the visitor
+        sends a bare "Yes" and the booth offers more than one asset, nothing is delivered —
+        ``clarify`` carries a short re-prompt so the caller can ask which one(s) they want
+        instead of sending every file.
+        """
+        raw = str(answer or "").strip()
+        lower = raw.lower()
         assets = _classify_booth_assets(load_booth_assets(db, booth.id))
         if not assets:
-            return []
-        # Comma-separated values from multi_choice (titles, ids, or Yes).
-        if len(meaningful) == 1 and meaningful[0].lower() in _YES_WORDS | {"yes, please", "yes please"}:
-            chosen = list(assets)
+            return [], None
+
+        tokens = [t.strip() for t in re.split(r"[,;/&]+|\band\b", lower) if t.strip()]
+        meaningful = [
+            t for t in tokens if t not in _NO_WORDS and t not in {"no thanks", "no, thanks"}
+        ]
+        if not meaningful:
+            return [], None
+
+        chosen: list[dict[str, Any]] = []
+        seen_idx: set[int] = set()
+
+        def _add(i: int) -> None:
+            if 0 <= i < len(assets) and i not in seen_idx:
+                seen_idx.add(i)
+                chosen.append(assets[i])
+
+        if lower in {"both", "all", "everything", "all of them"}:
+            for i in range(len(assets)):
+                _add(i)
         else:
-            chosen = []
-            for a in assets:
-                aid = str(a.get("id") or "")
-                title = str(a.get("title") or "").strip().lower()
-                key = str(a.get("asset_key") or "").strip().lower()
+            numeric = [t for t in meaningful if t.isdigit()]
+            for t in numeric:
+                _add(int(t) - 1)
+
+            if not chosen:
                 for tok in meaningful:
-                    tl = tok.lower()
-                    if tl in {aid.lower(), title, key} or (title and title in tl) or (tl and tl in title):
-                        chosen.append(a)
-                        break
+                    if tok in {"catalogue", "catalog", "brochure"}:
+                        for i, a in enumerate(assets):
+                            if a.get("purpose") == "catalogue":
+                                _add(i)
+                    elif tok in {"price", "prices", "pricing", "price list", "pricelist"}:
+                        for i, a in enumerate(assets):
+                            if a.get("purpose") == "price_list":
+                                _add(i)
+
+            if not chosen:
+                for i, a in enumerate(assets):
+                    aid = str(a.get("id") or "")
+                    title = str(a.get("title") or "").strip().lower()
+                    key = str(a.get("asset_key") or "").strip().lower()
+                    for tok in meaningful:
+                        if tok in {aid.lower(), title, key} or (title and title in tok) or (tok and tok in title):
+                            _add(i)
+                            break
+
             if not chosen and _looks_affirmative(lower):
-                chosen = list(assets)
+                if len(assets) > 1:
+                    if len(assets) == 2:
+                        clarify = "Please reply 1, 2, or both — which would you like?"
+                    else:
+                        nums = ", ".join(str(i) for i in range(1, len(assets) + 1))
+                        clarify = f"Please reply with a number ({nums}) — which would you like?"
+                    return [], clarify
+                _add(0)
+
+        if not chosen:
+            return [], None
+
         delivered: list[dict[str, Any]] = []
-        seen: set[str] = set()
+        seen_ids: set[str] = set()
         from app.services.expo.offer_delivery_service import asset_public_url_for_lead
 
         for asset in chosen:
             aid = str(asset.get("id") or "")
-            if not aid or aid in seen:
+            if not aid or aid in seen_ids:
                 continue
-            seen.add(aid)
+            seen_ids.add(aid)
             mark_lead_offer_sent(db, lead, asset)
             row = dict(asset)
             row["url"] = asset_public_url_for_lead(asset, booth.qr_token, lead.id)
@@ -958,7 +1107,7 @@ class ExpoSessionFlowService:
             except Exception:
                 logger = __import__("logging").getLogger(__name__)
                 logger.exception("expo_visitor_catalogue_email_failed lead=%s", lead.id)
-        return delivered
+        return delivered, None
 
     @staticmethod
     def _consent_prompt_with_assets(
@@ -967,11 +1116,19 @@ class ExpoSessionFlowService:
         booth: ExpoBooth,
         channel: str,
         base_prompt: str,
+        lead: ExpoLead | None = None,
     ) -> dict[str, Any] | None:
-        """Build catalogue/price-list multi-select UI, or None to skip when no assets."""
+        """Build the catalogue/price-list ask, or None to skip when the booth has no assets.
+
+        Asset metadata always goes in ``asset_options`` — never in the deliverable ``assets``
+        list here — so the WhatsApp relay (which only ever sends files listed in ``assets``)
+        can't push documents before the visitor has actually said what they want.
+        """
         assets = _classify_booth_assets(load_booth_assets(db, booth.id))
         if not assets:
             return None
+        channel_l = str(channel or "").lower()
+
         options = [
             {
                 "value": str(a.get("id") or a.get("title") or ""),
@@ -981,6 +1138,7 @@ class ExpoSessionFlowService:
             if a.get("id") or a.get("title")
         ]
         options.append({"value": "No thanks", "label": "No thanks"})
+
         has_catalogue = any(str(a.get("purpose") or "") == "catalogue" for a in assets)
         has_price = any(str(a.get("purpose") or "") == "price_list" for a in assets)
         if has_catalogue and has_price:
@@ -991,31 +1149,52 @@ class ExpoSessionFlowService:
             offer = "catalogue"
         else:
             offer = "files"
-        named = ", ".join(_consent_asset_option_label(a) for a in assets[:6])
-        prompt = (
-            f"Would you like our {offer}? "
-            f"We have: {named}. Select all you'd like to download."
-        )
-        return {
+
+        asset_options = [
+            {
+                "id": a.get("id"),
+                "title": a.get("title"),
+                "short_description": a.get("short_description"),
+                "kind": a.get("kind"),
+                "purpose": a.get("purpose"),
+            }
+            for a in assets
+        ]
+
+        result: dict[str, Any] = {
             "done": False,
             "awaiting_pick": False,
             "candidates": None,
-            "assets": [
-                {
-                    "id": a.get("id"),
-                    "title": a.get("title"),
-                    "short_description": a.get("short_description"),
-                    "kind": a.get("kind"),
-                    "purpose": a.get("purpose"),
-                }
-                for a in assets
-            ],
-            "prompt": prompt,
+            "assets": [],
+            "asset_options": asset_options,
             "question_key": "consent_info",
             "input": "multi_choice",
             "options": options,
             "allow_voice": False,
         }
+
+        if channel_l == "web":
+            named = ", ".join(_consent_asset_option_label(a) for a in assets[:6])
+            result["prompt"] = f"Would you like our {offer}? We have: {named}. Select all you'd like to download."
+            if lead is not None:
+                from app.services.expo.offer_delivery_service import asset_public_url_for_lead
+
+                web_assets: list[dict[str, Any]] = []
+                for a in assets:
+                    row = dict(a)
+                    row["url"] = asset_public_url_for_lead(a, booth.qr_token, lead.id)
+                    web_assets.append(row)
+                result["assets"] = web_assets
+            return result
+
+        # WhatsApp — numbered emoji prompt; files are only sent once the visitor replies.
+        lines = [f"📋 Would you like our {offer}?"]
+        for idx, a in enumerate(assets, start=1):
+            lines.append(f"{_emoji_digit(idx)} {_consent_asset_option_label(a)}")
+        lines.append(f"{_emoji_digit(len(assets) + 1)} No thanks")
+        lines.append("Reply with the number(s), e.g. 1 or 1,2")
+        result["prompt"] = "\n".join(lines)
+        return result
 
     @staticmethod
     def _delivered_assets_payload(
@@ -1108,6 +1287,7 @@ class ExpoSessionFlowService:
                     booth=booth,
                     channel=channel,
                     base_prompt=str(next_step.get("prompt_web") or next_step.get("prompt") or ""),
+                    lead=lead,
                 )
                 if consent_ui is None:
                     session.current_step = step_index + 1
@@ -1119,6 +1299,12 @@ class ExpoSessionFlowService:
             prompt = str(next_step.get("prompt") or "")
             if channel == "web" and next_step.get("prompt_web"):
                 prompt = str(next_step.get("prompt_web") or prompt)
+            if channel == "whatsapp" and key in WEB_CHOICE_OPTIONS and key != "consent_info":
+                opts = WEB_CHOICE_OPTIONS[key]
+                lines = [prompt, ""]
+                for idx, opt in enumerate(opts, start=1):
+                    lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
+                prompt = "\n".join(line for line in lines if line is not None).strip()
             return _empty_step_result(
                 done=False,
                 prompt=prompt,
@@ -1128,6 +1314,66 @@ class ExpoSessionFlowService:
 
         db.commit()
         return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
+
+    @staticmethod
+    def current_prompt(db: Session, *, session: ExpoSession, booth: ExpoBooth | None = None) -> dict[str, Any]:
+        """Return the current step's prompt without consuming an answer (web resume)."""
+        if booth is None:
+            booth = db.get(ExpoBooth, session.booth_id)
+        if booth is None:
+            return _empty_step_result(done=True, prompt=THANK_YOU_TEXT)
+
+        lead = ExpoSessionFlowService._lead_for_session(db, session)
+        if session.status != "active":
+            out = _empty_step_result(done=True, prompt=THANK_YOU_TEXT)
+            out["summary"] = ExpoSessionFlowService._lead_summary(db, session=session, lead=lead)
+            return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
+
+        state = ExpoSessionFlowService._load_state(session)
+        channel = str(session.channel or "whatsapp").lower()
+
+        if state.get("pending_asset_pick"):
+            out = {
+                "done": False,
+                "awaiting_pick": True,
+                "candidates": state.get("pending_asset_pick") or [],
+                "assets": None,
+                "prompt": None,
+            }
+            return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
+
+        steps = ExpoSessionFlowService.steps_for_booth(booth)
+        step_index = int(session.current_step or 0)
+        contact_sub = str(state.get("contact_substep") or "").strip().lower()
+        at_contact_step = bool(steps) and step_index == 0 and str(steps[0].get("key") or "") == CONTACT_STEP_KEY
+        if at_contact_step and contact_sub in {"", "awaiting", "company", "mobile", "confirm", "card_retry"}:
+            sub = contact_sub or "awaiting"
+            capture = parse_contact_capture(booth.question_config_json)
+            prompt_map = {
+                "awaiting": contact_prompt_for_mode(capture, channel=channel),
+                "card_retry": contact_prompt_for_mode(capture, channel=channel),
+                "company": CONTACT_COMPANY_PROMPT,
+                "mobile": CONTACT_MOBILE_PROMPT,
+                "confirm": CONTACT_CONFIRM_PROMPT,
+            }
+            out = _empty_step_result(
+                done=False,
+                prompt=prompt_map.get(sub, prompt_map["awaiting"]),
+                question_key=CONTACT_STEP_KEY,
+                contact_substep=sub,
+                channel=channel,
+            )
+            if lead is not None and sub == "confirm":
+                out["card_fields"] = {
+                    "name": lead.name,
+                    "company": lead.company,
+                    "email": lead.visitor_email,
+                    "phone": lead.visitor_phone,
+                }
+            return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
+
+        result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+        return ExpoSessionFlowService._attach_progress(result, session=session, booth=booth)
 
     @staticmethod
     def _complete(

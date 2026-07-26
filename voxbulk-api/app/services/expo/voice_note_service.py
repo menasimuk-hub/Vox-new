@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -18,6 +19,22 @@ from app.services.voice_transcription_service import is_low_quality_transcript
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[expo-voice]"
+
+_ARABIC_SCRIPT_RE = re.compile(r"[\u0600-\u06FF]")
+
+
+def correct_detected_language(text: str, detected: str | None) -> str | None:
+    """Force ``ar`` when the transcript contains Arabic script.
+
+    Whisper-family STT sometimes mislabels Arabic voice notes as Turkish, Farsi, or Urdu
+    (confusable accent/phoneme cues) — trust the actual script over the model's language guess.
+    """
+    clean = str(text or "")
+    if _ARABIC_SCRIPT_RE.search(clean):
+        det = str(detected or "").strip().lower()
+        if det != "ar":
+            return "ar"
+    return detected
 
 
 def _english_or_original(translated: dict[str, Any], original: str) -> str:
@@ -173,6 +190,7 @@ def process_expo_voice_job(db: Session, job_id: str) -> dict[str, Any]:
         else:
             raise RuntimeError("missing_media")
 
+        detected = correct_detected_language(text, detected)
         translated = translate_answer_to_english(
             db,
             answer=text,
@@ -267,6 +285,7 @@ def process_web_voice_bytes(
         if not getattr(stt, "ok", False) or not text or is_low_quality_transcript(text):
             raise RuntimeError("empty_transcript")
 
+        detected = correct_detected_language(text, detected)
         translated = translate_answer_to_english(
             db,
             answer=text,

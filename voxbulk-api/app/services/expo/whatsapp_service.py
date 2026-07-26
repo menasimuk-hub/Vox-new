@@ -27,6 +27,7 @@ from app.services.expo.offer_delivery_service import (
     deliver_asset_link_message,
     format_asset_list_message,
 )
+from app.services.expo.question_bank import POST_COMPLETE_HANDOFF
 from app.services.expo.session_flow_service import ExpoSessionFlowService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
@@ -164,9 +165,10 @@ class ExpoWhatsappService:
                     "via": "voice",
                 }
 
-        # Business-card photo while in an active Expo session
+        # Business-card photo while in an active Expo session (process even with a caption —
+        # a caption like "here's my card" must not skip OCR).
         image_inbound = ExpoWhatsappService._is_image_inbound(record if isinstance(record, dict) else None)
-        if image_inbound and not text:
+        if image_inbound:
             session = ExpoSessionFlowService.find_active_session(db, visitor_phone=phone)
             if session is not None:
                 from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
@@ -300,6 +302,31 @@ class ExpoWhatsappService:
                     from_number=reply_from,
                 )
                 return {"handled": True, "reason": "expo_like_no_token"}
+
+            # Visitor already completed a booth chat recently and is messaging again on the
+            # shared WA line — log the note against that lead and hand off, don't re-open the flow.
+            if text:
+                completed_session = ExpoSessionFlowService.find_recent_completed_session(
+                    db, visitor_phone=phone
+                )
+                if completed_session is not None:
+                    completed_lead = ExpoSessionFlowService._lead_for_session(db, completed_session)
+                    ExpoSessionFlowService.record_post_complete_question(
+                        db, session=completed_session, lead=completed_lead, text=text
+                    )
+                    ExpoWhatsappService._send(
+                        db,
+                        to_number=phone,
+                        body=POST_COMPLETE_HANDOFF,
+                        org_id=completed_session.org_id,
+                        from_number=reply_from,
+                    )
+                    return {
+                        "handled": True,
+                        "reason": "post_complete_handoff",
+                        "session_id": completed_session.id,
+                        "org_id": completed_session.org_id,
+                    }
             return {"handled": False, "reason": "no_session"}
 
         result = ExpoSessionFlowService.advance(db, session=session, answer=text, answer_source="text")
@@ -348,7 +375,8 @@ class ExpoWhatsappService:
             )
             return
 
-        prompt = str(result.get("prompt") or "").strip()
+        followup = str(result.get("thank_you_followup") or "").strip()
+        prompt = followup or str(result.get("prompt") or "").strip()
         if prompt:
             ExpoWhatsappService._send(
                 db,
@@ -369,19 +397,14 @@ class ExpoWhatsappService:
         org_id: str | None,
         from_number: str | None = None,
     ) -> None:
-        link_body = deliver_asset_link_message(asset, booth_token, lead_id=lead_id)
+        title = str(asset.get("title") or "our info pack").strip()
         tracked_url = str(asset.get("url") or "").strip() or asset_public_url(
             asset, booth_token, lead_id=lead_id
         )
         if _asset_supports_document_send(asset) and tracked_url.startswith("http"):
-            title = str(asset.get("title") or "our info pack").strip()
+            # The document attachment carries the link — keep the caption clean (no raw URL).
             desc = str(asset.get("short_description") or "").strip()
-            caption_parts = [f"Here you go — {title}"]
-            if desc:
-                caption_parts.append(desc)
-            # Keep tracked link in caption so open-tracking still works if they tap the URL.
-            caption_parts.append(tracked_url)
-            caption = "\n".join(caption_parts)
+            caption = f"Here you go — {title}" + (f"\n{desc}" if desc else "")
             ok = ExpoWhatsappService._send(
                 db,
                 to_number=to_number,
@@ -394,6 +417,15 @@ class ExpoWhatsappService:
             if ok:
                 return
             logger.info("expo_wa_document_fallback_to_link to=%s asset=%s", to_number, asset.get("id"))
+            ExpoWhatsappService._send(
+                db,
+                to_number=to_number,
+                body=f"📄 {title} is ready — please ask our stand team if you need it again.",
+                org_id=org_id,
+                from_number=from_number,
+            )
+            return
+        link_body = deliver_asset_link_message(asset, booth_token, lead_id=lead_id)
         ExpoWhatsappService._send(
             db,
             to_number=to_number,

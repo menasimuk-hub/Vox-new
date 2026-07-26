@@ -8,9 +8,13 @@ from typing import Any
 
 from app.services.expo.seed_service import UNIVERSAL_QUESTIONS
 
-DEFAULT_THANK_YOU = "Thanks so much for stopping by our stand — we'll be in touch soon!"
+DEFAULT_THANK_YOU = "✅ Thanks so much for stopping by our stand — we'll be in touch soon!"
 DEFAULT_FREE_GIFT_TEXT = (
-    "Please collect your free gift from our stand team — thanks for completing the short questionnaire!"
+    "🎁 Please collect your free gift from our stand team — thanks for completing the short questionnaire!"
+)
+POST_COMPLETE_HANDOFF = (
+    "💬 Thanks — our team will follow up with you shortly. "
+    "If you need anything else, speak with our stand team."
 )
 
 
@@ -20,26 +24,34 @@ def default_free_gift_text(company_name: str | None = None) -> str:
     if not name:
         return DEFAULT_FREE_GIFT_TEXT
     return (
-        f"Please collect your free gift from {name}'s stand team — "
+        f"🎁 Please collect your free gift from {name}'s stand team — "
         "thanks for completing the short questionnaire!"
     )
+
+
+def thank_you_with_company(company_name: str | None = None) -> str:
+    name = str(company_name or "").strip()
+    if name:
+        return f"✅ Thanks for visiting {name}! We'll be in touch soon."
+    return DEFAULT_THANK_YOU
+
 
 # Fixed contact capture — visitor can send a business-card photo OR type details.
 CONTACT_STEP_KEY = "contact"
 CONTACT_PROMPT_WA = (
-    "Send a photo of your business card, or reply with your full name "
+    "👋 Send a photo of your business card, or reply with your full name "
     "(photo skips typing name, company and mobile)."
 )
 CONTACT_PROMPT_WEB = (
     "Upload a photo of your business card, or enter your name and company "
     "(photo skips typing name, company and mobile)."
 )
-CONTACT_PROMPT_WA_CARD_ONLY = "Please send a photo of your business card to continue."
+CONTACT_PROMPT_WA_CARD_ONLY = "📷 Please send a photo of your business card to continue."
 CONTACT_PROMPT_WEB_CARD_ONLY = "Please upload a photo of your business card to continue."
-CONTACT_PROMPT_WA_MANUAL = "What's your full name?"
+CONTACT_PROMPT_WA_MANUAL = "👤 What's your full name?"
 CONTACT_PROMPT_WEB_MANUAL = "What's your full name?"
-CONTACT_COMPANY_PROMPT = "Which company or organisation do you represent?"
-CONTACT_MOBILE_PROMPT = "What's the best mobile number to reach you on?"
+CONTACT_COMPANY_PROMPT = "🏢 Which company or organisation do you represent?"
+CONTACT_MOBILE_PROMPT = "📱 What's the best mobile number to reach you on?"
 
 
 def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp") -> str:

@@ -38,24 +38,49 @@ def _session_for_booth(db: Session, *, booth_id: str, session_id: str) -> ExpoSe
     return session
 
 
-def _advance_payload(result: dict, *, session: ExpoSession | None = None, booth=None, token: str | None = None) -> dict:
+def _advance_payload(
+    result: dict,
+    *,
+    session: ExpoSession | None = None,
+    booth=None,
+    token: str | None = None,
+    db: Session | None = None,
+) -> dict:
+    lead_id: str | None = None
+    if db is not None and session is not None:
+        lead_row = db.execute(select(ExpoLead).where(ExpoLead.session_id == session.id)).scalar_one_or_none()
+        lead_id = str(lead_row.id) if lead_row else None
+
+    def _public_asset(a: dict) -> dict:
+        url = str(a.get("url") or "").strip() or (
+            asset_public_url(a, token, lead_id=lead_id) if token else ""
+        )
+        return {
+            "id": a.get("id"),
+            "title": a.get("title"),
+            "short_description": a.get("short_description"),
+            "kind": a.get("kind"),
+            "purpose": a.get("purpose"),
+            "url": url,
+        }
+
     assets = result.get("assets")
+    asset_options = result.get("asset_options")
+
     public_assets = None
-    if isinstance(assets, list) and token:
+    if isinstance(assets, list) and assets and token:
+        public_assets = [_public_asset(a) for a in assets if isinstance(a, dict)]
+    elif isinstance(asset_options, list) and asset_options and token and not assets:
+        # Consent "ask" step carries no deliverable assets yet — web can still show
+        # downloadable previews for the offered catalogue/price-list files.
+        public_assets = [_public_asset(a) for a in asset_options if isinstance(a, dict)]
+    elif isinstance(assets, list) and token:
         public_assets = []
-        for a in assets:
-            if not isinstance(a, dict):
-                continue
-            url = str(a.get("url") or "").strip() or asset_public_url(a, token)
-            item = {
-                "id": a.get("id"),
-                "title": a.get("title"),
-                "short_description": a.get("short_description"),
-                "kind": a.get("kind"),
-                "purpose": a.get("purpose"),
-                "url": url,
-            }
-            public_assets.append(item)
+
+    public_asset_options = None
+    if isinstance(asset_options, list) and token:
+        public_asset_options = [_public_asset(a) for a in asset_options if isinstance(a, dict)]
+
     out = {
         "ok": True,
         "done": result.get("done", False),
@@ -68,6 +93,8 @@ def _advance_payload(result: dict, *, session: ExpoSession | None = None, booth=
         "allow_voice": bool(result.get("allow_voice")),
         "candidates": result.get("candidates"),
         "assets": public_assets if public_assets is not None else assets,
+        "asset_options": public_asset_options if public_asset_options is not None else asset_options,
+        "thank_you_followup": result.get("thank_you_followup"),
         "contact_via": result.get("contact_via"),
         "card_fields": result.get("card_fields"),
         "summary": result.get("summary"),
@@ -261,7 +288,7 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
                     db, session=session, answer=company, answer_source="text"
                 )
 
-    out = _advance_payload(result, session=db.get(ExpoSession, session_id), booth=booth, token=token)
+    out = _advance_payload(result, session=db.get(ExpoSession, session_id), booth=booth, token=token, db=db)
     out["session_id"] = session_id
     return out
 
@@ -331,7 +358,7 @@ async def upload_business_card(
         business_card_path=card_path,
     )
     session = db.get(ExpoSession, session_id) or session
-    out = _advance_payload(result, session=session, booth=booth, token=token)
+    out = _advance_payload(result, session=session, booth=booth, token=token, db=db)
     out["session_id"] = session_id
     out["card_fields"] = fields or result.get("card_fields")
     return out
@@ -356,7 +383,7 @@ def confirm_web_contact(token: str, session_id: str, payload: dict, db: Session 
         email=str(payload.get("email") or "").strip() or None,
     )
     session = db.get(ExpoSession, session_id) or session
-    out = _advance_payload(result, session=session, booth=booth, token=token)
+    out = _advance_payload(result, session=session, booth=booth, token=token, db=db)
     out["session_id"] = session_id
     if result.get("card_fields"):
         out["card_fields"] = result["card_fields"]
@@ -409,7 +436,7 @@ async def upload_voice_answer(
         voice_job_id=voice.get("job_id"),
     )
     session = db.get(ExpoSession, session_id) or session
-    out = _advance_payload(result, session=session, booth=booth, token=token)
+    out = _advance_payload(result, session=session, booth=booth, token=token, db=db)
     out["session_id"] = session_id
     out["original_text"] = voice.get("original_text")
     out["answer_text_en"] = voice.get("answer_text_en")
@@ -435,7 +462,21 @@ def answer_web_session(token: str, payload: dict, db: Session = Depends(get_db))
 
     result = ExpoSessionFlowService.advance(db, session=session, answer=answer, answer_source="text")
     session = db.get(ExpoSession, session_id) or session
-    out = _advance_payload(result, session=session, booth=booth, token=token)
+    out = _advance_payload(result, session=session, booth=booth, token=token, db=db)
+    out["session_id"] = session_id
+    return out
+
+
+@router.get("/{token}/sessions/{session_id}")
+def get_web_session_state(token: str, session_id: str, db: Session = Depends(get_db)):
+    """Current step without consuming an answer — lets a refreshed tab resume via localStorage."""
+    booth = ExpoBoothService.find_by_token(db, token)
+    if booth is None:
+        raise HTTPException(status_code=404, detail="Booth not found")
+    session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
+    result = ExpoSessionFlowService.current_prompt(db, session=session, booth=booth)
+    session = db.get(ExpoSession, session_id) or session
+    out = _advance_payload(result, session=session, booth=booth, token=token, db=db)
     out["session_id"] = session_id
     return out
 
@@ -449,7 +490,7 @@ def go_back_web_session(token: str, session_id: str, db: Session = Depends(get_d
     session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
     result = ExpoSessionFlowService.go_back(db, session=session)
     session = db.get(ExpoSession, session_id) or session
-    out = _advance_payload(result, session=session, booth=booth, token=token)
+    out = _advance_payload(result, session=session, booth=booth, token=token, db=db)
     out["session_id"] = session_id
     return out
 
@@ -463,7 +504,7 @@ def stop_web_session(token: str, session_id: str, db: Session = Depends(get_db))
     session = _session_for_booth(db, booth_id=booth.id, session_id=session_id)
     result = ExpoSessionFlowService.stop(db, session=session)
     session = db.get(ExpoSession, session_id) or session
-    out = _advance_payload(result, session=session, booth=booth, token=token)
+    out = _advance_payload(result, session=session, booth=booth, token=token, db=db)
     out["session_id"] = session_id
     return out
 

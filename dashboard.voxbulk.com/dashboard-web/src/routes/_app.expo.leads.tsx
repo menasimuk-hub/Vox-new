@@ -95,6 +95,7 @@ type LeadRow = {
   id: string;
   created_at?: string | null;
   detected_language?: string | null;
+  detected_language_label?: string | null;
   country_hint?: string | null;
   visitor_phone?: string | null;
   visitor_email?: string | null;
@@ -558,7 +559,10 @@ function ExpoLeads() {
                       value={displayInterest(detail.interest) === "—" ? null : displayInterest(detail.interest)}
                     />
                     <DetailRow label="Timeline" value={detail.buying_timeline} />
-                    <DetailRow label="Language" value={detail.detected_language || detail.country_hint} />
+                    <DetailRow
+                      label="Language"
+                      value={detail.detected_language_label || detail.detected_language || detail.country_hint}
+                    />
                     <DetailRow label="Offer sent" value={detail.offer_sent_at ? formatTs(detail.offer_sent_at) : "No"} />
                     <DetailRow
                       label="Catalogue requested"
@@ -718,12 +722,12 @@ function Kpi({
 }) {
   return (
     <Card className={cn("overflow-hidden border-0 shadow-sm ring-1 ring-border/60")}>
-      <CardContent className={cn("bg-gradient-to-br p-4", accent)}>
+      <CardContent className={cn("bg-gradient-to-br p-3", accent)}>
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
-          <div className="grid size-8 place-items-center rounded-lg bg-background/80 shadow-sm">{icon}</div>
+          <div className="grid size-6 place-items-center rounded-lg bg-background/80 shadow-sm">{icon}</div>
         </div>
-        <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
+        <p className="mt-2 text-lg font-semibold tracking-tight tabular-nums">
           {typeof value === "number" ? value.toLocaleString() : value}
         </p>
         {hint ? <p className="mt-1 text-xs font-medium text-foreground/70">{hint}</p> : null}

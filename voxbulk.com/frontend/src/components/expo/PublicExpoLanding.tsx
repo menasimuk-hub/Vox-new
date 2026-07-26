@@ -75,6 +75,7 @@ type AdvanceResult = {
   awaiting_pick?: boolean;
   candidates?: Array<{ id?: string; title?: string; short_description?: string }>;
   assets?: ExpoAsset[] | unknown;
+  asset_options?: ExpoAsset[] | unknown;
   card_fields?: Record<string, string | null>;
   error?: string;
   summary?: ExpoSummary;
@@ -140,6 +141,80 @@ const DOWNLOAD_BTN_STYLE = {
   border: "1px solid rgba(255,255,255,0.95)",
   boxShadow: "0 10px 28px -12px rgba(15,23,42,0.55)",
 } as const;
+
+function storageKey(token: string) {
+  return `expo:web:${token}`;
+}
+
+type StoredWebSession = {
+  sessionId: string;
+  webStep?: WebStep;
+  progressIndex?: number;
+  progressTotal?: number;
+  contact?: { name: string; company: string; mobile: string; email: string };
+  downloadAssets?: ExpoAsset[];
+  updatedAt?: number;
+};
+
+function readStoredSession(token: string): StoredWebSession | null {
+  try {
+    const raw = localStorage.getItem(storageKey(token));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredWebSession;
+    if (!parsed?.sessionId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSession(token: string, data: StoredWebSession) {
+  try {
+    localStorage.setItem(storageKey(token), JSON.stringify({ ...data, updatedAt: Date.now() }));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function clearStoredSession(token: string) {
+  try {
+    localStorage.removeItem(storageKey(token));
+  } catch {
+    /* ignore */
+  }
+}
+
+function purposeBadge(purpose?: string) {
+  const p = String(purpose || "").toLowerCase();
+  if (p === "catalogue") return "Catalogue";
+  if (p === "price_list") return "Price list";
+  if (p === "product") return "Product";
+  return "File";
+}
+
+async function downloadSameTab(url: string, filename: string, onBusy?: (v: boolean) => void) {
+  if (!url || url === "#") return;
+  onBusy?.(true);
+  try {
+    const res = await fetch(url, { credentials: "omit" });
+    if (!res.ok) throw new Error(`download_failed_${res.status}`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename || "download.pdf";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    // Fallback: navigate same tab (still no target=_blank)
+    window.location.assign(url);
+  } finally {
+    onBusy?.(false);
+  }
+}
 
 function SparkGlyph() {
   return (
@@ -255,6 +330,8 @@ export function PublicExpoLanding({
   const cardInputRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceDetailHandle>(null);
   const sessionIdRef = useRef("");
+  const isDownloadingRef = useRef(false);
+  const suppressStopRef = useRef(false);
   sessionIdRef.current = sessionId;
 
   const questions = useMemo(
@@ -289,8 +366,35 @@ export function PublicExpoLanding({
         const data = await apiFetch<ExpoPublicPayload>(`/public/expo/${encodeURIComponent(token)}`);
         if (cancelled) return;
         setPayload(data);
-        if (data?.booth?.is_expired) setPhase("closed");
-        else setPhase("choose");
+        if (data?.booth?.is_expired) {
+          setPhase("closed");
+          clearStoredSession(token);
+          return;
+        }
+        const stored = readStoredSession(token);
+        if (stored?.sessionId) {
+          try {
+            const resumed = await apiFetch<AdvanceResult>(
+              `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(stored.sessionId)}`,
+            );
+            if (cancelled) return;
+            if (resumed?.done) {
+              clearStoredSession(token);
+              setPhase("choose");
+              return;
+            }
+            setPhase("web");
+            if (stored.contact) setContact(stored.contact);
+            if (stored.downloadAssets?.length) setDownloadAssets(stored.downloadAssets);
+            if (stored.progressIndex) setProgressIndex(stored.progressIndex);
+            if (stored.progressTotal) setProgressTotal(stored.progressTotal);
+            applyAdvance(resumed);
+            return;
+          } catch {
+            clearStoredSession(token);
+          }
+        }
+        setPhase("choose");
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Booth not found");
@@ -300,7 +404,25 @@ export function PublicExpoLanding({
     return () => {
       cancelled = true;
     };
+    // applyAdvance is stable enough; omit to avoid remount loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, preview]);
+
+  const mergeDownloadAssets = useCallback((incoming: ExpoAsset[]) => {
+    if (!incoming.length) return;
+    setDownloadAssets((prev) => {
+      const seen = new Set(prev.map((p) => p.id || p.url));
+      const merged = [...prev];
+      for (const a of incoming) {
+        const k = a.id || a.url;
+        if (k && !seen.has(k)) {
+          seen.add(k);
+          merged.push(a);
+        }
+      }
+      return merged;
+    });
+  }, []);
 
   const applyAdvance = useCallback((res: AdvanceResult) => {
     if (res.session_id) setSessionId(String(res.session_id));
@@ -309,22 +431,15 @@ export function PublicExpoLanding({
     if (typeof res.step_index === "number" && res.step_index > 0) setProgressIndex(res.step_index);
     if (typeof res.step_total === "number" && res.step_total > 0) setProgressTotal(res.step_total);
     if (res.summary) setSummary(res.summary);
-    if (Array.isArray(res.assets) && res.assets.length) {
-      const next = (res.assets as ExpoAsset[]).filter((a) => a && (a.url || a.id));
-      if (next.length) setDownloadAssets((prev) => {
-        const seen = new Set(prev.map((p) => p.id || p.url));
-        const merged = [...prev];
-        for (const a of next) {
-          const k = a.id || a.url;
-          if (k && !seen.has(k)) {
-            seen.add(k);
-            merged.push(a);
-          }
-        }
-        return merged;
-      });
-    }
+    const fromAssets = Array.isArray(res.assets)
+      ? (res.assets as ExpoAsset[]).filter((a) => a && (a.url || a.id))
+      : [];
+    const fromOptions = Array.isArray(res.asset_options)
+      ? (res.asset_options as ExpoAsset[]).filter((a) => a && (a.url || a.id))
+      : [];
+    mergeDownloadAssets(fromAssets.length ? fromAssets : fromOptions);
     if (res.done) {
+      clearStoredSession(token);
       setPhase("thanks");
       return;
     }
@@ -389,9 +504,23 @@ export function PublicExpoLanding({
     setSelectedValues([]);
     setTextAnswer("");
     setCandidates([]);
-  }, []);
+  }, [mergeDownloadAssets, token]);
+
+  // Persist progress for refresh / PDF download return
+  useEffect(() => {
+    if (preview || phase !== "web" || !sessionId) return;
+    writeStoredSession(token, {
+      sessionId,
+      webStep,
+      progressIndex,
+      progressTotal,
+      contact,
+      downloadAssets,
+    });
+  }, [phase, preview, token, sessionId, webStep, progressIndex, progressTotal, contact, downloadAssets]);
 
   const startWeb = useCallback(async () => {
+    clearStoredSession(token);
     setError("");
     setPhase("web");
     setWebStep("contact");
@@ -409,7 +538,7 @@ export function PublicExpoLanding({
     setDownloadAssets([]);
     setSummary(null);
     setContact({ name: "", company: "", mobile: "", email: "" });
-  }, [payload?.booth?.question_count, payload?.step_total, questions.length]);
+  }, [payload?.booth?.question_count, payload?.step_total, questions.length, token]);
 
   const stopAndFinish = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -467,6 +596,7 @@ export function PublicExpoLanding({
   useEffect(() => {
     if (preview || phase !== "web") return;
     const onLeave = () => {
+      if (isDownloadingRef.current || suppressStopRef.current) return;
       const sid = sessionIdRef.current;
       if (!sid) return;
       try {
@@ -481,6 +611,31 @@ export function PublicExpoLanding({
     window.addEventListener("pagehide", onLeave);
     return () => window.removeEventListener("pagehide", onLeave);
   }, [phase, preview, token]);
+
+  const handleAssetDownload = useCallback(
+    async (a: ExpoAsset) => {
+      const url = String(a.url || "").trim();
+      if (!url) return;
+      const name = `${a.title || a.id || "download"}.pdf`.replace(/[^\w.\- ]+/g, "_");
+      isDownloadingRef.current = true;
+      suppressStopRef.current = true;
+      try {
+        if (a.id && !selectedValues.includes(String(a.id))) {
+          setSelectedValues((prev) => {
+            const withoutNo = prev.filter((v) => !/no thanks|^no$/i.test(v));
+            return [...withoutNo, String(a.id)];
+          });
+        }
+        await downloadSameTab(url, name);
+      } finally {
+        window.setTimeout(() => {
+          isDownloadingRef.current = false;
+          suppressStopRef.current = false;
+        }, 2000);
+      }
+    },
+    [selectedValues],
+  );
 
   const submitCardOrContact = useCallback(async () => {
     if (preview) {
@@ -827,17 +982,16 @@ export function PublicExpoLanding({
                   Your downloads
                 </p>
                 {downloadAssets.map((a) => (
-                  <a
+                  <button
                     key={a.id || a.url}
-                    href={a.url || "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    type="button"
+                    onClick={() => void handleAssetDownload(a)}
                     className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold"
                     style={DOWNLOAD_BTN_STYLE}
                   >
                     <DownloadGlyph className="h-4 w-4 shrink-0" />
                     <span>Download {a.title || "file"}</span>
-                  </a>
+                  </button>
                 ))}
               </div>
             ) : null}
@@ -1095,23 +1249,45 @@ export function PublicExpoLanding({
                       </div>
                       {downloadAssets.length && liveQ.key === "consent_info" ? (
                         <div className="mt-3 grid gap-2">
+                          <p className="text-[12px]" style={{ color: theme.sub }}>
+                            Download any file below — the questionnaire stays open.
+                          </p>
                           {downloadAssets.map((a) => (
-                            <a
+                            <div
                               key={a.id || a.url}
-                              href={a.url || "#"}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-semibold"
+                              className="rounded-xl px-3.5 py-3 text-left"
                               style={DOWNLOAD_BTN_STYLE}
                             >
-                              <span
-                                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
-                                style={{ background: "#e2e8f0", color: "#0f172a" }}
-                              >
-                                <DownloadGlyph className="h-4 w-4" />
-                              </span>
-                              <span>{a.title || "Download"}</span>
-                            </a>
+                              <div className="flex items-start gap-2.5">
+                                <span
+                                  className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+                                  style={{ background: "#e2e8f0", color: "#0f172a" }}
+                                >
+                                  <DownloadGlyph className="h-4 w-4" />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                    {purposeBadge(a.purpose)}
+                                  </p>
+                                  <p className="text-[13px] font-semibold text-slate-900">
+                                    {a.title || "Download"}
+                                  </p>
+                                  {a.short_description ? (
+                                    <p className="mt-0.5 text-[12px] leading-snug text-slate-600">
+                                      {a.short_description}
+                                    </p>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    className="mt-2 text-[12px] font-semibold underline underline-offset-2"
+                                    style={{ color: "#0f172a" }}
+                                    onClick={() => void handleAssetDownload(a)}
+                                  >
+                                    Download file
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
                           ))}
                         </div>
                       ) : null}

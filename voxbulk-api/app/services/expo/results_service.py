@@ -13,6 +13,62 @@ from sqlalchemy.orm import Session
 
 from app.models.expo import ExpoBooth, ExpoExhibition, ExpoLead, ExpoResponse, ExpoSession, ExpoVoiceNoteJob
 
+_LANGUAGE_LABELS: dict[str, str] = {
+    "ar": "Arabic",
+    "en": "English",
+    "tr": "Turkish",
+    "fa": "Farsi",
+    "ur": "Urdu",
+    "fr": "French",
+    "de": "German",
+    "es": "Spanish",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "ru": "Russian",
+    "zh": "Chinese",
+    "hi": "Hindi",
+    "nl": "Dutch",
+    "pl": "Polish",
+    "el": "Greek",
+    "he": "Hebrew",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "id": "Indonesian",
+    "ms": "Malay",
+    "th": "Thai",
+    "vi": "Vietnamese",
+    "ro": "Romanian",
+    "uk": "Ukrainian",
+    "sv": "Swedish",
+    "no": "Norwegian",
+    "da": "Danish",
+    "fi": "Finnish",
+    "cs": "Czech",
+    "hu": "Hungarian",
+    "bg": "Bulgarian",
+    "sk": "Slovak",
+    "sr": "Serbian",
+    "hr": "Croatian",
+    "bn": "Bengali",
+    "ta": "Tamil",
+    "sw": "Swahili",
+    "am": "Amharic",
+    "fil": "Filipino",
+    "az": "Azerbaijani",
+    "ku": "Kurdish",
+    "ps": "Pashto",
+}
+
+
+def detected_language_label(code: str | None) -> str | None:
+    """Friendly display name for a stored language code (falls back to the raw code)."""
+    clean = str(code or "").strip().lower()
+    if not clean:
+        return None
+    base = clean.split("-")[0]
+    return _LANGUAGE_LABELS.get(clean) or _LANGUAGE_LABELS.get(base) or clean.upper()
+
+
 _EMPTY_SUMMARY: dict[str, Any] = {
     "ok": True,
     "scans": 0,
@@ -407,6 +463,7 @@ class ExpoResultsService:
             "booth_name": booth.name if booth else None,
             "booth_code": booth.booth_code if booth else None,
             "detected_language": lead.detected_language,
+            "detected_language_label": detected_language_label(lead.detected_language),
             "country_hint": lead.country_hint,
             "name": lead.name,
             "company": lead.company,

@@ -182,15 +182,7 @@ class ExpoSeedService:
                         updated_at=now,
                     )
                 )
-            else:
-                row.label = str(q.get("label") or row.label)[:128]
-                row.prompt = str(q.get("prompt") or row.prompt)[:4000]
-                row.description = str(q.get("description") or "")[:2000] or None
-                row.matches_products = bool(q.get("matches_products"))
-                row.is_active = True
-                row.sort_order = (idx + 1) * 10
-                row.updated_at = now
-                db.add(row)
+            # Existing Admin-edited rows are never overwritten (insert-missing only).
         db.flush()
 
     @staticmethod
