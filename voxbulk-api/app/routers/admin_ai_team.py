@@ -177,6 +177,20 @@ def start_apify_run(body: dict[str, Any], db: Session = Depends(get_db), _admin:
         raise _err(exc) from exc
 
 
+@router.post("/scrape/directory")
+def scrape_directory(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    """Built-in exhibitor directory scrape (Easyfairs / HTML). No Apify actor required."""
+    try:
+        return AiTeamService.start_directory_scrape(
+            db,
+            expo_url=str(body.get("expo_url") or body.get("url") or ""),
+            follow_websites=body.get("follow_websites") is not False,
+            max_stands=int(body.get("max_stands") or 500),
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.get("/apify/runs")
 def list_apify_runs(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     return {"runs": AiTeamService.list_apify_runs(db)}

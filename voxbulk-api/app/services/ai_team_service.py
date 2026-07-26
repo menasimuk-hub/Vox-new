@@ -24,6 +24,7 @@ from app.models.promo_offer import PromoOffer
 from app.services.agents.base import AgentMessage
 from app.services.apify_service import ApifyService, ApifyServiceError
 from app.services.apollo_service import ApolloService, ApolloServiceError
+from app.services.expo_directory_scraper_service import ExpoDirectoryScraper, ExpoDirectoryScraperError
 from app.services.promo_offer_service import PromoOfferService
 from app.services.provider_settings import ProviderSettingsService
 from app.services.providers.openai_service import OpenAIProviderService
@@ -1381,17 +1382,148 @@ class AiTeamService:
         }
 
     @staticmethod
+    def start_directory_scrape(
+        db: Session,
+        *,
+        expo_url: str,
+        follow_websites: bool = True,
+        max_stands: int = 500,
+        wait: bool = False,
+    ) -> dict[str, Any]:
+        """Built-in scrape: list exhibitors → open profiles → extract emails (no Apify actor).
+
+        By default runs in a background thread so the HTTP request returns quickly.
+        Pass wait=True for tests / sync CLI use.
+        """
+        url = str(expo_url or "").strip()
+        if not url.startswith("http"):
+            raise AiTeamServiceError("Enter a valid expo directory URL (https://…)")
+
+        now = AiTeamService._now()
+        row = AiTeamApifyRun(
+            apify_run_id=None,
+            actor_id="builtin:directory",
+            expo_url=url,
+            status="RUNNING",
+            dataset_id=None,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        run_id = row.id
+
+        def _finish(success: dict[str, Any] | None = None, error: str | None = None) -> None:
+            from app.core.database import get_sessionmaker
+
+            session = get_sessionmaker()()
+            try:
+                r = session.get(AiTeamApifyRun, run_id)
+                if r is None:
+                    return
+                finished = AiTeamService._now()
+                if error:
+                    r.status = "FAILED"
+                    r.error = error[:2000]
+                else:
+                    result = success or {}
+                    contacts = result.get("contacts") or []
+                    r.status = "SUCCEEDED"
+                    r.item_count = int(result.get("stands_found") or len(contacts))
+                    r.stats_json = json.dumps(
+                        {
+                            "provider": result.get("provider"),
+                            "editions": result.get("editions") or [],
+                            "stands_found": result.get("stands_found"),
+                            "stands_with_email": result.get("stands_with_email"),
+                            "emails_found": result.get("emails_found"),
+                            "errors": result.get("errors"),
+                            "warning": result.get("warning"),
+                            "contacts": contacts,
+                        },
+                        ensure_ascii=False,
+                    )
+                    r.error = None
+                r.finished_at = finished
+                r.updated_at = finished
+                session.add(r)
+                session.commit()
+            finally:
+                session.close()
+
+        def _worker() -> None:
+            try:
+                result = ExpoDirectoryScraper.scrape(
+                    url,
+                    follow_websites=bool(follow_websites),
+                    max_stands=max(1, min(int(max_stands or 500), 1000)),
+                )
+                _finish(success=result)
+            except ExpoDirectoryScraperError as exc:
+                _finish(error=str(exc))
+            except Exception as exc:
+                logger.exception("directory_scrape_failed run_id=%s", run_id)
+                _finish(error=f"Directory scrape failed: {exc}")
+
+        if wait:
+            _worker()
+            db.expire_all()
+            row = db.get(AiTeamApifyRun, run_id)
+            if row is None:
+                raise AiTeamServiceError("Scrape run disappeared")
+            if str(row.status).upper() == "FAILED":
+                raise AiTeamServiceError(row.error or "Directory scrape failed")
+            try:
+                stats = json.loads(row.stats_json or "{}")
+            except Exception:
+                stats = {}
+            return {
+                "ok": True,
+                "run": AiTeamService._run_to_dict(row),
+                "stands_found": stats.get("stands_found"),
+                "stands_with_email": stats.get("stands_with_email"),
+                "emails_found": stats.get("emails_found"),
+                "provider": stats.get("provider"),
+                "warning": stats.get("warning"),
+            }
+
+        import threading
+
+        threading.Thread(target=_worker, name=f"expo-scrape-{run_id[:8]}", daemon=True).start()
+        return {
+            "ok": True,
+            "run": AiTeamService._run_to_dict(row),
+            "message": "Scrape started — refresh in about 1–3 minutes, then View / Import",
+        }
+
+    @staticmethod
+    def _builtin_run_contacts(row: AiTeamApifyRun) -> list[dict[str, Any]]:
+        if not str(row.actor_id or "").startswith("builtin:"):
+            return []
+        try:
+            stats = json.loads(row.stats_json or "{}")
+        except Exception:
+            return []
+        contacts = stats.get("contacts") if isinstance(stats, dict) else None
+        if not isinstance(contacts, list):
+            return []
+        return [c for c in contacts if isinstance(c, dict) and str(c.get("email") or "").strip()]
+
+    @staticmethod
     def start_apify_run(db: Session, *, expo_url: str, actor_id: str | None = None) -> dict[str, Any]:
         settings = AiTeamService.get_settings(db)
-        token = AiTeamService._apify_token(settings, db=db)
-        if not token:
-            raise AiTeamServiceError("Apify API token is not configured")
         url = str(expo_url or "").strip()
         if not url.startswith("http"):
             raise AiTeamServiceError("Enter a valid expo directory URL (https://…)")
         actor = str(actor_id or settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip()
+        # No actor configured → use built-in directory scraper (Easyfairs / HTML).
         if not actor:
-            raise AiTeamServiceError("Configure an Apify actor ID in settings")
+            return AiTeamService.start_directory_scrape(db, expo_url=url, follow_websites=True)
+
+        token = AiTeamService._apify_token(settings, db=db)
+        if not token:
+            raise AiTeamServiceError("Apify API token is not configured (or clear the Actor ID to use built-in scrape)")
 
         # Common actor input keys — actors ignore unknown fields
         run_input = {
@@ -1434,6 +1566,8 @@ class AiTeamService:
         row = db.get(AiTeamApifyRun, run_id)
         if row is None:
             raise AiTeamServiceError("Apify run not found")
+        if str(row.actor_id or "").startswith("builtin:"):
+            return {"ok": True, "run": AiTeamService._run_to_dict(row)}
         settings = AiTeamService.get_settings(db)
         token = AiTeamService._apify_token(settings, db=db)
         if not token or not row.apify_run_id:
@@ -1469,6 +1603,15 @@ class AiTeamService:
         row = db.get(AiTeamApifyRun, run_id)
         if row is None:
             raise AiTeamServiceError("Apify run not found")
+        builtin = AiTeamService._builtin_run_contacts(row)
+        if builtin or str(row.actor_id or "").startswith("builtin:"):
+            return {
+                "ok": True,
+                "run": AiTeamService._run_to_dict(row),
+                "total_items": int(row.item_count or len(builtin)),
+                "contacts_with_email": len(builtin),
+                "preview": builtin[: max(1, min(limit, 100))],
+            }
         settings = AiTeamService.get_settings(db)
         token = AiTeamService._apify_token(settings, db=db)
         if not token or not row.dataset_id:
@@ -1495,10 +1638,31 @@ class AiTeamService:
 
     @staticmethod
     def import_apify_run(db: Session, run_id: str) -> dict[str, Any]:
+        row = db.get(AiTeamApifyRun, run_id)
+        if row is None:
+            raise AiTeamServiceError("Apify run not found")
+
+        builtin = AiTeamService._builtin_run_contacts(row)
+        if builtin or str(row.actor_id or "").startswith("builtin:"):
+            if not builtin:
+                raise AiTeamServiceError("No contacts with email found in this scrape")
+            result = AiTeamService.import_prospect_rows(db, builtin, source="expo", apply_min_score=False)
+            row.imported_count = int(row.imported_count or 0) + int(result.get("created") or 0)
+            row.updated_at = AiTeamService._now()
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            return {
+                "ok": True,
+                "run": AiTeamService._run_to_dict(row),
+                "created": result.get("created"),
+                "skipped": result.get("skipped"),
+                "contacts_with_email": len(builtin),
+                "total_items": int(row.item_count or len(builtin)),
+            }
+
         preview = AiTeamService.preview_apify_run(db, run_id, limit=5000)
         contacts = []
-        # Re-fetch full normalized list
-        row = db.get(AiTeamApifyRun, run_id)
         settings = AiTeamService.get_settings(db)
         token = AiTeamService._apify_token(settings, db=db)
         items = ApifyService.fetch_dataset_items(token, dataset_id=row.dataset_id, limit=5000)

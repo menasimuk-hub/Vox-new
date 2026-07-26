@@ -336,11 +336,21 @@ export default function AiTeam() {
       return
     }
     await act('apify-start', async () => {
-      const data = await apiFetch('/admin/ai-team/apify/runs', {
+      // Built-in directory scrape (lists all exhibitors → extracts emails). No Apify actor needed.
+      const data = await apiFetch('/admin/ai-team/scrape/directory', {
         method: 'POST',
-        body: JSON.stringify({ expo_url: apifyExpoUrl.trim() }),
+        body: JSON.stringify({
+          expo_url: apifyExpoUrl.trim(),
+          follow_websites: true,
+        }),
       })
-      showBanner('ok', `Apify run started (${data.run?.status || 'READY'})`)
+      showBanner(
+        'ok',
+        data.message
+          || (data.emails_found != null
+            ? `Found ${data.stands_found || 0} exhibitors · ${data.emails_found} emails — View then Import`
+            : `Scrape started (${data.run?.status || 'RUNNING'}) — refresh in 1–3 min`),
+      )
       await loadApifyRuns()
     })
   }
@@ -1102,11 +1112,11 @@ export default function AiTeam() {
 
               {apifySubTab === 'scrape' && (
                 <div className="ait-compact">
-                  {!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id) && (
-                    <div className="ait-msg-banner err" style={{ margin: '0 0 10px', padding: '8px 10px' }}>
-                      Set an Actor ID in the API tab first.
-                    </div>
-                  )}
+                  <p className="ait-hint" style={{ marginTop: 0 }}>
+                    Paste an exhibitor directory URL (e.g. londonpackagingweek.com/exhibitors).
+                    The system lists every exhibitor, opens each profile, and extracts emails from descriptions + company websites.
+                    No Apify actor required.
+                  </p>
                   <div className="ait-fg-2" style={{ alignItems: 'end' }}>
                     <div className="ait-field" style={{ gridColumn: '1 / -1' }}>
                       <label>Expo exhibitor URL</label>
@@ -1117,10 +1127,10 @@ export default function AiTeam() {
                     <button
                       type="button"
                       className="ait-btn primary sm"
-                      disabled={!!busy || !apifyExpoUrl.trim() || !(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id)}
+                      disabled={!!busy || !apifyExpoUrl.trim()}
                       onClick={startApifyRun}
                     >
-                      Start run
+                      Scrape exhibitors
                     </button>
                     <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh</button>
                   </div>
