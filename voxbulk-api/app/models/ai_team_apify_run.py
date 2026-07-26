@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -20,7 +21,8 @@ class AiTeamApifyRun(Base):
     dataset_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     imported_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    stats_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # MEDIUMTEXT on MySQL — full exhibitor contact lists exceed TEXT (64KB).
+    stats_json: Mapped[str | None] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

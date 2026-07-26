@@ -1462,28 +1462,48 @@ class AiTeamService:
                 session.commit()
                 return {"ok": False, "error": str(exc)}
 
-            contacts = result.get("contacts") or []
+            contacts = AiTeamService._slim_directory_contacts(result.get("contacts") or [])
             finished = AiTeamService._now()
             row.status = "SUCCEEDED"
             row.item_count = int(result.get("emails_found") or len(contacts) or result.get("stands_found") or 0)
-            row.stats_json = json.dumps(
-                {
-                    "provider": result.get("provider"),
-                    "editions": result.get("editions") or [],
-                    "stands_found": result.get("stands_found"),
-                    "stands_with_email": result.get("stands_with_email"),
-                    "emails_found": result.get("emails_found"),
-                    "errors": result.get("errors"),
-                    "warning": result.get("warning"),
-                    "contacts": contacts,
-                },
-                ensure_ascii=False,
-            )
+            payload = {
+                "provider": result.get("provider"),
+                "editions": result.get("editions") or [],
+                "stands_found": result.get("stands_found"),
+                "stands_with_email": result.get("stands_with_email"),
+                "emails_found": result.get("emails_found"),
+                "errors": result.get("errors"),
+                "warning": result.get("warning"),
+                "contacts": contacts,
+            }
+            row.stats_json = json.dumps(payload, ensure_ascii=False)
             row.error = None
             row.finished_at = finished
             row.updated_at = finished
             session.add(row)
-            session.commit()
+            try:
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                # Last resort: keep counts but drop contact bodies so the run is not stuck FAILED.
+                logger.exception("directory_scrape_stats_commit_failed run_id=%s", run_id)
+                row = session.get(AiTeamApifyRun, run_id)
+                if row is None:
+                    return {"ok": False, "error": str(exc)}
+                slim = {k: v for k, v in payload.items() if k != "contacts"}
+                slim["contacts"] = [
+                    {"email": c.get("email"), "company_name": c.get("company_name")}
+                    for c in contacts
+                    if isinstance(c, dict) and c.get("email")
+                ]
+                row.status = "SUCCEEDED"
+                row.item_count = int(result.get("emails_found") or len(slim["contacts"]) or 0)
+                row.stats_json = json.dumps(slim, ensure_ascii=False)
+                row.error = None
+                row.finished_at = finished
+                row.updated_at = finished
+                session.add(row)
+                session.commit()
             return {
                 "ok": True,
                 "stands_found": result.get("stands_found"),
@@ -1492,6 +1512,37 @@ class AiTeamService:
             }
         finally:
             session.close()
+
+    @staticmethod
+    def _slim_directory_contacts(contacts: list[Any]) -> list[dict[str, Any]]:
+        """Keep importable fields only — drop bulky nested profile blobs."""
+        out: list[dict[str, Any]] = []
+        for raw in contacts or []:
+            if not isinstance(raw, dict):
+                continue
+            email = str(raw.get("email") or "").strip()
+            if not email or "@" not in email:
+                continue
+            profile = raw.get("profile_json") if isinstance(raw.get("profile_json"), dict) else {}
+            out.append(
+                {
+                    "email": email,
+                    "first_name": str(raw.get("first_name") or "")[:80],
+                    "last_name": str(raw.get("last_name") or "")[:80],
+                    "company_name": str(raw.get("company_name") or "")[:200],
+                    "job_title": str(raw.get("job_title") or "")[:120],
+                    "sector": str(raw.get("sector") or "")[:80],
+                    "country_code": str(raw.get("country_code") or "")[:8],
+                    "website": str(raw.get("website") or profile.get("website") or "")[:500],
+                    "profile_url": str(raw.get("profile_url") or profile.get("profile_url") or "")[:500],
+                    "event_name": str(raw.get("event_name") or "")[:200],
+                    "stand_number": str(raw.get("stand_number") or "")[:40],
+                    "stand_id": str(raw.get("stand_id") or "")[:40],
+                    "edition_id": raw.get("edition_id"),
+                    "source": str(raw.get("source") or "expo_directory")[:40],
+                }
+            )
+        return out
 
     @staticmethod
     def start_directory_scrape(
@@ -1507,7 +1558,7 @@ class AiTeamService:
         Queues Celery when available (survives gunicorn). Falls back to in-process
         thread only if Celery enqueue fails. Pass wait=True for sync tests.
         """
-        url = str(expo_url or "").strip()
+        url = str(expo_url or "").strip().replace("\\", "/")
         if not url.startswith("http"):
             raise AiTeamServiceError("Enter a valid expo directory URL (https://…)")
 
