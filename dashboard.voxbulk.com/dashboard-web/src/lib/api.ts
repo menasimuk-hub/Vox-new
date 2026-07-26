@@ -288,6 +288,19 @@ function getPublicLogoutLandingUrl() {
 
 export function logoutDashboard() {
   if (typeof window === "undefined") return;
+  const token = getAccessToken();
+  try {
+    if (token) {
+      // Best-effort server revoke (invalidates JWTs via token_version). keepalive survives navigation.
+      void fetch(`${getApiBaseUrl().replace(/\/+$/, "")}/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+        keepalive: true,
+      });
+    }
+  } catch {
+    /* ignore — still clear local session */
+  }
   try {
     clearAllSessionStorage();
   } catch {

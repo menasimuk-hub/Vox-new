@@ -312,18 +312,22 @@ def _log_feedback_wa_route(
     feedback_result: dict[str, Any] | None,
     route: str,
 ) -> None:
+    import hashlib
+
     result = feedback_result if isinstance(feedback_result, dict) else {}
+    phone_hash = hashlib.sha256(str(from_phone or "").encode("utf-8")).hexdigest()[:12]
+    token_raw = str(result.get("token") or "")
     logger.info(
-        "feedback_wa_inbound_route route=%s message_id=%s from=%r inbound_text=%r "
-        "webhook_org_id=%s handled=%s reason=%s token=%s location_org_id=%s session_id=%s log_id=%s",
+        "feedback_wa_inbound_route route=%s message_id=%s from_hash=%s body_len=%s "
+        "webhook_org_id=%s handled=%s reason=%s token_prefix=%s location_org_id=%s session_id=%s log_id=%s",
         route,
         message_id,
-        from_phone,
-        inbound_text[:120],
+        phone_hash,
+        len(str(inbound_text or "")),
         webhook_org_id,
         result.get("handled"),
         result.get("reason"),
-        result.get("token"),
+        token_raw[:12] if token_raw else "",
         result.get("org_id"),
         result.get("session_id"),
         result.get("log_id"),

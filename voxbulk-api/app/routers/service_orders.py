@@ -30,6 +30,13 @@ def _interview_draft_payload(db: Session, *, order, recipients, summary, billing
     }
 
 
+def _require_campaign_launch_access(db: Session, principal) -> None:
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
 def _campaign_owner_user_id(db: Session, principal) -> str | None:
     """Members are scoped to their own campaigns; owners/managers see all."""
     try:
@@ -315,6 +322,7 @@ def list_my_orders(
 def create_order(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     service_code = str(payload.get("service_code") or "")
     _require_org_service(db, principal.org_id, service_code)
+    _require_campaign_launch_access(db, principal)
     try:
         order = ServiceOrderService.create_order(
             db,
@@ -430,6 +438,7 @@ def create_new_interview_draft_route(db: Session = Depends(get_db), principal=De
     log = logging.getLogger(__name__)
     log.info("interview_draft_new entry org=%s user=%s", principal.org_id, principal.user_id)
     try:
+        _require_campaign_launch_access(db, principal)
         org = _require_org_service(db, principal.org_id, "interview")
         order = create_new_interview_draft(db, org_id=principal.org_id, user_id=principal.user_id)
         billing = org_interview_billing_context(db, org)
@@ -883,6 +892,7 @@ def get_order(order_id: str, db: Session = Depends(get_db), principal=Depends(ge
 
 @router.post("/{order_id}/archive")
 def archive_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -905,6 +915,7 @@ def archive_order(order_id: str, db: Session = Depends(get_db), principal=Depend
 
 @router.patch("/{order_id}")
 def patch_order(order_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1031,6 +1042,7 @@ def refresh_quote(order_id: str, db: Session = Depends(get_db), principal=Depend
 
 @router.post("/{order_id}/pay-promo-credits")
 def pay_with_promo_credits(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1114,6 +1126,7 @@ def launch_survey_campaign(
     from app.services.survey_launch_service import SurveyLaunchService
 
     logger = logging.getLogger(__name__)
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1143,6 +1156,7 @@ def delete_order(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1155,6 +1169,7 @@ def delete_order(
 
 @router.post("/{order_id}/duplicate")
 def duplicate_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1174,6 +1189,7 @@ def duplicate_order(order_id: str, db: Session = Depends(get_db), principal=Depe
 
 @router.post("/{order_id}/pause")
 def pause_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1186,6 +1202,7 @@ def pause_order(order_id: str, db: Session = Depends(get_db), principal=Depends(
 
 @router.post("/{order_id}/resume")
 def resume_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1198,6 +1215,7 @@ def resume_order(order_id: str, db: Session = Depends(get_db), principal=Depends
 
 @router.post("/{order_id}/stop")
 def stop_order(order_id: str, payload: dict | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1210,6 +1228,7 @@ def stop_order(order_id: str, payload: dict | None = None, db: Session = Depends
 
 @router.post("/{order_id}/complete")
 def complete_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1222,6 +1241,7 @@ def complete_order(order_id: str, db: Session = Depends(get_db), principal=Depen
 
 @router.post("/{order_id}/schedule")
 def schedule_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -1234,6 +1254,7 @@ def schedule_order(order_id: str, db: Session = Depends(get_db), principal=Depen
 
 @router.post("/{order_id}/start")
 def start_order(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_campaign_launch_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")

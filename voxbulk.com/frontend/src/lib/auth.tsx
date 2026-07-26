@@ -1,5 +1,5 @@
 import * as React from "react";
-import { apiFetch, clearSession, getAccessToken, oauthStartUrl, setSession, needsOnboardingFor, type InvitePreview, type OrgLoginOption } from "@/lib/api";
+import { apiFetch, clearSession, getAccessToken, getApiBaseUrl, oauthStartUrl, setSession, needsOnboardingFor, type InvitePreview, type OrgLoginOption } from "@/lib/api";
 import { consumeLogoutQueryParam } from "@/lib/session-storage";
 
 export type AuthUser = {
@@ -137,6 +137,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const logout = React.useCallback(() => {
+    const token = getAccessToken();
+    try {
+      if (token) {
+        void fetch(`${getApiBaseUrl().replace(/\/+$/, "")}/auth/logout`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+          keepalive: true,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
     clearSession();
     setUser(null);
     if (typeof window !== "undefined") {

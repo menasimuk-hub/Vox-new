@@ -436,7 +436,15 @@ class PartnerService:
             logger.exception("partner screening schedule_order failed")
 
         screening_id = _new_id()
-        cb = str(callback_url or default_callback_url or "").strip()
+        from app.utils.safe_outbound_url import validate_public_https_callback_url
+
+        try:
+            cb = validate_public_https_callback_url(
+                callback_url or default_callback_url,
+                field_name="callback_url",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         row = PartnerScreening(
             id=screening_id,
             provider_id=provider.id,
@@ -527,6 +535,15 @@ class PartnerService:
         provider = db.get(PartnerProvider, screening.provider_id)
         url = str(screening.callback_url or (provider.result_webhook_url if provider else "") or "").strip()
         if not url:
+            return False
+        try:
+            from app.utils.safe_outbound_url import validate_public_https_callback_url
+
+            url = validate_public_https_callback_url(url, field_name="callback_url")
+        except ValueError as exc:
+            screening.webhook_last_error = str(exc)[:500]
+            db.add(screening)
+            db.commit()
             return False
         payload = {
             "partner_reference_id": screening.partner_reference_id,
@@ -875,7 +892,15 @@ class PartnerService:
             else:
                 p.mapped_org_id = None
         if "result_webhook_url" in payload and payload["result_webhook_url"] is not None:
-            p.result_webhook_url = str(payload["result_webhook_url"] or "").strip()
+            from app.utils.safe_outbound_url import validate_public_https_callback_url
+
+            try:
+                p.result_webhook_url = validate_public_https_callback_url(
+                    payload["result_webhook_url"],
+                    field_name="result_webhook_url",
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         if payload.get("webhook_secret"):
             p.webhook_secret_enc = get_encryptor().encrypt_str(str(payload["webhook_secret"]))
         for field, attr in (

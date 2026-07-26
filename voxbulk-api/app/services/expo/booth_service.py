@@ -178,13 +178,14 @@ def _slug_part(text: str, *, max_len: int = 20) -> str:
     return (base or "booth")[:max_len]
 
 
-def _random_suffix(length: int = 6) -> str:
+def _random_suffix(length: int = 16) -> str:
     alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def build_booth_qr_token(*, company: str, booth: str) -> str:
-    return f"{_slug_part(company)}-{_slug_part(booth)}-{_random_suffix(6)}"
+    # New booths get a 16-char suffix; existing 6-char tokens remain valid forever.
+    return f"{_slug_part(company)}-{_slug_part(booth)}-{_random_suffix(16)}"
 
 
 def build_trigger_text(*, company: str, booth: str, event: str, token: str) -> str:
@@ -200,9 +201,9 @@ def _qr_image_for(target_url: str) -> str:
     return f"https://api.qrserver.com/v1/create-qr-code/?size=280x280&data={quote(target_url, safe='')}"
 
 
-# Strict 3-part tokens (new booths) + looser fallback for any …-xxxxxx suffix.
-TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
-TOKEN_SUFFIX_PATTERN = re.compile(r"\b([a-z0-9]+(?:-[a-z0-9]+)+-[a-z0-9]{6})\b", re.IGNORECASE)
+# Accept legacy 6-char and new 16-char suffixes (and anything in between for forward compat).
+TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6,32})\b", re.IGNORECASE)
+TOKEN_SUFFIX_PATTERN = re.compile(r"\b([a-z0-9]+(?:-[a-z0-9]+)+-[a-z0-9]{6,32})\b", re.IGNORECASE)
 
 
 def extract_expo_token(text: str) -> str | None:

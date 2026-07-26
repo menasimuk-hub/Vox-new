@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     # Default 24h (was 7d). Override via ACCESS_TOKEN_EXPIRE_MINUTES if needed.
     access_token_expire_minutes: int = Field(default=1440, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     auth_rate_limit_per_min: int = Field(default=20, alias="AUTH_RATE_LIMIT_PER_MIN")
+    # Local Meta/Telnyx webhook testing without signatures. Never set on production VPS.
+    allow_insecure_webhooks: bool = Field(default=False, alias="ALLOW_INSECURE_WEBHOOKS")
 
     # Encryption
     encryption_key: str = Field(default="change-me", alias="ENCRYPTION_KEY")

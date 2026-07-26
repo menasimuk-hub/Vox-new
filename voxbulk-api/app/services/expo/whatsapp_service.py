@@ -8,6 +8,7 @@ results into WhatsApp messages.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -214,7 +215,11 @@ class ExpoWhatsappService:
         token = find_expo_token_in_text(db, text)
         booth = ExpoBoothService.find_by_token(db, token) if token else None
         if token and booth is None:
-            logger.warning("expo_wa_token_not_found token=%s from=%s", token, phone)
+            logger.warning(
+                "expo_wa_token_not_found token_prefix=%s from_hash=%s",
+                str(token)[:12],
+                hashlib.sha256(str(phone or "").encode("utf-8")).hexdigest()[:12],
+            )
             ExpoWhatsappService._send(
                 db,
                 to_number=phone,

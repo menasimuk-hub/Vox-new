@@ -25,10 +25,27 @@ class TelnyxWebhookVerificationError(ValueError):
     pass
 
 
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def webhook_signature_required() -> bool:
-    """True when missing/invalid signatures must reject the request."""
-    env = str(get_settings().env or "").lower().strip()
-    return env not in {"dev", "development", "local", "test", "testing"}
+    """True when missing/invalid signatures must reject the request.
+
+    Fail closed by default. Skip verify only when:
+    - ALLOW_INSECURE_WEBHOOKS=1 (local webhook testing), or
+    - ENV is explicitly test/testing (pytest).
+
+    ENV=development alone no longer skips verification — set ALLOW_INSECURE_WEBHOOKS
+    for local unsigned webhook testing so a mis-set VPS ENV cannot process forgeries.
+    """
+    settings = get_settings()
+    if _as_bool(getattr(settings, "allow_insecure_webhooks", False)):
+        return False
+    env = str(settings.env or "").lower().strip()
+    return env not in {"test", "testing"}
 
 
 def resolve_telnyx_webhook_public_key(db: Session | None = None) -> str:

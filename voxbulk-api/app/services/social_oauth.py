@@ -272,17 +272,51 @@ class SocialOAuthService:
         raise OAuthFlowError("Unknown provider")
 
     @staticmethod
-    def _provider_user_from_apple_id_token(id_token: str) -> ProviderUser:
+    def _provider_user_from_apple_id_token(id_token: str, *, client_id: str) -> ProviderUser:
+        """Verify Apple id_token signature via Apple JWKS (iss/aud/exp)."""
         try:
-            data = jwt.get_unverified_claims(id_token)
-        except JWTError as e:
+            header = jwt.get_unverified_header(id_token)
+            kid = str(header.get("kid") or "").strip()
+            if not kid:
+                raise OAuthFlowError("Invalid Apple id_token")
+            timeout = httpx.Timeout(10.0, connect=10.0)
+            with httpx.Client(timeout=timeout) as client:
+                keys_resp = client.get("https://appleid.apple.com/auth/keys")
+                keys_resp.raise_for_status()
+                keys_payload = keys_resp.json()
+            keys = keys_payload.get("keys") if isinstance(keys_payload, dict) else None
+            if not isinstance(keys, list):
+                raise OAuthFlowError("Invalid Apple id_token")
+            jwk = next((k for k in keys if isinstance(k, dict) and str(k.get("kid") or "") == kid), None)
+            if jwk is None:
+                raise OAuthFlowError("Invalid Apple id_token")
+            data = jwt.decode(
+                id_token,
+                jwk,
+                algorithms=["RS256"],
+                audience=str(client_id or "").strip(),
+                issuer="https://appleid.apple.com",
+                options={"verify_at_hash": False},
+            )
+        except OAuthFlowError:
+            raise
+        except Exception as e:
             raise OAuthFlowError("Invalid Apple id_token") from e
+
         email = str(data.get("email") or "") or None
+        sub = str(data.get("sub") or "").strip()
+        if not sub:
+            raise OAuthFlowError("Invalid Apple id_token")
+        verified_raw = data.get("email_verified", False)
+        if isinstance(verified_raw, str):
+            email_verified = verified_raw.strip().lower() in {"true", "1", "yes"}
+        else:
+            email_verified = bool(verified_raw)
         return ProviderUser(
             provider="apple",
-            provider_user_id=str(data.get("sub") or ""),
+            provider_user_id=sub,
             email=email,
-            email_verified=bool(data.get("email_verified", False)),
+            email_verified=email_verified,
         )
 
     @staticmethod
@@ -515,7 +549,10 @@ class SocialOAuthService:
             id_token = str(token_payload.get("id_token") or "")
             if not id_token:
                 raise OAuthFlowError("Missing id_token")
-            puser = SocialOAuthService._provider_user_from_apple_id_token(id_token)
+            puser = SocialOAuthService._provider_user_from_apple_id_token(
+                id_token,
+                client_id=str(conf.get("client_id") or ""),
+            )
         else:
             access_token = str(token_payload.get("access_token") or "")
             if not access_token:

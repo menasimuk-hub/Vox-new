@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 
 os.environ.setdefault("DATABASE_URL", "sqlite+pysqlite:///./.pytest.db")
+os.environ.setdefault("ENV", "test")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 # Valid Fernet key (32 url-safe base64-encoded bytes)
 os.environ.setdefault("ENCRYPTION_KEY", "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=")

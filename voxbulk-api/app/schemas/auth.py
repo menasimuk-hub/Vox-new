@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class RegisterIn(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
     organisation_name: str = Field(min_length=1, max_length=255)
     # Deprecated: ignored. Joining an existing org requires an invite token
     # (POST /auth/accept-invite). Kept optional so old clients do not 422.
@@ -26,5 +26,5 @@ class ForgotPasswordIn(BaseModel):
 
 class ResetPasswordIn(BaseModel):
     token: str = Field(min_length=10, max_length=512)
-    password: str = Field(min_length=6, max_length=128)
+    password: str = Field(min_length=8, max_length=128)
 

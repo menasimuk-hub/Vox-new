@@ -75,8 +75,8 @@ class PasswordResetService:
         pwd = str(new_password or "")
         if len(raw) < 10:
             return False, "Invalid or expired reset link. Request a new one from the sign-in page."
-        if len(pwd) < 6:
-            return False, "Password must be at least 6 characters."
+        if len(pwd) < 8:
+            return False, "Password must be at least 8 characters."
 
         h = reset_token_hmac(raw)
         tok = db.execute(select(PasswordResetToken).where(PasswordResetToken.token_hmac == h)).scalar_one_or_none()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 
@@ -147,7 +148,7 @@ async def meta_whatsapp_webhook_verify(
     token = str(hub_verify_token or "").strip()
     challenge = str(hub_challenge or "").strip()
     expected = _meta_whatsapp_verify_token(db)
-    if mode == "subscribe" and expected and token == expected and challenge:
+    if mode == "subscribe" and expected and hmac.compare_digest(token, expected) and challenge:
         return Response(content=challenge, media_type="text/plain", status_code=status.HTTP_200_OK)
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Webhook verification failed")
 

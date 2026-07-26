@@ -225,8 +225,17 @@ def _log_provider_key_status(logger) -> None:
 
 def _warn_production_app_origins(settings, logger) -> None:
     env = str(getattr(settings, "env", "") or "").lower()
+    if bool(getattr(settings, "allow_insecure_webhooks", False)):
+        logger.warning(
+            "ALLOW_INSECURE_WEBHOOKS is enabled — unsigned Meta/Telnyx webhooks may be processed. "
+            "Disable this on production VPS."
+        )
     if env not in {"production", "prod"}:
         return
+    if str(getattr(settings, "jwt_secret_key", "") or "").strip() in {"", "change-me"}:
+        logger.error("production_jwt_secret_is_default — set JWT_SECRET_KEY to a strong unique value")
+    if str(getattr(settings, "encryption_key", "") or "").strip() in {"", "change-me"}:
+        logger.error("production_encryption_key_is_default — set ENCRYPTION_KEY to a Fernet key")
     for name, value in (
         ("PUBLIC_APP_ORIGIN", getattr(settings, "public_app_origin", "")),
         ("DASHBOARD_APP_ORIGIN", getattr(settings, "dashboard_app_origin", "")),

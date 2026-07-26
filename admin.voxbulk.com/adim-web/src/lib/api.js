@@ -725,6 +725,18 @@ export async function apiUpload(path, formData, options = {}) {
 
 export function adminLogoutRedirect() {
   if (typeof window === 'undefined') return
+  const token = readAdminAccessToken() || readSharedAccessToken()
+  try {
+    if (token) {
+      void fetch(`${getApiBaseUrl().replace(/\/+$/, '')}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        keepalive: true,
+      })
+    }
+  } catch {
+    /* ignore */
+  }
   try {
     _adminSyncInFlight = null
     clearAllSessionStorage()

@@ -135,10 +135,12 @@ def resolve_telnyx_api_key(db: Session) -> str:
 
 
 def _download_auth_headers(db: Session, media_url: str) -> dict[str, str]:
-    """Meta lookaside URLs need Graph access token; Telnyx storage uses Telnyx API key."""
+    """Attach provider auth only when the URL hostname is on an exact allowlist."""
+    from app.utils.safe_outbound_url import classify_media_download_host, media_url_hostname
+
     headers = {"Accept": "*/*"}
-    low = str(media_url or "").lower()
-    if any(host in low for host in ("lookaside.fbsbx.com", "fbcdn.net", "graph.facebook.com")):
+    kind = classify_media_download_host(media_url_hostname(media_url))
+    if kind == "meta":
         try:
             from app.services.meta_whatsapp_service import MetaWhatsappConfigError, MetaWhatsappService
 
@@ -151,9 +153,13 @@ def _download_auth_headers(db: Session, media_url: str) -> dict[str, str]:
             logger.warning("%s meta_media_auth_unavailable err=%s", LOG_PREFIX, exc)
         except Exception as exc:
             logger.warning("%s meta_media_auth_failed err=%s", LOG_PREFIX, exc)
-    api_key = resolve_telnyx_api_key(db)
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+    if kind == "telnyx":
+        api_key = resolve_telnyx_api_key(db)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+    # Unknown host: download without secrets (and caller may still fail on HTTP status).
     return headers
 
 
@@ -167,37 +173,57 @@ def download_media_file(
     max_bytes: int,
     timeout_seconds: int,
 ) -> tuple[Path, int, str]:
+    from urllib.parse import urljoin
+
+    from app.utils.safe_outbound_url import classify_media_download_host, media_url_hostname
+
     cfg = voice_note_settings()
     allowed = cfg["voice_note_allowed_mime_types"]
     if content_type and not _is_allowed_mime(content_type, allowed):
         raise ValueError(f"Unsupported audio MIME type: {content_type}")
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    headers = _download_auth_headers(db, media_url)
+    initial_kind = classify_media_download_host(media_url_hostname(media_url))
+    if initial_kind is None:
+        raise ValueError("Media URL host is not allowlisted for download")
 
     logger.info("%s download_started url=%s dest=%s", LOG_PREFIX, media_url[:180], dest_path)
     last_error: Exception | None = None
     for attempt in range(1, 4):
         try:
-            with httpx.Client(timeout=float(timeout_seconds), verify=httpx_ssl_verify(), follow_redirects=True) as client:
-                with client.stream("GET", media_url, headers=headers) as response:
-                    response.raise_for_status()
-                    ctype = str(response.headers.get("content-type") or content_type or "").split(";")[0].strip().lower()
-                    if ctype and not _is_allowed_mime(ctype, allowed):
-                        raise ValueError(f"Downloaded file has unsupported MIME type: {ctype}")
-                    if not ctype:
-                        ctype = "audio/ogg"
-                    total = 0
-                    with dest_path.open("wb") as handle:
-                        for chunk in response.iter_bytes(chunk_size=65536):
-                            if not chunk:
-                                continue
-                            total += len(chunk)
-                            if total > max_bytes:
-                                raise ValueError("Voice note exceeds maximum allowed file size")
-                            handle.write(chunk)
-            logger.info("%s download_completed path=%s bytes=%s", LOG_PREFIX, dest_path, total)
-            return dest_path, total, ctype or content_type
+            current_url = str(media_url)
+            with httpx.Client(timeout=float(timeout_seconds), verify=httpx_ssl_verify(), follow_redirects=False) as client:
+                for _redir in range(5):
+                    headers = _download_auth_headers(db, current_url)
+                    with client.stream("GET", current_url, headers=headers) as response:
+                        if response.status_code in {301, 302, 303, 307, 308}:
+                            loc = str(response.headers.get("location") or "").strip()
+                            if not loc:
+                                raise ValueError("Media download redirect missing Location")
+                            next_url = urljoin(current_url, loc)
+                            next_kind = classify_media_download_host(media_url_hostname(next_url))
+                            if next_kind != initial_kind:
+                                raise ValueError("Media download redirect left allowlisted host")
+                            current_url = next_url
+                            continue
+                        response.raise_for_status()
+                        ctype = str(response.headers.get("content-type") or content_type or "").split(";")[0].strip().lower()
+                        if ctype and not _is_allowed_mime(ctype, allowed):
+                            raise ValueError(f"Downloaded file has unsupported MIME type: {ctype}")
+                        if not ctype:
+                            ctype = "audio/ogg"
+                        total = 0
+                        with dest_path.open("wb") as handle:
+                            for chunk in response.iter_bytes(chunk_size=65536):
+                                if not chunk:
+                                    continue
+                                total += len(chunk)
+                                if total > max_bytes:
+                                    raise ValueError("Voice note exceeds maximum allowed file size")
+                                handle.write(chunk)
+                        logger.info("%s download_completed path=%s bytes=%s", LOG_PREFIX, dest_path, total)
+                        return dest_path, total, ctype or content_type
+                raise ValueError("Media download exceeded redirect limit")
         except Exception as exc:
             last_error = exc
             logger.warning("%s download_attempt_failed attempt=%s err=%s", LOG_PREFIX, attempt, exc)

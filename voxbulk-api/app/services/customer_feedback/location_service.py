@@ -37,7 +37,7 @@ from app.services.customer_feedback.feedback_ai_followup_service import load_ai_
 
 
 TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {token}"
-TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6})\b", re.IGNORECASE)
+TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6,32})\b", re.IGNORECASE)
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
 LANGUAGE_HINT_PATTERN = re.compile(
@@ -57,14 +57,14 @@ def _slug_part(text: str, *, max_len: int = 20) -> str:
     return (base or "location")[:max_len]
 
 
-def _random_suffix(length: int = 6) -> str:
+def _random_suffix(length: int = 16) -> str:
     alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def build_location_qr_token(*, company: str, branch: str) -> str:
-    """company-branch-xxxxxx (6-char suffix), stored in DB and shown in the WhatsApp message."""
-    return f"{_slug_part(company)}-{_slug_part(branch)}-{_random_suffix(6)}"
+    """company-branch-<suffix>. New locations use 16-char suffix; legacy 6-char tokens still work."""
+    return f"{_slug_part(company)}-{_slug_part(branch)}-{_random_suffix(16)}"
 
 
 def build_trigger_text(*, company: str, branch: str, token: str) -> str:
