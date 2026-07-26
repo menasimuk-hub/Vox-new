@@ -119,6 +119,7 @@ export default function AiTeam() {
   const [apifyRuns, setApifyRuns] = useState([])
   const [apifyPreview, setApifyPreview] = useState(null)
   const [connectionChecks, setConnectionChecks] = useState(null)
+  const [apifyTestResult, setApifyTestResult] = useState(null)
   const [csvFile, setCsvFile] = useState(null)
   const [csvDrag, setCsvDrag] = useState(false)
   const [csvHeaders, setCsvHeaders] = useState([])
@@ -369,6 +370,35 @@ export default function AiTeam() {
       showBanner(data.ok ? 'ok' : 'err', data.ok ? 'All critical connections OK' : 'Some connections failed — see checklist')
     })
   }
+
+  const runTestApify = async () => {
+    setApifyTestResult(null)
+    await act('test-apify', async () => {
+      try {
+        const data = await apiFetch('/admin/ai-team/test/apify', {
+          method: 'POST',
+          body: JSON.stringify({
+            apify_token: apifyToken || undefined,
+            // Token-only test unless an actor ID is already filled
+            check_actor: !!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id),
+          }),
+        })
+        const msg = data.message || (data.username ? `Apify OK — logged in as ${data.username}` : 'Apify OK')
+        setApifyTestResult({ ok: true, message: msg, username: data.username, actor_name: data.actor_name })
+        showBanner('ok', msg)
+      } catch (e) {
+        const msg = e?.message || 'Apify connection failed'
+        setApifyTestResult({ ok: false, message: msg })
+        throw e
+      }
+    })
+  }
+
+  const SUGGESTED_ACTORS = [
+    { id: 'vdrmota~contact-info-scraper', label: 'Contact info scraper (popular)', note: 'Emails/phones from websites' },
+    { id: 'foo121~website-contact-scraper', label: 'Website contact & email', note: 'Bulk website emails' },
+    { id: 'goat255~website-contact-scraper', label: 'Website contact scraper', note: 'Homepage + contact pages' },
+  ]
 
   const openProspectPreview = async (prospect) => {
     try {
@@ -835,28 +865,41 @@ export default function AiTeam() {
               <div className="ait-card-body">
                 <div className="ait-conn-block">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span className={`ait-dot ${settings.apify_connected || settings.apify_token_configured ? 'on' : 'off'}`} />
-                    <div><strong>{settings.apify_token_configured ? 'API token saved' : 'Not connected'}</strong></div>
+                    <span className={`ait-dot ${apifyTestResult?.ok || settings.apify_token_configured ? 'on' : 'off'}`} />
+                    <div>
+                      <strong>
+                        {apifyTestResult
+                          ? (apifyTestResult.ok ? 'Connected' : 'Failed')
+                          : (settings.apify_token_configured ? 'API token saved (not tested yet)' : 'Not connected')}
+                      </strong>
+                      {apifyTestResult?.username && (
+                        <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>Logged in as {apifyTestResult.username}</div>
+                      )}
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    className="ait-btn sm"
-                    disabled={!!busy}
-                    onClick={() => act('test-apify', () => apiFetch('/admin/ai-team/test/apify', {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        apify_token: apifyToken || undefined,
-                        apify_exhibitor_actor_id: settings.apify_exhibitor_actor_id,
-                        apify_contact_actor_id: settings.apify_contact_actor_id,
-                      }),
-                    }).then((d) => showBanner('ok', d.message || 'Apify OK')))}
-                  >
+                  <button type="button" className="ait-btn sm" disabled={!!busy} onClick={runTestApify}>
                     Test Apify
                   </button>
                 </div>
+
+                {apifyTestResult && (
+                  <div
+                    className={`ait-msg-banner ${apifyTestResult.ok ? 'ok' : 'err'}`}
+                    style={{ margin: '12px 0', padding: '12px 14px', borderRadius: 8, fontWeight: 600 }}
+                  >
+                    {apifyTestResult.ok ? 'OK — ' : 'FAIL — '}
+                    {apifyTestResult.message}
+                  </div>
+                )}
+
+                <p style={{ fontSize: 12, color: 'var(--ait-text3)', marginBottom: 10 }}>
+                  <strong>Step 1:</strong> paste only your Apify API token, Save, then click <strong>Test Apify</strong>.
+                  You should see a green <strong>OK</strong> box below. Actor ID is optional for the test.
+                </p>
+
                 <div className="ait-fg-2">
                   <div className="ait-field">
-                    <label>Apify API token</label>
+                    <label>Apify API token (required)</label>
                     <input
                       type="password"
                       placeholder={settings.apify_token_configured ? '••••••••' : 'apify_api_…'}
@@ -865,27 +908,53 @@ export default function AiTeam() {
                     />
                   </div>
                   <div className="ait-field">
-                    <label>Exhibitor directory actor ID</label>
+                    <label>Exhibitor / contact actor ID (needed to scrape)</label>
                     <input
                       value={settings.apify_exhibitor_actor_id || ''}
                       onChange={(e) => setSettings({ ...settings, apify_exhibitor_actor_id: e.target.value })}
-                      placeholder="username~actor-name"
+                      placeholder="Leave blank until you pick an actor"
                     />
                   </div>
                 </div>
+
+                <div style={{ marginTop: 8, marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ait-text3)', textTransform: 'uppercase', marginBottom: 6 }}>
+                    Suggested actors (click to fill)
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {SUGGESTED_ACTORS.map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        className="ait-btn xs"
+                        title={a.note}
+                        onClick={() => setSettings({ ...settings, apify_exhibitor_actor_id: a.id })}
+                      >
+                        {a.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
+                    Or open <a href="https://apify.com/store" target="_blank" rel="noreferrer">apify.com/store</a>,
+                    open an actor → copy ID from the URL like <code>username/actor-name</code>,
+                    then paste here as <code>username~actor-name</code> (slash → tilde).
+                  </p>
+                </div>
+
                 <div className="ait-field">
-                  <label>Contact scrape actor ID (optional)</label>
+                  <label>Second actor ID (optional)</label>
                   <input
                     value={settings.apify_contact_actor_id || ''}
                     onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })}
-                    placeholder="username~website-contact-scraper"
+                    placeholder="Only if you use a second contact actor"
                   />
                 </div>
                 <div className="ait-btn-row">
                   <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save Apify settings</button>
+                  <button type="button" className="ait-btn" disabled={!!busy} onClick={runTestApify}>Test Apify again</button>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
-                  Actor dataset items should include an <code>email</code> field (also accepts contactEmail / emails[]).
+                  Actor results must include emails. Our importer accepts <code>email</code>, <code>emails[]</code>, or <code>contactEmail</code>.
                 </p>
               </div>
             </div>
@@ -893,6 +962,10 @@ export default function AiTeam() {
             <div className="ait-card">
               <div className="ait-card-hdr"><span className="ait-card-title">Scrape expo exhibitors</span></div>
               <div className="ait-card-body">
+                <p style={{ fontSize: 12, color: 'var(--ait-text3)', marginBottom: 10 }}>
+                  <strong>Step 2:</strong> after token test is OK, fill an actor ID (or click a suggested one), Save,
+                  paste the expo exhibitor page URL, then Start run.
+                </p>
                 <div className="ait-field">
                   <label>Expo exhibitor directory URL</label>
                   <input
@@ -902,11 +975,21 @@ export default function AiTeam() {
                   />
                 </div>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" disabled={!!busy || !apifyExpoUrl.trim()} onClick={startApifyRun}>
+                  <button
+                    type="button"
+                    className="ait-btn primary"
+                    disabled={!!busy || !apifyExpoUrl.trim() || !(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id)}
+                    onClick={startApifyRun}
+                  >
                     Start Apify run
                   </button>
                   <button type="button" className="ait-btn" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh runs</button>
                 </div>
+                {!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id) && (
+                  <p style={{ fontSize: 11, color: 'var(--ait-amber)', marginTop: 8 }}>
+                    Add an actor ID above before starting a scrape. Token-only is enough to Test, not to scrape.
+                  </p>
+                )}
               </div>
             </div>
 

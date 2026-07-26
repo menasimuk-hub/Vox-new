@@ -380,10 +380,19 @@ def test_email_account(body: dict[str, Any], db: Session = Depends(get_db), _adm
 
 @router.post("/test/apify")
 def test_apify(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
-    if body.get("apify_token") or body.get("apify_exhibitor_actor_id") or body.get("apify_contact_actor_id"):
-        AiTeamService.update_settings(db, body)
+    # Persist token if provided; do not wipe actor IDs on a token-only test.
+    patch: dict[str, Any] = {}
+    if body.get("apify_token"):
+        patch["apify_token"] = body.get("apify_token")
+    if body.get("apify_exhibitor_actor_id") is not None and str(body.get("apify_exhibitor_actor_id") or "").strip():
+        patch["apify_exhibitor_actor_id"] = body.get("apify_exhibitor_actor_id")
+    if body.get("apify_contact_actor_id") is not None and str(body.get("apify_contact_actor_id") or "").strip():
+        patch["apify_contact_actor_id"] = body.get("apify_contact_actor_id")
+    if patch:
+        AiTeamService.update_settings(db, patch)
+    check_actor = body.get("check_actor") is True
     try:
-        return AiTeamService.test_apify(db, token=str(body.get("apify_token") or body.get("api_token") or "").strip() or None)
+        return AiTeamService.test_apify(db, token=str(body.get("apify_token") or body.get("api_token") or "").strip() or None, check_actor=check_actor)
     except Exception as exc:
         raise _err(exc) from exc
 

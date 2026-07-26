@@ -1232,10 +1232,12 @@ class AiTeamService:
         return {"ok": True, "message": f"SMTP test sent to {to_addr}", "provider": result.get("provider")}
 
     @staticmethod
-    def test_apify(db: Session, *, token: str | None = None) -> dict[str, Any]:
+    def test_apify(db: Session, *, token: str | None = None, check_actor: bool = False) -> dict[str, Any]:
         settings = AiTeamService.get_settings(db)
         key = str(token or "").strip() or AiTeamService._apify_token(settings)
-        actor = (settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip() or None
+        actor = None
+        if check_actor:
+            actor = (settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip() or None
         try:
             return ApifyService.test_connection(key, actor_id=actor)
         except ApifyServiceError as exc:
