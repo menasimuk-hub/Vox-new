@@ -506,9 +506,27 @@ export default function PromoOffers() {
       </div>
 
       {applyPromo ? (
-        <div className='occ-modal-backdrop' role='dialog' aria-modal='true' onClick={closeApply}>
-          <div className='occ-modal' style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
-            <div className='occ-modal-title'>Apply {applyPromo.code} to organisations</div>
+        <div
+          role='dialog'
+          aria-modal='true'
+          onClick={closeApply}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 80,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            className='card'
+            style={{ width: '100%', maxWidth: 560, background: '#fff', padding: 20, borderRadius: 12 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: 8 }}>Apply {applyPromo.code} to organisations</h2>
             <p className='muted' style={{ marginTop: 0 }}>
               {applyPromo.benefit_summary || applyPromo.name || applyPromo.code}. Search, tick one or more orgs, then
               apply. Already-redeemed orgs are skipped.
@@ -531,7 +549,7 @@ export default function PromoOffers() {
                 Search
               </button>
             </div>
-            <div className='card' style={{ maxHeight: 280, overflow: 'auto', padding: 8, marginBottom: 12 }}>
+            <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8, marginBottom: 12 }}>
               {orgs.length === 0 ? (
                 <p className='muted' style={{ margin: 8 }}>
                   Search to find organisations.
@@ -557,7 +575,7 @@ export default function PromoOffers() {
                 Applied {applyResult.applied ?? 0} · failed/skipped {applyResult.failed ?? 0}
               </div>
             ) : null}
-            <div className='occ-modal-actions' style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button type='button' className='btn soft' onClick={closeApply}>
                 Close
               </button>
