@@ -119,6 +119,28 @@ function WhatsAppGlyph() {
   );
 }
 
+/** High-contrast download control for the dark Expo theme (avoids blue-on-blue). */
+function DownloadGlyph({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden>
+      <path
+        d="M12 3v12m0 0l-4-4m4 4l4-4M4 19h16"
+        stroke="currentColor"
+        strokeWidth="2.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+const DOWNLOAD_BTN_STYLE = {
+  background: "#ffffff",
+  color: "#0f172a",
+  border: "1px solid rgba(255,255,255,0.95)",
+  boxShadow: "0 10px 28px -12px rgba(15,23,42,0.55)",
+} as const;
+
 function SparkGlyph() {
   return (
     <svg viewBox="0 0 24 24" className="h-9 w-9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -810,10 +832,11 @@ export function PublicExpoLanding({
                     href={a.url || "#"}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-2xl px-4 py-3 text-sm font-semibold text-white shadow-lift"
-                    style={{ background: theme.gradientButton }}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold"
+                    style={DOWNLOAD_BTN_STYLE}
                   >
-                    Download {a.title || "file"}
+                    <DownloadGlyph className="h-4 w-4 shrink-0" />
+                    <span>Download {a.title || "file"}</span>
                   </a>
                 ))}
               </div>
@@ -1078,10 +1101,16 @@ export function PublicExpoLanding({
                               href={a.url || "#"}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="rounded-xl border px-3 py-2 text-left text-[13px] font-medium"
-                              style={{ background: theme.card, borderColor: theme.border, color: theme.accent }}
+                              className="inline-flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-left text-[13px] font-semibold"
+                              style={DOWNLOAD_BTN_STYLE}
                             >
-                              ⬇ {a.title || "Download"}
+                              <span
+                                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
+                                style={{ background: "#e2e8f0", color: "#0f172a" }}
+                              >
+                                <DownloadGlyph className="h-4 w-4" />
+                              </span>
+                              <span>{a.title || "Download"}</span>
                             </a>
                           ))}
                         </div>

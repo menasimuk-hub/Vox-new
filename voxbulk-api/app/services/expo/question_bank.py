@@ -84,7 +84,7 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     },
     {
         "key": "consent_info",
-        "prompt": "Would you like our catalogue or price list?",
+        "prompt": "Would you like our catalogue and/or price list? Select all that apply.",
         "label": "Catalogue / price list",
         "description": "Shown when the booth has catalogue or price-list files — visitor can download what they want.",
         "matches_products": False,

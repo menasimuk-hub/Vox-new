@@ -74,6 +74,13 @@ def _empty_step_result(
     )
 
 
+_PURPOSE_OPTION_LABEL = {
+    "catalogue": "Catalogue",
+    "price_list": "Price list",
+    "product": "Product",
+}
+
+
 def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Catalogue / price-list assets for the consent download question (by purpose, then heuristics)."""
     from app.services.expo.offer_delivery_service import normalize_asset_purpose
@@ -89,18 +96,30 @@ def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]
                 str(a.get("match_keywords") or ""),
             ]
         ).lower()
+        # Heuristics only fill gaps — never collapse an explicit price_list/catalogue purpose.
         if purpose == "product":
-            if any(w in blob for w in ("price", "pricing", "pricelist", "price list")):
+            if any(w in blob for w in ("price", "pricing", "pricelist", "price list", "rates", "tariff")):
                 purpose = "price_list"
-            elif any(w in blob for w in ("catalogue", "catalog", "brochure")):
+            elif any(w in blob for w in ("catalogue", "catalog", "brochure", "lookbook")):
                 purpose = "catalogue"
         normalised.append({**a, "purpose": purpose})
 
     by_purpose = [a for a in normalised if a.get("purpose") in {"catalogue", "price_list"}]
     if by_purpose:
+        # Keep both types when present (do not collapse to a single default file).
         return by_purpose
-    defaults = [a for a in normalised if a.get("is_default")]
-    return defaults or normalised
+    # No typed catalogue/price assets — offer every booth file so visitors can still pick.
+    return normalised
+
+
+def _consent_asset_option_label(asset: dict[str, Any]) -> str:
+    purpose = str(asset.get("purpose") or "product")
+    kind = _PURPOSE_OPTION_LABEL.get(purpose, "File")
+    title = str(asset.get("title") or "Download").strip() or "Download"
+    # Avoid "Catalogue: Catalogue" duplication when the title already names the type.
+    if title.lower().startswith(kind.lower()):
+        return title
+    return f"{kind}: {title}"
 
 
 class ExpoSessionFlowService:
@@ -954,16 +973,28 @@ class ExpoSessionFlowService:
         if not assets:
             return None
         options = [
-            {"value": str(a.get("id") or a.get("title") or ""), "label": str(a.get("title") or "Download")}
+            {
+                "value": str(a.get("id") or a.get("title") or ""),
+                "label": _consent_asset_option_label(a),
+            }
             for a in assets
             if a.get("id") or a.get("title")
         ]
         options.append({"value": "No thanks", "label": "No thanks"})
-        titles = [str(a.get("title") or "file") for a in assets[:4]]
-        named = ", ".join(titles)
+        has_catalogue = any(str(a.get("purpose") or "") == "catalogue" for a in assets)
+        has_price = any(str(a.get("purpose") or "") == "price_list" for a in assets)
+        if has_catalogue and has_price:
+            offer = "catalogue and price list"
+        elif has_price:
+            offer = "price list"
+        elif has_catalogue:
+            offer = "catalogue"
+        else:
+            offer = "files"
+        named = ", ".join(_consent_asset_option_label(a) for a in assets[:6])
         prompt = (
-            f"Would you like our catalogue or price list? "
-            f"We have: {named}. Select what you'd like to download."
+            f"Would you like our {offer}? "
+            f"We have: {named}. Select all you'd like to download."
         )
         return {
             "done": False,

@@ -253,6 +253,12 @@ function CreateExpoBooth() {
       }
       return next;
     });
+    const nextPurpose: AssetPurpose =
+      item.purpose === "catalogue"
+        ? "price_list"
+        : item.purpose === "price_list"
+          ? "product"
+          : "product";
     setDraft({
       title: "",
       short_description: "",
@@ -262,7 +268,8 @@ function CreateExpoBooth() {
       original_filename: "",
       match_keywords: "",
       kind: "pdf",
-      purpose: "product",
+      // After saving a catalogue, default the next file to price list so both are easy to add.
+      purpose: nextPurpose,
       is_default: false,
     });
     setEditingId(null);
