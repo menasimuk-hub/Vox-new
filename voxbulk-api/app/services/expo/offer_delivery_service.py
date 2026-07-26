@@ -50,28 +50,53 @@ def normalize_asset_purpose(raw: Any) -> str:
 
 
 def load_booth_assets(db: Session, booth_id: str) -> list[dict[str, Any]]:
+    from app.models.expo import ExpoBoothCategory, ExpoBoothProduct
+
     rows = db.execute(
         select(ExpoBoothAsset)
         .where(ExpoBoothAsset.booth_id == booth_id)
         .order_by(ExpoBoothAsset.sort_order.asc())
     ).scalars().all()
-    return [
-        {
-            "id": a.id,
-            "product_id": getattr(a, "product_id", None),
-            "asset_key": a.asset_key,
-            "title": a.title,
-            "short_description": a.short_description,
-            "kind": a.kind,
-            "purpose": normalize_asset_purpose(getattr(a, "purpose", None) or "product"),
-            "external_url": a.external_url,
-            "storage_path": a.storage_path,
-            "match_keywords": a.match_keywords,
-            "is_default": a.is_default,
-            "sort_order": a.sort_order,
-        }
-        for a in rows
-    ]
+
+    product_ids = {str(getattr(a, "product_id", None) or "") for a in rows if getattr(a, "product_id", None)}
+    products_by_id: dict[str, ExpoBoothProduct] = {}
+    categories_by_id: dict[str, ExpoBoothCategory] = {}
+    if product_ids:
+        products = db.execute(
+            select(ExpoBoothProduct).where(ExpoBoothProduct.id.in_(list(product_ids)))
+        ).scalars().all()
+        products_by_id = {p.id: p for p in products}
+        cat_ids = {str(p.category_id) for p in products if p.category_id}
+        if cat_ids:
+            cats = db.execute(
+                select(ExpoBoothCategory).where(ExpoBoothCategory.id.in_(list(cat_ids)))
+            ).scalars().all()
+            categories_by_id = {c.id: c for c in cats}
+
+    out: list[dict[str, Any]] = []
+    for a in rows:
+        product = products_by_id.get(str(getattr(a, "product_id", None) or ""))
+        category = categories_by_id.get(str(product.category_id)) if product is not None else None
+        out.append(
+            {
+                "id": a.id,
+                "product_id": getattr(a, "product_id", None),
+                "asset_key": a.asset_key,
+                "title": a.title,
+                "short_description": a.short_description,
+                "kind": a.kind,
+                "purpose": normalize_asset_purpose(getattr(a, "purpose", None) or "product"),
+                "external_url": a.external_url,
+                "storage_path": a.storage_path,
+                "match_keywords": a.match_keywords,
+                "is_default": a.is_default,
+                "sort_order": a.sort_order,
+                "product_name": (product.name if product is not None else "") or "",
+                "category_name": (category.name if category is not None else "") or "",
+                "category_id": (category.id if category is not None else None),
+            }
+        )
+    return out
 
 
 def asset_public_url(asset: dict[str, Any], booth_token: str, *, lead_id: str | None = None) -> str:

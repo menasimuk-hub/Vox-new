@@ -143,8 +143,9 @@ def test_consent_ask_web_channel_includes_tracked_asset_urls():
 
         assert result.get("question_key") == "consent_info"
         assert result.get("asset_options")
-        assert result.get("assets")
-        assert all(str(a.get("url") or "").startswith("http") for a in result["assets"])
+        # Ask step: options carry tracked URLs; deliverable assets stay empty until the visitor picks.
+        assert result.get("assets") == []
+        assert all(str(a.get("url") or "").startswith("http") for a in result["asset_options"])
 
 
 def test_deliver_numbered_pick_selects_single_asset():
@@ -166,6 +167,73 @@ def test_deliver_numbered_pick_selects_single_asset():
         assert clarify is None
         assert len(delivered) == 1
         assert delivered[0]["purpose"] == "catalogue"
+
+
+def test_deliver_emoji_digit_pick_selects_first_asset():
+    with get_sessionmaker()() as db:
+        org = _org(db)
+        db.commit()
+        booth = _booth_with_consent(db, org_id=org.id)
+        db.commit()
+
+        phone = f"+4477015{uuid.uuid4().hex[:6]}"
+        started = ExpoSessionFlowService.start_session(db, booth=booth, channel="whatsapp", visitor_phone=phone)
+        session = db.get(ExpoSession, started["session_id"])
+        ExpoSessionFlowService.advance(db, session=session, answer="pumps", answer_source="text")
+        lead = _lead_for(db, session)
+
+        delivered, clarify = ExpoSessionFlowService._deliver_consent_assets(
+            db, booth=booth, lead=lead, answer="1️⃣"
+        )
+        assert clarify is None
+        assert len(delivered) == 1
+
+
+def test_consent_menu_shows_category_headers_when_present():
+    from app.services.expo.session_flow_service import _format_consent_menu_lines
+
+    lines = _format_consent_menu_lines(
+        [
+            {
+                "id": "1",
+                "purpose": "catalogue",
+                "title": "Brochure.pdf",
+                "product_name": "Pump A",
+                "category_name": "Pumps",
+            },
+            {
+                "id": "2",
+                "purpose": "price_list",
+                "title": "Rates.xlsx",
+                "product_name": "Pump A",
+                "category_name": "Pumps",
+            },
+        ],
+        offer="files",
+    )
+    blob = "\n".join(lines)
+    assert "📁 Pumps" in blob
+    assert "Pump A — Catalogue" in blob
+    assert "Pump A — Price list" in blob
+
+
+def test_yes_does_not_remap_digit_one_on_consent_advance():
+    """Regression: reply '1' must deliver option 1, never be treated as Yes."""
+    with get_sessionmaker()() as db:
+        org = _org(db)
+        db.commit()
+        booth = _booth_with_consent(db, org_id=org.id)
+        db.commit()
+
+        phone = f"+4477016{uuid.uuid4().hex[:6]}"
+        started = ExpoSessionFlowService.start_session(db, booth=booth, channel="whatsapp", visitor_phone=phone)
+        session = db.get(ExpoSession, started["session_id"])
+        ExpoSessionFlowService.advance(db, session=session, answer="pumps", answer_source="text")
+
+        result = ExpoSessionFlowService.advance(db, session=session, answer="1", answer_source="text")
+        assert result.get("assets")
+        assert len(result["assets"]) == 1
+        assert "Please reply with a number" not in (result.get("prompt") or "")
 
 
 def test_bare_yes_with_two_assets_does_not_deliver_all():

@@ -103,14 +103,65 @@ _PURPOSE_OPTION_LABEL = {
     "other": "File",
 }
 
+_PURPOSE_SORT = {
+    "catalogue": 10,
+    "product_sheet": 20,
+    "price_list": 30,
+    "product": 40,
+    "other": 50,
+}
+
+# WhatsApp keycap digits users often tap/copy from the prompt.
+_KEYCAP_DIGIT_MAP = {
+    "1️⃣": "1",
+    "2️⃣": "2",
+    "3️⃣": "3",
+    "4️⃣": "4",
+    "5️⃣": "5",
+    "6️⃣": "6",
+    "7️⃣": "7",
+    "8️⃣": "8",
+    "9️⃣": "9",
+    "🔟": "10",
+}
+
+
+def _parse_pick_numbers(text: str) -> list[int]:
+    """Extract 1-based option numbers from replies like 1, 1. 1️⃣, 1) or 1,2."""
+    raw = str(text or "").strip()
+    if not raw:
+        return []
+    normalized = raw
+    for emoji, digit in _KEYCAP_DIGIT_MAP.items():
+        normalized = normalized.replace(emoji, digit)
+    # Strip variation selectors / RTL marks that WhatsApp sometimes inserts.
+    normalized = re.sub(r"[\u200e\u200f\ufe0f\u20e3]", "", normalized)
+    found: list[int] = []
+    seen: set[int] = set()
+    for match in re.finditer(r"\d+", normalized):
+        try:
+            n = int(match.group(0))
+        except ValueError:
+            continue
+        if n < 1 or n in seen:
+            continue
+        seen.add(n)
+        found.append(n)
+    return found
+
 
 def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Normalise purpose for every booth asset — the consent step now offers all of them,
-    not only catalogue/price-list, so visitors can ask for and download anything on file."""
+    """Normalise purpose, dedupe by id, and sort category → product → purpose."""
     from app.services.expo.offer_delivery_service import normalize_asset_purpose
 
     normalised: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
     for a in assets:
+        aid = str(a.get("id") or "").strip()
+        if aid and aid in seen_ids:
+            continue
+        if aid:
+            seen_ids.add(aid)
         purpose = normalize_asset_purpose(a.get("purpose"))
         blob = " ".join(
             [
@@ -120,7 +171,6 @@ def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]
                 str(a.get("match_keywords") or ""),
             ]
         ).lower()
-        # Heuristics only fill gaps — never collapse an explicit price_list/catalogue purpose.
         if purpose == "product":
             if any(w in blob for w in ("price", "pricing", "pricelist", "price list", "rates", "tariff")):
                 purpose = "price_list"
@@ -128,28 +178,75 @@ def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]
                 purpose = "catalogue"
         normalised.append({**a, "purpose": purpose})
 
-    return normalised
+    normalised.sort(
+        key=lambda row: (
+            str(row.get("category_name") or "zzz").lower(),
+            str(row.get("product_name") or "").lower(),
+            int(_PURPOSE_SORT.get(str(row.get("purpose") or "other"), 99)),
+            int(row.get("sort_order") or 100),
+            str(row.get("title") or "").lower(),
+        )
+    )
+
+    # Drop duplicate uploads of the same file (same path/url/title) so the menu
+    # doesn't list e.g. Catalogue + Product sheet for one PDF.
+    deduped: list[dict[str, Any]] = []
+    seen_files: set[str] = set()
+    for row in normalised:
+        fingerprint = (
+            str(row.get("storage_path") or "").strip().lower()
+            or str(row.get("external_url") or "").strip().lower()
+            or str(row.get("title") or "").strip().lower()
+        )
+        if fingerprint and fingerprint in seen_files:
+            continue
+        if fingerprint:
+            seen_files.add(fingerprint)
+        deduped.append(row)
+    return deduped
 
 
 def _consent_asset_option_label(asset: dict[str, Any]) -> str:
     purpose = str(asset.get("purpose") or "product")
     kind = _PURPOSE_OPTION_LABEL.get(purpose, "File")
+    product = str(asset.get("product_name") or "").strip()
     title = str(asset.get("title") or "Download").strip() or "Download"
-    # Avoid "Catalogue: Catalogue" duplication when the title already names the type.
+    if product and product.lower() not in title.lower():
+        return f"{product} — {kind}"
     if title.lower().startswith(kind.lower()):
         return title
     return f"{kind}: {title}"
 
 
+def _format_consent_menu_lines(assets: list[dict[str, Any]], *, offer: str) -> list[str]:
+    """Category-grouped numbered menu for WhatsApp / web consent."""
+    lines = [with_topic_emoji("consent_info", f"Would you like our {offer}?")]
+    if any(str(a.get("category_name") or "").strip() for a in assets):
+        lines.append("Organised by category — reply with the number(s), e.g. 1 or 1,2")
+    else:
+        lines.append("Reply with the number(s), e.g. 1 or 1,2")
+
+    current_cat: str | None = None
+    for idx, a in enumerate(assets, start=1):
+        cat = str(a.get("category_name") or "").strip() or "Files"
+        if cat != current_cat:
+            current_cat = cat
+            lines.append("")
+            lines.append(f"📁 {cat}")
+        lines.append(f"{_emoji_digit(idx)} {_consent_asset_option_label(a)}")
+
+    lines.append("")
+    lines.append(f"{_emoji_digit(len(assets) + 1)} No thanks")
+    return lines
+
+
 def _format_product_list_prompt(assets: list[dict[str, Any]]) -> str:
     """Numbered list of every booth asset for the "what do you have?" hybrid intent."""
-    if not assets:
+    organised = _classify_booth_assets(assets)
+    if not organised:
         return "We don't have any files loaded yet — please ask our stand team."
-    lines = ["📦 Here's what we have available:"]
-    for idx, a in enumerate(assets, start=1):
-        lines.append(f"{idx}. {_consent_asset_option_label(a)}")
-    lines.append("")
-    lines.append("Reply with a number, or say 'send all' to get everything.")
+    lines = _format_consent_menu_lines(organised, offer="files")
+    lines[0] = "📦 Here's what we have available:"
     return "\n".join(lines)
 
 
@@ -657,7 +754,8 @@ class ExpoSessionFlowService:
             answer_en = original or clean
         # WhatsApp choice questions are relayed as numbered options — a bare digit reply
         # maps back to the matching option's value instead of being stored as "2".
-        if key in WEB_CHOICE_OPTIONS and answer_en.strip().isdigit():
+        # consent_info uses a *dynamic* asset menu (not WEB_CHOICE_OPTIONS Yes/No) — never remap it.
+        if key != "consent_info" and key in WEB_CHOICE_OPTIONS and answer_en.strip().isdigit():
             opts = WEB_CHOICE_OPTIONS[key]
             idx = int(answer_en.strip())
             if 1 <= idx <= len(opts):
@@ -703,12 +801,28 @@ class ExpoSessionFlowService:
 
         # Catalogue / price-list download step — deliver selected assets then continue.
         if key == "consent_info" and lead is not None:
+            # Prefer the visitor's raw digit reply (never the Yes/No bank remap).
+            consent_answer = clean if _parse_pick_numbers(clean) else answer_en
+            if str(answer_en or "").strip().lower() in {"yes", "y"} and _parse_pick_numbers(clean):
+                consent_answer = clean
+            state = ExpoSessionFlowService._load_state(session)
+            menu_ids = state.get("consent_menu_ids")
+            menu_assets = None
+            if isinstance(menu_ids, list) and menu_ids:
+                by_id = {str(a.get("id") or ""): a for a in _classify_booth_assets(load_booth_assets(db, booth.id))}
+                menu_assets = [by_id[str(i)] for i in menu_ids if str(i) in by_id]
+                if not menu_assets:
+                    menu_assets = None
             delivered, clarify = ExpoSessionFlowService._deliver_consent_assets(
-                db, booth=booth, lead=lead, answer=answer_en
+                db, booth=booth, lead=lead, answer=consent_answer, menu_assets=menu_assets
             )
             if clarify:
-                # Bare "Yes" on a multi-asset booth — stay on consent and ask which one(s).
+                # Stay on consent and re-show the full organised menu + clarify line.
                 session.current_step = step_index
+                db.add(session)
+            else:
+                state.pop("consent_menu_ids", None)
+                ExpoSessionFlowService._save_state(session, state)
                 db.add(session)
             db.commit()
             if clarify:
@@ -718,9 +832,11 @@ class ExpoSessionFlowService:
                     channel=str(session.channel or "whatsapp").lower(),
                     base_prompt="",
                     lead=lead,
+                    session=session,
                 )
                 if consent_ui is not None:
-                    consent_ui["prompt"] = clarify
+                    full = str(consent_ui.get("prompt") or "").strip()
+                    consent_ui["prompt"] = f"{clarify}\n\n{full}" if full else clarify
                     return consent_ui
             result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
             if delivered:
@@ -1154,10 +1270,11 @@ class ExpoSessionFlowService:
         booth: ExpoBooth,
         lead: ExpoLead,
         answer: str,
+        menu_assets: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         """Map a catalogue/price-list reply to downloadable assets.
 
-        Returns ``(delivered, clarify)``. Accepts numbered picks ("1", "2", "1,2", "both") and
+        Returns ``(delivered, clarify)``. Accepts numbered picks ("1", "1️⃣", "1,2", "both") and
         purpose words ("catalogue", "price list") in addition to titles/ids. When the visitor
         sends a bare "Yes" and the booth offers more than one asset, nothing is delivered —
         ``clarify`` carries a short re-prompt so the caller can ask which one(s) they want
@@ -1165,16 +1282,25 @@ class ExpoSessionFlowService:
         """
         raw = str(answer or "").strip()
         lower = raw.lower()
-        assets = _classify_booth_assets(load_booth_assets(db, booth.id))
+        # Never treat a Yes/No remap as a download pick — digits must select menu rows.
+        if lower in {"yes", "y", "yeah", "yep", "sure", "ok", "okay", "please", "affirmative"}:
+            # Fall through to affirmative clarify below after loading assets.
+            pass
+
+        assets = menu_assets if menu_assets is not None else _classify_booth_assets(load_booth_assets(db, booth.id))
         if not assets:
+            return [], None
+
+        # "No thanks" / decline (also the last numbered option).
+        picks = _parse_pick_numbers(raw)
+        no_index = len(assets) + 1
+        if lower in _NO_WORDS or lower in {"no thanks", "no, thanks"} or picks == [no_index]:
             return [], None
 
         tokens = [t.strip() for t in re.split(r"[,;/&]+|\band\b", lower) if t.strip()]
         meaningful = [
             t for t in tokens if t not in _NO_WORDS and t not in {"no thanks", "no, thanks"}
         ]
-        if not meaningful:
-            return [], None
 
         chosen: list[dict[str, Any]] = []
         seen_idx: set[int] = set()
@@ -1184,15 +1310,18 @@ class ExpoSessionFlowService:
                 seen_idx.add(i)
                 chosen.append(assets[i])
 
-        if lower in {"both", "all", "everything", "all of them"}:
+        if lower in {"both", "all", "everything", "all of them"} or (
+            picks and set(picks) == set(range(1, len(assets) + 1))
+        ):
             for i in range(len(assets)):
                 _add(i)
         else:
-            numeric = [t for t in meaningful if t.isdigit()]
-            for t in numeric:
-                _add(int(t) - 1)
+            for n in picks:
+                if n == no_index:
+                    continue
+                _add(n - 1)
 
-            if not chosen:
+            if not chosen and meaningful:
                 for tok in meaningful:
                     if tok in {"catalogue", "catalog", "brochure"}:
                         for i, a in enumerate(assets):
@@ -1202,18 +1331,23 @@ class ExpoSessionFlowService:
                         for i, a in enumerate(assets):
                             if a.get("purpose") == "price_list":
                                 _add(i)
+                    elif tok in {"sheet", "product sheet", "datasheet"}:
+                        for i, a in enumerate(assets):
+                            if a.get("purpose") == "product_sheet":
+                                _add(i)
 
-            if not chosen:
+            if not chosen and meaningful:
                 for i, a in enumerate(assets):
                     aid = str(a.get("id") or "")
                     title = str(a.get("title") or "").strip().lower()
+                    product = str(a.get("product_name") or "").strip().lower()
                     key = str(a.get("asset_key") or "").strip().lower()
                     for tok in meaningful:
-                        if tok in {aid.lower(), title, key} or (title and title in tok) or (tok and tok in title):
+                        if tok in {aid.lower(), title, key, product} or (title and title in tok) or (tok and tok in title):
                             _add(i)
                             break
 
-            if not chosen and _looks_affirmative(lower):
+            if not chosen and _looks_affirmative(lower) and not picks:
                 if len(assets) > 1:
                     if len(assets) == 2:
                         clarify = "Please reply 1, 2, or both — which would you like?"
@@ -1224,6 +1358,10 @@ class ExpoSessionFlowService:
                 _add(0)
 
         if not chosen:
+            # Digit reply that was out of range — ask again instead of skipping the step.
+            if picks:
+                nums = ", ".join(str(i) for i in range(1, len(assets) + 1))
+                return [], f"Please reply with a number ({nums}) — which would you like?"
             return [], None
 
         delivered: list[dict[str, Any]] = []
@@ -1259,6 +1397,7 @@ class ExpoSessionFlowService:
         channel: str,
         base_prompt: str,
         lead: ExpoLead | None = None,
+        session: ExpoSession | None = None,
     ) -> dict[str, Any] | None:
         """Build the catalogue/price-list ask, or None to skip when the booth has no assets.
 
@@ -1271,15 +1410,24 @@ class ExpoSessionFlowService:
             return None
         channel_l = str(channel or "").lower()
 
+        # Persist menu order so "1" always maps to the same file the visitor just saw.
+        if session is not None:
+            state = ExpoSessionFlowService._load_state(session)
+            state["consent_menu_ids"] = [str(a.get("id") or "") for a in assets if a.get("id")]
+            ExpoSessionFlowService._save_state(session, state)
+            db.add(session)
+
         options = [
             {
-                "value": str(a.get("id") or a.get("title") or ""),
+                "value": str(idx),
                 "label": _consent_asset_option_label(a),
+                "category": str(a.get("category_name") or "") or None,
+                "purpose": a.get("purpose"),
             }
-            for a in assets
+            for idx, a in enumerate(assets, start=1)
             if a.get("id") or a.get("title")
         ]
-        options.append({"value": "No thanks", "label": "No thanks"})
+        options.append({"value": str(len(assets) + 1), "label": "No thanks"})
 
         has_catalogue = any(str(a.get("purpose") or "") == "catalogue" for a in assets)
         has_price = any(str(a.get("purpose") or "") == "price_list" for a in assets)
@@ -1299,6 +1447,9 @@ class ExpoSessionFlowService:
                 "short_description": a.get("short_description"),
                 "kind": a.get("kind"),
                 "purpose": a.get("purpose"),
+                "product_name": a.get("product_name"),
+                "category_name": a.get("category_name"),
+                "label": _consent_asset_option_label(a),
             }
             for a in assets
         ]
@@ -1316,7 +1467,13 @@ class ExpoSessionFlowService:
         }
 
         if channel_l == "web":
-            named = ", ".join(_consent_asset_option_label(a) for a in assets[:6])
+            # Grouped labels for the web multi-select cards.
+            named_parts: list[str] = []
+            for a in assets[:8]:
+                cat = str(a.get("category_name") or "").strip()
+                label = _consent_asset_option_label(a)
+                named_parts.append(f"{cat}: {label}" if cat else label)
+            named = ", ".join(named_parts)
             result["prompt"] = with_topic_emoji(
                 "consent_info",
                 f"Would you like our {offer}? We have: {named}. Select all you'd like to download.",
@@ -1324,21 +1481,18 @@ class ExpoSessionFlowService:
             if lead is not None:
                 from app.services.expo.offer_delivery_service import asset_public_url_for_lead
 
-                web_assets: list[dict[str, Any]] = []
-                for a in assets:
-                    row = dict(a)
-                    row["url"] = asset_public_url_for_lead(a, booth.qr_token, lead.id)
-                    web_assets.append(row)
-                result["assets"] = web_assets
+                # Preview URLs on options only — deliverable ``assets`` stay empty until the visitor picks.
+                result["asset_options"] = [
+                    {
+                        **opt,
+                        "url": asset_public_url_for_lead(a, booth.qr_token, lead.id),
+                    }
+                    for opt, a in zip(asset_options, assets)
+                ]
             return result
 
-        # WhatsApp — numbered emoji prompt; files are only sent once the visitor replies.
-        lines = [with_topic_emoji("consent_info", f"Would you like our {offer}?")]
-        for idx, a in enumerate(assets, start=1):
-            lines.append(f"{_emoji_digit(idx)} {_consent_asset_option_label(a)}")
-        lines.append(f"{_emoji_digit(len(assets) + 1)} No thanks")
-        lines.append("Reply with the number(s), e.g. 1 or 1,2")
-        result["prompt"] = "\n".join(lines)
+        # WhatsApp — category-grouped numbered emoji prompt.
+        result["prompt"] = "\n".join(_format_consent_menu_lines(assets, offer=offer))
         return result
 
     @staticmethod
@@ -1463,6 +1617,7 @@ class ExpoSessionFlowService:
                 channel=channel,
                 base_prompt=str(step.get("prompt_web") or step.get("prompt") or ""),
                 lead=lead,
+                session=session,
             )
             if consent_ui is not None:
                 return consent_ui
@@ -1528,6 +1683,7 @@ class ExpoSessionFlowService:
                     channel=channel,
                     base_prompt=str(next_step.get("prompt_web") or next_step.get("prompt") or ""),
                     lead=lead,
+                    session=session,
                 )
                 if consent_ui is None:
                     session.current_step = step_index + 1
@@ -1672,21 +1828,42 @@ class ExpoSessionFlowService:
             reps = parse_representative_contacts(getattr(booth, "representative_contacts_json", None))
             website = getattr(booth, "company_website", None)
             company_name = booth.company_display_name or booth.name
-            if reps or website:
+            if reps or website or company_name:
+                from app.services.brand_assets import api_public_origin
+
+                api_base = api_public_origin().rstrip("/")
+                logo_url = None
+                try:
+                    from app.models.organisation import Organisation
+
+                    org = db.get(Organisation, booth.org_id)
+                    if org is not None and getattr(org, "logo_storage_key", None):
+                        logo_url = f"{api_base}/public/expo/{booth.qr_token}/logo"
+                except Exception:
+                    logo_url = None
                 card_intro = get_template_prompt(db, "company_card", DEFAULT_COMPANY_CARD)
                 card_text = build_company_card_text(
                     intro=card_intro,
                     company_name=company_name,
                     website=website,
                     reps=reps,
+                    logo_url=logo_url,
                 )
                 out["company_card"] = card_text
                 out["representatives"] = reps
                 out["company_website"] = website
+                out["company_logo_url"] = logo_url
                 out["pre_thank_you_messages"] = [card_text]
                 if getattr(booth, "qr_token", None):
-                    # Hint for a future "save contact" download — no public vcard route exists yet.
-                    out["vcard_url_hint"] = f"/public/expo/{booth.qr_token}/vcard"
+                    vcard_url = f"{api_base}/public/expo/{booth.qr_token}/vcard"
+                    out["vcard_url"] = vcard_url
+                    out["vcard_url_hint"] = vcard_url
+                    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(company_name or "contact"))[:40] or "contact"
+                    out["vcard_document"] = {
+                        "url": vcard_url,
+                        "filename": f"{safe_name}.vcf",
+                        "caption": "📇 Save our contact to your phone",
+                    }
 
         # Hot-lead alert to the exhibitor's mobile — best-effort, never blocks completion.
         if lead is not None and str(lead.lead_score or "").lower() == "hot" and getattr(booth, "notify_mobile", None):

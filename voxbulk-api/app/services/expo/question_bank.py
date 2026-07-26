@@ -305,32 +305,43 @@ def build_company_card_text(
     company_name: str | None,
     website: str | None,
     reps: list[dict[str, Any]],
+    logo_url: str | None = None,
 ) -> str:
-    lines = [str(intro or DEFAULT_COMPANY_CARD).strip()]
-    if company_name:
-        lines.append(f"🏢 {company_name}")
+    # logo_url is accepted for callers that send the image separately (WhatsApp document);
+    # keep the text card clean — no raw logo URL lines.
+    _ = logo_url
+    name = str(company_name or "").strip() or "Our team"
+    lines = [
+        str(intro or DEFAULT_COMPANY_CARD).strip() or DEFAULT_COMPANY_CARD,
+        "",
+        f"🏢 {name}",
+    ]
     if website:
         lines.append(f"🌐 {website}")
-    for rep in reps[:5]:
-        if not isinstance(rep, dict):
-            continue
-        name = str(rep.get("name") or "").strip()
-        co = str(rep.get("company_name") or "").strip()
-        email = str(rep.get("email") or "").strip()
-        mobile = str(rep.get("mobile") or "").strip()
-        tel = str(rep.get("telephone") or "").strip()
-        bits = [b for b in [name, co] if b]
-        if bits:
-            lines.append("· " + " — ".join(bits))
-        detail = []
-        if email:
-            detail.append(f"✉️ {email}")
-        if mobile:
-            detail.append(f"📱 {mobile}")
-        if tel:
-            detail.append(f"☎️ {tel}")
-        if detail:
-            lines.append("  " + " · ".join(detail))
+    if reps:
+        lines.append("")
+        lines.append("👥 Contacts")
+        for rep in reps[:5]:
+            if not isinstance(rep, dict):
+                continue
+            rname = str(rep.get("name") or "").strip()
+            co = str(rep.get("company_name") or "").strip()
+            email = str(rep.get("email") or "").strip()
+            mobile = str(rep.get("mobile") or "").strip()
+            tel = str(rep.get("telephone") or "").strip()
+            title = " · ".join([b for b in [rname, co] if b]) or "Contact"
+            lines.append(f"• {title}")
+            detail = []
+            if email:
+                detail.append(f"✉️ {email}")
+            if mobile:
+                detail.append(f"📱 {mobile}")
+            if tel:
+                detail.append(f"☎️ {tel}")
+            if detail:
+                lines.append("  " + "  ".join(detail))
+    lines.append("")
+    lines.append("📇 Tap the contact card we send next to save us on your phone.")
     return "\n".join(lines).strip()
 
 

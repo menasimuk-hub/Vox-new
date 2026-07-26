@@ -89,6 +89,7 @@ type AdvanceResult = {
     website?: string;
   }> | null;
   company_website?: string | null;
+  company_logo_url?: string | null;
   vcard_url?: string | null;
   at_start?: boolean;
   step_index?: number;
@@ -350,6 +351,7 @@ export function PublicExpoLanding({
     }>
   >([]);
   const [companyWebsite, setCompanyWebsite] = useState<string | null>(null);
+  const [companyLogoUrl, setCompanyLogoUrl] = useState<string | null>(null);
   const [vcardUrl, setVcardUrl] = useState<string | null>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceDetailHandle>(null);
@@ -458,6 +460,10 @@ export function PublicExpoLanding({
     if (res.company_card) setCompanyCard(String(res.company_card));
     if (Array.isArray(res.representatives)) setRepresentatives(res.representatives);
     if (res.company_website) setCompanyWebsite(String(res.company_website));
+    if (res.company_logo_url) {
+      const raw = String(res.company_logo_url);
+      setCompanyLogoUrl(raw.startsWith("http") ? raw : logoSrc(raw));
+    }
     if (res.vcard_url) {
       const raw = String(res.vcard_url);
       if (raw.startsWith("http")) setVcardUrl(raw);
@@ -1007,52 +1013,78 @@ export function PublicExpoLanding({
                 </ul>
               </div>
             ) : null}
-            {(companyCard || representatives.length > 0) ? (
+            {(companyCard || representatives.length > 0 || companyLogoUrl || logo || vcardUrl) ? (
               <div
-                className="animate-confetti-rise mt-4 rounded-2xl border p-4 text-left shadow-soft"
+                className="animate-confetti-rise mt-4 overflow-hidden rounded-2xl border text-left shadow-soft"
                 style={{
                   animationDelay: "330ms",
                   background: theme.card,
                   borderColor: theme.border,
                 }}
               >
-                <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: theme.sub }}>
-                  Stay in touch
-                </p>
-                {companyCard ? (
-                  <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed" style={{ color: theme.ink }}>
-                    {companyCard}
-                  </p>
-                ) : (
-                  <ul className="mt-2 space-y-2">
-                    {representatives.map((rep, idx) => (
-                      <li key={`${rep.email || rep.name || idx}`} className="text-[13px]" style={{ color: theme.ink }}>
-                        <div className="font-medium">{rep.name || brandName}</div>
-                        {rep.company_name ? (
-                          <div style={{ color: theme.sub }}>{rep.company_name}</div>
-                        ) : null}
-                        {rep.email ? <div>{rep.email}</div> : null}
-                        {rep.mobile ? <div>{rep.mobile}</div> : null}
-                        {rep.telephone ? <div>{rep.telephone}</div> : null}
-                      </li>
-                    ))}
-                    {companyWebsite ? (
-                      <li className="text-[13px]" style={{ color: theme.sub }}>
-                        {companyWebsite}
-                      </li>
-                    ) : null}
-                  </ul>
-                )}
-                {vcardUrl ? (
-                  <a
-                    href={vcardUrl}
-                    download
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold"
-                    style={DOWNLOAD_BTN_STYLE}
+                {(companyLogoUrl || logo) ? (
+                  <div
+                    className="flex items-center justify-center border-b px-4 py-5"
+                    style={{ borderColor: theme.border, background: "rgba(255,255,255,0.04)" }}
                   >
-                    Save contacts to phone
-                  </a>
+                    <img
+                      src={companyLogoUrl || logo}
+                      alt={company}
+                      className="max-h-16 w-auto max-w-[200px] object-contain"
+                    />
+                  </div>
                 ) : null}
+                <div className="p-4">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: theme.sub }}>
+                    Stay in touch
+                  </p>
+                  <p className="mt-2 text-base font-semibold" style={{ color: theme.ink }}>
+                    {company}
+                  </p>
+                  {companyWebsite ? (
+                    <a
+                      href={companyWebsite.startsWith("http") ? companyWebsite : `https://${companyWebsite}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 block text-[13px] underline-offset-2 hover:underline"
+                      style={{ color: theme.sub }}
+                    >
+                      {companyWebsite.replace(/^https?:\/\//, "")}
+                    </a>
+                  ) : null}
+                  {representatives.length > 0 ? (
+                    <ul className="mt-3 space-y-2.5">
+                      {representatives.map((rep, idx) => (
+                        <li key={`${rep.email || rep.name || idx}`} className="text-[13px]" style={{ color: theme.ink }}>
+                          <div className="font-medium">{rep.name || "Contact"}</div>
+                          {rep.company_name && rep.company_name !== company ? (
+                            <div style={{ color: theme.sub }}>{rep.company_name}</div>
+                          ) : null}
+                          {rep.email ? <div style={{ color: theme.sub }}>{rep.email}</div> : null}
+                          {rep.mobile ? <div style={{ color: theme.sub }}>{rep.mobile}</div> : null}
+                          {rep.telephone ? <div style={{ color: theme.sub }}>{rep.telephone}</div> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : companyCard ? (
+                    <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed" style={{ color: theme.ink }}>
+                      {companyCard
+                        .replace(/🖼️ Logo:.*$/gm, "")
+                        .replace(/📇 Tap the contact card.*$/gm, "")
+                        .trim()}
+                    </p>
+                  ) : null}
+                  {vcardUrl ? (
+                    <a
+                      href={vcardUrl}
+                      download
+                      className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold"
+                      style={DOWNLOAD_BTN_STYLE}
+                    >
+                      Save contacts to phone
+                    </a>
+                  ) : null}
+                </div>
               </div>
             ) : null}
             {downloadAssets.length ? (

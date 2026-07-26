@@ -396,6 +396,34 @@ class ExpoWhatsappService:
                 from_number=from_number,
             )
 
+        # Optional company logo image (best-effort — some providers only support documents).
+        logo_url = str(result.get("company_logo_url") or "").strip()
+        if logo_url.startswith("http"):
+            ExpoWhatsappService._send(
+                db,
+                to_number=session.visitor_phone,
+                body="🖼️ Our company logo",
+                org_id=session.org_id,
+                from_number=from_number,
+                document_link=logo_url,
+                document_filename="logo.png",
+            )
+
+        # Save-contact vCard as a WhatsApp document visitors can open and save.
+        vcard = result.get("vcard_document") if isinstance(result.get("vcard_document"), dict) else None
+        if vcard:
+            vurl = str(vcard.get("url") or "").strip()
+            if vurl.startswith("http"):
+                ExpoWhatsappService._send(
+                    db,
+                    to_number=session.visitor_phone,
+                    body=str(vcard.get("caption") or "📇 Save our contact to your phone"),
+                    org_id=session.org_id,
+                    from_number=from_number,
+                    document_link=vurl,
+                    document_filename=str(vcard.get("filename") or "contact.vcf")[:240],
+                )
+
         followup = str(result.get("thank_you_followup") or "").strip()
         prompt = followup or str(result.get("prompt") or "").strip()
         if prompt:

@@ -98,6 +98,9 @@ def _advance_payload(
         "company_card": result.get("company_card"),
         "representatives": result.get("representatives"),
         "company_website": result.get("company_website"),
+        "company_logo_url": (
+            f"/public/expo/{token}/logo" if token and result.get("company_logo_url") else result.get("company_logo_url")
+        ),
         "pre_thank_you_messages": result.get("pre_thank_you_messages"),
         "vcard_url": f"/public/expo/{token}/vcard" if token else result.get("vcard_url_hint"),
         "contact_via": result.get("contact_via"),
