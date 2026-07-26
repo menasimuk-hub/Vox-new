@@ -11,7 +11,7 @@ Production long-running processes on the aaPanel/Ubuntu VPS must **survive crash
 
 | Piece | Manager | Unit / program |
 |-------|---------|----------------|
-| API (uvicorn :8000) | **systemd** | `voxbulk-api.service` |
+| API (gunicorn + uvicorn workers :8000) | **systemd** | `voxbulk-api.service` (`ExecReload` HUP) |
 | Public site (vite preview :5173) | **systemd** | `voxbulk-public.service` |
 | Celery worker + beat | **Supervisor** | `voxbulk-celery` / `voxbulk-celery-beat` |
 
@@ -20,9 +20,11 @@ Install / control:
 ```bash
 cd /www/voxbulk
 ./vox.sh install-service          # sudo bash scripts/vps-setup-api-systemd.sh
-./vox.sh start|stop|restart|status
-./deploy-vps.sh                   # ensure unit + systemctl restart via vox.sh
+./vox.sh start|stop|restart|reload|status
+./deploy-vps.sh                   # graceful API reload (stays online) + public/Celery refresh
 ```
+
+Deploy must **reload** the API (not hard-restart) so `:8000` stays bound. Use `VOX_FORCE_API_RESTART=1` only when a full restart is required.
 
 - Setup script: [`scripts/vps-setup-api-systemd.sh`](scripts/vps-setup-api-systemd.sh)
 - Public runner: [`scripts/run-public-preview.sh`](scripts/run-public-preview.sh)

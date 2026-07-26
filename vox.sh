@@ -14,13 +14,19 @@ SETUP_SYSTEMD="$ROOT/scripts/vps-setup-api-systemd.sh"
 API_UNIT_NAME="voxbulk-api"
 PUBLIC_UNIT_NAME="voxbulk-public"
 
+api_supports_graceful_reload() {
+  # gunicorn unit has ExecReload=HUP — keeps the listen socket up during deploy
+  [[ -f "/etc/systemd/system/${API_UNIT_NAME}.service" ]] \
+    && grep -q 'ExecReload=' "/etc/systemd/system/${API_UNIT_NAME}.service" 2>/dev/null
+}
+
 # ── systemd helpers ──────────────────────────────────────────────────────────
 
 _sys() {
   # Mutating ops need root/sudo; status/is-active are readable without sudo and
   # may return non-zero when the unit is inactive (that is not a permission error).
   case "${1:-}" in
-    start|stop|restart|enable|disable|daemon-reload|kill|reload|reload-or-restart)
+    start|stop|restart|enable|disable|daemon-reload|kill|reload|reload-or-restart|try-reload-or-restart)
       if [[ "$(id -u)" -eq 0 ]]; then
         systemctl "$@"
         return $?
@@ -248,15 +254,48 @@ start_api_nohup() {
 start_api() {
   migrate_api_if_needed
   if api_systemd_installed; then
-    # Clear any leftover nohup process fighting systemd for :8000.
+    if _sys is-active --quiet "${API_UNIT_NAME}.service" 2>/dev/null; then
+      echo "API already active via systemd ($API_UNIT_NAME)"
+      return 0
+    fi
+    # Only clear orphans when the unit is not running (avoid killing a healthy API).
     stop_api_processes
-    if _sys start "${API_UNIT_NAME}.service" || _sys restart "${API_UNIT_NAME}.service"; then
+    if _sys start "${API_UNIT_NAME}.service"; then
       echo "API started via systemd ($API_UNIT_NAME)"
       return 0
     fi
     echo "Warning: systemctl start $API_UNIT_NAME failed — falling back to nohup"
   fi
   start_api_nohup
+}
+
+# Graceful recycle — preferred for deploy (API stays on :8000).
+reload_api() {
+  migrate_api_if_needed
+  if ! api_systemd_installed; then
+    echo "systemd unit not installed — falling back to restart"
+    stop_api
+    sleep 1
+    start_api
+    return $?
+  fi
+  if ! api_supports_graceful_reload; then
+    echo "Unit has no ExecReload — run: sudo bash scripts/vps-setup-api-systemd.sh"
+    echo "Falling back to systemctl restart (brief downtime)"
+    _sys restart "${API_UNIT_NAME}.service" || start_api_nohup
+    return $?
+  fi
+  if ! _sys is-active --quiet "${API_UNIT_NAME}.service" 2>/dev/null; then
+    echo "API not active — starting instead of reload"
+    start_api
+    return $?
+  fi
+  if _sys reload "${API_UNIT_NAME}.service"; then
+    echo "API reloaded gracefully via systemd (no offline window on :8000)"
+    return 0
+  fi
+  echo "Warning: systemctl reload failed — trying restart"
+  _sys restart "${API_UNIT_NAME}.service" || start_api_nohup
 }
 
 start_public_nohup() {
@@ -433,31 +472,44 @@ case "${1:-}" in
     echo "Stopped API + public preview + dashboard preview"
     ;;
   restart)
-    if api_systemd_installed; then
-      migrate_api_if_needed
-      stop_api_processes
-      _sys restart "${API_UNIT_NAME}.service" || start_api_nohup
-      echo "API restarted via systemd ($API_UNIT_NAME)"
+    # Prefer graceful API reload so deploy / restart does not drop :8000.
+    if [[ "${VOX_FORCE_API_RESTART:-0}" == "1" ]]; then
+      if api_systemd_installed; then
+        migrate_api_if_needed
+        _sys restart "${API_UNIT_NAME}.service" || { stop_api_processes; start_api_nohup; }
+        echo "API hard-restarted via systemd ($API_UNIT_NAME)"
+      else
+        stop_api
+        sleep 1
+        start_api
+      fi
     else
-      stop_api
-      sleep 1
-      start_api
+      reload_api
     fi
-    if public_systemd_installed; then
-      stop_public_processes
-      _sys restart "${PUBLIC_UNIT_NAME}.service" || start_public_nohup
-      echo "Public restarted via systemd ($PUBLIC_UNIT_NAME)"
+    if [[ "${VOX_SKIP_PUBLIC_RESTART:-0}" != "1" ]]; then
+      if public_systemd_installed; then
+        # Do not pkill first — systemctl restart owns the stop/start.
+        _sys restart "${PUBLIC_UNIT_NAME}.service" || start_public_nohup
+        echo "Public restarted via systemd ($PUBLIC_UNIT_NAME)"
+      else
+        stop_public
+        sleep 1
+        start_public
+      fi
     else
-      stop_public
-      sleep 1
-      start_public
+      echo "Skipping public restart (VOX_SKIP_PUBLIC_RESTART=1)"
     fi
     stop_dashboard
     sleep 1
     start_dashboard
-    restart_celery
+    if [[ "${VOX_SKIP_CELERY_RESTART:-0}" != "1" ]]; then
+      restart_celery
+    fi
     echo "Waiting for API, public preview, and dashboard preview to become ready…"
     status || true
+    ;;
+  reload|reload-api|reload_api)
+    reload_api
     ;;
   status)
     status
@@ -482,7 +534,7 @@ case "${1:-}" in
     bash "$SYNC_SCRIPT"
     ;;
   *)
-    echo "Usage: $0 {start|stop|restart|status|install-service|update|deploy|sync-dashboard|dashboard}"
+    echo "Usage: $0 {start|stop|restart|reload|status|install-service|update|deploy|sync-dashboard|dashboard}"
     exit 1
     ;;
 esac

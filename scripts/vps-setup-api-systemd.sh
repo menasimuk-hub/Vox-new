@@ -7,7 +7,7 @@
 #   # or: ./vox.sh install-service
 #
 # Env:
-#   VOX_UVICORN_WORKERS=1          baked into API unit ExecStart
+#   VOX_UVICORN_WORKERS=2          gunicorn workers (use >=2 so reload stays online)
 #   VOX_SYSTEMD_SKIP_START=1       write+enable units but do not start/restart yet
 #   VOX_SKIP_PUBLIC_SYSTEMD=1      install API unit only
 #
@@ -16,9 +16,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 API_DIR="$ROOT/voxbulk-api"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
+API_RUN="$ROOT/scripts/run-api.sh"
 PUBLIC_RUN="$ROOT/scripts/run-public-preview.sh"
 UVICORN_BIN="$API_DIR/.venv/bin/uvicorn"
-WORKERS="${VOX_UVICORN_WORKERS:-1}"
+GUNICORN_BIN="$API_DIR/.venv/bin/gunicorn"
+WORKERS="${VOX_UVICORN_WORKERS:-${VOX_GUNICORN_WORKERS:-2}}"
 API_UNIT="/etc/systemd/system/voxbulk-api.service"
 PUBLIC_UNIT="/etc/systemd/system/voxbulk-public.service"
 # Prefer /var/log/voxbulk (LogsDirectory=) — append:/tmp/... often hits status=209/STDOUT
@@ -53,16 +55,18 @@ fi
 [[ -n "$RUN_USER" && "$RUN_USER" != "root" ]] || RUN_USER="$(id -un)"
 RUN_GROUP="$(id -gn "$RUN_USER" 2>/dev/null || echo "$RUN_USER")"
 
-if [[ ! -x "$UVICORN_BIN" ]]; then
-  info "Creating venv + installing deps (uvicorn missing) …"
+if [[ ! -x "$UVICORN_BIN" || ! -x "$GUNICORN_BIN" ]]; then
+  info "Creating venv + installing deps (uvicorn/gunicorn) …"
   if [[ ! -d "$API_DIR/.venv" ]]; then
     sudo -u "$RUN_USER" python3 -m venv "$API_DIR/.venv"
   fi
   sudo -u "$RUN_USER" bash -c "source '$API_DIR/.venv/bin/activate' && pip install -q -U pip && pip install -q -r '$API_DIR/requirements.txt'"
 fi
 [[ -x "$UVICORN_BIN" ]] || fail "uvicorn still missing: $UVICORN_BIN — run ./deploy-vps.sh first"
+[[ -x "$GUNICORN_BIN" ]] || fail "gunicorn still missing: $GUNICORN_BIN — pip install -r requirements.txt"
+[[ -f "$API_RUN" ]] || fail "Missing $API_RUN"
 
-chmod +x "$PUBLIC_RUN" 2>/dev/null || true
+chmod +x "$API_RUN" "$PUBLIC_RUN" 2>/dev/null || true
 mkdir -p "$LOG_DIR"
 touch "$API_LOG" "$PUBLIC_LOG"
 chown -R "$RUN_USER:$RUN_GROUP" "$LOG_DIR"
@@ -82,10 +86,12 @@ if [[ -f "$PUBLIC_LOG_COMPAT" && ! -L "$PUBLIC_LOG_COMPAT" ]]; then
   ln -sfn "$PUBLIC_LOG" "$PUBLIC_LOG_COMPAT"
 fi
 
-# Stop orphan nohup processes so only systemd owns the ports.
-info "Stopping leftover nohup uvicorn / vite preview (if any) …"
+# Stop orphan nohup/old uvicorn so only systemd owns the ports (brief — install only).
+info "Stopping leftover nohup uvicorn/gunicorn / vite preview (if any) …"
+systemctl stop voxbulk-api.service 2>/dev/null || true
 pkill -f "uvicorn.*main:app" 2>/dev/null || true
 pkill -f "python -m uvicorn.*main:app" 2>/dev/null || true
+pkill -f "gunicorn.*main:app" 2>/dev/null || true
 pkill -f "vite preview.*5173" 2>/dev/null || true
 pkill -f "npm run preview.*5173" 2>/dev/null || true
 sleep 1
@@ -94,10 +100,10 @@ if command -v fuser >/dev/null 2>&1; then
   fuser -k 5173/tcp 2>/dev/null || true
 fi
 
-info "Writing $API_UNIT (user=$RUN_USER workers=$WORKERS)"
+info "Writing $API_UNIT (user=$RUN_USER workers=$WORKERS — graceful reload via HUP)"
 cat >"$API_UNIT" <<EOF
 [Unit]
-Description=VoxBulk API (uvicorn)
+Description=VoxBulk API (gunicorn + uvicorn workers)
 After=network.target mysql.service mariadb.service redis.service redis-server.service
 Wants=network-online.target
 # Must be in [Unit] (not [Service]) on this systemd — avoids "Unknown key name" warning
@@ -110,15 +116,19 @@ Group=$RUN_GROUP
 WorkingDirectory=$API_DIR
 # systemd creates /var/log/voxbulk owned by User= — avoids 209/STDOUT on /tmp
 LogsDirectory=voxbulk
-ExecStart=$UVICORN_BIN main:app --host 127.0.0.1 --port 8000 --workers $WORKERS
+Environment=PYTHONUNBUFFERED=1
+Environment=VOX_UVICORN_WORKERS=$WORKERS
+ExecStart=$API_RUN
+# Graceful worker recycle — keeps :8000 bound so deploy does not take the API offline
+ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 RestartSec=3
 KillMode=mixed
-TimeoutStopSec=30
+KillSignal=SIGTERM
+TimeoutStopSec=60
 StandardOutput=append:$API_LOG
 StandardError=append:$API_LOG
 SyslogIdentifier=voxbulk-api
-Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
