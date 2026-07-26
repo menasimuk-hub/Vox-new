@@ -78,7 +78,8 @@ PACKAGE_TIERS: list[dict] = [
         "order": 10,
         "featured": False,
         "max_booths": 1,
-        "max_assets": 5,
+        "max_assets": 20,
+        "max_categories": 1,
         "lead_scoring": True,
         "post_show_followup": False,
         "post_event_survey": False,
@@ -86,9 +87,10 @@ PACKAGE_TIERS: list[dict] = [
         "prices": {"GBP": 4900, "EUR": 5900, "USD": 6500, "CAD": 8900, "AUD": 9900},
         "features": [
             "Booth active for 1 day",
-            "Unique QR code per exhibitor",
-            "WhatsApp qualifying questions",
-            "Optional product / brochure delivery",
+            "1 QR code = 1 package (buy again for another QR)",
+            "Up to 1 product category",
+            "WhatsApp qualifying questions + hybrid corrections",
+            "Catalogue / product sheet / price delivery",
             "Hot / Warm / Cold lead scoring",
             "Full structured lead export (CSV)",
             "GDPR / international privacy compliance",
@@ -102,7 +104,8 @@ PACKAGE_TIERS: list[dict] = [
         "order": 20,
         "featured": True,
         "max_booths": 1,
-        "max_assets": 5,
+        "max_assets": 40,
+        "max_categories": 3,
         "lead_scoring": True,
         "post_show_followup": False,
         "post_event_survey": False,
@@ -110,9 +113,10 @@ PACKAGE_TIERS: list[dict] = [
         "prices": {"GBP": 9900, "EUR": 11900, "USD": 12900, "CAD": 16900, "AUD": 18900},
         "features": [
             "Booth active for 3 days",
-            "Unique QR code per exhibitor",
-            "WhatsApp qualifying questions",
-            "Optional product / brochure delivery",
+            "1 QR code = 1 package (buy again for another QR)",
+            "Up to 3 product categories",
+            "WhatsApp qualifying questions + hybrid corrections",
+            "Catalogue / product sheet / price delivery",
             "Hot / Warm / Cold lead scoring",
             "Full structured lead export (CSV)",
             "GDPR / international privacy compliance",
@@ -126,18 +130,22 @@ PACKAGE_TIERS: list[dict] = [
         "order": 30,
         "featured": False,
         "max_booths": 1,
-        "max_assets": 5,
+        "max_assets": 100,
+        "max_categories": None,
         "lead_scoring": True,
-        "post_show_followup": False,
+        "post_show_followup": True,
         "post_event_survey": False,
-        "ai_summary": False,
+        "ai_summary": True,
         "prices": {"GBP": 14900, "EUR": 17900, "USD": 19900, "CAD": 24900, "AUD": 27900},
         "features": [
             "Booth active for 7 days",
-            "Unique QR code per exhibitor",
-            "WhatsApp qualifying questions",
-            "Optional product / brochure delivery",
+            "1 QR code = 1 package (buy again for another QR)",
+            "Unlimited product categories",
+            "WhatsApp qualifying questions + hybrid corrections",
+            "Catalogue / product sheet / price delivery",
             "Hot / Warm / Cold lead scoring",
+            "Post-show follow-up ready",
+            "AI summary report ready",
             "Full structured lead export (CSV)",
             "GDPR / international privacy compliance",
         ],
@@ -159,14 +167,20 @@ class ExpoSeedService:
 
     @staticmethod
     def _ensure_question_templates(db: Session) -> None:
-        from app.services.expo.question_bank import SELECTABLE_QUESTION_BANK, with_topic_emoji
+        from app.services.expo.question_bank import (
+            SELECTABLE_QUESTION_BANK,
+            SYSTEM_SESSION_TEMPLATES,
+            with_topic_emoji,
+        )
 
         now = datetime.utcnow()
-        for idx, q in enumerate(SELECTABLE_QUESTION_BANK):
+        combined = list(SELECTABLE_QUESTION_BANK) + list(SYSTEM_SESSION_TEMPLATES)
+        for idx, q in enumerate(combined):
             key = str(q["key"])
             row = db.execute(
                 select(ExpoQuestionTemplate).where(ExpoQuestionTemplate.question_key == key)
             ).scalar_one_or_none()
+            sort_order = int(q.get("sort_order") or ((idx + 1) * 10))
             if row is None:
                 db.add(
                     ExpoQuestionTemplate(
@@ -177,7 +191,7 @@ class ExpoSeedService:
                         description=str(q.get("description") or "")[:2000] or None,
                         matches_products=bool(q.get("matches_products")),
                         is_active=True,
-                        sort_order=(idx + 1) * 10,
+                        sort_order=sort_order,
                         created_at=now,
                         updated_at=now,
                     )
@@ -400,6 +414,7 @@ class ExpoSeedService:
                     duration_days=days,
                     max_booths=int(pkg["max_booths"]),
                     max_assets=int(pkg["max_assets"]),
+                    max_categories=pkg.get("max_categories"),
                     lead_scoring_enabled=bool(pkg["lead_scoring"]),
                     post_show_followup_enabled=bool(pkg["post_show_followup"]),
                     post_event_survey_enabled=bool(pkg["post_event_survey"]),
@@ -417,6 +432,7 @@ class ExpoSeedService:
                 expo_pkg.duration_days = days
                 expo_pkg.max_booths = int(pkg["max_booths"])
                 expo_pkg.max_assets = int(pkg["max_assets"])
+                expo_pkg.max_categories = pkg.get("max_categories")
                 expo_pkg.lead_scoring_enabled = bool(pkg["lead_scoring"])
                 expo_pkg.post_show_followup_enabled = bool(pkg["post_show_followup"])
                 expo_pkg.post_event_survey_enabled = bool(pkg["post_event_survey"])

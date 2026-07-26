@@ -16,6 +16,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.expo import ExpoBooth, ExpoLead, ExpoResponse, ExpoSession
+from app.services.expo.intent_router import (
+    PENDING_CORRECTION_KEY,
+    apply_lead_field,
+    detect_intent,
+    prompt_for_correction,
+)
 from app.services.expo.offer_delivery_service import (
     load_booth_assets,
     mark_lead_offer_sent,
@@ -25,12 +31,17 @@ from app.services.expo.question_bank import (
     CONTACT_COMPANY_PROMPT,
     CONTACT_MOBILE_PROMPT,
     CONTACT_STEP_KEY,
+    DEFAULT_COMPANY_CARD,
+    OPEN_FEEDBACK_KEY,
     WEB_CHOICE_OPTIONS,
+    build_company_card_text,
     build_thank_you_message,
     contact_prompt_for_mode,
     enrich_step_payload,
+    get_template_prompt,
     parse_contact_capture,
     parse_question_config,
+    parse_representative_contacts,
     with_topic_emoji,
 )
 from app.services.customer_feedback.feedback_answer_service import TRANSLATION_UNAVAILABLE_EN
@@ -88,11 +99,14 @@ _PURPOSE_OPTION_LABEL = {
     "catalogue": "Catalogue",
     "price_list": "Price list",
     "product": "Product",
+    "product_sheet": "Product sheet",
+    "other": "File",
 }
 
 
 def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Catalogue / price-list assets for the consent download question (by purpose, then heuristics)."""
+    """Normalise purpose for every booth asset — the consent step now offers all of them,
+    not only catalogue/price-list, so visitors can ask for and download anything on file."""
     from app.services.expo.offer_delivery_service import normalize_asset_purpose
 
     normalised: list[dict[str, Any]] = []
@@ -114,11 +128,6 @@ def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]
                 purpose = "catalogue"
         normalised.append({**a, "purpose": purpose})
 
-    by_purpose = [a for a in normalised if a.get("purpose") in {"catalogue", "price_list"}]
-    if by_purpose:
-        # Keep both types when present (do not collapse to a single default file).
-        return by_purpose
-    # No typed catalogue/price assets — offer every booth file so visitors can still pick.
     return normalised
 
 
@@ -130,6 +139,18 @@ def _consent_asset_option_label(asset: dict[str, Any]) -> str:
     if title.lower().startswith(kind.lower()):
         return title
     return f"{kind}: {title}"
+
+
+def _format_product_list_prompt(assets: list[dict[str, Any]]) -> str:
+    """Numbered list of every booth asset for the "what do you have?" hybrid intent."""
+    if not assets:
+        return "We don't have any files loaded yet — please ask our stand team."
+    lines = ["📦 Here's what we have available:"]
+    for idx, a in enumerate(assets, start=1):
+        lines.append(f"{idx}. {_consent_asset_option_label(a)}")
+    lines.append("")
+    lines.append("Reply with a number, or say 'send all' to get everything.")
+    return "\n".join(lines)
 
 
 class ExpoSessionFlowService:
@@ -495,6 +516,126 @@ class ExpoSessionFlowService:
 
         contact_sub = str(state.get("contact_substep") or "").strip().lower()
         contact_in_progress = contact_sub in {"awaiting", "company", "mobile", "confirm", "card_retry"}
+        channel = str(session.channel or "whatsapp").lower()
+
+        # --- Hybrid intents: corrections + product requests, resolved before any answer is
+        # recorded against the current step. Corrections/product asks are allowed mid-contact-
+        # capture too (a visitor spotting a typo shouldn't have to finish the questionnaire first).
+        pending_field = str(state.get(PENDING_CORRECTION_KEY) or "").strip()
+        if pending_field:
+            if not clean:
+                return _empty_step_result(
+                    done=False,
+                    prompt=prompt_for_correction(pending_field),
+                    question_key=key or CONTACT_STEP_KEY,
+                    contact_substep=contact_sub or None,
+                    channel=channel,
+                )
+            confirm_msg = apply_lead_field(lead, pending_field, clean) if lead is not None else "Details updated."
+            if lead is not None:
+                lead.updated_at = datetime.utcnow()
+                db.add(lead)
+            state.pop(PENDING_CORRECTION_KEY, None)
+            ExpoSessionFlowService._save_state(session, state)
+            db.add(session)
+            db.commit()
+            return ExpoSessionFlowService._stay_on_current(
+                db,
+                session=session,
+                booth=booth,
+                lead=lead,
+                steps=steps,
+                step_index=step_index,
+                state=state,
+                lead_prompt=f"✅ {confirm_msg}",
+            )
+
+        # Bare contact answers (name / company / mobile / OCR photo) must never be swallowed by
+        # intent detection — only an unambiguous "change my ..." request interrupts contact capture.
+        allow_full_intents = not (key == CONTACT_STEP_KEY or contact_in_progress)
+        intent = detect_intent(clean)
+        if intent and not allow_full_intents and not str(intent.get("intent") or "").startswith("change_"):
+            intent = None
+
+        if intent:
+            kind = str(intent.get("intent") or "")
+            if kind.startswith("change_") and lead is not None:
+                field = str(intent.get("field") or "").strip()
+                value = str(intent.get("value") or "").strip()
+                if field and value:
+                    confirm_msg = apply_lead_field(lead, field, value)
+                    lead.updated_at = datetime.utcnow()
+                    db.add(lead)
+                    db.commit()
+                    return ExpoSessionFlowService._stay_on_current(
+                        db,
+                        session=session,
+                        booth=booth,
+                        lead=lead,
+                        steps=steps,
+                        step_index=step_index,
+                        state=state,
+                        lead_prompt=f"✅ {confirm_msg}",
+                    )
+                if field:
+                    state[PENDING_CORRECTION_KEY] = field
+                    ExpoSessionFlowService._save_state(session, state)
+                    db.add(session)
+                    db.commit()
+                    return _empty_step_result(
+                        done=False,
+                        prompt=prompt_for_correction(field),
+                        question_key=key or CONTACT_STEP_KEY,
+                        contact_substep=contact_sub or None,
+                        channel=channel,
+                    )
+            elif kind == "list_products":
+                assets = load_booth_assets(db, booth.id)
+                return ExpoSessionFlowService._stay_on_current(
+                    db,
+                    session=session,
+                    booth=booth,
+                    lead=lead,
+                    steps=steps,
+                    step_index=step_index,
+                    state=state,
+                    lead_prompt=_format_product_list_prompt(assets),
+                )
+            elif kind == "send_all":
+                if key == "consent_info":
+                    # Normalise to "all" and let the existing consent_info branch below deliver
+                    # the assets and advance the step exactly like a normal consent answer.
+                    clean = "all"
+                elif lead is not None:
+                    assets = load_booth_assets(db, booth.id)
+                    if assets:
+                        delivered, _clarify = ExpoSessionFlowService._deliver_consent_assets(
+                            db, booth=booth, lead=lead, answer="all"
+                        )
+                        db.commit()
+                        result = ExpoSessionFlowService._stay_on_current(
+                            db,
+                            session=session,
+                            booth=booth,
+                            lead=lead,
+                            steps=steps,
+                            step_index=step_index,
+                            state=state,
+                            lead_prompt="✅ Sending you everything we have.",
+                        )
+                        if delivered:
+                            result["assets"] = delivered
+                        return result
+            elif kind == "skip":
+                is_open_step = key == OPEN_FEEDBACK_KEY or (key not in WEB_CHOICE_OPTIONS and key != "consent_info")
+                if is_open_step:
+                    # Legitimate skip on an open question — record the literal reply and advance
+                    # exactly like any other answer (handled by the normal flow below).
+                    pass
+                # Choice/consent steps: don't treat "skip" as a command either — fall through so
+                # the raw reply is stored and scored like a normal (likely negative) answer.
+            # Any other/incomplete intent falls through to the normal answer flow below.
+
         if key == CONTACT_STEP_KEY or contact_in_progress:
             return ExpoSessionFlowService._advance_contact(
                 db,
@@ -1272,6 +1413,101 @@ class ExpoSessionFlowService:
         return result
 
     # ------------------------------------------------------------------
+    # Hybrid intent helpers — re-render the current step without advancing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _current_step_result(
+        db: Session,
+        *,
+        session: ExpoSession,
+        booth: ExpoBooth,
+        lead: ExpoLead | None,
+        steps: list[dict[str, Any]],
+        step_index: int,
+        state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Re-render the prompt for whatever step the visitor is currently sitting on, without
+        consuming an answer or advancing — used after a correction / product-list / send-all
+        hybrid intent so the questionnaire doesn't skip a question."""
+        channel = str(session.channel or "whatsapp").lower()
+        contact_sub = str(state.get("contact_substep") or "").strip().lower()
+        at_contact = bool(steps) and step_index == 0 and str(steps[0].get("key") or "") == CONTACT_STEP_KEY
+        if at_contact and contact_sub in {"", "awaiting", "company", "mobile", "confirm", "card_retry"}:
+            sub = contact_sub or "awaiting"
+            capture = parse_contact_capture(booth.question_config_json)
+            prompt_map = {
+                "awaiting": contact_prompt_for_mode(capture, channel=channel),
+                "card_retry": contact_prompt_for_mode(capture, channel=channel),
+                "company": CONTACT_COMPANY_PROMPT,
+                "mobile": CONTACT_MOBILE_PROMPT,
+                "confirm": CONTACT_CONFIRM_PROMPT,
+            }
+            return _empty_step_result(
+                done=False,
+                prompt=prompt_map.get(sub, prompt_map["awaiting"]),
+                question_key=CONTACT_STEP_KEY,
+                contact_substep=sub,
+                channel=channel,
+            )
+
+        if step_index >= len(steps):
+            return ExpoSessionFlowService._complete(db, session=session, booth=booth, lead=lead)
+
+        step = steps[step_index]
+        key = str(step.get("key") or "")
+        if key == "consent_info":
+            consent_ui = ExpoSessionFlowService._consent_prompt_with_assets(
+                db,
+                booth=booth,
+                channel=channel,
+                base_prompt=str(step.get("prompt_web") or step.get("prompt") or ""),
+                lead=lead,
+            )
+            if consent_ui is not None:
+                return consent_ui
+
+        prompt = str(step.get("prompt") or "")
+        if channel == "web" and step.get("prompt_web"):
+            prompt = str(step.get("prompt_web") or prompt)
+        prompt = with_topic_emoji(key, prompt)
+        if channel == "whatsapp" and key in WEB_CHOICE_OPTIONS and key != "consent_info":
+            opts = WEB_CHOICE_OPTIONS[key]
+            lines = [prompt, ""]
+            for idx, opt in enumerate(opts, start=1):
+                lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
+            lines.append("")
+            lines.append("Reply with the number, e.g. 1")
+            prompt = "\n".join(line for line in lines if line is not None).strip()
+        return _empty_step_result(done=False, prompt=prompt, question_key=key, channel=channel)
+
+    @staticmethod
+    def _stay_on_current(
+        db: Session,
+        *,
+        session: ExpoSession,
+        booth: ExpoBooth,
+        lead: ExpoLead | None,
+        steps: list[dict[str, Any]],
+        step_index: int,
+        state: dict[str, Any],
+        lead_prompt: str,
+    ) -> dict[str, Any]:
+        """Confirmation/info message followed by a re-ask of the current step's prompt."""
+        current = ExpoSessionFlowService._current_step_result(
+            db,
+            session=session,
+            booth=booth,
+            lead=lead,
+            steps=steps,
+            step_index=step_index,
+            state=state,
+        )
+        base_prompt = str(current.get("prompt") or "").strip()
+        current["prompt"] = f"{lead_prompt}\n\n{base_prompt}".strip() if base_prompt else lead_prompt
+        return current
+
+    # ------------------------------------------------------------------
     # Question flow continuation / completion
     # ------------------------------------------------------------------
 
@@ -1429,6 +1665,41 @@ class ExpoSessionFlowService:
         out["summary"] = summary
         if delivered:
             out["assets"] = delivered
+
+        # Closing "company card" — sent by the channel adapter before the thank-you message so
+        # representative contact details land last in the visitor's chat.
+        if booth is not None:
+            reps = parse_representative_contacts(getattr(booth, "representative_contacts_json", None))
+            website = getattr(booth, "company_website", None)
+            company_name = booth.company_display_name or booth.name
+            if reps or website:
+                card_intro = get_template_prompt(db, "company_card", DEFAULT_COMPANY_CARD)
+                card_text = build_company_card_text(
+                    intro=card_intro,
+                    company_name=company_name,
+                    website=website,
+                    reps=reps,
+                )
+                out["company_card"] = card_text
+                out["representatives"] = reps
+                out["company_website"] = website
+                out["pre_thank_you_messages"] = [card_text]
+                if getattr(booth, "qr_token", None):
+                    # Hint for a future "save contact" download — no public vcard route exists yet.
+                    out["vcard_url_hint"] = f"/public/expo/{booth.qr_token}/vcard"
+
+        # Hot-lead alert to the exhibitor's mobile — best-effort, never blocks completion.
+        if lead is not None and str(lead.lead_score or "").lower() == "hot" and getattr(booth, "notify_mobile", None):
+            try:
+                from app.services.expo.hot_lead_notify_service import notify_hot_lead
+
+                notified = notify_hot_lead(db, booth=booth, lead=lead)
+                out["hot_notify_pending"] = not notified
+            except Exception:
+                logger = __import__("logging").getLogger(__name__)
+                logger.exception("expo_hot_lead_notify_dispatch_failed lead=%s", lead.id)
+                out["hot_notify_pending"] = True
+
         return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
 
     @staticmethod

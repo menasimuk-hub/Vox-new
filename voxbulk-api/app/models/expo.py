@@ -56,6 +56,8 @@ class ExpoPackage(Base):
     duration_days: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     max_booths: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     max_assets: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    # Null = unlimited categories (7-day package).
+    max_categories: Mapped[int | None] = mapped_column(Integer, nullable=True, default=1)
     lead_scoring_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     post_show_followup_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     post_event_survey_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -105,7 +107,44 @@ class ExpoBooth(Base):
     payment_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
     payment_intent_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     question_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON list of {name, company_name, email, mobile, telephone, website?}
+    representative_contacts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    notify_mobile: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoBoothCategory(Base):
+    """Product category grouping under a booth (package-capped)."""
+
+    __tablename__ = "expo_booth_categories"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    booth_id: Mapped[str] = mapped_column(String(36), ForeignKey("expo_booths.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    accent_color: Mapped[str] = mapped_column(String(32), nullable=False, default="#E8F0FE")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoBoothProduct(Base):
+    """Product under a category — may have catalogue / sheet / price assets."""
+
+    __tablename__ = "expo_booth_products"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    booth_id: Mapped[str] = mapped_column(String(36), ForeignKey("expo_booths.id"), nullable=False, index=True)
+    category_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("expo_booth_categories.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    short_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -118,11 +157,14 @@ class ExpoBoothAsset(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
     booth_id: Mapped[str] = mapped_column(String(36), ForeignKey("expo_booths.id"), nullable=False, index=True)
+    product_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("expo_booth_products.id"), nullable=True, index=True
+    )
     asset_key: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     short_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="pdf")
-    # catalogue | price_list | product — drives consent delivery and lead analytics
+    # catalogue | product_sheet | price_list | product | other
     purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="product")
     storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_url: Mapped[str | None] = mapped_column(Text, nullable=True)

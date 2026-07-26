@@ -27,7 +27,7 @@ from app.services.expo.offer_delivery_service import (
     deliver_asset_link_message,
     format_asset_list_message,
 )
-from app.services.expo.question_bank import POST_COMPLETE_HANDOFF
+from app.services.expo.question_bank import POST_COMPLETE_HANDOFF, get_template_prompt
 from app.services.expo.session_flow_service import ExpoSessionFlowService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
@@ -317,7 +317,7 @@ class ExpoWhatsappService:
                     ExpoWhatsappService._send(
                         db,
                         to_number=phone,
-                        body=POST_COMPLETE_HANDOFF,
+                        body=get_template_prompt(db, "post_complete_handoff", POST_COMPLETE_HANDOFF),
                         org_id=completed_session.org_id,
                         from_number=reply_from,
                     )
@@ -375,6 +375,22 @@ class ExpoWhatsappService:
             )
             return
 
+        # Closing company card — sent before the thank-you so contact details land last.
+        pre_messages = result.get("pre_thank_you_messages")
+        if not pre_messages and result.get("company_card"):
+            pre_messages = [result["company_card"]]
+        for msg in pre_messages or []:
+            text = str(msg or "").strip()
+            if not text:
+                continue
+            ExpoWhatsappService._send(
+                db,
+                to_number=session.visitor_phone,
+                body=text,
+                org_id=session.org_id,
+                from_number=from_number,
+            )
+
         followup = str(result.get("thank_you_followup") or "").strip()
         prompt = followup or str(result.get("prompt") or "").strip()
         if prompt:
@@ -385,6 +401,9 @@ class ExpoWhatsappService:
                 org_id=session.org_id,
                 from_number=from_number,
             )
+
+        if result.get("hot_notify_pending"):
+            logger.info("expo_wa_hot_lead_notify_pending session=%s", session.id)
 
     @staticmethod
     def _send_asset(

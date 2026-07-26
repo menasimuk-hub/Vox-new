@@ -18,6 +18,8 @@ from app.core.config import get_settings
 from app.models.expo import (
     ExpoBooth,
     ExpoBoothAsset,
+    ExpoBoothCategory,
+    ExpoBoothProduct,
     ExpoExhibition,
     ExpoIndustry,
     ExpoLead,
@@ -30,10 +32,12 @@ from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
 from app.services.expo.question_bank import (
+    build_vcard,
     default_free_gift_text,
     default_question_config,
     parse_closing_config,
     parse_question_config,
+    parse_representative_contacts,
 )
 from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
 
@@ -299,6 +303,7 @@ class ExpoBoothService:
                     "yearly_price_minor": yearly,
                     "max_booths": pkg.max_booths,
                     "max_assets": pkg.max_assets,
+                    "max_categories": getattr(pkg, "max_categories", None),
                     "lead_scoring_enabled": pkg.lead_scoring_enabled,
                     "post_show_followup_enabled": pkg.post_show_followup_enabled,
                     "post_event_survey_enabled": pkg.post_event_survey_enabled,
@@ -411,6 +416,15 @@ class ExpoBoothService:
             "web_url": urls["web_url"],
             "qr_image_url": _qr_image_for(qr_target),
             "assets": [ExpoBoothService.serialize_asset(a) for a in assets],
+            "categories": ExpoBoothService.serialize_catalog_tree(db, booth.id),
+            "representatives": parse_representative_contacts(
+                getattr(booth, "representative_contacts_json", None)
+            ),
+            "company_website": getattr(booth, "company_website", None),
+            "notify_mobile": getattr(booth, "notify_mobile", None),
+            "max_categories": ExpoBoothService.package_max_categories(db, booth.package_id),
+            "venue": exhibition.venue if exhibition else None,
+            "industry_id": exhibition.industry_id if exhibition else None,
             "created_at": booth.created_at.isoformat() if booth.created_at else None,
         }
 
@@ -420,6 +434,7 @@ class ExpoBoothService:
 
         return {
             "id": asset.id,
+            "product_id": getattr(asset, "product_id", None),
             "asset_key": asset.asset_key,
             "title": asset.title,
             "short_description": asset.short_description,
@@ -431,6 +446,246 @@ class ExpoBoothService:
             "is_default": asset.is_default,
             "sort_order": asset.sort_order,
         }
+
+    @staticmethod
+    def serialize_catalog_tree(db: Session, booth_id: str) -> list[dict[str, Any]]:
+        cats = db.execute(
+            select(ExpoBoothCategory)
+            .where(ExpoBoothCategory.booth_id == booth_id)
+            .order_by(ExpoBoothCategory.sort_order.asc())
+        ).scalars().all()
+        products = db.execute(
+            select(ExpoBoothProduct)
+            .where(ExpoBoothProduct.booth_id == booth_id)
+            .order_by(ExpoBoothProduct.sort_order.asc())
+        ).scalars().all()
+        assets = db.execute(
+            select(ExpoBoothAsset)
+            .where(ExpoBoothAsset.booth_id == booth_id)
+            .order_by(ExpoBoothAsset.sort_order.asc())
+        ).scalars().all()
+        assets_by_product: dict[str, list[dict[str, Any]]] = {}
+        for a in assets:
+            pid = str(getattr(a, "product_id", None) or "")
+            if not pid:
+                continue
+            assets_by_product.setdefault(pid, []).append(ExpoBoothService.serialize_asset(a))
+        products_by_cat: dict[str, list[dict[str, Any]]] = {}
+        for p in products:
+            products_by_cat.setdefault(p.category_id, []).append(
+                {
+                    "id": p.id,
+                    "category_id": p.category_id,
+                    "name": p.name,
+                    "short_description": p.short_description,
+                    "sort_order": p.sort_order,
+                    "assets": assets_by_product.get(p.id, []),
+                }
+            )
+        return [
+            {
+                "id": c.id,
+                "name": c.name,
+                "accent_color": c.accent_color or "#E8F0FE",
+                "sort_order": c.sort_order,
+                "products": products_by_cat.get(c.id, []),
+            }
+            for c in cats
+        ]
+
+    @staticmethod
+    def package_max_categories(db: Session, package_id: str | None) -> int | None:
+        if not package_id:
+            return 1
+        pkg = db.get(ExpoPackage, package_id)
+        if pkg is None:
+            return 1
+        return getattr(pkg, "max_categories", 1)
+
+    @staticmethod
+    def assert_category_limit(db: Session, *, package_id: str | None, category_count: int) -> None:
+        limit = ExpoBoothService.package_max_categories(db, package_id)
+        if limit is None:
+            return
+        if int(category_count) > int(limit):
+            raise ValueError(
+                f"This package allows up to {limit} product categor{'y' if limit == 1 else 'ies'}. "
+                "Upgrade your package or remove a category."
+            )
+
+    @staticmethod
+    def assert_can_create_booth(db: Session, *, org_id: str) -> None:
+        unpaid = db.execute(
+            select(func.count())
+            .select_from(ExpoBooth)
+            .where(
+                ExpoBooth.org_id == org_id,
+                ExpoBooth.payment_status != "paid",
+                ExpoBooth.status == "active",
+            )
+        ).scalar() or 0
+        if int(unpaid) >= 1:
+            raise ValueError(
+                "You already have an unpaid Expo QR draft. Pay for that package first, "
+                "or delete it — each QR code requires its own package purchase."
+            )
+
+    @staticmethod
+    def _normalize_reps(payload: dict[str, Any] | list | None) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return parse_representative_contacts(json.dumps(payload))
+        if isinstance(payload, dict) and isinstance(payload.get("representatives"), list):
+            return parse_representative_contacts(json.dumps(payload.get("representatives")))
+        return []
+
+    @staticmethod
+    def _save_catalog_tree(
+        db: Session,
+        *,
+        org_id: str,
+        booth: ExpoBooth,
+        categories_payload: list[Any],
+        legacy_assets: list[Any] | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        stamp = now or datetime.utcnow()
+        ExpoBoothService.assert_category_limit(
+            db, package_id=booth.package_id, category_count=len(categories_payload or [])
+        )
+        # Wipe existing tree then recreate (edit-friendly).
+        from sqlalchemy import delete
+
+        db.execute(delete(ExpoBoothAsset).where(ExpoBoothAsset.booth_id == booth.id))
+        db.execute(delete(ExpoBoothProduct).where(ExpoBoothProduct.booth_id == booth.id))
+        db.execute(delete(ExpoBoothCategory).where(ExpoBoothCategory.booth_id == booth.id))
+        db.flush()
+
+        from app.services.expo.offer_delivery_service import normalize_asset_purpose
+
+        asset_idx = 0
+        for c_idx, raw_cat in enumerate(categories_payload or []):
+            if not isinstance(raw_cat, dict):
+                continue
+            cname = str(raw_cat.get("name") or "").strip()
+            if not cname:
+                continue
+            cat = ExpoBoothCategory(
+                id=str(uuid.uuid4()),
+                org_id=org_id,
+                booth_id=booth.id,
+                name=cname[:128],
+                accent_color=str(raw_cat.get("accent_color") or "#E8F0FE")[:32],
+                sort_order=int(raw_cat.get("sort_order") or (c_idx + 1) * 10),
+                created_at=stamp,
+                updated_at=stamp,
+            )
+            db.add(cat)
+            db.flush()
+            for p_idx, raw_prod in enumerate(raw_cat.get("products") or []):
+                if not isinstance(raw_prod, dict):
+                    continue
+                pname = str(raw_prod.get("name") or "").strip()
+                if not pname:
+                    continue
+                prod = ExpoBoothProduct(
+                    id=str(uuid.uuid4()),
+                    org_id=org_id,
+                    booth_id=booth.id,
+                    category_id=cat.id,
+                    name=pname[:255],
+                    short_description=(str(raw_prod.get("short_description") or "").strip() or None),
+                    sort_order=int(raw_prod.get("sort_order") or (p_idx + 1) * 10),
+                    created_at=stamp,
+                    updated_at=stamp,
+                )
+                db.add(prod)
+                db.flush()
+                for raw_asset in raw_prod.get("assets") or []:
+                    if not isinstance(raw_asset, dict):
+                        continue
+                    title = str(raw_asset.get("title") or pname).strip()
+                    if not title:
+                        continue
+                    storage_path = (str(raw_asset.get("storage_path") or "").strip() or None)
+                    external_url = (str(raw_asset.get("external_url") or "").strip() or None)
+                    if storage_path and (
+                        ".." in storage_path.replace("\\", "/").split("/")
+                        or not storage_path.startswith("data/expo-assets/")
+                    ):
+                        raise ValueError("Invalid uploaded file path")
+                    if not storage_path and not external_url:
+                        continue
+                    asset_idx += 1
+                    key = (
+                        str(raw_asset.get("asset_key") or re.sub(r"[^a-z0-9]+", "_", title.lower()))
+                        .strip("_")[:64]
+                        or f"asset_{asset_idx}"
+                    )
+                    kind = str(
+                        raw_asset.get("kind")
+                        or ("pdf" if (storage_path or "").lower().endswith(".pdf") else "link")
+                    )[:16]
+                    purpose = normalize_asset_purpose(raw_asset.get("purpose") or "product")
+                    db.add(
+                        ExpoBoothAsset(
+                            id=str(uuid.uuid4()),
+                            org_id=org_id,
+                            booth_id=booth.id,
+                            product_id=prod.id,
+                            asset_key=key,
+                            title=title[:255],
+                            short_description=(str(raw_asset.get("short_description") or "").strip() or None),
+                            kind=kind,
+                            purpose=purpose,
+                            storage_path=storage_path,
+                            external_url=external_url,
+                            match_keywords=(str(raw_asset.get("match_keywords") or "").strip() or None),
+                            is_default=bool(raw_asset.get("is_default")),
+                            sort_order=int(raw_asset.get("sort_order") or asset_idx * 10),
+                            created_at=stamp,
+                            updated_at=stamp,
+                        )
+                    )
+
+        # Legacy flat assets (pre-category wizard) — keep working.
+        for idx, raw in enumerate(legacy_assets or []):
+            if not isinstance(raw, dict):
+                continue
+            title = str(raw.get("title") or "").strip()
+            if not title:
+                continue
+            storage_path = (str(raw.get("storage_path") or "").strip() or None)
+            external_url = (str(raw.get("external_url") or "").strip() or None)
+            if storage_path and (
+                ".." in storage_path.replace("\\", "/").split("/")
+                or not storage_path.startswith("data/expo-assets/")
+            ):
+                raise ValueError("Invalid uploaded file path")
+            if not storage_path and not external_url:
+                continue
+            key = str(raw.get("asset_key") or re.sub(r"[^a-z0-9]+", "_", title.lower())).strip("_")[:64] or f"asset_{idx+1}"
+            kind = str(raw.get("kind") or ("pdf" if (storage_path or "").lower().endswith(".pdf") else "link"))[:16]
+            purpose = normalize_asset_purpose(raw.get("purpose") or "product")
+            db.add(
+                ExpoBoothAsset(
+                    id=str(uuid.uuid4()),
+                    org_id=org_id,
+                    booth_id=booth.id,
+                    product_id=None,
+                    asset_key=key,
+                    title=title[:255],
+                    short_description=(str(raw.get("short_description") or "").strip() or None),
+                    kind=kind,
+                    purpose=purpose,
+                    storage_path=storage_path,
+                    external_url=external_url,
+                    match_keywords=(str(raw.get("match_keywords") or "").strip() or None),
+                    is_default=bool(raw.get("is_default")),
+                    sort_order=int(raw.get("sort_order") or (idx + 1) * 10),
+                    created_at=stamp,
+                    updated_at=stamp,
+                )
+            )
 
     @staticmethod
     def list_booths(db: Session, *, org_id: str, owner_user_id: str | None = None) -> list[dict[str, Any]]:
@@ -464,6 +719,7 @@ class ExpoBoothService:
         org = db.get(Organisation, org_id)
         if org is None:
             raise ValueError("Organisation not found")
+        ExpoBoothService.assert_can_create_booth(db, org_id=org_id)
         industry_id = str(payload.get("industry_id") or "").strip() or None
         industry = db.get(ExpoIndustry, industry_id) if industry_id else None
         now = datetime.utcnow()
@@ -510,7 +766,7 @@ class ExpoBoothService:
             if thank_you_message is not None:
                 merged["thank_you_message"] = thank_you_message
             elif not merged.get("thank_you_message"):
-                merged["thank_you_message"] = default_question_config()["thank_you_message"]
+                merged["thank_you_message"] = default_question_config(db=db)["thank_you_message"]
             if contact_capture:
                 merged["contact_capture"] = contact_capture
             question_json = json.dumps(merged)
@@ -524,12 +780,23 @@ class ExpoBoothService:
                     thank_you_message=thank_you_message,
                     selected_question_keys=selected_keys,
                     contact_capture=contact_capture,
+                    db=db,
                 )
             )
 
         package_id = str(payload.get("package_id") or "").strip() or None
         start_raw = payload.get("start_date") or payload.get("starts_on") or payload.get("package_start_date")
         start_at = parse_package_start_at(start_raw, fallback=now)
+        reps = ExpoBoothService._normalize_reps(payload.get("representatives") or payload.get("representative_contacts"))
+        company_website = (str(payload.get("company_website") or "").strip() or None)
+        if company_website:
+            company_website = company_website[:512]
+        notify_mobile = (str(payload.get("notify_mobile") or "").strip() or None)
+        if not notify_mobile and reps:
+            notify_mobile = str(reps[0].get("mobile") or "").strip() or None
+        if notify_mobile:
+            notify_mobile = notify_mobile[:64]
+
         booth = ExpoBooth(
             id=str(uuid.uuid4()),
             org_id=org_id,
@@ -544,6 +811,9 @@ class ExpoBoothService:
             preview_tests_used=0,
             payment_status="unpaid",
             question_config_json=question_json,
+            representative_contacts_json=json.dumps(reps) if reps else None,
+            company_website=company_website,
+            notify_mobile=notify_mobile,
             created_by_user_id=user_id,
             created_at=now,
             updated_at=now,
@@ -556,45 +826,150 @@ class ExpoBoothService:
         db.add(booth)
         db.flush()
 
-        for idx, raw in enumerate(payload.get("assets") or []):
-            if not isinstance(raw, dict):
-                continue
-            title = str(raw.get("title") or "").strip()
-            if not title:
-                continue
-            key = str(raw.get("asset_key") or re.sub(r"[^a-z0-9]+", "_", title.lower())).strip("_")[:64] or f"asset_{idx+1}"
-            storage_path = (str(raw.get("storage_path") or "").strip() or None)
-            external_url = (str(raw.get("external_url") or "").strip() or None)
-            if storage_path and (".." in storage_path.replace("\\", "/").split("/") or not storage_path.startswith("data/expo-assets/")):
-                raise ValueError("Invalid uploaded file path")
-            if not storage_path and not external_url:
-                continue
-            kind = str(raw.get("kind") or ("pdf" if (storage_path or "").lower().endswith(".pdf") else "link"))[:16]
-            from app.services.expo.offer_delivery_service import normalize_asset_purpose
-
-            purpose = normalize_asset_purpose(raw.get("purpose") or "product")
-            db.add(
-                ExpoBoothAsset(
-                    id=str(uuid.uuid4()),
-                    org_id=org_id,
-                    booth_id=booth.id,
-                    asset_key=key,
-                    title=title[:255],
-                    short_description=(str(raw.get("short_description") or "").strip() or None),
-                    kind=kind,
-                    purpose=purpose,
-                    storage_path=storage_path,
-                    external_url=external_url,
-                    match_keywords=(str(raw.get("match_keywords") or "").strip() or None),
-                    is_default=bool(raw.get("is_default")),
-                    sort_order=int(raw.get("sort_order") or (idx + 1) * 10),
-                    created_at=now,
-                    updated_at=now,
-                )
+        categories_payload = payload.get("categories")
+        if isinstance(categories_payload, list) and categories_payload:
+            ExpoBoothService._save_catalog_tree(
+                db,
+                org_id=org_id,
+                booth=booth,
+                categories_payload=categories_payload,
+                legacy_assets=None,
+                now=now,
+            )
+        else:
+            ExpoBoothService._save_catalog_tree(
+                db,
+                org_id=org_id,
+                booth=booth,
+                categories_payload=[],
+                legacy_assets=list(payload.get("assets") or []),
+                now=now,
             )
         db.commit()
         db.refresh(booth)
         return ExpoBoothService.serialize_booth(db, booth)
+
+    @staticmethod
+    def update_booth(
+        db: Session,
+        *,
+        org_id: str,
+        booth_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        booth = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=booth_id)
+        if booth is None:
+            raise ValueError("Booth not found")
+        now = datetime.utcnow()
+        exhibition = db.get(ExpoExhibition, booth.exhibition_id)
+
+        if payload.get("exhibition_name") is not None and exhibition is not None:
+            exhibition.name = str(payload.get("exhibition_name") or exhibition.name).strip()[:255]
+        if payload.get("venue") is not None and exhibition is not None:
+            exhibition.venue = str(payload.get("venue") or "").strip() or None
+        if payload.get("industry_id") is not None and exhibition is not None:
+            iid = str(payload.get("industry_id") or "").strip() or None
+            exhibition.industry_id = iid
+        if exhibition is not None:
+            exhibition.updated_at = now
+            db.add(exhibition)
+
+        if payload.get("name") is not None:
+            booth.name = str(payload.get("name") or booth.name).strip()[:255]
+        if payload.get("company_display_name") is not None:
+            booth.company_display_name = str(payload.get("company_display_name") or booth.company_display_name).strip()[:255]
+        if payload.get("booth_code") is not None:
+            booth.booth_code = str(payload.get("booth_code") or "").strip() or None
+        if payload.get("company_website") is not None:
+            booth.company_website = str(payload.get("company_website") or "").strip()[:512] or None
+        if payload.get("notify_mobile") is not None:
+            booth.notify_mobile = str(payload.get("notify_mobile") or "").strip()[:64] or None
+        if "representatives" in payload or "representative_contacts" in payload:
+            reps = ExpoBoothService._normalize_reps(
+                payload.get("representatives") or payload.get("representative_contacts")
+            )
+            booth.representative_contacts_json = json.dumps(reps) if reps else None
+            if not booth.notify_mobile and reps:
+                booth.notify_mobile = str(reps[0].get("mobile") or "").strip()[:64] or None
+
+        free_gift_enabled = payload.get("free_gift_enabled")
+        free_gift_text = payload.get("free_gift_text")
+        thank_you_message = payload.get("thank_you_message")
+        selected_keys_raw = payload.get("selected_question_keys")
+        contact_capture = payload.get("contact_capture")
+        include_addon = payload.get("include_industry_addon")
+        if any(
+            v is not None
+            for v in (free_gift_enabled, free_gift_text, thank_you_message, selected_keys_raw, contact_capture, include_addon)
+        ) or payload.get("question_config"):
+            industry = None
+            if exhibition and exhibition.industry_id:
+                industry = db.get(ExpoIndustry, exhibition.industry_id)
+            addon = industry.addon_question if industry else None
+            selected_keys = (
+                [str(k).strip() for k in selected_keys_raw if str(k).strip()]
+                if isinstance(selected_keys_raw, list)
+                else None
+            )
+            qcfg = payload.get("question_config")
+            if isinstance(qcfg, dict) and qcfg.get("steps"):
+                booth.question_config_json = json.dumps(qcfg)
+            else:
+                closing = parse_closing_config(booth.question_config_json)
+                gift_on = bool(free_gift_enabled) if free_gift_enabled is not None else bool(closing.get("free_gift_enabled"))
+                gift_text = (
+                    str(free_gift_text).strip()
+                    if free_gift_text is not None
+                    else str(closing.get("free_gift_text") or "")
+                )
+                thank = (
+                    str(thank_you_message).strip()
+                    if thank_you_message is not None
+                    else str(closing.get("thank_you_message") or "")
+                )
+                mode = str(contact_capture or "").strip().lower() or None
+                if not mode:
+                    try:
+                        mode = json.loads(booth.question_config_json or "{}").get("contact_capture") or "offer_both"
+                    except (json.JSONDecodeError, TypeError):
+                        mode = "offer_both"
+                booth.question_config_json = json.dumps(
+                    default_question_config(
+                        include_industry_addon=bool(include_addon) if include_addon is not None else bool(addon),
+                        addon_question=addon,
+                        free_gift_enabled=gift_on,
+                        free_gift_text=gift_text or None,
+                        thank_you_message=thank or None,
+                        selected_question_keys=selected_keys,
+                        contact_capture=str(mode),
+                        db=db,
+                    )
+                )
+
+        if isinstance(payload.get("categories"), list) or isinstance(payload.get("assets"), list):
+            ExpoBoothService._save_catalog_tree(
+                db,
+                org_id=org_id,
+                booth=booth,
+                categories_payload=list(payload.get("categories") or []),
+                legacy_assets=list(payload.get("assets") or []) if not payload.get("categories") else None,
+                now=now,
+            )
+
+        booth.updated_at = now
+        db.add(booth)
+        db.commit()
+        db.refresh(booth)
+        return ExpoBoothService.serialize_booth(db, booth)
+
+    @staticmethod
+    def booth_vcard(db: Session, booth: ExpoBooth) -> str:
+        reps = parse_representative_contacts(getattr(booth, "representative_contacts_json", None))
+        return build_vcard(
+            company_name=booth.company_display_name or booth.name,
+            website=getattr(booth, "company_website", None),
+            reps=reps,
+        )
 
     @staticmethod
     def get_booth(db: Session, *, org_id: str, booth_id: str) -> ExpoBooth | None:
@@ -638,6 +1013,8 @@ class ExpoBoothService:
             db.execute(delete(ExpoLead).where(ExpoLead.booth_id == bid))
             db.execute(delete(ExpoSession).where(ExpoSession.booth_id == bid))
             db.execute(delete(ExpoBoothAsset).where(ExpoBoothAsset.booth_id == bid))
+            db.execute(delete(ExpoBoothProduct).where(ExpoBoothProduct.booth_id == bid))
+            db.execute(delete(ExpoBoothCategory).where(ExpoBoothCategory.booth_id == bid))
             db.execute(delete(ExpoBooth).where(ExpoBooth.id == bid, ExpoBooth.org_id == org_id))
             remaining = db.execute(
                 select(func.count()).select_from(ExpoBooth).where(ExpoBooth.exhibition_id == exhibition_id)

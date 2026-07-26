@@ -16,6 +16,13 @@ POST_COMPLETE_HANDOFF = (
     "💬 Thanks — our team will follow up with you shortly. "
     "If you need anything else, speak with our stand team."
 )
+DEFAULT_OPEN_FEEDBACK = (
+    "📝 Please share anything else you'd like us to know about your recent experience with us. "
+    "Anything at all — big or small, we're listening. 😊 "
+    "🗣️ Write it down or record a voice note, in your own language — whatever's easiest for you!"
+)
+DEFAULT_COMPANY_CARD = "📇 Here's how to reach us:"
+OPEN_FEEDBACK_KEY = "open_feedback"
 
 
 def default_free_gift_text(company_name: str | None = None) -> str:
@@ -54,14 +61,17 @@ CONTACT_COMPANY_PROMPT = "🏢 Which company or organisation do you represent?"
 CONTACT_MOBILE_PROMPT = "📱 What's the best mobile number to reach you on?"
 
 
-def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp") -> str:
+def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp", db: Any | None = None) -> str:
     m = str(mode or "offer_both").strip().lower()
     web = str(channel or "").lower() == "web"
     if m == "card_only":
-        return CONTACT_PROMPT_WEB_CARD_ONLY if web else CONTACT_PROMPT_WA_CARD_ONLY
+        fb = CONTACT_PROMPT_WEB_CARD_ONLY if web else CONTACT_PROMPT_WA_CARD_ONLY
+        return get_template_prompt(db, "contact_card_only", fb)
     if m == "manual_only":
-        return CONTACT_PROMPT_WEB_MANUAL if web else CONTACT_PROMPT_WA_MANUAL
-    return CONTACT_PROMPT_WEB if web else CONTACT_PROMPT_WA
+        fb = CONTACT_PROMPT_WEB_MANUAL if web else CONTACT_PROMPT_WA_MANUAL
+        return get_template_prompt(db, "contact_manual", fb)
+    fb = CONTACT_PROMPT_WEB if web else CONTACT_PROMPT_WA
+    return get_template_prompt(db, "contact_web" if web else "contact", fb)
 
 # Extra qualifying questions exhibitors can toggle on (in addition to fixed contact).
 # Keys with matches_products=True help route Step 4 product PDFs (price list / catalogue).
@@ -174,7 +184,230 @@ QUESTION_TOPIC_EMOJI: dict[str, str] = {
     "industry_addon": "✨",
     "name": "👤",
     "company": "🏢",
+    "open_feedback": "📝",
+    "thank_you": "✅",
+    "company_card": "📇",
+    "post_complete_handoff": "💬",
+    "contact_company": "🏢",
+    "contact_mobile": "📱",
+    "contact_confirm": "✅",
 }
+
+# System session strings editable in Admin → Qualifying questions (not exhibitor toggles).
+SYSTEM_SESSION_TEMPLATES: list[dict[str, Any]] = [
+    {
+        "key": "contact",
+        "prompt": CONTACT_PROMPT_WA,
+        "label": "Contact (WhatsApp)",
+        "description": "Business card or type details — WhatsApp.",
+        "sort_order": 900,
+    },
+    {
+        "key": "contact_web",
+        "prompt": CONTACT_PROMPT_WEB,
+        "label": "Contact (Web)",
+        "description": "Business card or type details — web.",
+        "sort_order": 901,
+    },
+    {
+        "key": "contact_card_only",
+        "prompt": CONTACT_PROMPT_WA_CARD_ONLY,
+        "label": "Contact card-only",
+        "description": "Card photo required.",
+        "sort_order": 902,
+    },
+    {
+        "key": "contact_manual",
+        "prompt": CONTACT_PROMPT_WA_MANUAL,
+        "label": "Contact name (manual)",
+        "description": "Ask for full name when typing.",
+        "sort_order": 903,
+    },
+    {
+        "key": "contact_company",
+        "prompt": CONTACT_COMPANY_PROMPT,
+        "label": "Contact company",
+        "description": "Ask for company name.",
+        "sort_order": 904,
+    },
+    {
+        "key": "contact_mobile",
+        "prompt": CONTACT_MOBILE_PROMPT,
+        "label": "Contact mobile",
+        "description": "Ask for mobile number.",
+        "sort_order": 905,
+    },
+    {
+        "key": "contact_confirm",
+        "prompt": "✅ Please check your details and continue.",
+        "label": "Contact confirm",
+        "description": "Confirm OCR / typed details.",
+        "sort_order": 906,
+    },
+    {
+        "key": OPEN_FEEDBACK_KEY,
+        "prompt": DEFAULT_OPEN_FEEDBACK,
+        "label": "Anything else (voice/text)",
+        "description": "Final open feedback before company card and thank-you.",
+        "sort_order": 950,
+    },
+    {
+        "key": "thank_you",
+        "prompt": DEFAULT_THANK_YOU,
+        "label": "Thank you",
+        "description": "Closing thank-you message.",
+        "sort_order": 960,
+    },
+    {
+        "key": "company_card",
+        "prompt": DEFAULT_COMPANY_CARD,
+        "label": "Company card intro",
+        "description": "Intro before representative contact details.",
+        "sort_order": 970,
+    },
+    {
+        "key": "post_complete_handoff",
+        "prompt": POST_COMPLETE_HANDOFF,
+        "label": "Post-complete handoff",
+        "description": "Sent after thank-you on WhatsApp.",
+        "sort_order": 980,
+    },
+]
+
+SYSTEM_TEMPLATE_KEYS = frozenset(q["key"] for q in SYSTEM_SESSION_TEMPLATES)
+
+
+def get_template_prompt(db: Any | None, key: str, fallback: str) -> str:
+    """Resolve Admin-edited ExpoQuestionTemplate prompt; insert-missing seed owns defaults."""
+    clean_key = str(key or "").strip()
+    if not clean_key:
+        return str(fallback or "").strip()
+    if db is None:
+        return with_topic_emoji(clean_key, str(fallback or "").strip())
+    try:
+        from sqlalchemy import select
+
+        from app.models.expo import ExpoQuestionTemplate
+
+        row = db.execute(
+            select(ExpoQuestionTemplate).where(ExpoQuestionTemplate.question_key == clean_key)
+        ).scalar_one_or_none()
+        if row is not None and str(row.prompt or "").strip():
+            return with_topic_emoji(clean_key, str(row.prompt).strip())
+    except Exception:
+        pass
+    return with_topic_emoji(clean_key, str(fallback or "").strip())
+
+
+def build_company_card_text(
+    *,
+    intro: str,
+    company_name: str | None,
+    website: str | None,
+    reps: list[dict[str, Any]],
+) -> str:
+    lines = [str(intro or DEFAULT_COMPANY_CARD).strip()]
+    if company_name:
+        lines.append(f"🏢 {company_name}")
+    if website:
+        lines.append(f"🌐 {website}")
+    for rep in reps[:5]:
+        if not isinstance(rep, dict):
+            continue
+        name = str(rep.get("name") or "").strip()
+        co = str(rep.get("company_name") or "").strip()
+        email = str(rep.get("email") or "").strip()
+        mobile = str(rep.get("mobile") or "").strip()
+        tel = str(rep.get("telephone") or "").strip()
+        bits = [b for b in [name, co] if b]
+        if bits:
+            lines.append("· " + " — ".join(bits))
+        detail = []
+        if email:
+            detail.append(f"✉️ {email}")
+        if mobile:
+            detail.append(f"📱 {mobile}")
+        if tel:
+            detail.append(f"☎️ {tel}")
+        if detail:
+            lines.append("  " + " · ".join(detail))
+    return "\n".join(lines).strip()
+
+
+def parse_representative_contacts(raw: str | None) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in data[:10]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name and not str(item.get("email") or "").strip():
+            continue
+        out.append(
+            {
+                "name": name[:128],
+                "company_name": str(item.get("company_name") or "").strip()[:128],
+                "email": str(item.get("email") or "").strip()[:255],
+                "mobile": str(item.get("mobile") or "").strip()[:64],
+                "telephone": str(item.get("telephone") or "").strip()[:64],
+                "website": str(item.get("website") or "").strip()[:512],
+            }
+        )
+    return out
+
+
+def build_vcard(
+    *,
+    company_name: str,
+    website: str | None,
+    reps: list[dict[str, Any]],
+) -> str:
+    """Build a multi-contact vCard (VCARD 3.0) for Save to phone."""
+    blocks: list[str] = []
+    primary = reps[0] if reps else {}
+    org = str(company_name or primary.get("company_name") or "Company").strip() or "Company"
+    if not reps:
+        lines = [
+            "BEGIN:VCARD",
+            "VERSION:3.0",
+            f"FN:{org}",
+            f"ORG:{org}",
+        ]
+        if website:
+            lines.append(f"URL:{website}")
+        lines.append("END:VCARD")
+        return "\n".join(lines) + "\n"
+    for rep in reps[:5]:
+        name = str(rep.get("name") or org).strip() or org
+        co = str(rep.get("company_name") or org).strip() or org
+        email = str(rep.get("email") or "").strip()
+        mobile = str(rep.get("mobile") or "").strip()
+        tel = str(rep.get("telephone") or "").strip()
+        url = str(rep.get("website") or website or "").strip()
+        lines = [
+            "BEGIN:VCARD",
+            "VERSION:3.0",
+            f"FN:{name}",
+            f"ORG:{co}",
+        ]
+        if email:
+            lines.append(f"EMAIL;TYPE=INTERNET:{email}")
+        if mobile:
+            lines.append(f"TEL;TYPE=CELL:{mobile}")
+        if tel:
+            lines.append(f"TEL;TYPE=WORK:{tel}")
+        if url:
+            lines.append(f"URL:{url}")
+        lines.append("END:VCARD")
+        blocks.append("\n".join(lines))
+    return "\n".join(blocks) + "\n"
 
 
 def with_topic_emoji(key: str, prompt: str) -> str:
@@ -248,6 +481,7 @@ WEB_VOICE_KEYS = frozenset(
         "budget",
         "volume",
         "industry_addon",
+        OPEN_FEEDBACK_KEY,
     }
 )
 
@@ -375,6 +609,8 @@ def list_selectable_questions(
                 .order_by(ExpoQuestionTemplate.sort_order.asc())
             ).scalars().all()
             for r in db_rows:
+                if str(r.question_key or "") in SYSTEM_TEMPLATE_KEYS and str(r.question_key) != OPEN_FEEDBACK_KEY:
+                    continue
                 rows.append(
                     {
                         "key": r.question_key,
@@ -383,6 +619,7 @@ def list_selectable_questions(
                         "description": r.description or "",
                         "matches_products": bool(r.matches_products),
                         "id": r.id,
+                        "is_system": str(r.question_key or "") in SYSTEM_TEMPLATE_KEYS,
                     }
                 )
         except Exception:
@@ -413,23 +650,43 @@ def default_question_config(
     thank_you_message: str | None = None,
     selected_question_keys: list[str] | None = None,
     contact_capture: str = "offer_both",
+    db: Any | None = None,
+    include_open_feedback: bool = True,
 ) -> dict[str, Any]:
     keys = list(selected_question_keys) if selected_question_keys else list(_DEFAULT_SELECTED_KEYS)
+    keys = [k for k in keys if k not in SYSTEM_TEMPLATE_KEYS or k == OPEN_FEEDBACK_KEY]
     if include_industry_addon and str(addon_question or "").strip() and "industry_addon" not in keys:
         # Place before consent when present
         if "consent_info" in keys:
             keys.insert(keys.index("consent_info"), "industry_addon")
         else:
             keys.append("industry_addon")
+    if include_open_feedback and OPEN_FEEDBACK_KEY not in keys:
+        keys.append(OPEN_FEEDBACK_KEY)
+
+    def _prompt_for(key: str, fallback: str) -> str:
+        return get_template_prompt(db, key, fallback)
+
+    contact_wa = _prompt_for("contact", CONTACT_PROMPT_WA)
+    contact_web = _prompt_for("contact_web", CONTACT_PROMPT_WEB)
 
     steps: list[dict[str, Any]] = [
         {
             "key": CONTACT_STEP_KEY,
             "kind": "contact",
-            "prompt": CONTACT_PROMPT_WA,
-            "prompt_web": CONTACT_PROMPT_WEB,
+            "prompt": contact_wa,
+            "prompt_web": contact_web,
         }
     ]
+    bank_by_key = dict(_BANK_BY_KEY)
+    if db is not None:
+        for row in list_selectable_questions(db):
+            k = str(row.get("key") or "")
+            if k and k not in bank_by_key:
+                bank_by_key[k] = row
+            elif k:
+                bank_by_key[k] = {**bank_by_key.get(k, {}), **row}
+
     for key in keys:
         if key == CONTACT_STEP_KEY:
             continue
@@ -437,16 +694,26 @@ def default_question_config(
             prompt = str(addon_question or "").strip()
             if not prompt:
                 continue
-            steps.append({"key": key, "prompt": prompt, "kind": "text", "label": "Industry question"})
+            steps.append({"key": key, "prompt": with_topic_emoji(key, prompt), "kind": "text", "label": "Industry question"})
             continue
-        bank = _BANK_BY_KEY.get(key)
+        if key == OPEN_FEEDBACK_KEY:
+            steps.append(
+                {
+                    "key": OPEN_FEEDBACK_KEY,
+                    "prompt": _prompt_for(OPEN_FEEDBACK_KEY, DEFAULT_OPEN_FEEDBACK),
+                    "kind": "text",
+                    "label": "Anything else",
+                }
+            )
+            continue
+        bank = bank_by_key.get(key)
         if bank:
             steps.append(
                 {
-                    "key": bank["key"],
-                    "prompt": bank["prompt"],
+                    "key": str(bank.get("key") or key),
+                    "prompt": _prompt_for(key, str(bank.get("prompt") or "")),
                     "kind": "text",
-                    "label": bank["label"],
+                    "label": str(bank.get("label") or key),
                 }
             )
 
@@ -462,14 +729,15 @@ def default_question_config(
     mode = str(contact_capture or "offer_both").strip().lower()
     if mode not in {"offer_both", "manual_only", "card_only"}:
         mode = "offer_both"
-    steps[0]["prompt"] = contact_prompt_for_mode(mode, channel="whatsapp")
-    steps[0]["prompt_web"] = contact_prompt_for_mode(mode, channel="web")
+    steps[0]["prompt"] = contact_prompt_for_mode(mode, channel="whatsapp", db=db)
+    steps[0]["prompt_web"] = contact_prompt_for_mode(mode, channel="web", db=db)
+    thank = str(thank_you_message or "").strip() or _prompt_for("thank_you", DEFAULT_THANK_YOU)
     return {
         "steps": steps,
-        "version": 2,
+        "version": 3,
         "contact_capture": mode,
         "selected_question_keys": [s["key"] for s in steps if s["key"] != CONTACT_STEP_KEY],
-        "thank_you_message": str(thank_you_message or "").strip() or DEFAULT_THANK_YOU,
+        "thank_you_message": thank,
         "free_gift_enabled": gift_on,
         "free_gift_text": gift_text if gift_on else "",
     }
@@ -486,7 +754,7 @@ def parse_question_config(raw: str | None) -> list[dict[str, Any]]:
     if not isinstance(steps, list) or not steps:
         return list(default_question_config()["steps"])
     out: list[dict[str, Any]] = []
-    for step in steps[:12]:
+    for step in steps[:16]:
         if not isinstance(step, dict):
             continue
         key = str(step.get("key") or "").strip()
@@ -518,12 +786,13 @@ def parse_contact_capture(raw: str | None) -> str:
     return mode if mode in {"offer_both", "manual_only", "card_only"} else "offer_both"
 
 
-def parse_closing_config(raw: str | None, *, company_name: str | None = None) -> dict[str, Any]:
+def parse_closing_config(raw: str | None, *, company_name: str | None = None, db: Any | None = None) -> dict[str, Any]:
     """Thank-you + optional free-gift settings stored alongside question steps."""
     fallback_gift = default_free_gift_text(company_name)
+    fallback_thank = get_template_prompt(db, "thank_you", DEFAULT_THANK_YOU)
     if not raw:
         return {
-            "thank_you_message": DEFAULT_THANK_YOU,
+            "thank_you_message": fallback_thank,
             "free_gift_enabled": False,
             "free_gift_text": fallback_gift,
         }
@@ -535,7 +804,7 @@ def parse_closing_config(raw: str | None, *, company_name: str | None = None) ->
         data = {}
     gift_on = bool(data.get("free_gift_enabled"))
     gift_text = str(data.get("free_gift_text") or "").strip() or fallback_gift
-    thank = str(data.get("thank_you_message") or "").strip() or DEFAULT_THANK_YOU
+    thank = str(data.get("thank_you_message") or "").strip() or fallback_thank
     return {
         "thank_you_message": thank,
         "free_gift_enabled": gift_on,

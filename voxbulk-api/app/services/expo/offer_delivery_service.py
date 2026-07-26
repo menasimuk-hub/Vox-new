@@ -31,7 +31,7 @@ __all__ = [
     "normalize_asset_purpose",
 ]
 
-ASSET_PURPOSES = frozenset({"catalogue", "price_list", "product"})
+ASSET_PURPOSES = frozenset({"catalogue", "price_list", "product", "product_sheet", "other"})
 
 
 def normalize_asset_purpose(raw: Any) -> str:
@@ -40,6 +40,10 @@ def normalize_asset_purpose(raw: Any) -> str:
         return "catalogue"
     if clean in {"price", "prices", "pricing", "pricelist", "price_list"}:
         return "price_list"
+    if clean in {"product_sheet", "sheet", "datasheet", "data_sheet", "spec", "specs"}:
+        return "product_sheet"
+    if clean in {"other", "misc"}:
+        return "other"
     if clean in ASSET_PURPOSES:
         return clean
     return "product"
@@ -54,6 +58,7 @@ def load_booth_assets(db: Session, booth_id: str) -> list[dict[str, Any]]:
     return [
         {
             "id": a.id,
+            "product_id": getattr(a, "product_id", None),
             "asset_key": a.asset_key,
             "title": a.title,
             "short_description": a.short_description,
