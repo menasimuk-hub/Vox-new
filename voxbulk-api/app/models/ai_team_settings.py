@@ -43,15 +43,21 @@ class AiTeamSettings(Base):
     promo_max_uses: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     promo_code_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="unique")
 
-    # Outreach mailbox (optional SMTP for replies inbox)
+    # Outreach mailbox (SMTP delivery when email_delivery_provider=smtp)
     smtp_host: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     smtp_port: Mapped[int] = mapped_column(Integer, nullable=False, default=587)
     smtp_username: Mapped[str] = mapped_column(String(320), nullable=False, default="")
     smtp_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     inbox_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    email_delivery_provider: Mapped[str] = mapped_column(String(16), nullable=False, default="smtp")
 
     # Resend domain (stored here for admin UI; API key in provider_configs)
     resend_sending_domain: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+
+    # Apify (expo exhibitor / contact scrape)
+    apify_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    apify_exhibitor_actor_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    apify_contact_actor_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
 
     # Agent behaviour
     run_schedule: Mapped[str] = mapped_column(String(64), nullable=False, default="daily_08")

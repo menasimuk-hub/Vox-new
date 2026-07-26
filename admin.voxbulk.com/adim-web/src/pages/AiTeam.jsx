@@ -41,6 +41,7 @@ const TABS = [
   { id: 'prospects', label: 'Prospects', icon: 'ti-users' },
   { id: 'replies', label: 'Replies', icon: 'ti-messages' },
   { id: 'search', label: 'Search & email', icon: 'ti-adjustments-horizontal' },
+  { id: 'apify', label: 'Apify', icon: 'ti-world' },
   { id: 'promo', label: 'Promo codes', icon: 'ti-tag' },
   { id: 'analytics', label: 'Analytics', icon: 'ti-chart-bar' },
   { id: 'api', label: 'API settings', icon: 'ti-settings' },
@@ -107,8 +108,17 @@ export default function AiTeam() {
   const [apolloKey, setApolloKey] = useState('')
   const [resendKey, setResendKey] = useState('')
   const [smtpPassword, setSmtpPassword] = useState('')
+  const [apifyToken, setApifyToken] = useState('')
   const [resendTestEmail, setResendTestEmail] = useState('')
   const [searchTestEmail, setSearchTestEmail] = useState('')
+  const [pasteEmails, setPasteEmails] = useState('')
+  const [pasteCompany, setPasteCompany] = useState('')
+  const [pasteSector, setPasteSector] = useState('expo')
+  const [prospectSource, setProspectSource] = useState('')
+  const [apifyExpoUrl, setApifyExpoUrl] = useState('')
+  const [apifyRuns, setApifyRuns] = useState([])
+  const [apifyPreview, setApifyPreview] = useState(null)
+  const [connectionChecks, setConnectionChecks] = useState(null)
   const [csvFile, setCsvFile] = useState(null)
   const [csvDrag, setCsvDrag] = useState(false)
   const [csvHeaders, setCsvHeaders] = useState([])
@@ -137,12 +147,22 @@ export default function AiTeam() {
     }
   }, [])
 
-  const loadProspects = useCallback(async () => {
+  const loadProspects = useCallback(async (sourceFilter) => {
     try {
-      const data = await apiFetch('/admin/ai-team/prospects')
+      const qs = sourceFilter ? `?source=${encodeURIComponent(sourceFilter)}` : ''
+      const data = await apiFetch(`/admin/ai-team/prospects${qs}`)
       setProspects(data.prospects || [])
     } catch (e) {
       showBanner('err', e?.message || 'Could not load prospects')
+    }
+  }, [])
+
+  const loadApifyRuns = useCallback(async () => {
+    try {
+      const data = await apiFetch('/admin/ai-team/apify/runs')
+      setApifyRuns(data.runs || [])
+    } catch (e) {
+      showBanner('err', e?.message || 'Could not load Apify runs')
     }
   }, [])
 
@@ -178,11 +198,12 @@ export default function AiTeam() {
   }, [loadDashboard])
 
   useEffect(() => {
-    if (tab === 'prospects') loadProspects()
+    if (tab === 'prospects') loadProspects(prospectSource)
     if (tab === 'replies') loadReplies()
     if (tab === 'promo') loadPromo()
     if (tab === 'analytics') loadAnalytics()
-  }, [tab, loadProspects, loadReplies, loadPromo, loadAnalytics])
+    if (tab === 'apify') loadApifyRuns()
+  }, [tab, prospectSource, loadProspects, loadReplies, loadPromo, loadAnalytics, loadApifyRuns])
 
   const openDrawer = async (prospect) => {
     setDrawer(prospect)
@@ -209,8 +230,9 @@ export default function AiTeam() {
     try {
       await fn()
       await loadDashboard()
-      if (tab === 'prospects') await loadProspects()
+      if (tab === 'prospects') await loadProspects(prospectSource)
       if (tab === 'replies') await loadReplies()
+      if (tab === 'apify') await loadApifyRuns()
     } catch (e) {
       showBanner('err', e?.message || 'Action failed')
     } finally {
@@ -226,12 +248,14 @@ export default function AiTeam() {
         apollo_api_key: apolloKey || undefined,
         resend_api_key: resendKey || undefined,
         smtp_password: smtpPassword || undefined,
+        apify_token: apifyToken || undefined,
       }
       const data = await apiFetch('/admin/ai-team/settings', { method: 'PUT', body: JSON.stringify(body) })
       setSettings(data.settings || {})
       setApolloKey('')
       setResendKey('')
       setSmtpPassword('')
+      setApifyToken('')
       showBanner('ok', 'Settings saved')
     })
   }
@@ -267,6 +291,82 @@ export default function AiTeam() {
       setCsvHeaders([])
       setCsvPreviewRows([])
       await loadDashboard()
+    })
+  }
+
+  const importPasteEmails = async () => {
+    if (!pasteEmails.trim()) {
+      showBanner('err', 'Paste at least one email address')
+      return
+    }
+    await act('paste-import', async () => {
+      const data = await apiFetch('/admin/ai-team/import/emails', {
+        method: 'POST',
+        body: JSON.stringify({
+          emails: pasteEmails,
+          company_name: pasteCompany || undefined,
+          sector: pasteSector || undefined,
+        }),
+      })
+      showBanner('ok', `Imported ${data.created || 0} emails (${data.skipped || 0} skipped) — drafts in approval queue`)
+      setPasteEmails('')
+      setTab('queue')
+    })
+  }
+
+  const startApifyRun = async () => {
+    if (!apifyExpoUrl.trim()) {
+      showBanner('err', 'Paste an expo exhibitor directory URL')
+      return
+    }
+    await act('apify-start', async () => {
+      const data = await apiFetch('/admin/ai-team/apify/runs', {
+        method: 'POST',
+        body: JSON.stringify({ expo_url: apifyExpoUrl.trim() }),
+      })
+      showBanner('ok', `Apify run started (${data.run?.status || 'READY'})`)
+      await loadApifyRuns()
+    })
+  }
+
+  const refreshApifyRun = async (runId) => {
+    await act(`apify-refresh-${runId}`, async () => {
+      const data = await apiFetch(`/admin/ai-team/apify/runs/${runId}`)
+      setApifyRuns((prev) => prev.map((r) => (r.id === runId ? data.run : r)))
+      showBanner('ok', `Run status: ${data.run?.status || '—'}`)
+    })
+  }
+
+  const previewApifyRun = async (runId) => {
+    await act(`apify-preview-${runId}`, async () => {
+      const data = await apiFetch(`/admin/ai-team/apify/runs/${runId}/preview`)
+      setApifyPreview(data)
+      showBanner('ok', `${data.contacts_with_email || 0} contacts with email of ${data.total_items || 0} items`)
+    })
+  }
+
+  const importApifyRun = async (runId) => {
+    await act(`apify-import-${runId}`, async () => {
+      const data = await apiFetch(`/admin/ai-team/apify/runs/${runId}/import`, { method: 'POST' })
+      showBanner('ok', `Imported ${data.created || 0} prospects (${data.skipped || 0} skipped)`)
+      await loadApifyRuns()
+      setTab('queue')
+    })
+  }
+
+  const runTestAll = async () => {
+    await act('test-all', async () => {
+      const data = await apiFetch('/admin/ai-team/test/all', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...settings,
+          smtp_password: smtpPassword || undefined,
+          apify_token: apifyToken || undefined,
+          to_email: resendTestEmail || searchTestEmail || undefined,
+        }),
+      })
+      setConnectionChecks(data.checks || [])
+      showBanner(data.ok ? 'ok' : 'err', data.ok ? 'All critical connections OK' : 'Some connections failed — see checklist')
     })
   }
 
@@ -372,7 +472,7 @@ export default function AiTeam() {
         <div className="ait-topbar-left">
           <div>
             <div className="ait-page-title">AI Team — Sales Agent</div>
-            <div className="ait-page-sub">Semi-automatic outreach · Apollo + Resend + DeepSeek</div>
+            <div className="ait-page-sub">Semi-automatic outreach · Apify + Apollo + SMTP/Resend + DeepSeek</div>
           </div>
           <div className="ait-agent-pill">
             <span className="ait-pulse" />
@@ -435,17 +535,27 @@ export default function AiTeam() {
 
         {tab === 'prospects' && (
           <div className="ait-card">
-            <div className="ait-card-hdr"><span className="ait-card-title">Prospect pipeline</span></div>
+            <div className="ait-card-hdr">
+              <span className="ait-card-title">Prospect pipeline</span>
+              <select value={prospectSource} onChange={(e) => setProspectSource(e.target.value)} style={{ maxWidth: 160 }}>
+                <option value="">All sources</option>
+                <option value="apify">Apify</option>
+                <option value="paste">Paste</option>
+                <option value="csv">CSV</option>
+                <option value="apollo">Apollo</option>
+              </select>
+            </div>
             <div className="ait-card-body" style={{ overflowX: 'auto' }}>
               <table className="ait-tbl">
                 <thead>
-                  <tr><th>Prospect</th><th>Company</th><th>Sector</th><th>Score</th><th>Status</th><th>Promo</th><th>Last</th><th /></tr>
+                  <tr><th>Prospect</th><th>Company</th><th>Source</th><th>Sector</th><th>Score</th><th>Status</th><th>Promo</th><th>Last</th><th /></tr>
                 </thead>
                 <tbody>
-                  {(prospects.length ? prospects : queue).map((p) => (
+                  {(prospects.length ? prospects : []).map((p) => (
                     <tr key={p.id} style={{ cursor: 'pointer' }} onClick={() => openDrawer(p)}>
-                      <td><strong>{p.full_name}</strong><div style={{ fontSize: 10, color: 'var(--ait-text3)' }}>{p.email}</div></td>
-                      <td>{p.company_name}</td>
+                      <td><strong>{p.full_name || p.email}</strong><div style={{ fontSize: 10, color: 'var(--ait-text3)' }}>{p.email}</div></td>
+                      <td>{p.company_name || '—'}</td>
+                      <td><span className="ait-badge b-pending">{p.source || '—'}</span></td>
                       <td><span className={`ait-badge ${sectorClass(p.sector)}`}>{p.sector}</span></td>
                       <td>{p.match_score}</td>
                       <td><span className={`ait-badge ${statusBadge(p.status)}`}>{p.status}</span></td>
@@ -454,6 +564,9 @@ export default function AiTeam() {
                       <td><button type="button" className="ait-btn xs" onClick={(e) => { e.stopPropagation(); openDrawer(p) }}>View</button></td>
                     </tr>
                   ))}
+                  {!prospects.length && (
+                    <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 24 }}>No prospects yet — paste emails, CSV, or run Apify</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -511,6 +624,34 @@ export default function AiTeam() {
 
         {tab === 'search' && (
           <>
+            <div className="ait-card">
+              <div className="ait-card-hdr"><span className="ait-card-title">Import any emails</span></div>
+              <div className="ait-card-body">
+                <p style={{ fontSize: 12, color: 'var(--ait-text3)', marginBottom: 10 }}>
+                  Paste one email per line. Also accepts <code>Name &lt;email@x.com&gt;</code> or <code>email, first, last, company</code>.
+                  Imports go to the approval queue with AI draft + promo, then follow-ups after send.
+                </p>
+                <div className="ait-field">
+                  <label>Emails</label>
+                  <textarea
+                    style={{ minHeight: 120 }}
+                    value={pasteEmails}
+                    onChange={(e) => setPasteEmails(e.target.value)}
+                    placeholder={'ops@exhibitor.com\nJane Doe <jane@brand.co.uk>\nhello@stand.io, Jane, Doe, Brand Ltd'}
+                  />
+                </div>
+                <div className="ait-fg-2">
+                  <div className="ait-field"><label>Default company (optional)</label><input value={pasteCompany} onChange={(e) => setPasteCompany(e.target.value)} /></div>
+                  <div className="ait-field"><label>Sector</label><input value={pasteSector} onChange={(e) => setPasteSector(e.target.value)} placeholder="expo" /></div>
+                </div>
+                <div className="ait-btn-row">
+                  <button type="button" className="ait-btn primary" disabled={!!busy || !pasteEmails.trim()} onClick={importPasteEmails}>
+                    Import &amp; draft follow-ups
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div className="ait-card">
               <div className="ait-card-hdr"><span className="ait-card-title">Import prospects from CSV</span></div>
               <div className="ait-card-body">
@@ -687,6 +828,142 @@ export default function AiTeam() {
           </>
         )}
 
+        {tab === 'apify' && (
+          <>
+            <div className="ait-card">
+              <div className="ait-card-hdr"><span className="ait-card-title">Apify connection</span></div>
+              <div className="ait-card-body">
+                <div className="ait-conn-block">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span className={`ait-dot ${settings.apify_connected || settings.apify_token_configured ? 'on' : 'off'}`} />
+                    <div><strong>{settings.apify_token_configured ? 'API token saved' : 'Not connected'}</strong></div>
+                  </div>
+                  <button
+                    type="button"
+                    className="ait-btn sm"
+                    disabled={!!busy}
+                    onClick={() => act('test-apify', () => apiFetch('/admin/ai-team/test/apify', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        apify_token: apifyToken || undefined,
+                        apify_exhibitor_actor_id: settings.apify_exhibitor_actor_id,
+                        apify_contact_actor_id: settings.apify_contact_actor_id,
+                      }),
+                    }).then((d) => showBanner('ok', d.message || 'Apify OK')))}
+                  >
+                    Test Apify
+                  </button>
+                </div>
+                <div className="ait-fg-2">
+                  <div className="ait-field">
+                    <label>Apify API token</label>
+                    <input
+                      type="password"
+                      placeholder={settings.apify_token_configured ? '••••••••' : 'apify_api_…'}
+                      value={apifyToken}
+                      onChange={(e) => setApifyToken(e.target.value)}
+                    />
+                  </div>
+                  <div className="ait-field">
+                    <label>Exhibitor directory actor ID</label>
+                    <input
+                      value={settings.apify_exhibitor_actor_id || ''}
+                      onChange={(e) => setSettings({ ...settings, apify_exhibitor_actor_id: e.target.value })}
+                      placeholder="username~actor-name"
+                    />
+                  </div>
+                </div>
+                <div className="ait-field">
+                  <label>Contact scrape actor ID (optional)</label>
+                  <input
+                    value={settings.apify_contact_actor_id || ''}
+                    onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })}
+                    placeholder="username~website-contact-scraper"
+                  />
+                </div>
+                <div className="ait-btn-row">
+                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save Apify settings</button>
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
+                  Actor dataset items should include an <code>email</code> field (also accepts contactEmail / emails[]).
+                </p>
+              </div>
+            </div>
+
+            <div className="ait-card">
+              <div className="ait-card-hdr"><span className="ait-card-title">Scrape expo exhibitors</span></div>
+              <div className="ait-card-body">
+                <div className="ait-field">
+                  <label>Expo exhibitor directory URL</label>
+                  <input
+                    value={apifyExpoUrl}
+                    onChange={(e) => setApifyExpoUrl(e.target.value)}
+                    placeholder="https://…/exhibitors"
+                  />
+                </div>
+                <div className="ait-btn-row">
+                  <button type="button" className="ait-btn primary" disabled={!!busy || !apifyExpoUrl.trim()} onClick={startApifyRun}>
+                    Start Apify run
+                  </button>
+                  <button type="button" className="ait-btn" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh runs</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="ait-card">
+              <div className="ait-card-hdr"><span className="ait-card-title">Recent runs</span></div>
+              <div className="ait-card-body" style={{ overflowX: 'auto' }}>
+                <table className="ait-tbl">
+                  <thead>
+                    <tr><th>Status</th><th>Expo URL</th><th>Items</th><th>Imported</th><th>Started</th><th /></tr>
+                  </thead>
+                  <tbody>
+                    {apifyRuns.map((run) => (
+                      <tr key={run.id}>
+                        <td><span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : 'b-pending'}`}>{run.status}</span></td>
+                        <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }} title={run.expo_url}>{run.expo_url}</td>
+                        <td>{run.item_count}</td>
+                        <td>{run.imported_count}</td>
+                        <td style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{timeAgo(run.created_at)}</td>
+                        <td>
+                          <div className="ait-btn-row">
+                            <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => refreshApifyRun(run.id)}>Refresh</button>
+                            <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => previewApifyRun(run.id)}>Preview</button>
+                            <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => importApifyRun(run.id)}>Import</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!apifyRuns.length && (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No Apify runs yet</td></tr>
+                    )}
+                  </tbody>
+                </table>
+                {apifyPreview && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+                      Preview — {apifyPreview.contacts_with_email} emails / {apifyPreview.total_items} items
+                    </div>
+                    <table className="ait-tbl">
+                      <thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Title</th></tr></thead>
+                      <tbody>
+                        {(apifyPreview.preview || []).map((c, i) => (
+                          <tr key={`${c.email}-${i}`}>
+                            <td>{c.email}</td>
+                            <td>{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</td>
+                            <td>{c.company_name || '—'}</td>
+                            <td>{c.job_title || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
         {tab === 'promo' && (
           <>
             <div className="ait-card">
@@ -698,6 +975,7 @@ export default function AiTeam() {
                     <select value={settings.promo_offer_type || 'survey_credits'} onChange={(e) => setSettings({ ...settings, promo_offer_type: e.target.value })}>
                       <option value="survey_credits">Free survey contacts</option>
                       <option value="interview_credits">Free interviews</option>
+                      <option value="expo">Expo free usage</option>
                       <option value="dental_trial">Subscription trial</option>
                     </select>
                   </div>
@@ -769,6 +1047,37 @@ export default function AiTeam() {
         {tab === 'api' && (
           <>
             <div className="ait-card">
+              <div className="ait-card-hdr"><span className="ait-card-title">Test all connections</span></div>
+              <div className="ait-card-body">
+                <p style={{ fontSize: 12, color: 'var(--ait-text3)', marginBottom: 10 }}>
+                  Checks Apify, email delivery (SMTP or Resend), From address, promo defaults, and DeepSeek.
+                </p>
+                <div className="ait-btn-row">
+                  <button type="button" className="ait-btn primary" disabled={!!busy} onClick={runTestAll}>
+                    Test all connections
+                  </button>
+                  <button
+                    type="button"
+                    className="ait-btn"
+                    disabled={!!busy}
+                    onClick={() => act('followups', () => apiFetch('/admin/ai-team/followups/run', { method: 'POST' }).then((d) => showBanner('ok', `Follow-ups sent: ${d.sent || 0}`)))}
+                  >
+                    Run due follow-ups now
+                  </button>
+                </div>
+                {connectionChecks && (
+                  <div style={{ marginTop: 12 }}>
+                    {connectionChecks.map((c) => (
+                      <div key={c.id} className="ait-toggle-row" style={{ gap: 10 }}>
+                        <span className={`ait-dot ${c.ok ? 'on' : 'off'}`} />
+                        <span style={{ flex: 1 }}><strong>{c.id}</strong> — {c.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="ait-card">
               <div className="ait-card-hdr"><span className="ait-card-title">Apollo.io</span></div>
               <div className="ait-card-body">
                 <div className="ait-conn-block">
@@ -830,8 +1139,26 @@ export default function AiTeam() {
               <div className="ait-card-hdr"><span className="ait-card-title">Outreach email account</span></div>
               <div className="ait-card-body">
                 <div className="ait-fg-2">
+                  <div className="ait-field"><label>Delivery provider</label>
+                    <select
+                      value={settings.email_delivery_provider || 'smtp'}
+                      onChange={(e) => setSettings({ ...settings, email_delivery_provider: e.target.value })}
+                    >
+                      <option value="smtp">SMTP (your mailbox)</option>
+                      <option value="resend">Resend</option>
+                    </select>
+                  </div>
+                  <div className="ait-field" style={{ justifyContent: 'flex-end' }}>
+                    <label>&nbsp;</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className={`ait-dot ${(settings.email_delivery_provider || 'smtp') === 'smtp' ? (settings.smtp_configured ? 'on' : 'off') : (settings.resend_connected ? 'on' : 'off')}`} />
+                      <span style={{ fontSize: 12 }}>{(settings.email_delivery_provider || 'smtp') === 'smtp' ? 'SMTP' : 'Resend'}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="ait-fg-2">
                   <div className="ait-field"><label>From name</label><input value={settings.sender_name || ''} onChange={(e) => setSettings({ ...settings, sender_name: e.target.value })} /></div>
-                  <div className="ait-field"><label>From email</label><input value={settings.from_email || ''} onChange={(e) => setSettings({ ...settings, from_email: e.target.value })} /></div>
+                  <div className="ait-field"><label>From email (new outreach mailbox)</label><input value={settings.from_email || ''} onChange={(e) => setSettings({ ...settings, from_email: e.target.value })} /></div>
                 </div>
                 <div className="ait-fg-2">
                   <div className="ait-field"><label>Reply-to / inbox email</label><input value={settings.reply_to_email || ''} onChange={(e) => setSettings({ ...settings, reply_to_email: e.target.value })} /></div>
@@ -846,16 +1173,16 @@ export default function AiTeam() {
                 <div className="ait-btn-row">
                   <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save email account</button>
                   <button type="button" className="ait-btn" disabled={!!busy}
-                    onClick={() => act('test-email', () => apiFetch('/admin/ai-team/test/email-account', { method: 'POST', body: JSON.stringify({ ...settings, smtp_password: smtpPassword || undefined }) }))}>
+                    onClick={() => act('test-email', () => apiFetch('/admin/ai-team/test/email-account', { method: 'POST', body: JSON.stringify({ ...settings, smtp_password: smtpPassword || undefined, to_email: resendTestEmail || undefined }) }).then((d) => showBanner('ok', d.message || 'Test sent')))}>
                     Send test email
                   </button>
                   <button type="button" className="ait-btn" disabled={!!busy}
-                    onClick={() => act('test-smtp', () => apiFetch('/admin/ai-team/test/smtp', { method: 'POST', body: JSON.stringify({ ...settings, smtp_password: smtpPassword || undefined }) }))}>
+                    onClick={() => act('test-smtp', () => apiFetch('/admin/ai-team/test/smtp', { method: 'POST', body: JSON.stringify({ ...settings, smtp_password: smtpPassword || undefined, to_email: resendTestEmail || undefined }) }).then((d) => showBanner('ok', d.message || 'SMTP OK')))}>
                     Test SMTP
                   </button>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
-                  DeepSeek uses existing <Link to="/integrations/deepseek">Integrations → DeepSeek</Link> platform key.
+                  Use your new dedicated outreach mailbox here. DeepSeek uses existing <Link to="/integrations/deepseek">Integrations → DeepSeek</Link>.
                 </p>
               </div>
             </div>

@@ -10,6 +10,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
 from app.services.apollo_service import ApolloService, ApolloServiceError
+from app.services.apify_service import ApifyServiceError
 from app.services.provider_settings import ProviderSettingsService
 from app.services.resend_service import ResendService, ResendServiceError
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/admin/ai-team", tags=["admin-ai-team"])
 
 
 def _err(exc: Exception) -> HTTPException:
-    if isinstance(exc, (AiTeamServiceError, ApolloServiceError, ResendServiceError, ValueError)):
+    if isinstance(exc, (AiTeamServiceError, ApolloServiceError, ResendServiceError, ApifyServiceError, ValueError)):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail=str(exc))
 
@@ -50,10 +51,11 @@ def put_settings(body: dict[str, Any], db: Session = Depends(get_db), _admin: Us
 def list_prospects(
     status: str | None = None,
     q: str | None = None,
+    source: str | None = None,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_cap(CAP_AI_TEAM)),
 ):
-    rows = AiTeamService.list_prospects(db, status=status, q=q)
+    rows = AiTeamService.list_prospects(db, status=status, q=q, source=source)
     return {"prospects": [AiTeamService.prospect_to_dict(db, r) for r in rows]}
 
 
@@ -141,6 +143,69 @@ async def csv_import(
             raise AiTeamServiceError("Invalid field mapping")
         raw = await file.read()
         return AiTeamService.import_csv_prospects(db, raw, mapping_dict)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/import/emails")
+def import_emails(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.import_emails_text(
+            db,
+            str(body.get("emails") or body.get("text") or ""),
+            company_name=str(body.get("company_name") or "").strip(),
+            sector=str(body.get("sector") or "").strip(),
+            source=str(body.get("source") or "paste").strip() or "paste",
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/apify/runs")
+def start_apify_run(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.start_apify_run(
+            db,
+            expo_url=str(body.get("expo_url") or body.get("url") or ""),
+            actor_id=str(body.get("actor_id") or "").strip() or None,
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/apify/runs")
+def list_apify_runs(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    return {"runs": AiTeamService.list_apify_runs(db)}
+
+
+@router.get("/apify/runs/{run_id}")
+def get_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.refresh_apify_run(db, run_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/apify/runs/{run_id}/preview")
+def preview_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.preview_apify_run(db, run_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/apify/runs/{run_id}/import")
+def import_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.import_apify_run(db, run_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/followups/run")
+def run_followups(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.process_due_followups(db)
     except Exception as exc:
         raise _err(exc) from exc
 
@@ -302,15 +367,36 @@ def test_smtp(body: dict[str, Any], db: Session = Depends(get_db), _admin: User 
 
 @router.post("/test/email-account")
 def test_email_account(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
-    """Send test via Resend using current from/reply-to settings."""
+    """Send a test via the configured delivery provider (SMTP or Resend)."""
     if body:
         AiTeamService.update_settings(db, body)
     settings = AiTeamService.get_settings(db)
-    key = AiTeamService._resend_key(db)
-    to_email = str(body.get("to_email") or settings.inbox_email or settings.reply_to_email or "").strip()
-    from_email = AiTeamService._from_address(settings)
+    to_email = str(body.get("to_email") or settings.inbox_email or settings.reply_to_email or settings.from_email or "").strip()
     try:
-        return ResendService.test_connection(key, from_email=from_email, to_email=to_email)
+        return AiTeamService.send_template_test_email(db, to_email=to_email, prospect_id=None)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/test/apify")
+def test_apify(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    if body.get("apify_token") or body.get("apify_exhibitor_actor_id") or body.get("apify_contact_actor_id"):
+        AiTeamService.update_settings(db, body)
+    try:
+        return AiTeamService.test_apify(db, token=str(body.get("apify_token") or body.get("api_token") or "").strip() or None)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/test/all")
+def test_all(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    if body:
+        # Persist any in-form credentials before testing
+        AiTeamService.update_settings(db, body)
+    try:
+        return AiTeamService.test_all_connections(
+            db, to_email=str(body.get("to_email") or "").strip() or None
+        )
     except Exception as exc:
         raise _err(exc) from exc
 

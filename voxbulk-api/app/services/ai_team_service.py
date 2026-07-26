@@ -8,17 +8,21 @@ import re
 import smtplib
 import ssl
 from datetime import datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.encryption import get_encryptor
+from app.models.ai_team_apify_run import AiTeamApifyRun
 from app.models.ai_team_message import AiTeamMessage
 from app.models.ai_team_prospect import AiTeamProspect
 from app.models.ai_team_settings import AiTeamSettings
 from app.models.promo_offer import PromoOffer
 from app.services.agents.base import AgentMessage
+from app.services.apify_service import ApifyService, ApifyServiceError
 from app.services.apollo_service import ApolloService, ApolloServiceError
 from app.services.promo_offer_service import PromoOfferService
 from app.services.provider_settings import ProviderSettingsService
@@ -143,7 +147,11 @@ class AiTeamService:
             "smtp_username": row.smtp_username,
             "smtp_password_configured": bool(row.smtp_password_enc),
             "inbox_email": row.inbox_email,
+            "email_delivery_provider": (row.email_delivery_provider or "smtp").strip().lower() or "smtp",
             "resend_sending_domain": row.resend_sending_domain,
+            "apify_token_configured": bool(row.apify_token_enc),
+            "apify_exhibitor_actor_id": row.apify_exhibitor_actor_id or "",
+            "apify_contact_actor_id": row.apify_contact_actor_id or "",
             "run_schedule": row.run_schedule,
             "max_emails_per_day": row.max_emails_per_day,
             "sending_window": row.sending_window,
@@ -162,6 +170,8 @@ class AiTeamService:
             "resend_connected": resend_ok,
             "resend_api_key_configured": resend_key,
             "deepseek_connected": deepseek_ok,
+            "smtp_configured": bool(row.smtp_host and row.smtp_username and row.smtp_password_enc),
+            "apify_connected": bool(row.apify_token_enc),
         }
 
     @staticmethod
@@ -172,7 +182,8 @@ class AiTeamService:
             "search_sector", "search_country", "search_company_size", "search_title_keywords", "search_city_region",
             "sender_name", "reply_to_email", "from_email", "writing_instruction", "email_signature",
             "email_language", "email_tone", "promo_code_prefix", "promo_offer_type", "promo_code_mode",
-            "smtp_host", "smtp_username", "inbox_email", "resend_sending_domain",
+            "smtp_host", "smtp_username", "inbox_email", "resend_sending_domain", "email_delivery_provider",
+            "apify_exhibitor_actor_id", "apify_contact_actor_id",
             "run_schedule", "sending_window",
         ]
         int_fields = [
@@ -191,7 +202,12 @@ class AiTeamService:
                 setattr(row, key, str(val) if val is not None else None)
         for key in scalar_fields:
             if key in payload:
-                setattr(row, key, str(payload[key] or "").strip())
+                val = str(payload[key] or "").strip()
+                if key == "email_delivery_provider":
+                    val = val.lower()
+                    if val not in {"smtp", "resend"}:
+                        val = "smtp"
+                setattr(row, key, val)
         for key in int_fields:
             if key in payload:
                 setattr(row, key, int(payload[key] or 0))
@@ -201,6 +217,9 @@ class AiTeamService:
         if payload.get("smtp_password"):
             enc = get_encryptor()
             row.smtp_password_enc = enc.encrypt_str(str(payload["smtp_password"]))
+        if payload.get("apify_token"):
+            enc = get_encryptor()
+            row.apify_token_enc = enc.encrypt_str(str(payload["apify_token"]).strip())
         row.updated_at = now
         db.add(row)
         db.commit()
@@ -316,7 +335,6 @@ class AiTeamService:
         if not to_addr or "@" not in to_addr:
             raise AiTeamServiceError("Enter a valid test email address")
         settings = AiTeamService.get_settings(db)
-        api_key = AiTeamService._resend_key(db)
         from_addr = AiTeamService._from_address(settings)
         if prospect_id:
             prospect = db.get(AiTeamProspect, prospect_id)
@@ -326,16 +344,116 @@ class AiTeamService:
         else:
             rendered = AiTeamService.template_preview(db, use_sample=True)
         subject = f"[Test] {rendered['subject']}"
-        result = ResendService.send_email(
-            api_key,
-            from_email=from_addr,
+        result = AiTeamService._deliver_email(
+            db,
+            settings,
             to_email=to_addr,
             subject=subject,
             text=rendered["text"],
             html=rendered["html"],
-            reply_to=(settings.reply_to_email or None),
         )
-        return {"ok": True, "message": f"Test email sent to {to_addr}", "email_id": result.get("email_id")}
+        return {
+            "ok": True,
+            "message": f"Test email sent to {to_addr} via {result.get('provider')}",
+            "email_id": result.get("email_id"),
+            "provider": result.get("provider"),
+        }
+
+    @staticmethod
+    def _delivery_provider(settings: AiTeamSettings) -> str:
+        provider = str(settings.email_delivery_provider or "smtp").strip().lower()
+        if provider not in {"smtp", "resend"}:
+            return "smtp"
+        return provider
+
+    @staticmethod
+    def _smtp_password(settings: AiTeamSettings) -> str:
+        if not settings.smtp_password_enc:
+            return ""
+        return get_encryptor().decrypt_str(settings.smtp_password_enc)
+
+    @staticmethod
+    def _apify_token(settings: AiTeamSettings) -> str:
+        if not settings.apify_token_enc:
+            return ""
+        return get_encryptor().decrypt_str(settings.apify_token_enc)
+
+    @staticmethod
+    def _send_via_smtp(
+        settings: AiTeamSettings,
+        *,
+        to_email: str,
+        subject: str,
+        text: str,
+        html: str | None = None,
+    ) -> dict[str, Any]:
+        host = (settings.smtp_host or "").strip()
+        port = int(settings.smtp_port or 587)
+        user = (settings.smtp_username or "").strip()
+        pwd = AiTeamService._smtp_password(settings)
+        from_email = (settings.from_email or user or "").strip()
+        if not host or not user or not pwd:
+            raise AiTeamServiceError("SMTP host, username, and password are required")
+        if not from_email or "@" not in from_email:
+            raise AiTeamServiceError("From email is not configured")
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = AiTeamService._from_address(settings) if settings.sender_name else from_email
+        msg["To"] = to_email
+        reply_to = (settings.reply_to_email or "").strip()
+        if reply_to:
+            msg["Reply-To"] = reply_to
+        msg.attach(MIMEText(text or "", "plain", "utf-8"))
+        if html:
+            msg.attach(MIMEText(html, "html", "utf-8"))
+
+        context = ssl.create_default_context()
+        if port == 465:
+            with smtplib.SMTP_SSL(host, port, timeout=30, context=context) as server:
+                server.login(user, pwd)
+                server.sendmail(from_email, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(host, port, timeout=30) as server:
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+                server.login(user, pwd)
+                server.sendmail(from_email, [to_email], msg.as_string())
+        return {"ok": True, "provider": "smtp", "email_id": None}
+
+    @staticmethod
+    def _deliver_email(
+        db: Session,
+        settings: AiTeamSettings,
+        *,
+        to_email: str,
+        subject: str,
+        text: str,
+        html: str | None = None,
+    ) -> dict[str, Any]:
+        provider = AiTeamService._delivery_provider(settings)
+        if provider == "smtp":
+            return AiTeamService._send_via_smtp(
+                settings, to_email=to_email, subject=subject, text=text, html=html
+            )
+        api_key = AiTeamService._resend_key(db)
+        from_addr = AiTeamService._from_address(settings)
+        if not from_addr or "@" not in from_addr:
+            raise AiTeamServiceError("From email is not configured")
+        try:
+            result = ResendService.send_email(
+                api_key,
+                from_email=from_addr,
+                to_email=to_email,
+                subject=subject,
+                text=text,
+                html=html,
+                reply_to=(settings.reply_to_email or None),
+            )
+        except ResendServiceError as exc:
+            raise AiTeamServiceError(str(exc)) from exc
+        return {"ok": True, "provider": "resend", "email_id": result.get("email_id")}
 
     @staticmethod
     def parse_csv_preview(raw: bytes) -> dict[str, Any]:
@@ -355,6 +473,160 @@ class AiTeamService:
         return {"headers": headers, "preview_rows": rows, "total_rows": total}
 
     @staticmethod
+    def import_prospect_rows(
+        db: Session,
+        rows: list[dict[str, Any]],
+        *,
+        source: str,
+        apply_min_score: bool = False,
+        auto_draft: bool | None = None,
+    ) -> dict[str, Any]:
+        settings = AiTeamService.get_settings(db)
+        keywords = [k.strip() for k in (settings.search_title_keywords or "").split(",") if k.strip()]
+        do_draft = settings.auto_draft_emails if auto_draft is None else bool(auto_draft)
+        created = 0
+        skipped = 0
+        prospects: list[dict[str, Any]] = []
+
+        for raw in rows:
+            email = str(raw.get("email") or "").strip().lower()
+            if not email or "@" not in email:
+                skipped += 1
+                continue
+            exists = db.execute(select(AiTeamProspect).where(AiTeamProspect.email == email)).scalar_one_or_none()
+            if exists is not None:
+                skipped += 1
+                continue
+
+            first_name = str(raw.get("first_name") or "").strip()
+            last_name = str(raw.get("last_name") or "").strip()
+            company = str(raw.get("company_name") or raw.get("company") or "").strip()
+            job_title = str(raw.get("job_title") or "").strip()
+            sector = str(raw.get("sector") or settings.search_sector or "").strip().lower()
+            country = str(raw.get("country_code") or raw.get("country") or "GB").strip().upper()[:8] or "GB"
+            score = int(raw.get("match_score") or 0)
+            if not score:
+                score = AiTeamService._score_prospect(job_title, company, keywords) if job_title else 70
+            if apply_min_score and score < int(settings.search_min_score or 60):
+                skipped += 1
+                continue
+            if not sector:
+                sector = AiTeamService._infer_sector(job_title, company, settings.search_sector) or "general"
+
+            profile = raw.get("profile_json")
+            if isinstance(profile, dict):
+                profile_json = json.dumps(profile)
+            elif isinstance(profile, str) and profile.strip():
+                profile_json = profile
+            else:
+                profile_json = json.dumps({k: v for k, v in raw.items() if k != "profile_json"})
+
+            now = AiTeamService._now()
+            prospect = AiTeamProspect(
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                job_title=job_title,
+                company_name=company,
+                sector=sector,
+                country_code=country,
+                match_score=score,
+                status="new",
+                source=str(source or "paste")[:32],
+                profile_json=profile_json,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(prospect)
+            db.flush()
+            AiTeamService.ensure_promo_for_prospect(db, prospect, settings)
+            if do_draft:
+                try:
+                    AiTeamService.draft_email_for_prospect(db, prospect, settings)
+                except Exception as exc:
+                    logger.warning("ai_team_draft_failed", extra={"email": email, "error": str(exc)})
+                    prospect.status = "new"
+                    prospect.last_error = f"Draft failed: {exc}"
+                    prospect.updated_at = AiTeamService._now()
+                    db.add(prospect)
+            else:
+                prospect.status = "new"
+                db.add(prospect)
+            created += 1
+            prospects.append(AiTeamService.prospect_to_dict(db, prospect))
+
+        db.commit()
+        return {"ok": True, "created": created, "skipped": skipped, "prospects": prospects[:20]}
+
+    @staticmethod
+    def _parse_email_line(line: str) -> dict[str, Any] | None:
+        raw = str(line or "").strip()
+        if not raw or raw.startswith("#"):
+            return None
+        # Name <email@x.com>
+        m = re.match(r"^(.+?)\s*<([^>]+@[^>]+)>\s*$", raw)
+        if m:
+            name = m.group(1).strip().strip('"').strip("'")
+            email = m.group(2).strip().lower()
+            parts = name.split(None, 1)
+            return {
+                "email": email,
+                "first_name": parts[0] if parts else "",
+                "last_name": parts[1] if len(parts) > 1 else "",
+            }
+        # email, first, last, company
+        if "," in raw:
+            bits = [b.strip() for b in raw.split(",")]
+            email = bits[0].lower()
+            if "@" not in email:
+                return None
+            return {
+                "email": email,
+                "first_name": bits[1] if len(bits) > 1 else "",
+                "last_name": bits[2] if len(bits) > 2 else "",
+                "company_name": bits[3] if len(bits) > 3 else "",
+            }
+        if "@" in raw and " " not in raw:
+            return {"email": raw.lower()}
+        # fallback: find email token
+        em = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", raw, re.I)
+        if not em:
+            return None
+        email = em.group(0).lower()
+        name_part = raw[: em.start()].strip(" ,;-")
+        parts = name_part.split(None, 1) if name_part else []
+        return {
+            "email": email,
+            "first_name": parts[0] if parts else "",
+            "last_name": parts[1] if len(parts) > 1 else "",
+        }
+
+    @staticmethod
+    def import_emails_text(
+        db: Session,
+        text: str,
+        *,
+        company_name: str = "",
+        sector: str = "",
+        source: str = "paste",
+    ) -> dict[str, Any]:
+        lines = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        rows: list[dict[str, Any]] = []
+        for line in lines:
+            parsed = AiTeamService._parse_email_line(line)
+            if not parsed:
+                continue
+            if company_name and not parsed.get("company_name"):
+                parsed["company_name"] = company_name
+            if sector:
+                parsed["sector"] = sector
+            parsed["match_score"] = 75
+            rows.append(parsed)
+        if not rows:
+            raise AiTeamServiceError("No valid emails found to import")
+        return AiTeamService.import_prospect_rows(db, rows, source=source or "paste", apply_min_score=False)
+
+    @staticmethod
     def import_csv_prospects(db: Session, raw: bytes, mapping: dict[str, str]) -> dict[str, Any]:
         email_col = str(mapping.get("email") or "").strip()
         if not email_col:
@@ -363,59 +635,28 @@ class AiTeamService:
 
         text = decode_uploaded_text(raw)
         reader = csv.DictReader(io.StringIO(text))
-        settings = AiTeamService.get_settings(db)
-        keywords = [k.strip() for k in (settings.search_title_keywords or "").split(",") if k.strip()]
-        created = 0
-        skipped = 0
 
         def col(name: str) -> str:
-            key = str(mapping.get(name) or "").strip()
-            return key
+            return str(mapping.get(name) or "").strip()
 
+        rows: list[dict[str, Any]] = []
         for row in reader:
             email = str(row.get(email_col) or "").strip().lower()
             if not email or "@" not in email:
-                skipped += 1
                 continue
-            exists = db.execute(select(AiTeamProspect).where(AiTeamProspect.email == email)).scalar_one_or_none()
-            if exists is not None:
-                skipped += 1
-                continue
-            first_name = str(row.get(col("first_name")) or "").strip()
-            last_name = str(row.get(col("last_name")) or "").strip()
-            company = str(row.get(col("company_name")) or row.get(col("company")) or "").strip()
-            job_title = str(row.get(col("job_title")) or "").strip()
-            sector = str(row.get(col("sector")) or settings.search_sector or "").strip().lower()
-            country = str(row.get(col("country_code")) or row.get(col("country")) or "GB").strip().upper()[:8]
-            score = AiTeamService._score_prospect(job_title, company, keywords) if job_title else 70
-            if score < int(settings.search_min_score or 60):
-                skipped += 1
-                continue
-            now = AiTeamService._now()
-            if not sector:
-                sector = AiTeamService._infer_sector(job_title, company, settings.search_sector)
-            prospect = AiTeamProspect(
-                first_name=first_name,
-                last_name=last_name,
-                email=email,
-                job_title=job_title,
-                company_name=company,
-                sector=sector,
-                country_code=country or "GB",
-                match_score=score,
-                status="new",
-                source="csv",
-                profile_json=json.dumps(dict(row)),
-                created_at=now,
-                updated_at=now,
+            rows.append(
+                {
+                    "email": email,
+                    "first_name": str(row.get(col("first_name")) or "").strip(),
+                    "last_name": str(row.get(col("last_name")) or "").strip(),
+                    "company_name": str(row.get(col("company_name")) or row.get(col("company")) or "").strip(),
+                    "job_title": str(row.get(col("job_title")) or "").strip(),
+                    "sector": str(row.get(col("sector")) or "").strip().lower(),
+                    "country_code": str(row.get(col("country_code")) or row.get(col("country")) or "GB").strip().upper()[:8],
+                    "profile_json": dict(row),
+                }
             )
-            db.add(prospect)
-            db.flush()
-            AiTeamService.ensure_promo_for_prospect(db, prospect, settings)
-            AiTeamService.draft_email_for_prospect(db, prospect, settings)
-            created += 1
-        db.commit()
-        return {"ok": True, "created": created, "skipped": skipped}
+        return AiTeamService.import_prospect_rows(db, rows, source="csv", apply_min_score=False)
 
     @staticmethod
     def _infer_sector(job_title: str, company: str, configured: str) -> str:
@@ -464,21 +705,27 @@ class AiTeamService:
 
         offer_type = PromoOfferService.normalize_offer_type(settings.promo_offer_type)
         value = max(1, int(settings.promo_value or 50))
+        raw_type = str(settings.promo_offer_type or "").strip().lower()
         payload: dict[str, Any] = {
             "code": code,
             "name": f"AI Team · {prospect.company_name or prospect.email}",
-            "offer_type": offer_type,
             "expires_in_days": max(1, int(settings.promo_expiry_days or 14)),
             "max_redemptions": max(1, int(settings.promo_max_uses or 1)),
             "prospect_email": prospect.email,
             "prospect_name": f"{prospect.first_name} {prospect.last_name}".strip(),
         }
-        if offer_type == "survey_credits":
-            payload["survey_contacts_included"] = value
-        elif offer_type == "interview_credits":
-            payload["interview_contacts_included"] = value
+        if offer_type in {"expo", "expo_trial"} or raw_type in {"expo", "expo_trial"}:
+            payload["benefit_kind"] = "free_usage"
+            payload["service_kind"] = "expo"
+            payload["usage_amount"] = value
         else:
-            payload["trial_days"] = value
+            payload["offer_type"] = offer_type
+            if offer_type == "survey_credits":
+                payload["survey_contacts_included"] = value
+            elif offer_type == "interview_credits":
+                payload["interview_contacts_included"] = value
+            else:
+                payload["trial_days"] = value
 
         row = PromoOfferService.create_admin(db, payload)
         row.ai_team_prospect_id = prospect.id
@@ -521,10 +768,18 @@ class AiTeamService:
         }
 
     @staticmethod
-    def list_prospects(db: Session, *, status: str | None = None, q: str | None = None) -> list[AiTeamProspect]:
+    def list_prospects(
+        db: Session,
+        *,
+        status: str | None = None,
+        q: str | None = None,
+        source: str | None = None,
+    ) -> list[AiTeamProspect]:
         stmt = select(AiTeamProspect).order_by(AiTeamProspect.updated_at.desc())
         if status:
             stmt = stmt.where(AiTeamProspect.status == status)
+        if source:
+            stmt = stmt.where(AiTeamProspect.source == source)
         rows = list(db.execute(stmt).scalars().all())
         if q:
             needle = q.lower()
@@ -533,6 +788,7 @@ class AiTeamService:
                 if needle in (r.email or "").lower()
                 or needle in (r.company_name or "").lower()
                 or needle in f"{r.first_name} {r.last_name}".lower()
+                or needle in (r.source or "").lower()
             ]
         return rows
 
@@ -663,10 +919,20 @@ class AiTeamService:
     @staticmethod
     def send_prospect_email(db: Session, prospect: AiTeamProspect, *, subject: str | None = None, body: str | None = None) -> AiTeamProspect:
         settings = AiTeamService.get_settings(db)
-        api_key = AiTeamService._resend_key(db)
         from_addr = AiTeamService._from_address(settings)
         if not from_addr or "@" not in from_addr:
             raise AiTeamServiceError("From email is not configured")
+
+        # Daily send cap
+        day_start = AiTeamService._now().replace(hour=0, minute=0, second=0, microsecond=0)
+        sent_today = db.scalar(
+            select(func.count()).select_from(AiTeamProspect).where(AiTeamProspect.sent_at >= day_start)
+        ) or 0
+        # Count new sends only when this prospect has not been sent yet today as first touch;
+        # follow-ups still respect a soft cap via emails_sent_count checks below.
+        max_day = max(1, int(settings.max_emails_per_day or 10))
+        if prospect.sent_at is None and sent_today >= max_day:
+            raise AiTeamServiceError(f"Daily send limit reached ({max_day})")
 
         subj = (subject or prospect.draft_subject or "").strip()
         text = (body or prospect.draft_body or "").strip()
@@ -678,21 +944,20 @@ class AiTeamService:
         text_out = rendered["text"]
 
         try:
-            result = ResendService.send_email(
-                api_key,
-                from_email=from_addr,
+            result = AiTeamService._deliver_email(
+                db,
+                settings,
                 to_email=prospect.email,
                 subject=subj,
                 text=text_out,
                 html=html_out,
-                reply_to=(settings.reply_to_email or None),
             )
-        except ResendServiceError as exc:
+        except AiTeamServiceError as exc:
             prospect.last_error = str(exc)
             prospect.updated_at = AiTeamService._now()
             db.add(prospect)
             db.commit()
-            raise AiTeamServiceError(str(exc)) from exc
+            raise
 
         now = AiTeamService._now()
         msg = AiTeamMessage(
@@ -707,10 +972,11 @@ class AiTeamService:
             created_at=now,
         )
         prospect.status = "sent"
-        prospect.sent_at = now
+        prospect.sent_at = prospect.sent_at or now
         prospect.approved_at = prospect.approved_at or now
         prospect.emails_sent_count = int(prospect.emails_sent_count or 0) + 1
-        prospect.resend_email_id = result.get("email_id")
+        if result.get("email_id"):
+            prospect.resend_email_id = result.get("email_id")
         prospect.last_error = None
         prospect.updated_at = now
         db.add(msg)
@@ -952,19 +1218,323 @@ class AiTeamService:
         user = (settings.smtp_username or "").strip()
         if not host or not user:
             raise AiTeamServiceError("SMTP host and username are required")
-        pwd = None
-        if settings.smtp_password_enc:
-            pwd = get_encryptor().decrypt_str(settings.smtp_password_enc)
+        pwd = AiTeamService._smtp_password(settings)
         if not pwd:
             raise AiTeamServiceError("SMTP password is required")
-        to_addr = str(to_email or settings.inbox_email or user).strip()
-        msg = f"Subject: VoxBulk AI Team SMTP test\r\nFrom: {user}\r\nTo: {to_addr}\r\n\r\nSMTP connection test from AI Team settings."
-        context = ssl.create_default_context()
-        with smtplib.SMTP(host, port, timeout=20) as server:
-            server.starttls(context=context)
-            server.login(user, pwd)
-            server.sendmail(user, [to_addr], msg)
-        return {"ok": True, "message": f"SMTP test sent to {to_addr}"}
+        to_addr = str(to_email or settings.inbox_email or settings.from_email or user).strip()
+        result = AiTeamService._send_via_smtp(
+            settings,
+            to_email=to_addr,
+            subject="VoxBulk AI Team SMTP test",
+            text="SMTP connection test from AI Team settings.",
+            html="<p>SMTP connection test from AI Team settings.</p>",
+        )
+        return {"ok": True, "message": f"SMTP test sent to {to_addr}", "provider": result.get("provider")}
+
+    @staticmethod
+    def test_apify(db: Session, *, token: str | None = None) -> dict[str, Any]:
+        settings = AiTeamService.get_settings(db)
+        key = str(token or "").strip() or AiTeamService._apify_token(settings)
+        actor = (settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip() or None
+        try:
+            return ApifyService.test_connection(key, actor_id=actor)
+        except ApifyServiceError as exc:
+            raise AiTeamServiceError(str(exc)) from exc
+
+    @staticmethod
+    def test_all_connections(db: Session, *, to_email: str | None = None) -> dict[str, Any]:
+        settings = AiTeamService.get_settings(db)
+        checks: list[dict[str, Any]] = []
+
+        # Apify
+        try:
+            apify = AiTeamService.test_apify(db)
+            checks.append({"id": "apify", "ok": True, "message": apify.get("message") or "Apify OK"})
+        except Exception as exc:
+            checks.append({"id": "apify", "ok": False, "message": str(exc)})
+
+        # Email delivery
+        provider = AiTeamService._delivery_provider(settings)
+        to_addr = str(to_email or settings.inbox_email or settings.reply_to_email or settings.from_email or "").strip()
+        try:
+            if provider == "smtp":
+                if not (settings.smtp_host and settings.smtp_username and settings.smtp_password_enc):
+                    raise AiTeamServiceError("SMTP is not fully configured")
+                if to_addr and "@" in to_addr:
+                    smtp = AiTeamService.test_smtp(settings, to_email=to_addr, db=db)
+                    checks.append({"id": "email", "ok": True, "message": smtp.get("message") or "SMTP OK"})
+                else:
+                    # Login-only style check without requiring recipient
+                    host = settings.smtp_host
+                    port = int(settings.smtp_port or 587)
+                    user = settings.smtp_username
+                    pwd = AiTeamService._smtp_password(settings)
+                    context = ssl.create_default_context()
+                    if port == 465:
+                        with smtplib.SMTP_SSL(host, port, timeout=20, context=context) as server:
+                            server.login(user, pwd)
+                    else:
+                        with smtplib.SMTP(host, port, timeout=20) as server:
+                            server.starttls(context=context)
+                            server.login(user, pwd)
+                    checks.append({"id": "email", "ok": True, "message": "SMTP login OK (no test recipient)"})
+            else:
+                key = AiTeamService._resend_key(db)
+                if not key:
+                    raise AiTeamServiceError("Resend API key is not configured")
+                from_email = AiTeamService._from_address(settings)
+                fallback = to_addr or settings.from_email
+                res = ResendService.test_connection(key, from_email=from_email, to_email=fallback)
+                checks.append({"id": "email", "ok": True, "message": res.get("message") or "Resend OK"})
+        except Exception as exc:
+            checks.append({"id": "email", "ok": False, "message": str(exc)})
+
+        # From address
+        from_ok = bool(settings.from_email and "@" in settings.from_email)
+        checks.append({
+            "id": "from_email",
+            "ok": from_ok,
+            "message": settings.from_email if from_ok else "From email is not configured",
+        })
+
+        # Promo
+        promo_ok = bool(settings.promo_code_prefix)
+        checks.append({
+            "id": "promo",
+            "ok": promo_ok,
+            "message": f"Promo prefix {settings.promo_code_prefix or '—'} · type {settings.promo_offer_type or '—'}",
+        })
+
+        # DeepSeek (optional)
+        try:
+            deepseek_view = ProviderSettingsService.get_platform_config_admin_view(db, provider="deepseek")
+            deepseek_ok, _ = AiTeamService._provider_connection_flags(deepseek_view)
+            checks.append({
+                "id": "deepseek",
+                "ok": deepseek_ok,
+                "message": "DeepSeek configured" if deepseek_ok else "DeepSeek not configured (AI drafts need it)",
+            })
+        except Exception as exc:
+            checks.append({"id": "deepseek", "ok": False, "message": str(exc)})
+
+        all_ok = all(c["ok"] for c in checks if c["id"] in {"apify", "email", "from_email"})
+        return {"ok": all_ok, "provider": provider, "checks": checks}
+
+    @staticmethod
+    def _run_to_dict(row: AiTeamApifyRun) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "apify_run_id": row.apify_run_id,
+            "actor_id": row.actor_id,
+            "expo_url": row.expo_url,
+            "status": row.status,
+            "dataset_id": row.dataset_id,
+            "item_count": row.item_count,
+            "imported_count": row.imported_count,
+            "error": row.error,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            "finished_at": row.finished_at.isoformat() if row.finished_at else None,
+        }
+
+    @staticmethod
+    def start_apify_run(db: Session, *, expo_url: str, actor_id: str | None = None) -> dict[str, Any]:
+        settings = AiTeamService.get_settings(db)
+        token = AiTeamService._apify_token(settings)
+        if not token:
+            raise AiTeamServiceError("Apify API token is not configured")
+        url = str(expo_url or "").strip()
+        if not url.startswith("http"):
+            raise AiTeamServiceError("Enter a valid expo directory URL (https://…)")
+        actor = str(actor_id or settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip()
+        if not actor:
+            raise AiTeamServiceError("Configure an Apify actor ID in settings")
+
+        # Common actor input keys — actors ignore unknown fields
+        run_input = {
+            "startUrls": [{"url": url}],
+            "url": url,
+            "expoUrl": url,
+            "expo_url": url,
+        }
+        try:
+            started = ApifyService.start_actor_run(token, actor_id=actor, run_input=run_input)
+        except ApifyServiceError as exc:
+            raise AiTeamServiceError(str(exc)) from exc
+
+        now = AiTeamService._now()
+        row = AiTeamApifyRun(
+            apify_run_id=started.get("apify_run_id"),
+            actor_id=actor,
+            expo_url=url,
+            status=str(started.get("status") or "READY"),
+            dataset_id=started.get("dataset_id"),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {"ok": True, "run": AiTeamService._run_to_dict(row)}
+
+    @staticmethod
+    def list_apify_runs(db: Session, *, limit: int = 30) -> list[dict[str, Any]]:
+        rows = list(
+            db.execute(
+                select(AiTeamApifyRun).order_by(AiTeamApifyRun.created_at.desc()).limit(max(1, min(limit, 100)))
+            ).scalars().all()
+        )
+        return [AiTeamService._run_to_dict(r) for r in rows]
+
+    @staticmethod
+    def refresh_apify_run(db: Session, run_id: str) -> dict[str, Any]:
+        row = db.get(AiTeamApifyRun, run_id)
+        if row is None:
+            raise AiTeamServiceError("Apify run not found")
+        settings = AiTeamService.get_settings(db)
+        token = AiTeamService._apify_token(settings)
+        if not token or not row.apify_run_id:
+            raise AiTeamServiceError("Cannot refresh run — missing Apify token or run id")
+        try:
+            remote = ApifyService.get_run(token, apify_run_id=row.apify_run_id)
+        except ApifyServiceError as exc:
+            raise AiTeamServiceError(str(exc)) from exc
+
+        now = AiTeamService._now()
+        row.status = str(remote.get("status") or row.status)
+        if remote.get("dataset_id"):
+            row.dataset_id = remote.get("dataset_id")
+        row.stats_json = json.dumps(remote.get("stats") or {})
+        row.updated_at = now
+        if str(row.status).upper() in {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}:
+            row.finished_at = row.finished_at or now
+            if str(row.status).upper() != "SUCCEEDED":
+                row.error = row.error or f"Run ended with status {row.status}"
+            elif row.dataset_id:
+                try:
+                    items = ApifyService.fetch_dataset_items(token, dataset_id=row.dataset_id, limit=5000)
+                    row.item_count = len(items)
+                except ApifyServiceError as exc:
+                    row.error = str(exc)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {"ok": True, "run": AiTeamService._run_to_dict(row)}
+
+    @staticmethod
+    def preview_apify_run(db: Session, run_id: str, *, limit: int = 25) -> dict[str, Any]:
+        row = db.get(AiTeamApifyRun, run_id)
+        if row is None:
+            raise AiTeamServiceError("Apify run not found")
+        settings = AiTeamService.get_settings(db)
+        token = AiTeamService._apify_token(settings)
+        if not token or not row.dataset_id:
+            raise AiTeamServiceError("Dataset not ready yet — wait for the run to succeed")
+        try:
+            items = ApifyService.fetch_dataset_items(token, dataset_id=row.dataset_id, limit=500)
+        except ApifyServiceError as exc:
+            raise AiTeamServiceError(str(exc)) from exc
+
+        contacts = []
+        for item in items:
+            normalized = ApifyService.normalize_contact_item(
+                item, expo_url=row.expo_url, run_id=row.apify_run_id or row.id
+            )
+            if normalized:
+                contacts.append(normalized)
+        return {
+            "ok": True,
+            "run": AiTeamService._run_to_dict(row),
+            "total_items": len(items),
+            "contacts_with_email": len(contacts),
+            "preview": contacts[: max(1, min(limit, 100))],
+        }
+
+    @staticmethod
+    def import_apify_run(db: Session, run_id: str) -> dict[str, Any]:
+        preview = AiTeamService.preview_apify_run(db, run_id, limit=5000)
+        contacts = []
+        # Re-fetch full normalized list
+        row = db.get(AiTeamApifyRun, run_id)
+        settings = AiTeamService.get_settings(db)
+        token = AiTeamService._apify_token(settings)
+        items = ApifyService.fetch_dataset_items(token, dataset_id=row.dataset_id, limit=5000)
+        for item in items:
+            normalized = ApifyService.normalize_contact_item(
+                item, expo_url=row.expo_url, run_id=row.apify_run_id or row.id
+            )
+            if normalized:
+                contacts.append(normalized)
+        if not contacts:
+            raise AiTeamServiceError("No contacts with email found in this Apify dataset")
+        result = AiTeamService.import_prospect_rows(db, contacts, source="apify", apply_min_score=False)
+        row.imported_count = int(row.imported_count or 0) + int(result.get("created") or 0)
+        row.item_count = len(items)
+        row.updated_at = AiTeamService._now()
+        db.add(row)
+        db.commit()
+        return {
+            "ok": True,
+            "run": AiTeamService._run_to_dict(row),
+            "created": result.get("created"),
+            "skipped": result.get("skipped"),
+            "contacts_with_email": len(contacts),
+            "total_items": preview.get("total_items"),
+        }
+
+    @staticmethod
+    def process_due_followups(db: Session) -> dict[str, Any]:
+        settings = AiTeamService.get_settings(db)
+        if not settings.auto_followup or settings.agent_paused:
+            return {"ok": True, "sent": 0, "skipped": 0, "message": "Follow-ups paused or disabled"}
+        after_days = max(1, int(settings.followup_after_days or 3))
+        max_followups = max(0, int(settings.max_followups or 2))
+        if max_followups <= 0:
+            return {"ok": True, "sent": 0, "skipped": 0, "message": "max_followups is 0"}
+        cutoff = AiTeamService._now() - timedelta(days=after_days)
+        rows = list(
+            db.execute(
+                select(AiTeamProspect).where(
+                    AiTeamProspect.status.in_(["sent", "opened"]),
+                    AiTeamProspect.sent_at.isnot(None),
+                    AiTeamProspect.sent_at <= cutoff,
+                    AiTeamProspect.replied_at.is_(None),
+                )
+            ).scalars().all()
+        )
+        sent = 0
+        skipped = 0
+        for prospect in rows:
+            if int(prospect.followups_sent or 0) >= max_followups:
+                skipped += 1
+                continue
+            # Space follow-ups by followup_after_days from last outbound
+            last_msg = db.execute(
+                select(AiTeamMessage)
+                .where(AiTeamMessage.prospect_id == prospect.id, AiTeamMessage.direction == "outbound")
+                .order_by(AiTeamMessage.created_at.desc())
+            ).scalars().first()
+            if last_msg and last_msg.created_at and last_msg.created_at > cutoff:
+                skipped += 1
+                continue
+            subject = f"Re: {prospect.draft_subject or 'quick follow-up'}"
+            body = (
+                f"Hi {prospect.first_name or 'there'},\n\n"
+                f"Just bumping this in case it got buried. Happy to share a short demo of how "
+                f"VoxBulk helps teams like {prospect.company_name or 'yours'} capture expo leads.\n\n"
+                f"{settings.email_signature or _DEFAULT_SIGNATURE}"
+            )
+            try:
+                AiTeamService.send_prospect_email(db, prospect, subject=subject, body=body)
+                prospect.followups_sent = int(prospect.followups_sent or 0) + 1
+                prospect.updated_at = AiTeamService._now()
+                db.add(prospect)
+                db.commit()
+                sent += 1
+            except Exception as exc:
+                skipped += 1
+                logger.warning("ai_team_followup_failed", extra={"prospect_id": prospect.id, "error": str(exc)})
+        return {"ok": True, "sent": sent, "skipped": skipped}
 
     @staticmethod
     def generate_sample_email(db: Session) -> dict[str, Any]:
