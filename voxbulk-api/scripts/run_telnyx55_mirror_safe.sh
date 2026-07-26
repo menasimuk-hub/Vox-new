@@ -1,37 +1,51 @@
 #!/usr/bin/env bash
-# Slow Meta→Telnyx-55 catalog mirror for survey/system + all Customer Feedback.
-# Meta 99: no force re-push (CF skips when already linked). Telnyx 55: force mirror.
+# Organized Telnyx 55 catalog mirror:
+#   1) Customer Feedback — one industry to completion (stop on hard fail)
+#   2) Survey + system_buttoned — Telnyx backup only
+# Meta 99: CF skips when already linked (no force). Telnyx 55: force mirror.
 #
-# Usage (on VPS):
+# Usage (VPS):
 #   cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
-#   chmod +x scripts/run_telnyx55_mirror_safe.sh scripts/run_cf_industry_safe.sh
-#   ./scripts/run_telnyx55_mirror_safe.sh --dry-run
-#   ./scripts/run_telnyx55_mirror_safe.sh
+#   bash scripts/run_telnyx55_mirror_safe.sh
+#   bash scripts/run_telnyx55_mirror_safe.sh --industry-slug restaurant
+#   bash scripts/run_telnyx55_mirror_safe.sh --skip-survey
+#   bash scripts/run_telnyx55_mirror_safe.sh --skip-cf   # survey only
 #
-# tmux (survives SSH disconnect):
+# tmux:
 #   tmux new -s telnyx55-mirror
 #   cd /www/voxbulk/voxbulk-api && source .venv/bin/activate
-#   ./scripts/run_telnyx55_mirror_safe.sh
+#   bash scripts/run_telnyx55_mirror_safe.sh
 #   # Detach: Ctrl+B then D
-#   # Reattach: tmux attach -t telnyx55-mirror
 #
 set -euo pipefail
 
 DRY_RUN=0
 SKIP_SURVEY=0
 SKIP_CF=0
+INDUSTRY_SLUG=""
 SURVEY_DELAY_SEC="${SURVEY_DELAY_SEC:-25}"
 SURVEY_BATCH_SIZE="${SURVEY_BATCH_SIZE:-5}"
 PAUSE_BETWEEN_INDUSTRIES_SEC="${PAUSE_BETWEEN_INDUSTRIES_SEC:-120}"
+
+# Junk / empty auto-slugs (never push)
+SKIP_INDUSTRY_REGEX='^industry-[0-9]+$'
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --skip-survey) SKIP_SURVEY=1; shift ;;
     --skip-cf) SKIP_CF=1; shift ;;
+    --industry-slug)
+      INDUSTRY_SLUG="${2:-}"
+      if [[ -z "$INDUSTRY_SLUG" ]]; then
+        echo "ERROR: --industry-slug requires a value" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
     *)
       echo "Unknown arg: $1" >&2
-      echo "Usage: $0 [--dry-run] [--skip-survey] [--skip-cf]" >&2
+      echo "Usage: $0 [--dry-run] [--skip-survey] [--skip-cf] [--industry-slug SLUG]" >&2
       exit 2
       ;;
   esac
@@ -57,10 +71,17 @@ log() {
   echo "$@" | tee -a "$LOG_FILE"
 }
 
-log "=== Telnyx 55 safe catalog mirror ==="
+fail_stop() {
+  log "STOPPED: $*"
+  echo "stopped $(date -u +%Y-%m-%dT%H:%M:%SZ) reason=$*" >"$STATUS_FILE"
+  echo "log=${LOG_FILE}" >>"$STATUS_FILE"
+  exit 1
+}
+
+log "=== Telnyx 55 organized catalog mirror ==="
 log "Started: $(date -u +%Y-%m-%dT%H:%M:%SZ) PID=$$"
 log "Log: ${LOG_FILE}"
-log "dry_run=${DRY_RUN} skip_survey=${SKIP_SURVEY} skip_cf=${SKIP_CF}"
+log "dry_run=${DRY_RUN} skip_survey=${SKIP_SURVEY} skip_cf=${SKIP_CF} industry_slug=${INDUSTRY_SLUG:-all}"
 log "survey_delay=${SURVEY_DELAY_SEC}s survey_batch=${SURVEY_BATCH_SIZE}"
 echo "running" >"$STATUS_FILE"
 echo "log=${LOG_FILE}" >>"$STATUS_FILE"
@@ -72,32 +93,12 @@ python -u scripts/diag_wa_profile_matrix_counts.py --service survey 2>&1 | tee -
 python -u scripts/diag_wa_profile_matrix_counts.py --service customer_feedback 2>&1 | tee -a "$LOG_FILE"
 set -e
 
-if [[ "$SKIP_SURVEY" -eq 0 ]]; then
-  log ""
-  log "--- Phase A: survey + system_buttoned → Telnyx backup only ---"
-  DRY_FLAG=()
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    DRY_FLAG=(--dry-run)
-  fi
-  set +e
-  python -u scripts/mirror_survey_system_to_telnyx_backup.py \
-    --scope both \
-    --delay-sec "$SURVEY_DELAY_SEC" \
-    --batch-size "$SURVEY_BATCH_SIZE" \
-    "${DRY_FLAG[@]}" \
-    2>&1 | tee -a "$LOG_FILE"
-  EC=${PIPESTATUS[0]}
-  set -e
-  if [[ "$EC" -ne 0 ]]; then
-    log "WARN: survey/system mirror exited ${EC} — continuing to CF"
-  fi
-else
-  log "Skipping survey/system (--skip-survey)"
-fi
-
+# ---------------------------------------------------------------------------
+# Phase B first: Customer Feedback (one industry fully → next; stop on fail)
+# ---------------------------------------------------------------------------
 if [[ "$SKIP_CF" -eq 0 ]]; then
   log ""
-  log "--- Phase B: Customer Feedback industries (chunked, no Meta force) ---"
+  log "--- Phase B: Customer Feedback (organized, one industry to completion) ---"
   mapfile -t INDUSTRIES < <(
     python - <<'PY'
 from sqlalchemy import select
@@ -115,9 +116,18 @@ with get_sessionmaker()() as db:
 PY
   )
 
-  log "Industries: ${#INDUSTRIES[@]}"
+  if [[ -n "$INDUSTRY_SLUG" ]]; then
+    INDUSTRIES=("$INDUSTRY_SLUG")
+  fi
+
+  log "Industries queued: ${#INDUSTRIES[@]}"
   for slug in "${INDUSTRIES[@]}"; do
     [[ -z "$slug" ]] && continue
+    if [[ "$slug" =~ $SKIP_INDUSTRY_REGEX ]]; then
+      log "SKIP junk industry slug: ${slug}"
+      continue
+    fi
+
     log ""
     log "=== CF industry: ${slug} ==="
     if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -135,32 +145,46 @@ PY
       continue
     fi
 
+    # Always use bash — ignore executable bit (Windows git checkout often drops +x)
     set +e
-    # Prefer dedicated safe loop when present
-    if [[ -x scripts/run_cf_industry_safe.sh ]]; then
-      ./scripts/run_cf_industry_safe.sh "$slug" 2>&1 | tee -a "$LOG_FILE"
-      EC=${PIPESTATUS[0]}
-    else
-      python -u scripts/push_cf_service_chunked.py \
-        --industry-slug "$slug" \
-        --continue \
-        --topics-per-run 1 \
-        --lang-batch 2 \
-        --delay-sec 30 \
-        --profile-delay-sec 60 \
-        --pull-after-topic \
-        2>&1 | tee -a "$LOG_FILE"
-      EC=${PIPESTATUS[0]}
-    fi
+    bash scripts/run_cf_industry_safe.sh "$slug" 2>&1 | tee -a "$LOG_FILE"
+    EC=${PIPESTATUS[0]}
     set -e
     if [[ "$EC" -ne 0 ]]; then
-      log "WARN: industry ${slug} exited ${EC} — continuing next industry"
+      fail_stop "industry ${slug} exited ${EC} — fix error, then re-run with --industry-slug ${slug} (state saved)"
     fi
+    log "Industry ${slug} complete."
     log "Pausing ${PAUSE_BETWEEN_INDUSTRIES_SEC}s before next industry…"
     sleep "$PAUSE_BETWEEN_INDUSTRIES_SEC"
   done
 else
   log "Skipping CF (--skip-cf)"
+fi
+
+# ---------------------------------------------------------------------------
+# Phase A after CF: survey + system → Telnyx only
+# ---------------------------------------------------------------------------
+if [[ "$SKIP_SURVEY" -eq 0 ]]; then
+  log ""
+  log "--- Phase A: survey + system_buttoned → Telnyx backup only ---"
+  DRY_FLAG=()
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    DRY_FLAG=(--dry-run)
+  fi
+  set +e
+  python -u scripts/mirror_survey_system_to_telnyx_backup.py \
+    --scope both \
+    --delay-sec "$SURVEY_DELAY_SEC" \
+    --batch-size "$SURVEY_BATCH_SIZE" \
+    "${DRY_FLAG[@]}" \
+    2>&1 | tee -a "$LOG_FILE"
+  EC=${PIPESTATUS[0]}
+  set -e
+  if [[ "$EC" -ne 0 ]]; then
+    fail_stop "survey/system mirror exited ${EC}"
+  fi
+else
+  log "Skipping survey/system (--skip-survey)"
 fi
 
 log ""
