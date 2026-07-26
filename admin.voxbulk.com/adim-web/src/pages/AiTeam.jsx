@@ -407,9 +407,13 @@ export default function AiTeam() {
 
   const runTestApify = async () => {
     setApifyTestResult(null)
+    const hasUserId = !!(settings.apify_user_id || '').trim()
     if (!apifyToken.trim() && !settings.apify_token_configured) {
-      setApifyTestResult({ ok: false, message: 'Paste your Apify API token first, then click Test' })
-      showBanner('err', 'Paste your Apify API token first')
+      const msg = hasUserId
+        ? 'User ID is set, but you still need the Personal API token (starts with apify_api_). Paste it, then Test.'
+        : 'Paste User ID (optional) + Personal API token (apify_api_…), then click Test'
+      setApifyTestResult({ ok: false, message: msg })
+      showBanner('err', msg)
       return
     }
     await act('test-apify', async () => {
@@ -418,6 +422,7 @@ export default function AiTeam() {
           method: 'POST',
           body: JSON.stringify({
             apify_token: apifyToken.trim() || undefined,
+            apify_user_id: (settings.apify_user_id || '').trim() || undefined,
             // Token test only — do not fail token save because of a bad Actor ID
             check_actor: false,
           }),
@@ -439,6 +444,7 @@ export default function AiTeam() {
           ...s,
           apify_token_configured: true,
           apify_connected: true,
+          apify_user_id: data.apify_user_id || data.user_id || s.apify_user_id || '',
         }))
         if (apifyToken) setApifyToken('')
         try {
@@ -451,18 +457,25 @@ export default function AiTeam() {
       } catch (e) {
         const msg = e?.message || 'Apify connection failed'
         setApifyTestResult({ ok: false, message: msg })
+        if (/user id/i.test(msg)) {
+          try {
+            const dash = await apiFetch('/admin/ai-team/dashboard')
+            if (dash.settings) setSettings(dash.settings)
+          } catch { /* ignore */ }
+        }
         throw e
       }
     })
   }
 
   const saveApifySettings = async () => {
-    if (!apifyToken.trim() && !settings.apify_token_configured) {
-      showBanner('err', 'Paste your Apify API token before saving')
+    if (!apifyToken.trim() && !settings.apify_token_configured && !(settings.apify_user_id || '').trim()) {
+      showBanner('err', 'Paste User ID and/or Personal API token before saving')
       return
     }
     await saveSettings({
       apify_token: apifyToken || undefined,
+      apify_user_id: settings.apify_user_id || '',
       apify_exhibitor_actor_id: settings.apify_exhibitor_actor_id || '',
       apify_contact_actor_id: settings.apify_contact_actor_id || '',
     })
@@ -988,10 +1001,18 @@ export default function AiTeam() {
                   )}
                   <div className="ait-fg-2">
                     <div className="ait-field">
-                      <label>API token</label>
-                      <input type="password" placeholder={settings.apify_token_configured ? '••••••••' : 'apify_api_…'} value={apifyToken} onChange={(e) => setApifyToken(e.target.value)} />
+                      <label>User ID</label>
+                      <input
+                        value={settings.apify_user_id || ''}
+                        onChange={(e) => setSettings({ ...settings, apify_user_id: e.target.value })}
+                        placeholder="from Apify account / settings (e.g. 346ec9…)"
+                      />
                     </div>
                     <div className="ait-field">
+                      <label>Personal API token</label>
+                      <input type="password" placeholder={settings.apify_token_configured ? '••••••••' : 'apify_api_…'} value={apifyToken} onChange={(e) => setApifyToken(e.target.value)} />
+                    </div>
+                    <div className="ait-field" style={{ gridColumn: '1 / -1' }}>
                       <label>Actor ID</label>
                       <input value={settings.apify_exhibitor_actor_id || ''} onChange={(e) => setSettings({ ...settings, apify_exhibitor_actor_id: e.target.value })} placeholder="username~actor-name" />
                     </div>
@@ -1007,16 +1028,16 @@ export default function AiTeam() {
                     <label>Second actor (optional)</label>
                     <input value={settings.apify_contact_actor_id || ''} onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })} placeholder="optional" />
                   </div>
+                  <div className="ait-msg-banner ok" style={{ margin: '0 0 10px', padding: '8px 10px' }}>
+                    <strong>User ID</strong> = account id (what you had as <code>346ec9…</code>).{' '}
+                    <strong>Personal API token</strong> = secret starting with <code>apify_api_</code>. Both can be saved; only the token connects the API.
+                  </div>
                   <div className="ait-msg-banner err" style={{ margin: '0 0 10px', padding: '8px 10px' }}>
-                    Optional. Only needed for Apify Store actors. Exhibitor directories (e.g. London Packaging Week) use the <strong>Scrape</strong> tab — no token required.
+                    Optional for Store actors. Easyfairs exhibitor directories use the <strong>Scrape</strong> tab — no Apify needed.
                   </div>
                   <p className="ait-hint">
-                    If you do use Apify: copy the <strong>Personal API token</strong> that starts with{' '}
-                    <code>apify_api_</code> from{' '}
-                    <a href="https://console.apify.com/settings/integrations" target="_blank" rel="noreferrer">
-                      console.apify.com/settings/integrations
-                    </a>
-                    . Do not paste Actor IDs, UUIDs, or proxy passwords.
+                    Token: <a href="https://console.apify.com/settings/integrations" target="_blank" rel="noreferrer">console.apify.com/settings/integrations</a>
+                    {' '}→ Personal API tokens → copy value starting with <code>apify_api_</code>.
                   </p>
                 </div>
               )}

@@ -49,6 +49,21 @@ class ApifyService:
         return f"{key[:6]}...{key[-4:]} (len={len(key)})"
 
     @staticmethod
+    def looks_like_user_id(value: str | None) -> bool:
+        """True when a paste looks like an Apify account user id / UUID — not an API token."""
+        key = ApifyService.normalize_token(value)
+        if not key or key.startswith("apify_api_"):
+            return False
+        compact = key.replace("-", "")
+        # UUID (with/without hyphens) or similar hex account id
+        if re.fullmatch(r"[0-9a-fA-F]{32,42}", compact):
+            return True
+        # Short Apify-style public ids (letters+digits, no token prefix)
+        if re.fullmatch(r"[A-Za-z0-9]{10,24}", key) and not key.startswith("apify_"):
+            return True
+        return False
+
+    @staticmethod
     def _headers(token: str) -> dict[str, str]:
         key = ApifyService.normalize_token(token)
         return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
@@ -72,7 +87,17 @@ class ApifyService:
                 "Copy the full Personal API token from Apify Console → Settings → Integrations "
                 "(it usually starts with apify_api_ and is longer than 40 characters)."
             )
-        if not key.startswith("apify_api_"):
+        if ApifyService.looks_like_user_id(key) or not key.startswith("apify_api_"):
+            if ApifyService.looks_like_user_id(key):
+                raise ApifyServiceError(
+                    "That looks like an Apify User ID "
+                    f"({ApifyService.token_fingerprint(key)}), not the Personal API token. "
+                    "Paste it into the User ID field. "
+                    "Then copy the Personal API token that starts with apify_api_ from "
+                    "https://console.apify.com/settings/integrations — "
+                    "User ID alone cannot connect to Apify. "
+                    "Or use the Scrape tab (no Apify needed for Easyfairs directories)."
+                )
             raise ApifyServiceError(
                 "That value does not look like an Apify Personal API token "
                 f"(got {ApifyService.token_fingerprint(key)}). "

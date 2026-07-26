@@ -151,6 +151,7 @@ class AiTeamService:
             "email_delivery_provider": (row.email_delivery_provider or "smtp").strip().lower() or "smtp",
             "resend_sending_domain": row.resend_sending_domain,
             "apify_token_configured": bool(AiTeamService._apify_token_configured(db, row)),
+            "apify_user_id": (getattr(row, "apify_user_id", None) or "").strip(),
             "apify_exhibitor_actor_id": row.apify_exhibitor_actor_id or "",
             "apify_contact_actor_id": row.apify_contact_actor_id or "",
             "run_schedule": row.run_schedule,
@@ -182,7 +183,11 @@ class AiTeamService:
         if raw_apify:
             key = ApifyService.normalize_token(str(raw_apify))
             if key:
-                AiTeamService.persist_apify_token(db, key)
+                if ApifyService.looks_like_user_id(key):
+                    # Common paste mistake — store as user id, do not treat as API token.
+                    payload = {**payload, "apify_user_id": key}
+                else:
+                    AiTeamService.persist_apify_token(db, key)
 
         row = AiTeamService.get_settings(db)
         now = AiTeamService._now()
@@ -191,7 +196,7 @@ class AiTeamService:
             "sender_name", "reply_to_email", "from_email", "writing_instruction", "email_signature",
             "email_language", "email_tone", "promo_code_prefix", "promo_offer_type", "promo_code_mode",
             "smtp_host", "smtp_username", "inbox_email", "resend_sending_domain", "email_delivery_provider",
-            "apify_exhibitor_actor_id", "apify_contact_actor_id",
+            "apify_user_id", "apify_exhibitor_actor_id", "apify_contact_actor_id",
             "run_schedule", "sending_window",
         ]
         int_fields = [
@@ -270,23 +275,68 @@ class AiTeamService:
             return ""
 
     @staticmethod
+    def persist_apify_user_id(db: Session, user_id: str | None) -> str:
+        """Store Apify account user id (optional; does not authenticate by itself)."""
+        uid = ApifyService.normalize_token(str(user_id or ""))
+        if not uid:
+            return ""
+        if len(uid) > 128:
+            raise AiTeamServiceError("Apify user ID is too long")
+        row = AiTeamService.get_settings(db)
+        row.apify_user_id = uid
+        row.updated_at = AiTeamService._now()
+        db.add(row)
+        db.commit()
+        # Keep a copy on provider_configs next to the API key when present
+        try:
+            cfg, _ = ProviderSettingsService.get_platform_config_decrypted(db, provider="apify")
+            merged = dict(cfg or {})
+            merged["user_id"] = uid
+            if merged.get("api_key"):
+                ProviderSettingsService.upsert_platform_config(
+                    db, provider="apify", is_enabled=True, config=merged
+                )
+        except Exception:
+            logger.warning("apify_user_id_provider_write_failed", exc_info=True)
+        return uid
+
+    @staticmethod
     def persist_apify_token(db: Session, token: str) -> str:
         """Normalize, validate against Apify, then persist. Returns the cleaned token."""
         key = ApifyService.normalize_token(token)
         if not key:
             raise AiTeamServiceError("Apify API token is required")
+        # Common mistake: paste User ID into the token box — save it as user id, then explain.
+        if ApifyService.looks_like_user_id(key):
+            try:
+                AiTeamService.persist_apify_user_id(db, key)
+            except Exception:
+                logger.warning("apify_user_id_autosave_failed", exc_info=True)
+            raise AiTeamServiceError(
+                "That looks like an Apify User ID "
+                f"({ApifyService.token_fingerprint(key)}) — saved into the User ID field. "
+                "You still need the Personal API token that starts with apify_api_ from "
+                "https://console.apify.com/settings/integrations. "
+                "User ID alone cannot connect. Or use the Scrape tab (no Apify needed)."
+            )
         # Validate BEFORE writing so we never store a rejected token.
         try:
-            ApifyService.test_connection(key, actor_id=None)
+            result = ApifyService.test_connection(key, actor_id=None)
         except ApifyServiceError as exc:
             raise AiTeamServiceError(str(exc)) from exc
+        remote_uid = str(result.get("user_id") or "").strip()
+        config: dict[str, Any] = {"api_key": key}
+        if remote_uid:
+            config["user_id"] = remote_uid
         ProviderSettingsService.upsert_platform_config(
-            db, provider="apify", is_enabled=True, config={"api_key": key}
+            db, provider="apify", is_enabled=True, config=config
         )
         # Dual-write when column exists
         try:
             row = AiTeamService.get_settings(db)
             row.apify_token_enc = get_encryptor().encrypt_str(key)
+            if remote_uid:
+                row.apify_user_id = remote_uid
             row.updated_at = AiTeamService._now()
             db.add(row)
             db.commit()

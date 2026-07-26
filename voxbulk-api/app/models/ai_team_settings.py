@@ -56,6 +56,7 @@ class AiTeamSettings(Base):
 
     # Apify (expo exhibitor / contact scrape)
     apify_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    apify_user_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     apify_exhibitor_actor_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     apify_contact_actor_id: Mapped[str] = mapped_column(String(255), nullable=False, default="")
 

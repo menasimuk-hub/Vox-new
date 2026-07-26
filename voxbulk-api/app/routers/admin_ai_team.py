@@ -402,9 +402,13 @@ def test_email_account(body: dict[str, Any], db: Session = Depends(get_db), _adm
 def test_apify(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     """Validate with Apify first, save only if valid, then re-test the DB-stored token."""
     raw_token = ApifyService.normalize_token(str(body.get("apify_token") or body.get("api_token") or ""))
+    raw_user_id = ApifyService.normalize_token(str(body.get("apify_user_id") or body.get("user_id") or ""))
     token_saved = False
     source = "request"
     try:
+        if raw_user_id:
+            AiTeamService.persist_apify_user_id(db, raw_user_id)
+
         if raw_token:
             AiTeamService.persist_apify_token(db, raw_token)
             token_saved = True
@@ -413,9 +417,18 @@ def test_apify(body: dict[str, Any], db: Session = Depends(get_db), _admin: User
             settings = AiTeamService.get_settings(db)
             saved = AiTeamService._apify_token(settings, db=db)
             if not saved:
+                uid = (settings.apify_user_id or raw_user_id or "").strip()
+                if uid:
+                    raise AiTeamServiceError(
+                        f"User ID saved ({ApifyService.token_fingerprint(uid)}), but Apify still needs "
+                        "the Personal API token that starts with apify_api_ "
+                        "(Console → Settings → Integrations). User ID alone cannot connect. "
+                        "Or use the Scrape tab — no Apify needed for Easyfairs directories."
+                    )
                 raise AiTeamServiceError(
                     "No Apify token pasted and none saved in DB. "
-                    "Paste the token from Apify Console → Settings → Integrations, then click Test."
+                    "Paste User ID (optional) + Personal API token (apify_api_…) from "
+                    "Apify Console → Settings → Integrations, then click Test."
                 )
             ApifyService.test_connection(saved, actor_id=None)
             source = "database"
@@ -440,12 +453,14 @@ def test_apify(body: dict[str, Any], db: Session = Depends(get_db), _admin: User
         stored = AiTeamService._apify_token(settings, db=db)
         result["token_saved"] = bool(token_saved and configured and stored)
         result["apify_token_configured"] = configured
+        result["apify_user_id"] = (settings.apify_user_id or result.get("user_id") or "").strip()
         result["token_source"] = source
         result["token_fingerprint"] = ApifyService.token_fingerprint(stored)
         if result.get("ok") and result["token_saved"]:
+            uid_bit = f" · user {result['apify_user_id']}" if result.get("apify_user_id") else ""
             result["message"] = (
                 f"{result.get('message') or 'Apify connected'} · "
-                f"token saved in DB ({result['token_fingerprint']})"
+                f"token saved in DB ({result['token_fingerprint']}){uid_bit}"
             )
         elif result.get("ok") and not result["token_saved"]:
             result["ok"] = False
