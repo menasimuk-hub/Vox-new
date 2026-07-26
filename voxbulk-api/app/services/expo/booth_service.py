@@ -36,6 +36,7 @@ from app.services.expo.question_bank import (
     default_free_gift_text,
     default_question_config,
     parse_closing_config,
+    parse_contact_capture,
     parse_question_config,
     parse_representative_contacts,
 )
@@ -412,6 +413,7 @@ class ExpoBoothService:
             "hot_count": int(hot_count),
             "question_config": {"steps": parse_question_config(booth.question_config_json)},
             "closing": parse_closing_config(booth.question_config_json),
+            "contact_capture": parse_contact_capture(booth.question_config_json),
             "trigger_text": trigger,
             "whatsapp_url": wa_url,
             "web_url": urls["web_url"],

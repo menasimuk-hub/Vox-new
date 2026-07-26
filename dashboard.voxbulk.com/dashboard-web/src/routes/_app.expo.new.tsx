@@ -7,15 +7,9 @@ import {
   Eye,
   FileUp,
   Package,
-  Pencil,
-  Plus,
   QrCode,
   Rocket,
   Target,
-  Trash2,
-  Upload,
-  Link2,
-  X,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -23,6 +17,15 @@ import { toast } from "sonner";
 import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
 import { ExpoPayDialog } from "@/components/expo-pay-dialog";
 import { ExpoScanChoosePreview, ExpoWaPhonePreview, ExpoWebPhonePreview } from "@/components/expo-phone-preview";
+import {
+  categoriesToPayload,
+  CategoryProductsEditor,
+  emptyRepresentative,
+  RepresentativesEditor,
+  representativesToPayload,
+  type CategoryDraft,
+  type RepresentativeDraft,
+} from "@/components/expo-booth-sections";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +33,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { apiFetch, apiUploadFiles } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -50,6 +53,7 @@ type Package = {
   features: string[];
   is_featured?: boolean;
   lead_scoring_enabled?: boolean;
+  max_categories?: number | null;
 };
 type QuestionOpt = {
   key: string;
@@ -57,27 +61,6 @@ type QuestionOpt = {
   label: string;
   description?: string;
   matches_products?: boolean;
-};
-type AssetPurpose = "catalogue" | "price_list" | "product";
-
-type AssetDraft = {
-  id: string;
-  title: string;
-  short_description: string;
-  source: "link" | "upload";
-  external_url: string;
-  storage_path: string;
-  original_filename: string;
-  match_keywords: string;
-  kind: string;
-  purpose: AssetPurpose;
-  is_default: boolean;
-};
-
-const PURPOSE_LABELS: Record<AssetPurpose, string> = {
-  catalogue: "Catalogue",
-  price_list: "Price list",
-  product: "Product",
 };
 
 const EXPO_STEPS: WizardStepDef[] = [
@@ -100,10 +83,6 @@ function defaultFreeGiftText(companyName: string) {
   return `Please collect your free gift from ${name}'s stand team — thanks for completing the short questionnaire!`;
 }
 
-function newAssetId() {
-  return `a-${Math.random().toString(36).slice(2, 10)}`;
-}
-
 export const Route = createFileRoute("/_app/expo/new")({
   head: () => ({ meta: [{ title: "Create Expo booth — VoxBulk" }] }),
   component: CreateExpoBooth,
@@ -114,7 +93,6 @@ function CreateExpoBooth() {
   const queryClient = useQueryClient();
   const role = normalizeOrgRole(session?.profile?.role);
   const canCreate = canLaunchCampaigns(role);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const industriesQ = useQuery({
     queryKey: ["expo", "industries"],
@@ -150,21 +128,12 @@ function CreateExpoBooth() {
     if (freeGiftCustomized) return;
     setFreeGiftText(defaultFreeGiftText(company));
   }, [company, freeGiftCustomized]);
-  const [savedAssets, setSavedAssets] = React.useState<AssetDraft[]>([]);
-  const [draft, setDraft] = React.useState<Omit<AssetDraft, "id">>({
-    title: "",
-    short_description: "",
-    source: "upload",
-    external_url: "",
-    storage_path: "",
-    original_filename: "",
-    match_keywords: "",
-    kind: "pdf",
-    purpose: "catalogue",
-    is_default: true,
-  });
-  const [uploading, setUploading] = React.useState(false);
-  const [editingId, setEditingId] = React.useState<string | null>(null);
+  const [representatives, setRepresentatives] = React.useState<RepresentativeDraft[]>(() => [
+    emptyRepresentative(session?.org?.name || ""),
+  ]);
+  const [companyWebsite, setCompanyWebsite] = React.useState("");
+  const [notifyMobile, setNotifyMobile] = React.useState("");
+  const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
   const [packageId, setPackageId] = React.useState("");
   const [packageStartDate, setPackageStartDate] = React.useState(() => {
     const d = new Date();
@@ -221,10 +190,9 @@ function CreateExpoBooth() {
     return `${y}-${m}-${day}`;
   }, [packageDays, packageStartDate]);
 
-  const draftReady =
-    Boolean(draft.title.trim()) &&
-    ((draft.source === "link" && Boolean(draft.external_url.trim())) ||
-      (draft.source === "upload" && Boolean(draft.storage_path.trim())));
+  const categoryMaxCategories: number | null | undefined = selectedPackage
+    ? selectedPackage.max_categories ?? null
+    : undefined;
 
   const canNext: Record<Step, boolean> = {
     1: Boolean(industryId),
@@ -234,71 +202,6 @@ function CreateExpoBooth() {
     5: true,
     6: Boolean(packageId),
     7: true,
-  };
-
-  const addOrUpdateProduct = () => {
-    if (!draftReady) {
-      toast.error("Add a title and upload a file or paste a link");
-      return;
-    }
-    const item: AssetDraft = { ...draft, id: editingId || newAssetId() };
-    setSavedAssets((rows) => {
-      const without = rows.filter((r) => r.id !== item.id);
-      const next = [...without, item];
-      if (item.is_default) {
-        return next.map((r) => ({ ...r, is_default: r.id === item.id }));
-      }
-      if (!next.some((r) => r.is_default)) {
-        next[0] = { ...next[0], is_default: true };
-      }
-      return next;
-    });
-    const nextPurpose: AssetPurpose =
-      item.purpose === "catalogue"
-        ? "price_list"
-        : item.purpose === "price_list"
-          ? "product"
-          : "product";
-    setDraft({
-      title: "",
-      short_description: "",
-      source: "upload",
-      external_url: "",
-      storage_path: "",
-      original_filename: "",
-      match_keywords: "",
-      kind: "pdf",
-      // After saving a catalogue, default the next file to price list so both are easy to add.
-      purpose: nextPurpose,
-      is_default: false,
-    });
-    setEditingId(null);
-    toast.success(editingId ? "Product updated" : "Product added");
-  };
-
-  const uploadFile = async (file: File) => {
-    setUploading(true);
-    try {
-      const res = (await apiUploadFiles("/expo/assets/upload", [file], "file")) as {
-        item?: { storage_path?: string; original_filename?: string; kind?: string };
-      };
-      const item = res?.item || {};
-      setDraft((d) => ({
-        ...d,
-        source: "upload",
-        storage_path: String(item.storage_path || ""),
-        original_filename: String(item.original_filename || file.name),
-        kind: String(item.kind || "pdf"),
-        title: d.title.trim() || String(item.original_filename || file.name),
-        external_url: "",
-      }));
-      toast.success("File uploaded");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
   };
 
   if (!canCreate) {
@@ -312,12 +215,19 @@ function CreateExpoBooth() {
   }
 
   const activate = async () => {
-    const assets =
-      savedAssets.length > 0
-        ? savedAssets
-        : draftReady
-          ? [{ ...draft, id: newAssetId() }]
-          : [];
+    if (
+      selectedPackage &&
+      typeof selectedPackage.max_categories === "number" &&
+      categories.length > selectedPackage.max_categories
+    ) {
+      toast.error(
+        `${selectedPackage.name} allows up to ${selectedPackage.max_categories} categor${
+          selectedPackage.max_categories === 1 ? "y" : "ies"
+        }. Remove a category or choose a bigger package.`,
+      );
+      setStep(4);
+      return;
+    }
     setSaving(true);
     try {
       const keys = [...selectedQKeys];
@@ -338,17 +248,10 @@ function CreateExpoBooth() {
         free_gift_text: freeGiftEnabled ? freeGiftText.trim() : null,
         package_id: packageId,
         start_date: packageStartDate,
-        assets: assets.map((a, idx) => ({
-          title: a.title.trim(),
-          short_description: a.short_description.trim() || null,
-          external_url: a.source === "link" ? a.external_url.trim() || null : null,
-          storage_path: a.source === "upload" ? a.storage_path.trim() || null : null,
-          match_keywords: a.match_keywords.trim() || null,
-          kind: a.kind || (a.source === "upload" ? "pdf" : "link"),
-          purpose: a.purpose || "product",
-          is_default: a.is_default || idx === 0,
-          sort_order: (idx + 1) * 10,
-        })),
+        representatives: representativesToPayload(representatives),
+        company_website: companyWebsite.trim() || null,
+        notify_mobile: notifyMobile.trim() || null,
+        categories: categoriesToPayload(categories),
       };
       const res = await apiFetch<{ ok: boolean; item: typeof created & { id: string } }>("/expo/booths", {
         method: "POST",
@@ -459,34 +362,55 @@ function CreateExpoBooth() {
         )}
 
         {step === 2 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Event & booth</CardTitle>
-              <CardDescription>Two fields per row — keep stand details clear for the QR message.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label>Exhibition name</Label>
-                <Input
-                  value={exhibitionName}
-                  onChange={(e) => setExhibitionName(e.target.value)}
-                  placeholder="UK Construction Week"
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Event & booth</CardTitle>
+                <CardDescription>Two fields per row — keep stand details clear for the QR message.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Exhibition name</Label>
+                  <Input
+                    value={exhibitionName}
+                    onChange={(e) => setExhibitionName(e.target.value)}
+                    placeholder="UK Construction Week"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Venue</Label>
+                  <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Excel London" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Booth / stand code</Label>
+                  <Input value={boothCode} onChange={(e) => setBoothCode(e.target.value)} placeholder="H45" />
+                </div>
+                <div className="space-y-2">
+                  <Label>Company name on WhatsApp</Label>
+                  <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Supplies" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Representative contacts</CardTitle>
+                <CardDescription>
+                  Who visitors are meeting — shown on the digital business card visitors can save.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <RepresentativesEditor
+                  representatives={representatives}
+                  onChange={setRepresentatives}
+                  companyWebsite={companyWebsite}
+                  onCompanyWebsiteChange={setCompanyWebsite}
+                  notifyMobile={notifyMobile}
+                  onNotifyMobileChange={setNotifyMobile}
                 />
-              </div>
-              <div className="space-y-2">
-                <Label>Venue</Label>
-                <Input value={venue} onChange={(e) => setVenue(e.target.value)} placeholder="Excel London" />
-              </div>
-              <div className="space-y-2">
-                <Label>Booth / stand code</Label>
-                <Input value={boothCode} onChange={(e) => setBoothCode(e.target.value)} placeholder="H45" />
-              </div>
-              <div className="space-y-2">
-                <Label>Company name on WhatsApp</Label>
-                <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Supplies" />
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {step === 3 && (
@@ -616,223 +540,18 @@ function CreateExpoBooth() {
             <CardHeader>
               <CardTitle className="text-base">Products & files</CardTitle>
               <CardDescription>
-                Optional — add catalogue, price list, or product files. Visitors who consent get catalogue/price list
-                downloads; product sheets can match interest. Skip to capture leads only.
+                Optional — group products into categories with catalogue, price list, or product sheet files.
+                Visitors who consent get catalogue/price list downloads; product sheets can match interest. Skip to
+                capture leads only.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-5">
-              {savedAssets.length > 0 ? (
-                <ul className="space-y-2">
-                  {savedAssets.map((a) => (
-                    <li
-                      key={a.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {a.title}
-                          {a.is_default ? (
-                            <span className="ml-2 text-[10px] font-normal uppercase text-primary">Default</span>
-                          ) : null}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {PURPOSE_LABELS[a.purpose] || "Product"}
-                          {" · "}
-                          {a.source === "upload"
-                            ? a.original_filename || a.kind
-                            : a.external_url}
-                        </p>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          aria-label="Edit"
-                          onClick={() => {
-                            setEditingId(a.id);
-                            setDraft({
-                              title: a.title,
-                              short_description: a.short_description,
-                              source: a.source,
-                              external_url: a.external_url,
-                              storage_path: a.storage_path,
-                              original_filename: a.original_filename,
-                              match_keywords: a.match_keywords,
-                              kind: a.kind,
-                              purpose: a.purpose || "product",
-                              is_default: a.is_default,
-                            });
-                          }}
-                        >
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          aria-label="Delete"
-                          onClick={() => setSavedAssets((rows) => rows.filter((r) => r.id !== a.id))}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              <div className="grid gap-3 rounded-xl border p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium">{editingId ? "Edit product" : "Add a product"}</p>
-                  {editingId ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setEditingId(null);
-                        setDraft({
-                          title: "",
-                          short_description: "",
-                          source: "upload",
-                          external_url: "",
-                          storage_path: "",
-                          original_filename: "",
-                          match_keywords: "",
-                          kind: "pdf",
-                          purpose: "product",
-                          is_default: false,
-                        });
-                      }}
-                    >
-                      <X className="mr-1 size-3.5" /> Cancel
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="space-y-2">
-                  <Label>Type</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
-                    value={draft.purpose}
-                    onChange={(e) =>
-                      setDraft((d) => ({
-                        ...d,
-                        purpose: (e.target.value as AssetPurpose) || "product",
-                      }))
-                    }
-                    required
-                  >
-                    <option value="catalogue">Catalogue</option>
-                    <option value="price_list">Price list</option>
-                    <option value="product">Product sheet</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground">
-                    Catalogue and price list are offered when visitors consent to receive info.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Title</Label>
-                  <Input
-                    value={draft.title}
-                    onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-                    placeholder="2026 Price List"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Match keywords (optional)</Label>
-                  <Input
-                    value={draft.match_keywords}
-                    onChange={(e) => setDraft((d) => ({ ...d, match_keywords: e.target.value }))}
-                    placeholder="price, pricing, catalogue, brochure"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Used when visitors ask for a price list or catalogue — match these words to this file.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Short description</Label>
-                  <Textarea
-                    value={draft.short_description}
-                    onChange={(e) => setDraft((d) => ({ ...d, short_description: e.target.value }))}
-                    placeholder="Bulk & trade pricing for UK distributors"
-                    rows={2}
-                  />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={draft.source === "upload" ? "default" : "outline"}
-                    disabled={uploading}
-                    onClick={() => {
-                      setDraft((d) => ({
-                        ...d,
-                        source: "upload",
-                        external_url: "",
-                        kind: d.kind || "pdf",
-                      }));
-                      fileInputRef.current?.click();
-                    }}
-                  >
-                    <Upload className="mr-1.5 size-3.5" />
-                    {uploading ? "Uploading…" : draft.storage_path ? "Replace file" : "Upload file"}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={draft.source === "link" ? "default" : "outline"}
-                    onClick={() =>
-                      setDraft((d) => ({
-                        ...d,
-                        source: "link",
-                        storage_path: "",
-                        original_filename: "",
-                        kind: "link",
-                      }))
-                    }
-                  >
-                    <Link2 className="mr-1.5 size-3.5" />
-                    Paste link
-                  </Button>
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xls,.xlsx,.csv,application/pdf,image/*,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void uploadFile(file);
-                  }}
-                />
-                {draft.source === "upload" ? (
-                  <p className="text-xs text-muted-foreground">
-                    PDF, image or Excel (max 20 MB).
-                    {draft.storage_path ? ` Uploaded: ${draft.original_filename || "file"}` : ""}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    <Label>PDF / brochure / Excel URL</Label>
-                    <Input
-                      value={draft.external_url}
-                      onChange={(e) => setDraft((d) => ({ ...d, external_url: e.target.value }))}
-                      placeholder="https://…"
-                    />
-                  </div>
-                )}
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={draft.is_default}
-                    onCheckedChange={(v) => setDraft((d) => ({ ...d, is_default: Boolean(v) }))}
-                  />
-                  Default when visitor just says “send info”
-                </label>
-                <Button type="button" onClick={addOrUpdateProduct} disabled={!draftReady || uploading}>
-                  <Plus className="mr-1.5 size-4" />
-                  {editingId ? "Save changes" : "Add to product list"}
-                </Button>
-              </div>
+            <CardContent>
+              <CategoryProductsEditor
+                categories={categories}
+                onChange={setCategories}
+                maxCategories={categoryMaxCategories}
+                packages={packages}
+              />
             </CardContent>
           </Card>
         )}
@@ -1110,12 +829,7 @@ function CreateExpoBooth() {
             <Button
               type="button"
               disabled={!canNext[step]}
-              onClick={() => {
-                if (step === 4 && draftReady && savedAssets.length === 0) {
-                  addOrUpdateProduct();
-                }
-                setStep((s) => (s < 7 ? ((s + 1) as Step) : s));
-              }}
+              onClick={() => setStep((s) => (s < 7 ? ((s + 1) as Step) : s))}
             >
               Next <ChevronRight className="ml-1 size-4" />
             </Button>

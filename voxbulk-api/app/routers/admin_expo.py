@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.models.expo import ExpoIndustry, ExpoQuestionTemplate
 from app.services.expo.booth_service import ExpoBoothService
 from app.services.expo.question_bank import list_selectable_questions
+from app.services.expo.question_bank import SYSTEM_TEMPLATE_KEYS
 from app.services.expo.results_service import ExpoResultsService
 from app.services.expo.seed_service import ExpoSeedService
 
@@ -120,6 +121,7 @@ def list_questions(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP
                 "matches_products": bool(r.matches_products),
                 "is_active": bool(r.is_active),
                 "sort_order": r.sort_order,
+                "is_system": str(r.question_key or "") in SYSTEM_TEMPLATE_KEYS,
             }
             for r in rows
         ],

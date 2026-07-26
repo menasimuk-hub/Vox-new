@@ -21,8 +21,9 @@ _CHANGE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 _LIST_PRODUCTS = re.compile(
-    r"\b(?:list|show|what|which)\b.{0,40}\b(?:products?|catalogue|catalog|brochures?|files?|pdfs?)\b"
-    r"|\b(?:products?|catalogue|catalog)\b.{0,20}\b(?:list|have|available)\b",
+    r"(?:\b(?:list|show)\b.{0,30}\b(?:your|the|all|our|any|available|me)\b.{0,24}\b(?:products?|catalogue|catalog|brochures?|files?|pdfs?)\b)"
+    r"|(?:\b(?:what|which)\b.{0,40}\b(?:products?|catalogue|catalog|brochures?|files?)\b)"
+    r"|(?:\b(?:products?|catalogue|catalog)\b.{0,20}\b(?:list|have|available)\b)",
     re.I,
 )
 _SEND_ALL = re.compile(

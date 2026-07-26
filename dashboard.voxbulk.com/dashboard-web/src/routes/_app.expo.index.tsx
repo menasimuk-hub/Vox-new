@@ -7,6 +7,7 @@ import {
   Eye,
   Flame,
   Minus,
+  Pencil,
   Plus,
   QrCode,
   Trash2,
@@ -429,6 +430,11 @@ function ExpoHub() {
                     <Button size="sm" variant="ghost" className="gap-1.5" asChild>
                       <Link to="/expo/leads" search={{ booth_id: it.id }}>
                         <Eye className="size-3.5" /> Results
+                      </Link>
+                    </Button>
+                    <Button size="sm" variant="ghost" className="gap-1.5" asChild>
+                      <Link to="/expo/$boothId/edit" params={{ boothId: it.id }}>
+                        <Pencil className="size-3.5" /> Edit
                       </Link>
                     </Button>
                     <Button

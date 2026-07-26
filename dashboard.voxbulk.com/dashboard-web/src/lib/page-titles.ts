@@ -19,6 +19,11 @@ const map: Record<string, T> = {
   "/feedback/compare": { title: "Compare locations", subtitle: "Multi-location survey comparison" },
   "/feedback/edit": { title: "Edit QR survey", subtitle: "Topics and closing questions" },
 
+  "/expo": { title: "Saved Expo booths", subtitle: "Manage exhibition QR codes" },
+  "/expo/new": { title: "Create Expo booth", subtitle: "Exhibition lead capture wizard" },
+  "/expo/leads": { title: "Expo lead results", subtitle: "WhatsApp & web leads" },
+  "/expo/edit": { title: "Edit Expo booth", subtitle: "Event, questions and products" },
+
   "/recovery": { title: "Recovery queue", subtitle: "Missed-appointment outreach" },
   "/recovery/no-show": { title: "No-show follow-up", subtitle: "AI calling settings" },
   "/recovery/emergency": { title: "Emergency reschedule", subtitle: "Mass cancel + rebook" },

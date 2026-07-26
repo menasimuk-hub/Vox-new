@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -95,6 +95,11 @@ def _advance_payload(
         "assets": public_assets if public_assets is not None else assets,
         "asset_options": public_asset_options if public_asset_options is not None else asset_options,
         "thank_you_followup": result.get("thank_you_followup"),
+        "company_card": result.get("company_card"),
+        "representatives": result.get("representatives"),
+        "company_website": result.get("company_website"),
+        "pre_thank_you_messages": result.get("pre_thank_you_messages"),
+        "vcard_url": f"/public/expo/{token}/vcard" if token else result.get("vcard_url_hint"),
         "contact_via": result.get("contact_via"),
         "card_fields": result.get("card_fields"),
         "summary": result.get("summary"),
@@ -126,6 +131,20 @@ def get_booth_logo(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Logo not found")
     return FileResponse(path, media_type=media_type_for_key(str(storage_key)))
 
+
+@router.get("/{token}/vcard")
+def get_booth_vcard(token: str, db: Session = Depends(get_db)):
+    """Download exhibitor representative contacts as a .vcf for Save to phone."""
+    booth = ExpoBoothService.find_by_token(db, token)
+    if booth is None:
+        raise HTTPException(status_code=404, detail="Booth not found")
+    body = ExpoBoothService.booth_vcard(db, booth)
+    filename = f"{(booth.company_display_name or booth.name or 'contact').replace(' ', '-')[:40]}.vcf"
+    return Response(
+        content=body,
+        media_type="text/vcard",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @router.get("/{token}")
 def get_booth_public(token: str, db: Session = Depends(get_db)):

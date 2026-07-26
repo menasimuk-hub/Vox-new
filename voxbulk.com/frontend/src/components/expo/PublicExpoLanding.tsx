@@ -79,6 +79,17 @@ type AdvanceResult = {
   card_fields?: Record<string, string | null>;
   error?: string;
   summary?: ExpoSummary;
+  company_card?: string | null;
+  representatives?: Array<{
+    name?: string;
+    company_name?: string;
+    email?: string;
+    mobile?: string;
+    telephone?: string;
+    website?: string;
+  }> | null;
+  company_website?: string | null;
+  vcard_url?: string | null;
   at_start?: boolean;
   step_index?: number;
   step_total?: number;
@@ -327,6 +338,19 @@ export function PublicExpoLanding({
   const [selectedValues, setSelectedValues] = useState<string[]>([]);
   const [downloadAssets, setDownloadAssets] = useState<ExpoAsset[]>([]);
   const [summary, setSummary] = useState<ExpoSummary | null>(null);
+  const [companyCard, setCompanyCard] = useState<string | null>(null);
+  const [representatives, setRepresentatives] = useState<
+    Array<{
+      name?: string;
+      company_name?: string;
+      email?: string;
+      mobile?: string;
+      telephone?: string;
+      website?: string;
+    }>
+  >([]);
+  const [companyWebsite, setCompanyWebsite] = useState<string | null>(null);
+  const [vcardUrl, setVcardUrl] = useState<string | null>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
   const voiceRef = useRef<VoiceDetailHandle>(null);
   const sessionIdRef = useRef("");
@@ -431,6 +455,16 @@ export function PublicExpoLanding({
     if (typeof res.step_index === "number" && res.step_index > 0) setProgressIndex(res.step_index);
     if (typeof res.step_total === "number" && res.step_total > 0) setProgressTotal(res.step_total);
     if (res.summary) setSummary(res.summary);
+    if (res.company_card) setCompanyCard(String(res.company_card));
+    if (Array.isArray(res.representatives)) setRepresentatives(res.representatives);
+    if (res.company_website) setCompanyWebsite(String(res.company_website));
+    if (res.vcard_url) {
+      const raw = String(res.vcard_url);
+      if (raw.startsWith("http")) setVcardUrl(raw);
+      else setVcardUrl(`${getApiBaseUrl().replace(/\/$/, "")}${raw.startsWith("/") ? raw : `/${raw}`}`);
+    } else if (token) {
+      setVcardUrl(`${getApiBaseUrl().replace(/\/$/, "")}/public/expo/${encodeURIComponent(token)}/vcard`);
+    }
     const fromAssets = Array.isArray(res.assets)
       ? (res.assets as ExpoAsset[]).filter((a) => a && (a.url || a.id))
       : [];
@@ -971,6 +1005,54 @@ export function PublicExpoLanding({
                     </li>
                   ))}
                 </ul>
+              </div>
+            ) : null}
+            {(companyCard || representatives.length > 0) ? (
+              <div
+                className="animate-confetti-rise mt-4 rounded-2xl border p-4 text-left shadow-soft"
+                style={{
+                  animationDelay: "330ms",
+                  background: theme.card,
+                  borderColor: theme.border,
+                }}
+              >
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: theme.sub }}>
+                  Stay in touch
+                </p>
+                {companyCard ? (
+                  <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed" style={{ color: theme.ink }}>
+                    {companyCard}
+                  </p>
+                ) : (
+                  <ul className="mt-2 space-y-2">
+                    {representatives.map((rep, idx) => (
+                      <li key={`${rep.email || rep.name || idx}`} className="text-[13px]" style={{ color: theme.ink }}>
+                        <div className="font-medium">{rep.name || brandName}</div>
+                        {rep.company_name ? (
+                          <div style={{ color: theme.sub }}>{rep.company_name}</div>
+                        ) : null}
+                        {rep.email ? <div>{rep.email}</div> : null}
+                        {rep.mobile ? <div>{rep.mobile}</div> : null}
+                        {rep.telephone ? <div>{rep.telephone}</div> : null}
+                      </li>
+                    ))}
+                    {companyWebsite ? (
+                      <li className="text-[13px]" style={{ color: theme.sub }}>
+                        {companyWebsite}
+                      </li>
+                    ) : null}
+                  </ul>
+                )}
+                {vcardUrl ? (
+                  <a
+                    href={vcardUrl}
+                    download
+                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold"
+                    style={DOWNLOAD_BTN_STYLE}
+                  >
+                    Save contacts to phone
+                  </a>
+                ) : null}
               </div>
             ) : null}
             {downloadAssets.length ? (

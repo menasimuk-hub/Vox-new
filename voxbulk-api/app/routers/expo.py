@@ -127,6 +127,24 @@ def get_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(ge
     return {"ok": True, "item": ExpoBoothService.serialize_booth(db, booth)}
 
 
+@router.patch("/booths/{booth_id}")
+def patch_booth(booth_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Update event, questions, closing, representatives, and product categories (QR token stays)."""
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    owner_filter = _campaign_owner_user_id(db, principal)
+    _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    try:
+        item = ExpoBoothService.update_booth(
+            db, org_id=principal.org_id, booth_id=booth_id, payload=payload or {}
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "item": item}
+
 @router.get("/booths/{booth_id}/pay/options")
 def booth_pay_options(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     """Available Stripe / Airwallex rails + package amount for Expo go-live checkout."""

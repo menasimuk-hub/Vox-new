@@ -352,7 +352,14 @@ export default function WaExpoTemplatesPanel({ onError, onMessage }) {
                         ) : (
                           <span className="font-medium">{q.label}</span>
                         )}
-                        <div className="text-[11px] text-muted-foreground">{q.key}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {q.key}
+                          {q.is_system ? (
+                            <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
+                              System
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-3 py-2">
                         {editQ?.id === q.id ? (
