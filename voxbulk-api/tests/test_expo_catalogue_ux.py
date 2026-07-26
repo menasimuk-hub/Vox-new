@@ -224,7 +224,7 @@ def test_correct_detected_language_forces_arabic_over_turkish():
     assert correct_detected_language("Hello there", "en") == "en"
 
 
-def test_ensure_question_templates_is_insert_missing_only():
+def test_ensure_question_templates_soft_prefixes_emoji_without_rewriting_wording():
     with get_sessionmaker()() as db:
         # Fresh test DB may not have run the app-startup seed yet — seed once first.
         ExpoSeedService._ensure_question_templates(db)
@@ -246,4 +246,21 @@ def test_ensure_question_templates_is_insert_missing_only():
             select(ExpoQuestionTemplate).where(ExpoQuestionTemplate.question_key == "interest")
         ).scalar_one_or_none()
         assert refreshed is not None
-        assert refreshed.prompt == custom_prompt
+        # Soft-prefix topic emoji only — wording stays intact.
+        assert refreshed.prompt == f"🎯 {custom_prompt}"
+
+        ExpoSeedService._ensure_question_templates(db)
+        db.commit()
+        again = db.execute(
+            select(ExpoQuestionTemplate).where(ExpoQuestionTemplate.question_key == "interest")
+        ).scalar_one_or_none()
+        assert again is not None
+        assert again.prompt == f"🎯 {custom_prompt}"
+
+
+def test_with_topic_emoji_does_not_double_prefix():
+    from app.services.expo.question_bank import with_topic_emoji
+
+    assert with_topic_emoji("interest", "What are you looking for?") == "🎯 What are you looking for?"
+    assert with_topic_emoji("interest", "🎯 Already set") == "🎯 Already set"
+    assert with_topic_emoji("role", "👔 Role question") == "👔 Role question"

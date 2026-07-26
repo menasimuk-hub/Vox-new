@@ -31,6 +31,7 @@ from app.services.expo.question_bank import (
     enrich_step_payload,
     parse_contact_capture,
     parse_question_config,
+    with_topic_emoji,
 )
 from app.services.customer_feedback.feedback_answer_service import TRANSLATION_UNAVAILABLE_EN
 from app.services.expo.business_card_ocr_service import (
@@ -41,7 +42,7 @@ from app.services.expo.business_card_ocr_service import (
 from app.services.expo.scoring_service import score_lead
 
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
-CONTACT_CONFIRM_PROMPT = "Please check your details and continue."
+CONTACT_CONFIRM_PROMPT = "✅ Please check your details and continue."
 
 _YES_WORDS = frozenset({"yes", "y", "yeah", "yep", "sure", "ok", "okay", "please", "affirmative"})
 _NO_WORDS = frozenset({"no", "n", "nope", "nah", "negative", "not interested", "no thanks"})
@@ -1175,7 +1176,10 @@ class ExpoSessionFlowService:
 
         if channel_l == "web":
             named = ", ".join(_consent_asset_option_label(a) for a in assets[:6])
-            result["prompt"] = f"Would you like our {offer}? We have: {named}. Select all you'd like to download."
+            result["prompt"] = with_topic_emoji(
+                "consent_info",
+                f"Would you like our {offer}? We have: {named}. Select all you'd like to download.",
+            )
             if lead is not None:
                 from app.services.expo.offer_delivery_service import asset_public_url_for_lead
 
@@ -1188,7 +1192,7 @@ class ExpoSessionFlowService:
             return result
 
         # WhatsApp — numbered emoji prompt; files are only sent once the visitor replies.
-        lines = [f"📋 Would you like our {offer}?"]
+        lines = [with_topic_emoji("consent_info", f"Would you like our {offer}?")]
         for idx, a in enumerate(assets, start=1):
             lines.append(f"{_emoji_digit(idx)} {_consent_asset_option_label(a)}")
         lines.append(f"{_emoji_digit(len(assets) + 1)} No thanks")
@@ -1299,11 +1303,14 @@ class ExpoSessionFlowService:
             prompt = str(next_step.get("prompt") or "")
             if channel == "web" and next_step.get("prompt_web"):
                 prompt = str(next_step.get("prompt_web") or prompt)
+            prompt = with_topic_emoji(key, prompt)
             if channel == "whatsapp" and key in WEB_CHOICE_OPTIONS and key != "consent_info":
                 opts = WEB_CHOICE_OPTIONS[key]
                 lines = [prompt, ""]
                 for idx, opt in enumerate(opts, start=1):
                     lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
+                lines.append("")
+                lines.append("Reply with the number, e.g. 1")
                 prompt = "\n".join(line for line in lines if line is not None).strip()
             return _empty_step_result(
                 done=False,

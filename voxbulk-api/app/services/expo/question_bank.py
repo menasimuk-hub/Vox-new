@@ -43,13 +43,13 @@ CONTACT_PROMPT_WA = (
     "(photo skips typing name, company and mobile)."
 )
 CONTACT_PROMPT_WEB = (
-    "Upload a photo of your business card, or enter your name and company "
+    "👋 Upload a photo of your business card, or enter your name and company "
     "(photo skips typing name, company and mobile)."
 )
 CONTACT_PROMPT_WA_CARD_ONLY = "📷 Please send a photo of your business card to continue."
-CONTACT_PROMPT_WEB_CARD_ONLY = "Please upload a photo of your business card to continue."
+CONTACT_PROMPT_WEB_CARD_ONLY = "📷 Please upload a photo of your business card to continue."
 CONTACT_PROMPT_WA_MANUAL = "👤 What's your full name?"
-CONTACT_PROMPT_WEB_MANUAL = "What's your full name?"
+CONTACT_PROMPT_WEB_MANUAL = "👤 What's your full name?"
 CONTACT_COMPANY_PROMPT = "🏢 Which company or organisation do you represent?"
 CONTACT_MOBILE_PROMPT = "📱 What's the best mobile number to reach you on?"
 
@@ -68,35 +68,35 @@ def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp") -> str:
 SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     {
         "key": "interest",
-        "prompt": "What are you looking for today at our stand?",
+        "prompt": "🎯 What are you looking for today at our stand?",
         "label": "What they're looking for",
         "description": "Open interest — used for product matching and lead scoring.",
         "matches_products": True,
     },
     {
         "key": "role",
-        "prompt": "Which best describes your role?",
+        "prompt": "👔 Which best describes your role?",
         "label": "Role",
         "description": "Buyer / specifier / influencer — qualifies the lead.",
         "matches_products": False,
     },
     {
         "key": "timeline",
-        "prompt": "When are you planning to decide or take the next step?",
+        "prompt": "🗓️ When are you planning to decide or take the next step?",
         "label": "Buying timeline",
         "description": "Used for Hot / Warm / Cold scoring.",
         "matches_products": False,
     },
     {
         "key": "follow_up",
-        "prompt": "How should we follow up after the show? (you can pick more than one)",
+        "prompt": "📞 How should we follow up after the show? (you can pick more than one)",
         "label": "Follow-up preference",
         "description": "Preferred contact channel after the show.",
         "matches_products": False,
     },
     {
         "key": "consent_info",
-        "prompt": "Would you like our catalogue and/or price list? Select all that apply.",
+        "prompt": "📋 Would you like our catalogue and/or price list? Select all that apply.",
         "label": "Catalogue / price list",
         "description": "Shown when the booth has catalogue or price-list files — visitor can download what they want.",
         "matches_products": False,
@@ -104,49 +104,49 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     # Optional extras (not selected by default)
     {
         "key": "products_wanted",
-        "prompt": "Which product or brochure should we send you?",
+        "prompt": "📦 Which product or brochure should we send you?",
         "label": "Product request",
         "description": "Visitor names a product — matched to your uploaded files.",
         "matches_products": True,
     },
     {
         "key": "budget",
-        "prompt": "Do you have a rough budget in mind for this?",
+        "prompt": "💷 Do you have a rough budget in mind for this?",
         "label": "Budget",
         "description": "Optional budget band.",
         "matches_products": False,
     },
     {
         "key": "volume",
-        "prompt": "Roughly what volume or quantity are you thinking about?",
+        "prompt": "📊 Roughly what volume or quantity are you thinking about?",
         "label": "Volume / quantity",
         "description": "Order size / volume.",
         "matches_products": False,
     },
     {
         "key": "decision_maker",
-        "prompt": "Are you the decision-maker for this, or recommending to someone else?",
+        "prompt": "✅ Are you the decision-maker for this, or recommending to someone else?",
         "label": "Decision-maker",
         "description": "Buying authority signal.",
         "matches_products": False,
     },
     {
         "key": "sourcing",
-        "prompt": "Are you sourcing for your business, or for events?",
+        "prompt": "🏢 Are you sourcing for your business, or for events?",
         "label": "Business or events",
         "description": "Useful for hospitality / trade stands.",
         "matches_products": False,
     },
     {
         "key": "need_price_list",
-        "prompt": "Would you like our latest price list?",
+        "prompt": "💰 Would you like our latest price list?",
         "label": "Need price list",
         "description": "Optional — usually covered by automatic product matching after interest.",
         "matches_products": True,
     },
     {
         "key": "need_catalogue",
-        "prompt": "Would you like our product catalogue or brochure?",
+        "prompt": "📘 Would you like our product catalogue or brochure?",
         "label": "Need catalogue",
         "description": "Optional — usually covered by automatic product matching after interest.",
         "matches_products": True,
@@ -156,45 +156,88 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
 _DEFAULT_SELECTED_KEYS = ("interest", "role", "timeline", "follow_up", "consent_info")
 _BANK_BY_KEY = {q["key"]: q for q in SELECTABLE_QUESTION_BANK}
 
+# Topic emoji for WA/web prompts — applied at send time so existing booths get them too.
+QUESTION_TOPIC_EMOJI: dict[str, str] = {
+    "contact": "👋",
+    "interest": "🎯",
+    "role": "👔",
+    "timeline": "🗓️",
+    "follow_up": "📞",
+    "consent_info": "📋",
+    "products_wanted": "📦",
+    "budget": "💷",
+    "volume": "📊",
+    "decision_maker": "✅",
+    "sourcing": "🏢",
+    "need_price_list": "💰",
+    "need_catalogue": "📘",
+    "industry_addon": "✨",
+    "name": "👤",
+    "company": "🏢",
+}
+
+
+def with_topic_emoji(key: str, prompt: str) -> str:
+    """Prefix a professional topic emoji when the prompt does not already start with one."""
+    clean = str(prompt or "").strip()
+    if not clean:
+        return clean
+    emoji = QUESTION_TOPIC_EMOJI.get(str(key or "").strip())
+    if not emoji:
+        return clean
+    if clean.startswith(emoji):
+        return clean
+    # Already has any known topic emoji / common leading symbol
+    known = set(QUESTION_TOPIC_EMOJI.values()) | {"📷", "🎁", "💬", "✅", "👋", "📱"}
+    for mark in known:
+        if clean.startswith(mark):
+            return clean
+    # Generic emoji / symbol at start (skip double-prefix)
+    first = clean[0]
+    if ord(first) > 0x24FF or first in "✨⭐✓✔":
+        return clean
+    return f"{emoji} {clean}"
+
+
 # Closed-choice UI for Expo web (CF-style buttons). Open keys stay text+voice.
 WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
     "role": [
-        {"value": "Buyer", "label": "Buyer / purchasing"},
-        {"value": "Specifier", "label": "Specifier / technical"},
-        {"value": "Influencer", "label": "Influencer / recommender"},
-        {"value": "Other", "label": "Other"},
+        {"value": "Buyer", "label": "🛒 Buyer / purchasing"},
+        {"value": "Specifier", "label": "🔧 Specifier / technical"},
+        {"value": "Influencer", "label": "💡 Influencer / recommender"},
+        {"value": "Other", "label": "👤 Other"},
     ],
     "timeline": [
-        {"value": "This week", "label": "This week"},
-        {"value": "This month", "label": "This month"},
-        {"value": "This quarter", "label": "This quarter"},
-        {"value": "Later", "label": "Later"},
-        {"value": "Just exploring", "label": "Just exploring"},
+        {"value": "This week", "label": "⚡ This week"},
+        {"value": "This month", "label": "📅 This month"},
+        {"value": "This quarter", "label": "🗓️ This quarter"},
+        {"value": "Later", "label": "⏳ Later"},
+        {"value": "Just exploring", "label": "👀 Just exploring"},
     ],
     "follow_up": [
-        {"value": "WhatsApp", "label": "WhatsApp"},
-        {"value": "Email", "label": "Email"},
-        {"value": "Call", "label": "Call"},
+        {"value": "WhatsApp", "label": "💬 WhatsApp"},
+        {"value": "Email", "label": "✉️ Email"},
+        {"value": "Call", "label": "📞 Call"},
     ],
     "consent_info": [
-        {"value": "Yes", "label": "Yes, please"},
-        {"value": "No", "label": "No thanks"},
+        {"value": "Yes", "label": "✅ Yes, please"},
+        {"value": "No", "label": "🙅 No thanks"},
     ],
     "need_price_list": [
-        {"value": "Yes", "label": "Yes"},
-        {"value": "No", "label": "No"},
+        {"value": "Yes", "label": "✅ Yes"},
+        {"value": "No", "label": "🙅 No"},
     ],
     "need_catalogue": [
-        {"value": "Yes", "label": "Yes"},
-        {"value": "No", "label": "No"},
+        {"value": "Yes", "label": "✅ Yes"},
+        {"value": "No", "label": "🙅 No"},
     ],
     "sourcing": [
-        {"value": "Business", "label": "For my business"},
-        {"value": "Events", "label": "For events"},
+        {"value": "Business", "label": "🏢 For my business"},
+        {"value": "Events", "label": "🎉 For events"},
     ],
     "decision_maker": [
-        {"value": "Decision-maker", "label": "I'm the decision-maker"},
-        {"value": "Recommending", "label": "Recommending to someone else"},
+        {"value": "Decision-maker", "label": "✅ I'm the decision-maker"},
+        {"value": "Recommending", "label": "🤝 Recommending to someone else"},
     ],
 }
 

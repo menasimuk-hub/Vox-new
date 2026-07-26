@@ -58,13 +58,13 @@ INDUSTRY_SEEDS: list[dict] = [
 ]
 
 UNIVERSAL_QUESTIONS: list[dict] = [
-    {"key": "name", "prompt": "Hi! Thanks for stopping by our stand today — what's your name?"},
-    {"key": "company", "prompt": "Which company or organisation do you represent?"},
-    {"key": "interest", "prompt": "What is the main thing you're looking for or interested in right now?"},
-    {"key": "timeline", "prompt": "When are you planning to make a decision or take action on this?"},
+    {"key": "name", "prompt": "👤 Hi! Thanks for stopping by our stand today — what's your name?"},
+    {"key": "company", "prompt": "🏢 Which company or organisation do you represent?"},
+    {"key": "interest", "prompt": "🎯 What is the main thing you're looking for or interested in right now?"},
+    {"key": "timeline", "prompt": "🗓️ When are you planning to make a decision or take action on this?"},
     {
         "key": "consent_info",
-        "prompt": "Would you like us to send you our latest information and special offers? (Yes / No)",
+        "prompt": "📋 Would you like us to send you our latest information and special offers? (Yes / No)",
     },
 ]
 
@@ -159,7 +159,7 @@ class ExpoSeedService:
 
     @staticmethod
     def _ensure_question_templates(db: Session) -> None:
-        from app.services.expo.question_bank import SELECTABLE_QUESTION_BANK
+        from app.services.expo.question_bank import SELECTABLE_QUESTION_BANK, with_topic_emoji
 
         now = datetime.utcnow()
         for idx, q in enumerate(SELECTABLE_QUESTION_BANK):
@@ -182,7 +182,13 @@ class ExpoSeedService:
                         updated_at=now,
                     )
                 )
-            # Existing Admin-edited rows are never overwritten (insert-missing only).
+            else:
+                # Soft-prefix topic emoji only — never rewrite Admin wording.
+                prefixed = with_topic_emoji(key, row.prompt or "")
+                if prefixed and prefixed != (row.prompt or ""):
+                    row.prompt = prefixed[:4000]
+                    row.updated_at = now
+                    db.add(row)
         db.flush()
 
     @staticmethod
