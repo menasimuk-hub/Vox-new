@@ -27,6 +27,8 @@ _EMPTY_SUMMARY: dict[str, Any] = {
     "warm": 0,
     "cold": 0,
     "offers_sent": 0,
+    "catalogue_requested": 0,
+    "assets_opened": 0,
     "booths_total": 0,
     "booths_live": 0,
     "daily": [],
@@ -188,6 +190,13 @@ class ExpoResultsService:
             "warm": sum(1 for lead in leads if lead.lead_score == "warm"),
             "cold": sum(1 for lead in leads if lead.lead_score == "cold"),
             "offers_sent": sum(1 for lead in leads if lead.offer_sent_at is not None),
+            "catalogue_requested": sum(1 for lead in leads if lead.consent_acknowledged),
+            "assets_opened": sum(
+                1
+                for lead in leads
+                if str(getattr(lead, "assets_opened_json", None) or "").strip()
+                not in {"", "[]", "null"}
+            ),
             "booths_total": len(booths),
             "booths_live": booths_live,
             "daily": daily,
@@ -201,6 +210,9 @@ class ExpoResultsService:
         booth_id: str | None = None,
         lead_id: str | None = None,
         score: str | None = None,
+        catalogue_requested: bool | None = None,
+        price_list_requested: bool | None = None,
+        asset_opened: bool | None = None,
         created_by_user_id: str | None = None,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
@@ -215,13 +227,26 @@ class ExpoResultsService:
             q = q.where(ExpoLead.id == str(lead_id).strip())
         if score:
             q = q.where(ExpoLead.lead_score == str(score).strip().lower())
+        if catalogue_requested is True:
+            q = q.where(ExpoLead.consent_acknowledged.is_(True))
+        elif catalogue_requested is False:
+            q = q.where(ExpoLead.consent_acknowledged.is_(False))
         capped = max(1, min(int(limit or 200), 5000))
         rows = db.execute(q.order_by(ExpoLead.created_at.desc()).limit(capped)).scalars().all()
 
         booths = {
             b.id: b for b in db.execute(select(ExpoBooth).where(ExpoBooth.id.in_(booth_ids))).scalars().all()
         }
-        return [ExpoResultsService._lead_to_dict(lead, booths.get(lead.booth_id)) for lead in rows]
+        items = [ExpoResultsService._lead_to_dict(lead, booths.get(lead.booth_id)) for lead in rows]
+        if price_list_requested is True:
+            items = [i for i in items if i.get("price_list_requested")]
+        elif price_list_requested is False:
+            items = [i for i in items if not i.get("price_list_requested")]
+        if asset_opened is True:
+            items = [i for i in items if int(i.get("assets_opened_count") or 0) > 0]
+        elif asset_opened is False:
+            items = [i for i in items if int(i.get("assets_opened_count") or 0) == 0]
+        return items
 
     @staticmethod
     def delete_lead(
@@ -356,12 +381,26 @@ class ExpoResultsService:
 
     @staticmethod
     def _lead_to_dict(lead: ExpoLead, booth: ExpoBooth | None) -> dict[str, Any]:
+        from app.services.expo.offer_delivery_service import normalize_asset_purpose
+
         try:
             assets_sent = json.loads(lead.assets_sent_json or "[]")
             if not isinstance(assets_sent, list):
                 assets_sent = []
         except (json.JSONDecodeError, TypeError):
             assets_sent = []
+        try:
+            assets_opened = json.loads(getattr(lead, "assets_opened_json", None) or "[]")
+            if not isinstance(assets_opened, list):
+                assets_opened = []
+        except (json.JSONDecodeError, TypeError):
+            assets_opened = []
+        purposes: set[str] = set()
+        for item in assets_sent:
+            if isinstance(item, dict):
+                purposes.add(normalize_asset_purpose(item.get("purpose")))
+        catalogue_requested = bool(lead.consent_acknowledged) or "catalogue" in purposes
+        price_list_requested = bool(lead.consent_acknowledged) or "price_list" in purposes
         return {
             "id": lead.id,
             "booth_id": lead.booth_id,
@@ -381,8 +420,12 @@ class ExpoResultsService:
             "buying_timeline": lead.buying_timeline,
             "lead_score": lead.lead_score,
             "consent_acknowledged": lead.consent_acknowledged,
+            "catalogue_requested": catalogue_requested,
+            "price_list_requested": price_list_requested,
             "offer_sent_at": lead.offer_sent_at.isoformat() if lead.offer_sent_at else None,
             "assets_sent": assets_sent,
+            "assets_opened": assets_opened,
+            "assets_opened_count": len(assets_opened),
             "follow_up_status": lead.follow_up_status,
             "created_at": lead.created_at.isoformat() if lead.created_at else None,
         }

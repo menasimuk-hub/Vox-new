@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -22,7 +22,7 @@ from app.services.expo.booth_service import (
     booth_is_paid,
     booth_preview_remaining,
 )
-from app.services.expo.offer_delivery_service import asset_public_url, load_booth_assets
+from app.services.expo.offer_delivery_service import asset_public_url, load_booth_assets, mark_lead_asset_opened
 from app.services.expo.question_bank import parse_contact_capture, web_ui_for_question_key
 from app.services.expo.session_flow_service import THANK_YOU_TEXT, ExpoSessionFlowService
 
@@ -46,12 +46,14 @@ def _advance_payload(result: dict, *, session: ExpoSession | None = None, booth=
         for a in assets:
             if not isinstance(a, dict):
                 continue
+            url = str(a.get("url") or "").strip() or asset_public_url(a, token)
             item = {
                 "id": a.get("id"),
                 "title": a.get("title"),
                 "short_description": a.get("short_description"),
                 "kind": a.get("kind"),
-                "url": asset_public_url(a, token),
+                "purpose": a.get("purpose"),
+                "url": url,
             }
             public_assets.append(item)
     out = {
@@ -467,7 +469,12 @@ def stop_web_session(token: str, session_id: str, db: Session = Depends(get_db))
 
 
 @router.get("/assets/{token}/{asset_id}")
-def get_booth_asset(token: str, asset_id: str, db: Session = Depends(get_db)):
+def get_booth_asset(
+    token: str,
+    asset_id: str,
+    lead_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
     booth = ExpoBoothService.find_by_token(db, token)
     if booth is None:
         raise HTTPException(status_code=404, detail="Booth not found")
@@ -476,6 +483,23 @@ def get_booth_asset(token: str, asset_id: str, db: Session = Depends(get_db)):
     ).scalar_one_or_none()
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Open / download tracking (first open only).
+    if lead_id:
+        lead = db.execute(
+            select(ExpoLead).where(
+                ExpoLead.id == str(lead_id).strip(),
+                ExpoLead.booth_id == booth.id,
+                ExpoLead.org_id == booth.org_id,
+            )
+        ).scalar_one_or_none()
+        if lead is not None:
+            try:
+                if mark_lead_asset_opened(db, lead=lead, asset=asset):
+                    db.commit()
+            except Exception:
+                db.rollback()
+
     if asset.external_url:
         return RedirectResponse(asset.external_url)
     abs_path = resolve_storage_abs_path(asset.storage_path)

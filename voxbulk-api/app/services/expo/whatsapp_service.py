@@ -11,9 +11,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.expo import ExpoBooth, ExpoSession
+from app.models.expo import ExpoBooth, ExpoLead, ExpoSession
 from app.services.expo.booth_service import (
     BOOTH_CLOSED_MESSAGE,
     ExpoBoothService,
@@ -21,11 +22,48 @@ from app.services.expo.booth_service import (
     booth_is_expired,
     find_expo_token_in_text,
 )
-from app.services.expo.offer_delivery_service import deliver_asset_link_message, format_asset_list_message
+from app.services.expo.offer_delivery_service import (
+    asset_public_url,
+    deliver_asset_link_message,
+    format_asset_list_message,
+)
 from app.services.expo.session_flow_service import ExpoSessionFlowService
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
+
+_DOCUMENT_KINDS = frozenset({"pdf", "spreadsheet", "document", "excel", "xls", "xlsx", "csv"})
+_DOCUMENT_EXTS = (".pdf", ".xls", ".xlsx", ".csv", ".doc", ".docx")
+
+
+def _asset_supports_document_send(asset: dict[str, Any]) -> bool:
+    kind = str(asset.get("kind") or "").strip().lower()
+    if kind in _DOCUMENT_KINDS:
+        return True
+    blob = " ".join(
+        [
+            str(asset.get("storage_path") or ""),
+            str(asset.get("external_url") or ""),
+            str(asset.get("original_filename") or ""),
+            str(asset.get("title") or ""),
+        ]
+    ).lower()
+    return any(blob.endswith(ext) or ext in blob for ext in _DOCUMENT_EXTS)
+
+
+def _asset_document_filename(asset: dict[str, Any]) -> str:
+    for key in ("original_filename", "title", "asset_key"):
+        raw = str(asset.get(key) or "").strip()
+        if not raw:
+            continue
+        name = raw.replace("\\", "/").split("/")[-1]
+        if "." in name:
+            return name[:240]
+        kind = str(asset.get("kind") or "").lower()
+        if kind in {"spreadsheet", "excel", "xls", "xlsx", "csv"}:
+            return f"{name[:200]}.xlsx"
+        return f"{name[:200]}.pdf"
+    return "document.pdf"
 
 STOP_WORDS = frozenset({"stop", "unsubscribe", "cancel", "opt out", "opt-out", "end", "quit"})
 STOP_ACK_MESSAGE = "You've been unsubscribed. Thanks again for visiting our stand!"
@@ -283,12 +321,18 @@ class ExpoWhatsappService:
     ) -> None:
         booth = db.get(ExpoBooth, session.booth_id)
         booth_token = booth.qr_token if booth else ""
+        lead = db.execute(select(ExpoLead).where(ExpoLead.session_id == session.id)).scalar_one_or_none()
+        lead_id = str(lead.id).strip() if lead else None
 
         for asset in result.get("assets") or []:
-            ExpoWhatsappService._send(
+            if not isinstance(asset, dict):
+                continue
+            ExpoWhatsappService._send_asset(
                 db,
                 to_number=session.visitor_phone,
-                body=deliver_asset_link_message(asset, booth_token),
+                asset=asset,
+                booth_token=booth_token,
+                lead_id=lead_id,
                 org_id=session.org_id,
                 from_number=from_number,
             )
@@ -315,6 +359,50 @@ class ExpoWhatsappService:
             )
 
     @staticmethod
+    def _send_asset(
+        db: Session,
+        *,
+        to_number: str,
+        asset: dict[str, Any],
+        booth_token: str,
+        lead_id: str | None,
+        org_id: str | None,
+        from_number: str | None = None,
+    ) -> None:
+        link_body = deliver_asset_link_message(asset, booth_token, lead_id=lead_id)
+        tracked_url = str(asset.get("url") or "").strip() or asset_public_url(
+            asset, booth_token, lead_id=lead_id
+        )
+        if _asset_supports_document_send(asset) and tracked_url.startswith("http"):
+            title = str(asset.get("title") or "our info pack").strip()
+            desc = str(asset.get("short_description") or "").strip()
+            caption_parts = [f"Here you go — {title}"]
+            if desc:
+                caption_parts.append(desc)
+            # Keep tracked link in caption so open-tracking still works if they tap the URL.
+            caption_parts.append(tracked_url)
+            caption = "\n".join(caption_parts)
+            ok = ExpoWhatsappService._send(
+                db,
+                to_number=to_number,
+                body=caption,
+                org_id=org_id,
+                from_number=from_number,
+                document_link=tracked_url,
+                document_filename=_asset_document_filename(asset),
+            )
+            if ok:
+                return
+            logger.info("expo_wa_document_fallback_to_link to=%s asset=%s", to_number, asset.get("id"))
+        ExpoWhatsappService._send(
+            db,
+            to_number=to_number,
+            body=link_body,
+            org_id=org_id,
+            from_number=from_number,
+        )
+
+    @staticmethod
     def _send(
         db: Session,
         *,
@@ -322,10 +410,12 @@ class ExpoWhatsappService:
         body: str,
         org_id: str | None,
         from_number: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> bool:
         """Send Expo Q&A / offer copy as plain WhatsApp session text (never a Meta HSM template)."""
         clean = str(body or "").strip()
-        if not clean:
+        if not clean and not document_link:
             return False
         # QR opens the Customer Feedback WhatsApp line — prefer that route so the reply
         # lands in the same chat. Then expo, then platform default.
@@ -343,14 +433,17 @@ class ExpoWhatsappService:
                 template_id=None,
                 template_language=None,
                 template_components=None,
+                document_link=document_link,
+                document_filename=document_filename,
             )
             if result.ok:
                 logger.info(
-                    "expo_wa_session_text_sent to=%s service_code=%s from_line=%s org_id=%s",
+                    "expo_wa_session_text_sent to=%s service_code=%s from_line=%s org_id=%s document=%s",
                     to_number,
                     code,
                     from_number,
                     org_id,
+                    bool(document_link),
                 )
                 return True
             logger.warning(

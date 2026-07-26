@@ -425,6 +425,8 @@ class MetaWhatsappService:
         template_components: list[dict[str, Any]] | None = None,
         org_id: str | None = None,
         meter_usage: bool = True,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> TelnyxMessageResult:
         try:
             config = validate_meta_whatsapp_config(config or {})
@@ -469,6 +471,7 @@ class MetaWhatsappService:
         lang = MetaWhatsappService._normalize_language_code(template_language)
 
         message_body: dict[str, Any]
+        doc_link = str(document_link or "").strip()
         if resolved_name or template_name or template_id:
             name = resolved_name or str(template_name or "").strip()
             if not name:
@@ -489,6 +492,18 @@ class MetaWhatsappService:
                 "to": recipient,
                 "type": "template",
                 "template": template,
+            }
+        elif doc_link and (doc_link.startswith("https://") or doc_link.startswith("http://")):
+            caption = str(body or "").strip()
+            filename = str(document_filename or "").strip() or "document.pdf"
+            document: dict[str, Any] = {"link": doc_link, "filename": filename[:240]}
+            if caption:
+                document["caption"] = caption[:1024]
+            message_body = {
+                "messaging_product": "whatsapp",
+                "to": recipient,
+                "type": "document",
+                "document": document,
             }
         else:
             text_body = str(body or "").strip()

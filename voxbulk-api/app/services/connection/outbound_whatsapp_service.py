@@ -28,6 +28,8 @@ class OutboundWhatsappService:
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
         service_code: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> tuple[TelnyxMessageResult, ConnectionProfile | None]:
         from app.services.telnyx_messaging_destinations_service import TelnyxMessagingDestinationsService
 
@@ -61,6 +63,8 @@ class OutboundWhatsappService:
                 org_id=org_id,
                 meter_usage=meter_usage,
                 messaging_profile_id=messaging_profile_id,
+                document_link=document_link,
+                document_filename=document_filename,
             )
             return result, None
 
@@ -78,6 +82,8 @@ class OutboundWhatsappService:
                 template_components=template_components,
                 org_id=org_id,
                 meter_usage=meter_usage,
+                document_link=document_link,
+                document_filename=document_filename,
             )
             return result, profile
 
@@ -97,6 +103,8 @@ class OutboundWhatsappService:
                 org_id=org_id,
                 meter_usage=meter_usage,
                 messaging_profile_id=wa_profile,
+                document_link=document_link,
+                document_filename=document_filename,
             )
             return result, profile
 
@@ -125,6 +133,8 @@ class OutboundWhatsappService:
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
         service_code: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> TelnyxMessageResult:
         from app.services.connection.config_resolver import resolve_whatsapp_config
         from app.models.connection_profile import PROVIDER_META
@@ -144,6 +154,8 @@ class OutboundWhatsappService:
                 template_components=template_components,
                 org_id=org_id,
                 meter_usage=meter_usage,
+                document_link=document_link,
+                document_filename=document_filename,
             )
         return TelnyxMessagingService._send_whatsapp_telnyx_legacy(
             db,
@@ -157,4 +169,6 @@ class OutboundWhatsappService:
             org_id=org_id,
             meter_usage=meter_usage,
             messaging_profile_id=messaging_profile_id,
+            document_link=document_link,
+            document_filename=document_filename,
         )

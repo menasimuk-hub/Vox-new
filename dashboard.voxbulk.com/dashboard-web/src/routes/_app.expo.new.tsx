@@ -58,6 +58,8 @@ type QuestionOpt = {
   description?: string;
   matches_products?: boolean;
 };
+type AssetPurpose = "catalogue" | "price_list" | "product";
+
 type AssetDraft = {
   id: string;
   title: string;
@@ -68,7 +70,14 @@ type AssetDraft = {
   original_filename: string;
   match_keywords: string;
   kind: string;
+  purpose: AssetPurpose;
   is_default: boolean;
+};
+
+const PURPOSE_LABELS: Record<AssetPurpose, string> = {
+  catalogue: "Catalogue",
+  price_list: "Price list",
+  product: "Product",
 };
 
 const EXPO_STEPS: WizardStepDef[] = [
@@ -137,6 +146,7 @@ function CreateExpoBooth() {
     original_filename: "",
     match_keywords: "",
     kind: "pdf",
+    purpose: "catalogue",
     is_default: true,
   });
   const [uploading, setUploading] = React.useState(false);
@@ -238,6 +248,7 @@ function CreateExpoBooth() {
       original_filename: "",
       match_keywords: "",
       kind: "pdf",
+      purpose: "product",
       is_default: false,
     });
     setEditingId(null);
@@ -313,6 +324,7 @@ function CreateExpoBooth() {
           storage_path: a.source === "upload" ? a.storage_path.trim() || null : null,
           match_keywords: a.match_keywords.trim() || null,
           kind: a.kind || (a.source === "upload" ? "pdf" : "link"),
+          purpose: a.purpose || "product",
           is_default: a.is_default || idx === 0,
           sort_order: (idx + 1) * 10,
         })),
@@ -573,8 +585,8 @@ function CreateExpoBooth() {
             <CardHeader>
               <CardTitle className="text-base">Products & files</CardTitle>
               <CardDescription>
-                Optional — add PDFs or links if you want to send brochures after questions. You can skip this step and
-                capture leads only.
+                Optional — add catalogue, price list, or product files. Visitors who consent get catalogue/price list
+                downloads; product sheets can match interest. Skip to capture leads only.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -593,6 +605,8 @@ function CreateExpoBooth() {
                           ) : null}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
+                          {PURPOSE_LABELS[a.purpose] || "Product"}
+                          {" · "}
                           {a.source === "upload"
                             ? a.original_filename || a.kind
                             : a.external_url}
@@ -615,6 +629,7 @@ function CreateExpoBooth() {
                               original_filename: a.original_filename,
                               match_keywords: a.match_keywords,
                               kind: a.kind,
+                              purpose: a.purpose || "product",
                               is_default: a.is_default,
                             });
                           }}
@@ -655,6 +670,7 @@ function CreateExpoBooth() {
                           original_filename: "",
                           match_keywords: "",
                           kind: "pdf",
+                          purpose: "product",
                           is_default: false,
                         });
                       }}
@@ -662,6 +678,27 @@ function CreateExpoBooth() {
                       <X className="mr-1 size-3.5" /> Cancel
                     </Button>
                   ) : null}
+                </div>
+                <div className="space-y-2">
+                  <Label>Type</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm"
+                    value={draft.purpose}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        purpose: (e.target.value as AssetPurpose) || "product",
+                      }))
+                    }
+                    required
+                  >
+                    <option value="catalogue">Catalogue</option>
+                    <option value="price_list">Price list</option>
+                    <option value="product">Product sheet</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Catalogue and price list are offered when visitors consent to receive info.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>Title</Label>

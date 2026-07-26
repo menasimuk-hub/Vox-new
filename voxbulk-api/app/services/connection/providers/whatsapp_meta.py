@@ -23,6 +23,8 @@ class WhatsappMetaProvider:
         template_components: list[dict[str, Any]] | None = None,
         org_id: str | None = None,
         meter_usage: bool = True,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> TelnyxMessageResult:
         return MetaWhatsappService.send_whatsapp_with_config(
             db,
@@ -36,4 +38,6 @@ class WhatsappMetaProvider:
             template_components=template_components,
             org_id=org_id,
             meter_usage=meter_usage,
+            document_link=document_link,
+            document_filename=document_filename,
         )

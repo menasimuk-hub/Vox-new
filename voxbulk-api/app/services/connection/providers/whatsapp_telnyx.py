@@ -23,6 +23,8 @@ class WhatsappTelnyxProvider:
         org_id: str | None = None,
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> TelnyxMessageResult:
         return TelnyxMessagingService._send_whatsapp_telnyx_with_config(
             db,
@@ -37,4 +39,6 @@ class WhatsappTelnyxProvider:
             org_id=org_id,
             meter_usage=meter_usage,
             messaging_profile_id=messaging_profile_id,
+            document_link=document_link,
+            document_filename=document_filename,
         )

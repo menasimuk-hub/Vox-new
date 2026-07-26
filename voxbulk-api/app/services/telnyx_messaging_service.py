@@ -308,6 +308,8 @@ class TelnyxMessagingService:
         template_id: str | None = None,
         template_language: str | None = None,
         template_components: list[dict[str, Any]] | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> dict[str, Any]:
         template_id = str(template_id or "").strip() or None
         template_name = str(template_name or "").strip() or None
@@ -327,6 +329,15 @@ class TelnyxMessagingService:
             if template_components:
                 template["components"] = template_components
             return {"type": "template", "template": template}
+
+        doc_link = str(document_link or "").strip()
+        if doc_link and (doc_link.startswith("https://") or doc_link.startswith("http://")):
+            caption = str(body or "").strip()
+            filename = str(document_filename or "").strip() or "document.pdf"
+            document: dict[str, Any] = {"link": doc_link, "filename": filename[:240]}
+            if caption:
+                document["caption"] = caption[:1024]
+            return {"type": "document", "document": document}
 
         text_body = str(body or "").strip()
         if not text_body:
@@ -391,6 +402,8 @@ class TelnyxMessagingService:
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
         service_code: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> TelnyxMessageResult:
         from app.services.connection.outbound_whatsapp_service import OutboundWhatsappService
 
@@ -407,6 +420,8 @@ class TelnyxMessagingService:
             meter_usage=meter_usage,
             messaging_profile_id=messaging_profile_id,
             service_code=service_code,
+            document_link=document_link,
+            document_filename=document_filename,
         )
         return result
 
@@ -424,6 +439,8 @@ class TelnyxMessagingService:
         org_id: str | None = None,
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> TelnyxMessageResult:
         config = TelnyxMessagingService._config(db)
         return TelnyxMessagingService._send_whatsapp_telnyx_with_config(
@@ -439,6 +456,8 @@ class TelnyxMessagingService:
             org_id=org_id,
             meter_usage=meter_usage,
             messaging_profile_id=messaging_profile_id,
+            document_link=document_link,
+            document_filename=document_filename,
         )
 
     @staticmethod
@@ -456,6 +475,8 @@ class TelnyxMessagingService:
         org_id: str | None = None,
         meter_usage: bool = True,
         messaging_profile_id: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> TelnyxMessageResult:
         _, wa_from = TelnyxMessagingService._from_numbers(config)
         from app.services.telnyx_number_routing_service import TelnyxNumberRoutingService
@@ -490,6 +511,8 @@ class TelnyxMessagingService:
                 template_id=template_id,
                 template_language=template_language,
                 template_components=template_components,
+                document_link=document_link,
+                document_filename=document_filename,
             )
         except ValueError as e:
             return TelnyxMessageResult(ok=False, status="invalid_payload", detail=str(e), channel="whatsapp")

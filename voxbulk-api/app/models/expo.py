@@ -122,6 +122,8 @@ class ExpoBoothAsset(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     short_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="pdf")
+    # catalogue | price_list | product — drives consent delivery and lead analytics
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="product")
     storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     external_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     match_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -152,6 +154,8 @@ class ExpoLead(Base):
     consent_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     offer_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     assets_sent_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # JSON list of {asset_id, asset_key, purpose, opened_at}
+    assets_opened_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     follow_up_status: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

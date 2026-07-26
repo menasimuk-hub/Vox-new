@@ -252,13 +252,23 @@ def results_summary(
 def results_leads(
     booth_id: str | None = None,
     score: str | None = None,
+    catalogue_requested: bool | None = None,
+    price_list_requested: bool | None = None,
+    asset_opened: bool | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
     _require_expo_enabled(db, principal.org_id)
     owner_filter = _campaign_owner_user_id(db, principal)
     items = ExpoResultsService.customer_leads(
-        db, principal.org_id, booth_id=booth_id, score=score, created_by_user_id=owner_filter
+        db,
+        principal.org_id,
+        booth_id=booth_id,
+        score=score,
+        catalogue_requested=catalogue_requested,
+        price_list_requested=price_list_requested,
+        asset_opened=asset_opened,
+        created_by_user_id=owner_filter,
     )
     return {"ok": True, "items": items}
 

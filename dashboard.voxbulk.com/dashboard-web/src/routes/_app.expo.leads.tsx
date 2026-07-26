@@ -73,6 +73,24 @@ function displayAnswer(en?: string | null, original?: string | null, fallback?: 
   return english;
 }
 
+type AssetSentItem =
+  | string
+  | {
+      asset_id?: string;
+      asset_key?: string;
+      purpose?: string;
+      title?: string;
+      sent_at?: string;
+    };
+
+type AssetOpenedItem = {
+  asset_id?: string;
+  asset_key?: string;
+  purpose?: string;
+  title?: string;
+  opened_at?: string;
+};
+
 type LeadRow = {
   id: string;
   created_at?: string | null;
@@ -89,11 +107,22 @@ type LeadRow = {
   booth_code?: string | null;
   offer_sent_at?: string | null;
   follow_up_status?: string | null;
-  assets_sent?: string[];
+  assets_sent?: AssetSentItem[];
+  assets_opened?: AssetOpenedItem[];
+  assets_opened_count?: number;
+  catalogue_requested?: boolean;
+  price_list_requested?: boolean;
   consent_acknowledged?: boolean;
   business_card_url?: string | null;
   answers?: LeadAnswer[];
 };
+
+function assetLabel(item: AssetSentItem | AssetOpenedItem): string {
+  if (typeof item === "string") return item;
+  const purpose = String(item.purpose || "").replace("_", " ");
+  const title = String(item.title || item.asset_key || item.asset_id || "File").trim();
+  return purpose ? `${title} (${purpose})` : title;
+}
 
 export const Route = createFileRoute("/_app/expo/leads")({
   head: () => ({ meta: [{ title: "Expo leads — VoxBulk" }] }),
@@ -108,6 +137,9 @@ function ExpoLeads() {
   const { booth_id: initialBoothId } = Route.useSearch();
   const [boothId, setBoothId] = React.useState(initialBoothId || "all");
   const [score, setScore] = React.useState("all");
+  const [catalogueFilter, setCatalogueFilter] = React.useState("all");
+  const [priceListFilter, setPriceListFilter] = React.useState("all");
+  const [openedFilter, setOpenedFilter] = React.useState("all");
   const [selected, setSelected] = React.useState<LeadRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<LeadRow | null>(null);
   const [deleting, setDeleting] = React.useState(false);
@@ -124,6 +156,9 @@ function ExpoLeads() {
   const filters = {
     ...(boothId !== "all" ? { booth_id: boothId } : {}),
     ...(score !== "all" ? { score } : {}),
+    ...(catalogueFilter !== "all" ? { catalogue_requested: catalogueFilter } : {}),
+    ...(priceListFilter !== "all" ? { price_list_requested: priceListFilter } : {}),
+    ...(openedFilter !== "all" ? { asset_opened: openedFilter } : {}),
   };
   const qs = new URLSearchParams(filters).toString();
 
@@ -140,12 +175,14 @@ function ExpoLeads() {
         warm: number;
         cold: number;
         offers_sent: number;
+        catalogue_requested?: number;
+        assets_opened?: number;
         daily?: Array<{ day: string; scans: number; leads: number; hot: number }>;
       }>(`/expo/results/summary${boothId !== "all" ? `?booth_id=${boothId}` : ""}`),
   });
 
   const leadsQ = useQuery({
-    queryKey: ["expo", "leads", boothId, score],
+    queryKey: ["expo", "leads", boothId, score, catalogueFilter, priceListFilter, openedFilter],
     queryFn: () => apiFetch<{ items: LeadRow[] }>(`/expo/results/leads${qs ? `?${qs}` : ""}`),
   });
 
@@ -267,12 +304,39 @@ function ExpoLeads() {
           <option value="warm">Warm</option>
           <option value="cold">Cold</option>
         </select>
+        <select
+          className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm"
+          value={catalogueFilter}
+          onChange={(e) => setCatalogueFilter(e.target.value)}
+        >
+          <option value="all">Catalogue: all</option>
+          <option value="true">Catalogue requested</option>
+          <option value="false">Catalogue not requested</option>
+        </select>
+        <select
+          className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm"
+          value={priceListFilter}
+          onChange={(e) => setPriceListFilter(e.target.value)}
+        >
+          <option value="all">Price list: all</option>
+          <option value="true">Price list requested</option>
+          <option value="false">Price list not requested</option>
+        </select>
+        <select
+          className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm"
+          value={openedFilter}
+          onChange={(e) => setOpenedFilter(e.target.value)}
+        >
+          <option value="all">Opened: all</option>
+          <option value="true">Opened files</option>
+          <option value="false">Not opened</option>
+        </select>
       </div>
 
       {summaryQ.isLoading ? (
         <Skeleton className="h-28 rounded-2xl" />
       ) : summary ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <Kpi
             title="Scans total"
             value={summary.scans}
@@ -299,6 +363,18 @@ function ExpoLeads() {
             accent="from-violet-500/15 to-violet-500/5"
             icon={<Mail className="size-4 text-violet-600" />}
           />
+          <Kpi
+            title="Catalogue requested"
+            value={summary.catalogue_requested ?? 0}
+            accent="from-teal-500/15 to-teal-500/5"
+            icon={<FileSpreadsheet className="size-4 text-teal-600" />}
+          />
+          <Kpi
+            title="Files opened"
+            value={summary.assets_opened ?? 0}
+            accent="from-rose-500/15 to-rose-500/5"
+            icon={<Thermometer className="size-4 text-rose-600" />}
+          />
         </div>
       ) : null}
 
@@ -319,6 +395,9 @@ function ExpoLeads() {
                   <th className="px-4 py-3 font-medium">Lead</th>
                   <th className="px-4 py-3 font-medium">Interest</th>
                   <th className="px-4 py-3 font-medium">Score</th>
+                  <th className="px-4 py-3 font-medium">Requested</th>
+                  <th className="px-4 py-3 font-medium">Sent</th>
+                  <th className="px-4 py-3 font-medium">Opened</th>
                   <th className="px-4 py-3 font-medium">Booth</th>
                   <th className="px-4 py-3 font-medium">When</th>
                   <th className="px-4 py-3 font-medium text-right"> </th>
@@ -327,12 +406,19 @@ function ExpoLeads() {
               <tbody>
                 {leads.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
                       No leads yet — share your Expo QR at the stand.
                     </td>
                   </tr>
                 ) : (
-                  leads.map((lead) => (
+                  leads.map((lead) => {
+                    const sentCount = Array.isArray(lead.assets_sent) ? lead.assets_sent.length : 0;
+                    const openedCount = Number(lead.assets_opened_count || 0);
+                    const requestedBits = [
+                      lead.catalogue_requested ? "Catalogue" : null,
+                      lead.price_list_requested ? "Price list" : null,
+                    ].filter(Boolean);
+                    return (
                     <tr
                       key={lead.id}
                       className="cursor-pointer border-t transition hover:bg-muted/30"
@@ -350,6 +436,13 @@ function ExpoLeads() {
                       <td className="px-4 py-3">
                         <ScoreBadge score={lead.lead_score} />
                       </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {requestedBits.length ? requestedBits.join(" · ") : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{sentCount > 0 ? `Yes (${sentCount})` : "No"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {openedCount > 0 ? `Yes (${openedCount})` : "No"}
+                      </td>
                       <td className="px-4 py-3 text-muted-foreground">{lead.booth_code || lead.booth_name || "—"}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatTs(lead.created_at)}</td>
                       <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
@@ -364,7 +457,8 @@ function ExpoLeads() {
                         </Button>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -466,6 +560,22 @@ function ExpoLeads() {
                     <DetailRow label="Timeline" value={detail.buying_timeline} />
                     <DetailRow label="Language" value={detail.detected_language || detail.country_hint} />
                     <DetailRow label="Offer sent" value={detail.offer_sent_at ? formatTs(detail.offer_sent_at) : "No"} />
+                    <DetailRow
+                      label="Catalogue requested"
+                      value={detail.catalogue_requested ? "Yes" : "No"}
+                    />
+                    <DetailRow
+                      label="Price list requested"
+                      value={detail.price_list_requested ? "Yes" : "No"}
+                    />
+                    <DetailRow
+                      label="Files opened"
+                      value={
+                        Number(detail.assets_opened_count || 0) > 0
+                          ? `Yes (${detail.assets_opened_count})`
+                          : "No"
+                      }
+                    />
                     <DetailRow label="Follow-up" value={detail.follow_up_status || "none"} />
                   </div>
                 </section>
@@ -476,9 +586,35 @@ function ExpoLeads() {
                       Assets sent
                     </p>
                     <ul className="mt-2 space-y-1.5 text-sm">
-                      {detail.assets_sent.map((a) => (
-                        <li key={a} className="rounded-lg border bg-muted/40 px-3 py-2">
-                          {a}
+                      {detail.assets_sent.map((a, idx) => (
+                        <li
+                          key={typeof a === "string" ? a : `${a.asset_id || a.asset_key || idx}`}
+                          className="rounded-lg border bg-muted/40 px-3 py-2"
+                        >
+                          {assetLabel(a)}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {detail.assets_opened && detail.assets_opened.length > 0 ? (
+                  <section>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      Assets opened
+                    </p>
+                    <ul className="mt-2 space-y-1.5 text-sm">
+                      {detail.assets_opened.map((a, idx) => (
+                        <li
+                          key={`${a.asset_id || a.asset_key || idx}-opened`}
+                          className="rounded-lg border bg-muted/40 px-3 py-2"
+                        >
+                          {assetLabel(a)}
+                          {a.opened_at ? (
+                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                              {formatTs(a.opened_at)}
+                            </span>
+                          ) : null}
                         </li>
                       ))}
                     </ul>

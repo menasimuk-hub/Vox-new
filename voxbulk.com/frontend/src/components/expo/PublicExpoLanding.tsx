@@ -48,6 +48,7 @@ type ExpoAsset = {
   title?: string;
   short_description?: string;
   kind?: string;
+  purpose?: string;
   url?: string;
 };
 
@@ -703,6 +704,12 @@ export function PublicExpoLanding({
   }
 
   if (phase === "thanks") {
+    const brandName =
+      payload?.company_name ||
+      payload?.booth?.company_display_name ||
+      payload?.booth?.name ||
+      company ||
+      "";
     const rows = [
       summary?.name ? ["Name", summary.name] : null,
       summary?.company ? ["Company", summary.company] : null,
@@ -714,11 +721,27 @@ export function PublicExpoLanding({
     return (
       <div className="feedback-survey-root">
         <main
-          className={`relative grid h-[100svh] place-items-center overflow-hidden px-6 ${theme.bgClass}`}
+          className={`relative grid min-h-[100svh] place-items-center overflow-y-auto px-6 py-10 ${theme.bgClass}`}
           style={themeStyleVars(theme)}
         >
           <Art />
-          <div className="relative max-w-sm text-center">
+          <div className="relative w-full max-w-sm text-center">
+            {logo || brandName ? (
+              <div className="animate-confetti-rise mb-5 flex flex-col items-center gap-2">
+                {logo ? (
+                  <img
+                    src={logo}
+                    alt={brandName || "Exhibitor"}
+                    className="h-14 w-auto max-w-[200px] object-contain"
+                  />
+                ) : null}
+                {brandName ? (
+                  <p className="font-display text-xl font-semibold" style={{ color: theme.ink }}>
+                    {brandName}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             <div
               className="animate-tick-pop mx-auto grid h-20 w-20 place-items-center rounded-full text-white shadow-lift"
               style={{ background: theme.gradientButton }}
@@ -747,7 +770,9 @@ export function PublicExpoLanding({
               className="animate-confetti-rise mt-3 text-[15px] leading-relaxed"
               style={{ animationDelay: "240ms", color: theme.sub }}
             >
-              {copy.thankYouSubtitle}
+              {downloadAssets.length
+                ? "Thanks — your downloads are ready below."
+                : copy.thankYouSubtitle}
             </p>
             {rows.length ? (
               <div
@@ -773,6 +798,12 @@ export function PublicExpoLanding({
             ) : null}
             {downloadAssets.length ? (
               <div className="animate-confetti-rise mt-4 grid gap-2" style={{ animationDelay: "360ms" }}>
+                <p
+                  className="text-left text-[11px] font-medium uppercase tracking-[0.18em]"
+                  style={{ color: theme.sub }}
+                >
+                  Your downloads
+                </p>
                 {downloadAssets.map((a) => (
                   <a
                     key={a.id || a.url}

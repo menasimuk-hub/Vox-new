@@ -415,12 +415,15 @@ class ExpoBoothService:
 
     @staticmethod
     def serialize_asset(asset: ExpoBoothAsset) -> dict[str, Any]:
+        from app.services.expo.offer_delivery_service import normalize_asset_purpose
+
         return {
             "id": asset.id,
             "asset_key": asset.asset_key,
             "title": asset.title,
             "short_description": asset.short_description,
             "kind": asset.kind,
+            "purpose": normalize_asset_purpose(getattr(asset, "purpose", None) or "product"),
             "external_url": asset.external_url,
             "storage_path": asset.storage_path,
             "match_keywords": asset.match_keywords,
@@ -564,6 +567,9 @@ class ExpoBoothService:
             if not storage_path and not external_url:
                 continue
             kind = str(raw.get("kind") or ("pdf" if (storage_path or "").lower().endswith(".pdf") else "link"))[:16]
+            from app.services.expo.offer_delivery_service import normalize_asset_purpose
+
+            purpose = normalize_asset_purpose(raw.get("purpose") or "product")
             db.add(
                 ExpoBoothAsset(
                     id=str(uuid.uuid4()),
@@ -573,6 +579,7 @@ class ExpoBoothService:
                     title=title[:255],
                     short_description=(str(raw.get("short_description") or "").strip() or None),
                     kind=kind,
+                    purpose=purpose,
                     storage_path=storage_path,
                     external_url=external_url,
                     match_keywords=(str(raw.get("match_keywords") or "").strip() or None),

@@ -491,4 +491,40 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             badge="Sales payout",
         ),
     },
+    "expo_visitor_catalogue": {
+        "title": "Expo catalogue / price list",
+        "subject": "Your files from {{company_name}}",
+        "body": wrap_brand_email(
+            title="Your catalogue & price list",
+            inner_html="""<p>Hi <strong>{{first_name}}</strong>,</p>
+  <p>Thank you for visiting <strong>{{company_name}}</strong> at the exhibition (<strong>{{booth_name}}</strong>).</p>
+  <p>Here are the files you requested:</p>
+  {{asset_links}}
+  <p style="font-size:13px;color:#6b6560;">If a link does not open, reply to this email and we will resend.</p>""",
+            footer="Sent via VOXBULK Expo · expo@voxbulk.com",
+            badge="Expo",
+        ),
+    },
+    "expo_exhibitor_lead_digest": {
+        "title": "Expo hot lead notify",
+        "subject": "Hot Expo lead — {{lead_name}} asked for catalogue / prices",
+        "body": wrap_brand_email(
+            title="New Expo hot lead",
+            inner_html="""<p>Hi,</p>
+  <p>A visitor at <strong>{{booth_name}}</strong> requested your catalogue or price list.</p>
+  <p><strong>Name:</strong> {{lead_name}}<br />
+  <strong>Company:</strong> {{company}}<br />
+  <strong>Mobile:</strong> {{mobile}}<br />
+  <strong>Email:</strong> {{email}}<br />
+  <strong>Interest:</strong> {{interest}}<br />
+  <strong>Timeline:</strong> {{timeline}}<br />
+  <strong>Catalogue requested:</strong> {{catalogue_requested}}<br />
+  <strong>Price list requested:</strong> {{price_list_requested}}<br />
+  <strong>Files sent:</strong> {{asset_list}}<br />
+  <strong>Opened:</strong> {{opened_summary}}</p>
+  """ + cta_button(href="{{leads_url}}", label="Open Expo leads") + "",
+            footer="Sent via VOXBULK Expo · expo@voxbulk.com",
+            badge="Expo lead",
+        ),
+    },
 }

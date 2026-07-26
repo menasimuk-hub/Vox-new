@@ -17,10 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.models.expo import ExpoBooth, ExpoLead, ExpoResponse, ExpoSession
 from app.services.expo.offer_delivery_service import (
-    asset_public_url,
     load_booth_assets,
     mark_lead_offer_sent,
-    pick_assets_for_interest,
     resolve_pick_reply,
 )
 from app.services.expo.question_bank import (
@@ -77,9 +75,12 @@ def _empty_step_result(
 
 
 def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep catalogue / price-list style assets for the download question."""
-    kept: list[dict[str, Any]] = []
+    """Catalogue / price-list assets for the consent download question (by purpose, then heuristics)."""
+    from app.services.expo.offer_delivery_service import normalize_asset_purpose
+
+    normalised: list[dict[str, Any]] = []
     for a in assets:
+        purpose = normalize_asset_purpose(a.get("purpose"))
         blob = " ".join(
             [
                 str(a.get("title") or ""),
@@ -88,21 +89,18 @@ def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]
                 str(a.get("match_keywords") or ""),
             ]
         ).lower()
-        if any(
-            w in blob
-            for w in (
-                "catalogue",
-                "catalog",
-                "brochure",
-                "price",
-                "pricing",
-                "pricelist",
-                "price list",
-                "pdf",
-            )
-        ) or bool(a.get("is_default")):
-            kept.append(a)
-    return kept or list(assets)
+        if purpose == "product":
+            if any(w in blob for w in ("price", "pricing", "pricelist", "price list")):
+                purpose = "price_list"
+            elif any(w in blob for w in ("catalogue", "catalog", "brochure")):
+                purpose = "catalogue"
+        normalised.append({**a, "purpose": purpose})
+
+    by_purpose = [a for a in normalised if a.get("purpose") in {"catalogue", "price_list"}]
+    if by_purpose:
+        return by_purpose
+    defaults = [a for a in normalised if a.get("is_default")]
+    return defaults or normalised
 
 
 class ExpoSessionFlowService:
@@ -480,32 +478,11 @@ class ExpoSessionFlowService:
                 result["assets"] = delivered
             return result
 
-        if key in {"interest", "need_price_list", "need_catalogue", "products_wanted"} and lead is not None:
-            interest_text = answer_en
-            if key == "need_price_list" and _looks_affirmative(answer_en):
-                interest_text = "price list pricing price"
-            elif key == "need_catalogue" and _looks_affirmative(answer_en):
-                interest_text = "catalogue catalog brochure"
-            elif key in {"need_price_list", "need_catalogue"} and not _looks_affirmative(answer_en):
-                db.commit()
-                return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
-            offer_mode, candidates = ExpoSessionFlowService._offer_after_interest(
-                db, booth=booth, interest_text=interest_text
-            )
-            if offer_mode in ("list", "full") and candidates:
-                state["pending_asset_pick"] = candidates
-                ExpoSessionFlowService._save_state(session, state)
-                db.add(session)
-                db.commit()
-                return {"done": False, "awaiting_pick": True, "candidates": candidates, "assets": None, "prompt": None}
-            if offer_mode == "direct" and candidates:
-                asset = candidates[0]
-                mark_lead_offer_sent(db, lead, asset)
-                db.add(lead)
-                db.commit()
-                result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
-                result["assets"] = [asset]
-                return result
+        # Interest / product answers only enrich the lead — do NOT send files before consent.
+        # Catalogue / price-list delivery happens exclusively via consent_info.
+        if key in {"need_price_list", "need_catalogue"} and lead is not None and not _looks_affirmative(answer_en):
+            db.commit()
+            return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
 
         db.commit()
         return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
@@ -938,15 +915,27 @@ class ExpoSessionFlowService:
                 chosen = list(assets)
         delivered: list[dict[str, Any]] = []
         seen: set[str] = set()
+        from app.services.expo.offer_delivery_service import asset_public_url_for_lead
+
         for asset in chosen:
             aid = str(asset.get("id") or "")
             if not aid or aid in seen:
                 continue
             seen.add(aid)
             mark_lead_offer_sent(db, lead, asset)
-            delivered.append(asset)
+            row = dict(asset)
+            row["url"] = asset_public_url_for_lead(asset, booth.qr_token, lead.id)
+            delivered.append(row)
         if delivered:
+            lead.consent_acknowledged = True
             db.add(lead)
+            try:
+                from app.services.expo.expo_email_service import ExpoEmailService
+
+                ExpoEmailService.send_visitor_catalogue(db, booth=booth, lead=lead, assets=delivered)
+            except Exception:
+                logger = __import__("logging").getLogger(__name__)
+                logger.exception("expo_visitor_catalogue_email_failed lead=%s", lead.id)
         return delivered
 
     @staticmethod
@@ -983,6 +972,7 @@ class ExpoSessionFlowService:
                     "title": a.get("title"),
                     "short_description": a.get("short_description"),
                     "kind": a.get("kind"),
+                    "purpose": a.get("purpose"),
                 }
                 for a in assets
             ],
@@ -993,16 +983,41 @@ class ExpoSessionFlowService:
             "allow_voice": False,
         }
 
-    # ------------------------------------------------------------------
-    # Hybrid asset offer (fires right after the "interest" answer)
-    # ------------------------------------------------------------------
-
     @staticmethod
-    def _offer_after_interest(db: Session, *, booth: ExpoBooth, interest_text: str) -> tuple[str, list[dict[str, Any]]]:
-        assets = load_booth_assets(db, booth.id)
-        if not assets:
-            return "none", []
-        return pick_assets_for_interest(interest_text, assets)
+    def _delivered_assets_payload(
+        db: Session,
+        *,
+        booth: ExpoBooth,
+        lead: ExpoLead | None,
+    ) -> list[dict[str, Any]]:
+        """Rebuild delivered asset dicts (with tracked URLs) for web thank-you."""
+        if lead is None:
+            return []
+        from app.services.expo.offer_delivery_service import (
+            asset_public_url_for_lead,
+            lead_assets_sent_list,
+            load_booth_assets,
+        )
+
+        sent = lead_assets_sent_list(lead)
+        if not sent:
+            return []
+        by_id = {str(a.get("id") or ""): a for a in load_booth_assets(db, booth.id)}
+        by_key = {str(a.get("asset_key") or ""): a for a in by_id.values()}
+        out: list[dict[str, Any]] = []
+        for item in sent:
+            if isinstance(item, str):
+                asset = by_key.get(item) or by_id.get(item)
+            elif isinstance(item, dict):
+                asset = by_id.get(str(item.get("asset_id") or "")) or by_key.get(str(item.get("asset_key") or ""))
+            else:
+                asset = None
+            if not asset:
+                continue
+            row = dict(asset)
+            row["url"] = asset_public_url_for_lead(asset, booth.qr_token, lead.id)
+            out.append(row)
+        return out
 
     @staticmethod
     def _resolve_pick(
@@ -1108,9 +1123,22 @@ class ExpoSessionFlowService:
             booth = db.get(ExpoBooth, session.booth_id)
         thank = build_thank_you_message(booth.question_config_json if booth else None)
         summary = ExpoSessionFlowService._lead_summary(db, session=session, lead=lead)
+        delivered: list[dict[str, Any]] = []
+        if booth is not None and lead is not None:
+            delivered = ExpoSessionFlowService._delivered_assets_payload(db, booth=booth, lead=lead)
+            if lead.consent_acknowledged or delivered:
+                try:
+                    from app.services.expo.expo_email_service import ExpoEmailService
+
+                    ExpoEmailService.notify_exhibitor_lead(db, booth=booth, lead=lead, assets=delivered)
+                except Exception:
+                    logger = __import__("logging").getLogger(__name__)
+                    logger.exception("expo_exhibitor_lead_email_failed lead=%s", lead.id)
         db.commit()
         out = _empty_step_result(done=True, prompt=thank)
         out["summary"] = summary
+        if delivered:
+            out["assets"] = delivered
         return ExpoSessionFlowService._attach_progress(out, session=session, booth=booth)
 
     @staticmethod
