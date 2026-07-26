@@ -9,13 +9,6 @@ const TABS = [
   { key: 'sales', label: 'From lead sales', icon: 'ti-phone-call' },
 ]
 
-function initials(name, code) {
-  const source = String(name || code || '?').trim()
-  const parts = source.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
-  return source.slice(0, 2).toUpperCase()
-}
-
 function formatWhen(value) {
   if (!value) return '—'
   const d = new Date(value)
@@ -302,7 +295,7 @@ export default function PromoOffers() {
         </div>
       </div>
 
-      <div className='pageShell productsPageShell'>
+      <div className='pageShell productsPageShell promoOffersShell'>
         {error ? (
           <div className='note noteWarn' style={{ marginBottom: 14 }}>
             {error}
@@ -388,11 +381,8 @@ export default function PromoOffers() {
                   <thead>
                     <tr>
                       <th>Offer</th>
-                      <th>Code</th>
-                      <th>Plan / type</th>
-                      <th>Trial & limits</th>
-                      <th>Prospect</th>
-                      <th>Redemptions</th>
+                      <th>Benefit</th>
+                      <th>Uses</th>
                       <th>Expires</th>
                       <th>Status</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
@@ -402,69 +392,94 @@ export default function PromoOffers() {
                     {filtered.map((row) => {
                       const status = promoStatus(row)
                       const busy = busyId === row.id
+                      const prospectLine = [row.prospect_name, row.prospect_email || row.prospect_phone]
+                        .filter(Boolean)
+                        .join(' · ')
                       return (
                         <tr key={row.id} className={status === 'active' ? '' : 'isStopped'}>
-                          <td>
+                          <td className='promoOfferCell'>
                             <div className='productIdentity'>
                               <span className='productAvatar'>
                                 <i className='ti ti-ticket' />
                               </span>
                               <div>
-                                <strong>{row.name || row.code}</strong>
+                                <strong title={row.name || row.code}>{row.name || row.code}</strong>
+                                <button
+                                  type='button'
+                                  className='promoCodeChip'
+                                  onClick={() => copyCode(row.code)}
+                                  title='Copy code'
+                                >
+                                  <i className='ti ti-copy' />
+                                  <span>{row.code}</span>
+                                </button>
                                 <span className='productSub'>
-                                  {row.lead_sales_task_id ? 'Lead sales offer' : 'Manual promo'}
+                                  {row.lead_sales_task_id ? 'Lead sales' : 'Manual'}
                                   {row.created_at ? ` · ${formatShortDate(row.created_at)}` : ''}
+                                  {prospectLine ? ` · ${prospectLine}` : ''}
                                 </span>
                               </div>
                             </div>
                           </td>
-                          <td>
-                            <button type='button' className='promoCodeBtn' onClick={() => copyCode(row.code)} title='Copy code'>
-                              <code className='productCode'>{row.code}</code>
-                            </button>
-                          </td>
-                          <td>
-                            <code className='productCode'>{offerTypeLabel(row)}</code>
-                          </td>
-                          <td className='mutedCell'>{limitsLine(row)}</td>
-                          <td>
-                            {row.prospect_name || row.prospect_email || row.prospect_phone ? (
-                              <div className='leadIdentity' style={{ gap: 10 }}>
-                                <span className='leadAvatar' style={{ width: 32, height: 32, fontSize: 11 }}>
-                                  {initials(row.prospect_name, row.code)}
-                                </span>
-                                <div>
-                                  <strong style={{ fontSize: 12.5 }}>{row.prospect_name || 'Prospect'}</strong>
-                                  <span className='leadSub muted'>{row.prospect_email || row.prospect_phone || '—'}</span>
-                                </div>
-                              </div>
-                            ) : (
-                              <span className='muted'>—</span>
-                            )}
+                          <td className='promoBenefitCell'>
+                            <strong style={{ color: 'var(--t1)', display: 'block', fontSize: 12.5 }}>
+                              {offerTypeLabel(row)}
+                            </strong>
+                            <span className='muted' title={limitsLine(row)}>
+                              {limitsLine(row)}
+                            </span>
                           </td>
                           <td>
                             <strong>{row.redemption_count}</strong>
                             <span className='muted'> / {row.max_redemptions}</span>
                           </td>
-                          <td className='mutedCell'>{formatWhen(row.expires_at)}</td>
+                          <td className='mutedCell' title={formatWhen(row.expires_at)}>
+                            {formatShortDate(row.expires_at)}
+                          </td>
                           <td>
                             <span className={statusPillClass(status)}>{statusLabel(status)}</span>
                           </td>
                           <td>
-                            <div className='productsRowActions'>
-                              <button type='button' className='btn soft' onClick={() => openApply(row)} disabled={!row.is_active}>
-                                Apply to orgs
+                            <div className='promoIconActions'>
+                              <button
+                                type='button'
+                                className='promoIconBtn'
+                                onClick={() => openApply(row)}
+                                disabled={!row.is_active}
+                                title='Apply to organisations'
+                                aria-label='Apply to organisations'
+                              >
+                                <i className='ti ti-building-community' />
                               </button>
-                              <button type='button' className='btn soft' onClick={() => copyLink(row)} disabled={!row.signup_url}>
-                                Copy link
+                              <button
+                                type='button'
+                                className='promoIconBtn'
+                                onClick={() => copyLink(row)}
+                                disabled={!row.signup_url}
+                                title='Copy signup link'
+                                aria-label='Copy signup link'
+                              >
+                                <i className='ti ti-link' />
                               </button>
                               {row.lead_sales_task_id ? (
-                                <Link className='btn soft' to={`/marketing/lead-sales/${row.lead_sales_task_id}`}>
-                                  Lead
+                                <Link
+                                  className='promoIconBtn'
+                                  to={`/marketing/lead-sales/${row.lead_sales_task_id}`}
+                                  title='Open lead sales task'
+                                  aria-label='Open lead sales task'
+                                >
+                                  <i className='ti ti-phone-call' />
                                 </Link>
                               ) : null}
-                              <button type='button' className='btn soft' disabled={busy} onClick={() => toggleActive(row)}>
-                                {busy ? '…' : row.is_active ? 'Deactivate' : 'Activate'}
+                              <button
+                                type='button'
+                                className={`promoIconBtn${row.is_active ? ' isDanger' : ''}`}
+                                disabled={busy}
+                                onClick={() => toggleActive(row)}
+                                title={row.is_active ? 'Deactivate' : 'Activate'}
+                                aria-label={row.is_active ? 'Deactivate' : 'Activate'}
+                              >
+                                <i className={`ti ${busy ? 'ti-loader-2' : row.is_active ? 'ti-player-pause' : 'ti-player-play'}`} />
                               </button>
                             </div>
                           </td>
@@ -473,7 +488,7 @@ export default function PromoOffers() {
                     })}
                     {!filtered.length ? (
                       <tr>
-                        <td colSpan={9}>
+                        <td colSpan={6}>
                           <div className='productsEmpty'>
                             {query
                               ? 'No promos match your search.'

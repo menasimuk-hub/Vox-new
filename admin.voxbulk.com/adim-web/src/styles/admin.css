@@ -32,6 +32,12 @@
   width: 100%;
 }
 
+/* Promo offers table — beat .pageShell max-width so the hub uses the full content width */
+.pageShell.promoOffersShell {
+  max-width: none;
+  width: 100%;
+}
+
 .pageTop {
   display: flex;
   flex-direction: row;
