@@ -216,9 +216,59 @@
   padding: 10px 12px; border: 1px solid var(--ait-border); border-radius: var(--ait-r-sm);
   margin-bottom: 12px; background: var(--ait-bg3);
 }
+.ai-team-page .ait-conn-compact {
+  padding: 8px 10px; margin-bottom: 10px;
+}
 .ai-team-page .ait-dot { width: 7px; height: 7px; border-radius: 50%; }
 .ai-team-page .ait-dot.on { background: var(--ait-green); }
 .ai-team-page .ait-dot.off { background: var(--ait-text3); }
+
+.ai-team-page .ait-apify-panel { margin-bottom: 0; }
+.ai-team-page .ait-apify-hdr {
+  flex-wrap: wrap; gap: 8px; align-items: center;
+}
+.ai-team-page .ait-apify-body { padding-top: 10px; }
+.ai-team-page .ait-subtabs {
+  display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap;
+  background: var(--ait-bg3); padding: 3px; border-radius: 8px; border: 1px solid var(--ait-border);
+}
+.ai-team-page .ait-subtab {
+  border: 0; background: transparent; color: var(--ait-text2); font: inherit;
+  font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+}
+.ai-team-page .ait-subtab:hover { color: var(--ait-text); background: var(--ait-bg2); }
+.ai-team-page .ait-subtab.active {
+  background: var(--ait-bg2); color: var(--ait-text);
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.ai-team-page .ait-compact .ait-field { margin-bottom: 8px; }
+.ai-team-page .ait-compact .ait-field label { font-size: 10px; margin-bottom: 3px; }
+.ai-team-page .ait-compact .ait-fg-2,
+.ai-team-page .ait-compact .ait-fg-3 { gap: 8px; margin-bottom: 4px; }
+.ai-team-page .ait-hint {
+  font-size: 11px; color: var(--ait-text3); margin: 8px 0 0; line-height: 1.4;
+}
+.ai-team-page .ait-chip-row {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px;
+}
+.ai-team-page .ait-chip {
+  border: 1px solid var(--ait-border); background: var(--ait-bg3); color: var(--ait-text2);
+  font: inherit; font-size: 10px; font-weight: 600; padding: 4px 8px; border-radius: 999px; cursor: pointer;
+}
+.ai-team-page .ait-chip:hover { border-color: var(--ait-accent); color: var(--ait-text); background: var(--ait-accent-dim); }
+.ai-team-page .ait-toggle-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px;
+  margin: 8px 0 10px;
+}
+.ai-team-page .ait-check {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ait-text2);
+}
+.ai-team-page .ait-table-wrap { overflow-x: auto; margin-top: 8px; }
+.ai-team-page .ait-tbl-compact th,
+.ai-team-page .ait-tbl-compact td { padding: 6px 8px; font-size: 11px; }
+.ai-team-page .ait-ellipsis {
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 .ai-team-page .ait-funnel-bar { margin-bottom: 12px; }
 .ai-team-page .ait-funnel-track { height: 6px; background: var(--ait-bg4); border-radius: 3px; overflow: hidden; }

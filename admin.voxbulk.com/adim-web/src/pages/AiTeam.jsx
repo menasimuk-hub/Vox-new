@@ -47,6 +47,19 @@ const TABS = [
   { id: 'api', label: 'API settings', icon: 'ti-settings' },
 ]
 
+const APIFY_SUB_TABS = [
+  { id: 'api', label: 'API' },
+  { id: 'smtp', label: 'SMTP' },
+  { id: 'ai', label: 'AI' },
+  { id: 'scrape', label: 'Scrape' },
+]
+
+const SUGGESTED_ACTORS = [
+  { id: 'vdrmota~contact-info-scraper', label: 'Contact info', note: 'Emails/phones from websites' },
+  { id: 'foo121~website-contact-scraper', label: 'Website email', note: 'Bulk website emails' },
+  { id: 'goat255~website-contact-scraper', label: 'Contact pages', note: 'Homepage + contact pages' },
+]
+
 function initials(name) {
   const parts = String(name || '?').trim().split(/\s+/).filter(Boolean)
   if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase()
@@ -120,6 +133,8 @@ export default function AiTeam() {
   const [apifyPreview, setApifyPreview] = useState(null)
   const [connectionChecks, setConnectionChecks] = useState(null)
   const [apifyTestResult, setApifyTestResult] = useState(null)
+  const [apifySubTab, setApifySubTab] = useState('api')
+  const [smtpTestResult, setSmtpTestResult] = useState(null)
   const [csvFile, setCsvFile] = useState(null)
   const [csvDrag, setCsvDrag] = useState(false)
   const [csvHeaders, setCsvHeaders] = useState([])
@@ -203,8 +218,8 @@ export default function AiTeam() {
     if (tab === 'replies') loadReplies()
     if (tab === 'promo') loadPromo()
     if (tab === 'analytics') loadAnalytics()
-    if (tab === 'apify') loadApifyRuns()
-  }, [tab, prospectSource, loadProspects, loadReplies, loadPromo, loadAnalytics, loadApifyRuns])
+    if (tab === 'apify' && apifySubTab === 'scrape') loadApifyRuns()
+  }, [tab, apifySubTab, prospectSource, loadProspects, loadReplies, loadPromo, loadAnalytics, loadApifyRuns])
 
   const openDrawer = async (prospect) => {
     setDrawer(prospect)
@@ -379,7 +394,6 @@ export default function AiTeam() {
           method: 'POST',
           body: JSON.stringify({
             apify_token: apifyToken || undefined,
-            // Token-only test unless an actor ID is already filled
             check_actor: !!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id),
           }),
         })
@@ -394,11 +408,28 @@ export default function AiTeam() {
     })
   }
 
-  const SUGGESTED_ACTORS = [
-    { id: 'vdrmota~contact-info-scraper', label: 'Contact info scraper (popular)', note: 'Emails/phones from websites' },
-    { id: 'foo121~website-contact-scraper', label: 'Website contact & email', note: 'Bulk website emails' },
-    { id: 'goat255~website-contact-scraper', label: 'Website contact scraper', note: 'Homepage + contact pages' },
-  ]
+  const runTestSmtp = async () => {
+    setSmtpTestResult(null)
+    await act('test-smtp', async () => {
+      try {
+        const data = await apiFetch('/admin/ai-team/test/smtp', {
+          method: 'POST',
+          body: JSON.stringify({
+            ...settings,
+            smtp_password: smtpPassword || undefined,
+            to_email: resendTestEmail || undefined,
+          }),
+        })
+        const msg = data.message || 'SMTP OK'
+        setSmtpTestResult({ ok: true, message: msg })
+        showBanner('ok', msg)
+      } catch (e) {
+        const msg = e?.message || 'SMTP failed'
+        setSmtpTestResult({ ok: false, message: msg })
+        throw e
+      }
+    })
+  }
 
   const openProspectPreview = async (prospect) => {
     try {
@@ -859,192 +890,252 @@ export default function AiTeam() {
         )}
 
         {tab === 'apify' && (
-          <>
-            <div className="ait-card">
-              <div className="ait-card-hdr"><span className="ait-card-title">Apify connection</span></div>
-              <div className="ait-card-body">
-                <div className="ait-conn-block">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span className={`ait-dot ${apifyTestResult?.ok || settings.apify_token_configured ? 'on' : 'off'}`} />
-                    <div>
-                      <strong>
-                        {apifyTestResult
-                          ? (apifyTestResult.ok ? 'Connected' : 'Failed')
-                          : (settings.apify_token_configured ? 'API token saved (not tested yet)' : 'Not connected')}
+          <div className="ait-card ait-apify-panel">
+            <div className="ait-card-hdr ait-apify-hdr">
+              <span className="ait-card-title">Apify outreach</span>
+              <div className="ait-subtabs">
+                {APIFY_SUB_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`ait-subtab ${apifySubTab === t.id ? 'active' : ''}`}
+                    onClick={() => setApifySubTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="ait-card-body ait-apify-body">
+              {apifySubTab === 'api' && (
+                <div className="ait-compact">
+                  <div className="ait-conn-block ait-conn-compact">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className={`ait-dot ${apifyTestResult?.ok || settings.apify_token_configured ? 'on' : 'off'}`} />
+                      <strong style={{ fontSize: 12 }}>
+                        {apifyTestResult ? (apifyTestResult.ok ? 'Connected' : 'Failed') : (settings.apify_token_configured ? 'Token saved' : 'Not connected')}
                       </strong>
-                      {apifyTestResult?.username && (
-                        <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>Logged in as {apifyTestResult.username}</div>
-                      )}
+                    </div>
+                    <div className="ait-btn-row" style={{ margin: 0 }}>
+                      <button type="button" className="ait-btn xs" disabled={!!busy} onClick={runTestApify}>Test</button>
+                      <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={() => saveSettings()}>Save</button>
                     </div>
                   </div>
-                  <button type="button" className="ait-btn sm" disabled={!!busy} onClick={runTestApify}>
-                    Test Apify
-                  </button>
-                </div>
-
-                {apifyTestResult && (
-                  <div
-                    className={`ait-msg-banner ${apifyTestResult.ok ? 'ok' : 'err'}`}
-                    style={{ margin: '12px 0', padding: '12px 14px', borderRadius: 8, fontWeight: 600 }}
-                  >
-                    {apifyTestResult.ok ? 'OK — ' : 'FAIL — '}
-                    {apifyTestResult.message}
+                  {apifyTestResult && (
+                    <div className={`ait-msg-banner ${apifyTestResult.ok ? 'ok' : 'err'}`} style={{ margin: '0 0 10px', padding: '8px 10px', fontWeight: 600 }}>
+                      {apifyTestResult.ok ? 'OK — ' : 'FAIL — '}{apifyTestResult.message}
+                    </div>
+                  )}
+                  <div className="ait-fg-2">
+                    <div className="ait-field">
+                      <label>API token</label>
+                      <input type="password" placeholder={settings.apify_token_configured ? '••••••••' : 'apify_api_…'} value={apifyToken} onChange={(e) => setApifyToken(e.target.value)} />
+                    </div>
+                    <div className="ait-field">
+                      <label>Actor ID</label>
+                      <input value={settings.apify_exhibitor_actor_id || ''} onChange={(e) => setSettings({ ...settings, apify_exhibitor_actor_id: e.target.value })} placeholder="username~actor-name" />
+                    </div>
                   </div>
-                )}
-
-                <p style={{ fontSize: 12, color: 'var(--ait-text3)', marginBottom: 10 }}>
-                  <strong>Step 1:</strong> paste only your Apify API token, Save, then click <strong>Test Apify</strong>.
-                  You should see a green <strong>OK</strong> box below. Actor ID is optional for the test.
-                </p>
-
-                <div className="ait-fg-2">
-                  <div className="ait-field">
-                    <label>Apify API token (required)</label>
-                    <input
-                      type="password"
-                      placeholder={settings.apify_token_configured ? '••••••••' : 'apify_api_…'}
-                      value={apifyToken}
-                      onChange={(e) => setApifyToken(e.target.value)}
-                    />
-                  </div>
-                  <div className="ait-field">
-                    <label>Exhibitor / contact actor ID (needed to scrape)</label>
-                    <input
-                      value={settings.apify_exhibitor_actor_id || ''}
-                      onChange={(e) => setSettings({ ...settings, apify_exhibitor_actor_id: e.target.value })}
-                      placeholder="Leave blank until you pick an actor"
-                    />
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 8, marginBottom: 8 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ait-text3)', textTransform: 'uppercase', marginBottom: 6 }}>
-                    Suggested actors (click to fill)
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <div className="ait-chip-row">
                     {SUGGESTED_ACTORS.map((a) => (
-                      <button
-                        key={a.id}
-                        type="button"
-                        className="ait-btn xs"
-                        title={a.note}
-                        onClick={() => setSettings({ ...settings, apify_exhibitor_actor_id: a.id })}
-                      >
+                      <button key={a.id} type="button" className="ait-chip" title={a.note} onClick={() => setSettings({ ...settings, apify_exhibitor_actor_id: a.id })}>
                         {a.label}
                       </button>
                     ))}
                   </div>
-                  <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
-                    Or open <a href="https://apify.com/store" target="_blank" rel="noreferrer">apify.com/store</a>,
-                    open an actor → copy ID from the URL like <code>username/actor-name</code>,
-                    then paste here as <code>username~actor-name</code> (slash → tilde).
-                  </p>
+                  <div className="ait-field" style={{ marginTop: 8 }}>
+                    <label>Second actor (optional)</label>
+                    <input value={settings.apify_contact_actor_id || ''} onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })} placeholder="optional" />
+                  </div>
+                  <p className="ait-hint">Token alone is enough to Test. Actor ID is required to Scrape. Store: apify.com/store — use username~actor-name.</p>
                 </div>
+              )}
 
-                <div className="ait-field">
-                  <label>Second actor ID (optional)</label>
-                  <input
-                    value={settings.apify_contact_actor_id || ''}
-                    onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })}
-                    placeholder="Only if you use a second contact actor"
-                  />
-                </div>
-                <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save Apify settings</button>
-                  <button type="button" className="ait-btn" disabled={!!busy} onClick={runTestApify}>Test Apify again</button>
-                </div>
-                <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
-                  Actor results must include emails. Our importer accepts <code>email</code>, <code>emails[]</code>, or <code>contactEmail</code>.
-                </p>
-              </div>
-            </div>
-
-            <div className="ait-card">
-              <div className="ait-card-hdr"><span className="ait-card-title">Scrape expo exhibitors</span></div>
-              <div className="ait-card-body">
-                <p style={{ fontSize: 12, color: 'var(--ait-text3)', marginBottom: 10 }}>
-                  <strong>Step 2:</strong> after token test is OK, fill an actor ID (or click a suggested one), Save,
-                  paste the expo exhibitor page URL, then Start run.
-                </p>
-                <div className="ait-field">
-                  <label>Expo exhibitor directory URL</label>
-                  <input
-                    value={apifyExpoUrl}
-                    onChange={(e) => setApifyExpoUrl(e.target.value)}
-                    placeholder="https://…/exhibitors"
-                  />
-                </div>
-                <div className="ait-btn-row">
-                  <button
-                    type="button"
-                    className="ait-btn primary"
-                    disabled={!!busy || !apifyExpoUrl.trim() || !(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id)}
-                    onClick={startApifyRun}
-                  >
-                    Start Apify run
-                  </button>
-                  <button type="button" className="ait-btn" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh runs</button>
-                </div>
-                {!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id) && (
-                  <p style={{ fontSize: 11, color: 'var(--ait-amber)', marginTop: 8 }}>
-                    Add an actor ID above before starting a scrape. Token-only is enough to Test, not to scrape.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="ait-card">
-              <div className="ait-card-hdr"><span className="ait-card-title">Recent runs</span></div>
-              <div className="ait-card-body" style={{ overflowX: 'auto' }}>
-                <table className="ait-tbl">
-                  <thead>
-                    <tr><th>Status</th><th>Expo URL</th><th>Items</th><th>Imported</th><th>Started</th><th /></tr>
-                  </thead>
-                  <tbody>
-                    {apifyRuns.map((run) => (
-                      <tr key={run.id}>
-                        <td><span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : 'b-pending'}`}>{run.status}</span></td>
-                        <td style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }} title={run.expo_url}>{run.expo_url}</td>
-                        <td>{run.item_count}</td>
-                        <td>{run.imported_count}</td>
-                        <td style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{timeAgo(run.created_at)}</td>
-                        <td>
-                          <div className="ait-btn-row">
-                            <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => refreshApifyRun(run.id)}>Refresh</button>
-                            <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => previewApifyRun(run.id)}>Preview</button>
-                            <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => importApifyRun(run.id)}>Import</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {!apifyRuns.length && (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No Apify runs yet</td></tr>
-                    )}
-                  </tbody>
-                </table>
-                {apifyPreview && (
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
-                      Preview — {apifyPreview.contacts_with_email} emails / {apifyPreview.total_items} items
+              {apifySubTab === 'smtp' && (
+                <div className="ait-compact">
+                  <div className="ait-conn-block ait-conn-compact">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className={`ait-dot ${smtpTestResult?.ok || settings.smtp_configured ? 'on' : 'off'}`} />
+                      <strong style={{ fontSize: 12 }}>
+                        {smtpTestResult ? (smtpTestResult.ok ? 'SMTP OK' : 'SMTP failed') : (settings.smtp_configured ? 'SMTP configured' : 'SMTP not set')}
+                      </strong>
                     </div>
-                    <table className="ait-tbl">
-                      <thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Title</th></tr></thead>
+                    <div className="ait-btn-row" style={{ margin: 0 }}>
+                      <button type="button" className="ait-btn xs" disabled={!!busy} onClick={runTestSmtp}>Test SMTP</button>
+                      <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={() => saveSettings()}>Save</button>
+                    </div>
+                  </div>
+                  {smtpTestResult && (
+                    <div className={`ait-msg-banner ${smtpTestResult.ok ? 'ok' : 'err'}`} style={{ margin: '0 0 10px', padding: '8px 10px', fontWeight: 600 }}>
+                      {smtpTestResult.ok ? 'OK — ' : 'FAIL — '}{smtpTestResult.message}
+                    </div>
+                  )}
+                  <div className="ait-fg-3">
+                    <div className="ait-field">
+                      <label>Provider</label>
+                      <select value={settings.email_delivery_provider || 'smtp'} onChange={(e) => setSettings({ ...settings, email_delivery_provider: e.target.value })}>
+                        <option value="smtp">SMTP</option>
+                        <option value="resend">Resend</option>
+                      </select>
+                    </div>
+                    <div className="ait-field"><label>From name</label><input value={settings.sender_name || ''} onChange={(e) => setSettings({ ...settings, sender_name: e.target.value })} /></div>
+                    <div className="ait-field"><label>From email</label><input value={settings.from_email || ''} onChange={(e) => setSettings({ ...settings, from_email: e.target.value })} /></div>
+                  </div>
+                  <div className="ait-fg-2">
+                    <div className="ait-field"><label>Reply-to</label><input value={settings.reply_to_email || ''} onChange={(e) => setSettings({ ...settings, reply_to_email: e.target.value })} /></div>
+                    <div className="ait-field"><label>Test to</label><input type="email" placeholder="you@company.com" value={resendTestEmail} onChange={(e) => setResendTestEmail(e.target.value)} /></div>
+                  </div>
+                  <div className="ait-fg-3">
+                    <div className="ait-field"><label>Host</label><input value={settings.smtp_host || ''} onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })} /></div>
+                    <div className="ait-field"><label>Port</label><input type="number" value={settings.smtp_port || 587} onChange={(e) => setSettings({ ...settings, smtp_port: +e.target.value })} /></div>
+                    <div className="ait-field"><label>Username</label><input value={settings.smtp_username || ''} onChange={(e) => setSettings({ ...settings, smtp_username: e.target.value })} /></div>
+                  </div>
+                  <div className="ait-field"><label>Password</label><input type="password" placeholder={settings.smtp_password_configured ? '••••••••' : ''} value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} /></div>
+                  <p className="ait-hint">Same mailbox settings also live under main API settings.</p>
+                </div>
+              )}
+
+              {apifySubTab === 'ai' && (
+                <div className="ait-compact">
+                  <div className="ait-fg-3">
+                    <div className="ait-field"><label>Tone</label>
+                      <select value={settings.email_tone || 'direct'} onChange={(e) => setSettings({ ...settings, email_tone: e.target.value })}>
+                        <option value="direct">Direct</option>
+                        <option value="friendly">Friendly</option>
+                        <option value="formal">Formal</option>
+                      </select>
+                    </div>
+                    <div className="ait-field"><label>Max words</label><input type="number" value={settings.email_max_words || 120} onChange={(e) => setSettings({ ...settings, email_max_words: +e.target.value })} /></div>
+                    <div className="ait-field"><label>Emails / day</label><input type="number" value={settings.max_emails_per_day || 10} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} /></div>
+                  </div>
+                  <div className="ait-fg-3">
+                    <div className="ait-field"><label>Follow-up days</label><input type="number" value={settings.followup_after_days || 3} onChange={(e) => setSettings({ ...settings, followup_after_days: +e.target.value })} /></div>
+                    <div className="ait-field"><label>Max follow-ups</label><input type="number" value={settings.max_followups || 2} onChange={(e) => setSettings({ ...settings, max_followups: +e.target.value })} /></div>
+                    <div className="ait-field"><label>Promo type</label>
+                      <select value={settings.promo_offer_type || 'expo'} onChange={(e) => setSettings({ ...settings, promo_offer_type: e.target.value })}>
+                        <option value="expo">Expo free usage</option>
+                        <option value="survey_credits">Survey credits</option>
+                        <option value="interview_credits">Interview credits</option>
+                        <option value="dental_trial">Subscription trial</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="ait-fg-3">
+                    <div className="ait-field"><label>Promo prefix</label><input value={settings.promo_code_prefix || 'EXPO'} onChange={(e) => setSettings({ ...settings, promo_code_prefix: e.target.value })} /></div>
+                    <div className="ait-field"><label>Promo value</label><input type="number" value={settings.promo_value || 3} onChange={(e) => setSettings({ ...settings, promo_value: +e.target.value })} /></div>
+                    <div className="ait-field"><label>Expiry days</label><input type="number" value={settings.promo_expiry_days || 14} onChange={(e) => setSettings({ ...settings, promo_expiry_days: +e.target.value })} /></div>
+                  </div>
+                  <div className="ait-field">
+                    <label>Writing instruction</label>
+                    <textarea style={{ minHeight: 72 }} value={settings.writing_instruction || ''} onChange={(e) => setSettings({ ...settings, writing_instruction: e.target.value })} placeholder="Short cold email for expo exhibitors…" />
+                  </div>
+                  <div className="ait-field">
+                    <label>Signature</label>
+                    <textarea style={{ minHeight: 48 }} value={settings.email_signature || ''} onChange={(e) => setSettings({ ...settings, email_signature: e.target.value })} />
+                  </div>
+                  <div className="ait-toggle-grid">
+                    {[
+                      ['auto_draft_emails', 'Auto-draft'],
+                      ['auto_followup', 'Auto follow-up'],
+                      ['auto_send_without_approval', 'Auto-send (off)'],
+                      ['agent_paused', 'Pause agent'],
+                    ].map(([key, label]) => (
+                      <label key={key} className="ait-check">
+                        <input type="checkbox" checked={!!settings[key]} onChange={(e) => setSettings({ ...settings, [key]: e.target.checked })} />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="ait-btn-row">
+                    <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={() => saveSettings()}>Save AI settings</button>
+                    <button
+                      type="button"
+                      className="ait-btn sm"
+                      disabled={!!busy}
+                      onClick={() => act('followups', () => apiFetch('/admin/ai-team/followups/run', { method: 'POST' }).then((d) => showBanner('ok', `Follow-ups sent: ${d.sent || 0}`)))}
+                    >
+                      Run follow-ups
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {apifySubTab === 'scrape' && (
+                <div className="ait-compact">
+                  {!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id) && (
+                    <div className="ait-msg-banner err" style={{ margin: '0 0 10px', padding: '8px 10px' }}>
+                      Set an Actor ID in the API tab first.
+                    </div>
+                  )}
+                  <div className="ait-fg-2" style={{ alignItems: 'end' }}>
+                    <div className="ait-field" style={{ gridColumn: '1 / -1' }}>
+                      <label>Expo exhibitor URL</label>
+                      <input value={apifyExpoUrl} onChange={(e) => setApifyExpoUrl(e.target.value)} placeholder="https://…/exhibitors" />
+                    </div>
+                  </div>
+                  <div className="ait-btn-row">
+                    <button
+                      type="button"
+                      className="ait-btn primary sm"
+                      disabled={!!busy || !apifyExpoUrl.trim() || !(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id)}
+                      onClick={startApifyRun}
+                    >
+                      Start run
+                    </button>
+                    <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh</button>
+                  </div>
+                  <div className="ait-table-wrap">
+                    <table className="ait-tbl ait-tbl-compact">
+                      <thead>
+                        <tr><th>Status</th><th>URL</th><th>Items</th><th>Imp</th><th /></tr>
+                      </thead>
                       <tbody>
-                        {(apifyPreview.preview || []).map((c, i) => (
-                          <tr key={`${c.email}-${i}`}>
-                            <td>{c.email}</td>
-                            <td>{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</td>
-                            <td>{c.company_name || '—'}</td>
-                            <td>{c.job_title || '—'}</td>
+                        {apifyRuns.map((run) => (
+                          <tr key={run.id}>
+                            <td><span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : 'b-pending'}`}>{run.status}</span></td>
+                            <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
+                            <td>{run.item_count}</td>
+                            <td>{run.imported_count}</td>
+                            <td>
+                              <div className="ait-btn-row" style={{ margin: 0, flexWrap: 'nowrap' }}>
+                                <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => refreshApifyRun(run.id)}>↻</button>
+                                <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => previewApifyRun(run.id)}>View</button>
+                                <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => importApifyRun(run.id)}>Import</button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
+                        {!apifyRuns.length && (
+                          <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 16 }}>No runs yet</td></tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
-                )}
-              </div>
+                  {apifyPreview && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
+                        Preview — {apifyPreview.contacts_with_email} emails / {apifyPreview.total_items} items
+                      </div>
+                      <div className="ait-table-wrap">
+                        <table className="ait-tbl ait-tbl-compact">
+                          <thead><tr><th>Email</th><th>Name</th><th>Company</th></tr></thead>
+                          <tbody>
+                            {(apifyPreview.preview || []).slice(0, 12).map((c, i) => (
+                              <tr key={`${c.email}-${i}`}>
+                                <td>{c.email}</td>
+                                <td>{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</td>
+                                <td>{c.company_name || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </>
+          </div>
         )}
 
         {tab === 'promo' && (
@@ -1221,6 +1312,9 @@ export default function AiTeam() {
             <div className="ait-card">
               <div className="ait-card-hdr"><span className="ait-card-title">Outreach email account</span></div>
               <div className="ait-card-body">
+                <p className="ait-hint" style={{ marginTop: 0, marginBottom: 10 }}>
+                  Also available under <strong>Apify → SMTP</strong> for a compact outreach setup.
+                </p>
                 <div className="ait-fg-2">
                   <div className="ait-field"><label>Delivery provider</label>
                     <select
