@@ -1549,7 +1549,7 @@ class AiTeamService:
         db: Session,
         *,
         expo_url: str,
-        follow_websites: bool = False,
+        follow_websites: bool = True,
         max_stands: int = 500,
         wait: bool = False,
     ) -> dict[str, Any]:
@@ -1571,7 +1571,13 @@ class AiTeamService:
             dataset_id=None,
             created_at=now,
             updated_at=now,
-            stats_json=json.dumps({"provider": "pending", "message": "queued"}),
+            stats_json=json.dumps(
+                {
+                    "provider": "pending",
+                    "message": "queued",
+                    "follow_websites": bool(follow_websites),
+                }
+            ),
         )
         db.add(row)
         db.commit()
@@ -1582,6 +1588,9 @@ class AiTeamService:
             AiTeamService.run_directory_scrape_job(
                 run_id, follow_websites=follow_websites, max_stands=max_stands
             )
+            # End the create-run transaction so we see the worker session's commit
+            # (MySQL REPEATABLE READ otherwise still shows RUNNING).
+            db.commit()
             db.expire_all()
             row = db.get(AiTeamApifyRun, run_id)
             if row is None:
@@ -1657,7 +1666,7 @@ class AiTeamService:
         actor = str(actor_id or settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip()
         # No actor configured → use built-in directory scraper (Easyfairs / HTML).
         if not actor:
-            return AiTeamService.start_directory_scrape(db, expo_url=url, follow_websites=False)
+            return AiTeamService.start_directory_scrape(db, expo_url=url, follow_websites=True)
 
         token = AiTeamService._apify_token(settings, db=db)
         if not token:

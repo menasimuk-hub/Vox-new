@@ -179,11 +179,14 @@ def start_apify_run(body: dict[str, Any], db: Session = Depends(get_db), _admin:
 def scrape_directory(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     """Built-in exhibitor directory scrape (Easyfairs / HTML). No Apify actor required."""
     try:
+        # Default ON — few Easyfairs stands publish email in the description;
+        # company websites yield most addresses (slower: ~2–5 min for ~200 stands).
+        follow_raw = body.get("follow_websites")
+        follow_websites = True if follow_raw is None else bool(follow_raw)
         return AiTeamService.start_directory_scrape(
             db,
             expo_url=str(body.get("expo_url") or body.get("url") or ""),
-            # Default off — descriptions already contain many emails; websites make jobs slow.
-            follow_websites=body.get("follow_websites") is True,
+            follow_websites=follow_websites,
             max_stands=int(body.get("max_stands") or 500),
         )
     except Exception as exc:

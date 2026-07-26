@@ -21,7 +21,7 @@ def process_ai_team_followups_task() -> dict:
 def scrape_directory_task(
     self,
     run_id: str,
-    follow_websites: bool = False,
+    follow_websites: bool = True,
     max_stands: int = 500,
 ) -> dict:
     """Background exhibitor-directory scrape (Easyfairs / HTML). Survives API worker recycle."""

@@ -129,6 +129,7 @@ export default function AiTeam() {
   const [pasteSector, setPasteSector] = useState('expo')
   const [prospectSource, setProspectSource] = useState('')
   const [apifyExpoUrl, setApifyExpoUrl] = useState('')
+  const [scrapeFollowWebsites, setScrapeFollowWebsites] = useState(true)
   const [apifyRuns, setApifyRuns] = useState([])
   const [apifyPreview, setApifyPreview] = useState(null)
   const [connectionChecks, setConnectionChecks] = useState(null)
@@ -351,7 +352,7 @@ export default function AiTeam() {
         method: 'POST',
         body: JSON.stringify({
           expo_url: apifyExpoUrl.trim(),
-          follow_websites: false,
+          follow_websites: scrapeFollowWebsites,
         }),
       })
       showBanner(
@@ -1135,14 +1136,22 @@ export default function AiTeam() {
                     Built-in scrape — <strong>no Apify token needed</strong>. Works for Easyfairs sites like London Packaging Week.
                   </div>
                   <p className="ait-hint" style={{ marginTop: 0 }}>
-                    Paste the exhibitor directory URL → Scrape exhibitors. Wait until status is SUCCEEDED (auto-refreshes).
-                    Then View emails → Import into the queue.
+                    Paste the exhibitor directory URL → Scrape exhibitors. With websites on, expect ~2–5 minutes for ~200 stands.
+                    Wait until SUCCEEDED → View → Import. Apify is not required for Easyfairs directories.
                   </p>
                   <div className="ait-fg-2" style={{ alignItems: 'end' }}>
                     <div className="ait-field" style={{ gridColumn: '1 / -1' }}>
                       <label>Expo exhibitor URL</label>
                       <input value={apifyExpoUrl} onChange={(e) => setApifyExpoUrl(e.target.value)} placeholder="https://www.londonpackagingweek.com/exhibitors/" />
                     </div>
+                    <label className="ait-check" style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={scrapeFollowWebsites}
+                        onChange={(e) => setScrapeFollowWebsites(e.target.checked)}
+                      />
+                      Also scrape company websites for emails (recommended — descriptions alone yield few addresses)
+                    </label>
                   </div>
                   <div className="ait-btn-row">
                     <button
