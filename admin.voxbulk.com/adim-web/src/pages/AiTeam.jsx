@@ -408,23 +408,27 @@ export default function AiTeam() {
         const data = await apiFetch('/admin/ai-team/test/apify', {
           method: 'POST',
           body: JSON.stringify({
-            apify_token: apifyToken || undefined,
-            apify_exhibitor_actor_id: settings.apify_exhibitor_actor_id || undefined,
-            apify_contact_actor_id: settings.apify_contact_actor_id || undefined,
-            check_actor: !!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id),
+            apify_token: apifyToken.trim() || undefined,
+            // Token test only — do not fail token save because of a bad Actor ID
+            check_actor: false,
           }),
         })
-        const saved = data.token_saved || data.apify_token_configured
-        const msg = data.message || (data.username ? `Apify OK — logged in as ${data.username}` : 'Apify OK')
+        const saved = !!(data.token_saved && data.apify_token_configured)
+        const msg = data.message || (data.username ? `Apify OK — ${data.username}` : 'Apify OK')
+        if (!data.ok || !saved) {
+          setApifyTestResult({ ok: false, message: msg || 'Token was not saved to the database' })
+          showBanner('err', msg || 'Token was not saved')
+          return
+        }
         setApifyTestResult({
           ok: true,
-          message: saved ? msg : `${msg} (warning: token may not be saved — click Save)`,
+          message: msg,
           username: data.username,
           actor_name: data.actor_name,
         })
         setSettings((s) => ({
           ...s,
-          apify_token_configured: !!(data.apify_token_configured || saved || s.apify_token_configured),
+          apify_token_configured: true,
           apify_connected: true,
         }))
         if (apifyToken) setApifyToken('')
@@ -434,7 +438,7 @@ export default function AiTeam() {
         } catch {
           /* keep local configured flag */
         }
-        showBanner('ok', saved ? 'Apify connected — token saved' : msg)
+        showBanner('ok', 'Apify connected — token saved in DB')
       } catch (e) {
         const msg = e?.message || 'Apify connection failed'
         setApifyTestResult({ ok: false, message: msg })
@@ -995,8 +999,13 @@ export default function AiTeam() {
                     <input value={settings.apify_contact_actor_id || ''} onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })} placeholder="optional" />
                   </div>
                   <p className="ait-hint">
-                    Paste token → <strong>Test</strong> (saves automatically) or <strong>Save</strong>.
-                    After refresh you should still see “Token saved”. Actor ID is only needed to Scrape.
+                    Paste the full token from{' '}
+                    <a href="https://console.apify.com/settings/integrations" target="_blank" rel="noreferrer">
+                      Apify Console → Integrations
+                    </a>{' '}
+                    (usually starts with <code>apify_api_</code>) → <strong>Test</strong>.
+                    Test only reports OK if Apify accepts it <em>and</em> it is stored in the DB.
+                    Exhibitor scrape does <strong>not</strong> need Apify — use the Scrape tab.
                   </p>
                 </div>
               )}

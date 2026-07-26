@@ -177,6 +177,13 @@ class AiTeamService:
 
     @staticmethod
     def update_settings(db: Session, payload: dict[str, Any]) -> AiTeamSettings:
+        # Token first (validate + durable provider_configs commit), then other settings.
+        raw_apify = payload.get("apify_token")
+        if raw_apify:
+            key = ApifyService.normalize_token(str(raw_apify))
+            if key:
+                AiTeamService.persist_apify_token(db, key)
+
         row = AiTeamService.get_settings(db)
         now = AiTeamService._now()
         scalar_fields = [
@@ -218,18 +225,6 @@ class AiTeamService:
         if payload.get("smtp_password"):
             enc = get_encryptor()
             row.smtp_password_enc = enc.encrypt_str(str(payload["smtp_password"]))
-        if payload.get("apify_token"):
-            token = str(payload["apify_token"]).strip()
-            if token:
-                # Primary store: provider_configs (same durable path as Apollo).
-                ProviderSettingsService.upsert_platform_config(
-                    db, provider="apify", is_enabled=True, config={"api_key": token}
-                )
-                # Also keep ai_team_settings.apify_token_enc when the column exists.
-                try:
-                    row.apify_token_enc = get_encryptor().encrypt_str(token)
-                except Exception:
-                    pass
         row.updated_at = now
         db.add(row)
         db.commit()
@@ -250,7 +245,7 @@ class AiTeamService:
     def _apify_token_from_provider(db: Session) -> str:
         try:
             cfg, _ = ProviderSettingsService.get_platform_config_decrypted(db, provider="apify")
-            return str((cfg or {}).get("api_key") or "").strip()
+            return ApifyService.normalize_token(str((cfg or {}).get("api_key") or ""))
         except Exception:
             return ""
 
@@ -270,9 +265,41 @@ class AiTeamService:
         if not getattr(settings, "apify_token_enc", None):
             return ""
         try:
-            return get_encryptor().decrypt_str(settings.apify_token_enc)
+            return ApifyService.normalize_token(get_encryptor().decrypt_str(settings.apify_token_enc))
         except Exception:
             return ""
+
+    @staticmethod
+    def persist_apify_token(db: Session, token: str) -> str:
+        """Normalize, validate against Apify, then persist. Returns the cleaned token."""
+        key = ApifyService.normalize_token(token)
+        if not key:
+            raise AiTeamServiceError("Apify API token is required")
+        # Validate BEFORE writing so we never store a rejected token.
+        try:
+            ApifyService.test_connection(key, actor_id=None)
+        except ApifyServiceError as exc:
+            raise AiTeamServiceError(str(exc)) from exc
+        ProviderSettingsService.upsert_platform_config(
+            db, provider="apify", is_enabled=True, config={"api_key": key}
+        )
+        # Dual-write when column exists
+        try:
+            row = AiTeamService.get_settings(db)
+            row.apify_token_enc = get_encryptor().encrypt_str(key)
+            row.updated_at = AiTeamService._now()
+            db.add(row)
+            db.commit()
+        except Exception:
+            logger.warning("apify_token_enc_dual_write_failed", exc_info=True)
+        # Prove round-trip from DB
+        saved = AiTeamService._apify_token_from_provider(db)
+        if ApifyService.normalize_token(saved) != key:
+            raise AiTeamServiceError(
+                "Apify token validated but failed to persist (encryption/DB round-trip mismatch). "
+                "Check ENCRYPTION_KEY is stable on the API server."
+            )
+        return key
 
     @staticmethod
     def save_provider_keys(
@@ -291,9 +318,12 @@ class AiTeamService:
                 db, provider="resend", is_enabled=True, config={"api_key": str(resend_api_key).strip()}
             )
         if apify_api_key is not None and str(apify_api_key).strip():
-            ProviderSettingsService.upsert_platform_config(
-                db, provider="apify", is_enabled=True, config={"api_key": str(apify_api_key).strip()}
-            )
+            # Persist without re-validating here — callers that need validation use persist_apify_token.
+            key = ApifyService.normalize_token(apify_api_key)
+            if key:
+                ProviderSettingsService.upsert_platform_config(
+                    db, provider="apify", is_enabled=True, config={"api_key": key}
+                )
 
     @staticmethod
     def default_email_html_template() -> str:

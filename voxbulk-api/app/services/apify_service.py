@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -17,8 +18,40 @@ class ApifyServiceError(ValueError):
 
 class ApifyService:
     @staticmethod
+    def normalize_token(token: str | None) -> str:
+        """Clean pasted Apify tokens so auth does not 401 on trivial paste issues."""
+        key = str(token or "")
+        # Strip BOM / zero-width / weird whitespace from copy-paste
+        key = key.replace("\ufeff", "").replace("\u200b", "").replace("\u00a0", " ")
+        key = key.strip().strip('"').strip("'")
+        # People often paste "Bearer apify_api_…" or the full curl snippet
+        if key.lower().startswith("bearer "):
+            key = key[7:].strip()
+        # Accidental query-string paste: …?token=apify_api_…
+        m = re.search(r"(?:[?&]token=)([A-Za-z0-9_\-]+)", key)
+        if m:
+            key = m.group(1)
+        # If a whole URL was pasted, pull token= value
+        if "api.apify.com" in key and "token=" in key:
+            m2 = re.search(r"token=([A-Za-z0-9_\-]+)", key)
+            if m2:
+                key = m2.group(1)
+        key = "".join(ch for ch in key if ch.isprintable() and not ch.isspace())
+        return key
+
+    @staticmethod
+    def token_fingerprint(token: str | None) -> str:
+        key = ApifyService.normalize_token(token)
+        if not key:
+            return ""
+        if len(key) <= 8:
+            return key[:2] + "..."
+        return f"{key[:6]}...{key[-4:]} (len={len(key)})"
+
+    @staticmethod
     def _headers(token: str) -> dict[str, str]:
-        return {"Authorization": f"Bearer {token.strip()}", "Content-Type": "application/json"}
+        key = ApifyService.normalize_token(token)
+        return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
     @staticmethod
     def _actor_path(actor_id: str) -> str:
@@ -30,14 +63,30 @@ class ApifyService:
 
     @staticmethod
     def test_connection(token: str, *, actor_id: str | None = None) -> dict[str, Any]:
-        key = str(token or "").strip()
+        key = ApifyService.normalize_token(token)
         if not key:
-            raise ApifyServiceError("Apify API token is required")
+            raise ApifyServiceError("Apify API token is required — paste the token from Apify Console → Settings → Integrations")
+        if len(key) < 20:
+            raise ApifyServiceError(
+                f"Apify token looks too short ({len(key)} chars). "
+                "Copy the full token from Apify Console → Settings → Integrations (usually starts with apify_api_)."
+            )
         try:
             with httpx.Client(timeout=30.0) as client:
                 resp = client.get(f"{APIFY_API_BASE}/users/me", headers=ApifyService._headers(key))
+                # Fallback: some environments reject header auth — try query token
                 if resp.status_code == 401:
-                    raise ApifyServiceError("Invalid Apify API token")
+                    resp = client.get(
+                        f"{APIFY_API_BASE}/users/me",
+                        params={"token": key},
+                        headers={"Content-Type": "application/json"},
+                    )
+                if resp.status_code == 401:
+                    raise ApifyServiceError(
+                        "Invalid Apify API token (Apify returned 401). "
+                        "Copy a fresh token from https://console.apify.com/settings/integrations "
+                        f"(received {ApifyService.token_fingerprint(key)})."
+                    )
                 if resp.status_code >= 400:
                     raise ApifyServiceError(f"Apify API error ({resp.status_code}): {resp.text[:300]}")
                 user = (resp.json() or {}).get("data") or {}
@@ -46,6 +95,7 @@ class ApifyService:
                     "message": "Apify connected",
                     "username": user.get("username") or user.get("email") or "",
                     "user_id": user.get("id"),
+                    "token_fingerprint": ApifyService.token_fingerprint(key),
                 }
                 aid = str(actor_id or "").strip()
                 if aid:
@@ -69,7 +119,7 @@ class ApifyService:
 
     @staticmethod
     def start_actor_run(token: str, *, actor_id: str, run_input: dict[str, Any]) -> dict[str, Any]:
-        key = str(token or "").strip()
+        key = ApifyService.normalize_token(token)
         if not key:
             raise ApifyServiceError("Apify API token is required")
         path = ApifyService._actor_path(actor_id)
@@ -97,7 +147,7 @@ class ApifyService:
 
     @staticmethod
     def get_run(token: str, *, apify_run_id: str) -> dict[str, Any]:
-        key = str(token or "").strip()
+        key = ApifyService.normalize_token(token)
         run_id = str(apify_run_id or "").strip()
         if not key or not run_id:
             raise ApifyServiceError("Apify token and run id are required")
@@ -123,7 +173,7 @@ class ApifyService:
 
     @staticmethod
     def fetch_dataset_items(token: str, *, dataset_id: str, limit: int = 500) -> list[dict[str, Any]]:
-        key = str(token or "").strip()
+        key = ApifyService.normalize_token(token)
         ds = str(dataset_id or "").strip()
         if not key or not ds:
             raise ApifyServiceError("Apify token and dataset id are required")

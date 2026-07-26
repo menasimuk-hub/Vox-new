@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.models.user import User
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
 from app.services.apollo_service import ApolloService, ApolloServiceError
-from app.services.apify_service import ApifyServiceError
+from app.services.apify_service import ApifyService, ApifyServiceError
 from app.services.provider_settings import ProviderSettingsService
 from app.services.resend_service import ResendService, ResendServiceError
 
@@ -40,13 +40,11 @@ def get_settings(db: Session = Depends(get_db), _admin: User = Depends(require_c
 @router.put("/settings")
 def put_settings(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     # Secrets first (own commit via provider_configs) so a later settings UPDATE
-    # cannot leave Apollo/Apify/Resend keys unsaved.
+    # cannot leave Apollo/Resend keys unsaved. Apify is validated inside update_settings.
     if body.get("apollo_api_key"):
         AiTeamService.save_provider_keys(db, apollo_api_key=body.get("apollo_api_key"))
     if body.get("resend_api_key"):
         AiTeamService.save_provider_keys(db, resend_api_key=body.get("resend_api_key"))
-    if body.get("apify_token"):
-        AiTeamService.save_provider_keys(db, apify_api_key=body.get("apify_token"))
     row = AiTeamService.update_settings(db, body)
     return {"settings": AiTeamService.settings_to_dict(db, row)}
 
@@ -398,40 +396,56 @@ def test_email_account(body: dict[str, Any], db: Session = Depends(get_db), _adm
 
 @router.post("/test/apify")
 def test_apify(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
-    # Persist token first (provider_configs commit), then optional actor IDs.
-    # Test used to succeed with the in-request token while DB save failed — refresh then broke.
-    raw_token = str(body.get("apify_token") or body.get("api_token") or "").strip()
+    """Validate with Apify first, save only if valid, then re-test the DB-stored token."""
+    raw_token = ApifyService.normalize_token(str(body.get("apify_token") or body.get("api_token") or ""))
     token_saved = False
-    if raw_token:
-        AiTeamService.save_provider_keys(db, apify_api_key=raw_token)
-        token_saved = True
-    patch: dict[str, Any] = {}
-    if raw_token:
-        patch["apify_token"] = raw_token
-    if body.get("apify_exhibitor_actor_id") is not None and str(body.get("apify_exhibitor_actor_id") or "").strip():
-        patch["apify_exhibitor_actor_id"] = body.get("apify_exhibitor_actor_id")
-    if body.get("apify_contact_actor_id") is not None and str(body.get("apify_contact_actor_id") or "").strip():
-        patch["apify_contact_actor_id"] = body.get("apify_contact_actor_id")
-    if patch:
-        try:
-            AiTeamService.update_settings(db, patch)
-        except Exception:
-            # Token already in provider_configs; actor-id columns may be missing pre-migration.
-            if not token_saved:
-                raise
-    check_actor = body.get("check_actor") is True
+    source = "request"
     try:
-        result = AiTeamService.test_apify(
-            db,
-            token=raw_token or None,
-            check_actor=check_actor,
-        )
+        if raw_token:
+            AiTeamService.persist_apify_token(db, raw_token)
+            token_saved = True
+            source = "request"
+        else:
+            settings = AiTeamService.get_settings(db)
+            saved = AiTeamService._apify_token(settings, db=db)
+            if not saved:
+                raise AiTeamServiceError(
+                    "No Apify token pasted and none saved in DB. "
+                    "Paste the token from Apify Console → Settings → Integrations, then click Test."
+                )
+            ApifyService.test_connection(saved, actor_id=None)
+            source = "database"
+            token_saved = True
+
+        patch: dict[str, Any] = {}
+        if body.get("apify_exhibitor_actor_id") is not None and str(body.get("apify_exhibitor_actor_id") or "").strip():
+            patch["apify_exhibitor_actor_id"] = body.get("apify_exhibitor_actor_id")
+        if body.get("apify_contact_actor_id") is not None and str(body.get("apify_contact_actor_id") or "").strip():
+            patch["apify_contact_actor_id"] = body.get("apify_contact_actor_id")
+        if patch:
+            try:
+                AiTeamService.update_settings(db, patch)
+            except Exception:
+                pass
+
+        # Always re-test the token loaded from DB — proves persistence.
+        check_actor = body.get("check_actor") is True
+        result = AiTeamService.test_apify(db, token=None, check_actor=check_actor)
         settings = AiTeamService.get_settings(db)
         configured = AiTeamService._apify_token_configured(db, settings)
-        result["token_saved"] = token_saved or configured
+        stored = AiTeamService._apify_token(settings, db=db)
+        result["token_saved"] = bool(token_saved and configured and stored)
         result["apify_token_configured"] = configured
-        if result.get("ok") and configured:
-            result["message"] = f"{result.get('message') or 'Apify connected'} · token saved"
+        result["token_source"] = source
+        result["token_fingerprint"] = ApifyService.token_fingerprint(stored)
+        if result.get("ok") and result["token_saved"]:
+            result["message"] = (
+                f"{result.get('message') or 'Apify connected'} · "
+                f"token saved in DB ({result['token_fingerprint']})"
+            )
+        elif result.get("ok") and not result["token_saved"]:
+            result["ok"] = False
+            result["message"] = "Apify accepted the token but it is NOT saved in the database"
         return result
     except Exception as exc:
         raise _err(exc) from exc
