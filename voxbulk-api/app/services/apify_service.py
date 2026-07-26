@@ -69,7 +69,17 @@ class ApifyService:
         if len(key) < 20:
             raise ApifyServiceError(
                 f"Apify token looks too short ({len(key)} chars). "
-                "Copy the full token from Apify Console → Settings → Integrations (usually starts with apify_api_)."
+                "Copy the full Personal API token from Apify Console → Settings → Integrations "
+                "(it usually starts with apify_api_ and is longer than 40 characters)."
+            )
+        if not key.startswith("apify_api_"):
+            raise ApifyServiceError(
+                "That value does not look like an Apify Personal API token "
+                f"(got {ApifyService.token_fingerprint(key)}). "
+                "Open https://console.apify.com/settings/integrations → "
+                "copy the Personal API token that starts with apify_api_ "
+                "(not an Actor ID, user ID, proxy password, or UUID). "
+                "Or skip Apify entirely and use the Scrape tab for exhibitor directories."
             )
         try:
             with httpx.Client(timeout=30.0) as client:
@@ -83,9 +93,11 @@ class ApifyService:
                     )
                 if resp.status_code == 401:
                     raise ApifyServiceError(
-                        "Invalid Apify API token (Apify returned 401). "
-                        "Copy a fresh token from https://console.apify.com/settings/integrations "
-                        f"(received {ApifyService.token_fingerprint(key)})."
+                        "Apify rejected this Personal API token (401). "
+                        "It may be revoked, expired, or copied incompletely. "
+                        "Create a new token at https://console.apify.com/settings/integrations "
+                        f"(tested {ApifyService.token_fingerprint(key)}). "
+                        "Note: exhibitor directory scrape does not need Apify — use the Scrape tab."
                     )
                 if resp.status_code >= 400:
                     raise ApifyServiceError(f"Apify API error ({resp.status_code}): {resp.text[:300]}")

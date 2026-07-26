@@ -998,14 +998,16 @@ export default function AiTeam() {
                     <label>Second actor (optional)</label>
                     <input value={settings.apify_contact_actor_id || ''} onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })} placeholder="optional" />
                   </div>
+                  <div className="ait-msg-banner err" style={{ margin: '0 0 10px', padding: '8px 10px' }}>
+                    Optional. Only needed for Apify Store actors. Exhibitor directories (e.g. London Packaging Week) use the <strong>Scrape</strong> tab — no token required.
+                  </div>
                   <p className="ait-hint">
-                    Paste the full token from{' '}
+                    If you do use Apify: copy the <strong>Personal API token</strong> that starts with{' '}
+                    <code>apify_api_</code> from{' '}
                     <a href="https://console.apify.com/settings/integrations" target="_blank" rel="noreferrer">
-                      Apify Console → Integrations
-                    </a>{' '}
-                    (usually starts with <code>apify_api_</code>) → <strong>Test</strong>.
-                    Test only reports OK if Apify accepts it <em>and</em> it is stored in the DB.
-                    Exhibitor scrape does <strong>not</strong> need Apify — use the Scrape tab.
+                      console.apify.com/settings/integrations
+                    </a>
+                    . Do not paste Actor IDs, UUIDs, or proxy passwords.
                   </p>
                 </div>
               )}
