@@ -95,6 +95,12 @@ export default function PromoOffers() {
   const [msg, setMsg] = useState(params.get('created') ? 'Promo offer created.' : '')
   const [busyId, setBusyId] = useState('')
   const [query, setQuery] = useState('')
+  const [applyPromo, setApplyPromo] = useState(null)
+  const [orgQuery, setOrgQuery] = useState('')
+  const [orgs, setOrgs] = useState([])
+  const [selectedOrgIds, setSelectedOrgIds] = useState([])
+  const [applying, setApplying] = useState(false)
+  const [applyResult, setApplyResult] = useState(null)
 
   const load = useCallback(async () => {
     setError('')
@@ -211,15 +217,73 @@ export default function PromoOffers() {
     }
   }
 
+  const openApply = (row) => {
+    setApplyPromo(row)
+    setOrgQuery('')
+    setOrgs([])
+    setSelectedOrgIds([])
+    setApplyResult(null)
+    setError('')
+  }
+
+  const closeApply = () => {
+    setApplyPromo(null)
+    setOrgQuery('')
+    setOrgs([])
+    setSelectedOrgIds([])
+    setApplyResult(null)
+  }
+
+  const searchOrgs = async () => {
+    try {
+      const data = await apiFetch(`/admin/organisations?search=${encodeURIComponent(orgQuery || '')}&limit=40`)
+      setOrgs(Array.isArray(data) ? data : data?.items || data?.organisations || [])
+    } catch (e) {
+      setError(e?.message || 'Could not search organisations')
+      setOrgs([])
+    }
+  }
+
+  const toggleOrg = (id) => {
+    setSelectedOrgIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const applyToSelectedOrgs = async () => {
+    if (!applyPromo?.id || selectedOrgIds.length === 0) return
+    setApplying(true)
+    setApplyResult(null)
+    setError('')
+    try {
+      const res = await apiFetch(`/admin/promo-offers/${applyPromo.id}/apply`, {
+        method: 'POST',
+        body: JSON.stringify({ org_ids: selectedOrgIds }),
+      })
+      setApplyResult(res)
+      await load()
+      const applied = Number(res?.applied || 0)
+      const failed = Number(res?.failed || 0)
+      setMsg(
+        applied
+          ? `Applied ${applyPromo.code} to ${applied} organisation(s)${failed ? ` · ${failed} skipped` : ''}.`
+          : failed
+            ? `No orgs applied (${failed} skipped — already redeemed or invalid).`
+            : 'Apply finished.',
+      )
+    } catch (e) {
+      setError(e?.message || 'Could not apply promo to organisations')
+    } finally {
+      setApplying(false)
+    }
+  }
+
   return (
     <>
       <div className='pageTop'>
         <div>
           <h1>Promo offers</h1>
           <p>
-            Signup promo codes for sales and marketing. Share the link in email or WhatsApp — customers land on signup
-            with plan and trial pre-filled. Auto-created from{' '}
-            <Link to='/marketing/lead-sales'>Lead sales</Link> when you send an offer.
+            Create a code, then either share the signup link, let the customer enter it in Dashboard → Billing, or use{' '}
+            <strong>Apply to orgs</strong> / Org Control Center to assign it yourself to one or more organisations.
           </p>
         </div>
         <div className='actions'>
@@ -388,6 +452,9 @@ export default function PromoOffers() {
                           </td>
                           <td>
                             <div className='productsRowActions'>
+                              <button type='button' className='btn soft' onClick={() => openApply(row)} disabled={!row.is_active}>
+                                Apply to orgs
+                              </button>
                               <button type='button' className='btn soft' onClick={() => copyLink(row)} disabled={!row.signup_url}>
                                 Copy link
                               </button>
@@ -437,6 +504,75 @@ export default function PromoOffers() {
           </div>
         </div>
       </div>
+
+      {applyPromo ? (
+        <div className='occ-modal-backdrop' role='dialog' aria-modal='true' onClick={closeApply}>
+          <div className='occ-modal' style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+            <div className='occ-modal-title'>Apply {applyPromo.code} to organisations</div>
+            <p className='muted' style={{ marginTop: 0 }}>
+              {applyPromo.benefit_summary || applyPromo.name || applyPromo.code}. Search, tick one or more orgs, then
+              apply. Already-redeemed orgs are skipped.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <input
+                className='input'
+                style={{ flex: 1 }}
+                placeholder='Search organisation name…'
+                value={orgQuery}
+                onChange={(e) => setOrgQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void searchOrgs()
+                  }
+                }}
+              />
+              <button type='button' className='btn soft' onClick={() => void searchOrgs()}>
+                Search
+              </button>
+            </div>
+            <div className='card' style={{ maxHeight: 280, overflow: 'auto', padding: 8, marginBottom: 12 }}>
+              {orgs.length === 0 ? (
+                <p className='muted' style={{ margin: 8 }}>
+                  Search to find organisations.
+                </p>
+              ) : (
+                orgs.map((o) => (
+                  <label key={o.id} style={{ display: 'flex', gap: 8, padding: 8, cursor: 'pointer' }}>
+                    <input
+                      type='checkbox'
+                      checked={selectedOrgIds.includes(o.id)}
+                      onChange={() => toggleOrg(o.id)}
+                    />
+                    <span>
+                      <strong>{o.name}</strong>
+                      <span className='muted'> · {String(o.id || '').slice(0, 8)}</span>
+                    </span>
+                  </label>
+                ))
+              )}
+            </div>
+            {applyResult ? (
+              <div className='note' style={{ marginBottom: 12, fontSize: 12 }}>
+                Applied {applyResult.applied ?? 0} · failed/skipped {applyResult.failed ?? 0}
+              </div>
+            ) : null}
+            <div className='occ-modal-actions' style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type='button' className='btn soft' onClick={closeApply}>
+                Close
+              </button>
+              <button
+                type='button'
+                className='btn primary'
+                disabled={applying || selectedOrgIds.length === 0}
+                onClick={() => void applyToSelectedOrgs()}
+              >
+                {applying ? 'Applying…' : `Apply to ${selectedOrgIds.length || 0} org(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }
