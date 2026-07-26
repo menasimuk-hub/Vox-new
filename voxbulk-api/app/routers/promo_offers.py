@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
-from app.core.security import CurrentPrincipal, get_current_principal
+from app.core.dependencies import CurrentPrincipal, get_current_principal
 from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
 router = APIRouter(tags=["promo"])
