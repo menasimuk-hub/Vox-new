@@ -92,6 +92,14 @@ const EXPO_STEPS: WizardStepDef[] = [
 
 const DEFAULT_Q_KEYS = ["interest", "role", "timeline", "follow_up", "consent_info"];
 
+function defaultFreeGiftText(companyName: string) {
+  const name = companyName.trim();
+  if (!name) {
+    return "Please collect your free gift from our stand team — thanks for completing the short questionnaire!";
+  }
+  return `Please collect your free gift from ${name}'s stand team — thanks for completing the short questionnaire!`;
+}
+
 function newAssetId() {
   return `a-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -133,9 +141,15 @@ function CreateExpoBooth() {
     "offer_both",
   );
   const [freeGiftEnabled, setFreeGiftEnabled] = React.useState(false);
-  const [freeGiftText, setFreeGiftText] = React.useState(
-    "Please collect your free gift from our stand team — thanks for completing the short questionnaire!",
+  const [freeGiftCustomized, setFreeGiftCustomized] = React.useState(false);
+  const [freeGiftText, setFreeGiftText] = React.useState(() =>
+    defaultFreeGiftText(session?.org?.name || ""),
   );
+
+  React.useEffect(() => {
+    if (freeGiftCustomized) return;
+    setFreeGiftText(defaultFreeGiftText(company));
+  }, [company, freeGiftCustomized]);
   const [savedAssets, setSavedAssets] = React.useState<AssetDraft[]>([]);
   const [draft, setDraft] = React.useState<Omit<AssetDraft, "id">>({
     title: "",
@@ -557,13 +571,20 @@ function CreateExpoBooth() {
                 <label className="flex items-start gap-3">
                   <Checkbox
                     checked={freeGiftEnabled}
-                    onCheckedChange={(v) => setFreeGiftEnabled(Boolean(v))}
+                    onCheckedChange={(v) => {
+                      const on = Boolean(v);
+                      setFreeGiftEnabled(on);
+                      if (on && !freeGiftCustomized) {
+                        setFreeGiftText(defaultFreeGiftText(company));
+                      }
+                    }}
                     className="mt-0.5"
                   />
                   <span>
                     <span className="font-medium">Offer a free gift after the questionnaire</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">
-                      After the thank-you message, tell visitors how to collect their gift at the stand.
+                      After the thank-you message, tell visitors how to collect their gift. Default text includes your
+                      company name so visitors know which stand it is — you can edit it anytime.
                     </span>
                   </span>
                 </label>
@@ -571,7 +592,10 @@ function CreateExpoBooth() {
                   <Textarea
                     className="mt-3"
                     value={freeGiftText}
-                    onChange={(e) => setFreeGiftText(e.target.value)}
+                    onChange={(e) => {
+                      setFreeGiftCustomized(true);
+                      setFreeGiftText(e.target.value);
+                    }}
                     rows={2}
                   />
                 ) : null}

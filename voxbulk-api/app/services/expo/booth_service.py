@@ -30,6 +30,7 @@ from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
 from app.services.expo.question_bank import (
+    default_free_gift_text,
     default_question_config,
     parse_closing_config,
     parse_question_config,
@@ -490,6 +491,8 @@ class ExpoBoothService:
         addon = industry.addon_question if industry else None
         free_gift_enabled = bool(payload.get("free_gift_enabled"))
         free_gift_text = str(payload.get("free_gift_text") or "").strip() or None
+        if free_gift_enabled and not free_gift_text:
+            free_gift_text = default_free_gift_text(company)
         thank_you_message = str(payload.get("thank_you_message") or "").strip() or None
         selected_keys_raw = payload.get("selected_question_keys")
         selected_keys = (

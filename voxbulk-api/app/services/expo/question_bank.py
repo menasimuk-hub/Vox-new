@@ -13,6 +13,17 @@ DEFAULT_FREE_GIFT_TEXT = (
     "Please collect your free gift from our stand team — thanks for completing the short questionnaire!"
 )
 
+
+def default_free_gift_text(company_name: str | None = None) -> str:
+    """Default free-gift closing copy; includes company so multi-stand visitors know which offer it is."""
+    name = str(company_name or "").strip()
+    if not name:
+        return DEFAULT_FREE_GIFT_TEXT
+    return (
+        f"Please collect your free gift from {name}'s stand team — "
+        "thanks for completing the short questionnaire!"
+    )
+
 # Fixed contact capture — visitor can send a business-card photo OR type details.
 CONTACT_STEP_KEY = "contact"
 CONTACT_PROMPT_WA = (
@@ -392,7 +403,7 @@ def default_question_config(
             steps.append({"key": q["key"], "prompt": q["prompt"], "kind": "text"})
 
     gift_on = bool(free_gift_enabled)
-    gift_text = str(free_gift_text or "").strip() or DEFAULT_FREE_GIFT_TEXT
+    gift_text = str(free_gift_text or "").strip() or default_free_gift_text()
     mode = str(contact_capture or "offer_both").strip().lower()
     if mode not in {"offer_both", "manual_only", "card_only"}:
         mode = "offer_both"
@@ -452,13 +463,14 @@ def parse_contact_capture(raw: str | None) -> str:
     return mode if mode in {"offer_both", "manual_only", "card_only"} else "offer_both"
 
 
-def parse_closing_config(raw: str | None) -> dict[str, Any]:
+def parse_closing_config(raw: str | None, *, company_name: str | None = None) -> dict[str, Any]:
     """Thank-you + optional free-gift settings stored alongside question steps."""
+    fallback_gift = default_free_gift_text(company_name)
     if not raw:
         return {
             "thank_you_message": DEFAULT_THANK_YOU,
             "free_gift_enabled": False,
-            "free_gift_text": DEFAULT_FREE_GIFT_TEXT,
+            "free_gift_text": fallback_gift,
         }
     try:
         data = json.loads(raw)
@@ -467,7 +479,7 @@ def parse_closing_config(raw: str | None) -> dict[str, Any]:
     if not isinstance(data, dict):
         data = {}
     gift_on = bool(data.get("free_gift_enabled"))
-    gift_text = str(data.get("free_gift_text") or "").strip() or DEFAULT_FREE_GIFT_TEXT
+    gift_text = str(data.get("free_gift_text") or "").strip() or fallback_gift
     thank = str(data.get("thank_you_message") or "").strip() or DEFAULT_THANK_YOU
     return {
         "thank_you_message": thank,
@@ -476,11 +488,11 @@ def parse_closing_config(raw: str | None) -> dict[str, Any]:
     }
 
 
-def build_thank_you_message(raw_config: str | None) -> str:
-    closing = parse_closing_config(raw_config)
+def build_thank_you_message(raw_config: str | None, *, company_name: str | None = None) -> str:
+    closing = parse_closing_config(raw_config, company_name=company_name)
     thank = str(closing.get("thank_you_message") or DEFAULT_THANK_YOU).strip()
     if closing.get("free_gift_enabled"):
-        gift = str(closing.get("free_gift_text") or DEFAULT_FREE_GIFT_TEXT).strip()
+        gift = str(closing.get("free_gift_text") or default_free_gift_text(company_name)).strip()
         if gift:
             return f"{thank}\n\n{gift}"
     return thank

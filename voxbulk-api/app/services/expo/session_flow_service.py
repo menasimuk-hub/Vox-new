@@ -324,7 +324,10 @@ class ExpoSessionFlowService:
             return {
                 "session_id": session.id,
                 "done": True,
-                "prompt": build_thank_you_message(booth.question_config_json),
+                "prompt": build_thank_you_message(
+                    booth.question_config_json,
+                    company_name=booth.company_display_name or booth.name,
+                ),
                 "superseded_sessions": closed,
             }
 
@@ -1121,7 +1124,10 @@ class ExpoSessionFlowService:
         db.add(session)
         if booth is None:
             booth = db.get(ExpoBooth, session.booth_id)
-        thank = build_thank_you_message(booth.question_config_json if booth else None)
+        thank = build_thank_you_message(
+            booth.question_config_json if booth else None,
+            company_name=(booth.company_display_name or booth.name) if booth else None,
+        )
         summary = ExpoSessionFlowService._lead_summary(db, session=session, lead=lead)
         delivered: list[dict[str, Any]] = []
         if booth is not None and lead is not None:
