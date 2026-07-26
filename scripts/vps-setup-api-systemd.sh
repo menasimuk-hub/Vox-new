@@ -100,6 +100,8 @@ cat >"$API_UNIT" <<EOF
 Description=VoxBulk API (uvicorn)
 After=network.target mysql.service mariadb.service redis.service redis-server.service
 Wants=network-online.target
+# Must be in [Unit] (not [Service]) on this systemd — avoids "Unknown key name" warning
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -111,7 +113,6 @@ LogsDirectory=voxbulk
 ExecStart=$UVICORN_BIN main:app --host 127.0.0.1 --port 8000 --workers $WORKERS
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=0
 KillMode=mixed
 TimeoutStopSec=30
 StandardOutput=append:$API_LOG
@@ -136,6 +137,7 @@ if [[ "${VOX_SKIP_PUBLIC_SYSTEMD:-0}" != "1" ]]; then
 Description=VoxBulk public site (vite preview :5173)
 After=network.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -146,7 +148,6 @@ LogsDirectory=voxbulk
 ExecStart=$PUBLIC_RUN
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=0
 KillMode=mixed
 TimeoutStopSec=20
 StandardOutput=append:$PUBLIC_LOG
