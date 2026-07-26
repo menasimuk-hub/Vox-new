@@ -459,4 +459,36 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             footer="Sent by VOXBULK · survey.codes@voxbulk.com",
         ),
     },
+    "sales_payout_invoice_received": {
+        "title": "Payout invoice received",
+        "subject": "We received your payout invoice {{invoice_number}}",
+        "body": wrap_brand_email(
+            title="Payout invoice received",
+            inner_html="""<p>Hi <strong>{{name}}</strong>,</p>
+  <p>We have received your commission payout invoice for <strong>{{company_name}}</strong>.</p>
+  <p><strong>Invoice:</strong> {{invoice_number}}<br />
+  <strong>Amount:</strong> {{amount}} {{currency}}<br />
+  <strong>Submitted:</strong> {{submitted_at}}<br />
+  <strong>Payout method:</strong> {{payout_method_summary}}</p>
+  <p>Our team will review it and confirm once payment is approved.</p>""",
+            footer="Sent by VOXBULK · finance@voxbulk.com",
+            badge="Sales payout",
+        ),
+    },
+    "sales_payout_invoice_paid": {
+        "title": "Payout invoice paid",
+        "subject": "Payout paid — {{invoice_number}} ({{amount}})",
+        "body": wrap_brand_email(
+            title="Payout invoice paid",
+            inner_html="""<p>Hi <strong>{{name}}</strong>,</p>
+  <p>Your commission payout invoice has been approved and marked as paid.</p>
+  <p><strong>Invoice:</strong> {{invoice_number}}<br />
+  <strong>Amount:</strong> {{amount}} {{currency}}<br />
+  <strong>Paid:</strong> {{paid_at}}<br />
+  <strong>Payout method:</strong> {{payout_method_summary}}</p>
+  <p>Thank you for partnering with VOXBULK.</p>""",
+            footer="Sent by VOXBULK · finance@voxbulk.com",
+            badge="Sales payout",
+        ),
+    },
 }

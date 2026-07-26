@@ -37,8 +37,74 @@ def _require_partner(db: Session, principal) -> SalesRep:
 
 @router.get("/me")
 def sales_me(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.models.user import User
+    from sqlalchemy import select
+
     rep = _require_rep(db, principal)
-    return {"ok": True, "rep": SalesRepService.rep_to_dict(rep)}
+    user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
+    return {"ok": True, "rep": SalesRepService.rep_to_dict(rep, user)}
+
+
+@router.patch("/me/payout")
+def update_my_payout(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.models.user import User
+    from sqlalchemy import select
+
+    rep = _require_rep(db, principal)
+    body = payload or {}
+    try:
+        SalesRepService.update_rep(db, rep=rep, patch=body)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
+    return {"ok": True, "rep": SalesRepService.rep_to_dict(rep, user)}
+
+
+@router.get("/wallet")
+def sales_wallet(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.sales_payout_service import SalesPayoutService
+
+    rep = _require_rep(db, principal)
+    stats = SalesRepService.dashboard_stats(db, rep)
+    return {
+        "ok": True,
+        "rep": SalesRepService.rep_to_dict(rep),
+        "wallet": stats.get("wallet") or {},
+        "commissions": stats.get("commissions") or [],
+        "payout_invoices": SalesPayoutService.list_invoices(db, rep_id=rep.id),
+    }
+
+
+@router.get("/payout-invoices")
+def list_my_payout_invoices(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.sales_payout_service import SalesPayoutService
+
+    rep = _require_rep(db, principal)
+    return {"ok": True, "items": SalesPayoutService.list_invoices(db, rep_id=rep.id)}
+
+
+@router.post("/payout-invoices")
+def create_payout_invoice(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.services.sales_payout_service import SalesPayoutService
+
+    rep = _require_rep(db, principal)
+    body = payload or {}
+    amount_minor = body.get("amount_minor")
+    if amount_minor is None and body.get("amount_gbp") is not None:
+        try:
+            amount_minor = int(round(float(body.get("amount_gbp")) * 100))
+        except (TypeError, ValueError):
+            amount_minor = None
+    try:
+        inv = SalesPayoutService.create_invoice(
+            db,
+            rep=rep,
+            amount_minor=int(amount_minor or 0),
+            notes=body.get("notes"),
+        )
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "invoice": SalesPayoutService.invoice_to_dict(inv)}
 
 
 @router.get("/customers")

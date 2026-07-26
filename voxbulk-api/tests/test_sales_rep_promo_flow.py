@@ -59,6 +59,7 @@ def _seed_rep(
         kind=kind,
         promo_code=code,
         commission_pct=commission_pct,
+        commission_type="percent" if kind == "partner_channel" else "month2",
         is_active=True,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),

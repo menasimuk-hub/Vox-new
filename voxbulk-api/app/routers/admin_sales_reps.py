@@ -28,20 +28,107 @@ def list_sales_reps(
     return {"ok": True, "items": items}
 
 
+@router.get("/payout-invoices")
+def list_payout_invoices(
+    rep_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.services.sales_payout_service import SalesPayoutService
+
+    return {"ok": True, "items": SalesPayoutService.list_invoices(db, rep_id=rep_id, status=status)}
+
+
+@router.get("/payout-invoices/{invoice_id}")
+def get_payout_invoice(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_payout_service import SalesPayoutService
+
+    inv = SalesPayoutService.get_invoice(db, invoice_id=invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Payout invoice not found")
+    rep = db.get(SalesRep, inv.sales_rep_id)
+    return {
+        "ok": True,
+        "invoice": SalesPayoutService.invoice_to_dict(inv),
+        "rep": SalesRepService.rep_to_dict(rep) if rep else None,
+    }
+
+
+@router.post("/payout-invoices/{invoice_id}/approve-pay")
+def approve_payout_invoice(
+    invoice_id: str,
+    db: Session = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    from app.services.sales_payout_service import SalesPayoutService
+
+    inv = SalesPayoutService.get_invoice(db, invoice_id=invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Payout invoice not found")
+    try:
+        inv = SalesPayoutService.approve_and_pay(db, invoice=inv, admin_id=getattr(admin, "id", None))
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "invoice": SalesPayoutService.invoice_to_dict(inv)}
+
+
+@router.post("/payout-invoices/{invoice_id}/reject")
+def reject_payout_invoice(
+    invoice_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    from app.services.sales_payout_service import SalesPayoutService
+
+    inv = SalesPayoutService.get_invoice(db, invoice_id=invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Payout invoice not found")
+    try:
+        inv = SalesPayoutService.reject_invoice(
+            db,
+            invoice=inv,
+            admin_id=getattr(admin, "id", None),
+            reason=(payload or {}).get("reason"),
+        )
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "invoice": SalesPayoutService.invoice_to_dict(inv)}
+
+
 @router.post("")
 def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    body = payload or {}
+    payout = body.get("payout") if isinstance(body.get("payout"), dict) else {
+        k: body.get(k)
+        for k in (
+            "payout_method",
+            "bank_holder_name",
+            "bank_name",
+            "bank_sort_code",
+            "bank_account_number",
+            "bank_address",
+            "paypal_email",
+        )
+        if k in body
+    }
     try:
         rep = SalesRepService.create_rep(
             db,
-            email=payload.get("email", ""),
-            password=payload.get("password", ""),
-            name=payload.get("name", ""),
-            promo_code=payload.get("promo_code", ""),
-            country=payload.get("country"),
-            caller_id=payload.get("caller_id"),
-            kind=payload.get("kind") or KIND_SALESMAN,
-            commission_pct=payload.get("commission_pct"),
-            company_name=payload.get("company_name"),
+            email=body.get("email", ""),
+            password=body.get("password", ""),
+            name=body.get("name", ""),
+            promo_code=body.get("promo_code", ""),
+            country=body.get("country"),
+            caller_id=body.get("caller_id"),
+            kind=body.get("kind") or KIND_SALESMAN,
+            commission_pct=body.get("commission_pct"),
+            company_name=body.get("company_name"),
+            mobile=body.get("mobile"),
+            commission_type=body.get("commission_type"),
+            commission_fixed_minor=body.get("commission_fixed_minor"),
+            payout=payout or None,
         )
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -119,4 +206,4 @@ def list_rep_customers(rep_id: str, db: Session = Depends(get_db), _admin=Depend
 @router.get("/{rep_id}/dashboard")
 def rep_dashboard(rep_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     rep = _get_rep(db, rep_id)
-    return {"ok": True, "stats": SalesRepService.dashboard_stats(db, rep)}
+    return {"ok": True, "stats": SalesRepService.dashboard_stats(db, rep), "rep": SalesRepService.rep_to_dict(rep)}

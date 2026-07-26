@@ -102,17 +102,23 @@ class SalesRepService:
 
     @staticmethod
     def rep_to_dict(rep: SalesRep, user: User | None = None) -> dict[str, Any]:
+        from app.services.sales_payout_service import SalesPayoutService
+
         return {
             "id": rep.id,
             "user_id": rep.user_id,
             "name": rep.name,
             "company_name": getattr(rep, "company_name", None),
+            "mobile": getattr(rep, "mobile", None),
             "kind": SalesRepService.rep_kind(rep),
             "email": user.email if user else None,
             "promo_code": rep.promo_code,
             "country": rep.country,
             "caller_id": rep.caller_id,
             "commission_pct": SalesRepService.commission_pct_of(rep),
+            "commission_type": SalesPayoutService.commission_type_of(rep),
+            "commission_fixed_minor": SalesPayoutService.fixed_minor_of(rep),
+            "payout": SalesPayoutService.payout_dict(rep),
             "is_active": bool(rep.is_active),
             "created_at": rep.created_at.isoformat() if rep.created_at else None,
         }
@@ -211,7 +217,18 @@ class SalesRepService:
         kind: str = KIND_SALESMAN,
         commission_pct: Any = DEFAULT_COMMISSION_PCT,
         company_name: str | None = None,
+        mobile: str | None = None,
+        commission_type: Any = None,
+        commission_fixed_minor: Any = 0,
+        payout: dict[str, Any] | None = None,
     ) -> SalesRep:
+        from app.services.sales_payout_service import (
+            COMMISSION_TYPE_FIXED,
+            COMMISSION_TYPE_MONTH2,
+            COMMISSION_TYPE_PERCENT,
+            SalesPayoutService,
+        )
+
         email = str(email or "").strip().lower()
         if not email or "@" not in email:
             raise SalesRepError("A valid email is required.")
@@ -219,6 +236,13 @@ class SalesRepService:
             raise SalesRepError("Password must be at least 6 characters.")
         kind_norm = SalesRepService.normalize_kind(kind)
         pct = SalesRepService.normalize_commission_pct(commission_pct)
+        if commission_type is None or str(commission_type).strip() == "":
+            ctype = COMMISSION_TYPE_PERCENT if kind_norm == KIND_PARTNER_CHANNEL else COMMISSION_TYPE_MONTH2
+        else:
+            ctype = SalesPayoutService.normalize_commission_type(commission_type)
+        fixed_minor = SalesPayoutService.normalize_fixed_minor(commission_fixed_minor)
+        if ctype == COMMISSION_TYPE_FIXED and fixed_minor <= 0:
+            raise SalesRepError("Fixed commission amount (GBP pence) is required.")
         code = SalesRepService.normalize_code(promo_code)
         if not _CODE_RE.match(code):
             raise SalesRepError("Promo code must be 4–12 letters/numbers (e.g. UK4F2A).")
@@ -266,15 +290,20 @@ class SalesRepService:
             user_id=user.id,
             name=str(name or "").strip() or email.split("@")[0],
             company_name=(str(company_name or "").strip() or None),
+            mobile=(str(mobile or "").strip() or None),
             kind=kind_norm,
             promo_code=code,
             country=(str(country or "").strip().upper()[:2] or None),
             caller_id=(str(caller_id or "").strip() or None),
             commission_pct=pct,
+            commission_type=ctype,
+            commission_fixed_minor=fixed_minor if ctype == COMMISSION_TYPE_FIXED else 0,
             is_active=True,
             created_at=now,
             updated_at=now,
         )
+        if payout:
+            SalesPayoutService.apply_payout_fields(rep, payout)
         db.add(rep)
 
         if kind_norm == KIND_PARTNER_CHANNEL:
@@ -301,18 +330,41 @@ class SalesRepService:
 
     @staticmethod
     def update_rep(db: Session, *, rep: SalesRep, patch: dict[str, Any]) -> SalesRep:
+        from app.services.sales_payout_service import COMMISSION_TYPE_FIXED, SalesPayoutService
+
         if "name" in patch:
             rep.name = str(patch["name"] or "").strip()
         if "company_name" in patch:
             rep.company_name = (str(patch["company_name"] or "").strip() or None)
+        if "mobile" in patch:
+            rep.mobile = (str(patch["mobile"] or "").strip() or None)
         if "commission_pct" in patch:
             rep.commission_pct = SalesRepService.normalize_commission_pct(patch["commission_pct"])
+        if "commission_type" in patch:
+            rep.commission_type = SalesPayoutService.normalize_commission_type(patch["commission_type"])
+        if "commission_fixed_minor" in patch:
+            rep.commission_fixed_minor = SalesPayoutService.normalize_fixed_minor(patch["commission_fixed_minor"])
+        if SalesPayoutService.commission_type_of(rep) == COMMISSION_TYPE_FIXED and SalesPayoutService.fixed_minor_of(rep) <= 0:
+            raise SalesRepError("Fixed commission amount (GBP pence) is required.")
         if "country" in patch:
             rep.country = (str(patch["country"] or "").strip().upper()[:2] or None)
         if "caller_id" in patch:
             rep.caller_id = (str(patch["caller_id"] or "").strip() or None)
         if "is_active" in patch:
             rep.is_active = bool(patch["is_active"])
+        payout_keys = {
+            "payout_method",
+            "bank_holder_name",
+            "bank_name",
+            "bank_sort_code",
+            "bank_account_number",
+            "bank_address",
+            "paypal_email",
+        }
+        if "payout" in patch and isinstance(patch.get("payout"), dict):
+            SalesPayoutService.apply_payout_fields(rep, patch["payout"])
+        elif any(k in patch for k in payout_keys):
+            SalesPayoutService.apply_payout_fields(rep, {k: patch[k] for k in payout_keys if k in patch})
         if "promo_code" in patch and patch["promo_code"]:
             code = SalesRepService.normalize_code(patch["promo_code"])
             if not _CODE_RE.match(code):
@@ -1084,19 +1136,22 @@ class SalesRepService:
     ) -> SalesCommission | None:
         """Best-effort: accrue commission when a linked org pays a subscription invoice.
 
-        Salesman (kind=salesman):
-          - Monthly: 2nd paid subscription invoice × commission_pct
-          - Yearly: (invoice / 12) × commission_pct
-          - Idempotent: one salesman subscription commission per (rep, org)
-
-        Partner channel (kind=partner_channel):
-          - Every paid subscription invoice × commission_pct
-          - Idempotent per invoice_id
+        Driven by rep.commission_type (available to both salesman and partner_channel):
+          - month2: Monthly 2nd paid invoice × %; yearly (invoice/12) × %; one per (rep, org)
+          - percent: Every paid subscription invoice × %; idempotent per invoice_id
+          - fixed: Every paid subscription invoice × fixed GBP pence; idempotent per invoice_id
 
         Never raises. Pass force_subscription=True for known subscription payments whose
         invoice row is not tagged kind="subscription" (e.g. GoCardless DD webhook).
         """
         try:
+            from app.services.sales_payout_service import (
+                COMMISSION_TYPE_FIXED,
+                COMMISSION_TYPE_MONTH2,
+                COMMISSION_TYPE_PERCENT,
+                SalesPayoutService,
+            )
+
             if str(getattr(invoice, "status", "") or "").lower() != "paid":
                 return None
             if not force_subscription and str(getattr(invoice, "kind", "") or "").lower() != "subscription":
@@ -1109,11 +1164,12 @@ class SalesRepService:
                 return None
 
             amount = int(getattr(invoice, "amount_gbp_pence", 0) or 0)
-            currency = str(getattr(invoice, "currency", "") or "GBP")
+            currency = str(getattr(invoice, "currency", "") or "GBP") or "GBP"
             invoice_id = getattr(invoice, "id", None)
             pct = SalesRepService.commission_pct_of(rep)
+            ctype = SalesPayoutService.commission_type_of(rep)
 
-            if SalesRepService.is_partner_channel(rep):
+            if ctype in (COMMISSION_TYPE_PERCENT, COMMISSION_TYPE_FIXED):
                 if invoice_id:
                     already = db.execute(
                         select(SalesCommission).where(
@@ -1123,11 +1179,16 @@ class SalesRepService:
                     ).scalar_one_or_none()
                     if already is not None:
                         return None
-                kind = "partner_invoice"
-                commission_minor = SalesRepService.apply_commission_pct(amount, pct)
-                note = f"Partner channel {pct:g}% of paid subscription invoice."
+                if ctype == COMMISSION_TYPE_FIXED:
+                    kind = "fixed_invoice"
+                    commission_minor = SalesPayoutService.fixed_minor_of(rep)
+                    note = f"Fixed commission {SalesPayoutService.format_gbp(commission_minor)} on paid invoice."
+                else:
+                    kind = "percent_invoice" if not SalesRepService.is_partner_channel(rep) else "partner_invoice"
+                    commission_minor = SalesRepService.apply_commission_pct(amount, pct)
+                    note = f"{pct:g}% of paid subscription invoice."
             else:
-                # Idempotency: one salesman subscription commission per rep+org.
+                # month2 (default)
                 existing = db.execute(
                     select(SalesCommission).where(
                         SalesCommission.sales_rep_id == rep.id,
@@ -1157,6 +1218,7 @@ class SalesRepService:
                     base_minor = amount
                     note = f"{pct:g}% of 2nd month subscription."
                 commission_minor = SalesRepService.apply_commission_pct(base_minor, pct)
+                _ = COMMISSION_TYPE_MONTH2  # documented default path
 
             if commission_minor <= 0:
                 return None
@@ -1225,13 +1287,15 @@ class SalesRepService:
             ).scalars().all()
         total_paid_minor = sum(int(getattr(inv, "amount_gbp_pence", 0) or 0) for inv in paid_invoices)
 
+        from app.services.sales_payout_service import SalesPayoutService
+
         commissions = db.execute(
             select(SalesCommission)
             .where(SalesCommission.sales_rep_id == rep.id)
             .order_by(SalesCommission.created_at.desc())
         ).scalars().all()
-        commission_minor = sum(int(c.amount_minor or 0) for c in commissions)
-        commission_paid_minor = sum(int(c.amount_minor or 0) for c in commissions if c.status == "paid")
+        wallet_totals = SalesPayoutService.wallet_totals(db, rep_id=rep.id)
+        payout_invoices = SalesPayoutService.list_invoices(db, rep_id=rep.id)
 
         won = [c for c in customers if c.status == "won" or c.org_id]
         codes_used = len(org_ids) if SalesRepService.is_partner_channel(rep) else len(
@@ -1245,6 +1309,9 @@ class SalesRepService:
         return {
             "kind": SalesRepService.rep_kind(rep),
             "commission_pct": SalesRepService.commission_pct_of(rep),
+            "commission_type": SalesPayoutService.commission_type_of(rep),
+            "commission_fixed_minor": SalesPayoutService.fixed_minor_of(rep),
+            "payout": SalesPayoutService.payout_dict(rep),
             "won_deals": {
                 "count": len(won),
                 "total_value_minor": total_paid_minor,
@@ -1257,9 +1324,11 @@ class SalesRepService:
                 "active_companies": len(org_ids),
                 "codes_used": codes_used,
                 "revenue_minor": total_paid_minor,
-                "commission_minor": commission_minor,
-                "commission_paid_minor": commission_paid_minor,
-                "commission_pending_minor": commission_minor - commission_paid_minor,
+                "commission_minor": wallet_totals["total_minor"],
+                "commission_paid_minor": wallet_totals["paid_minor"],
+                "commission_pending_minor": wallet_totals["available_minor"] + wallet_totals["requested_minor"],
+                "commission_available_minor": wallet_totals["available_minor"],
+                "commission_requested_minor": wallet_totals["requested_minor"],
             },
             "commissions": [
                 {
@@ -1267,6 +1336,7 @@ class SalesRepService:
                     "org_id": c.org_id,
                     "org_name": org_names.get(str(c.org_id or ""), c.org_id),
                     "invoice_id": c.invoice_id,
+                    "payout_invoice_id": getattr(c, "payout_invoice_id", None),
                     "amount_minor": int(c.amount_minor or 0),
                     "currency": c.currency or "GBP",
                     "kind": c.kind,
@@ -1276,5 +1346,6 @@ class SalesRepService:
                 }
                 for c in commissions
             ],
+            "payout_invoices": payout_invoices,
             "visited_count": len(customers),
         }

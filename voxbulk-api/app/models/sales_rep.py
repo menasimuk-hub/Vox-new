@@ -18,15 +18,28 @@ class SalesRep(Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     company_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    mobile: Mapped[str | None] = mapped_column(String(40), nullable=True)
     # salesman | partner_channel
     kind: Mapped[str] = mapped_column(String(32), nullable=False, default="salesman", index=True)
     promo_code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     country: Mapped[str | None] = mapped_column(String(2), nullable=True)
     caller_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    # Percent of commission base / invoice (e.g. 15.00 = 15%).
+    # Percent of commission base / invoice (e.g. 15.00 = 15%). Used when commission_type is month2|percent.
     commission_pct: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=15.0)
-    # commission_kind controls payout: "subscription" = full 2nd month (monthly) / one month (yearly).
+    # month2 | fixed | percent — drives accrual timing and calculation.
+    commission_type: Mapped[str] = mapped_column(String(24), nullable=False, default="month2")
+    # Flat GBP pence when commission_type == fixed.
+    commission_fixed_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Legacy label; accrual uses commission_type.
     commission_kind: Mapped[str] = mapped_column(String(32), nullable=False, default="subscription")
+    # bank | paypal
+    payout_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    bank_holder_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    bank_sort_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    bank_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    paypal_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -49,18 +62,38 @@ class SalesCustomer(Base):
     business_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
     branches: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     contact_person: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # Funnel stage timestamps
     demo_wa_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     demo_call_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     interested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     interested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # Provenance / conversion
     org_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=True, index=True)
     offer_details: Mapped[str | None] = mapped_column(String(255), nullable=True)
     offer_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     offer_log_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # lead | contacted | demoed | interested | won
     status: Mapped[str] = mapped_column(String(24), nullable=False, default="lead")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class SalesPayoutInvoice(Base):
+    """Withdrawal invoice created by a sales rep against available commission."""
+
+    __tablename__ = "sales_payout_invoices"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    sales_rep_id: Mapped[str] = mapped_column(String(36), ForeignKey("sales_reps.id"), nullable=False, index=True)
+    invoice_number: Mapped[str] = mapped_column(String(40), nullable=False, unique=True, index=True)
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="GBP")
+    # submitted | paid | rejected
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="submitted", index=True)
+    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    payout_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reject_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolved_by_admin_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -78,9 +111,13 @@ class SalesCommission(Base):
     subscription_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="GBP")
-    # kind: "monthly_2nd" (full 2nd month) | "yearly_1mo" (one month of a yearly plan)
+    # monthly_2nd | yearly_1mo | partner_invoice | fixed_invoice | percent_invoice
     kind: Mapped[str] = mapped_column(String(24), nullable=False, default="monthly_2nd")
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending | paid
+    # pending | requested | paid
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    payout_invoice_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("sales_payout_invoices.id"), nullable=True, index=True
+    )
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
