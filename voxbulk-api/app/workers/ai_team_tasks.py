@@ -15,3 +15,20 @@ def process_ai_team_followups_task() -> dict:
         stats = AiTeamService.process_due_followups(db)
     logger.info("ai_team_followups_complete", extra=stats)
     return stats
+
+
+@celery_app.task(name="ai_team.scrape_directory", bind=True, max_retries=1, soft_time_limit=900, time_limit=960)
+def scrape_directory_task(
+    self,
+    run_id: str,
+    follow_websites: bool = False,
+    max_stands: int = 500,
+) -> dict:
+    """Background exhibitor-directory scrape (Easyfairs / HTML). Survives API worker recycle."""
+    stats = AiTeamService.run_directory_scrape_job(
+        run_id,
+        follow_websites=follow_websites,
+        max_stands=max_stands,
+    )
+    logger.info("ai_team_directory_scrape_complete run_id=%s stats=%s", run_id, stats)
+    return stats

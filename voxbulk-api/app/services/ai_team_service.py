@@ -1396,6 +1396,13 @@ class AiTeamService:
 
     @staticmethod
     def _run_to_dict(row: AiTeamApifyRun) -> dict[str, Any]:
+        stats: dict[str, Any] = {}
+        try:
+            raw = json.loads(row.stats_json or "{}")
+            if isinstance(raw, dict):
+                stats = raw
+        except Exception:
+            stats = {}
         return {
             "id": row.id,
             "apify_run_id": row.apify_run_id,
@@ -1405,6 +1412,10 @@ class AiTeamService:
             "dataset_id": row.dataset_id,
             "item_count": row.item_count,
             "imported_count": row.imported_count,
+            "emails_found": int(stats.get("emails_found") or 0),
+            "stands_found": int(stats.get("stands_found") or row.item_count or 0),
+            "stands_with_email": int(stats.get("stands_with_email") or 0),
+            "provider": stats.get("provider") or ("builtin" if str(row.actor_id or "").startswith("builtin:") else "apify"),
             "error": row.error,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -1412,18 +1423,89 @@ class AiTeamService:
         }
 
     @staticmethod
+    def run_directory_scrape_job(
+        run_id: str,
+        *,
+        follow_websites: bool = False,
+        max_stands: int = 500,
+    ) -> dict[str, Any]:
+        """Execute a queued builtin directory scrape and persist results on the run row."""
+        from app.core.database import get_sessionmaker
+
+        session = get_sessionmaker()()
+        try:
+            row = session.get(AiTeamApifyRun, run_id)
+            if row is None:
+                return {"ok": False, "error": "run not found"}
+            url = str(row.expo_url or "").strip()
+            try:
+                result = ExpoDirectoryScraper.scrape(
+                    url,
+                    follow_websites=bool(follow_websites),
+                    max_stands=max(1, min(int(max_stands or 500), 1000)),
+                )
+            except ExpoDirectoryScraperError as exc:
+                row.status = "FAILED"
+                row.error = str(exc)[:2000]
+                row.finished_at = AiTeamService._now()
+                row.updated_at = row.finished_at
+                session.add(row)
+                session.commit()
+                return {"ok": False, "error": str(exc)}
+            except Exception as exc:
+                logger.exception("directory_scrape_failed run_id=%s", run_id)
+                row.status = "FAILED"
+                row.error = f"Directory scrape failed: {exc}"[:2000]
+                row.finished_at = AiTeamService._now()
+                row.updated_at = row.finished_at
+                session.add(row)
+                session.commit()
+                return {"ok": False, "error": str(exc)}
+
+            contacts = result.get("contacts") or []
+            finished = AiTeamService._now()
+            row.status = "SUCCEEDED"
+            row.item_count = int(result.get("emails_found") or len(contacts) or result.get("stands_found") or 0)
+            row.stats_json = json.dumps(
+                {
+                    "provider": result.get("provider"),
+                    "editions": result.get("editions") or [],
+                    "stands_found": result.get("stands_found"),
+                    "stands_with_email": result.get("stands_with_email"),
+                    "emails_found": result.get("emails_found"),
+                    "errors": result.get("errors"),
+                    "warning": result.get("warning"),
+                    "contacts": contacts,
+                },
+                ensure_ascii=False,
+            )
+            row.error = None
+            row.finished_at = finished
+            row.updated_at = finished
+            session.add(row)
+            session.commit()
+            return {
+                "ok": True,
+                "stands_found": result.get("stands_found"),
+                "emails_found": result.get("emails_found"),
+                "provider": result.get("provider"),
+            }
+        finally:
+            session.close()
+
+    @staticmethod
     def start_directory_scrape(
         db: Session,
         *,
         expo_url: str,
-        follow_websites: bool = True,
+        follow_websites: bool = False,
         max_stands: int = 500,
         wait: bool = False,
     ) -> dict[str, Any]:
-        """Built-in scrape: list exhibitors → open profiles → extract emails (no Apify actor).
+        """Built-in scrape: list exhibitors → extract emails (no Apify).
 
-        By default runs in a background thread so the HTTP request returns quickly.
-        Pass wait=True for tests / sync CLI use.
+        Queues Celery when available (survives gunicorn). Falls back to in-process
+        thread only if Celery enqueue fails. Pass wait=True for sync tests.
         """
         url = str(expo_url or "").strip()
         if not url.startswith("http"):
@@ -1438,93 +1520,68 @@ class AiTeamService:
             dataset_id=None,
             created_at=now,
             updated_at=now,
+            stats_json=json.dumps({"provider": "pending", "message": "queued"}),
         )
         db.add(row)
         db.commit()
         db.refresh(row)
         run_id = row.id
 
-        def _finish(success: dict[str, Any] | None = None, error: str | None = None) -> None:
-            from app.core.database import get_sessionmaker
-
-            session = get_sessionmaker()()
-            try:
-                r = session.get(AiTeamApifyRun, run_id)
-                if r is None:
-                    return
-                finished = AiTeamService._now()
-                if error:
-                    r.status = "FAILED"
-                    r.error = error[:2000]
-                else:
-                    result = success or {}
-                    contacts = result.get("contacts") or []
-                    r.status = "SUCCEEDED"
-                    r.item_count = int(result.get("stands_found") or len(contacts))
-                    r.stats_json = json.dumps(
-                        {
-                            "provider": result.get("provider"),
-                            "editions": result.get("editions") or [],
-                            "stands_found": result.get("stands_found"),
-                            "stands_with_email": result.get("stands_with_email"),
-                            "emails_found": result.get("emails_found"),
-                            "errors": result.get("errors"),
-                            "warning": result.get("warning"),
-                            "contacts": contacts,
-                        },
-                        ensure_ascii=False,
-                    )
-                    r.error = None
-                r.finished_at = finished
-                r.updated_at = finished
-                session.add(r)
-                session.commit()
-            finally:
-                session.close()
-
-        def _worker() -> None:
-            try:
-                result = ExpoDirectoryScraper.scrape(
-                    url,
-                    follow_websites=bool(follow_websites),
-                    max_stands=max(1, min(int(max_stands or 500), 1000)),
-                )
-                _finish(success=result)
-            except ExpoDirectoryScraperError as exc:
-                _finish(error=str(exc))
-            except Exception as exc:
-                logger.exception("directory_scrape_failed run_id=%s", run_id)
-                _finish(error=f"Directory scrape failed: {exc}")
-
         if wait:
-            _worker()
+            AiTeamService.run_directory_scrape_job(
+                run_id, follow_websites=follow_websites, max_stands=max_stands
+            )
             db.expire_all()
             row = db.get(AiTeamApifyRun, run_id)
             if row is None:
                 raise AiTeamServiceError("Scrape run disappeared")
             if str(row.status).upper() == "FAILED":
                 raise AiTeamServiceError(row.error or "Directory scrape failed")
-            try:
-                stats = json.loads(row.stats_json or "{}")
-            except Exception:
-                stats = {}
             return {
                 "ok": True,
                 "run": AiTeamService._run_to_dict(row),
-                "stands_found": stats.get("stands_found"),
-                "stands_with_email": stats.get("stands_with_email"),
-                "emails_found": stats.get("emails_found"),
-                "provider": stats.get("provider"),
-                "warning": stats.get("warning"),
+                "stands_found": AiTeamService._run_to_dict(row).get("stands_found"),
+                "emails_found": AiTeamService._run_to_dict(row).get("emails_found"),
+                "provider": AiTeamService._run_to_dict(row).get("provider"),
             }
 
-        import threading
+        queued = False
+        queue_error = ""
+        try:
+            from app.workers.ai_team_tasks import scrape_directory_task
 
-        threading.Thread(target=_worker, name=f"expo-scrape-{run_id[:8]}", daemon=True).start()
+            scrape_directory_task.delay(
+                run_id,
+                follow_websites=bool(follow_websites),
+                max_stands=max(1, min(int(max_stands or 500), 1000)),
+            )
+            queued = True
+        except Exception as exc:
+            queue_error = str(exc)
+            logger.warning("directory_scrape_celery_enqueue_failed: %s", exc)
+
+        if not queued:
+            # Last resort: background thread (may die on some gunicorn setups)
+            import threading
+
+            def _worker() -> None:
+                AiTeamService.run_directory_scrape_job(
+                    run_id,
+                    follow_websites=bool(follow_websites),
+                    max_stands=max_stands,
+                )
+
+            threading.Thread(target=_worker, name=f"expo-scrape-{run_id[:8]}", daemon=True).start()
+
         return {
             "ok": True,
             "run": AiTeamService._run_to_dict(row),
-            "message": "Scrape started — refresh in about 1–3 minutes, then View / Import",
+            "queued_via": "celery" if queued else "thread",
+            "message": (
+                "Scrape queued on Celery — click Refresh in ~1–2 minutes, then View / Import"
+                if queued
+                else f"Scrape started in API process (Celery unavailable: {queue_error[:120]}). Refresh in 1–3 minutes."
+            ),
         }
 
     @staticmethod
@@ -1549,7 +1606,7 @@ class AiTeamService:
         actor = str(actor_id or settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip()
         # No actor configured → use built-in directory scraper (Easyfairs / HTML).
         if not actor:
-            return AiTeamService.start_directory_scrape(db, expo_url=url, follow_websites=True)
+            return AiTeamService.start_directory_scrape(db, expo_url=url, follow_websites=False)
 
         token = AiTeamService._apify_token(settings, db=db)
         if not token:

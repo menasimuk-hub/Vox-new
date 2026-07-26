@@ -221,6 +221,17 @@ export default function AiTeam() {
     if (tab === 'apify' && apifySubTab === 'scrape') loadApifyRuns()
   }, [tab, apifySubTab, prospectSource, loadProspects, loadReplies, loadPromo, loadAnalytics, loadApifyRuns])
 
+  // Auto-poll while any scrape run is still RUNNING
+  useEffect(() => {
+    if (tab !== 'apify' || apifySubTab !== 'scrape') return undefined
+    const running = apifyRuns.some((r) => String(r.status || '').toUpperCase() === 'RUNNING')
+    if (!running) return undefined
+    const id = window.setInterval(() => {
+      loadApifyRuns()
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [tab, apifySubTab, apifyRuns, loadApifyRuns])
+
   const openDrawer = async (prospect) => {
     setDrawer(prospect)
     try {
@@ -336,20 +347,17 @@ export default function AiTeam() {
       return
     }
     await act('apify-start', async () => {
-      // Built-in directory scrape (lists all exhibitors → extracts emails). No Apify actor needed.
       const data = await apiFetch('/admin/ai-team/scrape/directory', {
         method: 'POST',
         body: JSON.stringify({
           expo_url: apifyExpoUrl.trim(),
-          follow_websites: true,
+          follow_websites: false,
         }),
       })
       showBanner(
         'ok',
         data.message
-          || (data.emails_found != null
-            ? `Found ${data.stands_found || 0} exhibitors · ${data.emails_found} emails — View then Import`
-            : `Scrape started (${data.run?.status || 'RUNNING'}) — refresh in 1–3 min`),
+          || `Scrape started (${data.run?.status || 'RUNNING'}) — auto-refreshing…`,
       )
       await loadApifyRuns()
     })
@@ -1123,15 +1131,17 @@ export default function AiTeam() {
 
               {apifySubTab === 'scrape' && (
                 <div className="ait-compact">
+                  <div className="ait-msg-banner ok" style={{ margin: '0 0 10px', padding: '8px 10px' }}>
+                    Built-in scrape — <strong>no Apify token needed</strong>. Works for Easyfairs sites like London Packaging Week.
+                  </div>
                   <p className="ait-hint" style={{ marginTop: 0 }}>
-                    Paste an exhibitor directory URL (e.g. londonpackagingweek.com/exhibitors).
-                    The system lists every exhibitor, opens each profile, and extracts emails from descriptions + company websites.
-                    No Apify actor required.
+                    Paste the exhibitor directory URL → Scrape exhibitors. Wait until status is SUCCEEDED (auto-refreshes).
+                    Then View emails → Import into the queue.
                   </p>
                   <div className="ait-fg-2" style={{ alignItems: 'end' }}>
                     <div className="ait-field" style={{ gridColumn: '1 / -1' }}>
                       <label>Expo exhibitor URL</label>
-                      <input value={apifyExpoUrl} onChange={(e) => setApifyExpoUrl(e.target.value)} placeholder="https://…/exhibitors" />
+                      <input value={apifyExpoUrl} onChange={(e) => setApifyExpoUrl(e.target.value)} placeholder="https://www.londonpackagingweek.com/exhibitors/" />
                     </div>
                   </div>
                   <div className="ait-btn-row">
@@ -1148,26 +1158,32 @@ export default function AiTeam() {
                   <div className="ait-table-wrap">
                     <table className="ait-tbl ait-tbl-compact">
                       <thead>
-                        <tr><th>Status</th><th>URL</th><th>Items</th><th>Imp</th><th /></tr>
+                        <tr><th>Status</th><th>URL</th><th>Stands</th><th>Emails</th><th>Imp</th><th /></tr>
                       </thead>
                       <tbody>
                         {apifyRuns.map((run) => (
                           <tr key={run.id}>
-                            <td><span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : 'b-pending'}`}>{run.status}</span></td>
+                            <td>
+                              <span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : run.status === 'FAILED' ? 'b-pending' : 'b-pending'}`}>
+                                {run.status}
+                              </span>
+                              {run.error ? <div style={{ color: '#b42318', fontSize: 10, maxWidth: 160 }} title={run.error}>{run.error}</div> : null}
+                            </td>
                             <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
-                            <td>{run.item_count}</td>
+                            <td>{run.stands_found ?? run.item_count ?? 0}</td>
+                            <td>{run.emails_found ?? 0}</td>
                             <td>{run.imported_count}</td>
                             <td>
                               <div className="ait-btn-row" style={{ margin: 0, flexWrap: 'nowrap' }}>
                                 <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => refreshApifyRun(run.id)}>↻</button>
-                                <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => previewApifyRun(run.id)}>View</button>
+                                <button type="button" className="ait-btn xs" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => previewApifyRun(run.id)}>View</button>
                                 <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => importApifyRun(run.id)}>Import</button>
                               </div>
                             </td>
                           </tr>
                         ))}
                         {!apifyRuns.length && (
-                          <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 16 }}>No runs yet</td></tr>
+                          <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 16 }}>No runs yet</td></tr>
                         )}
                       </tbody>
                     </table>

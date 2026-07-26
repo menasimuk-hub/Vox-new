@@ -182,7 +182,8 @@ def scrape_directory(body: dict[str, Any], db: Session = Depends(get_db), _admin
         return AiTeamService.start_directory_scrape(
             db,
             expo_url=str(body.get("expo_url") or body.get("url") or ""),
-            follow_websites=body.get("follow_websites") is not False,
+            # Default off — descriptions already contain many emails; websites make jobs slow.
+            follow_websites=body.get("follow_websites") is True,
             max_stands=int(body.get("max_stands") or 500),
         )
     except Exception as exc:
