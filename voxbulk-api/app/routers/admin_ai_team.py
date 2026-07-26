@@ -198,6 +198,23 @@ def list_apify_runs(db: Session = Depends(get_db), _admin: User = Depends(requir
     return {"runs": AiTeamService.list_apify_runs(db)}
 
 
+@router.delete("/apify/runs")
+def purge_apify_runs(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    """Remove all scrape / Apify run history (URLs + stored results). Imported prospects are kept."""
+    try:
+        return AiTeamService.purge_apify_runs(db)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/apify/runs/{run_id}")
+def delete_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.delete_apify_run(db, run_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.get("/apify/runs/{run_id}")
 def get_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     try:

@@ -1759,6 +1759,40 @@ class AiTeamService:
         return [AiTeamService._run_to_dict(r) for r in rows]
 
     @staticmethod
+    def delete_apify_run(db: Session, run_id: str) -> dict[str, Any]:
+        row = db.get(AiTeamApifyRun, run_id)
+        if row is None:
+            raise AiTeamServiceError("Scrape run not found")
+        if str(row.status or "").upper() == "RUNNING":
+            raise AiTeamServiceError("Cannot delete a RUNNING scrape — wait for it to finish or fail first")
+        db.delete(row)
+        db.commit()
+        return {"ok": True, "deleted": 1, "id": run_id}
+
+    @staticmethod
+    def purge_apify_runs(db: Session, *, include_running: bool = False) -> dict[str, Any]:
+        """Delete all saved scrape/Apify run rows (URLs + stored contact payloads)."""
+        rows = list(db.execute(select(AiTeamApifyRun)).scalars().all())
+        deleted = 0
+        skipped_running = 0
+        for row in rows:
+            if not include_running and str(row.status or "").upper() == "RUNNING":
+                skipped_running += 1
+                continue
+            db.delete(row)
+            deleted += 1
+        db.commit()
+        return {
+            "ok": True,
+            "deleted": deleted,
+            "skipped_running": skipped_running,
+            "message": (
+                f"Removed {deleted} scrape run(s)"
+                + (f" · left {skipped_running} still RUNNING" if skipped_running else "")
+            ),
+        }
+
+    @staticmethod
     def refresh_apify_run(db: Session, run_id: str) -> dict[str, Any]:
         row = db.get(AiTeamApifyRun, run_id)
         if row is None:

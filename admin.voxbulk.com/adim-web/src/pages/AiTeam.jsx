@@ -380,6 +380,31 @@ export default function AiTeam() {
     })
   }
 
+  const deleteApifyRun = async (runId) => {
+    if (!window.confirm('Remove this scrape run (URL + stored results)? Imported prospects stay in the queue.')) return
+    await act(`apify-del-${runId}`, async () => {
+      await apiFetch(`/admin/ai-team/apify/runs/${runId}`, { method: 'DELETE' })
+      setApifyPreview((prev) => (prev?.run?.id === runId ? null : prev))
+      showBanner('ok', 'Scrape run removed')
+      await loadApifyRuns()
+    })
+  }
+
+  const purgeApifyRuns = async () => {
+    if (!apifyRuns.length) {
+      showBanner('err', 'No scrape runs to remove')
+      return
+    }
+    if (!window.confirm(`Remove all ${apifyRuns.length} scrape run(s) and links from this list? Imported prospects stay in the queue.`)) return
+    await act('apify-purge', async () => {
+      const data = await apiFetch('/admin/ai-team/apify/runs', { method: 'DELETE' })
+      setApifyPreview(null)
+      setApifyExpoUrl('')
+      showBanner('ok', data.message || `Removed ${data.deleted || 0} scrape run(s)`)
+      await loadApifyRuns()
+    })
+  }
+
   const importApifyRun = async (runId) => {
     await act(`apify-import-${runId}`, async () => {
       const data = await apiFetch(`/admin/ai-team/apify/runs/${runId}/import`, { method: 'POST' })
@@ -1184,6 +1209,15 @@ export default function AiTeam() {
                       Scrape exhibitors
                     </button>
                     <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh</button>
+                    <button
+                      type="button"
+                      className="ait-btn danger sm"
+                      disabled={!!busy || !apifyRuns.length}
+                      onClick={purgeApifyRuns}
+                      title="Remove all scrape runs and URLs from this list"
+                    >
+                      Remove all links
+                    </button>
                   </div>
                   <div className="ait-table-wrap">
                     <table className="ait-tbl ait-tbl-compact">
@@ -1208,6 +1242,15 @@ export default function AiTeam() {
                                 <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => refreshApifyRun(run.id)}>↻</button>
                                 <button type="button" className="ait-btn xs" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => previewApifyRun(run.id)}>View</button>
                                 <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => importApifyRun(run.id)}>Import</button>
+                                <button
+                                  type="button"
+                                  className="ait-btn xs danger"
+                                  disabled={!!busy || String(run.status || '').toUpperCase() === 'RUNNING'}
+                                  onClick={() => deleteApifyRun(run.id)}
+                                  title="Remove this scrape run"
+                                >
+                                  ×
+                                </button>
                               </div>
                             </td>
                           </tr>
