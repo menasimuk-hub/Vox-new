@@ -452,21 +452,25 @@ class ExpoBoothService:
 
     @staticmethod
     def serialize_catalog_tree(db: Session, booth_id: str) -> list[dict[str, Any]]:
-        cats = db.execute(
-            select(ExpoBoothCategory)
-            .where(ExpoBoothCategory.booth_id == booth_id)
-            .order_by(ExpoBoothCategory.sort_order.asc())
-        ).scalars().all()
-        products = db.execute(
-            select(ExpoBoothProduct)
-            .where(ExpoBoothProduct.booth_id == booth_id)
-            .order_by(ExpoBoothProduct.sort_order.asc())
-        ).scalars().all()
-        assets = db.execute(
-            select(ExpoBoothAsset)
-            .where(ExpoBoothAsset.booth_id == booth_id)
-            .order_by(ExpoBoothAsset.sort_order.asc())
-        ).scalars().all()
+        try:
+            cats = db.execute(
+                select(ExpoBoothCategory)
+                .where(ExpoBoothCategory.booth_id == booth_id)
+                .order_by(ExpoBoothCategory.sort_order.asc())
+            ).scalars().all()
+            products = db.execute(
+                select(ExpoBoothProduct)
+                .where(ExpoBoothProduct.booth_id == booth_id)
+                .order_by(ExpoBoothProduct.sort_order.asc())
+            ).scalars().all()
+            assets = db.execute(
+                select(ExpoBoothAsset)
+                .where(ExpoBoothAsset.booth_id == booth_id)
+                .order_by(ExpoBoothAsset.sort_order.asc())
+            ).scalars().all()
+        except Exception:
+            # Missing migration / table — never hide the booth (QR / pay UI).
+            return []
         assets_by_product: dict[str, list[dict[str, Any]]] = {}
         for a in assets:
             pid = str(getattr(a, "product_id", None) or "")

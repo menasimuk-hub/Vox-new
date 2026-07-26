@@ -106,6 +106,12 @@ function deltaMeta(today: number, yesterday: number) {
   return { trend: "flat" as const, labelDelta: "Same as yesterday" };
 }
 
+function buildExpoQrImageUrl(targetUrl: string, size = 280): string {
+  const data = String(targetUrl || "").trim();
+  if (!data) return "";
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(data)}`;
+}
+
 function ExpoHub() {
   const queryClient = useQueryClient();
   const boothsQ = useQuery({
@@ -337,6 +343,9 @@ function ExpoHub() {
             const endLabel = fmtDay(it.expires_at);
             const previewLeft = typeof it.preview_tests_remaining === "number" ? it.preview_tests_remaining : null;
             const showPreviewQuota = (unpaid || beforeStart) && previewLeft !== null;
+            const qrSrc =
+              (it.qr_image_url && String(it.qr_image_url).trim()) ||
+              (it.web_url ? buildExpoQrImageUrl(it.web_url, 280) : "");
             return (
               <Card key={it.id} className="overflow-hidden">
                 <CardHeader className="flex flex-row items-start justify-between gap-2">
@@ -366,12 +375,21 @@ function ExpoHub() {
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-center rounded-xl border border-dashed border-border bg-background/40 p-3">
-                    {it.qr_image_url ? (
-                      <img src={it.qr_image_url} alt={`QR for ${it.name}`} className="size-28 rounded-md bg-white p-1" />
+                  <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-background/40 p-3">
+                    {qrSrc ? (
+                      <img
+                        src={qrSrc}
+                        alt={`QR for ${it.name}`}
+                        className="size-36 rounded-md bg-white p-1"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                      />
                     ) : (
                       <QrCode className="size-12 text-muted-foreground" />
                     )}
+                    <p className="text-center text-[11px] text-muted-foreground">
+                      Scan landing QR{it.web_url ? " · print & place on your stand" : ""}
+                    </p>
                   </div>
                   <div className="grid gap-1.5 text-xs">
                     {it.web_url ? (
@@ -420,9 +438,9 @@ function ExpoHub() {
                         <CreditCard className="size-3.5" /> Pay
                       </Button>
                     ) : null}
-                    {it.qr_image_url ? (
+                    {qrSrc ? (
                       <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                        <a href={it.qr_image_url} download={`expo-qr-${it.id}.png`}>
+                        <a href={qrSrc} target="_blank" rel="noreferrer">
                           <Download className="size-3.5" /> Download QR
                         </a>
                       </Button>

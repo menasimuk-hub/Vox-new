@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download, QrCode } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -28,6 +28,11 @@ import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
+function buildExpoQrImageUrl(targetUrl: string, size = 280): string {
+  const data = String(targetUrl || "").trim();
+  if (!data) return "";
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(data)}`;
+}
 type Industry = { id: string; slug: string; name: string; addon_question?: string | null };
 type QuestionOpt = {
   key: string;
@@ -55,6 +60,9 @@ type BoothDetail = {
   notify_mobile?: string | null;
   categories?: Parameters<typeof categoriesFromApi>[0];
   max_categories?: number | null;
+  web_url?: string | null;
+  qr_image_url?: string | null;
+  trigger_text?: string | null;
 };
 
 const SYSTEM_STEP_KEYS = new Set(["contact", "open_feedback"]);
@@ -221,6 +229,10 @@ function EditExpoBooth() {
     );
   }
 
+  const qrSrc =
+    (booth.qr_image_url && String(booth.qr_image_url).trim()) ||
+    (booth.web_url ? buildExpoQrImageUrl(String(booth.web_url), 280) : "");
+
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
@@ -235,6 +247,62 @@ function EditExpoBooth() {
           </Button>
         }
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <QrCode className="size-4 text-primary" /> Your QR code
+          </CardTitle>
+          <CardDescription>
+            Print this for your stand. Editing questions or products does not change the QR.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+          {qrSrc ? (
+            <img
+              src={qrSrc}
+              alt={`QR for ${booth.name}`}
+              className="size-40 rounded-xl border bg-white p-2"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="grid size-40 place-items-center rounded-xl border border-dashed text-muted-foreground">
+              <QrCode className="size-10" />
+            </div>
+          )}
+          <div className="space-y-2 text-sm">
+            {booth.web_url ? (
+              <a
+                href={booth.web_url}
+                target="_blank"
+                rel="noreferrer"
+                className="block break-all font-medium text-sky-700 hover:underline"
+              >
+                {booth.web_url}
+              </a>
+            ) : null}
+            {booth.trigger_text ? (
+              <p className="max-w-md text-muted-foreground">{booth.trigger_text}</p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {qrSrc ? (
+                <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                  <a href={qrSrc} target="_blank" rel="noreferrer">
+                    <Download className="size-3.5" /> Open / download QR
+                  </a>
+                </Button>
+              ) : null}
+              {booth.web_url ? (
+                <Button size="sm" variant="ghost" asChild>
+                  <a href={booth.web_url} target="_blank" rel="noreferrer">
+                    Open scan landing
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
