@@ -384,6 +384,22 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     else:
         BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
+    try:
+        from app.services.expo.expo_signup_trial_service import ExpoSignupTrialService
+
+        ExpoSignupTrialService.maybe_grant(
+            db,
+            org=org,
+            user_email=str(user.email),
+            user_id=user.id,
+        )
+    except Exception:
+        # Never block signup if silent Expo trial grant fails.
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "expo_signup_trial grant failed on register org=%s", org.id
+        )
     db.commit()
 
     with get_sessionmaker()() as s2:

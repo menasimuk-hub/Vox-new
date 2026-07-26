@@ -79,6 +79,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
   const mountRef = React.useRef<HTMLDivElement | null>(null);
   const stripeRef = React.useRef<{ stripe: StripeJs; elements: StripeElements; intentId: string } | null>(null);
   const cleanupRef = React.useRef<(() => void) | null>(null);
+  const zeroPriceActivateRef = React.useRef(false);
 
   const reset = React.useCallback(() => {
     cleanupRef.current?.();
@@ -94,6 +95,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
     if (!open || !boothId) {
       reset();
       setOptions(null);
+      zeroPriceActivateRef.current = false;
       return;
     }
     let cancelled = false;
@@ -185,7 +187,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
         method: "POST",
         body: JSON.stringify({ provider: providerId }),
       });
-      if (intent.paid || intent.provider === "free") {
+      if (intent.paid || intent.provider === "free" || intent.provider === "signup_trial") {
         paidToast(intent.booth);
         onOpenChange(false);
         onPaid?.(intent.booth);
@@ -236,6 +238,18 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
     }
   };
 
+  // Zero-price packages (incl. silent signup trial): activate without card UI.
+  React.useEffect(() => {
+    if (!open || !boothId || loadingOptions || !options) return;
+    if (options.is_paid) return;
+    if (Number(options.amount_minor || 0) > 0) return;
+    if (zeroPriceActivateRef.current || provider || intentPending || paying) return;
+    zeroPriceActivateRef.current = true;
+    void startPayment("free");
+    // startPayment is stable enough for one-shot £0 activate; omit from deps to avoid loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, boothId, loadingOptions, options, provider, intentPending, paying]);
+
   const payWithStripe = async () => {
     const ctx = stripeRef.current;
     if (!ctx) return;
@@ -278,6 +292,10 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
               </p>
             ) : options?.is_paid ? (
               <p className="text-sm text-muted-foreground">This booth is already paid.</p>
+            ) : Number(options?.amount_minor || 0) <= 0 ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Activating package…
+              </p>
             ) : providers.length === 0 ? (
               <p className="text-sm text-destructive">
                 Card payments are not configured yet. Contact support to pay for your Expo package.

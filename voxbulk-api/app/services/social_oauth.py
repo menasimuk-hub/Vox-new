@@ -458,7 +458,22 @@ class SocialOAuthService:
 
         # Never auto-join an existing org from an unauthenticated org_id hint —
         # that is invite-only. Always provision a personal org for new OAuth users.
-        ensure_personal_org(db, user=user, email=email_norm)
+        personal_org_id = ensure_personal_org(db, user=user, email=email_norm)
+        org_ent = db.execute(select(Organisation).where(Organisation.id == personal_org_id)).scalar_one_or_none()
+        if org_ent is not None:
+            try:
+                from app.services.expo.expo_signup_trial_service import ExpoSignupTrialService
+
+                ExpoSignupTrialService.maybe_grant(
+                    db,
+                    org=org_ent,
+                    user_email=email_norm,
+                    user_id=user.id,
+                )
+            except Exception:
+                logger.exception(
+                    "expo_signup_trial grant failed on oauth org=%s", personal_org_id
+                )
 
         db.add(OAuthIdentity(provider=provider, provider_user_id=provider_user_id, user_id=user.id, email=email_norm))
         db.commit()

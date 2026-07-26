@@ -145,6 +145,7 @@ from app.models.expo import (  # noqa: F401
     ExpoSession,
     ExpoVoiceNoteJob,
 )
+from app.models.expo_signup_trial import ExpoCompanyDomainClaim, ExpoSignupEntitlement  # noqa: F401
 from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob  # noqa: F401
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401
 from app.models.disabled_wa_template import DisabledWaTemplate  # noqa: F401

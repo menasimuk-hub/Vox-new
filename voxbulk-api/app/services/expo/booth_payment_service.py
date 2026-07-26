@@ -21,6 +21,10 @@ from app.services.expo.booth_service import (
     ExpoBoothService,
     booth_is_paid,
 )
+from app.services.expo.expo_signup_trial_service import (
+    PAYMENT_PROVIDER as SIGNUP_TRIAL_PROVIDER,
+    ExpoSignupTrialService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +55,21 @@ class ExpoBoothPaymentService:
         return int(plan.price_gbp_pence or 0)
 
     @staticmethod
+    def effective_amount_minor(db: Session, *, org: Organisation, booth: ExpoBooth, currency: str) -> int:
+        """Catalog price, or 0 when a silent signup trial covers this booth."""
+        if ExpoSignupTrialService.has_usable_trial(db, org_id=org.id, booth=booth):
+            return 0
+        return ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+
+    @staticmethod
     def pay_options(db: Session, *, org: Organisation, booth: ExpoBooth) -> dict[str, Any]:
         from app.services.airwallex_payment_service import AirwallexPaymentService
         from app.services.stripe_payment_service import StripePaymentService
 
         currency = resolve_org_currency(db, org, persist=True)
-        amount = ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        amount = ExpoBoothPaymentService.effective_amount_minor(db, org=org, booth=booth, currency=currency)
         providers = []
-        if StripePaymentService.is_available(db):
+        if amount > 0 and StripePaymentService.is_available(db):
             providers.append(
                 {
                     "id": "stripe",
@@ -66,7 +77,7 @@ class ExpoBoothPaymentService:
                     "publishable_key": StripePaymentService.publishable_key(db),
                 }
             )
-        if AirwallexPaymentService.is_available(db):
+        if amount > 0 and AirwallexPaymentService.is_available(db):
             providers.append({"id": "airwallex", "label": "Card (Airwallex)"})
         return {
             "ok": True,
@@ -96,18 +107,22 @@ class ExpoBoothPaymentService:
         if org.id != booth.org_id:
             raise ExpoBoothPaymentError("Booth does not belong to this organisation")
         currency = resolve_org_currency(db, org, persist=True)
-        amount = ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        trial_covers = ExpoSignupTrialService.has_usable_trial(db, org_id=org.id, booth=booth)
+        amount = 0 if trial_covers else ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
         if amount <= 0:
-            # Zero-price packages: mark paid immediately.
+            provider_label = SIGNUP_TRIAL_PROVIDER if trial_covers else "free"
+            intent_prefix = "trial" if trial_covers else "free"
+            if trial_covers:
+                ExpoSignupTrialService.consume_for_booth(db, org_id=org.id, booth=booth)
             ExpoBoothPaymentService.mark_paid(
                 db,
                 booth=booth,
-                provider="free",
-                payment_intent_id=f"free-{booth.id[:8]}",
+                provider=provider_label,
+                payment_intent_id=f"{intent_prefix}-{booth.id[:8]}",
             )
             return {
                 "ok": True,
-                "provider": "free",
+                "provider": provider_label,
                 "paid": True,
                 "amount_minor": 0,
                 "currency": currency,
