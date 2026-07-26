@@ -21,7 +21,7 @@ DEFAULT_OPEN_FEEDBACK = (
     "Anything at all — big or small, we're listening. 😊 "
     "🗣️ Write it down or record a voice note, in your own language — whatever's easiest for you!"
 )
-DEFAULT_COMPANY_CARD = "📇 Here's how to reach us:"
+DEFAULT_COMPANY_CARD = "Here's how to reach us:"
 OPEN_FEEDBACK_KEY = "open_feedback"
 
 
@@ -186,7 +186,6 @@ QUESTION_TOPIC_EMOJI: dict[str, str] = {
     "company": "🏢",
     "open_feedback": "📝",
     "thank_you": "✅",
-    "company_card": "📇",
     "post_complete_handoff": "💬",
     "contact_company": "🏢",
     "contact_mobile": "📱",
@@ -307,41 +306,41 @@ def build_company_card_text(
     reps: list[dict[str, Any]],
     logo_url: str | None = None,
 ) -> str:
-    # logo_url is accepted for callers that send the image separately (WhatsApp document);
-    # keep the text card clean — no raw logo URL lines.
+    # logo_url kept for callers; WA no longer attaches a separate logo document.
     _ = logo_url
     name = str(company_name or "").strip() or "Our team"
+    raw_intro = str(intro or DEFAULT_COMPANY_CARD).strip() or DEFAULT_COMPANY_CARD
+    # Keep the heading plain (Admin may still have an old emoji-prefixed template).
+    raw_intro = re.sub(r"^[📇🏢\s]+", "", raw_intro).strip() or DEFAULT_COMPANY_CARD
+
     lines = [
-        str(intro or DEFAULT_COMPANY_CARD).strip() or DEFAULT_COMPANY_CARD,
-        "",
-        f"🏢 {name}",
+        raw_intro,
+        f"Company: {name}",
     ]
     if website:
-        lines.append(f"🌐 {website}")
+        lines.append(f"Website: {website}")
+
     if reps:
-        lines.append("")
-        lines.append("👥 Contacts")
         for rep in reps[:5]:
             if not isinstance(rep, dict):
                 continue
             rname = str(rep.get("name") or "").strip()
-            co = str(rep.get("company_name") or "").strip()
             email = str(rep.get("email") or "").strip()
             mobile = str(rep.get("mobile") or "").strip()
             tel = str(rep.get("telephone") or "").strip()
-            title = " · ".join([b for b in [rname, co] if b]) or "Contact"
-            lines.append(f"• {title}")
-            detail = []
+            if not rname and not email and not mobile and not tel:
+                continue
+            lines.append(f"Contacts: {rname or 'Contact'}")
             if email:
-                detail.append(f"✉️ {email}")
+                lines.append(f"✉️ {email}")
             if mobile:
-                detail.append(f"📱 {mobile}")
+                lines.append(f"📱 {mobile}")
             if tel:
-                detail.append(f"☎️ {tel}")
-            if detail:
-                lines.append("  " + "  ".join(detail))
-    lines.append("")
-    lines.append("📇 We'll also send a contact card you can save to your phone.")
+                lines.append(f"☎️ {tel}")
+    else:
+        lines.append("Contacts: —")
+
+    lines.append("📇 We'll also send a contact card you can save to your phone")
     return "\n".join(lines).strip()
 
 
