@@ -77,6 +77,7 @@ class OnboardingSettingsService:
                     org_id=request.org_id,
                     user_id=request.user_id,
                     promo_code=request.promo_code,
+                    source="signup",
                 )
             else:
                 from app.services.gocardless_service import BillingService

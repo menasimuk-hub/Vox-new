@@ -1552,6 +1552,9 @@ export default function OrgControlCenter() {
                 <button type="button" className="occ-btn" onClick={() => openModal('package')}>
                   Change C.P plan
                 </button>
+                <button type="button" className="occ-btn" onClick={() => openModal('promo')}>
+                  Apply promo
+                </button>
                 <button type="button" className="occ-btn" onClick={() => openModal('feedbackPackage')}>
                   Change F.B plan
                 </button>

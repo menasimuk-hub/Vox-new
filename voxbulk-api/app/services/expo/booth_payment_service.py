@@ -56,10 +56,17 @@ class ExpoBoothPaymentService:
 
     @staticmethod
     def effective_amount_minor(db: Session, *, org: Organisation, booth: ExpoBooth, currency: str) -> int:
-        """Catalog price, or 0 when a silent signup trial covers this booth."""
+        """Catalog price, or 0 when a silent signup trial / pending promo discount covers this booth."""
         if ExpoSignupTrialService.has_usable_trial(db, org_id=org.id, booth=booth):
             return 0
-        return ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        amount = ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        from app.services.promo_discount_service import PromoDiscountService
+
+        return int(
+            PromoDiscountService.peek_amount(
+                db, org_id=org.id, service_kind="expo", amount_minor=amount
+            )["amount_minor"]
+        )
 
     @staticmethod
     def pay_options(db: Session, *, org: Organisation, booth: ExpoBooth) -> dict[str, Any]:
@@ -108,12 +115,28 @@ class ExpoBoothPaymentService:
             raise ExpoBoothPaymentError("Booth does not belong to this organisation")
         currency = resolve_org_currency(db, org, persist=True)
         trial_covers = ExpoSignupTrialService.has_usable_trial(db, org_id=org.id, booth=booth)
-        amount = 0 if trial_covers else ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        catalog = ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        from app.services.promo_discount_service import PromoDiscountService
+
+        if trial_covers:
+            amount = 0
+            discount_meta = {"discount_applied": False}
+        else:
+            discount_meta = PromoDiscountService.peek_amount(
+                db, org_id=org.id, service_kind="expo", amount_minor=catalog
+            )
+            amount = int(discount_meta["amount_minor"])
         if amount <= 0:
-            provider_label = SIGNUP_TRIAL_PROVIDER if trial_covers else "free"
-            intent_prefix = "trial" if trial_covers else "free"
+            provider_label = SIGNUP_TRIAL_PROVIDER if trial_covers else (
+                "promo_discount" if discount_meta.get("discount_applied") else "free"
+            )
+            intent_prefix = "trial" if trial_covers else "promo" if discount_meta.get("discount_applied") else "free"
             if trial_covers:
                 ExpoSignupTrialService.consume_for_booth(db, org_id=org.id, booth=booth)
+            elif discount_meta.get("discount_applied"):
+                PromoDiscountService.apply_and_consume(
+                    db, org_id=org.id, service_kind="expo", amount_minor=catalog
+                )
             ExpoBoothPaymentService.mark_paid(
                 db,
                 booth=booth,
@@ -128,6 +151,12 @@ class ExpoBoothPaymentService:
                 "currency": currency,
                 "booth": ExpoBoothService.serialize_booth(db, booth),
             }
+
+        # Paid path: consume discount when creating the charge so amount matches.
+        if discount_meta.get("discount_applied"):
+            PromoDiscountService.apply_and_consume(
+                db, org_id=org.id, service_kind="expo", amount_minor=catalog
+            )
 
         prov = str(provider or "").strip().lower()
         meta = {

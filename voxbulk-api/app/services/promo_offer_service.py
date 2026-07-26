@@ -3,17 +3,19 @@ from __future__ import annotations
 import re
 import secrets
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.plan import Plan
 from app.models.organisation import Organisation
-from app.models.promo_offer import PromoOffer, PromoRedemption
+from app.models.plan import Plan
+from app.models.promo_offer import PromoOffer, PromoPendingDiscount, PromoRedemption
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.services.gocardless_service import BillingService
+from app.services.promo_discount_service import normalize_service_kind
 from app.services.usage_wallet_service import UsageWalletService
 from app.services.wallet_service import WalletService
 
@@ -24,6 +26,15 @@ SERVICE_CREDIT_OFFER_TYPES = {"survey_credits", "interview_credits"}
 WALLET_VOUCHER_OFFER_TYPES = {"sales_wallet_voucher"}
 SALES_REP_WALLET_CREDIT_PENCE = 2000
 
+BENEFIT_FREE = "free_usage"
+BENEFIT_DISCOUNT = "discount"
+REDEEM_ANYONE = "anyone"
+REDEEM_SIGNUP = "signup_only"
+REDEEM_ADMIN = "admin_only"
+VALID_REDEEM_MODES = {REDEEM_ANYONE, REDEEM_SIGNUP, REDEEM_ADMIN}
+VALID_SERVICES = {"voxbulk", "survey", "interview", "customer_feedback", "expo"}
+VALID_DISCOUNT_TYPES = {"percent", "fixed_minor"}
+
 
 class PromoOfferError(ValueError):
     pass
@@ -32,8 +43,7 @@ class PromoOfferError(ValueError):
 class PromoOfferService:
     @staticmethod
     def is_wallet_voucher_offer(offer_type: str | None) -> bool:
-        clean = str(offer_type or "").strip()
-        return clean in WALLET_VOUCHER_OFFER_TYPES
+        return str(offer_type or "").strip() in WALLET_VOUCHER_OFFER_TYPES
 
     @staticmethod
     def is_subscription_offer(offer_type: str | None) -> bool:
@@ -42,8 +52,7 @@ class PromoOfferService:
 
     @staticmethod
     def is_service_credit_offer(offer_type: str | None) -> bool:
-        clean = str(offer_type or "").strip()
-        return clean in SERVICE_CREDIT_OFFER_TYPES
+        return str(offer_type or "").strip() in SERVICE_CREDIT_OFFER_TYPES
 
     @staticmethod
     def normalize_offer_type(raw: str | None) -> str:
@@ -71,6 +80,101 @@ class PromoOfferService:
         return f"{origin}/signin?promo={code}"
 
     @staticmethod
+    def resolve_benefit(row: PromoOffer) -> dict[str, Any]:
+        """Normalize legacy + new promo rows into a unified benefit view."""
+        if PromoOfferService.is_wallet_voucher_offer(row.offer_type):
+            return {
+                "benefit_kind": BENEFIT_FREE,
+                "service_kind": "voxbulk",
+                "usage_amount": 0,
+                "discount_type": None,
+                "discount_value": 0,
+                "wallet_credit_pence": int(row.wallet_credit_pence or 0),
+                "legacy": "sales_wallet_voucher",
+            }
+
+        benefit = str(getattr(row, "benefit_kind", None) or "").strip().lower()
+        service = normalize_service_kind(getattr(row, "service_kind", None))
+        if benefit in {BENEFIT_FREE, BENEFIT_DISCOUNT}:
+            usage = int(getattr(row, "usage_amount", None) or 0)
+            if usage <= 0:
+                if service == "survey":
+                    usage = int(row.survey_contacts_included or 0)
+                elif service == "interview":
+                    usage = int(row.interview_contacts_included or 0)
+                elif service == "voxbulk":
+                    usage = int(row.trial_days or 0)
+                elif service == "expo":
+                    usage = int(row.trial_days or getattr(row, "usage_amount", 0) or 0)
+            return {
+                "benefit_kind": benefit,
+                "service_kind": service if service in VALID_SERVICES else "voxbulk",
+                "usage_amount": usage,
+                "discount_type": (str(getattr(row, "discount_type", None) or "").strip().lower() or None),
+                "discount_value": int(getattr(row, "discount_value", None) or 0),
+                "wallet_credit_pence": 0,
+                "legacy": None,
+            }
+
+        # Legacy mapping
+        if row.offer_type == "survey_credits":
+            return {
+                "benefit_kind": BENEFIT_FREE,
+                "service_kind": "survey",
+                "usage_amount": int(row.survey_contacts_included or 0),
+                "discount_type": None,
+                "discount_value": 0,
+                "wallet_credit_pence": 0,
+                "legacy": "survey_credits",
+            }
+        if row.offer_type == "interview_credits":
+            return {
+                "benefit_kind": BENEFIT_FREE,
+                "service_kind": "interview",
+                "usage_amount": int(row.interview_contacts_included or 0),
+                "discount_type": None,
+                "discount_value": 0,
+                "wallet_credit_pence": 0,
+                "legacy": "interview_credits",
+            }
+        return {
+            "benefit_kind": BENEFIT_FREE,
+            "service_kind": "voxbulk",
+            "usage_amount": int(row.trial_days or 0),
+            "discount_type": None,
+            "discount_value": 0,
+            "wallet_credit_pence": 0,
+            "legacy": "dental_trial",
+        }
+
+    @staticmethod
+    def benefit_summary(row: PromoOffer) -> str:
+        b = PromoOfferService.resolve_benefit(row)
+        if PromoOfferService.is_wallet_voucher_offer(row.offer_type):
+            gbp = int(b["wallet_credit_pence"] or 0) / 100
+            return f"£{gbp:.0f} welcome wallet credit"
+        if b["benefit_kind"] == BENEFIT_DISCOUNT:
+            if b["discount_type"] == "percent":
+                return f"{int(b['discount_value'])}% off next {b['service_kind'].replace('_', ' ')} checkout"
+            pounds = int(b["discount_value"] or 0) / 100
+            return f"£{pounds:.2f} off next {b['service_kind'].replace('_', ' ')} checkout"
+        sk = b["service_kind"]
+        n = int(b["usage_amount"] or 0)
+        if sk == "survey":
+            return f"{n} free survey contact{'s' if n != 1 else ''}"
+        if sk == "interview":
+            return f"{n} free interview{'s' if n != 1 else ''}"
+        if sk == "customer_feedback":
+            return f"{n} free Feedback unit{'s' if n != 1 else ''}"
+        if sk == "expo":
+            return f"{n}-day free Expo booth"
+        days = int(row.trial_days or n or 0)
+        plan = row.plan_code or "starter"
+        if days > 0:
+            return f"{days}-day Core trial ({plan})"
+        return f"Core plan ({plan})"
+
+    @staticmethod
     def get_by_code(db: Session, code: str) -> PromoOffer | None:
         clean = PromoOfferService.normalize_code(code)
         return db.execute(select(PromoOffer).where(PromoOffer.code == clean)).scalar_one_or_none()
@@ -85,16 +189,26 @@ class PromoOfferService:
             raise PromoOfferError("Promo code expired")
         if row.redemption_count >= row.max_redemptions:
             raise PromoOfferError("Promo code already used")
+        mode = str(getattr(row, "redeem_mode", None) or REDEEM_ANYONE).strip().lower()
+        if mode == REDEEM_ADMIN:
+            raise PromoOfferError("This promo can only be applied by an administrator")
         return PromoOfferService.to_public_dict(row)
 
     @staticmethod
     def to_public_dict(row: PromoOffer) -> dict:
+        benefit = PromoOfferService.resolve_benefit(row)
         return {
             "code": row.code,
             "name": row.name,
             "offer_type": row.offer_type,
             "plan_code": row.plan_code,
-            "service_kind": row.service_kind,
+            "service_kind": benefit["service_kind"],
+            "benefit_kind": benefit["benefit_kind"],
+            "discount_type": benefit["discount_type"],
+            "discount_value": int(benefit["discount_value"] or 0),
+            "usage_amount": int(benefit["usage_amount"] or 0),
+            "redeem_mode": str(getattr(row, "redeem_mode", None) or REDEEM_ANYONE),
+            "benefit_summary": PromoOfferService.benefit_summary(row),
             "trial_days": int(row.trial_days or 0),
             "free_call_credits": int(row.free_call_credits or 0),
             "calls_included": int(row.calls_included or 0),
@@ -124,12 +238,27 @@ class PromoOfferService:
             "prospect_name": row.prospect_name,
             "redemption_count": int(row.redemption_count or 0),
             "max_redemptions": int(row.max_redemptions or 1),
+            "uses_left": max(0, int(row.max_redemptions or 1) - int(row.redemption_count or 0)),
             "is_active": bool(row.is_active),
             "lead_sales_task_id": row.lead_sales_task_id,
             "ai_team_prospect_id": row.ai_team_prospect_id,
             "sales_rep_id": row.sales_rep_id,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
+
+    @staticmethod
+    def _legacy_offer_type_for(benefit_kind: str, service_kind: str) -> str:
+        if benefit_kind == BENEFIT_DISCOUNT:
+            return f"{service_kind}_discount"
+        if service_kind == "survey":
+            return "survey_credits"
+        if service_kind == "interview":
+            return "interview_credits"
+        if service_kind == "customer_feedback":
+            return "feedback_credits"
+        if service_kind == "expo":
+            return "expo_trial"
+        return "dental_trial"
 
     @staticmethod
     def create_admin(db: Session, payload: dict) -> PromoOffer:
@@ -141,33 +270,106 @@ class PromoOfferService:
         else:
             code = PromoOfferService.normalize_code(f"PROMO{secrets.token_hex(3).upper()}")
 
-        offer_type = PromoOfferService.normalize_offer_type(payload.get("offer_type"))
         now = datetime.utcnow()
         expires_days = max(1, int(payload.get("expires_in_days") or 30))
         max_redemptions = max(1, int(payload.get("max_redemptions") or 1))
+        redeem_mode = str(payload.get("redeem_mode") or REDEEM_ANYONE).strip().lower()
+        if redeem_mode not in VALID_REDEEM_MODES:
+            raise PromoOfferError("redeem_mode must be anyone, signup_only, or admin_only")
+
+        # New unified payload preferred; fall back to legacy offer_type.
+        if payload.get("benefit_kind") or payload.get("service_kind"):
+            benefit_kind = str(payload.get("benefit_kind") or BENEFIT_FREE).strip().lower()
+            service_kind = normalize_service_kind(payload.get("service_kind") or "voxbulk")
+            if benefit_kind not in {BENEFIT_FREE, BENEFIT_DISCOUNT}:
+                raise PromoOfferError("benefit_kind must be free_usage or discount")
+            if service_kind not in VALID_SERVICES:
+                raise PromoOfferError("Unknown service_kind")
+            offer_type = PromoOfferService._legacy_offer_type_for(benefit_kind, service_kind)
+        else:
+            offer_type = PromoOfferService.normalize_offer_type(payload.get("offer_type"))
+            benefit = PromoOfferService.resolve_benefit(
+                PromoOffer(
+                    offer_type=offer_type,
+                    service_kind=payload.get("service_kind"),
+                    survey_contacts_included=int(payload.get("survey_contacts_included") or 0),
+                    interview_contacts_included=int(payload.get("interview_contacts_included") or 0),
+                    trial_days=int(payload.get("trial_days") or 0),
+                )
+            )
+            benefit_kind = benefit["benefit_kind"]
+            service_kind = benefit["service_kind"]
 
         plan = None
-        plan_code = str(payload.get("plan_code") or "").strip().lower()
+        plan_code = str(payload.get("plan_code") or "").strip().lower() or None
+        usage_amount = max(0, int(payload.get("usage_amount") or 0))
         survey_contacts = max(0, int(payload.get("survey_contacts_included") or 0))
         interview_contacts = max(0, int(payload.get("interview_contacts_included") or 0))
+        trial_days = max(0, int(payload.get("trial_days") or 0))
+        discount_type = str(payload.get("discount_type") or "").strip().lower() or None
+        discount_value = max(0, int(payload.get("discount_value") or 0))
 
-        if offer_type == "survey_credits":
-            if survey_contacts <= 0:
-                raise PromoOfferError("Enter how many free survey contacts this promo includes")
-            default_name = f"Promo · {survey_contacts} survey contact{'s' if survey_contacts != 1 else ''}"
-            plan_code = None
-        elif offer_type == "interview_credits":
-            if interview_contacts <= 0:
-                raise PromoOfferError("Enter how many free interviews this promo includes")
-            default_name = f"Promo · {interview_contacts} interview{'s' if interview_contacts != 1 else ''}"
-            plan_code = None
+        if benefit_kind == BENEFIT_DISCOUNT:
+            if discount_type not in VALID_DISCOUNT_TYPES:
+                raise PromoOfferError("Choose percent or fixed (£) discount")
+            if discount_type == "percent" and not (1 <= discount_value <= 100):
+                raise PromoOfferError("Percent discount must be between 1 and 100")
+            if discount_type == "fixed_minor" and discount_value <= 0:
+                raise PromoOfferError("Enter a discount amount greater than zero")
+            default_name = PromoOfferService.benefit_summary(
+                PromoOffer(
+                    offer_type=offer_type,
+                    benefit_kind=benefit_kind,
+                    service_kind=service_kind,
+                    discount_type=discount_type,
+                    discount_value=discount_value,
+                    usage_amount=0,
+                    trial_days=0,
+                    plan_code=plan_code,
+                )
+            )
         else:
-            if not plan_code:
-                plan_code = "starter"
-            plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
-            if plan is None:
-                raise PromoOfferError("Unknown plan code")
-            default_name = f"Promo · {plan.name}"
+            if service_kind == "survey":
+                if usage_amount <= 0:
+                    usage_amount = survey_contacts
+                if usage_amount <= 0:
+                    raise PromoOfferError("Enter how many free survey contacts this promo includes")
+                survey_contacts = usage_amount
+            elif service_kind == "interview":
+                if usage_amount <= 0:
+                    usage_amount = interview_contacts
+                if usage_amount <= 0:
+                    raise PromoOfferError("Enter how many free interviews this promo includes")
+                interview_contacts = usage_amount
+            elif service_kind == "customer_feedback":
+                if usage_amount <= 0:
+                    raise PromoOfferError("Enter how many free Feedback units this promo includes")
+            elif service_kind == "expo":
+                if usage_amount <= 0:
+                    usage_amount = trial_days or 3
+                trial_days = usage_amount
+            else:
+                if not plan_code:
+                    plan_code = "starter"
+                plan = db.execute(select(Plan).where(Plan.code == plan_code)).scalar_one_or_none()
+                if plan is None:
+                    raise PromoOfferError("Unknown plan code")
+                if trial_days <= 0 and usage_amount > 0:
+                    trial_days = usage_amount
+                if usage_amount <= 0:
+                    usage_amount = trial_days
+            default_name = PromoOfferService.benefit_summary(
+                PromoOffer(
+                    offer_type=offer_type,
+                    benefit_kind=benefit_kind,
+                    service_kind=service_kind,
+                    usage_amount=usage_amount,
+                    trial_days=trial_days,
+                    survey_contacts_included=survey_contacts,
+                    interview_contacts_included=interview_contacts,
+                    plan_code=plan.code if plan else plan_code,
+                )
+            )
 
         display_name = str(payload.get("name") or default_name).strip() or default_name
 
@@ -175,23 +377,46 @@ class PromoOfferService:
             code=code,
             name=display_name,
             offer_type=offer_type,
-            plan_code=plan.code if plan else None,
-            service_kind=(
-                "survey"
-                if offer_type == "survey_credits"
-                else "interview"
-                if offer_type == "interview_credits"
-                else str(payload.get("service_kind") or (plan.service_kind if plan else "dental")).strip() or "dental"
+            plan_code=plan.code if plan else plan_code,
+            service_kind=service_kind,
+            benefit_kind=benefit_kind,
+            discount_type=discount_type if benefit_kind == BENEFIT_DISCOUNT else None,
+            discount_value=discount_value if benefit_kind == BENEFIT_DISCOUNT else 0,
+            usage_amount=usage_amount if benefit_kind == BENEFIT_FREE else 0,
+            redeem_mode=redeem_mode,
+            trial_days=(
+                trial_days
+                if benefit_kind == BENEFIT_FREE and service_kind in {"voxbulk", "expo"}
+                else int(payload.get("trial_days") if payload.get("trial_days") is not None else (plan.trial_days_default if plan else 0))
             ),
-            trial_days=int(payload.get("trial_days") if payload.get("trial_days") is not None else (plan.trial_days_default if plan else 0)),
             free_call_credits=int(payload.get("free_call_credits") or 0),
             survey_contacts_included=survey_contacts,
             interview_contacts_included=interview_contacts,
-            calls_included=int(payload.get("calls_included") if payload.get("calls_included") is not None else (plan.calls_included if plan else 0)),
-            whatsapp_included=int(payload.get("whatsapp_included") if payload.get("whatsapp_included") is not None else (plan.whatsapp_included if plan else 0)),
-            sms_included=int(payload.get("sms_included") if payload.get("sms_included") is not None else (plan.sms_included if plan else 0)),
-            price_gbp_pence=int(payload.get("price_gbp_pence") if payload.get("price_gbp_pence") is not None else (plan.price_gbp_pence if plan else 0)),
-            overage_per_min_pence=int(payload.get("overage_per_min_pence") if payload.get("overage_per_min_pence") is not None else (plan.overage_per_min_pence if plan else 0)),
+            calls_included=int(
+                payload.get("calls_included")
+                if payload.get("calls_included") is not None
+                else (plan.calls_included if plan else 0)
+            ),
+            whatsapp_included=int(
+                payload.get("whatsapp_included")
+                if payload.get("whatsapp_included") is not None
+                else (plan.whatsapp_included if plan else 0)
+            ),
+            sms_included=int(
+                payload.get("sms_included")
+                if payload.get("sms_included") is not None
+                else (plan.sms_included if plan else 0)
+            ),
+            price_gbp_pence=int(
+                payload.get("price_gbp_pence")
+                if payload.get("price_gbp_pence") is not None
+                else (plan.price_gbp_pence if plan else 0)
+            ),
+            overage_per_min_pence=int(
+                payload.get("overage_per_min_pence")
+                if payload.get("overage_per_min_pence") is not None
+                else (plan.overage_per_min_pence if plan else 0)
+            ),
             prospect_email=(str(payload.get("prospect_email") or "").strip() or None),
             prospect_phone=(str(payload.get("prospect_phone") or "").strip() or None),
             prospect_name=(str(payload.get("prospect_name") or "").strip() or None),
@@ -223,6 +448,10 @@ class PromoOfferService:
         if "expires_in_days" in payload:
             days = max(1, int(payload["expires_in_days"] or 30))
             row.expires_at = now + timedelta(days=days)
+        if "redeem_mode" in payload:
+            mode = str(payload.get("redeem_mode") or "").strip().lower()
+            if mode in VALID_REDEEM_MODES:
+                row.redeem_mode = mode
         row.updated_at = now
         db.add(row)
         db.commit()
@@ -243,9 +472,7 @@ class PromoOfferService:
         if not isinstance(rep, SalesRep):
             raise PromoOfferError("Invalid sales rep")
         code = PromoOfferService.normalize_code(rep.promo_code)
-        existing = db.execute(
-            select(PromoOffer).where(PromoOffer.sales_rep_id == rep.id)
-        ).scalar_one_or_none()
+        existing = db.execute(select(PromoOffer).where(PromoOffer.sales_rep_id == rep.id)).scalar_one_or_none()
         if existing is None:
             existing = PromoOfferService.get_by_code(db, code)
             if existing is not None and existing.sales_rep_id not in (None, rep.id):
@@ -260,6 +487,9 @@ class PromoOfferService:
             existing.code = code
             existing.name = display_name
             existing.offer_type = "sales_wallet_voucher"
+            existing.benefit_kind = BENEFIT_FREE
+            existing.service_kind = "voxbulk"
+            existing.redeem_mode = REDEEM_ANYONE
             existing.wallet_credit_pence = credit
             existing.sales_rep_id = rep.id
             existing.is_active = bool(rep.is_active)
@@ -276,6 +506,9 @@ class PromoOfferService:
             code=code,
             name=display_name,
             offer_type="sales_wallet_voucher",
+            benefit_kind=BENEFIT_FREE,
+            service_kind="voxbulk",
+            redeem_mode=REDEEM_ANYONE,
             wallet_credit_pence=credit,
             sales_rep_id=rep.id,
             max_redemptions=999999,
@@ -340,6 +573,12 @@ class PromoOfferService:
         now = datetime.utcnow()
         survey_contacts = max(0, int(survey_contacts_included or 0))
         interview_contacts = max(0, int(interview_contacts_included or 0))
+        if normalized == "survey_credits":
+            benefit_kind, service_kind, usage_amount = BENEFIT_FREE, "survey", survey_contacts
+        elif normalized == "interview_credits":
+            benefit_kind, service_kind, usage_amount = BENEFIT_FREE, "interview", interview_contacts
+        else:
+            benefit_kind, service_kind, usage_amount = BENEFIT_FREE, "voxbulk", int(trial_days)
         row = PromoOffer(
             code=code,
             name=(
@@ -353,13 +592,10 @@ class PromoOfferService:
             ),
             offer_type=normalized,
             plan_code=plan.code if plan else None,
-            service_kind=(
-                "survey"
-                if normalized == "survey_credits"
-                else "interview"
-                if normalized == "interview_credits"
-                else "dental"
-            ),
+            service_kind=service_kind,
+            benefit_kind=benefit_kind,
+            usage_amount=usage_amount,
+            redeem_mode=REDEEM_ANYONE,
             trial_days=int(trial_days),
             free_call_credits=int(free_call_credits),
             survey_contacts_included=survey_contacts,
@@ -386,7 +622,131 @@ class PromoOfferService:
         return row
 
     @staticmethod
-    def redeem_for_org(db: Session, *, org_id: str, user_id: str | None, promo_code: str) -> PromoOffer:
+    def _grant_free_usage(db: Session, *, org: Organisation, row: PromoOffer, benefit: dict[str, Any]) -> None:
+        sk = benefit["service_kind"]
+        amount = int(benefit["usage_amount"] or 0)
+        now = datetime.utcnow()
+
+        if sk == "survey":
+            n = amount or int(row.survey_contacts_included or 0)
+            org.survey_credits_balance = int(org.survey_credits_balance or 0) + n
+            db.add(org)
+            return
+        if sk == "interview":
+            n = amount or int(row.interview_contacts_included or 0)
+            org.interview_credits_balance = int(org.interview_credits_balance or 0) + n
+            db.add(org)
+            return
+        if sk == "customer_feedback":
+            org.feedback_credits_balance = int(getattr(org, "feedback_credits_balance", 0) or 0) + max(0, amount)
+            from app.services.org_enabled_services import (
+                parse_enabled_services,
+                serialize_enabled_services,
+            )
+
+            allowed = parse_enabled_services(org.allowed_services_json)
+            enabled = parse_enabled_services(org.enabled_services_json)
+            allowed["customer_feedback"] = True
+            enabled["customer_feedback"] = True
+            org.allowed_services_json = serialize_enabled_services(allowed)
+            org.enabled_services_json = serialize_enabled_services(enabled)
+            db.add(org)
+            return
+        if sk == "expo":
+            days = max(1, amount or int(row.trial_days or 3))
+            from app.models.expo_signup_trial import ExpoSignupEntitlement
+            from app.services.org_enabled_services import (
+                org_service_maps,
+                parse_enabled_services,
+                serialize_allowed_services,
+                serialize_enabled_services,
+            )
+
+            allowed, enabled, _ = org_service_maps(org, db)
+            allowed = dict(allowed)
+            enabled = dict(enabled)
+            allowed["expo"] = True
+            enabled["expo"] = True
+            org.allowed_services_json = serialize_allowed_services(allowed)
+            org.enabled_services_json = serialize_enabled_services(
+                {**parse_enabled_services(org.enabled_services_json), **enabled}
+            )
+            db.add(org)
+            existing = db.execute(
+                select(ExpoSignupEntitlement).where(ExpoSignupEntitlement.org_id == org.id)
+            ).scalar_one_or_none()
+            if existing is None:
+                db.add(
+                    ExpoSignupEntitlement(
+                        org_id=org.id,
+                        duration_days=days,
+                        remaining=1,
+                        source_domain=f"promo:{row.code}",
+                        granted_at=now,
+                    )
+                )
+            else:
+                existing.remaining = int(existing.remaining or 0) + 1
+                existing.duration_days = days
+                existing.consumed_at = None
+                existing.consumed_booth_id = None
+                db.add(existing)
+            return
+
+        # Core subscription trial
+        plan_code = (row.plan_code or "starter").strip().lower()
+        try:
+            sub = BillingService.assign_plan_cash(db, org_id=org.id, plan_code=plan_code)
+        except ValueError:
+            sub = BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
+        days = int(row.trial_days or amount or 0)
+        if days > 0:
+            sub.status = "trial"
+            sub.current_period_end = now + timedelta(days=days)
+            sub.updated_at = now
+            db.add(sub)
+        UsageWalletService.bootstrap_from_promo(db, org_id=org.id, promo=row, subscription=sub)
+
+    @staticmethod
+    def _grant_discount(db: Session, *, org_id: str, row: PromoOffer, benefit: dict[str, Any]) -> None:
+        sk = benefit["service_kind"]
+        # Replace any existing pending discount for this service (one pending per service).
+        existing = list(
+            db.execute(
+                select(PromoPendingDiscount).where(
+                    PromoPendingDiscount.org_id == org_id,
+                    PromoPendingDiscount.service_kind == sk,
+                    PromoPendingDiscount.status == "pending",
+                )
+            ).scalars().all()
+        )
+        now = datetime.utcnow()
+        for old in existing:
+            old.status = "superseded"
+            old.consumed_at = now
+            db.add(old)
+        db.add(
+            PromoPendingDiscount(
+                org_id=org_id,
+                promo_offer_id=row.id,
+                service_kind=sk,
+                discount_type=str(benefit["discount_type"] or "percent"),
+                discount_value=int(benefit["discount_value"] or 0),
+                status="pending",
+                created_at=now,
+            )
+        )
+
+    @staticmethod
+    def redeem_for_org(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str | None,
+        promo_code: str,
+        source: str = "signup",
+    ) -> PromoOffer:
+        """source: signup | dashboard | admin"""
         row = PromoOfferService.get_by_code(db, promo_code)
         if row is None or not row.is_active:
             raise PromoOfferError("Invalid promo code")
@@ -395,6 +755,15 @@ class PromoOfferService:
             raise PromoOfferError("Promo code expired")
         if row.redemption_count >= row.max_redemptions:
             raise PromoOfferError("Promo code already used")
+
+        mode = str(getattr(row, "redeem_mode", None) or REDEEM_ANYONE).strip().lower()
+        src = str(source or "signup").strip().lower()
+        if mode == REDEEM_ADMIN and src != "admin":
+            raise PromoOfferError("This promo can only be applied by an administrator")
+        if mode == REDEEM_SIGNUP and src != "signup":
+            raise PromoOfferError("This promo is only valid at signup")
+        if mode == REDEEM_ANYONE and src not in {"signup", "dashboard", "admin"}:
+            raise PromoOfferError("Invalid redeem source")
 
         org = db.get(Organisation, org_id)
         if org is None:
@@ -460,26 +829,12 @@ class PromoOfferService:
                 )
             except Exception:
                 pass
-        elif PromoOfferService.is_service_credit_offer(row.offer_type):
-            if row.offer_type == "survey_credits":
-                org.survey_credits_balance = int(org.survey_credits_balance or 0) + int(row.survey_contacts_included or 0)
-            else:
-                org.interview_credits_balance = int(org.interview_credits_balance or 0) + int(row.interview_contacts_included or 0)
-            db.add(org)
         else:
-            plan_code = (row.plan_code or "starter").strip().lower()
-            try:
-                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code=plan_code)
-            except ValueError:
-                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
-
-            if int(row.trial_days or 0) > 0:
-                sub.status = "trial"
-                sub.current_period_end = now + timedelta(days=int(row.trial_days))
-                sub.updated_at = now
-                db.add(sub)
-
-            UsageWalletService.bootstrap_from_promo(db, org_id=org_id, promo=row, subscription=sub)
+            benefit = PromoOfferService.resolve_benefit(row)
+            if benefit["benefit_kind"] == BENEFIT_DISCOUNT:
+                PromoOfferService._grant_discount(db, org_id=org_id, row=row, benefit=benefit)
+            else:
+                PromoOfferService._grant_free_usage(db, org=org, row=row, benefit=benefit)
 
         row.redemption_count = int(row.redemption_count or 0) + 1
         row.updated_at = now
@@ -501,3 +856,39 @@ class PromoOfferService:
         except Exception:
             pass
         return row
+
+    @staticmethod
+    def apply_to_orgs(
+        db: Session,
+        *,
+        promo_id: str,
+        org_ids: list[str],
+        actor_user_id: str | None = None,
+    ) -> dict[str, Any]:
+        row = db.get(PromoOffer, promo_id)
+        if row is None or not row.is_active:
+            raise PromoOfferError("Promo not found or inactive")
+        results = []
+        for raw_id in org_ids:
+            org_id = str(raw_id or "").strip()
+            if not org_id:
+                continue
+            try:
+                PromoOfferService.redeem_for_org(
+                    db,
+                    org_id=org_id,
+                    user_id=actor_user_id,
+                    promo_code=row.code,
+                    source="admin",
+                )
+                results.append({"org_id": org_id, "ok": True})
+            except PromoOfferError as exc:
+                results.append({"org_id": org_id, "ok": False, "error": str(exc)})
+        return {
+            "ok": True,
+            "promo_id": promo_id,
+            "code": row.code,
+            "results": results,
+            "applied": sum(1 for r in results if r.get("ok")),
+            "failed": sum(1 for r in results if not r.get("ok")),
+        }

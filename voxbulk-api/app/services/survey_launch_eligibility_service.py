@@ -270,10 +270,20 @@ class SurveyLaunchEligibilityService:
         return None
 
     @staticmethod
-    def _apply_estimate(base: dict[str, Any], est: dict[str, Any]) -> dict[str, Any]:
+    def _apply_estimate(base: dict[str, Any], est: dict[str, Any], *, org_id: str | None = None, db=None) -> dict[str, Any]:
         """Map a LaunchBillingService estimate onto the eligibility payload."""
         currency = str(est.get("currency") or "GBP")
         total = int(est.get("total_minor") or 0)
+        promo_discount_applied = False
+        if db is not None and org_id and total > 0:
+            from app.services.promo_discount_service import PromoDiscountService
+
+            peeked = PromoDiscountService.peek_amount(
+                db, org_id=str(org_id), service_kind="survey", amount_minor=total
+            )
+            if peeked.get("discount_applied"):
+                total = int(peeked["amount_minor"])
+                promo_discount_applied = True
         base.update(
             {
                 "currency": currency,
@@ -297,6 +307,7 @@ class SurveyLaunchEligibilityService:
                 "dd_charge_minor": int(est.get("dd_charge_minor") or 0),
                 "wallet_shortfall_minor": int(est.get("wallet_shortfall_minor") or 0),
                 "launch_billing": est,
+                "promo_discount_applied": promo_discount_applied,
             }
         )
         return base
@@ -359,7 +370,7 @@ class SurveyLaunchEligibilityService:
         currency = str(est.get("currency") or "GBP")
         rate_display = str(est.get("unit_rate_display") or "")
 
-        base = SurveyLaunchEligibilityService._apply_estimate(base, est)
+        base = SurveyLaunchEligibilityService._apply_estimate(base, est, org_id=org.id, db=db)
         soft = SurveyLaunchEligibilityService._enforce_value_pool_soft_cap(db, org, billing, est, base)
         if soft.get("block_reason_code") == "package_soft_cap_exceeded":
             return soft
@@ -509,7 +520,7 @@ class SurveyLaunchEligibilityService:
         remaining_after = max(0, int(billing.get("calls_remaining") or 0) - covered_minutes)
         per_call_display = str(est.get("per_call_display") or "")
 
-        base = SurveyLaunchEligibilityService._apply_estimate(base, est)
+        base = SurveyLaunchEligibilityService._apply_estimate(base, est, org_id=org.id, db=db)
         soft = SurveyLaunchEligibilityService._enforce_value_pool_soft_cap(db, org, billing, est, base)
         if soft.get("block_reason_code") == "package_soft_cap_exceeded":
             return soft

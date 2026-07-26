@@ -425,7 +425,10 @@ class FeedbackBillingService:
             return False, "Subscribe to a Customer feedback package to start collecting responses."
         usage = FeedbackBillingService.get_current_usage(db, org_id)
         if int(usage.get("wa_units_remaining") or 0) <= 0:
-            return False, "Your included WhatsApp survey units are used up. Upgrade your Customer feedback package to continue."
+            org = db.get(Organisation, org_id)
+            promo_units = int(getattr(org, "feedback_credits_balance", 0) or 0) if org else 0
+            if promo_units <= 0:
+                return False, "Your included WhatsApp survey units are used up. Upgrade your Customer feedback package to continue."
         return True, None
 
     @staticmethod
@@ -458,14 +461,21 @@ class FeedbackBillingService:
             .scalars()
             .first()
         )
+        if row is not None and int(row.wa_units_used or 0) < int(row.wa_units_included or 0):
+            row.wa_units_used = int(row.wa_units_used or 0) + 1
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
+            return
+        org = db.get(Organisation, org_id)
+        if org is not None and int(getattr(org, "feedback_credits_balance", 0) or 0) > 0:
+            org.feedback_credits_balance = int(org.feedback_credits_balance or 0) - 1
+            db.add(org)
+            db.commit()
+            return
         if row is None:
             raise FeedbackBillingError("No active usage period")
-        if int(row.wa_units_used or 0) >= int(row.wa_units_included or 0):
-            raise FeedbackBillingError("No WhatsApp units remaining")
-        row.wa_units_used = int(row.wa_units_used or 0) + 1
-        row.updated_at = datetime.utcnow()
-        db.add(row)
-        db.commit()
+        raise FeedbackBillingError("No WhatsApp units remaining")
 
     @staticmethod
     def consume_web_unit(db: Session, org_id: str) -> None:

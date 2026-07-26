@@ -60,6 +60,7 @@ function statusLabel(status) {
 }
 
 function limitsLine(row) {
+  if (row.benefit_summary) return row.benefit_summary
   if (row.offer_type === 'survey_credits') {
     return `${row.survey_contacts_included || 0} survey contacts`
   }
@@ -74,6 +75,11 @@ function limitsLine(row) {
 }
 
 function offerTypeLabel(row) {
+  if (row.benefit_summary) {
+    const sk = row.service_kind || ''
+    const bk = row.benefit_kind === 'discount' ? 'Discount' : 'Free'
+    return `${bk} · ${sk || row.offer_type || 'promo'}`
+  }
   if (row.offer_type === 'survey_credits') return 'Survey promo'
   if (row.offer_type === 'interview_credits') return 'Interview promo'
   return row.plan_code || 'Subscription'

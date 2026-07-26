@@ -34,6 +34,7 @@ type PromoPreview = {
   code: string;
   name: string;
   offer_type: string;
+  benefit_summary?: string;
   wallet_credit_pence?: number;
   wallet_credit_gbp?: string;
   signup_url?: string;
@@ -146,7 +147,11 @@ function SignInPage() {
       }
       if (mode === "signup") {
         const user = await auth.register(email, password, orgName.trim(), promoCode || undefined);
-        toast.success(promoCode ? "Account created — welcome credit applied!" : "Account created!");
+        toast.success(
+          promoCode
+            ? `Account created — ${promoPreview?.benefit_summary || "promo applied"}!`
+            : "Account created!",
+        );
         routeAfterAuth(user);
         return;
       }
@@ -217,7 +222,9 @@ function SignInPage() {
             {promoPreview && !inviteActive ? (
               <div className="mb-5 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-heading">
                 <p className="font-semibold text-primary">Offer applied: {promoPreview.name}</p>
-                {promoPreview.wallet_credit_pence ? (
+                {promoPreview.benefit_summary ? (
+                  <p className="mt-1 text-muted-text">{promoPreview.benefit_summary}</p>
+                ) : promoPreview.wallet_credit_pence ? (
                   <p className="mt-1 text-muted-text">
                     Includes {promoPreview.wallet_credit_gbp || `£${(promoPreview.wallet_credit_pence / 100).toFixed(2)}`} welcome wallet credit after signup.
                   </p>

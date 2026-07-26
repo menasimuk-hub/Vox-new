@@ -1,912 +1,427 @@
 import React, { useEffect, useMemo, useState } from 'react'
-
 import { Link, useNavigate } from 'react-router-dom'
-
 import PlanPickerSelect from '../components/billing/PlanPickerSelect'
-
 import { apiFetch } from '../lib/api'
 
-
-
-const OFFER_TYPES = [
-
-  { value: 'dental_trial', label: 'Subscription plan trial' },
-
-  { value: 'survey_credits', label: 'Free survey contacts' },
-
-  { value: 'interview_credits', label: 'Free interviews' },
-
+const SERVICES = [
+  { value: 'voxbulk', label: 'Core subscription' },
+  { value: 'survey', label: 'Survey' },
+  { value: 'interview', label: 'Interview' },
+  { value: 'customer_feedback', label: 'Customer Feedback' },
+  { value: 'expo', label: 'Expo' },
 ]
 
+const BENEFITS = [
+  { value: 'free_usage', label: 'Free usage' },
+  { value: 'discount', label: 'Discount (% or £)' },
+]
 
+const REDEEM_MODES = [
+  { value: 'anyone', label: 'Anyone with the code (signup or Dashboard)' },
+  { value: 'signup_only', label: 'Signup only' },
+  { value: 'admin_only', label: 'Admin apply only' },
+]
 
 const emptyDraft = {
-
   code: '',
-
   name: '',
-
-  offer_type: 'dental_trial',
-
+  service_kind: 'survey',
+  benefit_kind: 'free_usage',
   plan_code: '',
-
-  survey_contacts_included: 20,
-
-  interview_contacts_included: 3,
-
+  usage_amount: 20,
   trial_days: 15,
-
-  max_redemptions: 1,
-
+  discount_type: 'percent',
+  discount_value: 20,
+  redeem_mode: 'anyone',
+  max_redemptions: 10,
   expires_in_days: 30,
-
   prospect_name: '',
-
   prospect_email: '',
-
   prospect_phone: '',
-
 }
 
-
-
-function money(pence) {
-
-  return `£${(Number(pence || 0) / 100).toFixed(0)}`
-
+function usageLabel(service) {
+  if (service === 'survey') return 'Free survey contacts'
+  if (service === 'interview') return 'Free interviews'
+  if (service === 'customer_feedback') return 'Free Feedback units'
+  if (service === 'expo') return 'Free Expo days'
+  return 'Trial days'
 }
-
-
-
-function limitsPreview(plan) {
-
-  if (!plan) return 'Select a plan to preview included usage.'
-
-  const parts = []
-
-  if (plan.picker_subtitle) parts.push(plan.picker_subtitle)
-
-  if (plan.price_display) parts.push(plan.price_display)
-
-  return parts.join(' · ') || 'Uses plan defaults'
-
-}
-
-
 
 export default function PromoOfferCreate() {
-
   const navigate = useNavigate()
-
   const [draft, setDraft] = useState(emptyDraft)
-
   const [plans, setPlans] = useState([])
-
   const [loading, setLoading] = useState(true)
-
   const [saving, setSaving] = useState(false)
-
   const [error, setError] = useState('')
-
-
-
-  const isSubscription = draft.offer_type === 'dental_trial'
-
-  const isSurvey = draft.offer_type === 'survey_credits'
-
-  const isInterview = draft.offer_type === 'interview_credits'
-
-
+  const [created, setCreated] = useState(null)
+  const [orgQuery, setOrgQuery] = useState('')
+  const [orgs, setOrgs] = useState([])
+  const [selectedOrgIds, setSelectedOrgIds] = useState([])
+  const [applying, setApplying] = useState(false)
+  const [applyResult, setApplyResult] = useState(null)
 
   useEffect(() => {
-
     let cancelled = false
-
     ;(async () => {
-
-      setLoading(true)
-
       try {
-
-        const planRows = await apiFetch('/admin/products/assignable-plans?product_line=core')
-
-        if (cancelled) return
-
-        const list = Array.isArray(planRows) ? planRows : []
-
-        setPlans(list)
-
-        if (list.length) {
-
-          setDraft((prev) => ({ ...prev, plan_code: prev.plan_code || list[0].code }))
-
-        }
-
-      } catch (e) {
-
-        if (!cancelled) setError(e?.message || 'Could not load plans')
-
+        const data = await apiFetch('/admin/plans')
+        if (!cancelled) setPlans(Array.isArray(data) ? data : data?.items || [])
+      } catch {
+        if (!cancelled) setPlans([])
       } finally {
-
         if (!cancelled) setLoading(false)
-
       }
-
     })()
-
     return () => {
-
       cancelled = true
-
     }
-
   }, [])
 
-
-
-  const selectedPlan = useMemo(
-
-    () => plans.find((p) => p.code === draft.plan_code) || null,
-
-    [plans, draft.plan_code],
-
+  const corePlans = useMemo(
+    () =>
+      (plans || []).filter((p) => {
+        const kind = String(p.service_kind || p.service_code || 'voxbulk').toLowerCase()
+        return kind === 'voxbulk' || kind === 'dental' || !kind
+      }),
+    [plans],
   )
 
+  const setField = (key, value) => setDraft((d) => ({ ...d, [key]: value }))
 
-
-  const previewName = useMemo(() => {
-
-    if (draft.name.trim()) return draft.name.trim()
-
-    if (isSurvey) return `Promo · ${draft.survey_contacts_included} survey contacts`
-
-    if (isInterview) return `Promo · ${draft.interview_contacts_included} interviews`
-
-    return selectedPlan ? `Promo · ${selectedPlan.name}` : 'New promo offer'
-
-  }, [draft, isSurvey, isInterview, selectedPlan])
-
-
-
-  const previewCode = draft.code.trim().toUpperCase() || 'AUTO-GENERATED'
-
-
-
-  const save = async () => {
-
-    if (isSubscription && !draft.plan_code) {
-
-      setError('Choose a subscription plan.')
-
-      return
-
+  const previewLine = useMemo(() => {
+    if (draft.benefit_kind === 'discount') {
+      if (draft.discount_type === 'percent') {
+        return `${draft.discount_value || 0}% off next ${draft.service_kind.replace('_', ' ')} checkout`
+      }
+      return `£${(Number(draft.discount_value || 0) / 100).toFixed(2)} off next ${draft.service_kind.replace('_', ' ')} checkout`
     }
-
-    if (isSurvey && Number(draft.survey_contacts_included) <= 0) {
-
-      setError('Enter how many free survey contacts to include.')
-
-      return
-
+    if (draft.service_kind === 'voxbulk') {
+      return `${draft.trial_days || draft.usage_amount || 0}-day Core trial`
     }
+    return `${draft.usage_amount || 0} × ${usageLabel(draft.service_kind).toLowerCase()}`
+  }, [draft])
 
-    if (isInterview && Number(draft.interview_contacts_included) <= 0) {
-
-      setError('Enter how many free interviews to include.')
-
-      return
-
-    }
-
+  const onSubmit = async (e) => {
+    e.preventDefault()
     setSaving(true)
-
     setError('')
-
     try {
-
       const payload = {
-
-        name: draft.name.trim() || undefined,
-
-        code: draft.code.trim() || undefined,
-
-        offer_type: draft.offer_type,
-
+        code: draft.code || undefined,
+        name: draft.name || undefined,
+        service_kind: draft.service_kind,
+        benefit_kind: draft.benefit_kind,
+        redeem_mode: draft.redeem_mode,
         max_redemptions: Number(draft.max_redemptions) || 1,
-
         expires_in_days: Number(draft.expires_in_days) || 30,
-
-        prospect_name: draft.prospect_name.trim() || undefined,
-
-        prospect_email: draft.prospect_email.trim() || undefined,
-
-        prospect_phone: draft.prospect_phone.trim() || undefined,
-
+        prospect_name: draft.prospect_name || undefined,
+        prospect_email: draft.prospect_email || undefined,
+        prospect_phone: draft.prospect_phone || undefined,
       }
-
-      if (isSubscription) {
-
-        payload.plan_code = draft.plan_code
-
-        payload.trial_days = Number(draft.trial_days) || 0
-
+      if (draft.benefit_kind === 'discount') {
+        payload.discount_type = draft.discount_type
+        payload.discount_value =
+          draft.discount_type === 'fixed_minor'
+            ? Math.round(Number(draft.discount_value) || 0)
+            : Number(draft.discount_value) || 0
+        if (draft.discount_type === 'fixed_minor' && payload.discount_value < 100) {
+          // Allow entering pounds in the UI when value looks like pounds (< 100 with type fixed) — treat as pounds.
+          // Prefer pence input: if user typed 20 with fixed, convert pounds→pence when < 500 and no decimals intent.
+        }
+      } else {
+        payload.usage_amount = Number(draft.usage_amount) || 0
+        if (draft.service_kind === 'voxbulk') {
+          payload.plan_code = draft.plan_code || 'starter'
+          payload.trial_days = Number(draft.trial_days) || Number(draft.usage_amount) || 15
+          payload.usage_amount = payload.trial_days
+        }
+        if (draft.service_kind === 'expo') {
+          payload.trial_days = Number(draft.usage_amount) || 3
+        }
+        if (draft.service_kind === 'survey') payload.survey_contacts_included = payload.usage_amount
+        if (draft.service_kind === 'interview') payload.interview_contacts_included = payload.usage_amount
       }
-
-      if (isSurvey) {
-
-        payload.survey_contacts_included = Number(draft.survey_contacts_included) || 0
-
+      if (draft.benefit_kind === 'discount' && draft.discount_type === 'fixed_minor') {
+        // UI stores pounds in discount_value_pounds field via discount_value when type fixed — convert £ to pence
+        const pounds = Number(draft.discount_value)
+        payload.discount_value = Math.round(pounds * 100)
       }
-
-      if (isInterview) {
-
-        payload.interview_contacts_included = Number(draft.interview_contacts_included) || 0
-
-      }
-
-      await apiFetch('/admin/promo-offers', { method: 'POST', body: JSON.stringify(payload) })
-
-      navigate('/marketing/promo-offers?created=1', { replace: true })
-
-    } catch (e) {
-
-      setError(e?.message || 'Could not create promo')
-
+      const res = await apiFetch('/admin/promo-offers', { method: 'POST', body: JSON.stringify(payload) })
+      setCreated(res.promo)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create promo')
     } finally {
-
       setSaving(false)
-
     }
-
   }
 
+  const searchOrgs = async () => {
+    try {
+      const data = await apiFetch(`/admin/organisations?search=${encodeURIComponent(orgQuery || '')}&limit=30`)
+      setOrgs(Array.isArray(data) ? data : data?.items || data?.organisations || [])
+    } catch {
+      setOrgs([])
+    }
+  }
 
+  const toggleOrg = (id) => {
+    setSelectedOrgIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
 
-  const canSave =
+  const applyToOrgs = async () => {
+    if (!created?.id || selectedOrgIds.length === 0) return
+    setApplying(true)
+    setApplyResult(null)
+    try {
+      const res = await apiFetch(`/admin/promo-offers/${created.id}/apply`, {
+        method: 'POST',
+        body: JSON.stringify({ org_ids: selectedOrgIds }),
+      })
+      setApplyResult(res)
+    } catch (err) {
+      setApplyResult({ ok: false, error: err instanceof Error ? err.message : 'Apply failed' })
+    } finally {
+      setApplying(false)
+    }
+  }
 
-    (isSubscription && plans.length) ||
+  if (loading) return <div className="page">Loading…</div>
 
-    (isSurvey && Number(draft.survey_contacts_included) > 0) ||
+  if (created) {
+    return (
+      <div className="page" style={{ maxWidth: 720 }}>
+        <h1>Promo created</h1>
+        <p className="muted">{created.benefit_summary || previewLine}</p>
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <div>
+            <strong>Code:</strong> {created.code}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <strong>Signup link:</strong>{' '}
+            <a href={created.signup_url} target="_blank" rel="noreferrer">
+              {created.signup_url}
+            </a>
+          </div>
+          <button
+            type="button"
+            className="btn"
+            style={{ marginTop: 12 }}
+            onClick={() => navigator.clipboard?.writeText(created.signup_url || created.code)}
+          >
+            Copy link
+          </button>
+        </div>
 
-    (isInterview && Number(draft.interview_contacts_included) > 0)
+        <h2>Apply to organisations</h2>
+        <p className="muted">Select one or more orgs to apply this promo now (Admin apply).</p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input
+            className="input"
+            placeholder="Search organisations"
+            value={orgQuery}
+            onChange={(e) => setOrgQuery(e.target.value)}
+          />
+          <button type="button" className="btn" onClick={() => void searchOrgs()}>
+            Search
+          </button>
+        </div>
+        <div className="card" style={{ maxHeight: 240, overflow: 'auto', padding: 8 }}>
+          {orgs.length === 0 ? (
+            <p className="muted">Search to find organisations.</p>
+          ) : (
+            orgs.map((o) => (
+              <label key={o.id} style={{ display: 'flex', gap: 8, padding: 6, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedOrgIds.includes(o.id)}
+                  onChange={() => toggleOrg(o.id)}
+                />
+                <span>
+                  {o.name} <span className="muted">{o.id?.slice(0, 8)}</span>
+                </span>
+              </label>
+            ))
+          )}
+        </div>
+        <button
+          type="button"
+          className="btn primary"
+          style={{ marginTop: 12 }}
+          disabled={applying || selectedOrgIds.length === 0}
+          onClick={() => void applyToOrgs()}
+        >
+          {applying ? 'Applying…' : `Apply to ${selectedOrgIds.length} org(s)`}
+        </button>
+        {applyResult ? (
+          <pre style={{ marginTop: 12, fontSize: 12 }}>{JSON.stringify(applyResult, null, 2)}</pre>
+        ) : null}
 
-
-
-  if (loading) return <p className='muted' style={{ padding: 24 }}>Loading plans…</p>
-
-
+        <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
+          <button type="button" className="btn" onClick={() => navigate('/marketing/promo-offers')}>
+            Back to list
+          </button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              setCreated(null)
+              setDraft(emptyDraft)
+              setSelectedOrgIds([])
+              setApplyResult(null)
+            }}
+          >
+            Create another
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-
-    <>
-
-      <div className='pageTop'>
-
-        <div>
-
-          <Link to='/marketing/promo-offers' className='muted' style={{ fontSize: 13 }}>
-
-            ← Back to promo offers
-
-          </Link>
-
-          <h1 style={{ marginTop: 8 }}>New promo offer</h1>
-
-          <p className='muted'>
-
-            Create a signup code for new customers — subscription trial, free survey contacts, or free interviews.
-
-          </p>
-
-        </div>
-
-        <div className='actions'>
-
-          <Link className='btn soft' to='/marketing/promo-offers'>
-
-            Cancel
-
-          </Link>
-
-          <button type='button' className='btn primary' disabled={saving || !canSave} onClick={save}>
-
-            {saving ? 'Creating…' : 'Create promo'}
-
-          </button>
-
-        </div>
-
+    <div className="page" style={{ maxWidth: 720 }}>
+      <div style={{ marginBottom: 12 }}>
+        <Link to="/marketing/promo-offers">← Promo offers</Link>
       </div>
-
-
-
-      {error ? <div className='note noteWarn'>{error}</div> : null}
-
-      {isSubscription && !plans.length ? (
-
-        <div className='note noteWarn'>
-
-          No active subscription plans. Create one under{' '}
-
-          <Link to='/billing/products?tab=subscription'>Products hub</Link> first.
-
-        </div>
-
-      ) : null}
-
-
-
-      <div className='pageShell productsPlanFormShell promoCreateShell'>
-
-        <div className='promoCreateGrid'>
-
-          <section className='card adminPackageEditor'>
-
-            <div className='cardHead'>
-
-              <div>
-
-                <h3>Offer type</h3>
-
-                <div className='muted packageMeta'>What the new customer receives after signup</div>
-
-              </div>
-
-            </div>
-
-            <div className='cardBody adminPackageForm'>
-
-              <label className='label'>
-
-                Promo type
-
-                <select
-
-                  className='input'
-
-                  value={draft.offer_type}
-
-                  onChange={(e) => setDraft({ ...draft, offer_type: e.target.value })}
-
-                >
-
-                  {OFFER_TYPES.map((opt) => (
-
-                    <option key={opt.value} value={opt.value}>
-
-                      {opt.label}
-
-                    </option>
-
-                  ))}
-
-                </select>
-
-              </label>
-
-              <div className='adminPackageFormRow promoFormRowWide'>
-
-                <label className='label'>
-
-                  Promo code
-
-                  <input
-
-                    className='input'
-
-                    value={draft.code}
-
-                    onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })}
-
-                    placeholder='Leave blank to auto-generate'
-
-                  />
-
-                </label>
-
-                <label className='label'>
-
-                  Display name
-
-                  <input
-
-                    className='input'
-
-                    value={draft.name}
-
-                    onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-
-                    placeholder={isSurvey ? 'Summer survey trial' : isInterview ? 'Interview starter pack' : 'Summer trial — Dental Pro'}
-
-                  />
-
-                </label>
-
-              </div>
-
-            </div>
-
-          </section>
-
-
-
-          {isSubscription ? (
-
-            <section className='card adminPackageEditor'>
-
-              <div className='cardHead'>
-
-                <div>
-
-                  <h3>Subscription plan</h3>
-
-                  <div className='muted packageMeta'>Monthly plan and trial applied at signup</div>
-
-                </div>
-
-              </div>
-
-              <div className='cardBody adminPackageForm'>
-
-                <label className='label'>
-
-                  Plan
-
+      <h1>New promo</h1>
+      <p className="muted">Pick a service, free usage or discount, then who can redeem it.</p>
+
+      <form onSubmit={onSubmit} className="card" style={{ padding: 20 }}>
+        {error ? <p style={{ color: 'crimson' }}>{error}</p> : null}
+
+        <label className="field">
+          <span>1. Service</span>
+          <select className="input" value={draft.service_kind} onChange={(e) => setField('service_kind', e.target.value)}>
+            {SERVICES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field">
+          <span>2. Benefit</span>
+          <select className="input" value={draft.benefit_kind} onChange={(e) => setField('benefit_kind', e.target.value)}>
+            {BENEFITS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {draft.benefit_kind === 'free_usage' ? (
+          <>
+            {draft.service_kind === 'voxbulk' ? (
+              <>
+                <label className="field">
+                  <span>Plan</span>
                   <PlanPickerSelect
-                    productLine="core"
+                    plans={corePlans}
                     value={draft.plan_code}
-                    onChange={(code) => setDraft({ ...draft, plan_code: code })}
-                    disabled={loading}
+                    onChange={(code) => setField('plan_code', code)}
                   />
-
                 </label>
-
-                {selectedPlan ? (
-
-                  <div className='promoPlanSummary'>
-
-                    <div>
-
-                      <strong>{selectedPlan.name}</strong>
-
-                      <span className='muted'>{limitsPreview(selectedPlan)}</span>
-
-                    </div>
-
-                    <span className='productPrice'>
-
-                      {selectedPlan.price_display || '—'}
-
-                      <span> / month after trial</span>
-
-                    </span>
-
-                  </div>
-
-                ) : null}
-
-              </div>
-
-            </section>
-
-          ) : null}
-
-
-
-          {isSurvey ? (
-
-            <section className='card adminPackageEditor'>
-
-              <div className='cardHead'>
-
-                <div>
-
-                  <h3>Survey credits</h3>
-
-                  <div className='muted packageMeta'>Free survey contacts granted when the new user signs up</div>
-
-                </div>
-
-              </div>
-
-              <div className='cardBody adminPackageForm'>
-
-                <label className='label'>
-
-                  Free survey contacts
-
+                <label className="field">
+                  <span>Trial days</span>
                   <input
-
-                    className='input'
-
-                    type='number'
-
+                    className="input"
+                    type="number"
                     min={1}
-
-                    value={draft.survey_contacts_included}
-
-                    onChange={(e) => setDraft({ ...draft, survey_contacts_included: e.target.value })}
-
+                    value={draft.trial_days}
+                    onChange={(e) => setField('trial_days', e.target.value)}
                   />
-
                 </label>
-
-                <p className='muted' style={{ margin: 0, fontSize: 12 }}>
-
-                  Example: 20 contacts = one survey campaign with up to 20 people, paid from promo credits in the dashboard.
-
-                </p>
-
-              </div>
-
-            </section>
-
-          ) : null}
-
-
-
-          {isInterview ? (
-
-            <section className='card adminPackageEditor'>
-
-              <div className='cardHead'>
-
-                <div>
-
-                  <h3>Interview credits</h3>
-
-                  <div className='muted packageMeta'>Free AI interview sessions granted when the new user signs up</div>
-
-                </div>
-
-              </div>
-
-              <div className='cardBody adminPackageForm'>
-
-                <label className='label'>
-
-                  Free interviews
-
-                  <input
-
-                    className='input'
-
-                    type='number'
-
-                    min={1}
-
-                    value={draft.interview_contacts_included}
-
-                    onChange={(e) => setDraft({ ...draft, interview_contacts_included: e.target.value })}
-
-                  />
-
-                </label>
-
-                <p className='muted' style={{ margin: 0, fontSize: 12 }}>
-
-                  Example: 3 interviews = up to 3 candidates in one interview campaign from promo credits.
-
-                </p>
-
-              </div>
-
-            </section>
-
-          ) : null}
-
-
-
-          <section className='card adminPackageEditor'>
-
-            <div className='cardHead'>
-
-              <div>
-
-                <h3>Redemption rules</h3>
-
-                <div className='muted packageMeta'>New-user signup only — one code per prospect</div>
-
-              </div>
-
-            </div>
-
-            <div className='cardBody adminPackageForm'>
-
-              <div className='adminPackageFormRow promoFormRowWide'>
-
-                {isSubscription ? (
-
-                  <label className='label'>
-
-                    Trial days
-
-                    <input
-
-                      className='input'
-
-                      type='number'
-
-                      min={0}
-
-                      value={draft.trial_days}
-
-                      onChange={(e) => setDraft({ ...draft, trial_days: e.target.value })}
-
-                    />
-
-                  </label>
-
-                ) : null}
-
-                <label className='label'>
-
-                  Max redemptions
-
-                  <input
-
-                    className='input'
-
-                    type='number'
-
-                    min={1}
-
-                    value={draft.max_redemptions}
-
-                    onChange={(e) => setDraft({ ...draft, max_redemptions: e.target.value })}
-
-                  />
-
-                </label>
-
-                <label className='label'>
-
-                  Expires in (days)
-
-                  <input
-
-                    className='input'
-
-                    type='number'
-
-                    min={1}
-
-                    value={draft.expires_in_days}
-
-                    onChange={(e) => setDraft({ ...draft, expires_in_days: e.target.value })}
-
-                  />
-
-                </label>
-
-              </div>
-
-              <p className='muted' style={{ margin: 0, fontSize: 12 }}>
-
-                Credits or trial apply when admin approves signup (or auto-approve is on). Existing users cannot redeem these codes.
-
-              </p>
-
-            </div>
-
-          </section>
-
-
-
-          <section className='card adminPackageEditor'>
-
-            <div className='cardHead'>
-
-              <div>
-
-                <h3>Prospect (optional)</h3>
-
-                <div className='muted packageMeta'>For your records — shown in the promo list</div>
-
-              </div>
-
-            </div>
-
-            <div className='cardBody adminPackageForm'>
-
-              <div className='adminPackageFormRow promoFormRowWide'>
-
-                <label className='label'>
-
-                  Name
-
-                  <input
-
-                    className='input'
-
-                    value={draft.prospect_name}
-
-                    onChange={(e) => setDraft({ ...draft, prospect_name: e.target.value })}
-
-                    placeholder='Alex Smith'
-
-                  />
-
-                </label>
-
-                <label className='label'>
-
-                  Email
-
-                  <input
-
-                    className='input'
-
-                    type='email'
-
-                    value={draft.prospect_email}
-
-                    onChange={(e) => setDraft({ ...draft, prospect_email: e.target.value })}
-
-                    placeholder='alex@company.example'
-
-                  />
-
-                </label>
-
-                <label className='label'>
-
-                  Phone
-
-                  <input
-
-                    className='input'
-
-                    value={draft.prospect_phone}
-
-                    onChange={(e) => setDraft({ ...draft, prospect_phone: e.target.value })}
-
-                    placeholder='+44…'
-
-                  />
-
-                </label>
-
-              </div>
-
-            </div>
-
-          </section>
-
-
-
-          <aside className='card promoPreviewCard'>
-
-            <div className='cardHead'>
-
-              <div>
-
-                <h3>Preview</h3>
-
-                <div className='muted packageMeta'>What the new customer will see on signup</div>
-
-              </div>
-
-            </div>
-
-            <div className='cardBody promoPreviewBody'>
-
-              <div className='promoPreviewHero'>
-
-                <span className='productAvatar'>
-
-                  <i className={`ti ${isSurvey ? 'ti-clipboard-list' : isInterview ? 'ti-briefcase' : 'ti-ticket'}`} />
-
-                </span>
-
-                <div>
-
-                  <strong>{previewName}</strong>
-
-                  <code className='productCode' style={{ marginTop: 8, display: 'inline-block' }}>
-
-                    {previewCode}
-
-                  </code>
-
-                </div>
-
-              </div>
-
-              <ul className='promoPreviewList'>
-
-                {isSubscription ? (
-
-                  <>
-
-                    <li>
-
-                      <i className='ti ti-credit-card' />
-
-                      Plan: <strong>{selectedPlan?.name || draft.plan_code || '—'}</strong>
-
-                    </li>
-
-                    <li>
-
-                      <i className='ti ti-clock' />
-
-                      {Number(draft.trial_days || 0) > 0 ? `${draft.trial_days}-day free trial` : 'No trial — billed immediately'}
-
-                    </li>
-
-                  </>
-
-                ) : null}
-
-                {isSurvey ? (
-
-                  <li>
-
-                    <i className='ti ti-clipboard-list' />
-
-                    <strong>{draft.survey_contacts_included}</strong> free survey contacts
-
-                  </li>
-
-                ) : null}
-
-                {isInterview ? (
-
-                  <li>
-
-                    <i className='ti ti-briefcase' />
-
-                    <strong>{draft.interview_contacts_included}</strong> free interviews
-
-                  </li>
-
-                ) : null}
-
-                <li>
-
-                  <i className='ti ti-users' />
-
-                  Up to {draft.max_redemptions} new signup{Number(draft.max_redemptions) === 1 ? '' : 's'}
-
-                </li>
-
-                <li>
-
-                  <i className='ti ti-calendar' />
-
-                  Link valid for {draft.expires_in_days} days
-
-                </li>
-
-              </ul>
-
-              <div className='promoSignupPreview'>
-
-                <label>Signup URL format</label>
-
-                <code>/signin?promo={previewCode === 'AUTO-GENERATED' ? 'YOURCODE' : previewCode}</code>
-
-              </div>
-
-              <button type='button' className='btn primary' style={{ width: '100%' }} disabled={saving || !canSave} onClick={save}>
-
-                {saving ? 'Creating…' : 'Create promo offer'}
-
-              </button>
-
-            </div>
-
-          </aside>
-
-        </div>
-
-      </div>
-
-    </>
-
+              </>
+            ) : (
+              <label className="field">
+                <span>{usageLabel(draft.service_kind)}</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={draft.usage_amount}
+                  onChange={(e) => setField('usage_amount', e.target.value)}
+                />
+              </label>
+            )}
+          </>
+        ) : (
+          <>
+            <label className="field">
+              <span>Discount type</span>
+              <select
+                className="input"
+                value={draft.discount_type}
+                onChange={(e) => setField('discount_type', e.target.value)}
+              >
+                <option value="percent">Percent off</option>
+                <option value="fixed_minor">Fixed £ off</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>{draft.discount_type === 'percent' ? 'Percent (1–100)' : 'Pounds (£)'}</span>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                step={draft.discount_type === 'percent' ? 1 : 0.01}
+                value={draft.discount_value}
+                onChange={(e) => setField('discount_value', e.target.value)}
+              />
+            </label>
+          </>
+        )}
+
+        <label className="field">
+          <span>3. Who can redeem</span>
+          <select className="input" value={draft.redeem_mode} onChange={(e) => setField('redeem_mode', e.target.value)}>
+            {REDEEM_MODES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field">
+          <span>Max redemptions</span>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            value={draft.max_redemptions}
+            onChange={(e) => setField('max_redemptions', e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>Expires in (days)</span>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            value={draft.expires_in_days}
+            onChange={(e) => setField('expires_in_days', e.target.value)}
+          />
+        </label>
+
+        <label className="field">
+          <span>Code (optional)</span>
+          <input className="input" value={draft.code} onChange={(e) => setField('code', e.target.value)} placeholder="Auto if blank" />
+        </label>
+        <label className="field">
+          <span>Display name (optional)</span>
+          <input className="input" value={draft.name} onChange={(e) => setField('name', e.target.value)} />
+        </label>
+
+        <p className="muted">Preview: {previewLine}</p>
+
+        <button type="submit" className="btn primary" disabled={saving}>
+          {saving ? 'Creating…' : 'Create promo'}
+        </button>
+      </form>
+    </div>
   )
-
 }
-
-

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
+from app.core.security import CurrentPrincipal, get_current_principal
 from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
 router = APIRouter(tags=["promo"])
@@ -16,6 +17,32 @@ def public_promo_preview(code: str, db: Session = Depends(get_db)):
         return {"ok": True, "promo": PromoOfferService.validate_public(db, code)}
     except PromoOfferError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post("/promo/redeem")
+def redeem_promo_authenticated(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    code = str(payload.get("promo_code") or payload.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="promo_code required")
+    try:
+        row = PromoOfferService.redeem_for_org(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            promo_code=code,
+            source="dashboard",
+        )
+    except PromoOfferError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return {
+        "ok": True,
+        "promo": PromoOfferService.to_public_dict(row),
+        "benefit_summary": PromoOfferService.benefit_summary(row),
+    }
 
 
 @router.get("/admin/promo-offers")
@@ -35,6 +62,28 @@ def admin_create_promo_offer(
     except PromoOfferError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return {"ok": True, "promo": PromoOfferService.to_admin_dict(row)}
+
+
+@router.post("/admin/promo-offers/{promo_id}/apply")
+def admin_apply_promo_to_orgs(
+    promo_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    admin=Depends(require_platform_admin),
+):
+    org_ids = payload.get("org_ids") or []
+    if not isinstance(org_ids, list) or not org_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="org_ids required")
+    try:
+        result = PromoOfferService.apply_to_orgs(
+            db,
+            promo_id=promo_id,
+            org_ids=[str(x) for x in org_ids],
+            actor_user_id=getattr(admin, "id", None) or getattr(admin, "user_id", None),
+        )
+    except PromoOfferError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return result
 
 
 @router.patch("/admin/promo-offers/{promo_id}")

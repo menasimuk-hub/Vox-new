@@ -10,7 +10,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
-import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
+import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab, apiFetch } from "@/lib/api";
+import { Input } from "@/components/ui/input";
 import { startGoCardlessMandateUpdate, readBillingReturnParams } from "@/lib/billing/gocardless";
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
@@ -128,6 +129,8 @@ function BillingPage() {
   const [mandateBusy, setMandateBusy] = React.useState(false);
   const [topupOpen, setTopupOpen] = React.useState(false);
   const [estimatesOpen, setEstimatesOpen] = React.useState(false);
+  const [promoCodeInput, setPromoCodeInput] = React.useState("");
+  const [promoRedeeming, setPromoRedeeming] = React.useState(false);
 
   const billingRequests = (requestsQ.data?.items || []) as Array<Record<string, unknown>>;
   const pendingRequestsCount = billingRequests.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
@@ -401,6 +404,44 @@ function BillingPage() {
           </div>
         }
       />
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Enter promo code</CardTitle>
+          <CardDescription>Apply a VoxBulk promo for free usage or a discount on your next checkout.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-2">
+          <Input
+            className="max-w-xs"
+            placeholder="PROMOCODE"
+            value={promoCodeInput}
+            onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
+          />
+          <Button
+            size="sm"
+            disabled={promoRedeeming || !promoCodeInput.trim()}
+            onClick={() => {
+              void (async () => {
+                setPromoRedeeming(true);
+                try {
+                  const res = await apiFetch<{ benefit_summary?: string; promo?: { benefit_summary?: string } }>(
+                    "/promo/redeem",
+                    { method: "POST", body: JSON.stringify({ promo_code: promoCodeInput.trim() }) },
+                  );
+                  toast.success(res.benefit_summary || res.promo?.benefit_summary || "Promo applied");
+                  setPromoCodeInput("");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Could not apply promo");
+                } finally {
+                  setPromoRedeeming(false);
+                }
+              })();
+            }}
+          >
+            {promoRedeeming ? <Loader2 className="size-4 animate-spin" /> : "Apply"}
+          </Button>
+        </CardContent>
+      </Card>
 
       {billingLoadError ? (
         <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">

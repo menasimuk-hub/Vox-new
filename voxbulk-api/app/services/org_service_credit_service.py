@@ -18,6 +18,7 @@ class OrgServiceCreditService:
         return {
             "survey_credits": int(org.survey_credits_balance or 0),
             "interview_credits": int(org.interview_credits_balance or 0),
+            "feedback_credits": int(getattr(org, "feedback_credits_balance", 0) or 0),
         }
 
     @staticmethod

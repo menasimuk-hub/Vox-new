@@ -554,6 +554,7 @@ class SocialOAuthService:
                     org_id=str(resolved_org_id),
                     user_id=user.id,
                     promo_code=promo_code,
+                    source="signup",
                 )
             except PromoOfferError:
                 pass

@@ -125,8 +125,8 @@ def accept_invite(payload: dict, db: Session = Depends(get_db)):
     pwd = str(password) if password is not None else ""
     if not tok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="token required")
-    if len(pwd) < 6:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="password minimum 6 characters")
+    if len(pwd) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="password minimum 8 characters")
 
     inv = db.execute(select(OrganisationInvite).where(OrganisationInvite.token == tok)).scalar_one_or_none()
     if inv is None:
@@ -319,26 +319,27 @@ def _ensure_onboarding_requests_table_for_local_dev() -> None:
 
 @router.post("/me/role")
 def set_my_role(payload: dict, db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
-    role = payload.get("role")
-    if role is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="role required")
-    role_str = str(role).strip()
-    if not role_str:
-        role_str = ""
+    """Self-service role changes are disabled (privilege-escalation hardening).
 
-    mem = db.execute(
-        select(OrganisationMembership).where(
-            OrganisationMembership.user_id == principal.user_id,
-            OrganisationMembership.org_id == principal.org_id,
-        )
-    ).scalar_one_or_none()
-    if mem is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied")
+    Team roles are changed only by owners/managers via organisation team APIs.
+    Kept as a 403 stub so old clients receive a clear error instead of silently succeeding.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Self-service role changes are not allowed. Ask an owner or manager to update your role.",
+    )
 
-    mem.role = role_str or None
-    db.add(mem)
+
+@router.post("/logout")
+def logout(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    """Invalidate all JWTs for this user by bumping token_version (same mechanism as password reset)."""
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
+    db.add(user)
     db.commit()
-    return {"ok": True, "role": mem.role}
+    return {"ok": True}
 
 @router.post("/register")
 def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)):
@@ -379,7 +380,9 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
         try:
             from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
-            PromoOfferService.redeem_for_org(db, org_id=org.id, user_id=user.id, promo_code=promo_code)
+            PromoOfferService.redeem_for_org(
+                db, org_id=org.id, user_id=user.id, promo_code=promo_code, source="signup"
+            )
         except PromoOfferError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     else:

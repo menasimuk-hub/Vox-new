@@ -43,6 +43,37 @@ class StripeSubscriptionService:
         )
         if amount_minor <= 0:
             raise StripeSubscriptionError("Plan price is not configured for your billing currency.")
+        from app.services.promo_discount_service import PromoDiscountService
+
+        service_kind = "customer_feedback" if str(service_code or "").lower() in {
+            "customer_feedback",
+            "feedback",
+        } else "voxbulk"
+        discounted = PromoDiscountService.apply_and_consume(
+            db, org_id=org.id, service_kind=service_kind, amount_minor=amount_minor
+        )
+        amount_minor = int(discounted["amount_minor"])
+        if amount_minor <= 0:
+            # 100% / full discount — activate without card charge.
+            sub = CardSubscriptionActivationService.activate_from_payment(
+                db,
+                org=org,
+                plan=plan,
+                provider_reference=f"promo-discount-{org.id[:8]}",
+                service_code=service_code,
+                billing_interval=interval,
+            )
+            return {
+                "provider": "promo_discount",
+                "paid": True,
+                "currency": currency,
+                "amount_minor": 0,
+                "billing_interval": interval,
+                "plan_id": plan.id,
+                "service_code": service_code,
+                "subscription_id": sub.id,
+                "promo_discount_applied": True,
+            }
         intent = StripePaymentService.create_subscription_checkout_intent(
             db,
             org,
@@ -62,6 +93,7 @@ class StripeSubscriptionService:
             "checkout": intent,
             "plan_id": plan.id,
             "service_code": service_code,
+            "promo_discount_applied": bool(discounted.get("discount_applied")),
         }
 
     @staticmethod

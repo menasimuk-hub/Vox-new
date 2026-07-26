@@ -139,17 +139,18 @@ class ExpoSignupTrialService:
         ).scalar_one_or_none()
 
     @staticmethod
-    def package_qualifies_for_trial(db: Session, booth: ExpoBooth) -> bool:
+    def package_qualifies_for_trial(db: Session, booth: ExpoBooth, *, duration_days: int | None = None) -> bool:
         if not booth.package_id:
             return False
         pkg = db.get(ExpoPackage, booth.package_id)
         if pkg is None:
             return False
-        if int(getattr(pkg, "duration_days", 0) or 0) == TRIAL_DURATION_DAYS:
+        want = int(duration_days or TRIAL_DURATION_DAYS)
+        if int(getattr(pkg, "duration_days", 0) or 0) == want:
             return True
-        if str(getattr(pkg, "tier", "") or "").strip().lower() == TRIAL_PACKAGE_TIER:
+        if want == TRIAL_DURATION_DAYS and str(getattr(pkg, "tier", "") or "").strip().lower() == TRIAL_PACKAGE_TIER:
             return True
-        if pkg.plan_id:
+        if want == TRIAL_DURATION_DAYS and pkg.plan_id:
             plan = db.get(Plan, pkg.plan_id)
             if plan is not None and str(plan.code or "").strip().lower() == TRIAL_PACKAGE_CODE:
                 return True
@@ -160,7 +161,9 @@ class ExpoSignupTrialService:
         ent = ExpoSignupTrialService.get_entitlement(db, org_id=org_id)
         if ent is None or int(ent.remaining or 0) <= 0:
             return False
-        return ExpoSignupTrialService.package_qualifies_for_trial(db, booth)
+        return ExpoSignupTrialService.package_qualifies_for_trial(
+            db, booth, duration_days=int(ent.duration_days or TRIAL_DURATION_DAYS)
+        )
 
     @staticmethod
     def consume_for_booth(
@@ -171,10 +174,12 @@ class ExpoSignupTrialService:
         commit: bool = False,
     ) -> bool:
         """Decrement entitlement and mark domain claim consumed. Returns True if consumed."""
-        if not ExpoSignupTrialService.package_qualifies_for_trial(db, booth):
-            return False
         ent = ExpoSignupTrialService.get_entitlement(db, org_id=org_id)
         if ent is None or int(ent.remaining or 0) <= 0:
+            return False
+        if not ExpoSignupTrialService.package_qualifies_for_trial(
+            db, booth, duration_days=int(ent.duration_days or TRIAL_DURATION_DAYS)
+        ):
             return False
 
         now = datetime.utcnow()

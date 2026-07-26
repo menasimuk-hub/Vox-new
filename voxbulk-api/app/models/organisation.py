@@ -47,6 +47,7 @@ class Organisation(Base):
 
     survey_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     interview_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    feedback_credits_balance: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     wallet_balance_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     promo_wallet_balance_pence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Fixed billing currency (GBP/USD/CAD/AUD); resolved from country on first billing action.

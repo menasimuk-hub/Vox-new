@@ -342,7 +342,9 @@ class OrgControlCenterActionsService:
         actor_email: str | None = None,
     ) -> dict[str, Any]:
         try:
-            row = PromoOfferService.redeem_for_org(db, org_id=org_id, user_id=actor_user_id, promo_code=promo_code)
+            row = PromoOfferService.redeem_for_org(
+                db, org_id=org_id, user_id=actor_user_id, promo_code=promo_code, source="admin"
+            )
         except PromoOfferError as e:
             raise ValueError(str(e)) from e
         OrgAuditService.record_admin(
