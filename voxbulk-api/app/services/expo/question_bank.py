@@ -341,7 +341,7 @@ def build_company_card_text(
             if detail:
                 lines.append("  " + "  ".join(detail))
     lines.append("")
-    lines.append("📇 Tap the contact card we send next to save us on your phone.")
+    lines.append("📇 We'll also send a contact card you can save to your phone.")
     return "\n".join(lines).strip()
 
 

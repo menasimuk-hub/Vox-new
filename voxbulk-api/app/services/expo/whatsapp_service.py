@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from typing import Any
 
 from sqlalchemy import select
@@ -356,18 +357,32 @@ class ExpoWhatsappService:
         lead = db.execute(select(ExpoLead).where(ExpoLead.session_id == session.id)).scalar_one_or_none()
         lead_id = str(lead.id).strip() if lead else None
 
-        for asset in result.get("assets") or []:
-            if not isinstance(asset, dict):
-                continue
-            ExpoWhatsappService._send_asset(
+        # Fresh consent picks only — never re-send historical files on thank-you / voice close.
+        deliver_now = bool(result.get("deliver_now"))
+        assets = [a for a in (result.get("assets") or []) if isinstance(a, dict)] if deliver_now else []
+
+        if assets:
+            n = len(assets)
+            ExpoWhatsappService._send(
                 db,
                 to_number=session.visitor_phone,
-                asset=asset,
-                booth_token=booth_token,
-                lead_id=lead_id,
+                body=f"📎 Sending {'your file' if n == 1 else f'your {n} files'} now…",
                 org_id=session.org_id,
                 from_number=from_number,
             )
+            for asset in assets:
+                ExpoWhatsappService._send_asset(
+                    db,
+                    to_number=session.visitor_phone,
+                    asset=asset,
+                    booth_token=booth_token,
+                    lead_id=lead_id,
+                    org_id=session.org_id,
+                    from_number=from_number,
+                )
+            # WhatsApp often delivers text before document media finishes processing.
+            # Brief pause keeps the next question / closing after the files.
+            time.sleep(1.5)
 
         if result.get("awaiting_pick"):
             prefix = "Sorry, I didn't catch that.\n\n" if result.get("retry") else ""
@@ -380,7 +395,7 @@ class ExpoWhatsappService:
             )
             return
 
-        # Closing company card — sent before the thank-you so contact details land last.
+        # Closing: company card → save-contact vCard → thank-you (no separate logo document).
         pre_messages = result.get("pre_thank_you_messages")
         if not pre_messages and result.get("company_card"):
             pre_messages = [result["company_card"]]
@@ -396,20 +411,6 @@ class ExpoWhatsappService:
                 from_number=from_number,
             )
 
-        # Optional company logo image (best-effort — some providers only support documents).
-        logo_url = str(result.get("company_logo_url") or "").strip()
-        if logo_url.startswith("http"):
-            ExpoWhatsappService._send(
-                db,
-                to_number=session.visitor_phone,
-                body="🖼️ Our company logo",
-                org_id=session.org_id,
-                from_number=from_number,
-                document_link=logo_url,
-                document_filename="logo.png",
-            )
-
-        # Save-contact vCard as a WhatsApp document visitors can open and save.
         vcard = result.get("vcard_document") if isinstance(result.get("vcard_document"), dict) else None
         if vcard:
             vurl = str(vcard.get("url") or "").strip()
@@ -439,6 +440,24 @@ class ExpoWhatsappService:
             logger.info("expo_wa_hot_lead_notify_pending session=%s", session.id)
 
     @staticmethod
+    def _asset_caption(asset: dict[str, Any]) -> str:
+        purpose = str(asset.get("purpose") or "").strip().lower()
+        kind = {
+            "catalogue": "Catalogue",
+            "price_list": "Price list",
+            "product_sheet": "Product sheet",
+            "product": "File",
+        }.get(purpose, "File")
+        product = str(asset.get("product_name") or "").strip()
+        title = str(asset.get("title") or "our info pack").strip()
+        if product:
+            label = f"{product} — {kind}"
+        else:
+            label = f"{kind}: {title}" if title else kind
+        desc = str(asset.get("short_description") or "").strip()
+        return f"📎 {label}" + (f"\n{desc}" if desc else "")
+
+    @staticmethod
     def _send_asset(
         db: Session,
         *,
@@ -453,10 +472,8 @@ class ExpoWhatsappService:
         tracked_url = str(asset.get("url") or "").strip() or asset_public_url(
             asset, booth_token, lead_id=lead_id
         )
+        caption = ExpoWhatsappService._asset_caption(asset)
         if _asset_supports_document_send(asset) and tracked_url.startswith("http"):
-            # The document attachment carries the link — keep the caption clean (no raw URL).
-            desc = str(asset.get("short_description") or "").strip()
-            caption = f"Here you go — {title}" + (f"\n{desc}" if desc else "")
             ok = ExpoWhatsappService._send(
                 db,
                 to_number=to_number,

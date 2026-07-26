@@ -722,6 +722,7 @@ class ExpoSessionFlowService:
                         )
                         if delivered:
                             result["assets"] = delivered
+                            result["deliver_now"] = True
                         return result
             elif kind == "skip":
                 is_open_step = key == OPEN_FEEDBACK_KEY or (key not in WEB_CHOICE_OPTIONS and key != "consent_info")
@@ -841,6 +842,7 @@ class ExpoSessionFlowService:
             result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
             if delivered:
                 result["assets"] = delivered
+                result["deliver_now"] = True
                 if result.get("done"):
                     result["thank_you_followup"] = result.get("prompt")
             return result
@@ -1564,6 +1566,7 @@ class ExpoSessionFlowService:
 
         result = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
         result["assets"] = [match]
+        result["deliver_now"] = True
         return result
 
     # ------------------------------------------------------------------
@@ -1819,8 +1822,10 @@ class ExpoSessionFlowService:
         db.commit()
         out = _empty_step_result(done=True, prompt=thank)
         out["summary"] = summary
+        # Web thank-you download buttons only — WhatsApp must NOT re-send these files.
         if delivered:
             out["assets"] = delivered
+            out["deliver_now"] = False
 
         # Closing "company card" — sent by the channel adapter before the thank-you message so
         # representative contact details land last in the visitor's chat.

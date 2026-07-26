@@ -233,6 +233,7 @@ def test_yes_does_not_remap_digit_one_on_consent_advance():
         result = ExpoSessionFlowService.advance(db, session=session, answer="1", answer_source="text")
         assert result.get("assets")
         assert len(result["assets"]) == 1
+        assert result.get("deliver_now") is True
         assert "Please reply with a number" not in (result.get("prompt") or "")
 
 
