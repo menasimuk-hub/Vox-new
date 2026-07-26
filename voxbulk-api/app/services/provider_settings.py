@@ -54,6 +54,7 @@ class ProviderSettingsService:
         "zoho_crm",
         "zoho_bookings",
         "apollo",
+        "apify",
         "resend",
     }
 
@@ -96,6 +97,7 @@ class ProviderSettingsService:
         "zoho_crm": {"client_id", "client_secret", "redirect_uri", "data_center"},
         "zoho_bookings": set(),
         "apollo": {"api_key"},
+        "apify": {"api_key"},
         "resend": {"api_key"},
     }
 
@@ -129,6 +131,7 @@ class ProviderSettingsService:
         "zoho_crm": {"client_secret"},
         "zoho_bookings": set(),
         "apollo": {"api_key"},
+        "apify": {"api_key"},
         "resend": {"api_key"},
     }
 

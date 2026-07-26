@@ -39,11 +39,15 @@ def get_settings(db: Session = Depends(get_db), _admin: User = Depends(require_c
 
 @router.put("/settings")
 def put_settings(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
-    row = AiTeamService.update_settings(db, body)
+    # Secrets first (own commit via provider_configs) so a later settings UPDATE
+    # cannot leave Apollo/Apify/Resend keys unsaved.
     if body.get("apollo_api_key"):
         AiTeamService.save_provider_keys(db, apollo_api_key=body.get("apollo_api_key"))
     if body.get("resend_api_key"):
         AiTeamService.save_provider_keys(db, resend_api_key=body.get("resend_api_key"))
+    if body.get("apify_token"):
+        AiTeamService.save_provider_keys(db, apify_api_key=body.get("apify_token"))
+    row = AiTeamService.update_settings(db, body)
     return {"settings": AiTeamService.settings_to_dict(db, row)}
 
 
@@ -380,19 +384,41 @@ def test_email_account(body: dict[str, Any], db: Session = Depends(get_db), _adm
 
 @router.post("/test/apify")
 def test_apify(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
-    # Persist token if provided; do not wipe actor IDs on a token-only test.
+    # Persist token first (provider_configs commit), then optional actor IDs.
+    # Test used to succeed with the in-request token while DB save failed — refresh then broke.
+    raw_token = str(body.get("apify_token") or body.get("api_token") or "").strip()
+    token_saved = False
+    if raw_token:
+        AiTeamService.save_provider_keys(db, apify_api_key=raw_token)
+        token_saved = True
     patch: dict[str, Any] = {}
-    if body.get("apify_token"):
-        patch["apify_token"] = body.get("apify_token")
+    if raw_token:
+        patch["apify_token"] = raw_token
     if body.get("apify_exhibitor_actor_id") is not None and str(body.get("apify_exhibitor_actor_id") or "").strip():
         patch["apify_exhibitor_actor_id"] = body.get("apify_exhibitor_actor_id")
     if body.get("apify_contact_actor_id") is not None and str(body.get("apify_contact_actor_id") or "").strip():
         patch["apify_contact_actor_id"] = body.get("apify_contact_actor_id")
     if patch:
-        AiTeamService.update_settings(db, patch)
+        try:
+            AiTeamService.update_settings(db, patch)
+        except Exception:
+            # Token already in provider_configs; actor-id columns may be missing pre-migration.
+            if not token_saved:
+                raise
     check_actor = body.get("check_actor") is True
     try:
-        return AiTeamService.test_apify(db, token=str(body.get("apify_token") or body.get("api_token") or "").strip() or None, check_actor=check_actor)
+        result = AiTeamService.test_apify(
+            db,
+            token=raw_token or None,
+            check_actor=check_actor,
+        )
+        settings = AiTeamService.get_settings(db)
+        configured = AiTeamService._apify_token_configured(db, settings)
+        result["token_saved"] = token_saved or configured
+        result["apify_token_configured"] = configured
+        if result.get("ok") and configured:
+            result["message"] = f"{result.get('message') or 'Apify connected'} · token saved"
+        return result
     except Exception as exc:
         raise _err(exc) from exc
 

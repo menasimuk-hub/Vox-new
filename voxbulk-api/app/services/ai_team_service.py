@@ -149,7 +149,7 @@ class AiTeamService:
             "inbox_email": row.inbox_email,
             "email_delivery_provider": (row.email_delivery_provider or "smtp").strip().lower() or "smtp",
             "resend_sending_domain": row.resend_sending_domain,
-            "apify_token_configured": bool(row.apify_token_enc),
+            "apify_token_configured": bool(AiTeamService._apify_token_configured(db, row)),
             "apify_exhibitor_actor_id": row.apify_exhibitor_actor_id or "",
             "apify_contact_actor_id": row.apify_contact_actor_id or "",
             "run_schedule": row.run_schedule,
@@ -171,7 +171,7 @@ class AiTeamService:
             "resend_api_key_configured": resend_key,
             "deepseek_connected": deepseek_ok,
             "smtp_configured": bool(row.smtp_host and row.smtp_username and row.smtp_password_enc),
-            "apify_connected": bool(row.apify_token_enc),
+            "apify_connected": bool(AiTeamService._apify_token_configured(db, row)),
         }
 
     @staticmethod
@@ -218,8 +218,17 @@ class AiTeamService:
             enc = get_encryptor()
             row.smtp_password_enc = enc.encrypt_str(str(payload["smtp_password"]))
         if payload.get("apify_token"):
-            enc = get_encryptor()
-            row.apify_token_enc = enc.encrypt_str(str(payload["apify_token"]).strip())
+            token = str(payload["apify_token"]).strip()
+            if token:
+                # Primary store: provider_configs (same durable path as Apollo).
+                ProviderSettingsService.upsert_platform_config(
+                    db, provider="apify", is_enabled=True, config={"api_key": token}
+                )
+                # Also keep ai_team_settings.apify_token_enc when the column exists.
+                try:
+                    row.apify_token_enc = get_encryptor().encrypt_str(token)
+                except Exception:
+                    pass
         row.updated_at = now
         db.add(row)
         db.commit()
@@ -237,7 +246,41 @@ class AiTeamService:
         return str((cfg or {}).get("api_key") or "").strip()
 
     @staticmethod
-    def save_provider_keys(db: Session, *, apollo_api_key: str | None = None, resend_api_key: str | None = None) -> None:
+    def _apify_token_from_provider(db: Session) -> str:
+        try:
+            cfg, _ = ProviderSettingsService.get_platform_config_decrypted(db, provider="apify")
+            return str((cfg or {}).get("api_key") or "").strip()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _apify_token_configured(db: Session, settings: AiTeamSettings | None = None) -> bool:
+        if AiTeamService._apify_token_from_provider(db):
+            return True
+        row = settings or AiTeamService.get_settings(db)
+        return bool(getattr(row, "apify_token_enc", None))
+
+    @staticmethod
+    def _apify_token(settings: AiTeamSettings, db: Session | None = None) -> str:
+        if db is not None:
+            from_provider = AiTeamService._apify_token_from_provider(db)
+            if from_provider:
+                return from_provider
+        if not getattr(settings, "apify_token_enc", None):
+            return ""
+        try:
+            return get_encryptor().decrypt_str(settings.apify_token_enc)
+        except Exception:
+            return ""
+
+    @staticmethod
+    def save_provider_keys(
+        db: Session,
+        *,
+        apollo_api_key: str | None = None,
+        resend_api_key: str | None = None,
+        apify_api_key: str | None = None,
+    ) -> None:
         if apollo_api_key is not None and str(apollo_api_key).strip():
             ProviderSettingsService.upsert_platform_config(
                 db, provider="apollo", is_enabled=True, config={"api_key": str(apollo_api_key).strip()}
@@ -245,6 +288,10 @@ class AiTeamService:
         if resend_api_key is not None and str(resend_api_key).strip():
             ProviderSettingsService.upsert_platform_config(
                 db, provider="resend", is_enabled=True, config={"api_key": str(resend_api_key).strip()}
+            )
+        if apify_api_key is not None and str(apify_api_key).strip():
+            ProviderSettingsService.upsert_platform_config(
+                db, provider="apify", is_enabled=True, config={"api_key": str(apify_api_key).strip()}
             )
 
     @staticmethod
@@ -371,12 +418,6 @@ class AiTeamService:
         if not settings.smtp_password_enc:
             return ""
         return get_encryptor().decrypt_str(settings.smtp_password_enc)
-
-    @staticmethod
-    def _apify_token(settings: AiTeamSettings) -> str:
-        if not settings.apify_token_enc:
-            return ""
-        return get_encryptor().decrypt_str(settings.apify_token_enc)
 
     @staticmethod
     def _send_via_smtp(
@@ -1234,7 +1275,7 @@ class AiTeamService:
     @staticmethod
     def test_apify(db: Session, *, token: str | None = None, check_actor: bool = False) -> dict[str, Any]:
         settings = AiTeamService.get_settings(db)
-        key = str(token or "").strip() or AiTeamService._apify_token(settings)
+        key = str(token or "").strip() or AiTeamService._apify_token(settings, db=db)
         actor = None
         if check_actor:
             actor = (settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or "").strip() or None
@@ -1342,7 +1383,7 @@ class AiTeamService:
     @staticmethod
     def start_apify_run(db: Session, *, expo_url: str, actor_id: str | None = None) -> dict[str, Any]:
         settings = AiTeamService.get_settings(db)
-        token = AiTeamService._apify_token(settings)
+        token = AiTeamService._apify_token(settings, db=db)
         if not token:
             raise AiTeamServiceError("Apify API token is not configured")
         url = str(expo_url or "").strip()
@@ -1394,7 +1435,7 @@ class AiTeamService:
         if row is None:
             raise AiTeamServiceError("Apify run not found")
         settings = AiTeamService.get_settings(db)
-        token = AiTeamService._apify_token(settings)
+        token = AiTeamService._apify_token(settings, db=db)
         if not token or not row.apify_run_id:
             raise AiTeamServiceError("Cannot refresh run — missing Apify token or run id")
         try:
@@ -1429,7 +1470,7 @@ class AiTeamService:
         if row is None:
             raise AiTeamServiceError("Apify run not found")
         settings = AiTeamService.get_settings(db)
-        token = AiTeamService._apify_token(settings)
+        token = AiTeamService._apify_token(settings, db=db)
         if not token or not row.dataset_id:
             raise AiTeamServiceError("Dataset not ready yet — wait for the run to succeed")
         try:
@@ -1459,7 +1500,7 @@ class AiTeamService:
         # Re-fetch full normalized list
         row = db.get(AiTeamApifyRun, run_id)
         settings = AiTeamService.get_settings(db)
-        token = AiTeamService._apify_token(settings)
+        token = AiTeamService._apify_token(settings, db=db)
         items = ApifyService.fetch_dataset_items(token, dataset_id=row.dataset_id, limit=5000)
         for item in items:
             normalized = ApifyService.normalize_contact_item(

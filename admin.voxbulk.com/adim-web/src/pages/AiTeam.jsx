@@ -388,23 +388,60 @@ export default function AiTeam() {
 
   const runTestApify = async () => {
     setApifyTestResult(null)
+    if (!apifyToken.trim() && !settings.apify_token_configured) {
+      setApifyTestResult({ ok: false, message: 'Paste your Apify API token first, then click Test' })
+      showBanner('err', 'Paste your Apify API token first')
+      return
+    }
     await act('test-apify', async () => {
       try {
         const data = await apiFetch('/admin/ai-team/test/apify', {
           method: 'POST',
           body: JSON.stringify({
             apify_token: apifyToken || undefined,
+            apify_exhibitor_actor_id: settings.apify_exhibitor_actor_id || undefined,
+            apify_contact_actor_id: settings.apify_contact_actor_id || undefined,
             check_actor: !!(settings.apify_exhibitor_actor_id || settings.apify_contact_actor_id),
           }),
         })
+        const saved = data.token_saved || data.apify_token_configured
         const msg = data.message || (data.username ? `Apify OK — logged in as ${data.username}` : 'Apify OK')
-        setApifyTestResult({ ok: true, message: msg, username: data.username, actor_name: data.actor_name })
-        showBanner('ok', msg)
+        setApifyTestResult({
+          ok: true,
+          message: saved ? msg : `${msg} (warning: token may not be saved — click Save)`,
+          username: data.username,
+          actor_name: data.actor_name,
+        })
+        setSettings((s) => ({
+          ...s,
+          apify_token_configured: !!(data.apify_token_configured || saved || s.apify_token_configured),
+          apify_connected: true,
+        }))
+        if (apifyToken) setApifyToken('')
+        try {
+          const dash = await apiFetch('/admin/ai-team/dashboard')
+          if (dash.settings) setSettings(dash.settings)
+        } catch {
+          /* keep local configured flag */
+        }
+        showBanner('ok', saved ? 'Apify connected — token saved' : msg)
       } catch (e) {
         const msg = e?.message || 'Apify connection failed'
         setApifyTestResult({ ok: false, message: msg })
         throw e
       }
+    })
+  }
+
+  const saveApifySettings = async () => {
+    if (!apifyToken.trim() && !settings.apify_token_configured) {
+      showBanner('err', 'Paste your Apify API token before saving')
+      return
+    }
+    await saveSettings({
+      apify_token: apifyToken || undefined,
+      apify_exhibitor_actor_id: settings.apify_exhibitor_actor_id || '',
+      apify_contact_actor_id: settings.apify_contact_actor_id || '',
     })
   }
 
@@ -918,7 +955,7 @@ export default function AiTeam() {
                     </div>
                     <div className="ait-btn-row" style={{ margin: 0 }}>
                       <button type="button" className="ait-btn xs" disabled={!!busy} onClick={runTestApify}>Test</button>
-                      <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={() => saveSettings()}>Save</button>
+                      <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={saveApifySettings}>Save</button>
                     </div>
                   </div>
                   {apifyTestResult && (
@@ -947,7 +984,10 @@ export default function AiTeam() {
                     <label>Second actor (optional)</label>
                     <input value={settings.apify_contact_actor_id || ''} onChange={(e) => setSettings({ ...settings, apify_contact_actor_id: e.target.value })} placeholder="optional" />
                   </div>
-                  <p className="ait-hint">Token alone is enough to Test. Actor ID is required to Scrape. Store: apify.com/store — use username~actor-name.</p>
+                  <p className="ait-hint">
+                    Paste token → <strong>Test</strong> (saves automatically) or <strong>Save</strong>.
+                    After refresh you should still see “Token saved”. Actor ID is only needed to Scrape.
+                  </p>
                 </div>
               )}
 
