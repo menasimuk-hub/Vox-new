@@ -441,7 +441,7 @@ export default function ApifyOutreach() {
       return { engine: 'apify', label: `Apify · ${actor} (${actorSource})` }
     }
     if (looksDirectory) {
-      return { engine: 'builtin', label: 'Built-in first for /exhibitors (SPA API + HTML) — best for any show site' }
+      return { engine: 'builtin', label: 'Built-in first (Easyfairs / SPA / ASP / Reed / HTML)' }
     }
     if (tokenOk) return { engine: 'apify', label: `Apify · ${actor} (${actorSource})` }
     return { engine: 'builtin', label: 'Built-in (save Apify token for better results on any site)' }
@@ -2082,6 +2082,9 @@ export default function ApifyOutreach() {
             <div className="ait-card-body">
               <div className={`ait-msg-banner ${scrapePlan.engine === 'need-token' ? 'err' : 'ok'}`} style={{ margin: '0 0 12px' }}>
                 <strong>Will use:</strong> {scrapePlan.label}
+                <span className="ait-hint" style={{ display: 'block', marginTop: 6, marginBottom: 0 }}>
+                  Built-in covers Easyfairs, SPA/Supabase, ASP Events (A–Z), Reed/WTM Algolia, and HTML + company websites. Keep “Also scrape company websites” on for ASP lists.
+                </span>
               </div>
               <div className="ait-field">
                 <label>Expo / directory URL</label>

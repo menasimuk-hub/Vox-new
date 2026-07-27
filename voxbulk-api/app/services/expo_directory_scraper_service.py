@@ -12,7 +12,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any, Callable
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 
 import httpx
 
@@ -34,6 +34,13 @@ _JUNK_EMAIL_SUBSTR = (
     "noreply@",
     "no-reply@",
     "donotreply@",
+    "asp.events",
+    "reedexpo",
+    "rxweb",
+    "closerstill",
+    "ukimediaevents",
+    "webpack",
+    "schema.org",
 )
 
 
@@ -488,18 +495,28 @@ class ExpoDirectoryScraper:
             html = resp.text or ""
 
         parsed = urlparse(directory_url)
-        base = f"{parsed.scheme}://{parsed.netloc}"
-        hrefs = re.findall(r"""href=["']([^"']+)["']""", html, re.I)
-        links: list[str] = []
-        for h in hrefs:
-            full = urljoin(directory_url, h).split("#")[0].split("?")[0]
-            p = urlparse(full)
-            if p.netloc != parsed.netloc:
-                continue
-            path = p.path.rstrip("/")
-            if "/exhibitors/" in path and path.count("/") >= 2 and not path.endswith("/exhibitors"):
-                links.append(full)
-        uniq = sorted(set(links))[: max(1, min(int(max_pages or 300), 1000))]
+        uniq = ExpoDirectoryScraper._collect_exhibitor_profile_links(
+            directory_url, html, max_pages=max_pages
+        )
+        # ASP Events / SHOWOFF A–Z lists often hide profiles behind azletter pages
+        if not uniq and (
+            "azletter=" in html.lower()
+            or "m-exhibitors-list" in html.lower()
+            or "showoff" in html.lower()
+            or "themes.asp.events" in html.lower()
+        ):
+            asp = ExpoDirectoryScraper.scrape_asp_events(
+                directory_url,
+                follow_websites=follow_websites,
+                max_stands=max_pages,
+                progress_callback=progress_callback,
+            )
+            if asp is not None:
+                return asp
+            # Re-collect after letter crawl helper
+            uniq = ExpoDirectoryScraper._asp_collect_profile_links(
+                directory_url, max_pages=max_pages, headers=headers
+            )
         if not uniq:
             # Still extract any emails visible on the listing itself
             listing_emails = ExpoDirectoryScraper.clean_emails(html)
@@ -564,10 +581,26 @@ class ExpoDirectoryScraper:
                 text,
                 re.I,
             )
+            # Prefer explicit "Visit website" / contact buttons (ASP Events)
+            preferred = re.findall(
+                r"""(?:Visit\s+website|button__website|contact-us)[^>]{0,120}href=["'](https?://[^"']+)["']"""
+                r"""|href=["'](https?://[^"']+)["'][^>]{0,80}(?:Visit\s+website|button__website)""",
+                text,
+                re.I,
+            )
+            flat_pref = [p for pair in preferred for p in (pair if isinstance(pair, tuple) else (pair,)) if p]
             website = ""
-            for w in websites:
+            for w in flat_pref + websites:
                 low = w.lower()
-                if any(x in low for x in ("facebook", "linkedin", "twitter", "instagram", "youtube", "google")):
+                if parsed.netloc.lower() in low:
+                    continue
+                if any(
+                    x in low
+                    for x in (
+                        "facebook", "linkedin", "twitter", "instagram", "youtube",
+                        "google", "asp.events", "closerstill", "ukimedia",
+                    )
+                ):
                     continue
                 website = w
                 break
@@ -629,6 +662,504 @@ class ExpoDirectoryScraper:
             "stands_with_email": stands_with_email,
             "emails_found": len(by_email),
             "errors": errors,
+            "contacts": list(by_email.values()),
+        }
+
+    @staticmethod
+    def _is_exhibitor_profile_path(path: str) -> bool:
+        p = (path or "").rstrip("/")
+        low = p.lower()
+        if low.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".css", ".js", ".pdf")):
+            return False
+        # /exhibitors/company-slug or /exhibitor/company-slug (not the list root)
+        for token in ("/exhibitors/", "/exhibitor/"):
+            if token in low:
+                # must have something after the token
+                after = low.split(token, 1)[-1]
+                if after and after not in {"list", "directory", "hub", "e-zone"}:
+                    return True
+        return False
+
+    @staticmethod
+    def _collect_exhibitor_profile_links(
+        directory_url: str,
+        html: str,
+        *,
+        max_pages: int = 500,
+    ) -> list[str]:
+        parsed = urlparse(directory_url)
+        links: list[str] = []
+        for h in re.findall(r"""href=["']([^"']+)["']""", html or "", re.I):
+            full = urljoin(directory_url, h).split("#")[0].split("?")[0]
+            p = urlparse(full)
+            if p.netloc and p.netloc.lower() != parsed.netloc.lower():
+                continue
+            if ExpoDirectoryScraper._is_exhibitor_profile_path(p.path):
+                links.append(full)
+        return sorted(set(links))[: max(1, min(int(max_pages or 500), 2000))]
+
+    @staticmethod
+    def _asp_collect_profile_links(
+        directory_url: str,
+        *,
+        max_pages: int = 500,
+        headers: dict[str, str] | None = None,
+    ) -> list[str]:
+        """Crawl ASP Events / SHOWOFF A–Z exhibitor-list pages for profile URLs."""
+        parsed = urlparse(directory_url)
+        list_url = directory_url.split("?")[0].split("#")[0]
+        # Prefer exhibitor-list path when present
+        if "exhibitor-list" not in list_url.lower() and "exhibitors" not in urlparse(list_url).path.lower():
+            list_url = f"{parsed.scheme}://{parsed.netloc}/exhibitor-list"
+        headers = headers or ExpoDirectoryScraper._headers(directory_url)
+        letters = [*"ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0-9", ""]
+        found: set[str] = set()
+        with httpx.Client(timeout=45.0, follow_redirects=True) as client:
+            for letter in letters:
+                if len(found) >= max(1, min(int(max_pages or 500), 2000)):
+                    break
+                url = list_url if letter == "" else f"{list_url}?azletter={letter}"
+                try:
+                    resp = client.get(url, headers=headers)
+                    if resp.status_code >= 400:
+                        continue
+                    for link in ExpoDirectoryScraper._collect_exhibitor_profile_links(
+                        list_url, resp.text or "", max_pages=2000
+                    ):
+                        found.add(link)
+                except Exception:
+                    continue
+        return sorted(found)[: max(1, min(int(max_pages or 500), 2000))]
+
+    @staticmethod
+    def scrape_asp_events(
+        directory_url: str,
+        *,
+        follow_websites: bool = True,
+        max_stands: int = 500,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any] | None:
+        """ASP Events / SHOWOFF exhibitor-list (A–Z) → profile pages → company websites."""
+        headers = ExpoDirectoryScraper._headers(directory_url)
+        try:
+            with httpx.Client(timeout=45.0, follow_redirects=True) as client:
+                resp = client.get(directory_url, headers=headers)
+                if resp.status_code >= 400:
+                    return None
+                html = resp.text or ""
+        except Exception:
+            return None
+        low = html.lower()
+        looks_asp = (
+            "azletter=" in low
+            or "m-exhibitors-list" in low
+            or "showoff" in low
+            or "themes.asp.events" in low
+            or "exhibitor-list" in urlparse(directory_url).path.lower()
+        )
+        if not looks_asp:
+            return None
+
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "listing",
+                "message": "ASP Events directory — scanning A–Z exhibitor lists…",
+                "provider": "asp_events",
+                "follow_websites": bool(follow_websites),
+                "stands_total": 0,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
+        uniq = ExpoDirectoryScraper._asp_collect_profile_links(
+            directory_url, max_pages=max_stands, headers=headers
+        )
+        if not uniq:
+            return None
+
+        # Reuse HTML page scanner by temporarily building a mini directory result path
+        # Call scrape_html_directory logic on collected links via internal scan
+        parsed = urlparse(directory_url)
+        contacts: list[dict[str, Any]] = []
+        stands_with_email = 0
+        errors = 0
+        stands_done = 0
+        total = len(uniq)
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "stands",
+                "message": f"ASP Events · scanning {total} exhibitor pages…",
+                "provider": "asp_events",
+                "follow_websites": bool(follow_websites),
+                "stands_total": total,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
+
+        def _page(url: str) -> list[dict[str, Any]]:
+            with httpx.Client(timeout=40.0, follow_redirects=True) as client:
+                r = client.get(url, headers=headers)
+                if r.status_code >= 400:
+                    return []
+                text = r.text or ""
+            emails = ExpoDirectoryScraper.clean_emails(text)
+            title = ""
+            for pat in (
+                r'class=["\'][^"\']*exhibitor-entry__item__header__title[^"\']*["\'][^>]*>\s*<[^>]+>(.*?)</',
+                r'item__header__title[^>]*>\s*<a[^>]*>(.*?)</a>',
+                r'property=["\']og:title["\'][^>]*content=["\']([^"\']+)["\']',
+                r"<h1[^>]*>(.*?)</h1>",
+            ):
+                mt = re.search(pat, text, re.I | re.S)
+                if mt:
+                    title = re.sub(r"<[^>]+>", "", mt.group(1)).strip()
+                    title = re.sub(r"\s+", " ", title)
+                    if title and "exhibitor" not in title.lower()[:12]:
+                        break
+                    if title and len(title) < 80:
+                        break
+                    title = title or ""
+            if title.lower().startswith("px ") or "exhibitors" == title.lower():
+                title = ""
+            if not title:
+                mt = re.search(
+                    r'item__header__title__link[^>]*>(.*?)</a>',
+                    text,
+                    re.I | re.S,
+                )
+                if mt:
+                    title = re.sub(r"<[^>]+>", "", mt.group(1)).strip()
+            # Fallback: last path segment as company slug
+            if not title:
+                slug = urlparse(url).path.rstrip("/").split("/")[-1]
+                title = slug.replace("-", " ").strip()
+                title = re.sub(r"\s+\d+$", "", title).title()
+            website = ""
+            mweb = re.search(
+                r"button__website[\s\S]{0,260}?href=['\"](https?://[^'\"]+)['\"]"
+                r"|href=['\"](https?://[^'\"]+)['\"][^>]*>\s*Visit website",
+                text,
+                re.I,
+            )
+            if mweb:
+                website = mweb.group(1) or mweb.group(2) or ""
+            if not website:
+                for w in re.findall(r"""href=["'](https?://[^"']+)["']""", text, re.I):
+                    low_w = w.lower()
+                    if parsed.netloc.lower() in low_w:
+                        continue
+                    if any(
+                        x in low_w
+                        for x in (
+                            "facebook", "linkedin", "twitter", "instagram", "youtube",
+                            "google", "asp.events", "closerstill", "ukimedia", "typekit",
+                        )
+                    ):
+                        continue
+                    website = w
+                    break
+            if follow_websites and website and not emails:
+                emails = ExpoDirectoryScraper._scrape_website_emails(website)
+            if not emails:
+                return []
+            return [
+                {
+                    "email": e,
+                    "company_name": title,
+                    "job_title": "Exhibitor",
+                    "sector": "expo",
+                    "website": website,
+                    "profile_url": url,
+                    "source": "expo_asp_events",
+                    "profile_json": {
+                        "expo_url": directory_url,
+                        "profile_url": url,
+                        "website": website,
+                        "provider": "asp_events",
+                    },
+                }
+                for e in emails
+            ]
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futs = [pool.submit(_page, u) for u in uniq]
+            for fut in as_completed(futs):
+                try:
+                    rows = fut.result()
+                    if rows:
+                        stands_with_email += 1
+                        contacts.extend(rows)
+                except Exception:
+                    errors += 1
+                stands_done += 1
+                seen_emails = {str(c.get("email") or "").lower() for c in contacts if c.get("email")}
+                ExpoDirectoryScraper._emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "stands",
+                        "message": f"ASP Events · {stands_done}/{total} pages…",
+                        "provider": "asp_events",
+                        "follow_websites": bool(follow_websites),
+                        "stands_total": total,
+                        "stands_done": stands_done,
+                        "stands_with_email": stands_with_email,
+                        "emails_found": len(seen_emails),
+                        "errors": errors,
+                    },
+                )
+
+        by_email: dict[str, dict[str, Any]] = {}
+        for c in contacts:
+            email = str(c.get("email") or "").lower()
+            if email and email not in by_email:
+                by_email[email] = c
+        if not by_email:
+            return {
+                "ok": True,
+                "provider": "asp_events",
+                "stands_found": len(uniq),
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": errors,
+                "contacts": [],
+                "warning": "Found exhibitor profiles but no public emails "
+                "(enable “Also scrape company websites”).",
+            }
+        return {
+            "ok": True,
+            "provider": "asp_events",
+            "stands_found": len(uniq),
+            "stands_with_email": stands_with_email,
+            "emails_found": len(by_email),
+            "errors": errors,
+            "contacts": list(by_email.values()),
+        }
+
+    @staticmethod
+    def scrape_reed_algolia(
+        directory_url: str,
+        *,
+        max_stands: int = 500,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any] | None:
+        """Reed Expo / RX exhibitor directories (WTM, etc.) via public Algolia search index.
+
+        Page embeds algoliaConfig + eventId; index name is ``{eventId}-index``.
+        """
+        headers = ExpoDirectoryScraper._headers(directory_url)
+        try:
+            with httpx.Client(timeout=45.0, follow_redirects=True) as client:
+                resp = client.get(directory_url.split("#")[0], headers=headers)
+                if resp.status_code >= 400:
+                    return None
+                html = resp.text or ""
+        except Exception:
+            return None
+
+        decoded = (
+            (html or "")
+            .replace("\\x22", '"')
+            .replace("\\u0022", '"')
+            .replace("\\u002D", "-")
+            .replace("\\/", "/")
+        )
+        api_keys = re.findall(r'"apiKey"\s*:\s*"([a-zA-Z0-9]{16,})"', decoded)
+        app_ids = re.findall(r'"(?:appId|applicationID)"\s*:\s*"([A-Z0-9]{6,})"', decoded)
+        event_ids = re.findall(r'"eventId"\s*:\s*"(evt-[a-f0-9\-]+)"', decoded, re.I)
+        if not event_ids:
+            event_ids = re.findall(r"(evt-[a-f0-9]{8}-[a-f0-9\-]+)", decoded, re.I)
+        edition_ids = re.findall(
+            r'(?:eventEditionId\s*=\s*"|\"eventEditionId\"\s*:\s*")(eve-[a-f0-9\-]+)"',
+            decoded,
+            re.I,
+        )
+        if not edition_ids:
+            edition_ids = re.findall(r"(eve-[a-f0-9]{8}-[a-f0-9\-]+)", decoded, re.I)
+
+        looks_rx = (
+            "algoliaConfig" in decoded
+            or "reedexpo.com" in decoded.lower()
+            or "exhibitor-directory" in decoded.lower()
+            or "css-components.rxweb" in decoded.lower()
+        )
+        if not (looks_rx and api_keys and app_ids and event_ids):
+            return None
+
+        api_key = api_keys[0]
+        app_id = app_ids[0]
+        event_id = event_ids[0]
+        edition_id = edition_ids[0] if edition_ids else ""
+        index_name = f"{event_id}-index"
+
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "listing",
+                "message": "Reed Expo directory — fetching Algolia exhibitors…",
+                "provider": "reed_algolia",
+                "stands_total": 0,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
+
+        caps = max(1, min(int(max_stands or 500), 2000))
+        hits_per_page = 100
+        page = 0
+        all_hits: list[dict[str, Any]] = []
+        algolia_headers = {
+            "X-Algolia-Application-Id": app_id,
+            "X-Algolia-API-Key": api_key,
+            "Content-Type": "application/json",
+            "User-Agent": headers.get("User-Agent", "VoxBulkExpoScraper/1.0"),
+        }
+        filters = 'recordType:exhibitor'
+        if edition_id:
+            filters = f'eventEditionId:"{edition_id}" AND recordType:exhibitor'
+
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+            while len(all_hits) < caps and page < 50:
+                endpoint = f"https://{app_id}-dsn.algolia.net/1/indexes/{index_name}/query"
+                try:
+                    params = urlencode(
+                        {
+                            "query": "",
+                            "hitsPerPage": hits_per_page,
+                            "page": page,
+                            "filters": filters,
+                        }
+                    )
+                    r = client.post(
+                        endpoint,
+                        headers=algolia_headers,
+                        json={"params": params},
+                    )
+                except Exception:
+                    break
+                if r.status_code >= 400:
+                    # Retry without edition filter if it fails
+                    if page == 0 and edition_id:
+                        params = urlencode(
+                            {
+                                "query": "",
+                                "hitsPerPage": hits_per_page,
+                                "page": page,
+                                "filters": "recordType:exhibitor",
+                            }
+                        )
+                        r = client.post(
+                            endpoint,
+                            headers=algolia_headers,
+                            json={"params": params},
+                        )
+                    if r.status_code >= 400:
+                        logger.warning(
+                            "reed_algolia_query_failed status=%s body=%s",
+                            r.status_code,
+                            (r.text or "")[:200],
+                        )
+                        return None
+                data = r.json() if r.content else {}
+                batch = [h for h in (data.get("hits") or []) if isinstance(h, dict)]
+                if not batch:
+                    break
+                # Prefer current edition when unfiltered
+                if edition_id:
+                    filtered = [
+                        h for h in batch
+                        if str(h.get("eventEditionId") or "") == edition_id
+                    ]
+                    if filtered:
+                        batch = filtered
+                all_hits.extend(batch)
+                nb_pages = int(data.get("nbPages") or 0)
+                ExpoDirectoryScraper._emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "listing",
+                        "message": f"Reed Expo · loaded {len(all_hits)} exhibitors…",
+                        "provider": "reed_algolia",
+                        "stands_total": min(caps, int(data.get("nbHits") or len(all_hits))),
+                        "stands_done": len(all_hits),
+                        "stands_with_email": sum(
+                            1 for h in all_hits if str(h.get("email") or "").strip()
+                        ),
+                        "emails_found": len(
+                            {
+                                str(h.get("email") or "").strip().lower()
+                                for h in all_hits
+                                if str(h.get("email") or "").strip()
+                            }
+                        ),
+                        "errors": 0,
+                    },
+                )
+                page += 1
+                if page >= nb_pages:
+                    break
+
+        by_email: dict[str, dict[str, Any]] = {}
+        for hit in all_hits[:caps]:
+            email = str(hit.get("email") or "").strip().lower()
+            if not email or "@" not in email:
+                continue
+            if any(j in email for j in _JUNK_EMAIL_SUBSTR):
+                continue
+            company = str(
+                hit.get("exhibitorName") or hit.get("companyName") or ""
+            ).strip()
+            website = str(hit.get("website") or "").strip()
+            by_email[email] = {
+                "email": email,
+                "company_name": company,
+                "job_title": "Exhibitor",
+                "sector": "expo",
+                "website": website,
+                "country_code": "",
+                "source": "expo_reed_algolia",
+                "profile_json": {
+                    "expo_url": directory_url,
+                    "website": website,
+                    "stand_number": hit.get("standReference"),
+                    "provider": "reed_algolia",
+                    "event_id": event_id,
+                    "event_edition_id": hit.get("eventEditionId") or edition_id,
+                    "organisation_guid": hit.get("organisationGuid"),
+                },
+            }
+
+        if not by_email:
+            return None
+
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "done",
+                "message": f"Reed Expo · {len(by_email)} emails",
+                "provider": "reed_algolia",
+                "stands_total": len(all_hits),
+                "stands_done": len(all_hits),
+                "stands_with_email": len(by_email),
+                "emails_found": len(by_email),
+                "errors": 0,
+            },
+        )
+        return {
+            "ok": True,
+            "provider": "reed_algolia",
+            "stands_found": len(all_hits),
+            "stands_with_email": len(by_email),
+            "emails_found": len(by_email),
+            "errors": 0,
             "contacts": list(by_email.values()),
         }
 
@@ -859,6 +1390,14 @@ class ExpoDirectoryScraper:
                 max_stands=max_stands,
                 progress_callback=progress_callback,
             )
+        # Reed Expo / RX (WTM etc.) — public Algolia index often includes emails
+        reed = ExpoDirectoryScraper.scrape_reed_algolia(
+            url,
+            max_stands=max_stands,
+            progress_callback=progress_callback,
+        )
+        if reed and int(reed.get("emails_found") or 0) > 0:
+            return reed
         # JS SPA directories (Supabase / similar) before naive HTML crawl
         spa = ExpoDirectoryScraper.scrape_spa_supabase(
             url,
@@ -867,6 +1406,15 @@ class ExpoDirectoryScraper:
         )
         if spa and int(spa.get("emails_found") or 0) > 0:
             return spa
+        # ASP Events / SHOWOFF A–Z exhibitor lists (Parcel+Post Expo, etc.)
+        asp = ExpoDirectoryScraper.scrape_asp_events(
+            url,
+            follow_websites=follow_websites,
+            max_stands=max_stands,
+            progress_callback=progress_callback,
+        )
+        if asp and int(asp.get("emails_found") or 0) > 0:
+            return asp
         return ExpoDirectoryScraper.scrape_html_directory(
             url,
             follow_websites=follow_websites,
