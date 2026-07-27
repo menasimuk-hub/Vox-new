@@ -398,6 +398,21 @@ export default function ApifyOutreach() {
     })
   }
 
+  const previewTemplate = async () => {
+    if (!tplDraft) return
+    await act('tpl-preview', async () => {
+      const data = await apiFetch('/admin/ai-team/templates/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          subject: tplDraft.subject,
+          body_text: tplDraft.body_text,
+          html_template: tplDraft.html_template,
+        }),
+      })
+      setPreview({ ...data, sample: true })
+    })
+  }
+
   const deleteTemplate = async () => {
     if (!tplDraft?.id || !window.confirm('Delete this template?')) return
     await act('tpl-del', async () => {
@@ -838,6 +853,7 @@ export default function ApifyOutreach() {
                   <div className="ait-card-hdr">
                     <span className="ait-card-title">Edit template</span>
                     <div className="ait-btn-row" style={{ margin: 0 }}>
+                      <button type="button" className="ait-btn sm" disabled={!!busy} onClick={previewTemplate}>Preview</button>
                       <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={saveTemplate}>Save</button>
                       <button type="button" className="ait-btn danger sm" disabled={!!busy} onClick={deleteTemplate}>Delete</button>
                     </div>
@@ -1032,6 +1048,12 @@ export default function ApifyOutreach() {
               <button type="button" className="ait-btn ghost sm" onClick={() => setPreview(null)}>Close</button>
             </div>
             <iframe title="preview" className="ait-html-preview" srcDoc={preview.html || ''} />
+            {preview.body_text ? (
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--ait-text3)' }}>Plain text</summary>
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, marginTop: 8 }}>{preview.body_text || preview.text}</pre>
+              </details>
+            ) : null}
           </div>
         </div>
       )}

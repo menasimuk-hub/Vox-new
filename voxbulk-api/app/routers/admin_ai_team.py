@@ -617,6 +617,19 @@ def list_templates(db: Session = Depends(get_db), _admin: User = Depends(require
     }
 
 
+@router.post("/templates/preview")
+def preview_template_content(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamCampaignService.preview_template_content(
+            db,
+            subject=body.get("subject"),
+            body_text=body.get("body_text"),
+            html_template=body.get("html_template"),
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.post("/templates")
 def create_template(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     try:

@@ -262,6 +262,26 @@ class AiTeamCampaignService:
         return {"ok": True, "deleted": 1}
 
     @staticmethod
+    def preview_template_content(
+        db: Session,
+        *,
+        subject: str | None = None,
+        body_text: str | None = None,
+        html_template: str | None = None,
+    ) -> dict[str, str]:
+        """Render a template draft with sample merge data (for Templates Preview)."""
+        settings = AiTeamService.get_settings(db)
+        fake = AiTeamCampaign(
+            name="preview",
+            status="draft",
+            subject=str(subject or "Quick idea for {{company}}").strip()[:500] or "Hello",
+            body_text=str(body_text if body_text is not None else _DEFAULT_BODY),
+            html_template=str(html_template).strip() if html_template is not None else AiTeamService.effective_html_template(settings),
+        )
+        rendered = AiTeamCampaignService.render_for_recipient(db, fake, None, sample=True)
+        return {**rendered, "sample": True}
+
+    @staticmethod
     def apply_template_to_campaign(db: Session, campaign_id: str, template_id: str) -> AiTeamCampaign:
         campaign = AiTeamCampaignService.get_campaign(db, campaign_id)
         if campaign.status == "sending":
