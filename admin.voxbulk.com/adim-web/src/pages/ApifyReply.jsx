@@ -108,7 +108,14 @@ export default function ApifyReply() {
       if (data.subject) setSubject(data.subject)
       setBody(data.body || '')
       setShowCompose(true)
-      showBanner('ok', 'Professional AI reply ready — edit if needed, then Send')
+      const tags = Array.isArray(data.kb_tags) ? data.kb_tags : []
+      if (data.from_is_free_email || tags.includes('free_personal_email')) {
+        showBanner('ok', 'AI reply ready · KB: free/personal email → advise company email signup (edit if needed)')
+      } else if (tags.length) {
+        showBanner('ok', `AI reply ready · KB: ${tags[0].replace(/_/g, ' ')} — edit if needed, then Send`)
+      } else {
+        showBanner('ok', 'Professional AI reply ready — edit if needed, then Send')
+      }
     } catch (e) {
       setError(e?.message || 'AI generate failed')
       showBanner('err', e?.message || 'AI generate failed')

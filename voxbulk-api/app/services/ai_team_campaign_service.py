@@ -1080,24 +1080,42 @@ class AiTeamCampaignService:
         default_sig = "Best,\nVoxBulk team · voxbulk.com"
         signature = getattr(settings, "email_signature", None) or default_sig
         inbound_snippet = (inbound_body or "(empty)")[:4000]
+
+        promo_code = DEFAULT_EXPO_PROMO_CODE
+        signup_url = f"https://voxbulk.com/signin?promo={promo_code}"
+        from app.services.ai_team_reply_kb import build_reply_kb_context
+
+        kb = build_reply_kb_context(
+            from_email=from_email,
+            inbound_subject=inbound_subject,
+            inbound_body=inbound_body,
+            promo_code=promo_code,
+            signup_url=signup_url,
+        )
+
         system = (
             "You write professional B2B email replies for VoxBulk "
             "(customer feedback, WhatsApp surveys, voice AI for expo/events). "
             "Return JSON with keys subject and body only. "
             "Body is plain text with short paragraphs and line breaks. "
             "Be polished, clear, and courteous — not salesy or pushy. "
-            "Acknowledge their message, answer helpfully, and suggest one simple next step. "
-            "Do not invent pricing, contracts, or technical claims. "
-            f"Tone: {getattr(settings, 'email_tone', None) or 'professional and warm'}."
+            "You MUST follow the Knowledge base and matched playbooks below. "
+            "Do not invent pricing, expired trials, contracts, or technical claims. "
+            f"Tone: {getattr(settings, 'email_tone', None) or 'professional and warm'}.\n\n"
+            f"{kb['prompt_block']}"
         )
+        primary = (kb.get("tags") or ["general"])[0]
         user = (
             f"Reply to this inbound email.\n"
+            f"Primary playbook to apply: {primary}\n"
             f"From: {from_email}\n"
             f"Name: {first_name or 'there'}\n"
             f"Company: {company or 'their company'}\n"
             f"Their subject: {inbound_subject or '(none)'}\n"
             f"Their message:\n{inbound_snippet}\n\n"
             f"Suggested subject: {reply_subject}\n"
+            f"Signup URL to include when relevant: {kb.get('signup_url')}\n"
+            f"Promo code to include when relevant: {kb.get('promo_code')}\n"
             f"Signature to append:\n{signature}"
         )
         try:
@@ -1109,18 +1127,31 @@ class AiTeamCampaignService:
                 system_prompt=system,
                 messages=[AgentMessage(role="user", content=user)],
                 max_tokens=700,
-                temperature=0.45,
+                temperature=0.35,
                 provider="deepseek",
             )
             text = str(result.assistant_text or "").strip()
         except Exception as exc:
             logger.warning("ai_team_generate_reply_failed err=%s", exc)
-            text = (
-                f"Hi {first_name or 'there'},\n\n"
-                "Thanks for getting back to us — happy to help.\n\n"
-                "Would you like a quick call this week, or shall I send a short overview of how VoxBulk works for expo teams?\n\n"
-                f"{signature}"
-            )
+            if kb.get("from_is_free_email") or "free_personal_email" in (kb.get("tags") or []):
+                text = (
+                    f"Hi {first_name or 'there'},\n\n"
+                    "Thanks for getting back to us — and sorry for the confusion.\n\n"
+                    "The free Expo trial only activates when you register with a company / work email "
+                    "(not Gmail, Outlook, Yahoo, or other personal addresses). "
+                    "That’s why the account can look like it needs payment.\n\n"
+                    f"Please sign up again with your work email here:\n{signup_url}\n\n"
+                    f"Use code {promo_code} for the 3-day Expo trial (no card when eligible).\n\n"
+                    f"{signature}"
+                )
+            else:
+                text = (
+                    f"Hi {first_name or 'there'},\n\n"
+                    "Thanks for getting back to us — happy to help.\n\n"
+                    f"If you’re trying the Expo offer, register with your company email here:\n{signup_url}\n\n"
+                    "If something still blocks access, reply with a short screenshot note and we’ll sort it.\n\n"
+                    f"{signature}"
+                )
 
         subject_out = reply_subject
         body_out = text
@@ -1145,6 +1176,8 @@ class AiTeamCampaignService:
             "body": body_out,
             "inbound_message_id": inbound_message_id,
             "recipient_id": recipient_id,
+            "kb_tags": kb.get("tags") or [],
+            "from_is_free_email": bool(kb.get("from_is_free_email")),
         }
 
     @staticmethod
