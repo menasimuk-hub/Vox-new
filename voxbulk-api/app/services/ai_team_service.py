@@ -2090,17 +2090,27 @@ class AiTeamService:
                     follow_websites=bool(follow_websites),
                     max_stands=max_stands,
                 )
+                # Job uses its own Session — reopen so we never return a stale RUNNING row.
+                db.commit()
                 db.expire_all()
-                row = db.get(AiTeamApifyRun, run_id) or row
+                row = db.get(AiTeamApifyRun, run_id)
+                if row is None:
+                    raise AiTeamServiceError("Scrape run disappeared after finish")
+                db.refresh(row)
                 info = AiTeamService._run_to_dict(row)
                 emails_n = int(info.get("emails_found") or row.item_count or 0)
                 return {
                     "ok": True,
                     "run": info,
                     "queued_via": "inline",
+                    "emails_found": emails_n,
+                    "provider": info.get("provider"),
                     "message": f"Scrape finished · {emails_n} email(s)",
                 }
+            except AiTeamServiceError:
+                raise
             except Exception as inline_exc:
+                row = db.get(AiTeamApifyRun, run_id) or row
                 row.status = "FAILED"
                 row.error = (
                     f"Inline scrape failed: {inline_exc}"
