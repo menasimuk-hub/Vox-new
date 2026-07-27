@@ -73,6 +73,8 @@ class AiTeamSettings(Base):
     # Agent behaviour
     run_schedule: Mapped[str] = mapped_column(String(64), nullable=False, default="daily_08")
     max_emails_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    # Seconds to wait between each campaign email (queue pace). Default 20 ≈ 3/min.
+    send_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
     sending_window: Mapped[str] = mapped_column(String(64), nullable=False, default="weekday_08_18")
     auto_fetch_prospects: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_draft_emails: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

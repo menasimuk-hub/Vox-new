@@ -199,6 +199,7 @@ class AiTeamService:
             "default_free_actor": DEFAULT_FREE_ACTOR,
             "run_schedule": row.run_schedule,
             "max_emails_per_day": row.max_emails_per_day,
+            "send_interval_seconds": int(getattr(row, "send_interval_seconds", None) or 20),
             "sending_window": row.sending_window,
             "auto_fetch_prospects": row.auto_fetch_prospects,
             "auto_draft_emails": row.auto_draft_emails,
@@ -247,7 +248,7 @@ class AiTeamService:
             "search_max_per_run", "search_min_score", "followup_after_days", "max_followups",
             "email_max_words", "promo_value", "promo_expiry_days", "promo_max_uses",
             "smtp_port", "max_emails_per_day", "apollo_credit_alert_at",
-            "imap_port",
+            "imap_port", "send_interval_seconds",
         ]
         bool_fields = [
             "auto_fetch_prospects", "auto_draft_emails", "auto_followup", "track_opens",
@@ -275,6 +276,12 @@ class AiTeamService:
         for key in int_fields:
             if key in payload:
                 setattr(row, key, int(payload[key] or 0))
+        if "send_interval_seconds" in payload or getattr(row, "send_interval_seconds", None) is not None:
+            try:
+                interval = int(getattr(row, "send_interval_seconds", None) or 20)
+            except (TypeError, ValueError):
+                interval = 20
+            row.send_interval_seconds = max(1, min(interval, 600))
         for key in bool_fields:
             if key in payload:
                 setattr(row, key, bool(payload[key]))

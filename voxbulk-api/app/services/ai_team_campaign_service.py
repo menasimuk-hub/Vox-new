@@ -9,6 +9,7 @@ import threading
 import time
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote, unquote, urlparse
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -181,6 +182,145 @@ class AiTeamCampaignService:
         return f"{api}/public/ai-team/c/{recipient_id}/trial"
 
     @staticmethod
+    def _open_pixel_url(recipient_id: str) -> str:
+        from app.services.brand_assets import api_public_origin
+
+        api = api_public_origin().rstrip("/") or "https://api.voxbulk.com"
+        return f"{api}/public/ai-team/c/{recipient_id}/o.gif"
+
+    @staticmethod
+    def _click_wrap_url(recipient_id: str, destination: str) -> str:
+        from app.services.brand_assets import api_public_origin
+
+        api = api_public_origin().rstrip("/") or "https://api.voxbulk.com"
+        return f"{api}/public/ai-team/c/{recipient_id}/click?u={quote(destination, safe='')}"
+
+    @staticmethod
+    def resolve_send_interval_seconds(settings: Any | None = None) -> float:
+        """Seconds between queued campaign emails (min 1, max 600)."""
+        raw = getattr(settings, "send_interval_seconds", None) if settings is not None else None
+        try:
+            n = float(raw if raw is not None else AiTeamCampaignService.SEND_PAUSE_SECONDS)
+        except (TypeError, ValueError):
+            n = float(AiTeamCampaignService.SEND_PAUSE_SECONDS)
+        return max(1.0, min(n, 600.0))
+
+    @staticmethod
+    def _safe_http_url(url: str) -> str | None:
+        dest = str(url or "").strip()
+        if not dest:
+            return None
+        parsed = urlparse(dest)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        return dest
+
+    @staticmethod
+    def record_open(db: Session, recipient_id: str) -> bool:
+        rid = str(recipient_id or "").strip()
+        if not rid:
+            return False
+        row = db.get(AiTeamCampaignRecipient, rid)
+        if row is None:
+            return False
+        now = AiTeamCampaignService._now()
+        changed = False
+        if row.opened_at is None:
+            row.opened_at = now
+            changed = True
+        row.updated_at = now
+        db.add(row)
+        if changed:
+            campaign = db.get(AiTeamCampaign, row.campaign_id)
+            if campaign is not None:
+                AiTeamCampaignService.refresh_counts(db, campaign)
+            else:
+                db.commit()
+        else:
+            db.commit()
+        return True
+
+    @staticmethod
+    def record_link_click_and_destination(db: Session, recipient_id: str, destination: str) -> str:
+        """Record click on any wrapped link and return a safe redirect URL."""
+        dest = AiTeamCampaignService._safe_http_url(unquote(str(destination or "")))
+        if not dest:
+            dest = AiTeamCampaignService._public_signin_url(DEFAULT_EXPO_PROMO_CODE)
+        rid = str(recipient_id or "").strip()
+        if rid:
+            row = db.get(AiTeamCampaignRecipient, rid)
+            if row is not None:
+                now = AiTeamCampaignService._now()
+                row.click_count = int(row.click_count or 0) + 1
+                if row.clicked_at is None:
+                    row.clicked_at = now
+                if row.opened_at is None:
+                    row.opened_at = now
+                row.updated_at = now
+                db.add(row)
+                campaign = db.get(AiTeamCampaign, row.campaign_id)
+                if campaign is not None:
+                    AiTeamCampaignService.refresh_counts(db, campaign)
+                else:
+                    db.commit()
+        return dest
+
+    @staticmethod
+    def _apply_engagement_tracking(
+        html: str,
+        recipient_id: str,
+        *,
+        track_opens: bool = True,
+        track_clicks: bool = True,
+    ) -> str:
+        """Inject open pixel + wrap http(s) links for click tracking."""
+        out = str(html or "")
+        rid = str(recipient_id or "").strip()
+        if not rid or not out.strip():
+            return out
+
+        if track_clicks:
+            from app.services.brand_assets import api_public_origin
+
+            api = (api_public_origin().rstrip("/") or "https://api.voxbulk.com").lower()
+
+            def _repl(match: re.Match[str]) -> str:
+                quote_ch = match.group(1) or '"'
+                href = str(match.group(2) or "").strip()
+                if not href or href.startswith("#") or href.lower().startswith("mailto:"):
+                    return match.group(0)
+                if "unsubscribe" in href.lower():
+                    return match.group(0)
+                if "/public/ai-team/c/" in href.lower():
+                    return match.group(0)
+                safe = AiTeamCampaignService._safe_http_url(href)
+                if not safe:
+                    return match.group(0)
+                # Don't wrap our own API host links that are already tracking
+                if safe.lower().startswith(api) and "/public/ai-team/" in safe.lower():
+                    return match.group(0)
+                wrapped = AiTeamCampaignService._click_wrap_url(rid, safe)
+                return f"href={quote_ch}{wrapped}{quote_ch}"
+
+            out = re.sub(
+                r"""href\s*=\s*(['"])(.*?)\1""",
+                _repl,
+                out,
+                flags=re.I | re.S,
+            )
+
+        if track_opens and "o.gif" not in out:
+            pixel = (
+                f'<img src="{AiTeamCampaignService._open_pixel_url(rid)}" width="1" height="1" '
+                f'alt="" style="display:none!important;width:1px;height:1px;border:0;" />'
+            )
+            if re.search(r"</body\s*>", out, re.I):
+                out = re.sub(r"</body\s*>", pixel + "</body>", out, count=1, flags=re.I)
+            else:
+                out = out + pixel
+        return out
+
+    @staticmethod
     def _unsubscribe_url(recipient_id: str | None = None) -> str:
         from app.services.brand_assets import api_public_origin
 
@@ -304,11 +444,10 @@ class AiTeamCampaignService:
             "sector": row.sector or "",
             "country_code": row.country_code or "GB",
             "promo_code": promo,
-            # Source of truth: same direct URLs as preview / authored HTML.
-            "signup_url": direct,
-            "trial_url": direct,
+            # Tracked for real sends so CTA buttons record clicks in Tracking.
+            "signup_url": tracked,
+            "trial_url": tracked,
             "direct_signup_url": direct,
-            # Opt-in click tracking only when the template uses this tag.
             "tracked_trial_url": tracked,
             "unsubscribe_url": unsub,
             "unsubscribe_link": unsub,
@@ -1312,6 +1451,14 @@ class AiTeamCampaignService:
         html = re.sub(r"\{\{[a-zA-Z0-9_-]+\}\}", "", html)
         # Inline CSS so Gmail/Outlook keep colours/padding even when <style> is stripped.
         html = inline_email_css(html)
+        if recipient is not None and not sample:
+            settings = AiTeamService.get_settings(db)
+            html = AiTeamCampaignService._apply_engagement_tracking(
+                html,
+                recipient.id,
+                track_opens=bool(getattr(settings, "track_opens", True)),
+                track_clicks=True,
+            )
         text = re.sub(r"<[^>]+>", "", html)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         if not text:
@@ -1406,15 +1553,25 @@ class AiTeamCampaignService:
         test_row.sent_at = now
         test_row.updated_at = now
         test_row.last_error = None
+        test_row.last_outbound_subject = str(rendered.get("subject") or "")[:500] or None
+        test_row.last_outbound_text = str(rendered.get("text") or "")[:50000] or None
+        test_row.last_outbound_html = str(rendered.get("html") or "")[:200000] or None
         db.add(test_row)
         db.commit()
+        interval = AiTeamCampaignService.resolve_send_interval_seconds(settings)
+        open_url = AiTeamCampaignService._open_pixel_url(test_row.id)
+        click_url = AiTeamCampaignService._tracked_trial_url(test_row.id)
         return {
             "ok": True,
             "message": (
-                f"Test email sent to {dest}. "
-                "Reply from that same inbox, then Tracking → Refresh inbox (IMAP required — SMTP is send-only)."
+                f"Test email sent to {dest}. Open it and click a button — Tracking should show Opened/Clicked. "
+                f"Queue pace is 1 email every {int(interval)}s. "
+                "Reply from that same inbox, then Tracking → Refresh inbox."
             ),
             "recipient_id": test_row.id,
+            "send_interval_seconds": int(interval),
+            "open_pixel_url": open_url,
+            "trial_click_url": click_url,
         }
 
     @staticmethod
@@ -1565,8 +1722,9 @@ class AiTeamCampaignService:
 
         from app.workers.ai_team_tasks import send_campaign_task
 
-        rate = AiTeamCampaignService.SEND_PER_MINUTE
-        eta_min = max(1, int(math.ceil(int(pending) / float(rate))))
+        rate_pause = AiTeamCampaignService.resolve_send_interval_seconds(settings)
+        rate_per_min = max(1, int(round(60.0 / rate_pause)))
+        eta_min = max(1, int(math.ceil(int(pending) * rate_pause / 60.0)))
         queued_via = "celery"
         try:
             send_campaign_task.apply_async(args=[campaign_id], queue="voxbulk")
@@ -1586,12 +1744,13 @@ class AiTeamCampaignService:
             "ok": True,
             "campaign": AiTeamCampaignService.campaign_to_dict(campaign),
             "pending": int(pending),
-            "send_per_minute": rate,
+            "send_interval_seconds": int(rate_pause),
+            "send_per_minute": rate_per_min,
             "eta_minutes": eta_min,
             "queued_via": queued_via,
             "message": (
-                f"Queued {int(pending)} email(s) at {rate}/min "
-                f"(~{eta_min} min). Watch the progress bar — do not close mid-send."
+                f"Queued {int(pending)} email(s) · 1 every {int(rate_pause)}s "
+                f"(~{eta_min} min). Watch the progress bar."
             ),
         }
 
@@ -1618,9 +1777,7 @@ class AiTeamCampaignService:
         *,
         pause_seconds: float | None = None,
     ) -> dict[str, Any]:
-        """Celery/thread worker: send pending recipients one-by-one at SEND_PER_MINUTE."""
-        if pause_seconds is None:
-            pause_seconds = float(AiTeamCampaignService.SEND_PAUSE_SECONDS)
+        """Celery/thread worker: send pending recipients one-by-one at configured interval."""
         SessionLocal = __import__("app.core.database", fromlist=["get_sessionmaker"]).get_sessionmaker()
         sent = 0
         failed = 0
@@ -1629,6 +1786,8 @@ class AiTeamCampaignService:
             if campaign is None:
                 return {"ok": False, "error": "Campaign not found"}
             settings = AiTeamService.get_settings(db)
+            if pause_seconds is None:
+                pause_seconds = AiTeamCampaignService.resolve_send_interval_seconds(settings)
             max_day = max(1, int(settings.max_emails_per_day or 50))
             day_start = AiTeamCampaignService._now().replace(hour=0, minute=0, second=0, microsecond=0)
             # Count campaign sends today + legacy prospect sends
@@ -1751,7 +1910,8 @@ class AiTeamCampaignService:
                 "sent": sent,
                 "failed": failed,
                 "status": campaign.status,
-                "send_per_minute": AiTeamCampaignService.SEND_PER_MINUTE,
+                "send_per_minute": max(1, int(round(60.0 / float(pause_seconds or 1)))),
+                "send_interval_seconds": int(pause_seconds or 0),
             }
 
     @staticmethod

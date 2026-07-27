@@ -518,6 +518,7 @@ export default function ApifyOutreach() {
     })
   }
 
+  const sendIntervalSec = Math.max(1, Number(settings.send_interval_seconds) || 20)
   const sendAll = async (resend = false) => {
     if (!activeId) return
     const n = recipients.filter((r) => r.status === 'pending' || r.status === 'failed').length
@@ -533,11 +534,10 @@ export default function ApifyOutreach() {
       showBanner('err', 'No pending contacts. Drop Excel/CSV and click Add to audience first.')
       return
     }
-    const rate = 3
-    const eta = Math.max(1, Math.ceil((queueN || campaign?.total_count || 0) / rate))
+    const eta = Math.max(1, Math.ceil((queueN || 0) * sendIntervalSec / 60))
     if (!window.confirm(
-      `Queue ${queueN || campaign?.total_count || 0} email(s) at ${rate}/min (~${eta} min)?\n\n`
-      + 'Emails go out one-by-one — watch the progress bar on this page.',
+      `Queue ${queueN || campaign?.total_count || 0} email(s) · 1 every ${sendIntervalSec}s (~${eta} min)?\n\n`
+      + 'Send a Test first if you have not. Watch the progress bar on this page.',
     )) return
     await act('send', async () => {
       const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}/send`, {
@@ -820,7 +820,7 @@ export default function ApifyOutreach() {
     ? Math.min(100, Math.round(((campaign.sent_count + campaign.failed_count) / campaign.total_count) * 100))
     : 0
   const pendingCount = recipients.filter((r) => r.status === 'pending').length
-  const sendEtaMin = pendingCount > 0 ? Math.max(1, Math.ceil(pendingCount / 3)) : 0
+  const sendEtaMin = pendingCount > 0 ? Math.max(1, Math.ceil(pendingCount * sendIntervalSec / 60)) : 0
 
   if (loading && !settings.from_email && !campaigns.length) {
     return <div className="ai-team-page" style={{ padding: 24 }}><div className="muted">Loading Apify…</div></div>
@@ -915,7 +915,7 @@ export default function ApifyOutreach() {
                           </div>
                           <div className="ait-send-progress-sub">
                             {campaign.status === 'sending'
-                              ? `Max 3 emails / minute · ~${sendEtaMin || '…'} min left for ${pendingCount} queued`
+                              ? `1 email every ${sendIntervalSec}s · ~${sendEtaMin || '…'} min left for ${pendingCount} queued`
                               : (campaign.last_error || 'Raise Max/day under Sending, then click Send all again')}
                           </div>
                         </div>
@@ -1195,8 +1195,8 @@ export default function ApifyOutreach() {
                         </button>
                       </div>
                       <p className="ait-hint" style={{ marginTop: 10 }}>
-                        After Excel preview you must click <strong>Add to audience</strong>. Queue sends at <strong>3 emails/minute</strong>.
-                        Safe daily volume: start ~50/day, then 100–200 when reputation is good.
+                        After Excel preview click <strong>Add to audience</strong>. Use <strong>Send test</strong> first, then Send all.
+                        Queue: 1 email every <strong>{sendIntervalSec}s</strong> (change under Sending → Save).
                       </p>
                     </div>
                   </div>
@@ -1211,9 +1211,10 @@ export default function ApifyOutreach() {
             <div className="ait-stats" style={{ marginBottom: 14 }}>
               {[
                 ['Sent', tracking?.summary?.sent ?? '—'],
+                ['Opened', tracking?.summary?.opened ?? '—'],
+                ['Clicked', tracking?.summary?.clicked ?? '—'],
                 ['Failed', tracking?.summary?.failed ?? '—'],
                 ['Pending', tracking?.summary?.pending ?? '—'],
-                ['Clicked', tracking?.summary?.clicked ?? '—'],
                 ['Campaigns', tracking?.summary?.campaigns ?? '—'],
               ].map(([label, val]) => (
                 <div className="ait-stat" key={label}>
@@ -1268,7 +1269,7 @@ export default function ApifyOutreach() {
               <div className="ait-card-hdr">
                 <span className="ait-card-title">Activity</span>
                 <div className="ait-seg ait-seg-right">
-                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['received', 'Received'], ['inbox', 'Inbox'], ['unsubscribed', 'Unsubscribed'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
+                  {[['all', 'All'], ['sent', 'Sent'], ['opened', 'Opened'], ['clicked', 'Clicked'], ['received', 'Received'], ['inbox', 'Inbox'], ['unsubscribed', 'Unsubscribed'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
                     <button key={id} type="button" className={trackingFilter === id ? 'active' : ''} onClick={() => setTrackingFilter(id)}>{label}</button>
                   ))}
                 </div>
@@ -1311,9 +1312,14 @@ export default function ApifyOutreach() {
                     Inbox lists every message pulled from IMAP (matched or not). Use Refresh inbox to fetch.
                   </p>
                 )}
-                {trackingFilter === 'received' && (
+                {trackingFilter === 'opened' && (
                   <p className="ait-hint" style={{ marginTop: 8 }}>
-                    Received = audience rows that replied. See <strong>Inbox</strong> for all mailbox mail including unmatched From addresses.
+                    Opened = tracking pixel loaded. Some email apps block images (opens stay blank even if read).
+                  </p>
+                )}
+                {trackingFilter === 'clicked' && (
+                  <p className="ait-hint" style={{ marginTop: 8 }}>
+                    Clicked = any button/link in the sent HTML (links are wrapped through our tracker on send).
                   </p>
                 )}
               </div>
@@ -1372,8 +1378,8 @@ export default function ApifyOutreach() {
                       <th>Email</th>
                       <th>Company</th>
                       <th>Campaign</th>
-                      <th>Promo</th>
                       <th>Status</th>
+                      <th>Opened</th>
                       <th>Clicks</th>
                       <th>Sent</th>
                       <th>Error</th>
@@ -1389,11 +1395,13 @@ export default function ApifyOutreach() {
                         </td>
                         <td>{r.company_name || '—'}</td>
                         <td style={{ fontSize: 12 }}>{r.campaign_name || '—'}</td>
-                        <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.promo_code || defaultPromoCode}</td>
                         <td>
                           <span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span>
                           {r.replied_at || r.last_inbound_body ? <span className="ait-badge b-opened" style={{ marginLeft: 4 }}>inbox</span> : null}
                           {r.unsubscribed_at ? <span className="ait-badge b-rejected" style={{ marginLeft: 4 }}>unsub</span> : null}
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>
+                          {r.opened_at ? <span className="ait-badge b-opened" title={r.opened_at}>yes</span> : '—'}
                         </td>
                         <td style={{ fontSize: 12 }}>
                           {(r.click_count || 0) > 0 ? (
@@ -1652,8 +1660,37 @@ export default function ApifyOutreach() {
                 Manual alternative: <button type="button" className="ait-btn ghost xs" onClick={() => setTab('campaigns')}>Campaigns → upload Excel</button>
               </p>
               {liveScrapeRun && (
-                <div className="ait-msg-banner ok" style={{ margin: '12px 0' }}>
-                  <strong>Live:</strong> {liveProgress?.message || 'Running…'} · {liveStandsDone}/{liveStandsTotal || '—'} · emails {liveEmails} · {livePct}%
+                <div className="ait-send-progress" style={{ margin: '12px 0' }}>
+                  <div className="ait-send-progress-top">
+                    <div>
+                      <div className="ait-send-progress-title">
+                        Scrape running · {String(liveProgress?.phase || liveScrapeRun.status || 'working')}
+                      </div>
+                      <div className="ait-send-progress-sub">
+                        {liveProgress?.message || 'Working… counters update every few seconds. Leave this tab open.'}
+                      </div>
+                    </div>
+                    <span className="ait-badge b-opened">{livePct}%</span>
+                  </div>
+                  <div className="ait-send-progress-bar">
+                    <div className="ait-send-progress-fill" style={{ width: `${livePct || 5}%` }} />
+                  </div>
+                  <div className="ait-send-progress-stats">
+                    <span><strong>{liveStandsDone}</strong> / {liveStandsTotal || '—'} stands</span>
+                    <span><strong>{liveEmails}</strong> emails</span>
+                    <span><strong>{Number(liveProgress?.stands_with_email || 0)}</strong> with email</span>
+                    <span><strong>{Number(liveProgress?.errors || 0)}</strong> errors</span>
+                  </div>
+                  {Number(liveProgress?.errors || 0) > 0 && (
+                    <p className="ait-hint" style={{ marginTop: 8, marginBottom: 0, color: 'var(--ait-amber)' }}>
+                      Some pages failed — scrape still continues. Check the run row when finished.
+                    </p>
+                  )}
+                </div>
+              )}
+              {(apifyRuns[0] && String(apifyRuns[0].status || '').toUpperCase() === 'FAILED') && (
+                <div className="ait-msg-banner err" style={{ margin: '12px 0' }}>
+                  Last scrape failed: {apifyRuns[0].error || apifyRuns[0].progress?.message || 'see Celery logs'}
                 </div>
               )}
               <div className="ait-table-wrap" style={{ marginTop: 12 }}>
@@ -1662,12 +1699,22 @@ export default function ApifyOutreach() {
                   <tbody>
                     {apifyRuns.map((run) => {
                       const isBuiltin = String(run.actor_id || '').startsWith('builtin:') || run.provider === 'builtin' || run.engine === 'builtin'
+                      const prog = run.progress || {}
+                      const running = String(run.status || '').toUpperCase() === 'RUNNING'
                       return (
                         <tr key={run.id}>
-                          <td><span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : 'b-pending'}`}>{run.status}</span></td>
+                          <td>
+                            <span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : run.status === 'FAILED' ? 'b-rejected' : 'b-pending'}`}>{run.status}</span>
+                            {running && (
+                              <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }}>
+                                {prog.stands_done || 0}/{prog.stands_total || '—'} · {prog.emails_found ?? run.emails_found ?? 0} emails
+                                {Number(prog.errors || 0) > 0 ? ` · ${prog.errors} err` : ''}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ fontSize: 11 }}>{isBuiltin ? 'built-in' : (run.actor_id || 'apify')}</td>
                           <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
-                          <td>{run.emails_found ?? 0}</td>
+                          <td>{run.emails_found ?? prog.emails_found ?? 0}</td>
                           <td>
                             <div className="ait-btn-row" style={{ margin: 0 }}>
                               <button type="button" className="ait-btn xs" disabled={run.status !== 'SUCCEEDED'} onClick={() => exportApifyRun(run.id)}>Excel</button>
@@ -1762,13 +1809,46 @@ export default function ApifyOutreach() {
                 <div className="ait-field"><label>Test email</label><input type="email" value={settingsTestEmail} onChange={(e) => setSettingsTestEmail(e.target.value)} /></div>
                 <div className="ait-field">
                   <label>Max / day</label>
-                  <input type="number" value={settings.max_emails_per_day || 50} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} />
+                  <input type="number" min={1} value={settings.max_emails_per_day || 50} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} />
+                </div>
+              </div>
+              <div className="ait-fg-2">
+                <div className="ait-field">
+                  <label>Send 1 email every (seconds)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={600}
+                    value={settings.send_interval_seconds ?? 20}
+                    onChange={(e) => setSettings({ ...settings, send_interval_seconds: Math.max(1, Math.min(600, +e.target.value || 1)) })}
+                  />
+                </div>
+                <div className="ait-field">
+                  <label>Approx. rate</label>
+                  <input
+                    disabled
+                    value={`${Math.max(1, Math.round(60 / Math.max(1, Number(settings.send_interval_seconds) || 20)))} / minute`}
+                  />
                 </div>
               </div>
               <p className="ait-hint" style={{ marginTop: 0 }}>
-                Rate is fixed at <strong>3 emails/minute</strong>. For IP/domain safety on SMTP: warm up at 20–50/day for a new domain,
-                then 100–200/day when opens/bounces look healthy. Avoid 500+/day cold blasts from a shared IP.
+                Example: <strong>4</strong> = one email every 4 seconds. Click <strong>Save</strong>, then Campaign → <strong>Send test</strong> before Send all.
+                Opens/clicks are tracked automatically on sent mail (pixel + wrapped links). Some clients block images so opens can under-count.
               </p>
+              <div className="ait-toggle-row" style={{ marginTop: 8 }}>
+                <div>
+                  <strong>Track opens</strong>
+                  <div className="ait-hint" style={{ margin: 0 }}>Invisible pixel in each email</div>
+                </div>
+                <label className="ait-check">
+                  <input
+                    type="checkbox"
+                    checked={settings.track_opens !== false}
+                    onChange={(e) => setSettings({ ...settings, track_opens: e.target.checked })}
+                  />
+                  On
+                </label>
+              </div>
 
               <hr style={{ border: 0, borderTop: '1px solid var(--ait-border)', margin: '18px 0 14px' }} />
               <div className="ait-conn-block ait-conn-compact">
