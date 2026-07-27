@@ -323,6 +323,15 @@ def get_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Dep
         raise _err(exc) from exc
 
 
+@router.post("/apify/runs/{run_id}/abort")
+def abort_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    """Force-pause / abort a scrape (Apify or built-in)."""
+    try:
+        return AiTeamService.abort_scrape_run(db, run_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.get("/apify/runs/{run_id}/preview")
 def preview_apify_run(
     run_id: str,

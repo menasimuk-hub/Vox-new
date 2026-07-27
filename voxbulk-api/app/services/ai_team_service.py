@@ -1805,6 +1805,18 @@ class AiTeamService:
                 nonlocal last_progress_at
                 import time as _time
 
+                # Force-pause / abort check (admin click)
+                check = get_sessionmaker()()
+                try:
+                    live = check.get(AiTeamApifyRun, run_id)
+                    st = str(getattr(live, "status", "") or "").upper()
+                    if st in {"ABORTED", "PAUSED"}:
+                        from app.services.expo_directory_scraper_service import ScrapeAborted
+
+                        raise ScrapeAborted(f"Scrape {st.lower()}")
+                finally:
+                    check.close()
+
                 now_ts = _time.monotonic()
                 phase = str(payload.get("phase") or "")
                 done = int(payload.get("stands_done") or 0)
@@ -1823,15 +1835,37 @@ class AiTeamService:
                     max_stands=max(1, min(int(max_stands or 500), 1000)),
                     progress_callback=_on_progress,
                 )
-            except ExpoDirectoryScraperError as exc:
-                row.status = "FAILED"
-                row.error = str(exc)[:2000]
-                row.finished_at = AiTeamService._now()
-                row.updated_at = row.finished_at
-                session.add(row)
-                session.commit()
-                return {"ok": False, "error": str(exc)}
             except Exception as exc:
+                from app.services.expo_directory_scraper_service import ScrapeAborted
+
+                if isinstance(exc, ScrapeAborted):
+                    row = session.get(AiTeamApifyRun, run_id) or row
+                    now = AiTeamService._now()
+                    row.status = "ABORTED"
+                    row.error = "Force paused by admin"
+                    row.finished_at = now
+                    row.updated_at = now
+                    try:
+                        stats = json.loads(row.stats_json or "{}")
+                        if not isinstance(stats, dict):
+                            stats = {}
+                    except Exception:
+                        stats = {}
+                    prog = stats.get("progress") if isinstance(stats.get("progress"), dict) else {}
+                    prog = {**(prog or {}), "phase": "paused", "message": "Force paused — scrape stopped"}
+                    stats["progress"] = prog
+                    row.stats_json = json.dumps(stats, ensure_ascii=False)
+                    session.add(row)
+                    session.commit()
+                    return {"ok": True, "aborted": True, "run_id": run_id}
+                if isinstance(exc, ExpoDirectoryScraperError):
+                    row.status = "FAILED"
+                    row.error = str(exc)[:2000]
+                    row.finished_at = AiTeamService._now()
+                    row.updated_at = row.finished_at
+                    session.add(row)
+                    session.commit()
+                    return {"ok": False, "error": str(exc)}
                 logger.exception("directory_scrape_failed run_id=%s", run_id)
                 row.status = "FAILED"
                 row.error = f"Directory scrape failed: {exc}"[:2000]
@@ -1843,6 +1877,10 @@ class AiTeamService:
 
             contacts = AiTeamService._slim_directory_contacts(result.get("contacts") or [])
             finished = AiTeamService._now()
+            # If admin aborted while last batch finished, honour abort
+            session.refresh(row)
+            if str(row.status or "").upper() in {"ABORTED", "PAUSED"}:
+                return {"ok": True, "aborted": True, "run_id": run_id}
             row.status = "SUCCEEDED"
             row.item_count = int(result.get("emails_found") or len(contacts) or result.get("stands_found") or 0)
             stands_total = int(result.get("stands_found") or 0)
@@ -2230,6 +2268,23 @@ class AiTeamService:
             expo_url=url,
             status=str(started.get("status") or "READY"),
             dataset_id=started.get("dataset_id"),
+            stats_json=json.dumps(
+                {
+                    "provider": "apify",
+                    "progress": {
+                        "phase": "queued",
+                        "message": "Queued on Apify — status updates every few seconds",
+                        "stands_total": 0,
+                        "stands_done": 0,
+                        "stands_with_email": 0,
+                        "emails_found": 0,
+                        "errors": 0,
+                        "heartbeat_at": now.isoformat() + "Z",
+                        "provider": "apify",
+                    },
+                },
+                ensure_ascii=False,
+            ),
             created_at=now,
             updated_at=now,
         )
@@ -2245,15 +2300,89 @@ class AiTeamService:
                 select(AiTeamApifyRun).order_by(AiTeamApifyRun.created_at.desc()).limit(max(1, min(limit, 100)))
             ).scalars().all()
         )
+        # Keep Apify READY/RUNNING rows in sync so UI does not look stuck on READY
+        open_statuses = {"READY", "RUNNING", "ABORTING", "TIMING-OUT"}
+        for row in rows:
+            st = str(row.status or "").upper()
+            if st not in open_statuses:
+                continue
+            if str(row.actor_id or "").startswith("builtin:"):
+                continue
+            if not row.apify_run_id:
+                continue
+            try:
+                AiTeamService.refresh_apify_run(db, row.id)
+                db.refresh(row)
+            except Exception:
+                logger.debug("apify_run_auto_refresh_failed run_id=%s", row.id, exc_info=True)
         return [AiTeamService._run_to_dict(r) for r in rows]
+
+    @staticmethod
+    def abort_scrape_run(db: Session, run_id: str) -> dict[str, Any]:
+        """Force-pause a scrape (Apify abort API or local builtin stop flag)."""
+        row = db.get(AiTeamApifyRun, run_id)
+        if row is None:
+            raise AiTeamServiceError("Scrape run not found")
+        st = str(row.status or "").upper()
+        if st in {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}:
+            return {
+                "ok": True,
+                "run": AiTeamService._run_to_dict(row),
+                "message": f"Already finished ({row.status})",
+            }
+        now = AiTeamService._now()
+        is_builtin = str(row.actor_id or "").startswith("builtin:")
+        if not is_builtin and row.apify_run_id:
+            settings = AiTeamService.get_settings(db)
+            token = AiTeamService._apify_token(settings, db=db)
+            if token:
+                try:
+                    remote = ApifyService.abort_run(token, apify_run_id=row.apify_run_id)
+                    row.status = str(remote.get("status") or "ABORTING")
+                except ApifyServiceError as exc:
+                    # Still mark local pause so UI stops treating it as live
+                    logger.warning("apify_abort_failed run_id=%s err=%s", run_id, exc)
+                    row.status = "ABORTED"
+                    row.error = f"Force pause requested (Apify abort failed: {exc})"[:2000]
+            else:
+                row.status = "ABORTED"
+                row.error = "Force paused locally (no Apify token to abort remote run)"
+        else:
+            row.status = "ABORTED"
+            row.error = "Force paused by admin"
+        try:
+            stats = json.loads(row.stats_json or "{}")
+            if not isinstance(stats, dict):
+                stats = {}
+        except Exception:
+            stats = {}
+        prog = stats.get("progress") if isinstance(stats.get("progress"), dict) else {}
+        stats["progress"] = {
+            **(prog or {}),
+            "phase": "paused",
+            "message": "Force paused — scrape stopped",
+            "heartbeat_at": now.isoformat() + "Z",
+        }
+        row.stats_json = json.dumps(stats, ensure_ascii=False)
+        if str(row.status).upper() in {"ABORTED", "FAILED", "SUCCEEDED", "TIMED-OUT"}:
+            row.finished_at = row.finished_at or now
+        row.updated_at = now
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {
+            "ok": True,
+            "run": AiTeamService._run_to_dict(row),
+            "message": "Scrape force-paused",
+        }
 
     @staticmethod
     def delete_apify_run(db: Session, run_id: str) -> dict[str, Any]:
         row = db.get(AiTeamApifyRun, run_id)
         if row is None:
             raise AiTeamServiceError("Scrape run not found")
-        if str(row.status or "").upper() == "RUNNING":
-            raise AiTeamServiceError("Cannot delete a RUNNING scrape — wait for it to finish or fail first")
+        if str(row.status or "").upper() in {"RUNNING", "READY", "ABORTING"}:
+            raise AiTeamServiceError("Cannot delete an active scrape — Force pause first")
         db.delete(row)
         db.commit()
         return {"ok": True, "deleted": 1, "id": run_id}
@@ -2348,16 +2477,81 @@ class AiTeamService:
         row.status = str(remote.get("status") or row.status)
         if remote.get("dataset_id"):
             row.dataset_id = remote.get("dataset_id")
-        row.stats_json = json.dumps(remote.get("stats") or {})
+        remote_stats = remote.get("stats") or {}
+        try:
+            prev = json.loads(row.stats_json or "{}")
+            if not isinstance(prev, dict):
+                prev = {}
+        except Exception:
+            prev = {}
+        st_up = str(row.status or "").upper()
+        phase = "queued" if st_up in {"READY", "CREATED"} else (
+            "running" if st_up == "RUNNING" else (
+                "paused" if st_up in {"ABORTING", "ABORTED"} else (
+                    "done" if st_up == "SUCCEEDED" else "error"
+                )
+            )
+        )
+        msg = {
+            "READY": "Queued on Apify — waiting to start (this can take 1–2 min)",
+            "CREATED": "Created on Apify — waiting to start",
+            "RUNNING": "Apify actor is running…",
+            "ABORTING": "Aborting on Apify…",
+            "ABORTED": "Force paused / aborted",
+            "SUCCEEDED": "Completed on Apify",
+            "FAILED": "Failed on Apify",
+            "TIMED-OUT": "Timed out on Apify",
+        }.get(st_up, f"Apify status: {row.status}")
+        compute = remote_stats.get("computeUnits")
+        if st_up == "RUNNING" and compute is not None:
+            msg = f"Apify running · compute {compute}"
+        progress = {
+            "phase": phase,
+            "message": msg,
+            "stands_total": int((prev.get("progress") or {}).get("stands_total") or 0),
+            "stands_done": int((prev.get("progress") or {}).get("stands_done") or 0),
+            "stands_with_email": int((prev.get("progress") or {}).get("stands_with_email") or 0),
+            "emails_found": int(prev.get("emails_found") or (prev.get("progress") or {}).get("emails_found") or 0),
+            "errors": int((prev.get("progress") or {}).get("errors") or 0),
+            "heartbeat_at": now.isoformat() + "Z",
+            "provider": "apify",
+            "apify_stats": remote_stats,
+        }
+        merged = {
+            **prev,
+            "provider": "apify",
+            "apify_stats": remote_stats,
+            "progress": progress,
+        }
+        row.stats_json = json.dumps(merged, ensure_ascii=False)
         row.updated_at = now
-        if str(row.status).upper() in {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}:
+        if st_up in {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}:
             row.finished_at = row.finished_at or now
-            if str(row.status).upper() != "SUCCEEDED":
+            if st_up != "SUCCEEDED":
                 row.error = row.error or f"Run ended with status {row.status}"
             elif row.dataset_id:
                 try:
                     items = ApifyService.fetch_dataset_items(token, dataset_id=row.dataset_id, limit=5000)
                     row.item_count = len(items)
+                    emails = 0
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        normalized = ApifyService.normalize_contact_item(
+                            item, expo_url=row.expo_url or "", run_id=row.apify_run_id or row.id
+                        )
+                        if normalized and normalized.get("email"):
+                            emails += 1
+                    merged["emails_found"] = emails
+                    merged["progress"] = {
+                        **progress,
+                        "phase": "done",
+                        "message": f"Completed · {emails} email(s) from {len(items)} item(s)",
+                        "emails_found": emails,
+                        "stands_total": len(items),
+                        "stands_done": len(items),
+                    }
+                    row.stats_json = json.dumps(merged, ensure_ascii=False)
                 except ApifyServiceError as exc:
                     row.error = str(exc)
         db.add(row)

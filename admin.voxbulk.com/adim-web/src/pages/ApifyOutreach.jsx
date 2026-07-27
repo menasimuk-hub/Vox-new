@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { apiFetch, apiFetchBlob, apiUpload } from '../lib/api'
 import './ai-team.css'
 
@@ -147,7 +147,9 @@ function insertAtEnd(value, setValue, tag) {
 
 export default function ApifyOutreach() {
   const navigate = useNavigate()
+  const { campaignId: routeCampaignId } = useParams()
   const [searchParams] = useSearchParams()
+  const isCampaignPage = Boolean(routeCampaignId)
   const [tab, setTab] = useState(() => searchParams.get('tab') || 'campaigns')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
@@ -291,6 +293,12 @@ export default function ApifyOutreach() {
 
   useEffect(() => { loadBoot() }, [loadBoot])
   useEffect(() => {
+    if (routeCampaignId) {
+      setActiveId(routeCampaignId)
+      setTab('campaigns')
+    }
+  }, [routeCampaignId])
+  useEffect(() => {
     if (activeId) loadCampaign(activeId).catch((e) => showBanner('err', e?.message || 'Load failed'))
   }, [activeId, loadCampaign])
   useEffect(() => {
@@ -318,9 +326,12 @@ export default function ApifyOutreach() {
 
   useEffect(() => {
     if (tab !== 'scrape') return undefined
-    const running = apifyRuns.some((r) => String(r.status || '').toUpperCase() === 'RUNNING')
-    if (!running) return undefined
-    const id = window.setInterval(() => loadApifyRuns().catch(() => {}), 2000)
+    const active = apifyRuns.some((r) => {
+      const s = String(r.status || '').toUpperCase()
+      return s === 'RUNNING' || s === 'READY' || s === 'CREATED' || s === 'ABORTING'
+    })
+    if (!active) return undefined
+    const id = window.setInterval(() => loadApifyRuns().catch(() => {}), 2500)
     return () => window.clearInterval(id)
   }, [tab, apifyRuns, loadApifyRuns])
 
@@ -345,12 +356,24 @@ export default function ApifyOutreach() {
     return () => window.clearTimeout(id)
   }, [tplDraft, defaultPromoCode])
 
-  const liveScrapeRun = apifyRuns.find((r) => String(r.status || '').toUpperCase() === 'RUNNING') || null
+  const liveScrapeRun = apifyRuns.find((r) => {
+    const s = String(r.status || '').toUpperCase()
+    return s === 'RUNNING' || s === 'READY' || s === 'CREATED' || s === 'ABORTING'
+  }) || null
   const liveProgress = liveScrapeRun?.progress || null
   const liveStandsTotal = Number(liveProgress?.stands_total || liveScrapeRun?.stands_found || 0)
   const liveStandsDone = Number(liveProgress?.stands_done || 0)
   const liveEmails = Number(liveProgress?.emails_found || liveScrapeRun?.emails_found || 0)
-  const livePct = liveStandsTotal > 0 ? Math.min(100, Math.round((liveStandsDone / liveStandsTotal) * 100)) : 0
+  const livePct = liveStandsTotal > 0 ? Math.min(100, Math.round((liveStandsDone / liveStandsTotal) * 100)) : (
+    String(liveScrapeRun?.status || '').toUpperCase() === 'RUNNING' ? 15 : 5
+  )
+  const liveStatusUp = String(liveScrapeRun?.status || '').toUpperCase()
+  const liveStatusLabel = ({
+    READY: 'Queued on Apify',
+    CREATED: 'Created on Apify',
+    RUNNING: 'Running',
+    ABORTING: 'Stopping…',
+  })[liveStatusUp] || liveStatusUp || 'Working'
 
   const scrapePlan = (() => {
     const tokenOk = !!(settings.apify_token_configured || apifyToken.trim())
@@ -380,7 +403,11 @@ export default function ApifyOutreach() {
       const data = await apiFetch('/admin/ai-team/campaigns', { method: 'POST', body: JSON.stringify({ name }) })
       setNewName('')
       await loadCampaigns()
-      setActiveId(data.campaign?.id)
+      const id = data.campaign?.id
+      if (id) {
+        setActiveId(id)
+        navigate(`/marketing/apify/campaigns/${id}`)
+      }
       showBanner('ok', `Created “${data.campaign?.name}”`)
     })
   }
@@ -434,9 +461,9 @@ export default function ApifyOutreach() {
         setCampaign(null)
         setRecipients([])
       }
-      const list = await loadCampaigns()
-      if (!activeId || activeId === id) {
-        if (list[0]?.id) setActiveId(list[0].id)
+      await loadCampaigns()
+      if (isCampaignPage && routeCampaignId === id) {
+        navigate('/marketing/apify')
       }
       showBanner('ok', 'Campaign deleted')
     })
@@ -623,12 +650,22 @@ export default function ApifyOutreach() {
   const viewCampaignSent = (c) => {
     setTrackingFilter('sent')
     setTrackingCampaignId(c.id)
+    navigate('/marketing/apify')
     setTab('tracking')
   }
 
   const editCampaign = (c) => {
-    setActiveId(c.id)
-    setTab('campaigns')
+    navigate(`/marketing/apify/campaigns/${c.id}`)
+  }
+
+  const pauseScrape = async (runId) => {
+    if (!runId) return
+    if (!window.confirm('Force pause this scrape? It will stop as soon as possible.')) return
+    await act('scrape-pause', async () => {
+      const data = await apiFetch(`/admin/ai-team/apify/runs/${runId}/abort`, { method: 'POST' })
+      showBanner('ok', data.message || 'Scrape paused')
+      await loadApifyRuns()
+    })
   }
 
   const runPreview = async () => {
@@ -823,7 +860,7 @@ export default function ApifyOutreach() {
         body: JSON.stringify({ run_id: runId }),
       })
       showBanner('ok', `Added ${data.created || 0} emails`)
-      setTab('campaigns')
+      if (cid) navigate(`/marketing/apify/campaigns/${cid}`)
       await loadCampaign(cid)
       await loadCampaigns()
     })
@@ -986,17 +1023,19 @@ export default function ApifyOutreach() {
 
       {banner && <div className={`ait-msg-banner ${banner.type}`}>{banner.text}</div>}
 
-      <div className="ait-tabs">
-        {TABS.map((t) => (
-          <button key={t.id} type="button" className={`ait-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
-            <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {!isCampaignPage && (
+        <div className="ait-tabs">
+          {TABS.map((t) => (
+            <button key={t.id} type="button" className={`ait-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
+              <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="ait-content">
-        {tab === 'campaigns' && (
+        {(tab === 'campaigns' && !isCampaignPage) && (
           <div className="ait-campaigns-page">
             <div className="ait-card ait-campaigns-table-card">
               <div className="ait-card-hdr">
@@ -1069,10 +1108,22 @@ export default function ApifyOutreach() {
                 </table>
               </div>
             </div>
+          </div>
+        )}
 
-            <div className="ait-campaign-main" style={{ marginTop: 14 }}>
+        {isCampaignPage && (
+          <div className="ait-campaigns-page">
+            <div className="ait-campaign-main">
+              <div className="ait-btn-row" style={{ marginBottom: 10, marginTop: 0 }}>
+                <button type="button" className="ait-btn sm" onClick={() => navigate('/marketing/apify')}>
+                  ← Campaigns
+                </button>
+                <span className="ait-toolbar-meta" style={{ marginLeft: 4 }}>
+                  {campaign?.name || 'Campaign settings'}
+                </span>
+              </div>
               {!campaign ? (
-                <div className="ait-empty"><strong>Select a campaign</strong>Use Edit in the table, or create one above.</div>
+                <div className="ait-empty"><strong>Loading campaign…</strong></div>
               ) : (
                 <>
                   <div className="ait-toolbar">
@@ -1202,7 +1253,7 @@ export default function ApifyOutreach() {
                   <div className="ait-card">
                     <div className="ait-card-hdr">
                       <span className="ait-card-title">2 · Template</span>
-                      <button type="button" className="ait-btn xs" onClick={() => setTab('templates')}>Edit templates</button>
+                      <button type="button" className="ait-btn xs" onClick={() => { navigate('/marketing/apify'); setTab('templates') }}>Edit templates</button>
                     </div>
                     <div className="ait-card-body">
                       <div className="ait-fg-2">
@@ -1465,7 +1516,7 @@ export default function ApifyOutreach() {
                         <td>
                           <div className="ait-btn-row" style={{ margin: 0 }}>
                             <button type="button" className="ait-btn xs" onClick={() => setTrackingCampaignId(c.id)}>Filter</button>
-                            <button type="button" className="ait-btn xs primary" onClick={() => { setActiveId(c.id); setTab('campaigns') }}>Open</button>
+                            <button type="button" className="ait-btn xs primary" onClick={() => editCampaign(c)}>Open</button>
                           </div>
                         </td>
                       </tr>
@@ -1925,13 +1976,27 @@ export default function ApifyOutreach() {
                   <div className="ait-send-progress-top">
                     <div>
                       <div className="ait-send-progress-title">
-                        Scrape running · {String(liveProgress?.phase || liveScrapeRun.status || 'working')}
+                        Scrape · {liveStatusLabel}
+                        {liveProgress?.phase ? ` · ${liveProgress.phase}` : ''}
                       </div>
                       <div className="ait-send-progress-sub">
-                        {liveProgress?.message || 'Working… counters update every few seconds. Leave this tab open.'}
+                        {liveProgress?.message
+                          || (liveStatusUp === 'READY'
+                            ? 'Queued on Apify — waiting to start. Counters refresh every few seconds.'
+                            : 'Working… leave this tab open to watch progress.')}
                       </div>
                     </div>
-                    <span className="ait-badge b-opened">{livePct}%</span>
+                    <div className="ait-btn-row" style={{ margin: 0, gap: 6 }}>
+                      <span className="ait-badge b-opened">{livePct}%</span>
+                      <button
+                        type="button"
+                        className="ait-btn danger xs"
+                        disabled={!!busy || liveStatusUp === 'ABORTING'}
+                        onClick={() => pauseScrape(liveScrapeRun.id)}
+                      >
+                        Force pause
+                      </button>
+                    </div>
                   </div>
                   <div className="ait-send-progress-bar">
                     <div className="ait-send-progress-fill" style={{ width: `${livePct || 5}%` }} />
@@ -1941,43 +2006,61 @@ export default function ApifyOutreach() {
                     <span><strong>{liveEmails}</strong> emails</span>
                     <span><strong>{Number(liveProgress?.stands_with_email || 0)}</strong> with email</span>
                     <span><strong>{Number(liveProgress?.errors || 0)}</strong> errors</span>
+                    <span style={{ color: 'var(--ait-text3)' }}>
+                      {liveProgress?.heartbeat_at ? `updated ${timeAgo(liveProgress.heartbeat_at)}` : ''}
+                    </span>
                   </div>
                   {Number(liveProgress?.errors || 0) > 0 && (
                     <p className="ait-hint" style={{ marginTop: 8, marginBottom: 0, color: 'var(--ait-amber)' }}>
                       Some pages failed — scrape still continues. Check the run row when finished.
                     </p>
                   )}
+                  {liveStatusUp === 'READY' && (
+                    <p className="ait-hint" style={{ marginTop: 8, marginBottom: 0 }}>
+                      <strong>READY</strong> means Apify accepted the job but has not started the actor yet — not stuck unless it stays READY with no heartbeat for 5+ minutes.
+                    </p>
+                  )}
                 </div>
               )}
-              {(apifyRuns[0] && String(apifyRuns[0].status || '').toUpperCase() === 'FAILED') && (
+              {(apifyRuns[0] && ['FAILED', 'ABORTED', 'TIMED-OUT'].includes(String(apifyRuns[0].status || '').toUpperCase())) && (
                 <div className="ait-msg-banner err" style={{ margin: '12px 0' }}>
-                  Last scrape failed: {apifyRuns[0].error || apifyRuns[0].progress?.message || 'see Celery logs'}
+                  Last scrape {apifyRuns[0].status}: {apifyRuns[0].error || apifyRuns[0].progress?.message || 'see Celery / Apify console'}
                 </div>
               )}
               <div className="ait-table-wrap" style={{ marginTop: 12 }}>
                 <table className="ait-tbl ait-tbl-compact">
-                  <thead><tr><th>Status</th><th>Engine</th><th>URL</th><th>Emails</th><th /></tr></thead>
+                  <thead><tr><th>Status</th><th>Engine</th><th>URL</th><th>Emails</th><th>Progress</th><th /></tr></thead>
                   <tbody>
                     {apifyRuns.map((run) => {
                       const isBuiltin = String(run.actor_id || '').startsWith('builtin:') || run.provider === 'builtin' || run.engine === 'builtin'
                       const prog = run.progress || {}
-                      const running = String(run.status || '').toUpperCase() === 'RUNNING'
+                      const st = String(run.status || '').toUpperCase()
+                      const active = st === 'RUNNING' || st === 'READY' || st === 'CREATED' || st === 'ABORTING'
                       return (
                         <tr key={run.id}>
                           <td>
-                            <span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : run.status === 'FAILED' ? 'b-rejected' : 'b-pending'}`}>{run.status}</span>
-                            {running && (
-                              <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }}>
-                                {prog.stands_done || 0}/{prog.stands_total || '—'} · {prog.emails_found ?? run.emails_found ?? 0} emails
-                                {Number(prog.errors || 0) > 0 ? ` · ${prog.errors} err` : ''}
-                              </div>
-                            )}
+                            <span className={`ait-badge ${
+                              st === 'SUCCEEDED' ? 'b-sent'
+                                : (st === 'FAILED' || st === 'ABORTED' || st === 'TIMED-OUT') ? 'b-rejected'
+                                  : active ? 'b-opened' : 'b-pending'
+                            }`}>{run.status}</span>
                           </td>
                           <td style={{ fontSize: 11 }}>{isBuiltin ? 'built-in' : (run.actor_id || 'apify')}</td>
                           <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
                           <td>{run.emails_found ?? prog.emails_found ?? 0}</td>
+                          <td style={{ fontSize: 11, color: 'var(--ait-text3)', maxWidth: 220 }}>
+                            {prog.message || (active ? 'Waiting…' : '—')}
+                            {active && (prog.stands_total || prog.stands_done) ? (
+                              <div>{prog.stands_done || 0}/{prog.stands_total || '—'} stands</div>
+                            ) : null}
+                          </td>
                           <td>
-                            <div className="ait-btn-row" style={{ margin: 0 }}>
+                            <div className="ait-btn-row" style={{ margin: 0, gap: 4, flexWrap: 'wrap' }}>
+                              {active ? (
+                                <button type="button" className="ait-btn xs danger" disabled={!!busy} onClick={() => pauseScrape(run.id)}>
+                                  Force pause
+                                </button>
+                              ) : null}
                               <button type="button" className="ait-btn xs" disabled={run.status !== 'SUCCEEDED'} onClick={() => exportApifyRun(run.id)}>Excel</button>
                               <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => addScrapeToCampaign(run.id)}>Add to campaign</button>
                             </div>
@@ -1985,7 +2068,7 @@ export default function ApifyOutreach() {
                         </tr>
                       )
                     })}
-                    {!apifyRuns.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No scrapes yet</td></tr>}
+                    {!apifyRuns.length && <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No scrapes yet</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -2245,7 +2328,7 @@ export default function ApifyOutreach() {
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
               <li><strong>Sending</strong> — save From + SMTP to send, and IMAP to receive replies (SMTP alone cannot inbox).</li>
               <li><strong>Templates</strong> — paste HTML; on Save we inline CSS for Gmail/Outlook. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}. Prefer tables over flex/grid for mobile.</li>
-              <li><strong>Campaigns</strong> — table: Edit / Sent / Pause / Delete. Open a campaign → template → Excel → Preview contacts (Delete removes one) → Schedule or Send all.</li>
+              <li><strong>Campaigns</strong> — table only. Edit opens campaign settings page. Scrape shows live status (READY = queued on Apify) with Force pause.</li>
               <li><strong>Tracking</strong> — filter by campaign for Sent. <strong>Unsub list</strong> = DB table <code>ai_team_email_suppressions</code>.</li>
               <li><strong>Scrape</strong> — paste any exhibitor URL → Add to campaign.</li>
             </ol>

@@ -40,6 +40,10 @@ class ExpoDirectoryScraperError(ValueError):
     pass
 
 
+class ScrapeAborted(Exception):
+    """Raised when admin force-pauses / aborts a running directory scrape."""
+
+
 class ExpoDirectoryScraper:
     @staticmethod
     def _headers(directory_url: str) -> dict[str, str]:
@@ -294,6 +298,8 @@ class ExpoDirectoryScraper:
             data = dict(payload)
             data.setdefault("heartbeat_at", datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z")
             cb(data)
+        except ScrapeAborted:
+            raise
         except Exception:
             logger.debug("expo_scrape_progress_callback_failed", exc_info=True)
 

@@ -83,6 +83,7 @@ export default function App() {
         <Route path='/marketing/lead-sales/:taskId' element={<P.LeadSalesEdit />} />
         <Route path='/marketing/ai-team' element={<P.AiTeam />} />
         <Route path='/marketing/apify' element={<P.ApifyOutreach />} />
+        <Route path='/marketing/apify/campaigns/:campaignId' element={<P.ApifyOutreach />} />
         <Route path='/marketing/apify/inbox/:messageId' element={<P.ApifyReply />} />
         <Route path='/marketing/apify/recipients/:recipientId/reply' element={<P.ApifyReply />} />
         <Route path='/marketing/apify/recipients/:recipientId' element={<P.ApifyReply />} />

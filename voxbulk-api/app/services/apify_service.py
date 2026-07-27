@@ -209,6 +209,33 @@ class ApifyService:
             raise ApifyServiceError(str(exc)) from exc
 
     @staticmethod
+    def abort_run(token: str, *, apify_run_id: str) -> dict[str, Any]:
+        """Force-stop an Apify actor run (graceful abort)."""
+        key = ApifyService.normalize_token(token)
+        run_id = str(apify_run_id or "").strip()
+        if not key or not run_id:
+            raise ApifyServiceError("Apify token and run id are required")
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(
+                    f"{APIFY_API_BASE}/actor-runs/{run_id}/abort",
+                    headers=ApifyService._headers(key),
+                )
+                if resp.status_code >= 400:
+                    raise ApifyServiceError(f"Failed to abort Apify run ({resp.status_code}): {resp.text[:300]}")
+                data = (resp.json() or {}).get("data") or {}
+                return {
+                    "apify_run_id": data.get("id") or run_id,
+                    "status": data.get("status") or "ABORTING",
+                    "dataset_id": data.get("defaultDatasetId"),
+                    "raw": data,
+                }
+        except ApifyServiceError:
+            raise
+        except Exception as exc:
+            raise ApifyServiceError(str(exc)) from exc
+
+    @staticmethod
     def fetch_dataset_items(token: str, *, dataset_id: str, limit: int = 500) -> list[dict[str, Any]]:
         key = ApifyService.normalize_token(token)
         ds = str(dataset_id or "").strip()
