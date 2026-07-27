@@ -1,7 +1,7 @@
 """Per-profile CF WhatsApp template status ledger.
 
-Revision ID: 0190_feedback_wa_template_profile_status
-Revises: 0189_expo_asset_purpose_opened
+Revision ID: 0202_feedback_wa_template_profile_status
+Revises: 0201_ai_team_event_name
 Create Date: 2026-07-27
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0190_feedback_wa_template_profile_status"
-down_revision = "0189_expo_asset_purpose_opened"
+revision = "0202_feedback_wa_template_profile_status"
+down_revision = "0201_ai_team_event_name"
 branch_labels = None
 depends_on = None
 
