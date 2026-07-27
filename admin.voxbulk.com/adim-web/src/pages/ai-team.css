@@ -308,6 +308,8 @@
 .ai-team-page .ait-apify-hdr {
   flex-wrap: wrap; gap: 8px; align-items: center;
 }
+.ai-team-page .ait-apify-hdr .ait-subtabs { margin-left: 0; }
+.ai-team-page .ait-apify-hdr .ait-btn.primary { margin-left: auto; }
 .ai-team-page .ait-apify-body { padding-top: 10px; }
 .ai-team-page .ait-subtabs {
   display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap;
