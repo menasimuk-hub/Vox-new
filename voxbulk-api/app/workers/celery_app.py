@@ -54,6 +54,10 @@ celery_app.conf.update(
             "task": "ai_team.process_followups",
             "schedule": 3600.0,
         },
+        "ai-team-scheduled-campaigns-1m": {
+            "task": "ai_team.start_scheduled_campaigns",
+            "schedule": 60.0,
+        },
         "purge-voice-note-audio-daily": {
             "task": "survey.purge_voice_note_audio",
             "schedule": 86400.0,

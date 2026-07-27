@@ -807,6 +807,47 @@ def clear_campaign_recipients(
         raise _err(exc) from exc
 
 
+@router.delete("/campaigns/{campaign_id}/recipients/{recipient_id}")
+def delete_campaign_recipient(
+    campaign_id: str,
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.delete_recipient(db, campaign_id, recipient_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/suppressions")
+def list_email_suppressions(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        rows = AiTeamCampaignService.list_suppressions(db)
+        return {
+            "suppressions": rows,
+            "table": "ai_team_email_suppressions",
+            "note": "Global unsubscribe list for Apify / AI Team outreach. One-click unsubscribe links write here.",
+        }
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/suppressions/{suppression_id}")
+def delete_email_suppression(
+    suppression_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.delete_suppression(db, suppression_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.post("/campaigns/{campaign_id}/import/csv")
 async def campaign_import_csv(
     campaign_id: str,
@@ -1011,5 +1052,44 @@ def campaign_cancel(
 ):
     try:
         return AiTeamCampaignService.cancel_send(db, campaign_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/pause")
+def campaign_pause(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.pause_send(db, campaign_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/resume")
+def campaign_resume(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.resume_send(db, campaign_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/schedule")
+def campaign_schedule(
+    campaign_id: str,
+    body: dict[str, Any] = Body(default_factory=dict),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.schedule_send(
+            db, campaign_id, body.get("scheduled_at") or body.get("schedule_at")
+        )
     except Exception as exc:
         raise _err(exc) from exc

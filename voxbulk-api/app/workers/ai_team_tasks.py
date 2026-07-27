@@ -17,6 +17,17 @@ def process_ai_team_followups_task() -> dict:
     return stats
 
 
+@celery_app.task(name="ai_team.start_scheduled_campaigns")
+def start_scheduled_campaigns_task() -> dict:
+    """Pick up campaigns with status=scheduled whose scheduled_at has passed."""
+    from app.services.ai_team_campaign_service import AiTeamCampaignService
+
+    with get_sessionmaker()() as db:
+        stats = AiTeamCampaignService.start_due_scheduled_campaigns(db)
+    logger.info("ai_team_scheduled_campaigns_tick", extra=stats)
+    return stats
+
+
 @celery_app.task(
     name="ai_team.scrape_directory",
     bind=True,

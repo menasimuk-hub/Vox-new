@@ -471,6 +471,7 @@ class AiTeamCampaignService:
             "clicked_count": int(getattr(row, "_clicked_count", 0) or 0),
             "replied_count": int(row.replied_count or 0),
             "last_error": row.last_error,
+            "scheduled_at": row.scheduled_at.isoformat() if getattr(row, "scheduled_at", None) else None,
             "started_at": row.started_at.isoformat() if row.started_at else None,
             "completed_at": row.completed_at.isoformat() if row.completed_at else None,
             "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -628,6 +629,23 @@ class AiTeamCampaignService:
             row.template_id = tid
         if "event_name" in payload:
             row.event_name = str(payload.get("event_name") or "").strip()[:255]
+        if "scheduled_at" in payload:
+            raw = payload.get("scheduled_at")
+            if raw is None or str(raw).strip() == "":
+                row.scheduled_at = None
+                if row.status == "scheduled":
+                    row.status = "draft"
+            else:
+                from datetime import datetime as _dt
+
+                text = str(raw).strip().replace("Z", "+00:00")
+                try:
+                    parsed = _dt.fromisoformat(text)
+                except ValueError as exc:
+                    raise AiTeamServiceError("Invalid scheduled_at datetime") from exc
+                if parsed.tzinfo is not None:
+                    parsed = parsed.replace(tzinfo=None)
+                row.scheduled_at = parsed
         row.updated_at = AiTeamCampaignService._now()
         db.add(row)
         db.commit()
@@ -1219,6 +1237,51 @@ class AiTeamCampaignService:
         return {"ok": True, "deleted": len(rows)}
 
     @staticmethod
+    def delete_recipient(db: Session, campaign_id: str, recipient_id: str) -> dict[str, Any]:
+        campaign = AiTeamCampaignService.get_campaign(db, campaign_id)
+        if campaign.status == "sending":
+            raise AiTeamServiceError("Cannot remove contacts while sending — pause first")
+        row = db.get(AiTeamCampaignRecipient, str(recipient_id or "").strip())
+        if row is None or row.campaign_id != campaign_id:
+            raise AiTeamServiceError("Contact not found in this campaign")
+        email = row.email
+        db.delete(row)
+        db.commit()
+        AiTeamCampaignService.refresh_counts(db, campaign)
+        return {"ok": True, "deleted": recipient_id, "email": email, "total": campaign.total_count}
+
+    @staticmethod
+    def list_suppressions(db: Session, *, limit: int = 500) -> list[dict[str, Any]]:
+        rows = list(
+            db.execute(
+                select(AiTeamEmailSuppression)
+                .order_by(AiTeamEmailSuppression.unsubscribed_at.desc())
+                .limit(max(1, min(int(limit or 500), 2000)))
+            ).scalars().all()
+        )
+        return [
+            {
+                "id": r.id,
+                "email": r.email,
+                "unsubscribed_at": r.unsubscribed_at.isoformat() if r.unsubscribed_at else None,
+                "source_campaign_id": r.source_campaign_id,
+                "source_recipient_id": r.source_recipient_id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+
+    @staticmethod
+    def delete_suppression(db: Session, suppression_id: str) -> dict[str, Any]:
+        row = db.get(AiTeamEmailSuppression, str(suppression_id or "").strip())
+        if row is None:
+            raise AiTeamServiceError("Unsubscribe entry not found")
+        email = row.email
+        db.delete(row)
+        db.commit()
+        return {"ok": True, "deleted": suppression_id, "email": email}
+
+    @staticmethod
     def _upsert_recipient_rows(
         db: Session,
         campaign: AiTeamCampaign,
@@ -1788,6 +1851,108 @@ class AiTeamCampaignService:
         }
 
     @staticmethod
+    def pause_send(db: Session, campaign_id: str) -> dict[str, Any]:
+        """Stop the send queue; remaining pending stay queued until Resume."""
+        campaign = AiTeamCampaignService.get_campaign(db, campaign_id)
+        if campaign.status not in {"sending", "scheduled"}:
+            raise AiTeamServiceError("Pause only works while sending or scheduled")
+        campaign.status = "paused"
+        campaign.updated_at = AiTeamCampaignService._now()
+        campaign.last_error = None
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
+        return {
+            "ok": True,
+            "campaign": AiTeamCampaignService.campaign_to_dict(campaign),
+            "message": "Paused — remaining emails will not send until you Resume",
+        }
+
+    @staticmethod
+    def resume_send(db: Session, campaign_id: str) -> dict[str, Any]:
+        campaign = AiTeamCampaignService.get_campaign(db, campaign_id)
+        if campaign.status not in {"paused", "paused_daily_limit", "cancelled", "scheduled"}:
+            raise AiTeamServiceError("Campaign is not paused")
+        scheduled = getattr(campaign, "scheduled_at", None)
+        now = AiTeamCampaignService._now()
+        if campaign.status == "scheduled" and scheduled and scheduled > now:
+            return {
+                "ok": True,
+                "campaign": AiTeamCampaignService.campaign_to_dict(campaign),
+                "message": f"Still scheduled for {scheduled.isoformat()} — wait or clear the schedule",
+            }
+        return AiTeamCampaignService.start_send_all(db, campaign_id, resend=False)
+
+    @staticmethod
+    def schedule_send(db: Session, campaign_id: str, scheduled_at: str | datetime | None) -> dict[str, Any]:
+        """Queue campaign to start at scheduled_at (UTC naive / local server time)."""
+        campaign = AiTeamCampaignService.refresh_counts(
+            db, AiTeamCampaignService.get_campaign(db, campaign_id)
+        )
+        if campaign.status == "sending":
+            raise AiTeamServiceError("Cannot schedule while already sending — pause first")
+        if int(campaign.total_count or 0) < 1:
+            raise AiTeamServiceError("Add an audience before scheduling")
+        if not (campaign.subject or "").strip():
+            raise AiTeamServiceError("Add a subject before scheduling")
+        raw = scheduled_at
+        if raw is None or str(raw).strip() == "":
+            raise AiTeamServiceError("Pick a send date and time")
+        if isinstance(raw, datetime):
+            when = raw
+        else:
+            text = str(raw).strip().replace("Z", "+00:00")
+            try:
+                when = datetime.fromisoformat(text)
+            except ValueError as exc:
+                raise AiTeamServiceError("Invalid schedule datetime") from exc
+        if when.tzinfo is not None:
+            when = when.replace(tzinfo=None)
+        now = AiTeamCampaignService._now()
+        if when <= now:
+            # Due now — start immediately
+            campaign.scheduled_at = when
+            db.add(campaign)
+            db.commit()
+            return AiTeamCampaignService.start_send_all(db, campaign_id)
+        campaign.scheduled_at = when
+        campaign.status = "scheduled"
+        campaign.completed_at = None
+        campaign.last_error = None
+        campaign.updated_at = now
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
+        return {
+            "ok": True,
+            "campaign": AiTeamCampaignService.campaign_to_dict(campaign),
+            "message": f"Scheduled to start at {when.isoformat()} (server time)",
+        }
+
+    @staticmethod
+    def start_due_scheduled_campaigns(db: Session) -> dict[str, Any]:
+        now = AiTeamCampaignService._now()
+        rows = list(
+            db.execute(
+                select(AiTeamCampaign).where(
+                    AiTeamCampaign.status == "scheduled",
+                    AiTeamCampaign.scheduled_at.is_not(None),
+                    AiTeamCampaign.scheduled_at <= now,
+                )
+            ).scalars().all()
+        )
+        started = 0
+        errors: list[str] = []
+        for camp in rows:
+            try:
+                AiTeamCampaignService.start_send_all(db, camp.id)
+                started += 1
+            except Exception as exc:
+                errors.append(f"{camp.id}: {exc}")
+                logger.warning("ai_team_scheduled_start_failed campaign=%s err=%s", camp.id, exc)
+        return {"ok": True, "started": started, "checked": len(rows), "errors": errors}
+
+    @staticmethod
     def process_send_job(
         campaign_id: str,
         *,
@@ -1818,7 +1983,7 @@ class AiTeamCampaignService:
 
             while True:
                 db.refresh(campaign)
-                if campaign.status == "cancelled":
+                if campaign.status in {"cancelled", "paused"}:
                     break
                 row = db.execute(
                     select(AiTeamCampaignRecipient)
@@ -1901,9 +2066,9 @@ class AiTeamCampaignService:
                             time.sleep(step)
                             slept += step
                             db.refresh(campaign)
-                            if campaign.status == "cancelled":
+                            if campaign.status in {"cancelled", "paused"}:
                                 break
-                        if campaign.status == "cancelled":
+                        if campaign.status in {"cancelled", "paused"}:
                             break
 
             db.refresh(campaign)
@@ -1917,6 +2082,10 @@ class AiTeamCampaignService:
                 campaign.status = "sent" if int(pending_left) == 0 else "failed"
                 campaign.completed_at = AiTeamCampaignService._now()
                 campaign.updated_at = campaign.completed_at
+                db.add(campaign)
+                db.commit()
+            elif campaign.status == "paused":
+                campaign.updated_at = AiTeamCampaignService._now()
                 db.add(campaign)
                 db.commit()
             AiTeamCampaignService.refresh_counts(db, campaign)

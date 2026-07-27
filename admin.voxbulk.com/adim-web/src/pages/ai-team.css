@@ -877,11 +877,41 @@
   max-height: 360px;
   overflow: auto;
 }
-.ai-team-page .ait-thread-page .ait-html-preview {
-  min-height: 280px;
-  height: 420px;
-  width: 100%;
-  border: 1px solid var(--ait-border2);
-  border-radius: var(--ait-r);
-  background: #fff;
+.ai-team-page .ait-campaigns-page { display: flex; flex-direction: column; gap: 0; }
+.ai-team-page .ait-campaigns-table-card { margin-bottom: 0; }
+.ai-team-page .ait-campaigns-table-card .ait-card-hdr {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--ait-border);
 }
+.ai-team-page .ait-tbl-campaigns { width: 100%; border-collapse: collapse; }
+.ai-team-page .ait-tbl-campaigns th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ait-text3);
+  background: var(--ait-bg3);
+  border-bottom: 1px solid var(--ait-border);
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+.ai-team-page .ait-tbl-campaigns td {
+  padding: 10px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--ait-border);
+  vertical-align: middle;
+}
+.ai-team-page .ait-tbl-campaigns tr:last-child td { border-bottom: 0; }
+.ai-team-page .ait-tbl-campaigns tr:hover td { background: rgba(0,0,0,0.015); }
+.ai-team-page .ait-inline-input {
+  height: 32px; border: 1px solid var(--ait-border); border-radius: var(--ait-r-sm);
+  padding: 0 10px; font: inherit; min-width: 200px; background: var(--ait-bg2);
+}
+.ai-team-page .ait-link-btn {
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: inherit; font: inherit;
+}
+.ai-team-page .ait-link-btn:hover strong { color: var(--ait-accent); }
+.ai-team-page .ait-campaign-main { max-width: none; }
+.ai-team-page .ait-campaign-main .ait-card { margin-top: 12px; }
+.ai-team-page .ait-campaign-main .ait-card-hdr { padding: 10px 14px; }
+.ai-team-page .ait-campaign-main .ait-card-body { padding: 12px 14px; }

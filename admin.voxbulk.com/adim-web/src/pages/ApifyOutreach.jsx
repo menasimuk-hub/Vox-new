@@ -123,13 +123,22 @@ function statusBadge(status) {
     draft: 'b-pending', sending: 'b-opened', sent: 'b-sent',
     cancelled: 'b-rejected', failed: 'b-rejected', pending: 'b-pending',
     unsubscribed: 'b-rejected', skipped: 'b-pending',
-    paused_daily_limit: 'b-dent',
+    paused_daily_limit: 'b-dent', paused: 'b-dent', scheduled: 'b-prop',
+    test: 'b-pending',
   }
   return map[status] || 'b-pending'
 }
 
 function contactDisplayName(r) {
   return [r.first_name, r.last_name].filter(Boolean).join(' ') || '—'
+}
+
+function toLocalInputValue(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function insertAtEnd(value, setValue, tag) {
@@ -176,7 +185,8 @@ export default function ApifyOutreach() {
   const [csvDetected, setCsvDetected] = useState({})
   const [csvEmailOk, setCsvEmailOk] = useState(false)
   const [csvMapOpen, setCsvMapOpen] = useState(false)
-  const [contactsModal, setContactsModal] = useState(null) // { title, rows }
+  const [contactsModal, setContactsModal] = useState(null) // { title, rows, source }
+  const [suppressions, setSuppressions] = useState([])
 
   const [apifyExpoUrl, setApifyExpoUrl] = useState('')
   const [scrapeEngine, setScrapeEngine] = useState('auto')
@@ -244,12 +254,22 @@ export default function ApifyOutreach() {
 
   const loadTracking = useCallback(async () => {
     const params = new URLSearchParams()
-    if (trackingFilter && trackingFilter !== 'all') params.set('status', trackingFilter)
+    if (trackingFilter && trackingFilter !== 'all' && trackingFilter !== 'unsub_list') {
+      params.set('status', trackingFilter)
+    }
     if (trackingCampaignId) params.set('campaign_id', trackingCampaignId)
     if (trackingQ.trim()) params.set('q', trackingQ.trim())
     const qs = params.toString()
     const data = await apiFetch(`/admin/ai-team/tracking${qs ? `?${qs}` : ''}`)
     setTracking(data)
+    if (trackingFilter === 'unsub_list' || trackingFilter === 'unsubscribed') {
+      try {
+        const s = await apiFetch('/admin/ai-team/suppressions')
+        setSuppressions(s.suppressions || [])
+      } catch {
+        setSuppressions([])
+      }
+    }
     return data
   }, [trackingFilter, trackingCampaignId, trackingQ])
 
@@ -381,11 +401,21 @@ export default function ApifyOutreach() {
   const saveCampaignMeta = async () => {
     if (!activeId || !campaign) return
     await act('save-c', async () => {
+      const local = campaign._scheduleLocal
+      let scheduled_at = campaign.scheduled_at || null
+      if (local !== undefined) {
+        if (!local) scheduled_at = null
+        else {
+          const when = new Date(local)
+          scheduled_at = Number.isNaN(when.getTime()) ? null : when.toISOString()
+        }
+      }
       const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}`, {
         method: 'PUT',
         body: JSON.stringify({
           name: campaign.name,
           event_name: campaign.event_name || '',
+          scheduled_at,
         }),
       })
       setCampaign(data.campaign)
@@ -394,17 +424,26 @@ export default function ApifyOutreach() {
     })
   }
 
-  const deleteCampaign = async () => {
-    if (!activeId || !window.confirm('Delete this campaign and its audience?')) return
+  const deleteCampaignById = async (id) => {
+    if (!id) return
+    if (!window.confirm('Delete this campaign and all its contacts?')) return
     await act('del-c', async () => {
-      await apiFetch(`/admin/ai-team/campaigns/${activeId}`, { method: 'DELETE' })
-      setActiveId(null)
-      setCampaign(null)
-      setRecipients([])
+      await apiFetch(`/admin/ai-team/campaigns/${id}`, { method: 'DELETE' })
+      if (activeId === id) {
+        setActiveId(null)
+        setCampaign(null)
+        setRecipients([])
+      }
       const list = await loadCampaigns()
-      if (list[0]?.id) setActiveId(list[0].id)
+      if (!activeId || activeId === id) {
+        if (list[0]?.id) setActiveId(list[0].id)
+      }
       showBanner('ok', 'Campaign deleted')
     })
+  }
+
+  const deleteCampaign = async () => {
+    await deleteCampaignById(activeId)
   }
 
   const resetCsvUpload = () => {
@@ -469,6 +508,7 @@ export default function ApifyOutreach() {
     setContactsModal({
       title: `Sheet preview · ${csvContacts.length} contact${csvContacts.length === 1 ? '' : 's'}`,
       rows: csvContacts,
+      source: 'sheet',
     })
   }
 
@@ -480,6 +520,7 @@ export default function ApifyOutreach() {
     setContactsModal({
       title: `Audience · ${recipients.length} contact${recipients.length === 1 ? '' : 's'}`,
       rows: recipients.map((r) => ({
+        id: r.id,
         email: r.email,
         first_name: r.first_name,
         last_name: r.last_name,
@@ -488,7 +529,106 @@ export default function ApifyOutreach() {
         event_name: r.event_name,
         status: r.status,
       })),
+      source: 'audience',
     })
+  }
+
+  const deleteContactFromPreview = async (row, index) => {
+    if (contactsModal?.source === 'audience' && row.id && activeId) {
+      if (!window.confirm(`Remove ${row.email} from this campaign?`)) return
+      await act('del-contact', async () => {
+        await apiFetch(`/admin/ai-team/campaigns/${activeId}/recipients/${row.id}`, { method: 'DELETE' })
+        await loadCampaign(activeId)
+        await loadCampaigns()
+        setContactsModal((prev) => {
+          if (!prev) return null
+          const rows = prev.rows.filter((r) => r.id !== row.id)
+          return rows.length ? { ...prev, rows, title: `Audience · ${rows.length} contacts` } : null
+        })
+        showBanner('ok', `Removed ${row.email}`)
+      })
+      return
+    }
+    setCsvContacts((prev) => {
+      const next = prev.filter((r, i) => (row.email ? r.email !== row.email : i !== index))
+      setCsvTotal(next.length)
+      setContactsModal((modal) => {
+        if (!modal || modal.source !== 'sheet') return modal
+        return next.length
+          ? { ...modal, rows: next, title: `Sheet preview · ${next.length} contacts` }
+          : null
+      })
+      return next
+    })
+  }
+
+  const pauseCampaign = async (id = activeId) => {
+    if (!id) return
+    await act('pause', async () => {
+      const data = await apiFetch(`/admin/ai-team/campaigns/${id}/pause`, { method: 'POST' })
+      if (data.campaign && id === activeId) setCampaign(data.campaign)
+      showBanner('ok', data.message || 'Paused')
+      await loadCampaigns()
+      if (id === activeId) await loadCampaign(id)
+    })
+  }
+
+  const resumeCampaign = async (id = activeId) => {
+    if (!id) return
+    await act('resume', async () => {
+      const data = await apiFetch(`/admin/ai-team/campaigns/${id}/resume`, { method: 'POST' })
+      if (data.campaign && id === activeId) setCampaign(data.campaign)
+      showBanner('ok', data.message || 'Resumed')
+      await loadCampaigns()
+      if (id === activeId) await loadCampaign(id)
+    })
+  }
+
+  const scheduleCampaign = async () => {
+    if (!activeId || !campaign) return
+    const local = campaign._scheduleLocal || toLocalInputValue(campaign.scheduled_at)
+    if (!local) {
+      showBanner('err', 'Pick a date and time first')
+      return
+    }
+    const when = new Date(local)
+    if (Number.isNaN(when.getTime())) {
+      showBanner('err', 'Invalid schedule time')
+      return
+    }
+    await act('schedule', async () => {
+      const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}/schedule`, {
+        method: 'POST',
+        body: JSON.stringify({ scheduled_at: when.toISOString() }),
+      })
+      if (data.campaign) setCampaign({ ...data.campaign, _scheduleLocal: undefined })
+      showBanner('ok', data.message || 'Scheduled')
+      await loadCampaigns()
+    })
+  }
+
+  const clearSchedule = async () => {
+    if (!activeId || !campaign) return
+    await act('clear-sched', async () => {
+      const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ scheduled_at: null }),
+      })
+      setCampaign({ ...data.campaign, _scheduleLocal: '' })
+      showBanner('ok', 'Schedule cleared')
+      await loadCampaigns()
+    })
+  }
+
+  const viewCampaignSent = (c) => {
+    setTrackingFilter('sent')
+    setTrackingCampaignId(c.id)
+    setTab('tracking')
+  }
+
+  const editCampaign = (c) => {
+    setActiveId(c.id)
+    setTab('campaigns')
   }
 
   const runPreview = async () => {
@@ -857,101 +997,145 @@ export default function ApifyOutreach() {
 
       <div className="ait-content">
         {tab === 'campaigns' && (
-          <div className="ait-campaign-layout">
-            <aside className="ait-campaign-rail">
-              <div className="ait-card" style={{ marginBottom: 0 }}>
-                <div className="ait-card-hdr"><span className="ait-card-title">Campaigns</span></div>
-                <div className="ait-card-body" style={{ padding: 12 }}>
-                  <div className="ait-field" style={{ marginBottom: 8 }}>
-                    <input placeholder="New campaign name" value={newName} onChange={(e) => setNewName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') createCampaign() }} />
-                  </div>
-                  <button type="button" className="ait-btn primary sm" style={{ width: '100%', marginBottom: 12 }} disabled={!!busy} onClick={createCampaign}>Create</button>
-                  <div className="ait-campaign-list">
-                    {campaigns.map((c) => (
-                      <button key={c.id} type="button" className={`ait-campaign-item ${activeId === c.id ? 'active' : ''}`} onClick={() => setActiveId(c.id)}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                          <strong style={{ fontSize: 13 }}>{c.name}</strong>
-                          <span className={`ait-badge ${statusBadge(c.status)}`}>{c.status}</span>
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }}>
-                          {c.sent_count}/{c.total_count} sent · {timeAgo(c.updated_at)}
-                        </div>
-                      </button>
-                    ))}
-                    {!campaigns.length && (
-                      <div className="ait-empty" style={{ padding: 20 }}>
-                        <strong>No campaigns</strong>
-                        Create one, pick a template, upload Excel.
-                      </div>
-                    )}
-                  </div>
+          <div className="ait-campaigns-page">
+            <div className="ait-card ait-campaigns-table-card">
+              <div className="ait-card-hdr">
+                <span className="ait-card-title">Campaigns</span>
+                <div className="ait-btn-row" style={{ margin: 0, gap: 8 }}>
+                  <input
+                    className="ait-inline-input"
+                    placeholder="New campaign name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') createCampaign() }}
+                  />
+                  <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={createCampaign}>Create</button>
                 </div>
               </div>
-            </aside>
+              <div className="ait-table-wrap" style={{ marginTop: 0 }}>
+                <table className="ait-tbl ait-tbl-campaigns">
+                  <thead>
+                    <tr>
+                      <th>Campaign</th>
+                      <th>Status</th>
+                      <th>Audience</th>
+                      <th>Sent</th>
+                      <th>Opened</th>
+                      <th>Schedule</th>
+                      <th>Updated</th>
+                      <th style={{ width: 220 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaigns.map((c) => (
+                      <tr key={c.id} className={activeId === c.id ? 'ait-row-active' : ''}>
+                        <td>
+                          <button type="button" className="ait-link-btn" onClick={() => editCampaign(c)}>
+                            <strong>{c.name}</strong>
+                          </button>
+                          {c.event_name ? <div className="ait-contact-email">{c.event_name}</div> : null}
+                        </td>
+                        <td><span className={`ait-badge ${statusBadge(c.status)}`}>{c.status}</span></td>
+                        <td className="ait-muted-num">{c.total_count || 0}</td>
+                        <td className="ait-muted-num">{c.sent_count || 0}</td>
+                        <td className="ait-muted-num">{c.opened_count || 0}</td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>
+                          {c.scheduled_at ? new Date(c.scheduled_at).toLocaleString() : '—'}
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(c.updated_at)}</td>
+                        <td>
+                          <div className="ait-btn-row" style={{ margin: 0, gap: 4, flexWrap: 'wrap' }}>
+                            <button type="button" className="ait-btn xs" onClick={() => editCampaign(c)}>Edit</button>
+                            <button type="button" className="ait-btn xs" onClick={() => viewCampaignSent(c)}>Sent</button>
+                            {c.status === 'sending' || c.status === 'scheduled' ? (
+                              <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => pauseCampaign(c.id)}>Pause</button>
+                            ) : null}
+                            {c.status === 'paused' || c.status === 'paused_daily_limit' ? (
+                              <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={() => resumeCampaign(c.id)}>Resume</button>
+                            ) : null}
+                            <button type="button" className="ait-btn xs danger" disabled={!!busy || c.status === 'sending'} onClick={() => deleteCampaignById(c.id)}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!campaigns.length && (
+                      <tr>
+                        <td colSpan={8} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 24 }}>
+                          No campaigns yet — create one, pick a template, upload Excel.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-            <div className="ait-campaign-main">
+            <div className="ait-campaign-main" style={{ marginTop: 14 }}>
               {!campaign ? (
-                <div className="ait-empty"><strong>Select or create a campaign</strong>Template → Excel → Preview → Send all</div>
+                <div className="ait-empty"><strong>Select a campaign</strong>Use Edit in the table, or create one above.</div>
               ) : (
                 <>
                   <div className="ait-toolbar">
                     <div className="ait-toolbar-left">
                       <span className={`ait-badge ${statusBadge(campaign.status)}`}>{campaign.status}</span>
                       <span className="ait-toolbar-meta">{campaign.sent_count}/{campaign.total_count} sent</span>
+                      {campaign.scheduled_at ? (
+                        <span className="ait-toolbar-meta">Scheduled {new Date(campaign.scheduled_at).toLocaleString()}</span>
+                      ) : null}
                     </div>
                     <div className="ait-toolbar-right">
+                      {(campaign.status === 'sending' || campaign.status === 'scheduled') && (
+                        <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => pauseCampaign()}>Pause</button>
+                      )}
+                      {(campaign.status === 'paused' || campaign.status === 'paused_daily_limit') && (
+                        <button type="button" className="ait-btn sm primary" disabled={!!busy} onClick={() => resumeCampaign()}>Resume</button>
+                      )}
                       <button type="button" className="ait-btn sm" disabled={!!busy || campaign.status === 'sending'} onClick={saveCampaignMeta}>Save</button>
                       <button type="button" className="ait-btn danger sm" disabled={!!busy || campaign.status === 'sending'} onClick={deleteCampaign}>Delete</button>
                     </div>
                   </div>
 
-                  {(campaign.status === 'sending' || campaign.status === 'paused_daily_limit') && (
+                  {(campaign.status === 'sending' || campaign.status === 'paused' || campaign.status === 'paused_daily_limit' || campaign.status === 'scheduled') && (
                     <div className="ait-send-progress">
                       <div className="ait-send-progress-top">
                         <div>
                           <div className="ait-send-progress-title">
-                            {campaign.status === 'sending' ? 'Sending queue' : 'Paused — daily limit'}
+                            {campaign.status === 'sending' && 'Sending queue'}
+                            {campaign.status === 'paused' && 'Paused'}
+                            {campaign.status === 'paused_daily_limit' && 'Paused — daily limit'}
+                            {campaign.status === 'scheduled' && 'Scheduled'}
                           </div>
                           <div className="ait-send-progress-sub">
-                            {campaign.status === 'sending'
-                              ? `1 email every ${sendIntervalSec}s · ~${sendEtaMin || '…'} min left for ${pendingCount} queued`
-                              : (campaign.last_error || 'Raise Max/day under Sending, then click Send all again')}
+                            {campaign.status === 'sending' && `1 email every ${sendIntervalSec}s · ~${sendEtaMin || '…'} min left for ${pendingCount} queued`}
+                            {campaign.status === 'paused' && 'Sending stopped — click Resume to continue the queue'}
+                            {campaign.status === 'paused_daily_limit' && (campaign.last_error || 'Raise Max/day under Sending, then Resume')}
+                            {campaign.status === 'scheduled' && `Starts ${campaign.scheduled_at ? new Date(campaign.scheduled_at).toLocaleString() : '—'} · Pause to cancel schedule`}
                           </div>
                         </div>
-                        {campaign.status === 'sending' && (
-                          <button type="button" className="ait-btn danger xs" disabled={!!busy} onClick={cancelSend}>Cancel</button>
-                        )}
+                        <div className="ait-btn-row" style={{ margin: 0, gap: 6 }}>
+                          {campaign.status === 'sending' && (
+                            <>
+                              <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => pauseCampaign()}>Pause</button>
+                              <button type="button" className="ait-btn danger xs" disabled={!!busy} onClick={cancelSend}>Cancel</button>
+                            </>
+                          )}
+                          {(campaign.status === 'paused' || campaign.status === 'paused_daily_limit') && (
+                            <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={() => resumeCampaign()}>Resume</button>
+                          )}
+                        </div>
                       </div>
-                      <div className="ait-send-progress-bar">
-                        <div className="ait-send-progress-fill" style={{ width: `${sendPct}%` }} />
-                      </div>
-                      <div className="ait-send-progress-stats">
-                        <span><strong>{campaign.sent_count || 0}</strong> sent</span>
-                        <span><strong>{campaign.failed_count || 0}</strong> failed</span>
-                        <span><strong>{pendingCount}</strong> queued</span>
-                        <span><strong>{sendPct}%</strong> done</span>
-                      </div>
-                      {recipients.filter((r) => r.status === 'sent' || r.status === 'failed').slice(-5).reverse().length > 0 && (
-                        <ul className="ait-send-log">
-                          {recipients
-                            .filter((r) => r.status === 'sent' || r.status === 'failed')
-                            .slice(-5)
-                            .reverse()
-                            .map((r) => (
-                              <li key={r.id}>
-                                <span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span>
-                                <span className="ait-send-log-email">{r.email}</span>
-                                {r.last_error ? <span className="ait-send-log-err">{r.last_error}</span> : null}
-                              </li>
-                            ))}
-                        </ul>
-                      )}
-                      {campaign.status === 'sending' && (campaign.sent_count || 0) === 0 && (
-                        <p className="ait-hint" style={{ marginTop: 10, marginBottom: 0 }}>
-                          First email can take up to ~20s. If this stays at 0 for several minutes, on the VPS run:
-                          {' '}<code>sudo supervisorctl restart voxbulk-celery</code>
-                        </p>
+                      {(campaign.status === 'sending' || campaign.status === 'paused') && (
+                        <>
+                          <div className="ait-send-progress-bar">
+                            <div className="ait-send-progress-fill" style={{ width: `${sendPct}%` }} />
+                          </div>
+                          <div className="ait-send-progress-stats">
+                            <span><strong>{campaign.sent_count || 0}</strong> sent</span>
+                            <span><strong>{campaign.failed_count || 0}</strong> failed</span>
+                            <span><strong>{pendingCount}</strong> queued</span>
+                            <span><strong>{sendPct}%</strong> done</span>
+                          </div>
+                        </>
                       )}
                     </div>
                   )}
@@ -979,7 +1163,36 @@ export default function ApifyOutreach() {
                             onChange={(e) => setCampaign({ ...campaign, event_name: e.target.value })}
                           />
                           <span className="ait-hint" style={{ display: 'block', marginTop: 4 }}>
-                            Used for all emails unless Excel has an Event name column. Click Save after editing.
+                            Used for all emails unless Excel has an Event name column.
+                          </span>
+                        </div>
+                      </div>
+                      <div className="ait-fg-2" style={{ marginTop: 12 }}>
+                        <div className="ait-field">
+                          <label>Schedule send</label>
+                          <input
+                            type="datetime-local"
+                            disabled={campaign.status === 'sending'}
+                            value={campaign._scheduleLocal ?? toLocalInputValue(campaign.scheduled_at)}
+                            onChange={(e) => setCampaign({ ...campaign, _scheduleLocal: e.target.value })}
+                          />
+                        </div>
+                        <div className="ait-field">
+                          <label>&nbsp;</label>
+                          <div className="ait-btn-row" style={{ margin: 0 }}>
+                            <button type="button" className="ait-btn sm" disabled={!!busy || campaign.status === 'sending'} onClick={scheduleCampaign}>Schedule</button>
+                            <button
+                              type="button"
+                              className="ait-btn ghost sm"
+                              disabled={!!busy || campaign.status === 'sending'}
+                              onClick={clearSchedule}
+                            >
+                              Clear
+                            </button>
+                            <button type="button" className="ait-btn ghost sm" disabled={!!busy || campaign.status === 'sending'} onClick={saveCampaignMeta}>Save</button>
+                          </div>
+                          <span className="ait-hint" style={{ display: 'block', marginTop: 4 }}>
+                            Celery starts the queue at this time. Pause stops until Resume.
                           </span>
                         </div>
                       </div>
@@ -1189,7 +1402,7 @@ export default function ApifyOutreach() {
                           type="button"
                           className="ait-btn ghost sm"
                           disabled={!campaign.sent_count}
-                          onClick={() => { setTrackingFilter('sent'); setTrackingCampaignId(activeId || ''); setTab('tracking') }}
+                          onClick={() => viewCampaignSent(campaign)}
                         >
                           View sent
                         </button>
@@ -1269,7 +1482,7 @@ export default function ApifyOutreach() {
               <div className="ait-card-hdr">
                 <span className="ait-card-title">Activity</span>
                 <div className="ait-seg ait-seg-right">
-                  {[['all', 'All'], ['sent', 'Sent'], ['opened', 'Opened'], ['clicked', 'Clicked'], ['received', 'Received'], ['inbox', 'Inbox'], ['unsubscribed', 'Unsubscribed'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
+                  {[['all', 'All'], ['sent', 'Sent'], ['opened', 'Opened'], ['clicked', 'Clicked'], ['received', 'Received'], ['inbox', 'Inbox'], ['unsubscribed', 'Unsubscribed'], ['unsub_list', 'Unsub list'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
                     <button key={id} type="button" className={trackingFilter === id ? 'active' : ''} onClick={() => setTrackingFilter(id)}>{label}</button>
                   ))}
                 </div>
@@ -1323,7 +1536,55 @@ export default function ApifyOutreach() {
                   </p>
                 )}
               </div>
-              {trackingFilter === 'inbox' ? (
+              {trackingFilter === 'unsub_list' ? (
+              <div className="ait-table-wrap">
+                <p className="ait-hint" style={{ marginTop: 0 }}>
+                  Stored in DB table <code>ai_team_email_suppressions</code> — global opt-out from unsubscribe links.
+                  These emails are skipped on every future campaign import/send.
+                </p>
+                <table className="ait-tbl ait-tbl-contacts">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Unsubscribed</th>
+                      <th>Campaign</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suppressions.map((s) => (
+                      <tr key={s.id}>
+                        <td>{s.email}</td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{s.unsubscribed_at ? new Date(s.unsubscribed_at).toLocaleString() : '—'}</td>
+                        <td style={{ fontSize: 12 }}>{s.source_campaign_id ? String(s.source_campaign_id).slice(0, 8) : '—'}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="ait-btn xs danger"
+                            disabled={!!busy}
+                            onClick={() => act('unsub-del', async () => {
+                              if (!window.confirm(`Remove ${s.email} from unsubscribe list?`)) return
+                              await apiFetch(`/admin/ai-team/suppressions/${s.id}`, { method: 'DELETE' })
+                              showBanner('ok', 'Removed from unsub list')
+                              await loadTracking()
+                            })}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {!suppressions.length && (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>
+                          No global unsubscribes yet
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              ) : trackingFilter === 'inbox' ? (
               <div className="ait-table-wrap">
                 <table className="ait-tbl">
                   <thead>
@@ -1937,6 +2198,7 @@ export default function ApifyOutreach() {
                     <th>Job title</th>
                     <th>Event</th>
                     {contactsModal.rows.some((r) => r.status) ? <th>Status</th> : null}
+                    <th style={{ width: 72 }} />
                   </tr>
                 </thead>
                 <tbody>
@@ -1953,6 +2215,17 @@ export default function ApifyOutreach() {
                       {contactsModal.rows.some((x) => x.status) ? (
                         <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status || '—'}</span></td>
                       ) : null}
+                      <td>
+                        <button
+                          type="button"
+                          className="ait-btn xs danger"
+                          disabled={!!busy}
+                          title="Remove from list"
+                          onClick={() => deleteContactFromPreview(r, i)}
+                        >
+                          Delete
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1972,8 +2245,8 @@ export default function ApifyOutreach() {
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
               <li><strong>Sending</strong> — save From + SMTP to send, and IMAP to receive replies (SMTP alone cannot inbox).</li>
               <li><strong>Templates</strong> — paste HTML; on Save we inline CSS for Gmail/Outlook. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}. Prefer tables over flex/grid for mobile.</li>
-              <li><strong>Campaigns</strong> — name + event name → template → drop Excel/CSV (auto-detects columns) → Preview contacts → Add → Preview email → Send all.</li>
-              <li><strong>Tracking</strong> — Received + Refresh inbox (IMAP). Reply From must match an audience email; Send test registers that inbox.</li>
+              <li><strong>Campaigns</strong> — table: Edit / Sent / Pause / Delete. Open a campaign → template → Excel → Preview contacts (Delete removes one) → Schedule or Send all.</li>
+              <li><strong>Tracking</strong> — filter by campaign for Sent. <strong>Unsub list</strong> = DB table <code>ai_team_email_suppressions</code>.</li>
               <li><strong>Scrape</strong> — paste any exhibitor URL → Add to campaign.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>
