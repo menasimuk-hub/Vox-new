@@ -88,6 +88,8 @@ MERGE_TAGS = [
     "promo_code",
     "signup_url",
     "trial_url",
+    "tracked_trial_url",
+    "direct_signup_url",
     "body",
 ]
 
@@ -164,9 +166,12 @@ class AiTeamCampaignService:
 
     @staticmethod
     def _signup_url(promo_code: str | None = None, *, recipient_id: str | None = None) -> str:
-        """Direct signup for previews; tracked redirect when sending to a recipient."""
-        if recipient_id:
-            return AiTeamCampaignService._tracked_trial_url(recipient_id)
+        """Always the direct signup URL — HTML/links are source of truth (no href rewrite).
+
+        ``recipient_id`` is accepted for call-site compatibility but ignored.
+        Use ``{{tracked_trial_url}}`` when click tracking is wanted explicitly.
+        """
+        _ = recipient_id
         return AiTeamCampaignService._public_signin_url(promo_code)
 
     @staticmethod
@@ -250,8 +255,8 @@ class AiTeamCampaignService:
             promo = AiTeamCampaignService.resolve_promo_code(db, promo)
         elif not promo:
             promo = DEFAULT_EXPO_PROMO_CODE
-        tracked = AiTeamCampaignService._signup_url(promo, recipient_id=row.id)
         direct = AiTeamCampaignService._public_signin_url(promo)
+        tracked = AiTeamCampaignService._tracked_trial_url(row.id)
         return {
             "first_name": row.first_name or "there",
             "last_name": row.last_name or "",
@@ -262,9 +267,12 @@ class AiTeamCampaignService:
             "sector": row.sector or "",
             "country_code": row.country_code or "GB",
             "promo_code": promo,
-            "signup_url": tracked,
-            "trial_url": tracked,
+            # Source of truth: same direct URLs as preview / authored HTML.
+            "signup_url": direct,
+            "trial_url": direct,
             "direct_signup_url": direct,
+            # Opt-in click tracking only when the template uses this tag.
+            "tracked_trial_url": tracked,
         }
 
     @staticmethod
@@ -660,6 +668,12 @@ class AiTeamCampaignService:
             stmt = stmt.where(AiTeamCampaignRecipient.clicked_at.is_not(None))
         elif st == "opened":
             stmt = stmt.where(AiTeamCampaignRecipient.opened_at.is_not(None))
+        elif st == "received":
+            # Conversation candidates: already emailed (or marked replied). Open → reply → send.
+            stmt = stmt.where(
+                (AiTeamCampaignRecipient.status == "sent")
+                | (AiTeamCampaignRecipient.replied_at.is_not(None))
+            )
         needle = str(q or "").strip().lower()
         if needle:
             like = f"%{needle}%"
@@ -885,6 +899,7 @@ class AiTeamCampaignService:
                 "signup_url": direct,
                 "trial_url": direct,
                 "direct_signup_url": direct,
+                "tracked_trial_url": direct,
             }
         else:
             vars_map = AiTeamCampaignService.recipient_vars(recipient, db=db)
@@ -898,20 +913,19 @@ class AiTeamCampaignService:
         subject = AiTeamCampaignService._apply_merge(campaign.subject or "", vars_map).strip() or "Hello"
         template = str(campaign.html_template or "").strip()
 
-        if not template:
-            # No HTML wrapper: use body as the document if it looks like HTML, else default shell.
-            if body_merged and re.search(r"</?(?:html|body|table|div|a)\b", body_merged, re.I):
-                template = body_merged
-                vars_map["body"] = ""
+        if template:
+            # Authored HTML is source of truth — never wrap or replace with default shell.
+            if "{{body}}" in template:
+                vars_map["body"] = body_merged
             else:
-                template = _DEFAULT_HTML_TEMPLATE
-                vars_map["body"] = body_merged.replace("\n", "<br>") if body_merged else ""
-        elif "{{body}}" in template:
-            # Insert body text as-is (no colour/size wrappers).
-            vars_map["body"] = body_merged
-        else:
-            # Full HTML document — ignore body for HTML output (plain text still returned).
+                vars_map["body"] = ""
+        elif body_merged and re.search(r"</?(?:html|body|table|div|a)\b", body_merged, re.I):
+            # No wrapper: body itself is a full HTML document.
+            template = body_merged
             vars_map["body"] = ""
+        else:
+            template = _DEFAULT_HTML_TEMPLATE
+            vars_map["body"] = body_merged.replace("\n", "<br>") if body_merged else ""
 
         html = AiTeamCampaignService._apply_merge(template, vars_map)
         html = re.sub(r"\{\{[a-zA-Z0-9_]+\}\}", "", html)
@@ -972,6 +986,57 @@ class AiTeamCampaignService:
             html=rendered["html"],
         )
         return {"ok": True, "message": f"Test email sent to {dest}"}
+
+    @staticmethod
+    def send_recipient_reply(
+        db: Session,
+        recipient_id: str,
+        *,
+        body: str,
+        subject: str | None = None,
+    ) -> dict[str, Any]:
+        """Compose and send a follow-up to a campaign recipient (Tracking → Received)."""
+        rid = str(recipient_id or "").strip()
+        row = db.get(AiTeamCampaignRecipient, rid) if rid else None
+        if row is None:
+            raise AiTeamServiceError("Recipient not found")
+        text = str(body or "").strip()
+        if not text:
+            raise AiTeamServiceError("Enter a reply message")
+        campaign = AiTeamCampaignService.get_campaign(db, row.campaign_id)
+        settings = AiTeamService.get_settings(db)
+        subj = str(subject or "").strip()
+        if not subj:
+            base = (campaign.subject or "VoxBulk").strip() or "VoxBulk"
+            subj = base if base.lower().startswith("re:") else f"Re: {base}"
+        if re.search(r"</?(?:p|div|br|table|a|html|body)\b", text, re.I):
+            html = text
+        else:
+            parts = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+            if not parts:
+                parts = [text]
+            html = "".join(
+                f'<p style="margin:0 0 12px;">{p.replace(chr(10), "<br>")}</p>'
+                for p in parts
+            )
+        AiTeamService._deliver_email(
+            db,
+            settings,
+            to_email=row.email,
+            subject=subj,
+            text=text,
+            html=html,
+        )
+        now = AiTeamCampaignService._now()
+        row.replied_at = row.replied_at or now
+        row.updated_at = now
+        db.add(row)
+        AiTeamCampaignService.refresh_counts(db, campaign)
+        return {
+            "ok": True,
+            "message": f"Reply sent to {row.email}",
+            "recipient": AiTeamCampaignService.recipient_to_dict(row),
+        }
 
     @staticmethod
     def start_send_all(db: Session, campaign_id: str) -> dict[str, Any]:

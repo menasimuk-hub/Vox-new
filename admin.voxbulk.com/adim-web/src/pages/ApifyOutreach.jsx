@@ -30,8 +30,48 @@ const SUGGESTED_ACTORS = [
 
 const DEFAULT_MERGE = [
   'first_name', 'last_name', 'company', 'company_name', 'job_title',
-  'email', 'sector', 'country_code', 'promo_code', 'signup_url', 'trial_url', 'body',
+  'email', 'sector', 'country_code', 'promo_code', 'signup_url', 'trial_url',
+  'tracked_trial_url', 'direct_signup_url', 'body',
 ]
+
+const PREVIEW_DEVICES = [
+  { id: 'desktop', label: 'Desktop', icon: 'ti-device-desktop', width: 800 },
+  { id: 'tablet', label: 'Tablet', icon: 'ti-device-tablet', width: 600 },
+  { id: 'mobile', label: 'Mobile', icon: 'ti-device-mobile', width: 375 },
+]
+
+const SAMPLE_MERGE = {
+  first_name: 'Alex',
+  last_name: 'Taylor',
+  company: 'Example Ltd',
+  company_name: 'Example Ltd',
+  job_title: 'Operations Director',
+  email: 'alex@example.com',
+  sector: 'expo',
+  country_code: 'GB',
+  promo_code: 'EXPO3DAYS',
+  signup_url: 'https://voxbulk.com/signin?promo=EXPO3DAYS',
+  trial_url: 'https://voxbulk.com/signin?promo=EXPO3DAYS',
+  direct_signup_url: 'https://voxbulk.com/signin?promo=EXPO3DAYS',
+  tracked_trial_url: 'https://voxbulk.com/signin?promo=EXPO3DAYS',
+}
+
+function applySampleMerge(template, bodyText, promoCode) {
+  const vars = {
+    ...SAMPLE_MERGE,
+    promo_code: promoCode || SAMPLE_MERGE.promo_code,
+    signup_url: `https://voxbulk.com/signin?promo=${promoCode || SAMPLE_MERGE.promo_code}`,
+    trial_url: `https://voxbulk.com/signin?promo=${promoCode || SAMPLE_MERGE.promo_code}`,
+    direct_signup_url: `https://voxbulk.com/signin?promo=${promoCode || SAMPLE_MERGE.promo_code}`,
+    tracked_trial_url: `https://voxbulk.com/signin?promo=${promoCode || SAMPLE_MERGE.promo_code}`,
+    body: bodyText || '',
+  }
+  let out = String(template || '')
+  for (const [key, val] of Object.entries(vars)) {
+    out = out.split(`{{${key}}}`).join(String(val ?? ''))
+  }
+  return out.replace(/\{\{[a-zA-Z0-9_]+\}\}/g, '')
+}
 
 function guessCsvMapping(headers) {
   const norm = (h) => String(h || '').toLowerCase().replace(/[^a-z0-9]+/g, '_')
@@ -102,11 +142,16 @@ export default function ApifyOutreach() {
   const [defaultPromoCode, setDefaultPromoCode] = useState('EXPO3DAYS')
   const [activeTplId, setActiveTplId] = useState(null)
   const [tplDraft, setTplDraft] = useState(null)
+  const [tplPreviewDevice, setTplPreviewDevice] = useState('desktop')
+  const [tplLiveHtml, setTplLiveHtml] = useState('')
 
   const [tracking, setTracking] = useState(null)
   const [trackingFilter, setTrackingFilter] = useState('all')
   const [trackingQ, setTrackingQ] = useState('')
   const [trackingCampaignId, setTrackingCampaignId] = useState('')
+  const [replyTarget, setReplyTarget] = useState(null)
+  const [replySubject, setReplySubject] = useState('')
+  const [replyBody, setReplyBody] = useState('')
 
   const [csvFile, setCsvFile] = useState(null)
   const [csvDrag, setCsvDrag] = useState(false)
@@ -242,11 +287,23 @@ export default function ApifyOutreach() {
   useEffect(() => {
     if (!activeTplId) {
       setTplDraft(null)
+      setTplLiveHtml('')
       return
     }
     const t = templates.find((x) => x.id === activeTplId)
     if (t) setTplDraft({ ...t })
   }, [activeTplId, templates])
+
+  useEffect(() => {
+    if (!tplDraft) {
+      setTplLiveHtml('')
+      return undefined
+    }
+    const id = window.setTimeout(() => {
+      setTplLiveHtml(applySampleMerge(tplDraft.html_template, tplDraft.body_text, defaultPromoCode))
+    }, 200)
+    return () => window.clearTimeout(id)
+  }, [tplDraft, defaultPromoCode])
 
   const liveScrapeRun = apifyRuns.find((r) => String(r.status || '').toUpperCase() === 'RUNNING') || null
   const liveProgress = liveScrapeRun?.progress || null
@@ -448,28 +505,40 @@ export default function ApifyOutreach() {
     })
   }
 
-  const previewTemplate = async () => {
-    if (!tplDraft) return
-    await act('tpl-preview', async () => {
-      const data = await apiFetch('/admin/ai-team/templates/preview', {
-        method: 'POST',
-        body: JSON.stringify({
-          subject: tplDraft.subject,
-          body_text: tplDraft.body_text,
-          html_template: tplDraft.html_template,
-        }),
-      })
-      setPreview({ ...data, sample: true })
+  const deleteTemplate = async (id) => {
+    const tid = id || tplDraft?.id
+    if (!tid || !window.confirm('Delete this template?')) return
+    await act('tpl-del', async () => {
+      await apiFetch(`/admin/ai-team/templates/${tid}`, { method: 'DELETE' })
+      if (activeTplId === tid) setActiveTplId(null)
+      await loadTemplates()
+      showBanner('ok', 'Template deleted')
     })
   }
 
-  const deleteTemplate = async () => {
-    if (!tplDraft?.id || !window.confirm('Delete this template?')) return
-    await act('tpl-del', async () => {
-      await apiFetch(`/admin/ai-team/templates/${tplDraft.id}`, { method: 'DELETE' })
-      setActiveTplId(null)
-      await loadTemplates()
-      showBanner('ok', 'Template deleted')
+  const openReply = (row) => {
+    setReplyTarget(row)
+    const camp = (tracking?.campaigns || campaigns).find((c) => c.id === row.campaign_id)
+    const base = (camp?.subject || row.campaign_name || 'VoxBulk').trim() || 'VoxBulk'
+    setReplySubject(base.toLowerCase().startsWith('re:') ? base : `Re: ${base}`)
+    setReplyBody('')
+  }
+
+  const sendReply = async () => {
+    if (!replyTarget?.id) return
+    if (!replyBody.trim()) {
+      showBanner('err', 'Enter a reply message')
+      return
+    }
+    await act('reply', async () => {
+      const data = await apiFetch(`/admin/ai-team/tracking/recipients/${replyTarget.id}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({ body: replyBody, subject: replySubject }),
+      })
+      showBanner('ok', data.message || 'Reply sent')
+      setReplyTarget(null)
+      setReplyBody('')
+      await loadTracking()
     })
   }
 
@@ -915,8 +984,8 @@ export default function ApifyOutreach() {
             <div className="ait-card">
               <div className="ait-card-hdr">
                 <span className="ait-card-title">Activity</span>
-                <div className="ait-seg">
-                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
+                <div className="ait-seg ait-seg-right">
+                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['received', 'Received'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
                     <button key={id} type="button" className={trackingFilter === id ? 'active' : ''} onClick={() => setTrackingFilter(id)}>{label}</button>
                   ))}
                 </div>
@@ -943,6 +1012,11 @@ export default function ApifyOutreach() {
                   </div>
                 </div>
                 <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Apply filters</button>
+                {trackingFilter === 'received' && (
+                  <p className="ait-hint" style={{ marginTop: 8 }}>
+                    Received lists people already emailed — open a row to reply and send.
+                  </p>
+                )}
               </div>
               <div className="ait-table-wrap">
                 <table className="ait-tbl">
@@ -956,11 +1030,12 @@ export default function ApifyOutreach() {
                       <th>Clicks</th>
                       <th>Sent</th>
                       <th>Error</th>
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
                     {(tracking?.activity || []).map((r) => (
-                      <tr key={r.id}>
+                      <tr key={r.id} className={replyTarget?.id === r.id ? 'ait-row-active' : ''}>
                         <td>
                           <strong>{r.full_name || r.email}</strong>
                           <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{r.email}</div>
@@ -968,7 +1043,10 @@ export default function ApifyOutreach() {
                         <td>{r.company_name || '—'}</td>
                         <td style={{ fontSize: 12 }}>{r.campaign_name || '—'}</td>
                         <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.promo_code || defaultPromoCode}</td>
-                        <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span></td>
+                        <td>
+                          <span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span>
+                          {r.replied_at ? <span className="ait-badge b-opened" style={{ marginLeft: 4 }}>replied</span> : null}
+                        </td>
                         <td style={{ fontSize: 12 }}>
                           {(r.click_count || 0) > 0 ? (
                             <span className="ait-badge b-opened" title={r.clicked_at || ''}>{r.click_count}</span>
@@ -976,90 +1054,207 @@ export default function ApifyOutreach() {
                         </td>
                         <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(r.sent_at)}</td>
                         <td className="ait-ellipsis" title={r.last_error || ''}>{r.last_error || '—'}</td>
+                        <td>
+                          {(r.status === 'sent' || r.replied_at) && (
+                            <button type="button" className="ait-icon-btn" title="Open & reply" onClick={() => openReply(r)}>
+                              <i className="ti ti-mail-opened" />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                     {!(tracking?.activity || []).length && (
-                      <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>No activity yet — send a campaign first</td></tr>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>No activity yet — send a campaign first</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
+
+            {replyTarget && (
+              <div className="ait-card ait-reply-panel">
+                <div className="ait-card-hdr">
+                  <span className="ait-card-title">
+                    Reply to {replyTarget.full_name || replyTarget.email}
+                  </span>
+                  <button type="button" className="ait-btn ghost sm" onClick={() => setReplyTarget(null)}>Close</button>
+                </div>
+                <div className="ait-card-body">
+                  <div className="ait-field">
+                    <label>To</label>
+                    <input value={replyTarget.email || ''} readOnly />
+                  </div>
+                  <div className="ait-field">
+                    <label>Subject</label>
+                    <input value={replySubject} onChange={(e) => setReplySubject(e.target.value)} />
+                  </div>
+                  <div className="ait-field">
+                    <label>Message</label>
+                    <textarea
+                      style={{ minHeight: 140 }}
+                      value={replyBody}
+                      placeholder="Write your reply…"
+                      onChange={(e) => setReplyBody(e.target.value)}
+                    />
+                  </div>
+                  <div className="ait-btn-row">
+                    <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={sendReply}>
+                      <i className="ti ti-send" style={{ marginRight: 6 }} />Send reply
+                    </button>
+                    <button type="button" className="ait-btn sm" onClick={() => setReplyTarget(null)}>Cancel</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {tab === 'templates' && (
-          <div className="ait-campaign-layout">
-            <aside className="ait-campaign-rail">
-              <div className="ait-card" style={{ marginBottom: 0 }}>
+          <div>
+            {!tplDraft ? (
+              <div className="ait-card">
                 <div className="ait-card-hdr">
-                  <span className="ait-card-title">Templates</span>
-                  <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={createTemplate}>New</button>
+                  <span className="ait-card-title">Email templates</span>
+                  <button type="button" className="ait-btn sm primary" disabled={!!busy} onClick={createTemplate}>
+                    <i className="ti ti-plus" style={{ marginRight: 6 }} />Create new template
+                  </button>
                 </div>
-                <div className="ait-card-body" style={{ padding: 12 }}>
-                  <div className="ait-campaign-list">
-                    {templates.map((t) => (
-                      <button key={t.id} type="button" className={`ait-campaign-item ${activeTplId === t.id ? 'active' : ''}`} onClick={() => setActiveTplId(t.id)}>
-                        <strong style={{ fontSize: 13 }}>{t.name}</strong>
-                        <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }} className="ait-ellipsis">{t.subject}</div>
-                      </button>
-                    ))}
-                  </div>
+                <div className="ait-table-wrap">
+                  <table className="ait-tbl">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Subject</th>
+                        <th>Updated</th>
+                        <th style={{ width: 120 }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {templates.map((t) => (
+                        <tr key={t.id}>
+                          <td><strong>{t.name}</strong></td>
+                          <td className="ait-ellipsis" title={t.subject || ''}>{t.subject || '—'}</td>
+                          <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(t.updated_at)}</td>
+                          <td>
+                            <div className="ait-btn-row" style={{ margin: 0, gap: 4 }}>
+                              <button type="button" className="ait-icon-btn" title="Edit" onClick={() => setActiveTplId(t.id)}>
+                                <i className="ti ti-edit" />
+                              </button>
+                              <button type="button" className="ait-icon-btn danger" title="Delete" disabled={!!busy} onClick={() => deleteTemplate(t.id)}>
+                                <i className="ti ti-trash" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {!templates.length && (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>
+                            No templates yet — create one and paste your full HTML
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-            </aside>
-            <div className="ait-campaign-main">
-              {!tplDraft ? (
-                <div className="ait-empty"><strong>Select or create a template</strong>Add merge codes with the chips below.</div>
-              ) : (
-                <div className="ait-card">
-                  <div className="ait-card-hdr">
-                    <span className="ait-card-title">Edit template</span>
-                    <div className="ait-btn-row" style={{ margin: 0 }}>
-                      <button type="button" className="ait-btn sm" disabled={!!busy} onClick={previewTemplate}>Preview</button>
-                      <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={saveTemplate}>Save</button>
-                      <button type="button" className="ait-btn danger sm" disabled={!!busy} onClick={deleteTemplate}>Delete</button>
-                    </div>
+            ) : (
+              <div className="ait-card" style={{ marginBottom: 0 }}>
+                <div className="ait-card-hdr">
+                  <div className="ait-btn-row" style={{ margin: 0 }}>
+                    <button type="button" className="ait-btn ghost sm" onClick={() => setActiveTplId(null)}>
+                      <i className="ti ti-arrow-left" style={{ marginRight: 4 }} />Templates
+                    </button>
+                    <span className="ait-card-title">{tplDraft.name || 'Edit template'}</span>
                   </div>
-                  <div className="ait-card-body">
+                  <div className="ait-btn-row" style={{ margin: 0 }}>
+                    <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={saveTemplate}>Save</button>
+                    <button type="button" className="ait-btn danger sm" disabled={!!busy} onClick={() => deleteTemplate(tplDraft.id)}>Delete</button>
+                  </div>
+                </div>
+                <div className="ait-card-body" style={{ paddingBottom: 10 }}>
+                  <div className="ait-fg-2">
                     <div className="ait-field"><label>Name</label>
                       <input value={tplDraft.name || ''} onChange={(e) => setTplDraft({ ...tplDraft, name: e.target.value })} />
                     </div>
                     <div className="ait-field"><label>Subject</label>
                       <input value={tplDraft.subject || ''} onChange={(e) => setTplDraft({ ...tplDraft, subject: e.target.value })} />
                     </div>
-                    <div className="ait-chip-row" style={{ marginBottom: 10 }}>
-                      {mergeTags.filter((t) => t !== 'body').map((t) => (
-                        <button key={t} type="button" className="ait-chip"
-                          onClick={() => insertAtEnd(tplDraft.body_text, (v) => setTplDraft({ ...tplDraft, body_text: v }), t)}
-                        >{`{{${t}}}`}</button>
-                      ))}
+                  </div>
+                  <div className="ait-chip-row" style={{ marginBottom: 8 }}>
+                    {mergeTags.filter((t) => t !== 'body').map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className="ait-chip"
+                        title={`Insert {{${t}}} into HTML`}
+                        onClick={() => insertAtEnd(tplDraft.html_template, (v) => setTplDraft({ ...tplDraft, html_template: v }), t)}
+                      >{`{{${t}}}`}</button>
+                    ))}
+                    <button
+                      type="button"
+                      className="ait-chip"
+                      onClick={() => insertAtEnd(tplDraft.html_template, (v) => setTplDraft({ ...tplDraft, html_template: v }), 'body')}
+                    >{`{{body}}`}</button>
+                  </div>
+                  <details className="ait-tpl-body-details">
+                    <summary>Optional body text (only if HTML contains {'{{body}}'})</summary>
+                    <textarea
+                      style={{ minHeight: 90, marginTop: 8 }}
+                      value={tplDraft.body_text || ''}
+                      onChange={(e) => setTplDraft({ ...tplDraft, body_text: e.target.value })}
+                    />
+                  </details>
+                </div>
+                <div className="ait-tpl-split">
+                  <div className="ait-tpl-pane">
+                    <div className="ait-tpl-pane-hdr">
+                      <span>HTML (source of truth — sent as-is)</span>
                     </div>
-                    <div className="ait-field"><label>Body text</label>
-                      <textarea style={{ minHeight: 140 }} value={tplDraft.body_text || ''} onChange={(e) => setTplDraft({ ...tplDraft, body_text: e.target.value })} />
+                    <textarea
+                      className="ait-code-editor ait-tpl-code"
+                      value={tplDraft.html_template || ''}
+                      onChange={(e) => setTplDraft({ ...tplDraft, html_template: e.target.value })}
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div className="ait-tpl-pane">
+                    <div className="ait-tpl-pane-hdr">
+                      <span>Live preview</span>
+                      <div className="ait-device-seg" role="group" aria-label="Preview width">
+                        {PREVIEW_DEVICES.map((d) => (
+                          <button
+                            key={d.id}
+                            type="button"
+                            className={tplPreviewDevice === d.id ? 'active' : ''}
+                            title={d.label}
+                            onClick={() => setTplPreviewDevice(d.id)}
+                          >
+                            <i className={`ti ${d.icon}`} />
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="ait-chip-row" style={{ marginBottom: 8 }}>
-                      <button type="button" className="ait-chip"
-                        onClick={() => insertAtEnd(tplDraft.html_template, (v) => setTplDraft({ ...tplDraft, html_template: v }), 'body')}
-                      >{`{{body}}`}</button>
-                      <span className="ait-hint" style={{ margin: 0 }}>Use in HTML wrapper for the text block</span>
+                    <div className="ait-tpl-preview-frame">
+                      <iframe
+                        className="ait-html-preview ait-tpl-preview-iframe"
+                        title="Template preview"
+                        sandbox=""
+                        srcDoc={tplLiveHtml || '<p style="padding:16px;color:#888;font-family:sans-serif;">Paste HTML to preview</p>'}
+                        style={{
+                          width: '100%',
+                          maxWidth: PREVIEW_DEVICES.find((d) => d.id === tplPreviewDevice)?.width || 640,
+                        }}
+                      />
                     </div>
-                    <div className="ait-field" style={{ marginBottom: 0 }}><label>HTML (paste full email — sent exactly as pasted)</label>
-                      <textarea className="ait-code-editor" style={{ minHeight: 220 }} value={tplDraft.html_template || ''} onChange={(e) => setTplDraft({ ...tplDraft, html_template: e.target.value })} />
-                    </div>
-                    <p className="ait-hint">
-                      HTML is sent <strong>as-is</strong>. Only merge codes are replaced:
-                      {' '}{mergeTags.filter((t) => t !== 'body').map((t) => `{{${t}}}`).join(' ')}.
-                      Put <code>href=&quot;{'{{trial_url}}'}&quot;</code> on your Start free trial button
-                      (tracks clicks → signup with <strong>{defaultPromoCode}</strong>).
-                    </p>
-                    <p className="ait-hint" style={{ marginTop: 4 }}>
-                      Use Body text only if your HTML contains <code>{'{{body}}'}</code>. Otherwise paste the full design in HTML and leave Body short or empty.
-                    </p>
                   </div>
                 </div>
-              )}
-            </div>
+                <p className="ait-hint" style={{ padding: '0 18px 14px' }}>
+                  Links and styles in your HTML are sent exactly as written. Only {'{{merge}}'} tags are replaced.
+                  Use <code>{'{{trial_url}}'}</code> for the direct signup link; use <code>{'{{tracked_trial_url}}'}</code> only if you want click tracking.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -1287,9 +1482,9 @@ export default function ApifyOutreach() {
             </div>
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
               <li><strong>Sending</strong> — save From + SMTP and test.</li>
-              <li><strong>Templates</strong> — paste HTML as-is; only {'{{…}}'} codes are replaced. Use {'{{trial_url}}'} on the CTA.</li>
+              <li><strong>Templates</strong> — paste HTML as-is; only {'{{…}}'} codes are replaced. Links stay as in your HTML. Use {'{{trial_url}}'} for signup, or {'{{tracked_trial_url}}'} for click tracking.</li>
               <li><strong>Campaigns</strong> — name → select template → Excel → Preview → Send all.</li>
-              <li><strong>Tracking</strong> — all sends, failures, and trial-link clicks across campaigns.</li>
+              <li><strong>Tracking</strong> — filters on the right; Received lets you open a contact and reply.</li>
               <li><strong>Scrape</strong> — paste any exhibitor URL; uses Apify + free actor when token is set, otherwise built-in → Add to campaign.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>

@@ -865,6 +865,24 @@ def campaign_send_test(
         raise _err(exc) from exc
 
 
+@router.post("/tracking/recipients/{recipient_id}/reply")
+def tracking_recipient_reply(
+    recipient_id: str,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.send_recipient_reply(
+            db,
+            recipient_id,
+            body=str(body.get("body") or ""),
+            subject=str(body.get("subject") or "") or None,
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.post("/campaigns/{campaign_id}/send")
 def campaign_send_all(
     campaign_id: str,
