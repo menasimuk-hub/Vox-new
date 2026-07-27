@@ -17,6 +17,7 @@ from app.models.ai_team_email_suppression import AiTeamEmailSuppression
 from app.models.ai_team_email_template import AiTeamEmailTemplate
 from app.models.promo_offer import PromoOffer
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
+from app.services.email_html_inline import inline_email_css
 from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
 logger = logging.getLogger(__name__)
@@ -405,7 +406,7 @@ class AiTeamCampaignService:
             row.body_text = str(payload.get("body_text") or "")
         if "html_template" in payload:
             html = payload.get("html_template")
-            row.html_template = str(html) if html is not None else None
+            row.html_template = inline_email_css(str(html) if html is not None else None)
         if "template_id" in payload:
             tid = str(payload.get("template_id") or "").strip() or None
             row.template_id = tid
@@ -470,7 +471,7 @@ class AiTeamCampaignService:
             name=name[:255],
             subject=str(payload.get("subject") or "Quick idea for {{company}}").strip()[:500],
             body_text=str(payload.get("body_text") if payload.get("body_text") is not None else _DEFAULT_BODY),
-            html_template=(
+            html_template=inline_email_css(
                 str(payload["html_template"])
                 if payload.get("html_template") is not None
                 else _DEFAULT_HTML_TEMPLATE
@@ -497,7 +498,7 @@ class AiTeamCampaignService:
             row.body_text = str(payload.get("body_text") or "")
         if "html_template" in payload:
             html = payload.get("html_template")
-            row.html_template = str(html) if html is not None else None
+            row.html_template = inline_email_css(str(html) if html is not None else None)
         row.updated_at = AiTeamCampaignService._now()
         db.add(row)
         # Keep linked campaigns (not currently sending) in sync with the saved template.
@@ -1014,8 +1015,9 @@ class AiTeamCampaignService:
             vars_map["body"] = body_merged.replace("\n", "<br>") if body_merged else ""
 
         html = AiTeamCampaignService._apply_merge(template, vars_map)
-        html = re.sub(r"\{\{[a-zA-Z0-9_]+\}\}", "", html)
-        # Intentionally no _prepare_email_html / no style or href rewriting.
+        html = re.sub(r"\{\{[a-zA-Z0-9_-]+\}\}", "", html)
+        # Inline CSS so Gmail/Outlook keep colours/padding even when <style> is stripped.
+        html = inline_email_css(html)
         text = re.sub(r"<[^>]+>", "", html)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         if not text:

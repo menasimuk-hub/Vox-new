@@ -258,7 +258,12 @@ class AiTeamService:
         for key in text_fields:
             if key in payload:
                 val = payload[key]
-                setattr(row, key, str(val) if val is not None else None)
+                if key == "email_html_template" and val is not None:
+                    from app.services.email_html_inline import inline_email_css
+
+                    setattr(row, key, inline_email_css(str(val)))
+                else:
+                    setattr(row, key, str(val) if val is not None else None)
         for key in scalar_fields:
             if key in payload:
                 val = str(payload[key] or "").strip()
@@ -490,6 +495,9 @@ class AiTeamService:
         html = template
         for key, val in vars_map.items():
             html = html.replace("{{" + key + "}}", str(val or ""))
+        from app.services.email_html_inline import inline_email_css
+
+        html = inline_email_css(html)
         text = re.sub(r"<[^>]+>", "", html)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         subject = (prospect.draft_subject if prospect else None) or "Quick idea for your team"

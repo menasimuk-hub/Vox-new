@@ -1269,7 +1269,7 @@ export default function ApifyOutreach() {
                 <div className="ait-tpl-split">
                   <div className="ait-tpl-pane">
                     <div className="ait-tpl-pane-hdr">
-                      <span>HTML (source of truth — sent as-is)</span>
+                      <span>HTML (CSS inlined on save &amp; send for email clients)</span>
                     </div>
                     <textarea
                       className="ait-code-editor ait-tpl-code"
@@ -1581,7 +1581,7 @@ export default function ApifyOutreach() {
             </div>
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
               <li><strong>Sending</strong> — save From + SMTP to send, and IMAP to receive replies (SMTP alone cannot inbox).</li>
-              <li><strong>Templates</strong> — paste HTML as-is. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}.</li>
+              <li><strong>Templates</strong> — paste HTML; on Save we inline CSS for Gmail/Outlook. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}. Prefer tables over flex/grid for mobile.</li>
               <li><strong>Campaigns</strong> — name + event name → template → Excel (optional Event name column) → Preview → Send all.</li>
               <li><strong>Tracking</strong> — Received + Refresh inbox (IMAP). Reply From must match an audience email; Send test registers that inbox.</li>
               <li><strong>Scrape</strong> — paste any exhibitor URL → Add to campaign.</li>
