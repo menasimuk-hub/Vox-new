@@ -177,6 +177,19 @@ class AiTeamService:
             "smtp_password_configured": bool(row.smtp_password_enc),
             "inbox_email": row.inbox_email,
             "email_delivery_provider": (row.email_delivery_provider or "smtp").strip().lower() or "smtp",
+            "imap_host": getattr(row, "imap_host", None) or "",
+            "imap_port": int(getattr(row, "imap_port", None) or 993),
+            "imap_use_ssl": bool(getattr(row, "imap_use_ssl", True)),
+            "imap_use_tls": bool(getattr(row, "imap_use_tls", False)),
+            "imap_username": getattr(row, "imap_username", None) or "",
+            "imap_password_configured": bool(getattr(row, "imap_password_enc", None)),
+            "imap_last_sync_at": row.imap_last_sync_at.isoformat() if getattr(row, "imap_last_sync_at", None) else None,
+            "imap_last_sync_message": getattr(row, "imap_last_sync_message", None) or "",
+            "imap_configured": bool(
+                (getattr(row, "imap_host", None) or row.smtp_host)
+                and (getattr(row, "imap_username", None) or row.smtp_username)
+                and (getattr(row, "imap_password_enc", None) or row.smtp_password_enc)
+            ),
             "resend_sending_domain": row.resend_sending_domain,
             "apify_token_configured": bool(AiTeamService._apify_token_configured(db, row)),
             "apify_user_id": (getattr(row, "apify_user_id", None) or "").strip(),
@@ -228,15 +241,18 @@ class AiTeamService:
             "smtp_host", "smtp_username", "inbox_email", "resend_sending_domain", "email_delivery_provider",
             "apify_user_id", "apify_exhibitor_actor_id", "apify_contact_actor_id",
             "run_schedule", "sending_window",
+            "imap_host", "imap_username",
         ]
         int_fields = [
             "search_max_per_run", "search_min_score", "followup_after_days", "max_followups",
             "email_max_words", "promo_value", "promo_expiry_days", "promo_max_uses",
             "smtp_port", "max_emails_per_day", "apollo_credit_alert_at",
+            "imap_port",
         ]
         bool_fields = [
             "auto_fetch_prospects", "auto_draft_emails", "auto_followup", "track_opens",
             "notify_on_reply", "notify_on_promo_used", "auto_send_without_approval", "agent_paused",
+            "imap_use_ssl", "imap_use_tls",
         ]
         text_fields = ["email_html_template"]
         for key in text_fields:
@@ -260,6 +276,9 @@ class AiTeamService:
         if payload.get("smtp_password"):
             enc = get_encryptor()
             row.smtp_password_enc = enc.encrypt_str(str(payload["smtp_password"]))
+        if payload.get("imap_password"):
+            enc = get_encryptor()
+            row.imap_password_enc = enc.encrypt_str(str(payload["imap_password"]))
         row.updated_at = now
         db.add(row)
         db.commit()

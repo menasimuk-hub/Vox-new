@@ -51,6 +51,16 @@ class AiTeamSettings(Base):
     inbox_email: Mapped[str] = mapped_column(String(320), nullable=False, default="")
     email_delivery_provider: Mapped[str] = mapped_column(String(16), nullable=False, default="smtp")
 
+    # Inbound replies (IMAP) — refresh from Tracking → Received
+    imap_host: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    imap_port: Mapped[int] = mapped_column(Integer, nullable=False, default=993)
+    imap_use_ssl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    imap_use_tls: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    imap_username: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    imap_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    imap_last_sync_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    imap_last_sync_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     # Resend domain (stored here for admin UI; API key in provider_configs)
     resend_sending_domain: Mapped[str] = mapped_column(String(255), nullable=False, default="")
 

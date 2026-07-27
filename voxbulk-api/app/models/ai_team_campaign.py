@@ -60,6 +60,9 @@ class AiTeamCampaignRecipient(Base):
     clicked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     click_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    unsubscribed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_inbound_subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_inbound_body: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

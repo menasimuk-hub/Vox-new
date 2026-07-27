@@ -10,6 +10,7 @@ from app.core.admin_rbac import CAP_AI_TEAM, require_cap
 from app.core.database import get_db
 from app.models.user import User
 from app.services.ai_team_campaign_service import AiTeamCampaignService
+from app.services.ai_team_imap_service import AiTeamImapService
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
 from app.services.apollo_service import ApolloService, ApolloServiceError
 from app.services.apify_service import ApifyService, ApifyServiceError
@@ -879,6 +880,22 @@ def tracking_recipient_reply(
             body=str(body.get("body") or ""),
             subject=str(body.get("subject") or "") or None,
         )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/tracking/imap/refresh")
+def tracking_imap_refresh(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamImapService.sync_inbox(db)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/test/imap")
+def test_imap(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamImapService.test_connection(db)
     except Exception as exc:
         raise _err(exc) from exc
 

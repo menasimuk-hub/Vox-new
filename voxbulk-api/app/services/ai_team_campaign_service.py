@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_team_apify_run import AiTeamApifyRun
 from app.models.ai_team_campaign import AiTeamCampaign, AiTeamCampaignRecipient
+from app.models.ai_team_email_suppression import AiTeamEmailSuppression
 from app.models.ai_team_email_template import AiTeamEmailTemplate
 from app.models.promo_offer import PromoOffer
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
@@ -65,7 +66,8 @@ _DEFAULT_HTML_TEMPLATE = """<!DOCTYPE html>
                 or open <a href="{{trial_url}}" style="color:#111111;text-decoration:underline;">{{trial_url}}</a>
               </p>
               <p style="margin:28px 0 0;font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:16px;">
-                VoxBulk · voxbulk.com
+                VoxBulk · voxbulk.com ·
+                <a href="{{unsubscribe_url}}" style="color:#9ca3af;text-decoration:underline;">Unsubscribe</a>
               </p>
             </td>
           </tr>
@@ -90,6 +92,8 @@ MERGE_TAGS = [
     "trial_url",
     "tracked_trial_url",
     "direct_signup_url",
+    "unsubscribe_url",
+    "unsubscribe_link",
     "body",
 ]
 
@@ -163,6 +167,16 @@ class AiTeamCampaignService:
 
         api = api_public_origin().rstrip("/") or "https://api.voxbulk.com"
         return f"{api}/public/ai-team/c/{recipient_id}/trial"
+
+    @staticmethod
+    def _unsubscribe_url(recipient_id: str | None = None) -> str:
+        from app.services.brand_assets import api_public_origin
+
+        api = api_public_origin().rstrip("/") or "https://api.voxbulk.com"
+        rid = str(recipient_id or "").strip()
+        if rid:
+            return f"{api}/public/ai-team/c/{rid}/unsubscribe"
+        return f"{api}/public/ai-team/unsubscribe/demo"
 
     @staticmethod
     def _signup_url(promo_code: str | None = None, *, recipient_id: str | None = None) -> str:
@@ -257,6 +271,7 @@ class AiTeamCampaignService:
             promo = DEFAULT_EXPO_PROMO_CODE
         direct = AiTeamCampaignService._public_signin_url(promo)
         tracked = AiTeamCampaignService._tracked_trial_url(row.id)
+        unsub = AiTeamCampaignService._unsubscribe_url(row.id)
         return {
             "first_name": row.first_name or "there",
             "last_name": row.last_name or "",
@@ -273,6 +288,8 @@ class AiTeamCampaignService:
             "direct_signup_url": direct,
             # Opt-in click tracking only when the template uses this tag.
             "tracked_trial_url": tracked,
+            "unsubscribe_url": unsub,
+            "unsubscribe_link": unsub,
         }
 
     @staticmethod
@@ -319,6 +336,9 @@ class AiTeamCampaignService:
             "clicked_at": row.clicked_at.isoformat() if getattr(row, "clicked_at", None) else None,
             "click_count": int(getattr(row, "click_count", 0) or 0),
             "replied_at": row.replied_at.isoformat() if row.replied_at else None,
+            "unsubscribed_at": row.unsubscribed_at.isoformat() if getattr(row, "unsubscribed_at", None) else None,
+            "last_inbound_subject": getattr(row, "last_inbound_subject", None) or None,
+            "last_inbound_body": getattr(row, "last_inbound_body", None) or None,
         }
 
     @staticmethod
@@ -669,10 +689,16 @@ class AiTeamCampaignService:
         elif st == "opened":
             stmt = stmt.where(AiTeamCampaignRecipient.opened_at.is_not(None))
         elif st == "received":
-            # Conversation candidates: already emailed (or marked replied). Open → reply → send.
+            # Inbound replies (IMAP) or already emailed conversation candidates.
             stmt = stmt.where(
-                (AiTeamCampaignRecipient.status == "sent")
-                | (AiTeamCampaignRecipient.replied_at.is_not(None))
+                (AiTeamCampaignRecipient.replied_at.is_not(None))
+                | (AiTeamCampaignRecipient.last_inbound_body.is_not(None))
+                | (AiTeamCampaignRecipient.status == "sent")
+            )
+        elif st == "unsubscribed":
+            stmt = stmt.where(
+                (AiTeamCampaignRecipient.unsubscribed_at.is_not(None))
+                | (AiTeamCampaignRecipient.status == "unsubscribed")
             )
         needle = str(q or "").strip().lower()
         if needle:
@@ -764,6 +790,7 @@ class AiTeamCampaignService:
             if email in existing:
                 skipped += 1
                 continue
+            suppressed = AiTeamCampaignService.is_email_suppressed(db, email)
             row = AiTeamCampaignRecipient(
                 campaign_id=campaign.id,
                 email=email,
@@ -776,7 +803,8 @@ class AiTeamCampaignService:
                 promo_code=AiTeamCampaignService.resolve_promo_code(
                     db, str(raw.get("promo_code") or "").strip()
                 )[:64],
-                status="pending",
+                status="unsubscribed" if suppressed else "pending",
+                unsubscribed_at=now if suppressed else None,
                 created_at=now,
                 updated_at=now,
             )
@@ -900,6 +928,8 @@ class AiTeamCampaignService:
                 "trial_url": direct,
                 "direct_signup_url": direct,
                 "tracked_trial_url": direct,
+                "unsubscribe_url": AiTeamCampaignService._unsubscribe_url(None),
+                "unsubscribe_link": AiTeamCampaignService._unsubscribe_url(None),
             }
         else:
             vars_map = AiTeamCampaignService.recipient_vars(recipient, db=db)
@@ -1155,6 +1185,15 @@ class AiTeamCampaignService:
                 ).scalar_one_or_none()
                 if row is None:
                     break
+                if AiTeamCampaignService.is_email_suppressed(db, row.email):
+                    now = AiTeamCampaignService._now()
+                    row.status = "unsubscribed"
+                    row.unsubscribed_at = row.unsubscribed_at or now
+                    row.updated_at = now
+                    db.add(row)
+                    db.commit()
+                    AiTeamCampaignService.refresh_counts(db, campaign)
+                    continue
                 if sent_today >= max_day:
                     campaign.last_error = f"Daily send limit reached ({max_day})"
                     campaign.status = "failed"
@@ -1217,3 +1256,131 @@ class AiTeamCampaignService:
                 "failed": failed,
                 "status": campaign.status,
             }
+
+    @staticmethod
+    def is_email_suppressed(db: Session, email: str) -> bool:
+        addr = str(email or "").strip().lower()
+        if not addr or "@" not in addr:
+            return False
+        return (
+            db.execute(
+                select(AiTeamEmailSuppression.id).where(AiTeamEmailSuppression.email == addr).limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
+    @staticmethod
+    def unsubscribe_confirmation_html(*, already: bool = False) -> str:
+        title = "Already unsubscribed" if already else "Unsubscribed"
+        msg = (
+            "You were already removed from VoxBulk outreach emails."
+            if already
+            else "You have been unsubscribed from VoxBulk outreach emails. You will not receive further campaign messages from this list."
+        )
+        return (
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+            f"<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title></head>"
+            "<body style=\"font-family:Arial,Helvetica,sans-serif;background:#f4f6f8;margin:0;padding:40px 16px;\">"
+            "<div style=\"max-width:480px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;"
+            "border-radius:8px;padding:28px 24px;color:#1a1a1a;\">"
+            f"<h1 style=\"margin:0 0 12px;font-size:20px;\">{title}</h1>"
+            f"<p style=\"margin:0;font-size:15px;line-height:1.5;\">{msg}</p>"
+            "<p style=\"margin:20px 0 0;font-size:12px;color:#9ca3af;\">VoxBulk · voxbulk.com</p>"
+            "</div></body></html>"
+        )
+
+    @staticmethod
+    def process_unsubscribe(db: Session, recipient_id: str | None) -> dict[str, Any]:
+        """One-click opt-out: suppress email globally and mark matching recipients."""
+        rid = str(recipient_id or "").strip()
+        if not rid:
+            return {"ok": True, "already": False, "html": AiTeamCampaignService.unsubscribe_confirmation_html()}
+        row = db.get(AiTeamCampaignRecipient, rid)
+        if row is None:
+            return {
+                "ok": True,
+                "already": True,
+                "html": AiTeamCampaignService.unsubscribe_confirmation_html(already=True),
+            }
+        email = str(row.email or "").strip().lower()
+        already = AiTeamCampaignService.is_email_suppressed(db, email)
+        now = AiTeamCampaignService._now()
+        if email and "@" in email and not already:
+            db.add(
+                AiTeamEmailSuppression(
+                    email=email,
+                    unsubscribed_at=now,
+                    source_recipient_id=row.id,
+                    source_campaign_id=row.campaign_id,
+                    created_at=now,
+                )
+            )
+        # Mark this + all pending rows with same email
+        targets = list(
+            db.execute(
+                select(AiTeamCampaignRecipient).where(
+                    func.lower(AiTeamCampaignRecipient.email) == email
+                )
+            ).scalars().all()
+        ) if email else [row]
+        for t in targets:
+            t.unsubscribed_at = t.unsubscribed_at or now
+            if t.status in {"pending", "failed"}:
+                t.status = "unsubscribed"
+            t.updated_at = now
+            db.add(t)
+        db.commit()
+        campaign_ids = {t.campaign_id for t in targets}
+        for cid in campaign_ids:
+            camp = db.get(AiTeamCampaign, cid)
+            if camp is not None:
+                AiTeamCampaignService.refresh_counts(db, camp)
+        return {
+            "ok": True,
+            "already": already,
+            "email": email,
+            "html": AiTeamCampaignService.unsubscribe_confirmation_html(already=already),
+        }
+
+    @staticmethod
+    def record_inbound_reply(
+        db: Session,
+        *,
+        from_email: str,
+        subject: str,
+        body: str,
+    ) -> AiTeamCampaignRecipient | None:
+        """Match inbound IMAP mail to the latest sent campaign recipient by From address."""
+        addr = str(from_email or "").strip().lower()
+        if not addr or "@" not in addr:
+            return None
+        row = db.execute(
+            select(AiTeamCampaignRecipient)
+            .where(
+                func.lower(AiTeamCampaignRecipient.email) == addr,
+                AiTeamCampaignRecipient.status.in_(["sent", "unsubscribed"]),
+            )
+            .order_by(AiTeamCampaignRecipient.sent_at.desc(), AiTeamCampaignRecipient.updated_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            row = db.execute(
+                select(AiTeamCampaignRecipient)
+                .where(func.lower(AiTeamCampaignRecipient.email) == addr)
+                .order_by(AiTeamCampaignRecipient.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if row is None:
+            return None
+        now = AiTeamCampaignService._now()
+        row.replied_at = row.replied_at or now
+        row.last_inbound_subject = str(subject or "")[:500] or None
+        row.last_inbound_body = str(body or "")[:20000] or None
+        row.updated_at = now
+        db.add(row)
+        db.commit()
+        campaign = db.get(AiTeamCampaign, row.campaign_id)
+        if campaign is not None:
+            AiTeamCampaignService.refresh_counts(db, campaign)
+        return row
+

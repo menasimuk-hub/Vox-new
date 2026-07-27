@@ -31,7 +31,7 @@ const SUGGESTED_ACTORS = [
 const DEFAULT_MERGE = [
   'first_name', 'last_name', 'company', 'company_name', 'job_title',
   'email', 'sector', 'country_code', 'promo_code', 'signup_url', 'trial_url',
-  'tracked_trial_url', 'direct_signup_url', 'body',
+  'tracked_trial_url', 'direct_signup_url', 'unsubscribe_url', 'unsubscribe_link', 'body',
 ]
 
 const PREVIEW_DEVICES = [
@@ -54,6 +54,8 @@ const SAMPLE_MERGE = {
   trial_url: 'https://voxbulk.com/signin?promo=EXPO3DAYS',
   direct_signup_url: 'https://voxbulk.com/signin?promo=EXPO3DAYS',
   tracked_trial_url: 'https://voxbulk.com/signin?promo=EXPO3DAYS',
+  unsubscribe_url: 'https://api.voxbulk.com/public/ai-team/unsubscribe/demo',
+  unsubscribe_link: 'https://api.voxbulk.com/public/ai-team/unsubscribe/demo',
 }
 
 function applySampleMerge(template, bodyText, promoCode) {
@@ -64,6 +66,8 @@ function applySampleMerge(template, bodyText, promoCode) {
     trial_url: `https://voxbulk.com/signin?promo=${promoCode || SAMPLE_MERGE.promo_code}`,
     direct_signup_url: `https://voxbulk.com/signin?promo=${promoCode || SAMPLE_MERGE.promo_code}`,
     tracked_trial_url: `https://voxbulk.com/signin?promo=${promoCode || SAMPLE_MERGE.promo_code}`,
+    unsubscribe_url: SAMPLE_MERGE.unsubscribe_url,
+    unsubscribe_link: SAMPLE_MERGE.unsubscribe_link,
     body: bodyText || '',
   }
   let out = String(template || '')
@@ -113,6 +117,7 @@ function statusBadge(status) {
   const map = {
     draft: 'b-pending', sending: 'b-opened', sent: 'b-sent',
     cancelled: 'b-rejected', failed: 'b-rejected', pending: 'b-pending',
+    unsubscribed: 'b-rejected', skipped: 'b-pending',
   }
   return map[status] || 'b-pending'
 }
@@ -169,9 +174,11 @@ export default function ApifyOutreach() {
   const [apifyPreview, setApifyPreview] = useState(null)
 
   const [smtpPassword, setSmtpPassword] = useState('')
+  const [imapPassword, setImapPassword] = useState('')
   const [resendKey, setResendKey] = useState('')
   const [apifyToken, setApifyToken] = useState('')
   const [smtpTestResult, setSmtpTestResult] = useState(null)
+  const [imapTestResult, setImapTestResult] = useState(null)
   const [apifyTestResult, setApifyTestResult] = useState(null)
   const [settingsTestEmail, setSettingsTestEmail] = useState('')
 
@@ -614,15 +621,44 @@ export default function ApifyOutreach() {
           ...settings,
           ...partial,
           smtp_password: smtpPassword || undefined,
+          imap_password: imapPassword || undefined,
           resend_api_key: resendKey || undefined,
           apify_token: apifyToken || undefined,
         }),
       })
       setSettings(data.settings || {})
       setSmtpPassword('')
+      setImapPassword('')
       setResendKey('')
       setApifyToken('')
       showBanner('ok', 'Settings saved')
+    })
+  }
+
+  const refreshInbox = async () => {
+    await act('imap-refresh', async () => {
+      const data = await apiFetch('/admin/ai-team/tracking/imap/refresh', { method: 'POST' })
+      showBanner('ok', data.message || 'Inbox refreshed')
+      setSettings((prev) => ({
+        ...prev,
+        imap_last_sync_at: data.imap_last_sync_at || prev.imap_last_sync_at,
+        imap_last_sync_message: data.imap_last_sync_message || prev.imap_last_sync_message,
+      }))
+      setTrackingFilter('received')
+      await loadTracking()
+    })
+  }
+
+  const runTestImap = async () => {
+    await act('imap-test', async () => {
+      try {
+        const data = await apiFetch('/admin/ai-team/test/imap', { method: 'POST' })
+        setImapTestResult(data)
+        showBanner(data.ok ? 'ok' : 'err', data.message || 'IMAP test done')
+      } catch (e) {
+        setImapTestResult({ ok: false, message: e?.message || 'IMAP test failed' })
+        throw e
+      }
     })
   }
 
@@ -897,26 +933,6 @@ export default function ApifyOutreach() {
                       </div>
                     </div>
                   </div>
-
-                  <div className="ait-card">
-                    <div className="ait-card-hdr">
-                      <span className="ait-card-title">5 · Results</span>
-                      <button type="button" className="ait-btn xs primary" onClick={() => {
-                        setTrackingCampaignId(activeId || '')
-                        setTab('tracking')
-                      }}>
-                        Open Tracking
-                      </button>
-                    </div>
-                    <div className="ait-card-body">
-                      <p className="ait-hint" style={{ margin: 0 }}>
-                        Sent {campaign.sent_count || 0}/{campaign.total_count || 0}
-                        {' · '}failed {campaign.failed_count || 0}
-                        {' · '}opened {campaign.opened_count || 0}.
-                        Full send/click history is on the <strong>Tracking</strong> tab.
-                      </p>
-                    </div>
-                  </div>
                 </>
               )}
             </div>
@@ -985,7 +1001,7 @@ export default function ApifyOutreach() {
               <div className="ait-card-hdr">
                 <span className="ait-card-title">Activity</span>
                 <div className="ait-seg ait-seg-right">
-                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['received', 'Received'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
+                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['received', 'Received'], ['unsubscribed', 'Unsubscribed'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
                     <button key={id} type="button" className={trackingFilter === id ? 'active' : ''} onClick={() => setTrackingFilter(id)}>{label}</button>
                   ))}
                 </div>
@@ -1011,10 +1027,21 @@ export default function ApifyOutreach() {
                     </select>
                   </div>
                 </div>
-                <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Apply filters</button>
+                <div className="ait-btn-row" style={{ marginTop: 8 }}>
+                  <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Apply filters</button>
+                  <button type="button" className="ait-btn sm primary" disabled={!!busy} onClick={refreshInbox} title="Fetch unread replies from IMAP">
+                    <i className="ti ti-refresh" style={{ marginRight: 6 }} />Refresh inbox
+                  </button>
+                </div>
+                {settings.imap_last_sync_message && (
+                  <p className="ait-hint" style={{ marginTop: 8 }}>
+                    Last IMAP: {settings.imap_last_sync_message}
+                    {settings.imap_last_sync_at ? ` · ${timeAgo(settings.imap_last_sync_at)}` : ''}
+                  </p>
+                )}
                 {trackingFilter === 'received' && (
                   <p className="ait-hint" style={{ marginTop: 8 }}>
-                    Received lists people already emailed — open a row to reply and send.
+                    Received shows inbound replies (after Refresh inbox) and people you can reply to. Configure IMAP under Sending.
                   </p>
                 )}
               </div>
@@ -1045,7 +1072,8 @@ export default function ApifyOutreach() {
                         <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.promo_code || defaultPromoCode}</td>
                         <td>
                           <span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span>
-                          {r.replied_at ? <span className="ait-badge b-opened" style={{ marginLeft: 4 }}>replied</span> : null}
+                          {r.replied_at || r.last_inbound_body ? <span className="ait-badge b-opened" style={{ marginLeft: 4 }}>inbox</span> : null}
+                          {r.unsubscribed_at ? <span className="ait-badge b-rejected" style={{ marginLeft: 4 }}>unsub</span> : null}
                         </td>
                         <td style={{ fontSize: 12 }}>
                           {(r.click_count || 0) > 0 ? (
@@ -1055,7 +1083,7 @@ export default function ApifyOutreach() {
                         <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(r.sent_at)}</td>
                         <td className="ait-ellipsis" title={r.last_error || ''}>{r.last_error || '—'}</td>
                         <td>
-                          {(r.status === 'sent' || r.replied_at) && (
+                          {(r.status === 'sent' || r.replied_at || r.last_inbound_body || r.status === 'unsubscribed') && (
                             <button type="button" className="ait-icon-btn" title="Open & reply" onClick={() => openReply(r)}>
                               <i className="ti ti-mail-opened" />
                             </button>
@@ -1084,6 +1112,15 @@ export default function ApifyOutreach() {
                     <label>To</label>
                     <input value={replyTarget.email || ''} readOnly />
                   </div>
+                  {(replyTarget.last_inbound_subject || replyTarget.last_inbound_body) && (
+                    <div className="ait-field">
+                      <label>Last received</label>
+                      <div className="ait-inbound-box">
+                        {replyTarget.last_inbound_subject && <strong>{replyTarget.last_inbound_subject}</strong>}
+                        <pre>{replyTarget.last_inbound_body || '—'}</pre>
+                      </div>
+                    </div>
+                  )}
                   <div className="ait-field">
                     <label>Subject</label>
                     <input value={replySubject} onChange={(e) => setReplySubject(e.target.value)} />
@@ -1251,7 +1288,9 @@ export default function ApifyOutreach() {
                 </div>
                 <p className="ait-hint" style={{ padding: '0 18px 14px' }}>
                   Links and styles in your HTML are sent exactly as written. Only {'{{merge}}'} tags are replaced.
-                  Use <code>{'{{trial_url}}'}</code> for the direct signup link; use <code>{'{{tracked_trial_url}}'}</code> only if you want click tracking.
+                  Use <code>{'{{trial_url}}'}</code> for signup, <code>{'{{tracked_trial_url}}'}</code> for click tracking,
+                  and <code>{'{{unsubscribe_url}}'}</code> in the footer for opt-out.
+                  For Gmail white button text, put <code>color:#ffffff !important</code> on the <code>&lt;a&gt;</code> and a nested <code>&lt;span&gt;</code>.
                 </p>
               </div>
             )}
@@ -1442,6 +1481,41 @@ export default function ApifyOutreach() {
                 <div className="ait-field"><label>Test email</label><input type="email" value={settingsTestEmail} onChange={(e) => setSettingsTestEmail(e.target.value)} /></div>
                 <div className="ait-field"><label>Max / day</label><input type="number" value={settings.max_emails_per_day || 200} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} /></div>
               </div>
+
+              <hr style={{ border: 0, borderTop: '1px solid var(--ait-border)', margin: '18px 0 14px' }} />
+              <div className="ait-conn-block ait-conn-compact">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className={`ait-dot ${imapTestResult?.ok || settings.imap_configured ? 'on' : 'off'}`} />
+                  <strong>{imapTestResult ? (imapTestResult.ok ? 'IMAP OK' : 'Failed') : (settings.imap_configured ? 'IMAP ready' : 'IMAP not set')}</strong>
+                </div>
+                <button type="button" className="ait-btn xs" disabled={!!busy} onClick={runTestImap}>Test IMAP</button>
+              </div>
+              <p className="ait-hint" style={{ marginTop: 0 }}>
+                Inbound replies for Tracking → Received. Leave host blank to reuse SMTP host; leave IMAP password blank to reuse SMTP password.
+              </p>
+              <div className="ait-fg-3">
+                <div className="ait-field"><label>IMAP host</label><input value={settings.imap_host || ''} placeholder={settings.smtp_host || 'mail.example.com'} onChange={(e) => setSettings({ ...settings, imap_host: e.target.value })} /></div>
+                <div className="ait-field"><label>Port</label><input type="number" value={settings.imap_port || 993} onChange={(e) => setSettings({ ...settings, imap_port: +e.target.value })} /></div>
+                <div className="ait-field"><label>Username</label><input value={settings.imap_username || ''} placeholder={settings.smtp_username || ''} onChange={(e) => setSettings({ ...settings, imap_username: e.target.value })} /></div>
+              </div>
+              <div className="ait-fg-3">
+                <div className="ait-field"><label>IMAP password</label><input type="password" value={imapPassword} onChange={(e) => setImapPassword(e.target.value)} placeholder={settings.imap_password_configured || settings.smtp_password_configured ? '••••••••' : ''} /></div>
+                <div className="ait-field"><label>SSL</label>
+                  <select value={settings.imap_use_ssl ? '1' : '0'} onChange={(e) => setSettings({ ...settings, imap_use_ssl: e.target.value === '1' })}>
+                    <option value="1">SSL (993)</option>
+                    <option value="0">No SSL</option>
+                  </select>
+                </div>
+                <div className="ait-field"><label>STARTTLS</label>
+                  <select value={settings.imap_use_tls ? '1' : '0'} onChange={(e) => setSettings({ ...settings, imap_use_tls: e.target.value === '1' })}>
+                    <option value="0">Off</option>
+                    <option value="1">On</option>
+                  </select>
+                </div>
+              </div>
+              {settings.imap_last_sync_message && (
+                <p className="ait-hint">Last sync: {settings.imap_last_sync_message}</p>
+              )}
             </div>
           </div>
         )}
@@ -1481,11 +1555,11 @@ export default function ApifyOutreach() {
               <button type="button" className="ait-btn ghost sm" onClick={() => setHowtoOpen(false)}>Close</button>
             </div>
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
-              <li><strong>Sending</strong> — save From + SMTP and test.</li>
-              <li><strong>Templates</strong> — paste HTML as-is; only {'{{…}}'} codes are replaced. Links stay as in your HTML. Use {'{{trial_url}}'} for signup, or {'{{tracked_trial_url}}'} for click tracking.</li>
+              <li><strong>Sending</strong> — save From + SMTP, and IMAP for inbound replies.</li>
+              <li><strong>Templates</strong> — paste HTML as-is. Use {'{{trial_url}}'}, {'{{unsubscribe_url}}'} in the footer.</li>
               <li><strong>Campaigns</strong> — name → select template → Excel → Preview → Send all.</li>
-              <li><strong>Tracking</strong> — filters on the right; Received lets you open a contact and reply.</li>
-              <li><strong>Scrape</strong> — paste any exhibitor URL; uses Apify + free actor when token is set, otherwise built-in → Add to campaign.</li>
+              <li><strong>Tracking</strong> — Received + Refresh inbox (IMAP); Unsubscribed filter; open to reply.</li>
+              <li><strong>Scrape</strong> — paste any exhibitor URL → Add to campaign.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>
               AI Team (sidebar) is the older approval-queue tool. This Apify page is template + bulk send.

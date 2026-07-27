@@ -671,3 +671,20 @@
 .ai-team-page .ait-seg-right { margin-left: auto; flex-shrink: 0; }
 .ai-team-page .ait-row-active td { background: var(--ait-accent-dim); }
 .ai-team-page .ait-reply-panel { border-color: var(--ait-accent-border, #93c5fd); }
+.ai-team-page .ait-inbound-box {
+  background: var(--ait-bg3);
+  border: 1px solid var(--ait-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.ai-team-page .ait-inbound-box strong { display: block; margin-bottom: 6px; }
+.ai-team-page .ait-inbound-box pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ait-text2);
+  max-height: 180px;
+  overflow: auto;
+}
