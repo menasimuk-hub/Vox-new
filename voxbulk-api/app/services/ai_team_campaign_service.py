@@ -331,6 +331,22 @@ class AiTeamCampaignService:
         }
 
     @staticmethod
+    def get_recipient(db: Session, recipient_id: str) -> AiTeamCampaignRecipient:
+        row = db.get(AiTeamCampaignRecipient, str(recipient_id or "").strip())
+        if row is None:
+            raise AiTeamServiceError("Recipient not found")
+        return row
+
+    @staticmethod
+    def recipient_detail(db: Session, recipient_id: str) -> dict[str, Any]:
+        row = AiTeamCampaignService.get_recipient(db, recipient_id)
+        item = AiTeamCampaignService.recipient_to_dict(row)
+        camp = db.get(AiTeamCampaign, row.campaign_id)
+        item["campaign_name"] = camp.name if camp else ""
+        item["campaign_subject"] = camp.subject if camp else ""
+        return item
+
+    @staticmethod
     def recipient_to_dict(row: AiTeamCampaignRecipient) -> dict[str, Any]:
         return {
             "id": row.id,
@@ -356,6 +372,7 @@ class AiTeamCampaignService:
             "last_inbound_subject": getattr(row, "last_inbound_subject", None) or None,
             "last_inbound_body": getattr(row, "last_inbound_body", None) or None,
         }
+
 
     @staticmethod
     def list_campaigns(db: Session) -> list[AiTeamCampaign]:
@@ -845,10 +862,14 @@ class AiTeamCampaignService:
             reply_subject = f"Re: {base}"[:500]
 
         system = (
-            "You write short professional B2B email replies for VoxBulk (customer feedback / WhatsApp / voice AI). "
-            "Return JSON with keys subject and body. Body is plain text with line breaks. "
-            f"Tone: {getattr(settings, 'email_tone', None) or 'friendly professional'}. "
-            "Be helpful, concise, and invite a short next step. Do not invent pricing or contracts."
+            "You write professional B2B email replies for VoxBulk "
+            "(customer feedback, WhatsApp surveys, voice AI for expo/events). "
+            "Return JSON with keys subject and body only. "
+            "Body is plain text with short paragraphs and line breaks. "
+            "Be polished, clear, and courteous — not salesy or pushy. "
+            "Acknowledge their message, answer helpfully, and suggest one simple next step. "
+            "Do not invent pricing, contracts, or technical claims. "
+            f"Tone: {getattr(settings, 'email_tone', None) or 'professional and warm'}."
         )
         user = (
             f"Reply to this inbound email.\n"

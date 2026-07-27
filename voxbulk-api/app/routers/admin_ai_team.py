@@ -866,6 +866,18 @@ def campaign_send_test(
         raise _err(exc) from exc
 
 
+@router.get("/tracking/recipients/{recipient_id}")
+def tracking_recipient_get(
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return {"recipient": AiTeamCampaignService.recipient_detail(db, recipient_id)}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.post("/tracking/recipients/{recipient_id}/reply")
 def tracking_recipient_reply(
     recipient_id: str,

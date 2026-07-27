@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch, apiFetchBlob, apiUpload } from '../lib/api'
 import './ai-team.css'
 
@@ -131,7 +132,9 @@ function insertAtEnd(value, setValue, tag) {
 }
 
 export default function ApifyOutreach() {
-  const [tab, setTab] = useState('campaigns')
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState(() => searchParams.get('tab') || 'campaigns')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
   const [banner, setBanner] = useState(null)
@@ -158,9 +161,6 @@ export default function ApifyOutreach() {
   const [trackingFilter, setTrackingFilter] = useState('all')
   const [trackingQ, setTrackingQ] = useState('')
   const [trackingCampaignId, setTrackingCampaignId] = useState('')
-  const [replyTarget, setReplyTarget] = useState(null)
-  const [replySubject, setReplySubject] = useState('')
-  const [replyBody, setReplyBody] = useState('')
 
   const [csvFile, setCsvFile] = useState(null)
   const [csvDrag, setCsvDrag] = useState(false)
@@ -530,49 +530,14 @@ export default function ApifyOutreach() {
     })
   }
 
-  const openReply = async (row) => {
-    // Audience / Received row
-    setReplyTarget({ ...row, _kind: 'recipient' })
-    const camp = (tracking?.campaigns || campaigns).find((c) => c.id === row.campaign_id)
-    const base = (camp?.subject || row.last_inbound_subject || row.campaign_name || 'VoxBulk').trim() || 'VoxBulk'
-    setReplySubject(base.toLowerCase().startsWith('re:') ? base : `Re: ${base}`)
-    setReplyBody('Generating AI reply…')
-    await act('ai-reply', async () => {
-      try {
-        const data = await apiFetch(`/admin/ai-team/tracking/recipients/${row.id}/ai-reply`, { method: 'POST' })
-        if (data.subject) setReplySubject(data.subject)
-        setReplyBody(data.body || '')
-      } catch (e) {
-        setReplyBody('')
-        showBanner('err', e?.message || 'AI reply failed — write manually')
-      }
-    })
+  const openReply = (row) => {
+    if (!row?.id) return
+    navigate(`/marketing/apify/recipients/${row.id}/reply`)
   }
 
-  const openInboxMessage = async (msg) => {
-    setReplyTarget({
-      id: msg.id,
-      email: msg.from_email,
-      full_name: msg.from_email,
-      last_inbound_subject: msg.subject,
-      last_inbound_body: msg.body_text,
-      campaign_id: msg.campaign_id,
-      recipient_id: msg.recipient_id,
-      _kind: 'inbox',
-    })
-    const base = (msg.subject || 'VoxBulk').trim() || 'VoxBulk'
-    setReplySubject(base.toLowerCase().startsWith('re:') ? base : `Re: ${base}`)
-    setReplyBody('Generating AI reply…')
-    await act('ai-reply', async () => {
-      try {
-        const data = await apiFetch(`/admin/ai-team/tracking/inbox/${msg.id}/ai-reply`, { method: 'POST' })
-        if (data.subject) setReplySubject(data.subject)
-        setReplyBody(data.body || '')
-      } catch (e) {
-        setReplyBody('')
-        showBanner('err', e?.message || 'AI reply failed — write manually')
-      }
-    })
+  const openInboxMessage = (msg) => {
+    if (!msg?.id) return
+    navigate(`/marketing/apify/inbox/${msg.id}`)
   }
 
   const deleteInboxMessage = async (msg) => {
@@ -581,48 +546,7 @@ export default function ApifyOutreach() {
     if (!mid || !window.confirm(`Delete inbox message from ${from}?`)) return
     await act('inbox-del', async () => {
       await apiFetch(`/admin/ai-team/tracking/inbox/${mid}`, { method: 'DELETE' })
-      if (replyTarget?._kind === 'inbox' && replyTarget.id === mid) setReplyTarget(null)
       showBanner('ok', 'Inbox message deleted')
-      await loadTracking()
-    })
-  }
-
-  const regenerateAiReply = async () => {
-    if (!replyTarget?.id) return
-    const path = replyTarget._kind === 'inbox'
-      ? `/admin/ai-team/tracking/inbox/${replyTarget.id}/ai-reply`
-      : `/admin/ai-team/tracking/recipients/${replyTarget.id}/ai-reply`
-    setReplyBody('Generating AI reply…')
-    await act('ai-reply', async () => {
-      try {
-        const data = await apiFetch(path, { method: 'POST' })
-        if (data.subject) setReplySubject(data.subject)
-        setReplyBody(data.body || '')
-        showBanner('ok', 'AI reply draft ready — edit then send')
-      } catch (e) {
-        setReplyBody('')
-        throw e
-      }
-    })
-  }
-
-  const sendReply = async () => {
-    if (!replyTarget?.id) return
-    if (!replyBody.trim() || replyBody === 'Generating AI reply…') {
-      showBanner('err', 'Enter a reply message')
-      return
-    }
-    await act('reply', async () => {
-      const path = replyTarget._kind === 'inbox'
-        ? `/admin/ai-team/tracking/inbox/${replyTarget.id}/reply`
-        : `/admin/ai-team/tracking/recipients/${replyTarget.id}/reply`
-      const data = await apiFetch(path, {
-        method: 'POST',
-        body: JSON.stringify({ body: replyBody, subject: replySubject }),
-      })
-      showBanner('ok', data.message || 'Reply sent')
-      setReplyTarget(null)
-      setReplyBody('')
       await loadTracking()
     })
   }
@@ -1164,7 +1088,7 @@ export default function ApifyOutreach() {
                   </thead>
                   <tbody>
                     {(tracking?.inbox || []).map((m) => (
-                      <tr key={m.id} className={replyTarget?._kind === 'inbox' && replyTarget.id === m.id ? 'ait-row-active' : ''}>
+                      <tr key={m.id}>
                         <td style={{ fontSize: 12 }}>{m.from_email || '—'}</td>
                         <td><strong style={{ fontSize: 13 }}>{m.subject || '(no subject)'}</strong></td>
                         <td>
@@ -1176,7 +1100,7 @@ export default function ApifyOutreach() {
                         <td className="ait-ellipsis" title={m.body_text || ''}>{(m.body_text || '').slice(0, 80) || '—'}</td>
                         <td>
                           <div className="ait-btn-row" style={{ margin: 0, gap: 4 }}>
-                            <button type="button" className="ait-icon-btn" title="Open & AI reply" onClick={() => openInboxMessage(m)}>
+                            <button type="button" className="ait-icon-btn" title="Open reply page" onClick={() => openInboxMessage(m)}>
                               <i className="ti ti-mail-opened" />
                             </button>
                             <button type="button" className="ait-icon-btn danger" title="Delete" disabled={!!busy} onClick={() => deleteInboxMessage(m)}>
@@ -1214,7 +1138,7 @@ export default function ApifyOutreach() {
                   </thead>
                   <tbody>
                     {(tracking?.activity || []).map((r) => (
-                      <tr key={r.id} className={replyTarget?.id === r.id ? 'ait-row-active' : ''}>
+                      <tr key={r.id}>
                         <td>
                           <strong>{r.full_name || r.email}</strong>
                           <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{r.email}</div>
@@ -1236,7 +1160,7 @@ export default function ApifyOutreach() {
                         <td className="ait-ellipsis" title={r.last_error || ''}>{r.last_error || '—'}</td>
                         <td>
                           {(r.status === 'sent' || r.replied_at || r.last_inbound_body || r.status === 'unsubscribed') && (
-                            <button type="button" className="ait-icon-btn" title="Open & reply" onClick={() => openReply(r)}>
+                            <button type="button" className="ait-icon-btn" title="Open reply page" onClick={() => openReply(r)}>
                               <i className="ti ti-mail-opened" />
                             </button>
                           )}
@@ -1251,67 +1175,6 @@ export default function ApifyOutreach() {
               </div>
               )}
             </div>
-
-            {replyTarget && (
-              <div className="ait-card ait-reply-panel">
-                <div className="ait-card-hdr">
-                  <span className="ait-card-title">
-                    {replyTarget._kind === 'inbox' ? 'Open inbox · reply' : 'Reply to'}{' '}
-                    {replyTarget.full_name || replyTarget.email}
-                  </span>
-                  <div className="ait-btn-row" style={{ margin: 0 }}>
-                    {replyTarget._kind === 'inbox' && (
-                      <button
-                        type="button"
-                        className="ait-btn danger sm"
-                        disabled={!!busy}
-                        onClick={() => deleteInboxMessage(replyTarget)}
-                      >
-                        <i className="ti ti-trash" style={{ marginRight: 4 }} />Delete
-                      </button>
-                    )}
-                    <button type="button" className="ait-btn ghost sm" onClick={() => setReplyTarget(null)}>Close</button>
-                  </div>
-                </div>
-                <div className="ait-card-body">
-                  <div className="ait-field">
-                    <label>To</label>
-                    <input value={replyTarget.email || ''} readOnly />
-                  </div>
-                  {(replyTarget.last_inbound_subject || replyTarget.last_inbound_body) && (
-                    <div className="ait-field">
-                      <label>Received message</label>
-                      <div className="ait-inbound-box">
-                        {replyTarget.last_inbound_subject && <strong>{replyTarget.last_inbound_subject}</strong>}
-                        <pre>{replyTarget.last_inbound_body || '—'}</pre>
-                      </div>
-                    </div>
-                  )}
-                  <div className="ait-field">
-                    <label>Subject</label>
-                    <input value={replySubject} onChange={(e) => setReplySubject(e.target.value)} />
-                  </div>
-                  <div className="ait-field">
-                    <label>Message (AI draft — edit before send)</label>
-                    <textarea
-                      style={{ minHeight: 160 }}
-                      value={replyBody}
-                      placeholder="Write your reply…"
-                      onChange={(e) => setReplyBody(e.target.value)}
-                    />
-                  </div>
-                  <div className="ait-btn-row">
-                    <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={sendReply}>
-                      <i className="ti ti-send" style={{ marginRight: 6 }} />Send reply
-                    </button>
-                    <button type="button" className="ait-btn sm" disabled={!!busy} onClick={regenerateAiReply}>
-                      <i className="ti ti-sparkles" style={{ marginRight: 6 }} />Regenerate AI
-                    </button>
-                    <button type="button" className="ait-btn sm" onClick={() => setReplyTarget(null)}>Cancel</button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
