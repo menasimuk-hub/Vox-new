@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import CAP_AI_TEAM, require_cap
@@ -224,11 +225,30 @@ def get_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Dep
 
 
 @router.get("/apify/runs/{run_id}/preview")
-def preview_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+def preview_apify_run(
+    run_id: str,
+    limit: int = 5000,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
     try:
-        return AiTeamService.preview_apify_run(db, run_id)
+        return AiTeamService.preview_apify_run(db, run_id, limit=limit)
     except Exception as exc:
         raise _err(exc) from exc
+
+
+@router.get("/apify/runs/{run_id}/export.csv")
+def export_apify_run_csv(run_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    """Download all scraped emails as CSV (opens in Excel)."""
+    try:
+        filename, body = AiTeamService.export_apify_run_csv(db, run_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+    return Response(
+        content=body.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/apify/runs/{run_id}/import")

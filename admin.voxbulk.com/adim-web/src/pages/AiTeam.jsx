@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { apiFetch, apiUpload } from '../lib/api'
+import { apiFetch, apiFetchBlob, apiUpload } from '../lib/api'
 import './ai-team.css'
 
 const CSV_MAP_FIELDS = [
@@ -397,9 +397,24 @@ export default function AiTeam() {
 
   const previewApifyRun = async (runId) => {
     await act(`apify-preview-${runId}`, async () => {
-      const data = await apiFetch(`/admin/ai-team/apify/runs/${runId}/preview`)
+      const data = await apiFetch(`/admin/ai-team/apify/runs/${runId}/preview?limit=5000`)
       setApifyPreview(data)
-      showBanner('ok', `${data.contacts_with_email || 0} contacts with email of ${data.total_items || 0} items`)
+      showBanner('ok', `${data.contacts_with_email || 0} emails ready — scroll the list or Export Excel`)
+    })
+  }
+
+  const exportApifyRun = async (runId) => {
+    await act(`apify-export-${runId}`, async () => {
+      const blob = await apiFetchBlob(`/admin/ai-team/apify/runs/${runId}/export.csv`)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `expo-emails-${String(runId).slice(0, 8)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      showBanner('ok', 'Excel/CSV download started')
     })
   }
 
@@ -1080,9 +1095,6 @@ export default function AiTeam() {
                     <strong>User ID</strong> = account id (what you had as <code>346ec9…</code>).{' '}
                     <strong>Personal API token</strong> = secret starting with <code>apify_api_</code>. Both can be saved; only the token connects the API.
                   </div>
-                  <div className="ait-msg-banner err" style={{ margin: '0 0 10px', padding: '8px 10px' }}>
-                    Optional for Store actors. Easyfairs exhibitor directories use the <strong>Scrape</strong> tab — no Apify needed.
-                  </div>
                   <p className="ait-hint">
                     Token: <a href="https://console.apify.com/settings/integrations" target="_blank" rel="noreferrer">console.apify.com/settings/integrations</a>
                     {' '}→ Personal API tokens → copy value starting with <code>apify_api_</code>.
@@ -1308,6 +1320,7 @@ export default function AiTeam() {
                               <div className="ait-btn-row" style={{ margin: 0, flexWrap: 'nowrap' }}>
                                 <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => refreshApifyRun(run.id)}>↻</button>
                                 <button type="button" className="ait-btn xs" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => previewApifyRun(run.id)}>View</button>
+                                <button type="button" className="ait-btn xs" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => exportApifyRun(run.id)} title="Download CSV for Excel">Excel</button>
                                 <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => importApifyRun(run.id)}>Import</button>
                                 <button
                                   type="button"
@@ -1330,18 +1343,31 @@ export default function AiTeam() {
                   </div>
                   {apifyPreview && (
                     <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
-                        Preview — {apifyPreview.contacts_with_email} emails / {apifyPreview.total_items} items
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600 }}>
+                          All emails — {(apifyPreview.preview || []).length} shown / {apifyPreview.contacts_with_email || 0} with email
+                          {apifyPreview.run?.id ? ` · run ${String(apifyPreview.run.id).slice(0, 8)}` : ''}
+                        </div>
+                        <div className="ait-btn-row" style={{ margin: 0 }}>
+                          {apifyPreview.run?.id ? (
+                            <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => exportApifyRun(apifyPreview.run.id)}>
+                              Export Excel
+                            </button>
+                          ) : null}
+                          <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => setApifyPreview(null)}>Close</button>
+                        </div>
                       </div>
-                      <div className="ait-table-wrap">
+                      <div className="ait-table-wrap" style={{ maxHeight: 360, overflow: 'auto' }}>
                         <table className="ait-tbl ait-tbl-compact">
-                          <thead><tr><th>Email</th><th>Name</th><th>Company</th></tr></thead>
+                          <thead><tr><th>#</th><th>Email</th><th>Company</th><th>Website</th><th>Stand</th></tr></thead>
                           <tbody>
-                            {(apifyPreview.preview || []).slice(0, 12).map((c, i) => (
+                            {(apifyPreview.preview || []).map((c, i) => (
                               <tr key={`${c.email}-${i}`}>
+                                <td>{i + 1}</td>
                                 <td>{c.email}</td>
-                                <td>{[c.first_name, c.last_name].filter(Boolean).join(' ') || '—'}</td>
                                 <td>{c.company_name || '—'}</td>
+                                <td className="ait-ellipsis" title={c.website || ''}>{c.website || '—'}</td>
+                                <td>{c.stand_number || '—'}</td>
                               </tr>
                             ))}
                           </tbody>

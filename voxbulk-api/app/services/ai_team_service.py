@@ -2021,18 +2021,19 @@ class AiTeamService:
         return {"ok": True, "run": AiTeamService._run_to_dict(row)}
 
     @staticmethod
-    def preview_apify_run(db: Session, run_id: str, *, limit: int = 25) -> dict[str, Any]:
+    def preview_apify_run(db: Session, run_id: str, *, limit: int = 5000) -> dict[str, Any]:
         row = db.get(AiTeamApifyRun, run_id)
         if row is None:
             raise AiTeamServiceError("Apify run not found")
         builtin = AiTeamService._builtin_run_contacts(row)
         if builtin or str(row.actor_id or "").startswith("builtin:"):
+            cap = max(1, min(int(limit or 5000), 10000))
             return {
                 "ok": True,
                 "run": AiTeamService._run_to_dict(row),
                 "total_items": int(row.item_count or len(builtin)),
                 "contacts_with_email": len(builtin),
-                "preview": builtin[: max(1, min(limit, 100))],
+                "preview": builtin[:cap],
             }
         settings = AiTeamService.get_settings(db)
         token = AiTeamService._apify_token(settings, db=db)
@@ -2050,13 +2051,61 @@ class AiTeamService:
             )
             if normalized:
                 contacts.append(normalized)
+        cap = max(1, min(int(limit or 5000), 10000))
         return {
             "ok": True,
             "run": AiTeamService._run_to_dict(row),
             "total_items": len(items),
             "contacts_with_email": len(contacts),
-            "preview": contacts[: max(1, min(limit, 100))],
+            "preview": contacts[:cap],
         }
+
+    @staticmethod
+    def export_apify_run_csv(db: Session, run_id: str) -> tuple[str, str]:
+        """Return (filename, csv_text) for all contacts with email in a scrape run."""
+        preview = AiTeamService.preview_apify_run(db, run_id, limit=10000)
+        contacts = preview.get("preview") or []
+        if not contacts:
+            raise AiTeamServiceError("No emails to export for this run")
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            [
+                "email",
+                "first_name",
+                "last_name",
+                "company_name",
+                "job_title",
+                "website",
+                "profile_url",
+                "event_name",
+                "stand_number",
+                "sector",
+                "country_code",
+            ]
+        )
+        for c in contacts:
+            if not isinstance(c, dict):
+                continue
+            writer.writerow(
+                [
+                    c.get("email") or "",
+                    c.get("first_name") or "",
+                    c.get("last_name") or "",
+                    c.get("company_name") or "",
+                    c.get("job_title") or "",
+                    c.get("website") or "",
+                    c.get("profile_url") or "",
+                    c.get("event_name") or "",
+                    c.get("stand_number") or "",
+                    c.get("sector") or "",
+                    c.get("country_code") or "",
+                ]
+            )
+        # UTF-8 BOM so Excel opens accents correctly
+        body = "\ufeff" + buf.getvalue()
+        short = str(run_id or "run")[:8]
+        return f"expo-emails-{short}.csv", body
 
     @staticmethod
     def import_apify_run(db: Session, run_id: str) -> dict[str, Any]:
