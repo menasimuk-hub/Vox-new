@@ -1,0 +1,164 @@
+[
+  {
+    "name": "IFE",
+    "url": "https://www.ife.co.uk/exhibitor-list",
+    "source": "book1"
+  },
+  {
+    "name": "HRC",
+    "url": "https://www.hrc.co.uk/hrc-2026-exhibitor-list",
+    "source": "book1"
+  },
+  {
+    "name": "IFE Manufacturing",
+    "url": "https://www.ifemanufacturing.co.uk/exhibitor-list",
+    "source": "book1"
+  },
+  {
+    "name": "London Book Fair",
+    "url": "https://www.londonbookfair.co.uk/en-gb/exhibitor-directory.html",
+    "source": "book1"
+  },
+  {
+    "name": "Makers Central",
+    "url": "https://www.makerscentral.co.uk/exhibitor-list/",
+    "source": "book1"
+  },
+  {
+    "name": "APEA Live",
+    "url": "https://www.apealive.co.uk/2026/exhibition/exhibitor-list/",
+    "source": "book1"
+  },
+  {
+    "name": "BIG Futures Show",
+    "url": "https://bigfuturesshow.org.uk/exhibitordirectory/",
+    "source": "book1"
+  },
+  {
+    "name": "UK Games Expo",
+    "url": "https://www.ukgamesexpo.co.uk/whats-on/show/exhibitors/",
+    "source": "book1"
+  },
+  {
+    "name": "The Pub Show",
+    "url": "https://www.thepubshow.co.uk/exhibitor-list",
+    "source": "book1"
+  },
+  {
+    "name": "Hospitality Tech360",
+    "url": "https://www.hospitalitytech360.co.uk/exhibitor-list",
+    "source": "book1"
+  },
+  {
+    "name": "Spring Fair",
+    "url": "https://www.springfair.com/exhibitors",
+    "source": "found"
+  },
+  {
+    "name": "Bett UK",
+    "url": "https://uk.bettshow.com/solution-providers",
+    "source": "found"
+  },
+  {
+    "name": "Autumn Fair",
+    "url": "https://www.autumnfair.com/exhibitors",
+    "source": "found"
+  },
+  {
+    "name": "Multimodal",
+    "url": "https://www.multimodal.org.uk/exhibitor-list-2026",
+    "source": "found"
+  },
+  {
+    "name": "Digital Construction Week",
+    "url": "https://divcommanual.com/dcw/exhibitor-list-search/",
+    "source": "found"
+  },
+  {
+    "name": "World Travel Market London",
+    "url": "https://www.wtm.com/london/en-gb/exhibitor-directory.html",
+    "source": "found"
+  },
+  {
+    "name": "InstallerSHOW",
+    "url": "https://www.installershow.com/exhibitor-list",
+    "source": "found"
+  },
+  {
+    "name": "Safety, Health & Wellbeing Live",
+    "url": "https://www.safetyhealthwellbeing.live/exhibitors",
+    "source": "found",
+    "note": "Safety & Health Expo brand moved / replaced"
+  },
+  {
+    "name": "Advanced Engineering UK",
+    "url": "https://www.advancedengineeringuk.com/advanced-engineering-exhibitors/",
+    "source": "found"
+  },
+  {
+    "name": "UK Construction Week",
+    "url": "https://www.ukconstructionweek.com/exhibitors",
+    "source": "found"
+  },
+  {
+    "name": "The Forecourt Show",
+    "url": "https://www.forecourtshow.co.uk/exhibitors-2026",
+    "source": "found"
+  },
+  {
+    "name": "Road Transport Expo",
+    "url": "https://roadtransportexpo.co.uk/rtx/en/page/2025-exhibitors",
+    "source": "found"
+  },
+  {
+    "name": "Southampton International Boat Show",
+    "url": "https://www.southamptonboatshow.com/exhibitors/",
+    "source": "found"
+  },
+  {
+    "name": "CHEMUK",
+    "url": "https://www.chemicalukexpo.com/exhibitors/",
+    "source": "found"
+  },
+  {
+    "name": "Parcel+Post Expo",
+    "url": "https://parcelandpostexpo.com/exhibitor-list",
+    "source": "extra"
+  },
+  {
+    "name": "Takeaway Expo",
+    "url": "https://takeawayexpo.co.uk/exhibitors",
+    "source": "extra"
+  },
+  {
+    "name": "Packaging Innovations",
+    "url": "https://www.packagingbirmingham.com/exhibitors",
+    "source": "found",
+    "note": "Easyfairs Packaging Innovations Birmingham"
+  },
+  {
+    "name": "LAMMA",
+    "url": "https://www.lammashow.com/exhibitors/",
+    "source": "found"
+  },
+  {
+    "name": "National Convenience Show",
+    "url": "https://www.nationalconvenienceshow.co.uk/exhibitors",
+    "source": "found"
+  },
+  {
+    "name": "Accountex Summit North",
+    "url": "https://www.accountex.co.uk/summit-north/exhibitors/",
+    "source": "found"
+  },
+  {
+    "name": "Natural & Organic Products Expo",
+    "url": "https://www.naturalproducts.co.uk/exhibitors/",
+    "source": "found"
+  },
+  {
+    "name": "Independent Hotel Show",
+    "url": "https://www.independenthotelshow.co.uk/exhibitors/",
+    "source": "found"
+  }
+]

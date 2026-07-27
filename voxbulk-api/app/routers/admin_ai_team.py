@@ -275,6 +275,32 @@ def smart_scrape(body: dict[str, Any], db: Session = Depends(get_db), _admin: Us
         raise _err(exc) from exc
 
 
+@router.get("/scrape/exhibition-directories")
+def list_exhibition_directories(_admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    """Curated UK exhibition exhibitor-directory URLs (Book1 + discovered links)."""
+    return {"exhibitions": AiTeamService.list_exhibition_directories()}
+
+
+@router.post("/scrape/bulk")
+def bulk_scrape(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    """Queue/start scrapes for many directory URLs (one after another, inline built-in)."""
+    try:
+        urls = body.get("urls") or body.get("expo_urls") or []
+        if isinstance(urls, str):
+            urls = [u.strip() for u in urls.replace(",", "\n").splitlines() if u.strip()]
+        follow_raw = body.get("follow_websites")
+        follow_websites = True if follow_raw is None else bool(follow_raw)
+        return AiTeamService.start_bulk_scrapes(
+            db,
+            urls=[str(u or "").strip() for u in urls if str(u or "").strip()],
+            follow_websites=follow_websites,
+            engine=str(body.get("engine") or "auto").strip() or "auto",
+            max_stands=int(body.get("max_stands") or 500),
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.post("/scrape/directory")
 def scrape_directory(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     """Built-in exhibitor directory scrape (Easyfairs / HTML). No Apify actor required."""

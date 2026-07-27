@@ -214,6 +214,9 @@ export default function ApifyOutreach() {
   const [scrapeFollowWebsites, setScrapeFollowWebsites] = useState(true)
   const [apifyRuns, setApifyRuns] = useState([])
   const [apifyPreview, setApifyPreview] = useState(null)
+  const [exhibitionDirs, setExhibitionDirs] = useState([])
+  const [bulkUrls, setBulkUrls] = useState('')
+  const [bulkOpen, setBulkOpen] = useState(false)
 
   const [smtpPassword, setSmtpPassword] = useState('')
   const [imapPassword, setImapPassword] = useState('')
@@ -269,6 +272,17 @@ export default function ApifyOutreach() {
   const loadApifyRuns = useCallback(async () => {
     const data = await apiFetch('/admin/ai-team/apify/runs')
     setApifyRuns(data.runs || [])
+  }, [])
+
+  const loadExhibitionDirs = useCallback(async () => {
+    try {
+      const data = await apiFetch('/admin/ai-team/scrape/exhibition-directories')
+      setExhibitionDirs(data.exhibitions || [])
+      return data.exhibitions || []
+    } catch {
+      setExhibitionDirs([])
+      return []
+    }
   }, [])
 
   const loadTracking = useCallback(async () => {
@@ -347,10 +361,13 @@ export default function ApifyOutreach() {
     if (activeId) loadCampaign(activeId).catch((e) => showBanner('err', e?.message || 'Load failed'))
   }, [activeId, loadCampaign])
   useEffect(() => {
-    if (tab === 'scrape') loadApifyRuns().catch(() => {})
+    if (tab === 'scrape') {
+      loadApifyRuns().catch(() => {})
+      loadExhibitionDirs().catch(() => {})
+    }
     if (tab === 'templates') loadTemplates().catch(() => {})
     if (tab === 'tracking') loadTracking().catch((e) => showBanner('err', e?.message || 'Tracking load failed'))
-  }, [tab, loadApifyRuns, loadTemplates, loadTracking])
+  }, [tab, loadApifyRuns, loadTemplates, loadTracking, loadExhibitionDirs])
 
   useEffect(() => {
     if (tab !== 'tracking') return undefined
@@ -860,10 +877,76 @@ export default function ApifyOutreach() {
     const from = msg?.from_email || msg?.email || 'unknown'
     if (!mid || !window.confirm(`Delete inbox message from ${from}?`)) return
     await act('inbox-del', async () => {
-      await apiFetch(`/admin/ai-team/tracking/inbox/${mid}`, { method: 'DELETE' })
+      const data = await apiFetch(`/admin/ai-team/tracking/inbox/${mid}`, { method: 'DELETE' })
+      const left = data?.inbox != null ? Number(data.inbox) : null
+      // Optimistic / authoritative: badge must match DB after delete (was stuck at 2)
+      setTracking((prev) => {
+        if (!prev) return prev
+        const nextInbox = left != null ? left : Math.max(0, Number(prev.summary?.inbox ?? 1) - 1)
+        return {
+          ...prev,
+          inbox: (prev.inbox || []).filter((m) => m.id !== mid),
+          summary: { ...(prev.summary || {}), inbox: nextInbox },
+        }
+      })
+      setKpis((prev) => {
+        const nextInbox = left != null ? left : Math.max(0, Number(prev?.inbox ?? 1) - 1)
+        return prev ? { ...prev, inbox: nextInbox } : { inbox: nextInbox }
+      })
       showBanner('ok', 'Inbox message deleted')
-      await loadTracking()
+      await Promise.all([loadTracking(), loadKpis().catch(() => null)])
     })
+  }
+
+  const startBulkScrapes = async () => {
+    const lines = bulkUrls.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.startsWith('http'))
+    if (!lines.length) {
+      showBanner('err', 'Paste one https:// directory URL per line')
+      return
+    }
+    if (lines.length > 15) {
+      showBanner('err', 'Bulk scrape is limited to 15 URLs — run in batches')
+      return
+    }
+    await act('bulk-scrape', async () => {
+      let ok = 0
+      let fail = 0
+      let emails = 0
+      for (let i = 0; i < lines.length; i += 1) {
+        const url = lines[i]
+        showBanner('ok', `Scraping ${i + 1}/${lines.length}…`)
+        try {
+          const data = await apiFetch('/admin/ai-team/scrape', {
+            method: 'POST',
+            body: JSON.stringify({
+              expo_url: url,
+              follow_websites: scrapeFollowWebsites,
+              engine: scrapeEngine || 'auto',
+            }),
+          })
+          ok += 1
+          emails += Number(data.emails_found || data.run?.emails_found || data.run?.item_count || 0)
+        } catch {
+          fail += 1
+        }
+        await loadApifyRuns().catch(() => {})
+      }
+      showBanner(fail ? 'err' : 'ok', `Bulk done · ${ok} ok · ${fail} failed · ${emails} email(s)`)
+      await loadApifyRuns()
+    })
+  }
+
+  const fillBulkFromCurated = async () => {
+    let rows = exhibitionDirs
+    if (!rows.length) rows = await loadExhibitionDirs()
+    const urls = (rows || []).map((e) => e.url).filter(Boolean)
+    if (!urls.length) {
+      showBanner('err', 'Curated exhibition list empty — check API')
+      return
+    }
+    setBulkUrls(urls.join('\n'))
+    setBulkOpen(true)
+    showBanner('ok', `${urls.length} exhibition directory URLs filled`)
   }
 
   const deleteScrapeRun = async (run) => {
@@ -874,7 +957,7 @@ export default function ApifyOutreach() {
     await act('scrape-del', async () => {
       await apiFetch(`/admin/ai-team/apify/runs/${rid}`, { method: 'DELETE' })
       showBanner('ok', 'Scrape run deleted')
-      await loadApifyRuns()
+      await Promise.all([loadApifyRuns(), loadKpis().catch(() => null)])
     })
   }
 
@@ -1085,59 +1168,67 @@ export default function ApifyOutreach() {
 
       {banner && <div className={`ait-msg-banner ${banner.type}`}>{banner.text}</div>}
 
-      {!isCampaignPage && (
-        <>
-          <div className="ait-workflow" aria-label="Suggested workflow">
-            {WORKFLOW_STEPS.map((s, i) => (
-              <React.Fragment key={s.id}>
-                {i > 0 && <span className="ait-workflow-arrow" aria-hidden>→</span>}
-                <button
-                  type="button"
-                  className={`ait-workflow-step ${tab === s.id ? 'active' : ''}`}
-                  onClick={() => goTab(s.id)}
-                >
-                  <span className="ait-workflow-n">{s.n}</span>
-                  {s.label}
-                </button>
-              </React.Fragment>
-            ))}
-            <span className="ait-workflow-hint">Setup: Sending · Apify API</span>
-          </div>
-
-          {tab !== 'tracking' && (
-            <div className="ait-stats ait-stats-home" aria-label="Outreach KPIs">
-              {HOME_KPIS.map((k) => {
-                const val = kpis?.[k.key]
-                return (
-                  <button
-                    key={k.key}
-                    type="button"
-                    className={`ait-stat ait-stat-click tone-${k.tone}`}
-                    onClick={() => openKpi(k.filter)}
-                    title={`Open ${k.label.toLowerCase()} list`}
-                  >
-                    <div className="ait-stat-lbl">{k.label}</div>
-                    <div className="ait-stat-val">{val == null ? '—' : val}</div>
-                    <div className="ait-stat-sub">{k.hint} · click to open</div>
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          <div className="ait-tabs">
-            {TABS.map((t) => (
-              <button key={t.id} type="button" className={`ait-tab ${tab === t.id ? 'active' : ''}`} onClick={() => goTab(t.id)}>
-                <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
-                {t.label}
-                {t.id === 'tracking' && Number(kpis?.inbox || 0) > 0 ? (
-                  <span className="ait-tab-badge">{kpis.inbox}</span>
-                ) : null}
+      {/* Keep workflow + KPIs + tabs on every Apify page so the tab bar does not jump */}
+      <div className="ait-hub-chrome">
+        <div className="ait-workflow" aria-label="Suggested workflow">
+          {WORKFLOW_STEPS.map((s, i) => (
+            <React.Fragment key={s.id}>
+              {i > 0 && <span className="ait-workflow-arrow" aria-hidden>→</span>}
+              <button
+                type="button"
+                className={`ait-workflow-step ${!isCampaignPage && tab === s.id ? 'active' : ''}`}
+                onClick={() => goTab(s.id)}
+              >
+                <span className="ait-workflow-n">{s.n}</span>
+                {s.label}
               </button>
-            ))}
-          </div>
-        </>
-      )}
+            </React.Fragment>
+          ))}
+          <span className="ait-workflow-hint">Setup: Sending · Apify API</span>
+        </div>
+
+        <div className="ait-stats ait-stats-home" aria-label="Outreach KPIs">
+          {HOME_KPIS.map((k) => {
+            const val = kpis?.[k.key]
+            return (
+              <button
+                key={k.key}
+                type="button"
+                className={`ait-stat ait-stat-click tone-${k.tone}`}
+                onClick={() => openKpi(k.filter)}
+                title={`Open ${k.label.toLowerCase()} list`}
+              >
+                <div className="ait-stat-lbl">{k.label}</div>
+                <div className="ait-stat-val">{val == null ? '—' : val}</div>
+                <div className="ait-stat-sub">{k.hint} · click to open</div>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="ait-tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`ait-tab ${!isCampaignPage && tab === t.id ? 'active' : ''}`}
+              onClick={() => goTab(t.id)}
+            >
+              <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
+              {t.label}
+                {t.id === 'tracking' && (() => {
+                  const inboxN = Number(
+                    tracking?.summary?.inbox
+                    ?? kpis?.inbox
+                    ?? (Array.isArray(tracking?.inbox) ? tracking.inbox.length : 0)
+                    ?? 0,
+                  )
+                  return inboxN > 0 ? <span className="ait-tab-badge">{inboxN}</span> : null
+                })()}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="ait-content">
         {(tab === 'campaigns' && !isCampaignPage) && (
@@ -1611,28 +1702,6 @@ export default function ApifyOutreach() {
 
         {tab === 'tracking' && (
           <div>
-            <div className="ait-stats" style={{ marginBottom: 14, padding: 0, border: 'none', background: 'transparent' }}>
-              {[
-                ['Sent', tracking?.summary?.sent ?? kpis?.sent ?? '—', 'sent'],
-                ['Opened', tracking?.summary?.opened ?? kpis?.opened ?? '—', 'opened'],
-                ['Clicked', tracking?.summary?.clicked ?? kpis?.clicked ?? '—', 'clicked'],
-                ['Received', tracking?.summary?.received ?? kpis?.received ?? '—', 'received'],
-                ['Inbox', tracking?.summary?.inbox ?? kpis?.inbox ?? '—', 'inbox'],
-                ['Failed', tracking?.summary?.failed ?? kpis?.failed ?? '—', 'failed'],
-              ].map(([label, val, filter]) => (
-                <button
-                  type="button"
-                  className={`ait-stat ait-stat-click tone-${filter === 'failed' ? 'pending' : filter}${trackingFilter === filter ? ' active' : ''}`}
-                  key={label}
-                  onClick={() => openKpi(filter)}
-                >
-                  <div className="ait-stat-lbl">{label}</div>
-                  <div className="ait-stat-val">{val}</div>
-                  <div className="ait-stat-sub">Click to filter</div>
-                </button>
-              ))}
-            </div>
-
             <div className="ait-card ait-sec ait-sec-tracking">
               <div className="ait-card-hdr">
                 <div className="ait-sec-title-wrap">
@@ -2114,10 +2183,45 @@ export default function ApifyOutreach() {
                 <button type="button" className="ait-btn primary sm" disabled={!!busy || !apifyExpoUrl.trim()} onClick={startScrape}>
                   Scrape
                 </button>
+                <button type="button" className="ait-btn ghost sm" onClick={() => setBulkOpen((v) => !v)}>
+                  {bulkOpen ? 'Hide bulk list' : 'Bulk / Book1 list'}
+                </button>
                 <button type="button" className="ait-btn ghost sm" onClick={() => setScrapeAdvancedOpen((v) => !v)}>
                   {scrapeAdvancedOpen ? 'Hide advanced' : 'Advanced'}
                 </button>
               </div>
+              {bulkOpen && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--ait-border)' }}>
+                  <div className="ait-field">
+                    <label>Directory URLs (one per line) — Book1 + found exhibitor lists</label>
+                    <textarea
+                      value={bulkUrls}
+                      onChange={(e) => setBulkUrls(e.target.value)}
+                      rows={8}
+                      placeholder="https://…/exhibitors&#10;https://…/exhibitor-list"
+                      style={{ width: '100%', fontFamily: 'ui-monospace, monospace', fontSize: 12 }}
+                    />
+                  </div>
+                  <div className="ait-btn-row">
+                    <button type="button" className="ait-btn sm" disabled={!!busy} onClick={fillBulkFromCurated}>
+                      Fill curated ({exhibitionDirs.length || '…'})
+                    </button>
+                    <button
+                      type="button"
+                      className="ait-btn primary sm"
+                      disabled={!!busy || !bulkUrls.trim()}
+                      onClick={startBulkScrapes}
+                    >
+                      {busy === 'bulk-scrape' ? 'Scraping…' : 'Scrape all (max 15)'}
+                    </button>
+                  </div>
+                  {exhibitionDirs.length > 0 && (
+                    <p className="ait-hint" style={{ marginBottom: 0 }}>
+                      Curated: {exhibitionDirs.map((e) => e.name).join(' · ')}
+                    </p>
+                  )}
+                </div>
+              )}
               {scrapeAdvancedOpen && (
                 <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--ait-border)' }}>
                   <div className="ait-fg-2">

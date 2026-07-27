@@ -1707,11 +1707,15 @@ class AiTeamService:
             "item_count": row.item_count,
             "imported_count": row.imported_count,
             "emails_found": int(stats.get("emails_found") or progress.get("emails_found") or 0),
+            "emails_added": int(stats.get("emails_added") or 0) if "emails_added" in stats else None,
+            "emails_skipped": int(stats.get("emails_skipped") or 0) if "emails_skipped" in stats else None,
+            "emails_total": int(stats.get("emails_total") or 0) if "emails_total" in stats else None,
             "stands_found": int(stats.get("stands_found") or stands_total or 0),
             "stands_with_email": int(stats.get("stands_with_email") or progress.get("stands_with_email") or 0),
             "provider": stats.get("provider") or progress.get("provider") or (
                 "builtin" if str(row.actor_id or "").startswith("builtin:") else "apify"
             ),
+            "is_update": bool(stats.get("merge_update") or stats.get("is_update")),
             "progress": {
                 "phase": progress.get("phase") or ("done" if str(row.status or "").upper() == "SUCCEEDED" else "queued"),
                 "message": progress.get("message") or stats.get("message") or "",
@@ -1719,6 +1723,12 @@ class AiTeamService:
                 "stands_done": stands_done,
                 "stands_with_email": int(progress.get("stands_with_email") or stats.get("stands_with_email") or 0),
                 "emails_found": int(progress.get("emails_found") or stats.get("emails_found") or 0),
+                "emails_added": int(progress.get("emails_added") or stats.get("emails_added") or 0)
+                if ("emails_added" in progress or "emails_added" in stats)
+                else None,
+                "emails_skipped": int(progress.get("emails_skipped") or stats.get("emails_skipped") or 0)
+                if ("emails_skipped" in progress or "emails_skipped" in stats)
+                else None,
                 "errors": int(progress.get("errors") or stats.get("errors") or 0),
                 "heartbeat_at": progress.get("heartbeat_at")
                 or (row.updated_at.isoformat() if row.updated_at else None),
@@ -1791,8 +1801,13 @@ class AiTeamService:
         *,
         follow_websites: bool = False,
         max_stands: int = 500,
+        merge_existing: bool = False,
     ) -> dict[str, Any]:
-        """Execute a queued builtin directory scrape and persist results on the run row."""
+        """Execute a queued builtin directory scrape and persist results on the run row.
+
+        When merge_existing is True (or stats_json has prior_contacts from an Update),
+        keep emails already stored on the run and only append newly found addresses.
+        """
         from app.core.database import get_sessionmaker
 
         session = get_sessionmaker()()
@@ -1801,6 +1816,22 @@ class AiTeamService:
             if row is None:
                 return {"ok": False, "error": "run not found"}
             url = str(row.expo_url or "").strip()
+            prior_contacts: list[dict[str, Any]] = []
+            try:
+                stats0 = json.loads(row.stats_json or "{}")
+                if isinstance(stats0, dict):
+                    raw_prior = stats0.get("prior_contacts")
+                    if isinstance(raw_prior, list):
+                        prior_contacts = [c for c in raw_prior if isinstance(c, dict) and c.get("email")]
+                    if not prior_contacts and merge_existing:
+                        raw_contacts = stats0.get("contacts")
+                        if isinstance(raw_contacts, list):
+                            prior_contacts = [
+                                c for c in raw_contacts if isinstance(c, dict) and c.get("email")
+                            ]
+            except Exception:
+                prior_contacts = []
+            merge_mode = bool(merge_existing or prior_contacts)
             last_progress_at = 0.0
 
             def _on_progress(payload: dict[str, Any]) -> None:
@@ -2266,6 +2297,109 @@ class AiTeamService:
                 fallback_from="apify",
                 apify_error=str(exc),
             )
+
+    @staticmethod
+    def list_exhibition_directories() -> list[dict[str, Any]]:
+        """Curated UK exhibition exhibitor-directory URLs shipped with the API."""
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "data" / "uk_exhibition_directories.json"
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        if not isinstance(rows, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or "").strip()
+            url = str(row.get("url") or "").strip()
+            if not name or not url.startswith("http"):
+                continue
+            out.append(
+                {
+                    "name": name,
+                    "url": url,
+                    "source": str(row.get("source") or ""),
+                    "note": str(row.get("note") or ""),
+                }
+            )
+        return out
+
+    @staticmethod
+    def start_bulk_scrapes(
+        db: Session,
+        *,
+        urls: list[str],
+        follow_websites: bool = True,
+        engine: str = "auto",
+        max_stands: int = 500,
+    ) -> dict[str, Any]:
+        """Start scrapes for many directory URLs (sequential; each uses smart scrape)."""
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in urls or []:
+            u = str(raw or "").strip().replace("\\", "/")
+            if not u.startswith("http"):
+                continue
+            key = u.split("#")[0].rstrip("/").lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(u.split("#")[0])
+        if not cleaned:
+            raise AiTeamServiceError("Paste at least one https:// exhibitor directory URL")
+        if len(cleaned) > 40:
+            raise AiTeamServiceError("Bulk scrape is limited to 40 URLs at a time")
+
+        results: list[dict[str, Any]] = []
+        ok_n = 0
+        fail_n = 0
+        emails_total = 0
+        for url in cleaned:
+            try:
+                one = AiTeamService.start_smart_scrape(
+                    db,
+                    expo_url=url,
+                    follow_websites=follow_websites,
+                    engine=engine,
+                    max_stands=max_stands,
+                )
+                run = one.get("run") if isinstance(one, dict) else None
+                emails = int(
+                    (one or {}).get("emails_found")
+                    or ((run or {}).get("emails_found") if isinstance(run, dict) else 0)
+                    or ((run or {}).get("item_count") if isinstance(run, dict) else 0)
+                    or 0
+                )
+                emails_total += emails
+                ok_n += 1
+                results.append(
+                    {
+                        "ok": True,
+                        "url": url,
+                        "emails_found": emails,
+                        "provider": (one or {}).get("provider")
+                        or ((run or {}).get("provider") if isinstance(run, dict) else None),
+                        "status": (run or {}).get("status") if isinstance(run, dict) else None,
+                        "run_id": (run or {}).get("id") if isinstance(run, dict) else None,
+                        "message": (one or {}).get("message") or "ok",
+                    }
+                )
+            except Exception as exc:
+                fail_n += 1
+                results.append({"ok": False, "url": url, "error": str(exc)[:400]})
+        return {
+            "ok": fail_n == 0,
+            "started": len(cleaned),
+            "succeeded": ok_n,
+            "failed": fail_n,
+            "emails_found_total": emails_total,
+            "results": results,
+            "message": f"Bulk scrape finished · {ok_n} ok · {fail_n} failed · {emails_total} email(s)",
+        }
 
     @staticmethod
     def start_apify_run(db: Session, *, expo_url: str, actor_id: str | None = None) -> dict[str, Any]:

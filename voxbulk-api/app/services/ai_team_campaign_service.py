@@ -1030,7 +1030,8 @@ class AiTeamCampaignService:
         mid = row.id
         db.delete(row)
         db.commit()
-        return {"ok": True, "deleted": mid}
+        inbox_left = int(db.scalar(select(func.count()).select_from(AiTeamInboundMessage)) or 0)
+        return {"ok": True, "deleted": mid, "inbox": inbox_left}
 
     @staticmethod
     def generate_reply_draft(
