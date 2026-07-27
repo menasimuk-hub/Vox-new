@@ -20,6 +20,11 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    # Dedicated queue so other Redis workers (fresh@, wa-stt@) cannot steal
+    # VoxBulk tasks they do not register (they share broker DB 6 / queue "celery").
+    task_default_queue="voxbulk",
+    task_default_exchange="voxbulk",
+    task_default_routing_key="voxbulk",
     beat_schedule={
         "rollover-usage-periods-daily": {
             "task": "billing.rollover_usage_periods",

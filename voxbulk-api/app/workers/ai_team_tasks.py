@@ -17,7 +17,14 @@ def process_ai_team_followups_task() -> dict:
     return stats
 
 
-@celery_app.task(name="ai_team.scrape_directory", bind=True, max_retries=1, soft_time_limit=900, time_limit=960)
+@celery_app.task(
+    name="ai_team.scrape_directory",
+    bind=True,
+    max_retries=1,
+    soft_time_limit=900,
+    time_limit=960,
+    queue="voxbulk",
+)
 def scrape_directory_task(
     self,
     run_id: str,

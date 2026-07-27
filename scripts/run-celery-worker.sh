@@ -12,4 +12,6 @@ if [[ ! -x "$CELERY_BIN" ]]; then
 fi
 
 cd "$API_DIR"
-exec "$CELERY_BIN" -A app.workers.celery_app:celery_app worker -l INFO
+# Listen on dedicated "voxbulk" queue (see celery_app task_default_queue).
+# Also keep "celery" temporarily so any in-flight legacy messages are drained.
+exec "$CELERY_BIN" -A app.workers.celery_app:celery_app worker -l INFO -Q voxbulk,celery

@@ -1780,41 +1780,62 @@ class AiTeamService:
 
         queued = False
         queue_error = ""
+        celery_task_id = ""
         try:
             from app.workers.ai_team_tasks import scrape_directory_task
 
-            scrape_directory_task.delay(
-                run_id,
-                follow_websites=bool(follow_websites),
-                max_stands=max(1, min(int(max_stands or 500), 1000)),
+            async_result = scrape_directory_task.apply_async(
+                args=[run_id],
+                kwargs={
+                    "follow_websites": bool(follow_websites),
+                    "max_stands": max(1, min(int(max_stands or 500), 1000)),
+                },
+                queue="voxbulk",
             )
+            celery_task_id = str(async_result.id or "")
+            if celery_task_id:
+                row.apify_run_id = celery_task_id
+                row.updated_at = AiTeamService._now()
+                db.add(row)
+                db.commit()
+                db.refresh(row)
             queued = True
         except Exception as exc:
             queue_error = str(exc)
             logger.warning("directory_scrape_celery_enqueue_failed: %s", exc)
 
         if not queued:
-            # Last resort: background thread (may die on some gunicorn setups)
-            import threading
-
-            def _worker() -> None:
+            # Reliable fallback: run in this process (API request may take a few minutes).
+            # Prefer this over a gunicorn daemon thread, which often dies silently.
+            try:
                 AiTeamService.run_directory_scrape_job(
                     run_id,
                     follow_websites=bool(follow_websites),
                     max_stands=max_stands,
                 )
-
-            threading.Thread(target=_worker, name=f"expo-scrape-{run_id[:8]}", daemon=True).start()
+                db.expire_all()
+                row = db.get(AiTeamApifyRun, run_id) or row
+                return {
+                    "ok": True,
+                    "run": AiTeamService._run_to_dict(row),
+                    "queued_via": "inline",
+                    "message": "Scrape finished in API process (Celery enqueue failed). Refresh to import.",
+                }
+            except Exception as inline_exc:
+                row.status = "FAILED"
+                row.error = f"Celery enqueue failed ({queue_error[:200]}); inline scrape also failed: {inline_exc}"[:2000]
+                row.finished_at = AiTeamService._now()
+                row.updated_at = row.finished_at
+                db.add(row)
+                db.commit()
+                raise AiTeamServiceError(row.error) from inline_exc
 
         return {
             "ok": True,
             "run": AiTeamService._run_to_dict(row),
-            "queued_via": "celery" if queued else "thread",
-            "message": (
-                "Scrape queued on Celery — click Refresh in ~1–2 minutes, then View / Import"
-                if queued
-                else f"Scrape started in API process (Celery unavailable: {queue_error[:120]}). Refresh in 1–3 minutes."
-            ),
+            "queued_via": "celery",
+            "celery_task_id": celery_task_id,
+            "message": "Scrape queued on Celery — live progress updates every few seconds.",
         }
 
     @staticmethod
@@ -1921,6 +1942,53 @@ class AiTeamService:
         if row is None:
             raise AiTeamServiceError("Apify run not found")
         if str(row.actor_id or "").startswith("builtin:"):
+            # Auto-recover stuck queued scrapes (other Redis workers used to steal these tasks).
+            if str(row.status or "").upper() == "RUNNING":
+                age_s = 0.0
+                if row.updated_at:
+                    age_s = max(0.0, (AiTeamService._now() - row.updated_at).total_seconds())
+                try:
+                    stats = json.loads(row.stats_json or "{}")
+                except Exception:
+                    stats = {}
+                progress = stats.get("progress") if isinstance(stats, dict) else {}
+                phase = str((progress or {}).get("phase") or stats.get("message") or "")
+                stuck_queued = age_s >= 90 and (
+                    phase in {"queued", ""} or int((progress or {}).get("stands_done") or 0) == 0
+                )
+                if stuck_queued:
+                    try:
+                        from app.workers.ai_team_tasks import scrape_directory_task
+
+                        follow = True
+                        if isinstance(progress, dict) and "follow_websites" in progress:
+                            follow = bool(progress.get("follow_websites"))
+                        elif isinstance(stats, dict) and "follow_websites" in stats:
+                            follow = bool(stats.get("follow_websites"))
+                        async_result = scrape_directory_task.apply_async(
+                            args=[run_id],
+                            kwargs={"follow_websites": follow, "max_stands": 500},
+                            queue="voxbulk",
+                        )
+                        row.apify_run_id = str(async_result.id or row.apify_run_id or "")
+                        AiTeamService._write_scrape_progress(
+                            run_id,
+                            {
+                                "phase": "queued",
+                                "message": "Re-queued on dedicated voxbulk Celery queue…",
+                                "stands_total": int((progress or {}).get("stands_total") or 0),
+                                "stands_done": 0,
+                                "stands_with_email": 0,
+                                "emails_found": 0,
+                                "errors": 0,
+                                "follow_websites": follow,
+                                "provider": "pending",
+                            },
+                        )
+                        db.refresh(row)
+                    except Exception as exc:
+                        logger.warning("directory_scrape_requeue_failed run_id=%s err=%s", run_id, exc)
+            db.refresh(row)
             return {"ok": True, "run": AiTeamService._run_to_dict(row)}
         settings = AiTeamService.get_settings(db)
         token = AiTeamService._apify_token(settings, db=db)
