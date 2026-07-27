@@ -17,6 +17,9 @@ class AiTeamCampaign(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", index=True)
     # draft | sending | sent | cancelled | failed
 
+    # Optional default for {{event-name}} / {{event_name}} (Excel row can override)
+    event_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+
     subject: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     body_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     html_template: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -45,6 +48,7 @@ class AiTeamCampaignRecipient(Base):
     first_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     last_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     company_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    event_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     job_title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     sector: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     country_code: Mapped[str] = mapped_column(String(8), nullable=False, default="GB")

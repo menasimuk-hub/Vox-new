@@ -17,6 +17,7 @@ const CSV_MAP_FIELDS = [
   { key: 'last_name', label: 'Last name' },
   { key: 'job_title', label: 'Job title' },
   { key: 'company_name', label: 'Company' },
+  { key: 'event_name', label: 'Event name' },
   { key: 'sector', label: 'Sector' },
   { key: 'country_code', label: 'Country' },
   { key: 'promo_code', label: 'Promo' },
@@ -29,7 +30,7 @@ const SUGGESTED_ACTORS = [
 ]
 
 const DEFAULT_MERGE = [
-  'first_name', 'last_name', 'company', 'company_name', 'job_title',
+  'first_name', 'last_name', 'company', 'company_name', 'event_name', 'event-name', 'job_title',
   'email', 'sector', 'country_code', 'promo_code', 'signup_url', 'trial_url',
   'tracked_trial_url', 'direct_signup_url', 'unsubscribe_url', 'unsubscribe_link', 'body',
 ]
@@ -45,6 +46,8 @@ const SAMPLE_MERGE = {
   last_name: 'Taylor',
   company: 'Example Ltd',
   company_name: 'Example Ltd',
+  event_name: 'London Packaging Week',
+  'event-name': 'London Packaging Week',
   job_title: 'Operations Director',
   email: 'alex@example.com',
   sector: 'expo',
@@ -74,7 +77,7 @@ function applySampleMerge(template, bodyText, promoCode) {
   for (const [key, val] of Object.entries(vars)) {
     out = out.split(`{{${key}}}`).join(String(val ?? ''))
   }
-  return out.replace(/\{\{[a-zA-Z0-9_]+\}\}/g, '')
+  return out.replace(/\{\{[a-zA-Z0-9_-]+\}\}/g, '')
 }
 
 function guessCsvMapping(headers) {
@@ -86,6 +89,7 @@ function guessCsvMapping(headers) {
     ['last_name', ['last_name', 'lastname', 'last', 'surname', 'family_name']],
     ['job_title', ['job_title', 'title', 'role', 'position']],
     ['company_name', ['company', 'company_name', 'organization', 'org', 'stand_name']],
+    ['event_name', ['event_name', 'event', 'event_title', 'show_name', 'expo_name']],
     ['sector', ['sector', 'industry', 'vertical']],
     ['country_code', ['country', 'country_code', 'location']],
     ['promo_code', ['promo', 'promo_code', 'code']],
@@ -370,7 +374,10 @@ export default function ApifyOutreach() {
     await act('save-c', async () => {
       const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}`, {
         method: 'PUT',
-        body: JSON.stringify({ name: campaign.name }),
+        body: JSON.stringify({
+          name: campaign.name,
+          event_name: campaign.event_name || '',
+        }),
       })
       setCampaign(data.campaign)
       await loadCampaigns()
@@ -822,15 +829,29 @@ export default function ApifyOutreach() {
                   <div className="ait-card">
                     <div className="ait-card-hdr"><span className="ait-card-title">1 · Campaign</span></div>
                     <div className="ait-card-body">
-                      <div className="ait-field" style={{ marginBottom: 0 }}>
-                        <label>Campaign name</label>
-                        <input
-                          className="ait-campaign-name-input"
-                          value={campaign.name || ''}
-                          disabled={campaign.status === 'sending'}
-                          placeholder="e.g. London Packaging Week — outreach"
-                          onChange={(e) => setCampaign({ ...campaign, name: e.target.value })}
-                        />
+                      <div className="ait-fg-2" style={{ marginBottom: 0 }}>
+                        <div className="ait-field">
+                          <label>Campaign name</label>
+                          <input
+                            className="ait-campaign-name-input"
+                            value={campaign.name || ''}
+                            disabled={campaign.status === 'sending'}
+                            placeholder="e.g. London Packaging Week — outreach"
+                            onChange={(e) => setCampaign({ ...campaign, name: e.target.value })}
+                          />
+                        </div>
+                        <div className="ait-field">
+                          <label>Event name · {'{{event-name}}'}</label>
+                          <input
+                            value={campaign.event_name || ''}
+                            disabled={campaign.status === 'sending'}
+                            placeholder="e.g. London Packaging Week"
+                            onChange={(e) => setCampaign({ ...campaign, event_name: e.target.value })}
+                          />
+                          <span className="ait-hint" style={{ display: 'block', marginTop: 4 }}>
+                            Used for all emails unless Excel has an Event name column. Click Save after editing.
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1041,7 +1062,9 @@ export default function ApifyOutreach() {
                 )}
                 {trackingFilter === 'received' && (
                   <p className="ait-hint" style={{ marginTop: 8 }}>
-                    Received shows inbound replies (after Refresh inbox) and people you can reply to. Configure IMAP under Sending.
+                    Received shows inbound replies (after Refresh inbox) and people you can reply to.
+                    Configure IMAP under Sending — SMTP cannot fetch mail. Reply From must match a campaign
+                    audience email (Send test now registers that test inbox).
                   </p>
                 )}
               </div>
@@ -1491,7 +1514,9 @@ export default function ApifyOutreach() {
                 <button type="button" className="ait-btn xs" disabled={!!busy} onClick={runTestImap}>Test IMAP</button>
               </div>
               <p className="ait-hint" style={{ marginTop: 0 }}>
-                Inbound replies for Tracking → Received. Leave host blank to reuse SMTP host; leave IMAP password blank to reuse SMTP password.
+                Inbound replies for Tracking → Received. <strong>SMTP is send-only</strong> — replies need IMAP
+                (often the same host as SMTP, port 993 SSL). Leave host blank to reuse SMTP host; leave IMAP password
+                blank to reuse SMTP password. Then click <strong>Test IMAP</strong> before Refresh inbox.
               </p>
               <div className="ait-fg-3">
                 <div className="ait-field"><label>IMAP host</label><input value={settings.imap_host || ''} placeholder={settings.smtp_host || 'mail.example.com'} onChange={(e) => setSettings({ ...settings, imap_host: e.target.value })} /></div>
@@ -1555,10 +1580,10 @@ export default function ApifyOutreach() {
               <button type="button" className="ait-btn ghost sm" onClick={() => setHowtoOpen(false)}>Close</button>
             </div>
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
-              <li><strong>Sending</strong> — save From + SMTP, and IMAP for inbound replies.</li>
-              <li><strong>Templates</strong> — paste HTML as-is. Use {'{{trial_url}}'}, {'{{unsubscribe_url}}'} in the footer.</li>
-              <li><strong>Campaigns</strong> — name → select template → Excel → Preview → Send all.</li>
-              <li><strong>Tracking</strong> — Received + Refresh inbox (IMAP); Unsubscribed filter; open to reply.</li>
+              <li><strong>Sending</strong> — save From + SMTP to send, and IMAP to receive replies (SMTP alone cannot inbox).</li>
+              <li><strong>Templates</strong> — paste HTML as-is. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}.</li>
+              <li><strong>Campaigns</strong> — name + event name → template → Excel (optional Event name column) → Preview → Send all.</li>
+              <li><strong>Tracking</strong> — Received + Refresh inbox (IMAP). Reply From must match an audience email; Send test registers that inbox.</li>
               <li><strong>Scrape</strong> — paste any exhibitor URL → Add to campaign.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>

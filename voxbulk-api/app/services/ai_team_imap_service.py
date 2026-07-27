@@ -5,6 +5,7 @@ from __future__ import annotations
 import email.utils
 import imaplib
 import logging
+from datetime import datetime, timedelta
 from email import message_from_bytes
 from email.header import decode_header
 from email.message import Message
@@ -117,13 +118,19 @@ class AiTeamImapService:
         return {"ok": True, "message": "IMAP connection OK"}
 
     @staticmethod
-    def sync_inbox(db: Session, *, limit: int = 50) -> dict[str, Any]:
-        """Fetch UNSEEN messages, match From → campaign recipients, mark Seen."""
+    def sync_inbox(db: Session, *, limit: int = 50, since_days: int = 7) -> dict[str, Any]:
+        """Fetch recent INBOX mail, match From → campaign recipients.
+
+        SMTP cannot receive mail — only IMAP. Prefers UNSEEN, then also scans
+        recent messages so a reply already marked Seen still appears after refresh.
+        """
         settings = AiTeamService.get_settings(db)
         user = (settings.imap_username or settings.smtp_username or "").strip()
         pwd = AiTeamImapService._imap_password(settings)
         if not (settings.imap_host or settings.smtp_host):
-            raise AiTeamServiceError("Configure IMAP host under Sending (or SMTP host to reuse)")
+            raise AiTeamServiceError(
+                "Configure IMAP under Sending — SMTP is send-only and cannot fetch replies"
+            )
         if not user or not pwd:
             raise AiTeamServiceError("IMAP username/password missing — save under Sending")
 
@@ -137,11 +144,25 @@ class AiTeamImapService:
                 typ, _ = conn.select("INBOX")
                 if typ != "OK":
                     raise AiTeamServiceError("Could not open INBOX")
+
+                # Prefer unread, then fall back to recent mail (covers already-Seen replies).
+                ids: list[bytes] = []
+                seen_ids: set[bytes] = set()
                 typ, data = conn.search(None, "UNSEEN")
-                if typ != "OK":
-                    raise AiTeamServiceError("IMAP SEARCH failed")
-                ids = (data[0] or b"").split()
-                # Newest first
+                if typ == "OK" and data and data[0]:
+                    for num in data[0].split():
+                        if num not in seen_ids:
+                            ids.append(num)
+                            seen_ids.add(num)
+                days = max(1, min(int(since_days or 7), 30))
+                since = (datetime.utcnow() - timedelta(days=days)).strftime("%d-%b-%Y")
+                typ, data = conn.search(None, "SINCE", since)
+                if typ == "OK" and data and data[0]:
+                    for num in data[0].split():
+                        if num not in seen_ids:
+                            ids.append(num)
+                            seen_ids.add(num)
+
                 ids = list(reversed(ids))[: max(1, min(int(limit or 50), 200))]
                 for num in ids:
                     scanned += 1
@@ -188,7 +209,13 @@ class AiTeamImapService:
             db.commit()
             raise AiTeamServiceError(f"IMAP sync failed: {exc}") from exc
 
-        msg = f"Scanned {scanned} unread · matched {matched} · unmatched {unmatched}"
+        tip = ""
+        if scanned and matched == 0:
+            tip = (
+                " · Tip: From address must match a campaign audience email "
+                "(Send test now registers that inbox). SMTP cannot receive — IMAP must work."
+            )
+        msg = f"Scanned {scanned} · matched {matched} · unmatched {unmatched}{tip}"
         settings.imap_last_sync_at = AiTeamService._now()
         settings.imap_last_sync_message = msg[:500]
         db.add(settings)

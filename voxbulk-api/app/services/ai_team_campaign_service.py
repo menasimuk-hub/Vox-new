@@ -83,6 +83,8 @@ MERGE_TAGS = [
     "last_name",
     "company",
     "company_name",
+    "event_name",
+    "event-name",
     "job_title",
     "email",
     "sector",
@@ -263,7 +265,12 @@ class AiTeamCampaignService:
         return out
 
     @staticmethod
-    def recipient_vars(row: AiTeamCampaignRecipient, *, db: Session | None = None) -> dict[str, str]:
+    def recipient_vars(
+        row: AiTeamCampaignRecipient,
+        *,
+        db: Session | None = None,
+        campaign: AiTeamCampaign | None = None,
+    ) -> dict[str, str]:
         promo = str(row.promo_code or "").strip()
         if db is not None:
             promo = AiTeamCampaignService.resolve_promo_code(db, promo)
@@ -272,11 +279,16 @@ class AiTeamCampaignService:
         direct = AiTeamCampaignService._public_signin_url(promo)
         tracked = AiTeamCampaignService._tracked_trial_url(row.id)
         unsub = AiTeamCampaignService._unsubscribe_url(row.id)
+        event = str(getattr(row, "event_name", None) or "").strip()
+        if not event and campaign is not None:
+            event = str(getattr(campaign, "event_name", None) or "").strip()
         return {
             "first_name": row.first_name or "there",
             "last_name": row.last_name or "",
             "company": row.company_name or "your company",
             "company_name": row.company_name or "your company",
+            "event_name": event,
+            "event-name": event,
             "job_title": row.job_title or "",
             "email": row.email or "",
             "sector": row.sector or "",
@@ -298,6 +310,7 @@ class AiTeamCampaignService:
             "id": row.id,
             "name": row.name,
             "status": row.status,
+            "event_name": getattr(row, "event_name", None) or "",
             "subject": row.subject,
             "body_text": row.body_text,
             "html_template": row.html_template,
@@ -325,6 +338,7 @@ class AiTeamCampaignService:
             "last_name": row.last_name,
             "full_name": f"{row.first_name} {row.last_name}".strip() or row.email,
             "company_name": row.company_name,
+            "event_name": getattr(row, "event_name", None) or "",
             "job_title": row.job_title,
             "sector": row.sector,
             "country_code": row.country_code,
@@ -395,6 +409,8 @@ class AiTeamCampaignService:
         if "template_id" in payload:
             tid = str(payload.get("template_id") or "").strip() or None
             row.template_id = tid
+        if "event_name" in payload:
+            row.event_name = str(payload.get("event_name") or "").strip()[:255]
         row.updated_at = AiTeamCampaignService._now()
         db.add(row)
         db.commit()
@@ -780,15 +796,28 @@ class AiTeamCampaignService:
             ).scalars().all()
         }
         created = 0
+        updated = 0
         skipped = 0
         now = AiTeamCampaignService._now()
+        campaign_event = str(getattr(campaign, "event_name", None) or "").strip()
         for raw in rows:
             email = str(raw.get("email") or "").strip().lower()
             if not email or "@" not in email:
                 skipped += 1
                 continue
+            event_name = str(
+                raw.get("event_name") or raw.get("event-name") or raw.get("event") or ""
+            ).strip()[:255]
             if email in existing:
-                skipped += 1
+                row = existing[email]
+                # Allow filling event name on re-import / manual update
+                if event_name and not (row.event_name or "").strip():
+                    row.event_name = event_name
+                    row.updated_at = now
+                    db.add(row)
+                    updated += 1
+                else:
+                    skipped += 1
                 continue
             suppressed = AiTeamCampaignService.is_email_suppressed(db, email)
             row = AiTeamCampaignRecipient(
@@ -797,6 +826,7 @@ class AiTeamCampaignService:
                 first_name=str(raw.get("first_name") or "").strip()[:120],
                 last_name=str(raw.get("last_name") or "").strip()[:120],
                 company_name=str(raw.get("company_name") or raw.get("company") or "").strip()[:255],
+                event_name=(event_name or campaign_event)[:255],
                 job_title=str(raw.get("job_title") or "").strip()[:255],
                 sector=str(raw.get("sector") or "").strip().lower()[:64],
                 country_code=(str(raw.get("country_code") or raw.get("country") or "GB").strip().upper()[:8] or "GB"),
@@ -818,7 +848,13 @@ class AiTeamCampaignService:
         db.add(campaign)
         db.commit()
         AiTeamCampaignService.refresh_counts(db, campaign)
-        return {"ok": True, "created": created, "skipped": skipped, "total": campaign.total_count}
+        return {
+            "ok": True,
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "total": campaign.total_count,
+        }
 
     @staticmethod
     def import_csv(
@@ -850,6 +886,14 @@ class AiTeamCampaignService:
                     "first_name": str(row.get(col("first_name")) or "").strip(),
                     "last_name": str(row.get(col("last_name")) or "").strip(),
                     "company_name": str(row.get(col("company_name")) or row.get(col("company")) or "").strip(),
+                    "event_name": str(
+                        row.get(col("event_name"))
+                        or row.get(col("event-name"))
+                        or row.get("event_name")
+                        or row.get("event-name")
+                        or row.get("Event Name")
+                        or ""
+                    ).strip(),
                     "job_title": str(row.get(col("job_title")) or "").strip(),
                     "sector": str(row.get(col("sector")) or "").strip().lower(),
                     "country_code": str(row.get(col("country_code")) or row.get(col("country")) or "GB").strip(),
@@ -889,6 +933,7 @@ class AiTeamCampaignService:
                     "company_name": str(
                         c.get("company_name") or c.get("company") or c.get("stand_name") or ""
                     ).strip(),
+                    "event_name": str(c.get("event_name") or c.get("event-name") or "").strip(),
                     "job_title": str(c.get("job_title") or "").strip(),
                     "sector": str(c.get("sector") or "expo").strip().lower(),
                     "country_code": str(c.get("country_code") or "GB").strip(),
@@ -911,6 +956,7 @@ class AiTeamCampaignService:
         """Merge {{tags}} only — do not alter colours, sizes, tables, or wrappers."""
         AiTeamCampaignService.ensure_default_expo_promo(db)
         default_promo = DEFAULT_EXPO_PROMO_CODE
+        campaign_event = str(getattr(campaign, "event_name", None) or "").strip()
         if sample or recipient is None:
             promo = default_promo
             direct = AiTeamCampaignService._public_signin_url(promo)
@@ -919,6 +965,8 @@ class AiTeamCampaignService:
                 "last_name": "Taylor",
                 "company": "Example Ltd",
                 "company_name": "Example Ltd",
+                "event_name": campaign_event or "London Packaging Week",
+                "event-name": campaign_event or "London Packaging Week",
                 "job_title": "Operations Director",
                 "email": "alex@example.com",
                 "sector": "expo",
@@ -932,12 +980,20 @@ class AiTeamCampaignService:
                 "unsubscribe_link": AiTeamCampaignService._unsubscribe_url(None),
             }
         else:
-            vars_map = AiTeamCampaignService.recipient_vars(recipient, db=db)
+            vars_map = AiTeamCampaignService.recipient_vars(recipient, db=db, campaign=campaign)
             if not (recipient.promo_code or "").strip():
                 recipient.promo_code = vars_map["promo_code"]
                 recipient.updated_at = AiTeamCampaignService._now()
                 db.add(recipient)
                 db.commit()
+            # Fill blank recipient event from campaign default at send/preview time
+            if not (recipient.event_name or "").strip() and campaign_event:
+                recipient.event_name = campaign_event
+                recipient.updated_at = AiTeamCampaignService._now()
+                db.add(recipient)
+                db.commit()
+                vars_map["event_name"] = campaign_event
+                vars_map["event-name"] = campaign_event
 
         body_merged = AiTeamCampaignService._apply_merge(campaign.body_text or "", vars_map)
         subject = AiTeamCampaignService._apply_merge(campaign.subject or "", vars_map).strip() or "Hello"
@@ -998,15 +1054,49 @@ class AiTeamCampaignService:
         if not dest or "@" not in dest:
             raise AiTeamServiceError("Enter a valid test email address")
         settings = AiTeamService.get_settings(db)
-        recipient = db.execute(
+        # Prefer an existing audience row for merge data; else use sample merge.
+        sample_source = db.execute(
             select(AiTeamCampaignRecipient)
             .where(AiTeamCampaignRecipient.campaign_id == campaign_id)
             .order_by(AiTeamCampaignRecipient.created_at.asc())
             .limit(1)
         ).scalar_one_or_none()
-        rendered = AiTeamCampaignService.render_for_recipient(
-            db, campaign, recipient, sample=recipient is None
-        )
+        # Ensure the test mailbox is a recipient so IMAP replies (From = dest) can match.
+        test_row = db.execute(
+            select(AiTeamCampaignRecipient).where(
+                AiTeamCampaignRecipient.campaign_id == campaign_id,
+                func.lower(AiTeamCampaignRecipient.email) == dest,
+            )
+        ).scalar_one_or_none()
+        now = AiTeamCampaignService._now()
+        if test_row is None:
+            test_row = AiTeamCampaignRecipient(
+                campaign_id=campaign.id,
+                email=dest,
+                first_name=(sample_source.first_name if sample_source else "Test")[:120],
+                last_name=(sample_source.last_name if sample_source else "")[:120],
+                company_name=(sample_source.company_name if sample_source else "Test company")[:255],
+                event_name=(
+                    (sample_source.event_name if sample_source else "")
+                    or getattr(campaign, "event_name", None)
+                    or ""
+                )[:255],
+                job_title=(sample_source.job_title if sample_source else "")[:255],
+                sector=(sample_source.sector if sample_source else "expo")[:64],
+                country_code=(sample_source.country_code if sample_source else "GB")[:8],
+                promo_code=AiTeamCampaignService.resolve_promo_code(
+                    db, sample_source.promo_code if sample_source else None
+                )[:64],
+                status="pending",
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(test_row)
+            db.commit()
+            db.refresh(test_row)
+            AiTeamCampaignService.refresh_counts(db, campaign)
+
+        rendered = AiTeamCampaignService.render_for_recipient(db, campaign, test_row, sample=False)
         AiTeamService._deliver_email(
             db,
             settings,
@@ -1015,7 +1105,20 @@ class AiTeamCampaignService:
             text=rendered["text"],
             html=rendered["html"],
         )
-        return {"ok": True, "message": f"Test email sent to {dest}"}
+        test_row.status = "sent"
+        test_row.sent_at = now
+        test_row.updated_at = now
+        test_row.last_error = None
+        db.add(test_row)
+        db.commit()
+        return {
+            "ok": True,
+            "message": (
+                f"Test email sent to {dest}. "
+                "Reply from that same inbox, then Tracking → Refresh inbox (IMAP required — SMTP is send-only)."
+            ),
+            "recipient_id": test_row.id,
+        }
 
     @staticmethod
     def send_recipient_reply(
