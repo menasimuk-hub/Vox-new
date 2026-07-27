@@ -45,12 +45,13 @@ def scrape_directory_task(
     name="ai_team.send_campaign",
     bind=True,
     max_retries=0,
-    soft_time_limit=3600,
-    time_limit=3660,
+    # 3 emails/min → ~180/hour; allow long cold-outreach queues
+    soft_time_limit=28800,
+    time_limit=28920,
     queue="voxbulk",
 )
 def send_campaign_task(self, campaign_id: str) -> dict:
-    """Background bulk send for an AI Team campaign."""
+    """Background bulk send for an AI Team campaign (paced queue)."""
     from app.services.ai_team_campaign_service import AiTeamCampaignService
 
     stats = AiTeamCampaignService.process_send_job(campaign_id)

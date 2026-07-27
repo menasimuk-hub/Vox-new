@@ -3,7 +3,9 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import math
 import re
+import threading
 import time
 from datetime import datetime
 from typing import Any
@@ -25,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Shared Expo booth trial for Apify / AI Marketing outreach (register → 3 free Expo days).
 DEFAULT_EXPO_PROMO_CODE = "EXPO3DAYS"
+# Pace cold SMTP outreach to protect IP / domain reputation.
+SEND_PER_MINUTE = 3
+SEND_PAUSE_SECONDS = 60.0 / SEND_PER_MINUTE  # 20s between emails
 
 _DEFAULT_BODY = (
     "I noticed {{company}} at the show and thought a quick note might help.\n\n"
@@ -103,6 +108,9 @@ MERGE_TAGS = [
 
 
 class AiTeamCampaignService:
+    SEND_PER_MINUTE = SEND_PER_MINUTE
+    SEND_PAUSE_SECONDS = SEND_PAUSE_SECONDS
+
     @staticmethod
     def _now() -> datetime:
         return datetime.utcnow()
@@ -1454,12 +1462,34 @@ class AiTeamCampaignService:
 
         from app.workers.ai_team_tasks import send_campaign_task
 
-        send_campaign_task.apply_async(args=[campaign_id], queue="voxbulk")
+        rate = AiTeamCampaignService.SEND_PER_MINUTE
+        eta_min = max(1, int(math.ceil(int(pending) / float(rate))))
+        queued_via = "celery"
+        try:
+            send_campaign_task.apply_async(args=[campaign_id], queue="voxbulk")
+        except Exception as exc:
+            logger.warning("ai_team_send_celery_enqueue_failed campaign=%s err=%s — using thread", campaign_id, exc)
+            queued_via = "thread"
+
+            def _run() -> None:
+                try:
+                    AiTeamCampaignService.process_send_job(campaign_id)
+                except Exception as run_exc:
+                    logger.exception("ai_team_send_thread_failed campaign=%s err=%s", campaign_id, run_exc)
+
+            threading.Thread(target=_run, name=f"ai-team-send-{campaign_id[:8]}", daemon=True).start()
+
         return {
             "ok": True,
             "campaign": AiTeamCampaignService.campaign_to_dict(campaign),
             "pending": int(pending),
-            "message": f"Sending {int(pending)} email(s) in the background…",
+            "send_per_minute": rate,
+            "eta_minutes": eta_min,
+            "queued_via": queued_via,
+            "message": (
+                f"Queued {int(pending)} email(s) at {rate}/min "
+                f"(~{eta_min} min). Watch the progress bar — do not close mid-send."
+            ),
         }
 
     @staticmethod
@@ -1480,8 +1510,14 @@ class AiTeamCampaignService:
         }
 
     @staticmethod
-    def process_send_job(campaign_id: str, *, pause_seconds: float = 0.35) -> dict[str, Any]:
-        """Celery worker: send pending recipients one by one."""
+    def process_send_job(
+        campaign_id: str,
+        *,
+        pause_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """Celery/thread worker: send pending recipients one-by-one at SEND_PER_MINUTE."""
+        if pause_seconds is None:
+            pause_seconds = float(AiTeamCampaignService.SEND_PAUSE_SECONDS)
         SessionLocal = __import__("app.core.database", fromlist=["get_sessionmaker"]).get_sessionmaker()
         sent = 0
         failed = 0
@@ -1490,7 +1526,7 @@ class AiTeamCampaignService:
             if campaign is None:
                 return {"ok": False, "error": "Campaign not found"}
             settings = AiTeamService.get_settings(db)
-            max_day = max(1, int(settings.max_emails_per_day or 200))
+            max_day = max(1, int(settings.max_emails_per_day or 50))
             day_start = AiTeamCampaignService._now().replace(hour=0, minute=0, second=0, microsecond=0)
             # Count campaign sends today + legacy prospect sends
             sent_today = int(
@@ -1527,8 +1563,11 @@ class AiTeamCampaignService:
                     AiTeamCampaignService.refresh_counts(db, campaign)
                     continue
                 if sent_today >= max_day:
-                    campaign.last_error = f"Daily send limit reached ({max_day})"
-                    campaign.status = "failed"
+                    campaign.last_error = (
+                        f"Daily send limit reached ({max_day}). "
+                        "Raise Max/day under Sending only if your domain is warmed up."
+                    )
+                    campaign.status = "paused_daily_limit"
                     campaign.completed_at = AiTeamCampaignService._now()
                     campaign.updated_at = campaign.completed_at
                     db.add(campaign)
@@ -1565,8 +1604,26 @@ class AiTeamCampaignService:
                     failed += 1
                     logger.warning("ai_team_campaign_send_failed campaign=%s email=%s err=%s", campaign_id, row.email, exc)
                 AiTeamCampaignService.refresh_counts(db, campaign)
+                # Pace before next send (skip sleep when queue is empty — loop will exit)
                 if pause_seconds > 0:
-                    time.sleep(pause_seconds)
+                    more_pending = db.scalar(
+                        select(func.count()).select_from(AiTeamCampaignRecipient).where(
+                            AiTeamCampaignRecipient.campaign_id == campaign_id,
+                            AiTeamCampaignRecipient.status == "pending",
+                        )
+                    ) or 0
+                    if int(more_pending) > 0:
+                        # Re-check cancel while waiting
+                        slept = 0.0
+                        step = min(2.0, float(pause_seconds))
+                        while slept < pause_seconds:
+                            time.sleep(step)
+                            slept += step
+                            db.refresh(campaign)
+                            if campaign.status == "cancelled":
+                                break
+                        if campaign.status == "cancelled":
+                            break
 
             db.refresh(campaign)
             if campaign.status == "sending":
@@ -1588,6 +1645,7 @@ class AiTeamCampaignService:
                 "sent": sent,
                 "failed": failed,
                 "status": campaign.status,
+                "send_per_minute": AiTeamCampaignService.SEND_PER_MINUTE,
             }
 
     @staticmethod

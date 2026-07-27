@@ -123,8 +123,21 @@ function statusBadge(status) {
     draft: 'b-pending', sending: 'b-opened', sent: 'b-sent',
     cancelled: 'b-rejected', failed: 'b-rejected', pending: 'b-pending',
     unsubscribed: 'b-rejected', skipped: 'b-pending',
+    paused_daily_limit: 'b-dent',
   }
   return map[status] || 'b-pending'
+}
+
+function contactDisplayName(r) {
+  return [r.first_name, r.last_name].filter(Boolean).join(' ') || '—'
+}
+
+function contactInitials(r) {
+  const a = String(r.first_name || '').trim().charAt(0)
+  const b = String(r.last_name || '').trim().charAt(0)
+  const letters = `${a}${b}`.toUpperCase()
+  if (letters) return letters
+  return String(r.email || '?').charAt(0).toUpperCase()
 }
 
 function insertAtEnd(value, setValue, tag) {
@@ -516,10 +529,16 @@ export default function ApifyOutreach() {
   const sendAll = async () => {
     if (!activeId) return
     const n = recipients.filter((r) => r.status === 'pending' || r.status === 'failed').length
-    if (!window.confirm(`Send this campaign to ${n || campaign?.total_count || 0} recipient(s)?`)) return
+    const rate = 3
+    const eta = Math.max(1, Math.ceil((n || campaign?.total_count || 0) / rate))
+    if (!window.confirm(
+      `Queue ${n || campaign?.total_count || 0} email(s) at ${rate}/min (~${eta} min)?\n\n`
+      + 'Emails go out one-by-one — watch the progress bar on this page.',
+    )) return
     await act('send', async () => {
       const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}/send`, { method: 'POST' })
-      showBanner('ok', data.message || 'Sending…')
+      if (data.campaign) setCampaign(data.campaign)
+      showBanner('ok', data.message || 'Sending queued…')
       await loadCampaign(activeId)
       await loadCampaigns()
     })
@@ -788,6 +807,8 @@ export default function ApifyOutreach() {
   const sendPct = campaign?.total_count
     ? Math.min(100, Math.round(((campaign.sent_count + campaign.failed_count) / campaign.total_count) * 100))
     : 0
+  const pendingCount = recipients.filter((r) => r.status === 'pending').length
+  const sendEtaMin = pendingCount > 0 ? Math.max(1, Math.ceil(pendingCount / 3)) : 0
 
   if (loading && !settings.from_email && !campaigns.length) {
     return <div className="ai-team-page" style={{ padding: 24 }}><div className="muted">Loading Apify…</div></div>
@@ -873,15 +894,53 @@ export default function ApifyOutreach() {
                     </div>
                   </div>
 
-                  {campaign.status === 'sending' && (
-                    <div className="ait-msg-banner ok" style={{ margin: '0 0 14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <strong>Sending… {campaign.sent_count + campaign.failed_count}/{campaign.total_count}</strong>
-                        <button type="button" className="ait-btn danger xs" onClick={cancelSend}>Cancel</button>
+                  {(campaign.status === 'sending' || campaign.status === 'paused_daily_limit') && (
+                    <div className="ait-send-progress">
+                      <div className="ait-send-progress-top">
+                        <div>
+                          <div className="ait-send-progress-title">
+                            {campaign.status === 'sending' ? 'Sending queue' : 'Paused — daily limit'}
+                          </div>
+                          <div className="ait-send-progress-sub">
+                            {campaign.status === 'sending'
+                              ? `Max 3 emails / minute · ~${sendEtaMin || '…'} min left for ${pendingCount} queued`
+                              : (campaign.last_error || 'Raise Max/day under Sending, then click Send all again')}
+                          </div>
+                        </div>
+                        {campaign.status === 'sending' && (
+                          <button type="button" className="ait-btn danger xs" disabled={!!busy} onClick={cancelSend}>Cancel</button>
+                        )}
                       </div>
-                      <div style={{ marginTop: 8, height: 8, background: 'rgba(0,0,0,0.08)', borderRadius: 999, overflow: 'hidden' }}>
-                        <div style={{ width: `${sendPct}%`, height: '100%', background: 'var(--ait-accent)' }} />
+                      <div className="ait-send-progress-bar">
+                        <div className="ait-send-progress-fill" style={{ width: `${sendPct}%` }} />
                       </div>
+                      <div className="ait-send-progress-stats">
+                        <span><strong>{campaign.sent_count || 0}</strong> sent</span>
+                        <span><strong>{campaign.failed_count || 0}</strong> failed</span>
+                        <span><strong>{pendingCount}</strong> queued</span>
+                        <span><strong>{sendPct}%</strong> done</span>
+                      </div>
+                      {recipients.filter((r) => r.status === 'sent' || r.status === 'failed').slice(-5).reverse().length > 0 && (
+                        <ul className="ait-send-log">
+                          {recipients
+                            .filter((r) => r.status === 'sent' || r.status === 'failed')
+                            .slice(-5)
+                            .reverse()
+                            .map((r) => (
+                              <li key={r.id}>
+                                <span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span>
+                                <span className="ait-send-log-email">{r.email}</span>
+                                {r.last_error ? <span className="ait-send-log-err">{r.last_error}</span> : null}
+                              </li>
+                            ))}
+                        </ul>
+                      )}
+                      {campaign.status === 'sending' && (campaign.sent_count || 0) === 0 && (
+                        <p className="ait-hint" style={{ marginTop: 10, marginBottom: 0 }}>
+                          First email can take up to ~20s. If this stays at 0 for several minutes, on the VPS run:
+                          {' '}<code>sudo supervisorctl restart voxbulk-celery</code>
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -1049,11 +1108,10 @@ export default function ApifyOutreach() {
                       )}
                       {recipients.length > 0 && (
                         <div className="ait-table-wrap" style={{ marginTop: 16 }}>
-                          <table className="ait-table">
+                          <table className="ait-tbl ait-tbl-contacts">
                             <thead>
                               <tr>
-                                <th>Name</th>
-                                <th>Email</th>
+                                <th>Contact</th>
                                 <th>Company</th>
                                 <th>Status</th>
                               </tr>
@@ -1061,10 +1119,17 @@ export default function ApifyOutreach() {
                             <tbody>
                               {recipients.slice(0, 8).map((r) => (
                                 <tr key={r.id}>
-                                  <td>{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
-                                  <td>{r.email}</td>
+                                  <td>
+                                    <div className="ait-contact-cell">
+                                      <span className="ait-avatar">{contactInitials(r)}</span>
+                                      <div>
+                                        <div className="ait-contact-name">{contactDisplayName(r)}</div>
+                                        <div className="ait-contact-email">{r.email}</div>
+                                      </div>
+                                    </div>
+                                  </td>
                                   <td>{r.company_name || '—'}</td>
-                                  <td>{r.status || '—'}</td>
+                                  <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status || '—'}</span></td>
                                 </tr>
                               ))}
                             </tbody>
@@ -1096,9 +1161,13 @@ export default function ApifyOutreach() {
                         <button type="button" className="ait-btn sm" disabled={!!busy} onClick={runPreview}>Preview</button>
                         <button type="button" className="ait-btn sm" disabled={!!busy} onClick={sendTest}>Send test</button>
                         <button type="button" className="ait-btn primary" disabled={!!busy || campaign.status === 'sending' || !campaign.total_count} onClick={sendAll}>
-                          Send all ({campaign.total_count || 0})
+                          {campaign.status === 'paused_daily_limit' ? 'Resume send' : 'Send all'} ({pendingCount || campaign.total_count || 0})
                         </button>
                       </div>
+                      <p className="ait-hint" style={{ marginTop: 10 }}>
+                        Queue sends at <strong>3 emails/minute</strong> (not all at once). Stay on this page to watch progress.
+                        Safe daily volume for your own SMTP domain: start ~50/day, then 100–200 once reputation is good.
+                      </p>
                     </div>
                   </div>
                 </>
@@ -1656,8 +1725,15 @@ export default function ApifyOutreach() {
               </div>
               <div className="ait-fg-2">
                 <div className="ait-field"><label>Test email</label><input type="email" value={settingsTestEmail} onChange={(e) => setSettingsTestEmail(e.target.value)} /></div>
-                <div className="ait-field"><label>Max / day</label><input type="number" value={settings.max_emails_per_day || 200} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} /></div>
+                <div className="ait-field">
+                  <label>Max / day</label>
+                  <input type="number" value={settings.max_emails_per_day || 50} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} />
+                </div>
               </div>
+              <p className="ait-hint" style={{ marginTop: 0 }}>
+                Rate is fixed at <strong>3 emails/minute</strong>. For IP/domain safety on SMTP: warm up at 20–50/day for a new domain,
+                then 100–200/day when opens/bounces look healthy. Avoid 500+/day cold blasts from a shared IP.
+              </p>
 
               <hr style={{ border: 0, borderTop: '1px solid var(--ait-border)', margin: '18px 0 14px' }} />
               <div className="ait-conn-block ait-conn-compact">
@@ -1728,18 +1804,20 @@ export default function ApifyOutreach() {
 
       {contactsModal && (
         <div className="ait-modal-backdrop" onClick={() => setContactsModal(null)}>
-          <div className="ait-modal ait-modal-wide" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+          <div className="ait-modal ait-contacts-modal" onClick={(e) => e.stopPropagation()}>
             <div className="ait-modal-hdr">
-              <h3>{contactsModal.title}</h3>
+              <div>
+                <h3>{contactsModal.title}</h3>
+                <div className="ait-contacts-modal-sub">{contactsModal.rows.length} row{contactsModal.rows.length === 1 ? '' : 's'}</div>
+              </div>
               <button type="button" className="ait-btn ghost sm" onClick={() => setContactsModal(null)}>Close</button>
             </div>
-            <div className="ait-table-wrap" style={{ overflow: 'auto', flex: 1, marginTop: 0 }}>
-              <table className="ait-table">
+            <div className="ait-contacts-modal-body">
+              <table className="ait-tbl ait-tbl-contacts">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Email</th>
+                    <th style={{ width: 44 }}>#</th>
+                    <th>Contact</th>
                     <th>Company</th>
                     <th>Job title</th>
                     <th>Event</th>
@@ -1748,14 +1826,23 @@ export default function ApifyOutreach() {
                 </thead>
                 <tbody>
                   {contactsModal.rows.map((r, i) => (
-                    <tr key={r.email || i}>
-                      <td>{i + 1}</td>
-                      <td>{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
-                      <td>{r.email || '—'}</td>
+                    <tr key={r.id || r.email || i}>
+                      <td className="ait-muted-num">{i + 1}</td>
+                      <td>
+                        <div className="ait-contact-cell">
+                          <span className="ait-avatar">{contactInitials(r)}</span>
+                          <div>
+                            <div className="ait-contact-name">{contactDisplayName(r)}</div>
+                            <div className="ait-contact-email">{r.email || '—'}</div>
+                          </div>
+                        </div>
+                      </td>
                       <td>{r.company_name || '—'}</td>
                       <td>{r.job_title || '—'}</td>
                       <td>{r.event_name || '—'}</td>
-                      {contactsModal.rows.some((x) => x.status) ? <td>{r.status || '—'}</td> : null}
+                      {contactsModal.rows.some((x) => x.status) ? (
+                        <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status || '—'}</span></td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
