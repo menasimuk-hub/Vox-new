@@ -15,6 +15,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
+import { ExpoBoothPrintCard } from "@/components/expo-booth-print-card";
 import { ExpoPayDialog } from "@/components/expo-pay-dialog";
 import { ExpoScanChoosePreview, ExpoWaPhonePreview, ExpoWebPhonePreview } from "@/components/expo-phone-preview";
 import {
@@ -148,6 +149,7 @@ function CreateExpoBooth() {
   const [created, setCreated] = React.useState<{
     id: string;
     qr_image_url?: string;
+    web_url?: string;
     trigger_text?: string;
     whatsapp_url?: string;
     is_paid?: boolean;
@@ -749,46 +751,73 @@ function CreateExpoBooth() {
                   </Button>
                 </>
               ) : (
-                <div className="flex flex-col items-start gap-4 sm:flex-row">
-                  {created.qr_image_url ? (
-                    <img
-                      src={created.qr_image_url}
-                      alt="Expo QR"
-                      className="size-40 rounded-xl border bg-white p-2"
-                    />
-                  ) : null}
-                  <div className="space-y-2 text-sm">
-                    <p className="font-medium">
-                      {created.is_paid || created.payment_status === "paid"
-                        ? created.is_live
-                          ? "Booth live"
-                          : "Booth paid — waiting for start date"
-                        : "Booth saved (unpaid)"}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Window {packageStartDate}
-                      {packageEndDate ? ` → ${packageEndDate}` : ""} ·{" "}
-                      {created.is_paid || created.payment_status === "paid"
-                        ? "Paid — live after start date"
-                        : "Pay to go live · 15 preview tests unpaid"}
-                    </p>
-                    <p className="max-w-md text-muted-foreground">{created.trigger_text}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {!(created.is_paid || created.payment_status === "paid") ? (
-                        <Button size="sm" onClick={() => setPayOpen(true)}>
-                          Pay with card
+                <div className="space-y-6">
+                  <div className="flex flex-col items-start gap-4 sm:flex-row">
+                    {created.qr_image_url ? (
+                      <img
+                        src={created.qr_image_url}
+                        alt="Expo QR"
+                        className="size-40 rounded-xl border bg-white p-2"
+                      />
+                    ) : null}
+                    <div className="space-y-2 text-sm">
+                      <p className="font-medium">
+                        {created.is_paid || created.payment_status === "paid"
+                          ? created.is_live
+                            ? "Booth live"
+                            : "Booth paid — waiting for start date"
+                          : "Booth saved (unpaid)"}
+                      </p>
+                      <p className="text-muted-foreground">
+                        Window {packageStartDate}
+                        {packageEndDate ? ` → ${packageEndDate}` : ""} ·{" "}
+                        {created.is_paid || created.payment_status === "paid"
+                          ? "Paid — live after start date"
+                          : "Pay to go live · 15 preview tests unpaid"}
+                      </p>
+                      <p className="max-w-md text-muted-foreground">{created.trigger_text}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {!(created.is_paid || created.payment_status === "paid") ? (
+                          <Button size="sm" onClick={() => setPayOpen(true)}>
+                            Pay with card
+                          </Button>
+                        ) : null}
+                        <Button asChild variant="outline" size="sm">
+                          <Link to="/expo">View saved booths</Link>
                         </Button>
-                      ) : null}
-                      <Button asChild variant="outline" size="sm">
-                        <Link to="/expo">View saved booths</Link>
-                      </Button>
-                      <Button asChild size="sm" variant={created.is_paid ? "outline" : "ghost"}>
-                        <Link to="/expo/leads" search={{ booth_id: created.id }}>
-                          View leads
-                        </Link>
-                      </Button>
+                        <Button asChild size="sm" variant={created.is_paid ? "outline" : "ghost"}>
+                          <Link to="/expo/leads" search={{ booth_id: created.id }}>
+                            View leads
+                          </Link>
+                        </Button>
+                      </div>
                     </div>
                   </div>
+
+                  {(created.qr_image_url || created.web_url) && (
+                    <div className="border-t pt-6">
+                      <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
+                      <ExpoBoothPrintCard
+                        boothId={created.id}
+                        qrSrc={
+                          created.qr_image_url ||
+                          (created.web_url
+                            ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(created.web_url)}`
+                            : "")
+                        }
+                        company={company}
+                        boothCode={boothCode || exhibitionName}
+                        eventName={exhibitionName}
+                        eventDates={
+                          packageStartDate
+                            ? packageEndDate
+                              ? `${packageStartDate} → ${packageEndDate}`
+                              : packageStartDate
+                            : null
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

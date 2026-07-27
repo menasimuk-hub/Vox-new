@@ -15,6 +15,7 @@ import {
   type CategoryDraft,
   type RepresentativeDraft,
 } from "@/components/expo-booth-sections";
+import { ExpoBoothPrintCard } from "@/components/expo-booth-print-card";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -257,50 +258,66 @@ function EditExpoBooth() {
             Print this for your stand. Editing questions or products does not change the QR.
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-          {qrSrc ? (
-            <img
-              src={qrSrc}
-              alt={`QR for ${booth.name}`}
-              className="size-40 rounded-xl border bg-white p-2"
-              referrerPolicy="no-referrer"
-            />
-          ) : (
-            <div className="grid size-40 place-items-center rounded-xl border border-dashed text-muted-foreground">
-              <QrCode className="size-10" />
-            </div>
-          )}
-          <div className="space-y-2 text-sm">
-            {booth.web_url ? (
-              <a
-                href={booth.web_url}
-                target="_blank"
-                rel="noreferrer"
-                className="block break-all font-medium text-sky-700 hover:underline"
-              >
-                {booth.web_url}
-              </a>
-            ) : null}
-            {booth.trigger_text ? (
-              <p className="max-w-md text-muted-foreground">{booth.trigger_text}</p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              {qrSrc ? (
-                <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                  <a href={qrSrc} target="_blank" rel="noreferrer">
-                    <Download className="size-3.5" /> Open / download QR
-                  </a>
-                </Button>
-              ) : null}
+        <CardContent className="space-y-6">
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+            {qrSrc ? (
+              <img
+                src={qrSrc}
+                alt={`QR for ${booth.name}`}
+                className="size-40 rounded-xl border bg-white p-2"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="grid size-40 place-items-center rounded-xl border border-dashed text-muted-foreground">
+                <QrCode className="size-10" />
+              </div>
+            )}
+            <div className="space-y-2 text-sm">
               {booth.web_url ? (
-                <Button size="sm" variant="ghost" asChild>
-                  <a href={booth.web_url} target="_blank" rel="noreferrer">
-                    Open scan landing
-                  </a>
-                </Button>
+                <a
+                  href={booth.web_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block break-all font-medium text-sky-700 hover:underline"
+                >
+                  {booth.web_url}
+                </a>
               ) : null}
+              {booth.trigger_text ? (
+                <p className="max-w-md text-muted-foreground">{booth.trigger_text}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {qrSrc ? (
+                  <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                    <a href={qrSrc} target="_blank" rel="noreferrer">
+                      <Download className="size-3.5" /> Open / download QR
+                    </a>
+                  </Button>
+                ) : null}
+                {booth.web_url ? (
+                  <Button size="sm" variant="ghost" asChild>
+                    <a href={booth.web_url} target="_blank" rel="noreferrer">
+                      Open scan landing
+                    </a>
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
+
+          {qrSrc ? (
+            <div className="border-t pt-6">
+              <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
+              <ExpoBoothPrintCard
+                boothId={booth.id}
+                qrSrc={qrSrc}
+                company={company || booth.company_display_name}
+                boothCode={boothCode || booth.booth_code}
+                eventName={exhibitionName || booth.exhibition_name || booth.name}
+                eventDates={venue || booth.venue || null}
+              />
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
