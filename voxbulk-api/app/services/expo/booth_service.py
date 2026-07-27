@@ -42,7 +42,7 @@ from app.services.expo.question_bank import (
 )
 from app.services.customer_feedback.feedback_wa_phone import resolve_feedback_wa_phone_for_qr
 
-TRIGGER_TEMPLATE = "Hi! I visited {company} at {booth} at {event}. {token}"
+TRIGGER_TEMPLATE = "Hi {company} — scanned your QR at {event}. Please send the catalogue / next steps. {token}"
 BOOTH_CLOSED_MESSAGE = (
     "Thanks for stopping by! This Expo stand has closed for this exhibition. "
     "Please ask the stand team if you still need information."

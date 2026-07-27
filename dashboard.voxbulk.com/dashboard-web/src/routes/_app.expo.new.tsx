@@ -283,7 +283,7 @@ function CreateExpoBooth() {
   const waMessages = [
     {
       from: "user" as const,
-      text: `Hi! I visited ${company || "your stand"} at ${boothCode || "Stand"} at ${exhibitionName || "the exhibition"}.`,
+      text: `Hi ${company || "your stand"} — scanned your QR at ${exhibitionName || "the exhibition"}. Please send the catalogue / next steps.`,
     },
     {
       from: "bot" as const,

@@ -299,7 +299,10 @@ class ExpoWhatsappService:
         session = ExpoSessionFlowService.find_active_session(db, visitor_phone=phone)
         if session is None:
             # Likely Expo QR text without a matching token (edited draft / old QR).
-            if "visited" in lower and ("stand" in lower or "booth" in lower or "exhibition" in lower or " at " in lower):
+            if (
+                ("visited" in lower or "scanned" in lower or "catalogue" in lower or "questionnaire" in lower)
+                and ("stand" in lower or "booth" in lower or "exhibition" in lower or " at " in lower or "qr" in lower)
+            ):
                 ExpoWhatsappService._send(
                     db,
                     to_number=phone,
