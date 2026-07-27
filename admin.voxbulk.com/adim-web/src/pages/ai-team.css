@@ -664,6 +664,10 @@
 .ai-team-page .ait-icon-btn:hover { background: var(--ait-bg3); color: var(--ait-text); }
 .ai-team-page .ait-icon-btn.danger:hover { border-color: #fca5a5; color: #b91c1c; background: #fef2f2; }
 .ai-team-page .ait-icon-btn i { font-size: 16px; line-height: 1; }
+.ai-team-page .ait-input-with-action {
+  display: flex; align-items: center; gap: 8px;
+}
+.ai-team-page .ait-input-with-action input { flex: 1; min-width: 0; }
 .ai-team-page .ait-tpl-split {
   display: grid;
   grid-template-columns: 1fr 1fr;

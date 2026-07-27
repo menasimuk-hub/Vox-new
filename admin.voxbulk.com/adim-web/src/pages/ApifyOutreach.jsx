@@ -866,6 +866,18 @@ export default function ApifyOutreach() {
     })
   }
 
+  const deleteScrapeRun = async (run) => {
+    const rid = run?.id
+    if (!rid) return
+    const label = (run.expo_url || rid).slice(0, 60)
+    if (!window.confirm(`Delete this scrape run?\n${label}`)) return
+    await act('scrape-del', async () => {
+      await apiFetch(`/admin/ai-team/apify/runs/${rid}`, { method: 'DELETE' })
+      showBanner('ok', 'Scrape run deleted')
+      await loadApifyRuns()
+    })
+  }
+
   const startScrape = async () => {
     if (!apifyExpoUrl.trim()) {
       showBanner('err', 'Paste an exhibitor directory URL')
@@ -2073,11 +2085,23 @@ export default function ApifyOutreach() {
               </div>
               <div className="ait-field">
                 <label>Expo / directory URL</label>
-                <input
-                  value={apifyExpoUrl}
-                  onChange={(e) => setApifyExpoUrl(e.target.value)}
-                  placeholder="https://…/exhibitors/ (any show directory)"
-                />
+                <div className="ait-input-with-action">
+                  <input
+                    value={apifyExpoUrl}
+                    onChange={(e) => setApifyExpoUrl(e.target.value)}
+                    placeholder="https://…/exhibitors/ (any show directory)"
+                  />
+                  {apifyExpoUrl.trim() ? (
+                    <button
+                      type="button"
+                      className="ait-icon-btn danger"
+                      title="Clear URL"
+                      onClick={() => setApifyExpoUrl('')}
+                    >
+                      <i className="ti ti-trash" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
               <label className="ait-check" style={{ marginBottom: 12 }}>
                 <input type="checkbox" checked={scrapeFollowWebsites} onChange={(e) => setScrapeFollowWebsites(e.target.checked)} />
@@ -2132,6 +2156,7 @@ export default function ApifyOutreach() {
                 </div>
               )}
               <p className="ait-hint">
+                Auto / Built-in for /exhibitors uses the SPA API when available (e.g. takeawayexpo). Scrape may take 10–60s — wait for the banner, then click Add to campaign.
                 Manual alternative: <button type="button" className="ait-btn ghost xs" onClick={() => setTab('campaigns')}>Campaigns → upload Excel</button>
               </p>
               {liveScrapeRun && (
@@ -2226,6 +2251,17 @@ export default function ApifyOutreach() {
                               ) : null}
                               <button type="button" className="ait-btn xs" disabled={run.status !== 'SUCCEEDED'} onClick={() => exportApifyRun(run.id)}>Excel</button>
                               <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => addScrapeToCampaign(run.id)}>Add to campaign</button>
+                              {!active ? (
+                                <button
+                                  type="button"
+                                  className="ait-icon-btn danger"
+                                  title="Delete scrape run"
+                                  disabled={!!busy}
+                                  onClick={() => deleteScrapeRun(run)}
+                                >
+                                  <i className="ti ti-trash" />
+                                </button>
+                              ) : null}
                             </div>
                           </td>
                         </tr>

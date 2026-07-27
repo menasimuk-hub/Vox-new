@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import logging
+import os
 import re
 import smtplib
 import ssl
@@ -2052,32 +2053,37 @@ class AiTeamService:
         queued = False
         queue_error = ""
         celery_task_id = ""
-        try:
-            from app.workers.ai_team_tasks import scrape_directory_task
+        # Default: run in the API process so scrape code matches the live gunicorn build.
+        # Stale Celery workers (e.g. root Supervisor not restarted after deploy) used the
+        # old HTML-only path → SUCCEEDED with 0 emails in a few seconds.
+        use_celery = str(os.environ.get("VOX_SCRAPE_USE_CELERY") or "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        if use_celery:
+            try:
+                from app.workers.ai_team_tasks import scrape_directory_task
 
-            async_result = scrape_directory_task.apply_async(
-                args=[run_id],
-                kwargs={
-                    "follow_websites": bool(follow_websites),
-                    "max_stands": max(1, min(int(max_stands or 500), 1000)),
-                },
-                queue="voxbulk",
-            )
-            celery_task_id = str(async_result.id or "")
-            if celery_task_id:
-                row.apify_run_id = celery_task_id
-                row.updated_at = AiTeamService._now()
-                db.add(row)
-                db.commit()
-                db.refresh(row)
-            queued = True
-        except Exception as exc:
-            queue_error = str(exc)
-            logger.warning("directory_scrape_celery_enqueue_failed: %s", exc)
+                async_result = scrape_directory_task.apply_async(
+                    args=[run_id],
+                    kwargs={
+                        "follow_websites": bool(follow_websites),
+                        "max_stands": max(1, min(int(max_stands or 500), 1000)),
+                    },
+                    queue="voxbulk",
+                )
+                celery_task_id = str(async_result.id or "")
+                if celery_task_id:
+                    row.apify_run_id = celery_task_id
+                    row.updated_at = AiTeamService._now()
+                    db.add(row)
+                    db.commit()
+                    db.refresh(row)
+                queued = True
+            except Exception as exc:
+                queue_error = str(exc)
+                logger.warning("directory_scrape_celery_enqueue_failed: %s", exc)
 
         if not queued:
-            # Reliable fallback: run in this process (API request may take a few minutes).
-            # Prefer this over a gunicorn daemon thread, which often dies silently.
             try:
                 AiTeamService.run_directory_scrape_job(
                     run_id,
@@ -2086,15 +2092,21 @@ class AiTeamService:
                 )
                 db.expire_all()
                 row = db.get(AiTeamApifyRun, run_id) or row
+                info = AiTeamService._run_to_dict(row)
+                emails_n = int(info.get("emails_found") or row.item_count or 0)
                 return {
                     "ok": True,
-                    "run": AiTeamService._run_to_dict(row),
+                    "run": info,
                     "queued_via": "inline",
-                    "message": "Scrape finished in API process (Celery enqueue failed). Refresh to import.",
+                    "message": f"Scrape finished · {emails_n} email(s)",
                 }
             except Exception as inline_exc:
                 row.status = "FAILED"
-                row.error = f"Celery enqueue failed ({queue_error[:200]}); inline scrape also failed: {inline_exc}"[:2000]
+                row.error = (
+                    f"Inline scrape failed: {inline_exc}"
+                    if not queue_error
+                    else f"Celery enqueue failed ({queue_error[:200]}); inline scrape also failed: {inline_exc}"
+                )[:2000]
                 row.finished_at = AiTeamService._now()
                 row.updated_at = row.finished_at
                 db.add(row)
