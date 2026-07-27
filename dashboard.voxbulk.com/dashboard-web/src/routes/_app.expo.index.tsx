@@ -49,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
+import { buildExpoQrImageUrl, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { cn } from "@/lib/utils";
 
 type ExpoBooth = {
@@ -62,6 +63,7 @@ type ExpoBooth = {
   lead_count?: number;
   hot_count?: number;
   qr_image_url?: string;
+  qr_token?: string;
   whatsapp_url?: string;
   web_url?: string;
   expires_at?: string | null;
@@ -104,12 +106,6 @@ function deltaMeta(today: number, yesterday: number) {
   if (diff > 0) return { trend: "up" as const, labelDelta: `+${diff} vs yesterday` };
   if (diff < 0) return { trend: "down" as const, labelDelta: `${diff} vs yesterday` };
   return { trend: "flat" as const, labelDelta: "Same as yesterday" };
-}
-
-function buildExpoQrImageUrl(targetUrl: string, size = 280): string {
-  const data = String(targetUrl || "").trim();
-  if (!data) return "";
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(data)}`;
 }
 
 function ExpoHub() {
@@ -343,9 +339,10 @@ function ExpoHub() {
             const endLabel = fmtDay(it.expires_at);
             const previewLeft = typeof it.preview_tests_remaining === "number" ? it.preview_tests_remaining : null;
             const showPreviewQuota = (unpaid || beforeStart) && previewLeft !== null;
+            const webUrl = resolveExpoWebUrl({ web_url: it.web_url, qr_token: it.qr_token });
             const qrSrc =
               (it.qr_image_url && String(it.qr_image_url).trim()) ||
-              (it.web_url ? buildExpoQrImageUrl(it.web_url, 280) : "");
+              (webUrl ? buildExpoQrImageUrl(webUrl, 280) : "");
             return (
               <Card key={it.id} className="overflow-hidden">
                 <CardHeader className="flex flex-row items-start justify-between gap-2">
@@ -392,9 +389,9 @@ function ExpoHub() {
                     </p>
                   </div>
                   <div className="grid gap-1.5 text-xs">
-                    {it.web_url ? (
+                    {it.web_url || webUrl ? (
                       <a
-                        href={it.web_url}
+                        href={it.web_url || webUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="truncate rounded-md border bg-sky-50 px-2 py-1.5 font-medium text-sky-800 hover:bg-sky-100"
@@ -445,6 +442,11 @@ function ExpoHub() {
                         </a>
                       </Button>
                     ) : null}
+                    <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                      <Link to="/expo/$boothId/edit" params={{ boothId: it.id }} hash="print">
+                        <QrCode className="size-3.5" /> Print card
+                      </Link>
+                    </Button>
                     <Button size="sm" variant="ghost" className="gap-1.5" asChild>
                       <Link to="/expo/leads" search={{ booth_id: it.id }}>
                         <Eye className="size-3.5" /> Results

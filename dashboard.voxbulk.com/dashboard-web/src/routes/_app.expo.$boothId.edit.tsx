@@ -25,15 +25,11 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
+import { buildExpoQrImageUrl, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
-function buildExpoQrImageUrl(targetUrl: string, size = 280): string {
-  const data = String(targetUrl || "").trim();
-  if (!data) return "";
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(data)}`;
-}
 type Industry = { id: string; slug: string; name: string; addon_question?: string | null };
 type QuestionOpt = {
   key: string;
@@ -63,6 +59,7 @@ type BoothDetail = {
   max_categories?: number | null;
   web_url?: string | null;
   qr_image_url?: string | null;
+  qr_token?: string | null;
   trigger_text?: string | null;
 };
 
@@ -118,6 +115,16 @@ function EditExpoBooth() {
   const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
   const [saving, setSaving] = React.useState(false);
   const initialized = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!booth?.id) return;
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#print") return;
+    const t = window.setTimeout(() => {
+      document.getElementById("print")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(t);
+  }, [booth?.id]);
 
   React.useEffect(() => {
     if (!booth || initialized.current) return;
@@ -230,9 +237,13 @@ function EditExpoBooth() {
     );
   }
 
+  const webUrl = resolveExpoWebUrl({
+    web_url: booth.web_url,
+    qr_token: booth.qr_token,
+  });
   const qrSrc =
     (booth.qr_image_url && String(booth.qr_image_url).trim()) ||
-    (booth.web_url ? buildExpoQrImageUrl(String(booth.web_url), 280) : "");
+    (webUrl ? buildExpoQrImageUrl(webUrl, 280) : "");
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -305,19 +316,25 @@ function EditExpoBooth() {
             </div>
           </div>
 
-          {qrSrc ? (
-            <div className="border-t pt-6">
+          {webUrl || qrSrc ? (
+            <div id="print" className="border-t pt-6">
               <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
               <ExpoBoothPrintCard
                 boothId={booth.id}
                 qrSrc={qrSrc}
+                webUrl={webUrl}
+                qrToken={booth.qr_token}
                 company={company || booth.company_display_name}
                 boothCode={boothCode || booth.booth_code}
                 eventName={exhibitionName || booth.exhibition_name || booth.name}
                 eventDates={venue || booth.venue || null}
               />
             </div>
-          ) : null}
+          ) : (
+            <p className="border-t pt-4 text-sm text-muted-foreground">
+              Scan link missing for this booth — refresh the page or contact support.
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { brandAssets } from "@/lib/brand";
+import { buildExpoQrImageCandidates, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +17,10 @@ const FOOTER_BAR = "EXPO · voxbulk.com · expo@voxbulk.com";
 
 export type ExpoBoothPrintCardProps = {
   boothId?: string | null;
-  qrSrc: string;
+  /** Preferred QR image URL from API (may be blocked — component falls back). */
+  qrSrc?: string | null;
+  webUrl?: string | null;
+  qrToken?: string | null;
   company: string;
   boothCode?: string | null;
   eventName: string;
@@ -56,12 +60,37 @@ function saveStored(boothId: string | null | undefined, copy: StoredCopy) {
   }
 }
 
+function useExpoQrSrc(preferred: string | null | undefined, webUrl: string) {
+  const candidates = React.useMemo(() => {
+    const list: string[] = [];
+    const pref = String(preferred || "").trim();
+    if (pref) list.push(pref);
+    for (const c of buildExpoQrImageCandidates(webUrl, 200)) {
+      if (c && !list.includes(c)) list.push(c);
+    }
+    return list;
+  }, [preferred, webUrl]);
+
+  const [index, setIndex] = React.useState(0);
+  React.useEffect(() => {
+    setIndex(0);
+  }, [candidates.join("|")]);
+
+  const src = candidates[index] || "";
+  const onError = () => {
+    setIndex((i) => (i + 1 < candidates.length ? i + 1 : i));
+  };
+  return { src, onError, hasQr: Boolean(src) };
+}
+
 /**
  * Pixel-faithful port of qr print.html — editable top/bottom copy, live preview, browser print.
  */
 export function ExpoBoothPrintCard({
   boothId,
-  qrSrc,
+  qrSrc: preferredQr,
+  webUrl: webUrlProp,
+  qrToken,
   company,
   boothCode,
   eventName,
@@ -77,6 +106,9 @@ export function ExpoBoothPrintCard({
   React.useEffect(() => {
     saveStored(boothId, { headline, subline, support, powered });
   }, [boothId, headline, subline, support, powered]);
+
+  const webUrl = resolveExpoWebUrl({ web_url: webUrlProp, qr_token: qrToken });
+  const { src: qrSrc, onError: onQrError, hasQr } = useExpoQrSrc(preferredQr, webUrl);
 
   const exhibitor = String(company || "").trim() || "Exhibitor";
   const boothLabel = String(boothCode || "").trim();
@@ -112,7 +144,6 @@ export function ExpoBoothPrintCard({
         }
       `}</style>
 
-      {/* Editor controls — hidden when printing */}
       <div
         className="no-print mb-4 space-y-3 rounded-xl border p-4"
         style={{ background: "#f0f4f9", borderColor: "#1a2d5c" }}
@@ -122,8 +153,18 @@ export function ExpoBoothPrintCard({
             Print this card and place it at your expo booth
           </p>
           <p className="mt-0.5 text-xs" style={{ color: "#6b6560" }}>
-            Edit the text below — the live preview updates instantly. Visitors scan to chat and get your
-            catalogue.
+            Edit the text below — the live preview updates instantly. Your booth QR is saved with the booth
+            {webUrl ? (
+              <>
+                {" "}
+                (
+                <a href={webUrl} target="_blank" rel="noreferrer" className="underline">
+                  open scan link
+                </a>
+                )
+              </>
+            ) : null}
+            .
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -168,15 +209,19 @@ export function ExpoBoothPrintCard({
         <Button
           type="button"
           onClick={handlePrint}
-          disabled={!qrSrc}
+          disabled={!hasQr}
           style={{ background: "#1a2d5c", color: "#fff" }}
           className="hover:opacity-90"
         >
           Print Booth Card →
         </Button>
+        {!hasQr ? (
+          <p className="text-xs text-destructive">
+            QR image is still loading. If it stays blank, open the scan link above and try again after refresh.
+          </p>
+        ) : null}
       </div>
 
-      {/* Exact layout from qr print.html */}
       <table
         role="presentation"
         width="100%"
@@ -322,6 +367,7 @@ export function ExpoBoothPrintCard({
                             src={qrSrc}
                             alt="Scan to chat with AI"
                             referrerPolicy="no-referrer"
+                            onError={onQrError}
                             style={{
                               width: 160,
                               height: 160,
@@ -339,9 +385,17 @@ export function ExpoBoothPrintCard({
                               placeItems: "center",
                               fontSize: 12,
                               color: "#6b6560",
+                              textAlign: "center",
+                              padding: 8,
                             }}
                           >
                             QR unavailable
+                            {webUrl ? (
+                              <>
+                                <br />
+                                <span style={{ fontSize: 9, wordBreak: "break-all" }}>{webUrl}</span>
+                              </>
+                            ) : null}
                           </div>
                         )}
                       </div>
@@ -499,7 +553,7 @@ export function ExpoBoothPrintCard({
         <button
           type="button"
           onClick={handlePrint}
-          disabled={!qrSrc}
+          disabled={!hasQr}
           style={{
             background: "#1a2d5c",
             color: "#ffffff",
@@ -508,8 +562,8 @@ export function ExpoBoothPrintCard({
             borderRadius: 8,
             fontSize: 14,
             fontWeight: 600,
-            cursor: qrSrc ? "pointer" : "not-allowed",
-            opacity: qrSrc ? 1 : 0.5,
+            cursor: hasQr ? "pointer" : "not-allowed",
+            opacity: hasQr ? 1 : 0.5,
           }}
         >
           🖨️ Print Booth Card
