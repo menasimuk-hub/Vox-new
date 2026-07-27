@@ -6,6 +6,7 @@ stand descriptions and company websites — no Apify actor required.
 
 from __future__ import annotations
 
+import html as html_lib
 import json
 import logging
 import re
@@ -25,6 +26,8 @@ EASYFAIRS_LOADER = "https://my.easyfairs.com/widgets/api/loader/?hostDomain={hos
 EASYFAIRS_STANDS_SEARCH = "https://my.easyfairs.com/widgets/api/stands/?language=en"
 EASYFAIRS_STAND_DETAIL = "https://my.easyfairs.com/widgets/api/stands/{stand_id}/?language=en&edition={edition}"
 
+# Organizer/platform addresses that appear on every ASP profile footer and must NOT
+# count as exhibitor emails (they previously blocked company-website follow → 0 real emails).
 _JUNK_EMAIL_SUBSTR = (
     "example.com",
     "sentry.",
@@ -37,10 +40,28 @@ _JUNK_EMAIL_SUBSTR = (
     "asp.events",
     "reedexpo",
     "rxweb",
+    "rxglobal",
     "closerstill",
     "ukimediaevents",
+    "ukimedia",
     "webpack",
     "schema.org",
+    "montgomerygroup",
+    "informa.com",
+    "john@email.com",
+)
+_JUNK_EMAIL_DOMAINS = frozenset(
+    {
+        "email.com",
+        "emailadress.com",
+        "test.com",
+        "domain.com",
+        "website.com",
+        "example.org",
+        "example.net",
+        "localhost",
+        "sentry.io",
+    }
 )
 
 
@@ -95,7 +116,7 @@ class ExpoDirectoryScraper:
             local, _, domain = email.partition("@")
             if not local or not domain or "." not in domain:
                 continue
-            if any(j in email for j in _JUNK_EMAIL_SUBSTR):
+            if domain in _JUNK_EMAIL_DOMAINS or any(j in email for j in _JUNK_EMAIL_SUBSTR):
                 continue
             if email.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js")):
                 continue
@@ -104,6 +125,74 @@ class ExpoDirectoryScraper:
             seen.add(email)
             found.append(email)
         return found
+
+    @staticmethod
+    def _decode_html_text(text: str) -> str:
+        return html_lib.unescape(re.sub(r"\s+", " ", str(text or "")).strip())
+
+    @staticmethod
+    def _extract_jsonld_organization_url(html: str) -> str:
+        """Company website from schema.org ProfilePage / Organization JSON-LD (ASP Events)."""
+        for raw in re.findall(
+            r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+            html or "",
+            re.I | re.S,
+        ):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+            stack = [data]
+            while stack:
+                node = stack.pop()
+                if isinstance(node, dict):
+                    typ = node.get("@type")
+                    types = {typ} if isinstance(typ, str) else set(typ or [])
+                    if "Organization" in types or "LocalBusiness" in types:
+                        url = str(node.get("url") or "").strip()
+                        if url.startswith("http") and "asp.events" not in url.lower():
+                            return url
+                    for v in node.values():
+                        if isinstance(v, (dict, list)):
+                            stack.append(v)
+                elif isinstance(node, list):
+                    stack.extend(node)
+        return ""
+
+    @staticmethod
+    def _extract_visit_website(html: str, *, page_host: str = "") -> str:
+        """Prefer Visit website / JSON-LD company URL over random external links."""
+        jsonld = ExpoDirectoryScraper._extract_jsonld_organization_url(html)
+        if jsonld:
+            return jsonld
+        patterns = (
+            r'aria-label=["\']Visit website["\'][^>]*href=["\'](https?://[^"\']+)["\']',
+            r'href=["\'](https?://[^"\']+)["\'][^>]*aria-label=["\']Visit website["\']',
+            r'button__website[\s\S]{0,500}?href=["\'](https?://[^"\']+)["\']',
+            r'href=["\'](https?://[^"\']+)["\'][^>]*>\s*(?:<[^>]+>\s*)*Visit website',
+        )
+        host_l = (page_host or "").lower()
+        for pat in patterns:
+            m = re.search(pat, html or "", re.I)
+            if not m:
+                continue
+            url = (m.group(1) or "").strip()
+            low = url.lower()
+            if not url.startswith("http"):
+                continue
+            if host_l and host_l in low:
+                continue
+            if any(
+                x in low
+                for x in (
+                    "facebook", "linkedin", "twitter", "instagram", "youtube",
+                    "google", "asp.events", "closerstill", "ukimedia", "typekit",
+                    "montgomerygroup",
+                )
+            ):
+                continue
+            return url
+        return ""
 
     @staticmethod
     def detect_easyfairs_editions(directory_url: str) -> list[int]:
@@ -573,37 +662,31 @@ class ExpoDirectoryScraper:
             title = ""
             mt = re.search(r"<h1[^>]*>(.*?)</h1>", text, re.I | re.S)
             if mt:
-                title = re.sub(r"<[^>]+>", "", mt.group(1)).strip()
-            websites = re.findall(
-                r"""href=["'](https?://(?!(?:www\.)?"""
-                + re.escape(parsed.netloc)
-                + r""")[^"']+)["']""",
-                text,
-                re.I,
+                title = ExpoDirectoryScraper._decode_html_text(re.sub(r"<[^>]+>", "", mt.group(1)))
+            website = ExpoDirectoryScraper._extract_visit_website(
+                text, page_host=parsed.netloc
             )
-            # Prefer explicit "Visit website" / contact buttons (ASP Events)
-            preferred = re.findall(
-                r"""(?:Visit\s+website|button__website|contact-us)[^>]{0,120}href=["'](https?://[^"']+)["']"""
-                r"""|href=["'](https?://[^"']+)["'][^>]{0,80}(?:Visit\s+website|button__website)""",
-                text,
-                re.I,
-            )
-            flat_pref = [p for pair in preferred for p in (pair if isinstance(pair, tuple) else (pair,)) if p]
-            website = ""
-            for w in flat_pref + websites:
-                low = w.lower()
-                if parsed.netloc.lower() in low:
-                    continue
-                if any(
-                    x in low
-                    for x in (
-                        "facebook", "linkedin", "twitter", "instagram", "youtube",
-                        "google", "asp.events", "closerstill", "ukimedia",
-                    )
-                ):
-                    continue
-                website = w
-                break
+            if not website:
+                websites = re.findall(
+                    r"""href=["'](https?://(?!(?:www\.)?"""
+                    + re.escape(parsed.netloc)
+                    + r""")[^"']+)["']""",
+                    text,
+                    re.I,
+                )
+                for w in websites:
+                    low = w.lower()
+                    if any(
+                        x in low
+                        for x in (
+                            "facebook", "linkedin", "twitter", "instagram", "youtube",
+                            "google", "asp.events", "closerstill", "ukimedia",
+                            "montgomerygroup",
+                        )
+                    ):
+                        continue
+                    website = w
+                    break
             if follow_websites and website and not emails:
                 emails = ExpoDirectoryScraper._scrape_website_emails(website)
             if not emails:
@@ -666,6 +749,18 @@ class ExpoDirectoryScraper:
         }
 
     @staticmethod
+    def _is_exhibitor_slug(slug: str) -> bool:
+        s = (slug or "").strip().lower()
+        if not s or s in {"list", "directory", "hub", "e-zone", "search"}:
+            return False
+        if s.endswith(("-logo", "-cover", "-image", ".jpg", ".png", ".jpeg", ".webp", ".svg")):
+            return False
+        # CDN media ids masquerading as /exhibitors/{uuid}-logo
+        if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f\-]+", s):
+            return False
+        return True
+
+    @staticmethod
     def _is_exhibitor_profile_path(path: str) -> bool:
         p = (path or "").rstrip("/")
         low = p.lower()
@@ -674,9 +769,9 @@ class ExpoDirectoryScraper:
         # /exhibitors/company-slug or /exhibitor/company-slug (not the list root)
         for token in ("/exhibitors/", "/exhibitor/"):
             if token in low:
-                # must have something after the token
                 after = low.split(token, 1)[-1]
-                if after and after not in {"list", "directory", "hub", "e-zone"}:
+                slug = after.split("/")[0]
+                if ExpoDirectoryScraper._is_exhibitor_slug(slug):
                     return True
         return False
 
@@ -688,14 +783,33 @@ class ExpoDirectoryScraper:
         max_pages: int = 500,
     ) -> list[str]:
         parsed = urlparse(directory_url)
+        base = f"{parsed.scheme}://{parsed.netloc}"
         links: list[str] = []
         for h in re.findall(r"""href=["']([^"']+)["']""", html or "", re.I):
+            if h.lower().startswith("javascript:"):
+                continue
             full = urljoin(directory_url, h).split("#")[0].split("?")[0]
             p = urlparse(full)
             if p.netloc and p.netloc.lower() != parsed.netloc.lower():
                 continue
             if ExpoDirectoryScraper._is_exhibitor_profile_path(p.path):
                 links.append(full)
+        # ASP / SHOWOFF list cards often open profiles via JS modal, not <a href>
+        for slug in re.findall(
+            r"openRemoteModal\(\s*['\"]exhibitors?/([a-z0-9][a-z0-9\-]+)['\"]",
+            html or "",
+            re.I,
+        ):
+            if ExpoDirectoryScraper._is_exhibitor_slug(slug):
+                links.append(f"{base}/exhibitors/{slug}")
+        # Absolute /exhibitors/slug URLs embedded in cards / JSON (skip CDN logo URLs)
+        for full in re.findall(
+            rf"https?://{re.escape(parsed.netloc)}/exhibitors/([a-z0-9][a-z0-9\-]+)",
+            html or "",
+            re.I,
+        ):
+            if ExpoDirectoryScraper._is_exhibitor_slug(full):
+                links.append(f"{base}/exhibitors/{full}")
         return sorted(set(links))[: max(1, min(int(max_pages or 500), 2000))]
 
     @staticmethod
@@ -809,7 +923,23 @@ class ExpoDirectoryScraper:
                 if r.status_code >= 400:
                     return []
                 text = r.text or ""
-            emails = ExpoDirectoryScraper.clean_emails(text)
+            # Prefer mailto / contacts block — full-page scan used to pick organizer footers
+            # (montgomerygroup / john@email.com) which blocked company-website follow.
+            contact_blob = ""
+            m_contacts = re.search(
+                r"m-exhibitor-entry__item__body__content__overview__contacts[\s\S]{0,12000}",
+                text,
+                re.I,
+            )
+            if m_contacts:
+                contact_blob = m_contacts.group(0)
+            emails = ExpoDirectoryScraper.clean_emails(contact_blob) if contact_blob else []
+            if not emails:
+                emails = [
+                    e.split("?", 1)[0].strip().lower()
+                    for e in re.findall(r"mailto:([^\"'\s>]+)", contact_blob or text, re.I)
+                ]
+                emails = ExpoDirectoryScraper.clean_emails(" ".join(emails))
             title = ""
             for pat in (
                 r'class=["\'][^"\']*exhibitor-entry__item__header__title[^"\']*["\'][^>]*>\s*<[^>]+>(.*?)</',
@@ -819,8 +949,9 @@ class ExpoDirectoryScraper:
             ):
                 mt = re.search(pat, text, re.I | re.S)
                 if mt:
-                    title = re.sub(r"<[^>]+>", "", mt.group(1)).strip()
-                    title = re.sub(r"\s+", " ", title)
+                    title = ExpoDirectoryScraper._decode_html_text(
+                        re.sub(r"<[^>]+>", "", mt.group(1))
+                    )
                     if title and "exhibitor" not in title.lower()[:12]:
                         break
                     if title and len(title) < 80:
@@ -835,21 +966,17 @@ class ExpoDirectoryScraper:
                     re.I | re.S,
                 )
                 if mt:
-                    title = re.sub(r"<[^>]+>", "", mt.group(1)).strip()
+                    title = ExpoDirectoryScraper._decode_html_text(
+                        re.sub(r"<[^>]+>", "", mt.group(1))
+                    )
             # Fallback: last path segment as company slug
             if not title:
                 slug = urlparse(url).path.rstrip("/").split("/")[-1]
                 title = slug.replace("-", " ").strip()
                 title = re.sub(r"\s+\d+$", "", title).title()
-            website = ""
-            mweb = re.search(
-                r"button__website[\s\S]{0,260}?href=['\"](https?://[^'\"]+)['\"]"
-                r"|href=['\"](https?://[^'\"]+)['\"][^>]*>\s*Visit website",
-                text,
-                re.I,
+            website = ExpoDirectoryScraper._extract_visit_website(
+                text, page_host=parsed.netloc
             )
-            if mweb:
-                website = mweb.group(1) or mweb.group(2) or ""
             if not website:
                 for w in re.findall(r"""href=["'](https?://[^"']+)["']""", text, re.I):
                     low_w = w.lower()
@@ -860,11 +987,13 @@ class ExpoDirectoryScraper:
                         for x in (
                             "facebook", "linkedin", "twitter", "instagram", "youtube",
                             "google", "asp.events", "closerstill", "ukimedia", "typekit",
+                            "montgomerygroup", "cdn.",
                         )
                     ):
                         continue
                     website = w
                     break
+            # Most ASP profiles have no public email on-page — follow company website.
             if follow_websites and website and not emails:
                 emails = ExpoDirectoryScraper._scrape_website_emails(website)
             if not emails:
