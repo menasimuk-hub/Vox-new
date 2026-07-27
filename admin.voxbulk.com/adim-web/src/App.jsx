@@ -82,6 +82,7 @@ export default function App() {
         <Route path='/marketing/partner-channel-sales' element={<P.PartnerChannelSales />} />
         <Route path='/marketing/lead-sales/:taskId' element={<P.LeadSalesEdit />} />
         <Route path='/marketing/ai-team' element={<P.AiTeam />} />
+        <Route path='/marketing/apify' element={<P.ApifyOutreach />} />
         <Route path='/marketing/promo-offers' element={<P.PromoOffers />} />
         <Route path='/marketing/promo-offers/new' element={<P.PromoOfferCreate />} />
         <Route path='/marketing/frontpage-call-leads' element={<P.FrontpageCallLeads />} />

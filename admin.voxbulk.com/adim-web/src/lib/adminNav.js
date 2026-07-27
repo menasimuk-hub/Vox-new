@@ -112,10 +112,11 @@ export const NAV = [
       ['Recovery events', '/operations/recovery-events'],
     ],
   ],
-  [
+    [
     'AI Marketing',
     [
       ['AI Team', '/marketing/ai-team'],
+      ['Apify', '/marketing/apify'],
       ['Lead sources', '/marketing/lead-sources'],
       ['Lead sales', '/marketing/lead-sales'],
       ['Sales Team', '/marketing/salesmen'],

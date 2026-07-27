@@ -308,8 +308,6 @@
 .ai-team-page .ait-apify-hdr {
   flex-wrap: wrap; gap: 8px; align-items: center;
 }
-.ai-team-page .ait-apify-hdr .ait-subtabs { margin-left: 0; }
-.ai-team-page .ait-apify-hdr .ait-btn.primary { margin-left: auto; }
 .ai-team-page .ait-apify-body { padding-top: 10px; }
 .ai-team-page .ait-subtabs {
   display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap;
@@ -510,6 +508,35 @@
   margin-bottom: 6px;
 }
 
+.ai-team-page .ait-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin-bottom: 16px;
+}
+.ai-team-page .ait-toolbar-left,
+.ai-team-page .ait-toolbar-right {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.ai-team-page .ait-toolbar-meta {
+  font-size: 13px; color: var(--ait-text3); font-weight: 500;
+}
+.ai-team-page .ait-seg {
+  display: inline-flex; background: var(--ait-bg4); border: 1px solid var(--ait-border);
+  border-radius: 8px; padding: 3px; gap: 2px;
+}
+.ai-team-page .ait-seg button {
+  border: 0; background: transparent; color: var(--ait-text3);
+  font: inherit; font-size: 12px; font-weight: 600; padding: 5px 10px;
+  border-radius: 6px; cursor: pointer;
+}
+.ai-team-page .ait-seg button.active {
+  background: var(--ait-bg2); color: var(--ait-text);
+  box-shadow: var(--ait-shadow);
+}
+.ai-team-page .ait-email-snippet {
+  font-size: 13px; color: var(--ait-text2); line-height: 1.55;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+  overflow: hidden; margin-top: 6px;
+}
 .ai-team-page .ait-campaign-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_team_apify_run import AiTeamApifyRun
 from app.models.ai_team_campaign import AiTeamCampaign, AiTeamCampaignRecipient
+from app.models.ai_team_email_template import AiTeamEmailTemplate
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,19 @@ _DEFAULT_BODY = (
     "VoxBulk automates customer feedback by phone and WhatsApp so your team sees results faster.\n\n"
     "Happy to share a short demo if useful — use code {{promo_code}} if you want to try it."
 )
+
+MERGE_TAGS = [
+    "first_name",
+    "last_name",
+    "company",
+    "company_name",
+    "job_title",
+    "email",
+    "sector",
+    "country_code",
+    "promo_code",
+    "body",
+]
 
 
 class AiTeamCampaignService:
@@ -59,6 +73,7 @@ class AiTeamCampaignService:
             "subject": row.subject,
             "body_text": row.body_text,
             "html_template": row.html_template,
+            "template_id": getattr(row, "template_id", None),
             "total_count": int(row.total_count or 0),
             "sent_count": int(row.sent_count or 0),
             "failed_count": int(row.failed_count or 0),
@@ -143,11 +158,124 @@ class AiTeamCampaignService:
         if "html_template" in payload:
             html = payload.get("html_template")
             row.html_template = str(html) if html is not None else None
+        if "template_id" in payload:
+            tid = str(payload.get("template_id") or "").strip() or None
+            row.template_id = tid
         row.updated_at = AiTeamCampaignService._now()
         db.add(row)
         db.commit()
         db.refresh(row)
         return row
+
+    @staticmethod
+    def template_to_dict(row: AiTeamEmailTemplate) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "name": row.name,
+            "subject": row.subject,
+            "body_text": row.body_text,
+            "html_template": row.html_template,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+
+    @staticmethod
+    def list_templates(db: Session) -> list[AiTeamEmailTemplate]:
+        rows = list(
+            db.execute(select(AiTeamEmailTemplate).order_by(AiTeamEmailTemplate.updated_at.desc())).scalars().all()
+        )
+        if rows:
+            return rows
+        # Seed one default so the Templates tab is never empty on first visit
+        settings = AiTeamService.get_settings(db)
+        now = AiTeamCampaignService._now()
+        seed = AiTeamEmailTemplate(
+            name="Default expo outreach",
+            subject="Quick idea for {{company}}",
+            body_text=_DEFAULT_BODY,
+            html_template=AiTeamService.effective_html_template(settings),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(seed)
+        db.commit()
+        db.refresh(seed)
+        return [seed]
+
+    @staticmethod
+    def get_template(db: Session, template_id: str) -> AiTeamEmailTemplate:
+        row = db.get(AiTeamEmailTemplate, template_id)
+        if row is None:
+            raise AiTeamServiceError("Template not found")
+        return row
+
+    @staticmethod
+    def create_template(db: Session, payload: dict[str, Any]) -> AiTeamEmailTemplate:
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            raise AiTeamServiceError("Template name is required")
+        settings = AiTeamService.get_settings(db)
+        now = AiTeamCampaignService._now()
+        row = AiTeamEmailTemplate(
+            name=name[:255],
+            subject=str(payload.get("subject") or "Quick idea for {{company}}").strip()[:500],
+            body_text=str(payload.get("body_text") if payload.get("body_text") is not None else _DEFAULT_BODY),
+            html_template=(
+                str(payload["html_template"])
+                if payload.get("html_template") is not None
+                else AiTeamService.effective_html_template(settings)
+            ),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    @staticmethod
+    def update_template(db: Session, template_id: str, payload: dict[str, Any]) -> AiTeamEmailTemplate:
+        row = AiTeamCampaignService.get_template(db, template_id)
+        if "name" in payload:
+            name = str(payload.get("name") or "").strip()
+            if not name:
+                raise AiTeamServiceError("Template name is required")
+            row.name = name[:255]
+        if "subject" in payload:
+            row.subject = str(payload.get("subject") or "").strip()[:500]
+        if "body_text" in payload:
+            row.body_text = str(payload.get("body_text") or "")
+        if "html_template" in payload:
+            html = payload.get("html_template")
+            row.html_template = str(html) if html is not None else None
+        row.updated_at = AiTeamCampaignService._now()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    @staticmethod
+    def delete_template(db: Session, template_id: str) -> dict[str, Any]:
+        row = AiTeamCampaignService.get_template(db, template_id)
+        db.delete(row)
+        db.commit()
+        return {"ok": True, "deleted": 1}
+
+    @staticmethod
+    def apply_template_to_campaign(db: Session, campaign_id: str, template_id: str) -> AiTeamCampaign:
+        campaign = AiTeamCampaignService.get_campaign(db, campaign_id)
+        if campaign.status == "sending":
+            raise AiTeamServiceError("Cannot change template while sending")
+        tpl = AiTeamCampaignService.get_template(db, template_id)
+        campaign.template_id = tpl.id
+        campaign.subject = tpl.subject or ""
+        campaign.body_text = tpl.body_text or ""
+        campaign.html_template = tpl.html_template
+        campaign.updated_at = AiTeamCampaignService._now()
+        db.add(campaign)
+        db.commit()
+        db.refresh(campaign)
+        return campaign
 
     @staticmethod
     def delete_campaign(db: Session, campaign_id: str) -> dict[str, Any]:

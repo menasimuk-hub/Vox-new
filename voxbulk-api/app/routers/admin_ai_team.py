@@ -29,8 +29,13 @@ def _err(exc: Exception) -> HTTPException:
 def get_dashboard(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     stats = AiTeamService.dashboard_stats(db)
     settings = AiTeamService.settings_to_dict(db, AiTeamService.get_settings(db))
+    pending = [
+        AiTeamService.prospect_to_dict(db, p)
+        for p in AiTeamService.list_prospects(db)
+        if str(p.status or "").lower() in {"pending", "new"}
+    ]
     campaigns = [AiTeamCampaignService.campaign_to_dict(c) for c in AiTeamCampaignService.list_campaigns(db)]
-    return {"stats": stats, "settings": settings, "campaigns": campaigns}
+    return {"stats": stats, "settings": settings, "queue": pending, "campaigns": campaigns}
 
 
 @router.get("/settings")
@@ -594,6 +599,76 @@ def test_all(body: dict[str, Any], db: Session = Depends(get_db), _admin: User =
 def test_deepseek_sample(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     try:
         return AiTeamService.generate_sample_email(db)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+# ── Email templates ──────────────────────────────────────────────────────────
+
+
+@router.get("/templates")
+def list_templates(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    from app.services.ai_team_campaign_service import MERGE_TAGS
+
+    rows = AiTeamCampaignService.list_templates(db)
+    return {
+        "templates": [AiTeamCampaignService.template_to_dict(r) for r in rows],
+        "merge_tags": MERGE_TAGS,
+    }
+
+
+@router.post("/templates")
+def create_template(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        row = AiTeamCampaignService.create_template(db, body)
+        return {"template": AiTeamCampaignService.template_to_dict(row)}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/templates/{template_id}")
+def get_template(template_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        row = AiTeamCampaignService.get_template(db, template_id)
+        return {"template": AiTeamCampaignService.template_to_dict(row)}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.put("/templates/{template_id}")
+def update_template(
+    template_id: str,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        row = AiTeamCampaignService.update_template(db, template_id, body)
+        return {"template": AiTeamCampaignService.template_to_dict(row)}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/templates/{template_id}")
+def delete_template(template_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamCampaignService.delete_template(db, template_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/apply-template")
+def apply_campaign_template(
+    campaign_id: str,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        row = AiTeamCampaignService.apply_template_to_campaign(
+            db, campaign_id, str(body.get("template_id") or "")
+        )
+        return {"campaign": AiTeamCampaignService.campaign_to_dict(row)}
     except Exception as exc:
         raise _err(exc) from exc
 

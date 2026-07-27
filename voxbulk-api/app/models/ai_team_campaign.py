@@ -20,6 +20,7 @@ class AiTeamCampaign(Base):
     subject: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     body_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     html_template: Mapped[str | None] = mapped_column(Text, nullable=True)
+    template_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
