@@ -12,9 +12,11 @@ from email.header import decode_header
 from email.message import Message
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.encryption import get_encryptor
+from app.models.ai_team_inbound_message import AiTeamInboundMessage
 from app.models.ai_team_settings import AiTeamSettings
 from app.services.ai_team_campaign_service import AiTeamCampaignService
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
@@ -161,6 +163,7 @@ class AiTeamImapService:
         matched = 0
         scanned = 0
         unmatched = 0
+        stored = 0
         unmatched_samples: list[dict[str, str]] = []
         try:
             conn = AiTeamImapService._connect(settings)
@@ -204,6 +207,10 @@ class AiTeamImapService:
                     reply_to = reply_addrs[0] if reply_addrs else ""
                     thread_rid = _extract_recipient_id(msg)
                     body = _collect_text(msg)
+                    internet_id = (_decode_mime(msg.get("Message-ID")) or "").strip()[:500]
+                    if not internet_id:
+                        internet_id = f"imap-{user}-{num.decode() if isinstance(num, bytes) else num}-{from_email}-{subject}"[:500]
+
                     row = AiTeamCampaignService.record_inbound_reply(
                         db,
                         from_email=from_email,
@@ -212,7 +219,8 @@ class AiTeamImapService:
                         recipient_id=thread_rid,
                         reply_to_email=reply_to,
                     )
-                    if row is not None:
+                    is_matched = row is not None
+                    if is_matched:
                         matched += 1
                     else:
                         unmatched += 1
@@ -223,6 +231,43 @@ class AiTeamImapService:
                                     "subject": (subject or "")[:120],
                                 }
                             )
+
+                    # Always store inbox row (matched or not) so Tracking can show every message.
+                    existing = None
+                    if internet_id:
+                        existing = db.execute(
+                            select(AiTeamInboundMessage)
+                            .where(AiTeamInboundMessage.internet_message_id == internet_id)
+                            .limit(1)
+                        ).scalar_one_or_none()
+                    now = AiTeamService._now()
+                    if existing is None:
+                        db.add(
+                            AiTeamInboundMessage(
+                                internet_message_id=internet_id,
+                                from_email=(from_email or "")[:320],
+                                subject=(subject or "")[:500],
+                                body_text=(body or "")[:20000] or None,
+                                matched=is_matched,
+                                recipient_id=row.id if row is not None else None,
+                                campaign_id=row.campaign_id if row is not None else None,
+                                received_at=now,
+                                created_at=now,
+                            )
+                        )
+                        stored += 1
+                    else:
+                        existing.from_email = (from_email or existing.from_email or "")[:320]
+                        existing.subject = (subject or existing.subject or "")[:500]
+                        if body:
+                            existing.body_text = body[:20000]
+                        existing.matched = is_matched or bool(existing.matched)
+                        if row is not None:
+                            existing.recipient_id = row.id
+                            existing.campaign_id = row.campaign_id
+                        db.add(existing)
+                    db.commit()
+
                     try:
                         conn.store(num, "+FLAGS", "\\Seen")
                     except Exception:
@@ -246,14 +291,13 @@ class AiTeamImapService:
             raise AiTeamServiceError(f"IMAP sync failed: {exc}") from exc
 
         tip = ""
-        if scanned and matched == 0:
+        if scanned and matched == 0 and unmatched:
             froms = ", ".join(s["from"] for s in unmatched_samples) or "(none)"
             tip = (
-                f" · Unmatched From: {froms}. "
-                "Reply FROM the same address you used in Send test / audience, "
-                "or Send test again then reply (new messages get a thread id)."
+                f" · Stored {stored} inbox msg(s); unmatched From: {froms} "
+                "(still listed under Tracking → Inbox)."
             )
-        msg = f"Scanned {scanned} · matched {matched} · unmatched {unmatched}{tip}"
+        msg = f"Scanned {scanned} · matched {matched} · unmatched {unmatched} · stored {stored}{tip}"
         settings.imap_last_sync_at = AiTeamService._now()
         settings.imap_last_sync_message = msg[:500]
         db.add(settings)
@@ -263,6 +307,7 @@ class AiTeamImapService:
             "scanned": scanned,
             "matched": matched,
             "unmatched": unmatched,
+            "stored": stored,
             "unmatched_samples": unmatched_samples,
             "message": msg,
             "imap_last_sync_at": settings.imap_last_sync_at.isoformat() if settings.imap_last_sync_at else None,

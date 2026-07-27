@@ -77,13 +77,13 @@ export default function PromoOfferEdit() {
     try {
       await apiFetch(`/admin/promo-offers/${id}`, {
         method: 'PATCH',
-        body: {
+        body: JSON.stringify({
           name,
           max_redemptions: Number(draft.max_redemptions) || 1,
           expires_in_days: Number(draft.expires_in_days) || 30,
           redeem_mode: draft.redeem_mode,
           is_active: Boolean(draft.is_active),
-        },
+        }),
       })
       navigate('/marketing/promo-offers?updated=1')
     } catch (err) {

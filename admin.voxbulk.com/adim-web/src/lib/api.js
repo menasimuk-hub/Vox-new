@@ -600,11 +600,25 @@ export async function apiFetch(path, options = {}) {
     headers.set('Content-Type', 'application/json')
   }
 
+  // Plain objects must be JSON strings — fetch otherwise sends "[object Object]" and FastAPI returns JSON decode error.
+  let body = options.body
+  if (
+    body != null &&
+    typeof body === 'object' &&
+    !(typeof FormData !== 'undefined' && body instanceof FormData) &&
+    !(typeof Blob !== 'undefined' && body instanceof Blob) &&
+    !(typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer) &&
+    !(typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams)
+  ) {
+    body = JSON.stringify(body)
+    if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+  }
+
   let res
   const timeoutMs = typeof options.timeoutMs === 'number' ? options.timeoutMs : 90000
   const quietNetworkHint = Boolean(options.quietNetworkHint)
   try {
-    res = await fetchWithTimeout(joined, { ...options, headers }, timeoutMs)
+    res = await fetchWithTimeout(joined, { ...options, headers, body }, timeoutMs)
   } catch (e) {
     const msg = e?.message || String(e)
     const userCancelled = Boolean(options.signal?.aborted)

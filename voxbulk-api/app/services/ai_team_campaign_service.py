@@ -15,6 +15,7 @@ from app.models.ai_team_apify_run import AiTeamApifyRun
 from app.models.ai_team_campaign import AiTeamCampaign, AiTeamCampaignRecipient
 from app.models.ai_team_email_suppression import AiTeamEmailSuppression
 from app.models.ai_team_email_template import AiTeamEmailTemplate
+from app.models.ai_team_inbound_message import AiTeamInboundMessage
 from app.models.promo_offer import PromoOffer
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
 from app.services.email_html_inline import inline_email_css
@@ -732,6 +733,15 @@ class AiTeamCampaignService:
             item["campaign_name"] = camp_name or ""
             activity.append(item)
 
+        inbox_rows = list(
+            db.execute(
+                select(AiTeamInboundMessage)
+                .order_by(AiTeamInboundMessage.received_at.desc())
+                .limit(100)
+            ).scalars().all()
+        )
+        inbox = [AiTeamCampaignService.inbound_message_to_dict(r) for r in inbox_rows]
+
         return {
             "summary": {
                 "campaigns": len(campaigns),
@@ -741,9 +751,25 @@ class AiTeamCampaignService:
                 "pending": sum_pending,
                 "clicked": sum_clicked,
                 "opened": sum_opened,
+                "inbox": len(inbox),
             },
             "campaigns": campaign_dicts,
             "activity": activity,
+            "inbox": inbox,
+        }
+
+    @staticmethod
+    def inbound_message_to_dict(row: AiTeamInboundMessage) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "from_email": row.from_email,
+            "subject": row.subject,
+            "body_text": row.body_text,
+            "matched": bool(row.matched),
+            "recipient_id": row.recipient_id,
+            "campaign_id": row.campaign_id,
+            "received_at": row.received_at.isoformat() if row.received_at else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
         }
 
     @staticmethod

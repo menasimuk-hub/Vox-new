@@ -658,7 +658,7 @@ export default function ApifyOutreach() {
         imap_last_sync_at: data.imap_last_sync_at || prev.imap_last_sync_at,
         imap_last_sync_message: data.imap_last_sync_message || prev.imap_last_sync_message,
       }))
-      setTrackingFilter('received')
+      setTrackingFilter('inbox')
       await loadTracking()
     })
   }
@@ -1029,7 +1029,7 @@ export default function ApifyOutreach() {
               <div className="ait-card-hdr">
                 <span className="ait-card-title">Activity</span>
                 <div className="ait-seg ait-seg-right">
-                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['received', 'Received'], ['unsubscribed', 'Unsubscribed'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
+                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['received', 'Received'], ['inbox', 'Inbox'], ['unsubscribed', 'Unsubscribed'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
                     <button key={id} type="button" className={trackingFilter === id ? 'active' : ''} onClick={() => setTrackingFilter(id)}>{label}</button>
                   ))}
                 </div>
@@ -1057,7 +1057,7 @@ export default function ApifyOutreach() {
                 </div>
                 <div className="ait-btn-row" style={{ marginTop: 8 }}>
                   <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Apply filters</button>
-                  <button type="button" className="ait-btn sm primary" disabled={!!busy} onClick={refreshInbox} title="Fetch unread replies from IMAP">
+                  <button type="button" className="ait-btn sm primary" disabled={!!busy} onClick={refreshInbox} title="Fetch mail from IMAP inbox">
                     <i className="ti ti-refresh" style={{ marginRight: 6 }} />Refresh inbox
                   </button>
                 </div>
@@ -1067,14 +1067,54 @@ export default function ApifyOutreach() {
                     {settings.imap_last_sync_at ? ` · ${timeAgo(settings.imap_last_sync_at)}` : ''}
                   </p>
                 )}
+                {trackingFilter === 'inbox' && (
+                  <p className="ait-hint" style={{ marginTop: 8 }}>
+                    Inbox lists every message pulled from IMAP (matched or not). Use Refresh inbox to fetch.
+                  </p>
+                )}
                 {trackingFilter === 'received' && (
                   <p className="ait-hint" style={{ marginTop: 8 }}>
-                    Received = only people who actually replied (IMAP). IMAP Test OK only means login works.
-                    Reply must come FROM the same address as Send test / audience. After deploy: Send test again,
-                    reply, then Refresh — new sends include a thread id for matching.
+                    Received = audience rows that replied. See <strong>Inbox</strong> for all mailbox mail including unmatched From addresses.
                   </p>
                 )}
               </div>
+              {trackingFilter === 'inbox' ? (
+              <div className="ait-table-wrap">
+                <table className="ait-tbl">
+                  <thead>
+                    <tr>
+                      <th>From</th>
+                      <th>Subject</th>
+                      <th>Matched</th>
+                      <th>When</th>
+                      <th>Preview</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(tracking?.inbox || []).map((m) => (
+                      <tr key={m.id}>
+                        <td style={{ fontSize: 12 }}>{m.from_email || '—'}</td>
+                        <td><strong style={{ fontSize: 13 }}>{m.subject || '(no subject)'}</strong></td>
+                        <td>
+                          {m.matched
+                            ? <span className="ait-badge b-opened">yes</span>
+                            : <span className="ait-badge b-pending">no</span>}
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(m.received_at)}</td>
+                        <td className="ait-ellipsis" title={m.body_text || ''}>{(m.body_text || '').slice(0, 80) || '—'}</td>
+                      </tr>
+                    ))}
+                    {!(tracking?.inbox || []).length && (
+                      <tr>
+                        <td colSpan={5} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>
+                          No inbox messages yet — click Refresh inbox
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              ) : (
               <div className="ait-table-wrap">
                 <table className="ait-tbl">
                   <thead>
@@ -1122,11 +1162,12 @@ export default function ApifyOutreach() {
                       </tr>
                     ))}
                     {!(tracking?.activity || []).length && (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>No activity yet — send a campaign first</td></tr>
+                      <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No activity</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
 
             {replyTarget && (
@@ -1229,14 +1270,14 @@ export default function ApifyOutreach() {
               <div className="ait-card" style={{ marginBottom: 0 }}>
                 <div className="ait-card-hdr">
                   <div className="ait-btn-row" style={{ margin: 0 }}>
-                    <button type="button" className="ait-btn ghost sm" onClick={() => setActiveTplId(null)}>
+                    <button type="button" className="ait-btn ghost sm" onClick={() => { setActiveTplId(null); setTplDraft(null) }}>
                       <i className="ti ti-arrow-left" style={{ marginRight: 4 }} />Templates
                     </button>
                     <span className="ait-card-title">{tplDraft.name || 'Edit template'}</span>
                   </div>
                   <div className="ait-btn-row" style={{ margin: 0 }}>
                     <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={saveTemplate}>Save</button>
-                    <button type="button" className="ait-btn danger sm" disabled={!!busy} onClick={() => deleteTemplate(tplDraft.id)}>Delete</button>
+                    <button type="button" className="ait-btn danger sm" disabled={!!busy || !tplDraft.id} onClick={() => deleteTemplate(tplDraft.id)}>Delete</button>
                   </div>
                 </div>
                 <div className="ait-card-body" style={{ paddingBottom: 10 }}>
