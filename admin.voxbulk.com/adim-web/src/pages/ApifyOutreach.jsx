@@ -132,14 +132,6 @@ function contactDisplayName(r) {
   return [r.first_name, r.last_name].filter(Boolean).join(' ') || '—'
 }
 
-function contactInitials(r) {
-  const a = String(r.first_name || '').trim().charAt(0)
-  const b = String(r.last_name || '').trim().charAt(0)
-  const letters = `${a}${b}`.toUpperCase()
-  if (letters) return letters
-  return String(r.email || '?').charAt(0).toUpperCase()
-}
-
 function insertAtEnd(value, setValue, tag) {
   setValue(`${value || ''}{{${tag}}}`)
 }
@@ -171,7 +163,7 @@ export default function ApifyOutreach() {
   const [tplLiveHtml, setTplLiveHtml] = useState('')
 
   const [tracking, setTracking] = useState(null)
-  const [trackingFilter, setTrackingFilter] = useState('all')
+  const [trackingFilter, setTrackingFilter] = useState(() => searchParams.get('filter') || 'all')
   const [trackingQ, setTrackingQ] = useState('')
   const [trackingCampaignId, setTrackingCampaignId] = useState('')
 
@@ -526,17 +518,32 @@ export default function ApifyOutreach() {
     })
   }
 
-  const sendAll = async () => {
+  const sendAll = async (resend = false) => {
     if (!activeId) return
     const n = recipients.filter((r) => r.status === 'pending' || r.status === 'failed').length
+    const sentN = recipients.filter((r) => r.status === 'sent').length
+    const queueN = resend ? (n + sentN) : (n || 0)
+    if (!queueN && !resend) {
+      if (sentN > 0) {
+        if (!window.confirm(
+          `All ${sentN} contact(s) were already sent.\n\nResend the campaign to them again?`,
+        )) return
+        return sendAll(true)
+      }
+      showBanner('err', 'No pending contacts. Drop Excel/CSV and click Add to audience first.')
+      return
+    }
     const rate = 3
-    const eta = Math.max(1, Math.ceil((n || campaign?.total_count || 0) / rate))
+    const eta = Math.max(1, Math.ceil((queueN || campaign?.total_count || 0) / rate))
     if (!window.confirm(
-      `Queue ${n || campaign?.total_count || 0} email(s) at ${rate}/min (~${eta} min)?\n\n`
+      `Queue ${queueN || campaign?.total_count || 0} email(s) at ${rate}/min (~${eta} min)?\n\n`
       + 'Emails go out one-by-one — watch the progress bar on this page.',
     )) return
     await act('send', async () => {
-      const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}/send`, { method: 'POST' })
+      const data = await apiFetch(`/admin/ai-team/campaigns/${activeId}/send`, {
+        method: 'POST',
+        body: JSON.stringify({ resend: !!resend }),
+      })
       if (data.campaign) setCampaign(data.campaign)
       showBanner('ok', data.message || 'Sending queued…')
       await loadCampaign(activeId)
@@ -609,6 +616,11 @@ export default function ApifyOutreach() {
   const openReply = (row) => {
     if (!row?.id) return
     navigate(`/marketing/apify/recipients/${row.id}/reply`)
+  }
+
+  const openSentEmail = (row) => {
+    if (!row?.id) return
+    navigate(`/marketing/apify/recipients/${row.id}`)
   }
 
   const openInboxMessage = (msg) => {
@@ -1120,13 +1132,8 @@ export default function ApifyOutreach() {
                               {recipients.slice(0, 8).map((r) => (
                                 <tr key={r.id}>
                                   <td>
-                                    <div className="ait-contact-cell">
-                                      <span className="ait-avatar">{contactInitials(r)}</span>
-                                      <div>
-                                        <div className="ait-contact-name">{contactDisplayName(r)}</div>
-                                        <div className="ait-contact-email">{r.email}</div>
-                                      </div>
-                                    </div>
+                                    <div className="ait-contact-name">{contactDisplayName(r)}</div>
+                                    <div className="ait-contact-email">{r.email}</div>
                                   </td>
                                   <td>{r.company_name || '—'}</td>
                                   <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status || '—'}</span></td>
@@ -1160,13 +1167,36 @@ export default function ApifyOutreach() {
                       <div className="ait-btn-row">
                         <button type="button" className="ait-btn sm" disabled={!!busy} onClick={runPreview}>Preview</button>
                         <button type="button" className="ait-btn sm" disabled={!!busy} onClick={sendTest}>Send test</button>
-                        <button type="button" className="ait-btn primary" disabled={!!busy || campaign.status === 'sending' || !campaign.total_count} onClick={sendAll}>
-                          {campaign.status === 'paused_daily_limit' ? 'Resume send' : 'Send all'} ({pendingCount || campaign.total_count || 0})
+                        <button
+                          type="button"
+                          className="ait-btn primary"
+                          disabled={!!busy || campaign.status === 'sending' || !campaign.total_count}
+                          onClick={() => sendAll(false)}
+                        >
+                          {campaign.status === 'paused_daily_limit' ? 'Resume send' : 'Send all'} ({pendingCount || 0} pending)
+                        </button>
+                        {(campaign.sent_count > 0 || recipients.some((r) => r.status === 'sent')) && (
+                          <button
+                            type="button"
+                            className="ait-btn sm"
+                            disabled={!!busy || campaign.status === 'sending'}
+                            onClick={() => sendAll(true)}
+                          >
+                            Resend
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="ait-btn ghost sm"
+                          disabled={!campaign.sent_count}
+                          onClick={() => { setTrackingFilter('sent'); setTrackingCampaignId(activeId || ''); setTab('tracking') }}
+                        >
+                          View sent
                         </button>
                       </div>
                       <p className="ait-hint" style={{ marginTop: 10 }}>
-                        Queue sends at <strong>3 emails/minute</strong> (not all at once). Stay on this page to watch progress.
-                        Safe daily volume for your own SMTP domain: start ~50/day, then 100–200 once reputation is good.
+                        After Excel preview you must click <strong>Add to audience</strong>. Queue sends at <strong>3 emails/minute</strong>.
+                        Safe daily volume: start ~50/day, then 100–200 when reputation is good.
                       </p>
                     </div>
                   </div>
@@ -1352,7 +1382,7 @@ export default function ApifyOutreach() {
                   </thead>
                   <tbody>
                     {(tracking?.activity || []).map((r) => (
-                      <tr key={r.id}>
+                      <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => openSentEmail(r)}>
                         <td>
                           <strong>{r.full_name || r.email}</strong>
                           <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{r.email}</div>
@@ -1372,12 +1402,17 @@ export default function ApifyOutreach() {
                         </td>
                         <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(r.sent_at)}</td>
                         <td className="ait-ellipsis" title={r.last_error || ''}>{r.last_error || '—'}</td>
-                        <td>
-                          {(r.status === 'sent' || r.replied_at || r.last_inbound_body || r.status === 'unsubscribed') && (
-                            <button type="button" className="ait-icon-btn" title="Open reply page" onClick={() => openReply(r)}>
-                              <i className="ti ti-mail-opened" />
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div className="ait-btn-row" style={{ margin: 0, gap: 4 }}>
+                            <button type="button" className="ait-icon-btn" title="Open sent email" onClick={() => openSentEmail(r)}>
+                              <i className="ti ti-mail" />
                             </button>
-                          )}
+                            {(r.status === 'sent' || r.replied_at || r.last_inbound_body || r.status === 'unsubscribed') && (
+                              <button type="button" className="ait-icon-btn" title="Reply" onClick={() => openReply(r)}>
+                                <i className="ti ti-mail-opened" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1829,13 +1864,8 @@ export default function ApifyOutreach() {
                     <tr key={r.id || r.email || i}>
                       <td className="ait-muted-num">{i + 1}</td>
                       <td>
-                        <div className="ait-contact-cell">
-                          <span className="ait-avatar">{contactInitials(r)}</span>
-                          <div>
-                            <div className="ait-contact-name">{contactDisplayName(r)}</div>
-                            <div className="ait-contact-email">{r.email || '—'}</div>
-                          </div>
-                        </div>
+                        <div className="ait-contact-name">{contactDisplayName(r)}</div>
+                        <div className="ait-contact-email">{r.email || '—'}</div>
                       </td>
                       <td>{r.company_name || '—'}</td>
                       <td>{r.job_title || '—'}</td>

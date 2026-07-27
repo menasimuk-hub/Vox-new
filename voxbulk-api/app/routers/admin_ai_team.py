@@ -925,8 +925,7 @@ def tracking_inbox_get(
     _admin: User = Depends(require_cap(CAP_AI_TEAM)),
 ):
     try:
-        row = AiTeamCampaignService.get_inbound_message(db, message_id)
-        return {"message": AiTeamCampaignService.inbound_message_to_dict(row)}
+        return {"message": AiTeamCampaignService.inbound_message_detail(db, message_id)}
     except Exception as exc:
         raise _err(exc) from exc
 
@@ -992,11 +991,14 @@ def test_imap(db: Session = Depends(get_db), _admin: User = Depends(require_cap(
 @router.post("/campaigns/{campaign_id}/send")
 def campaign_send_all(
     campaign_id: str,
+    body: dict[str, Any] = Body(default_factory=dict),
     db: Session = Depends(get_db),
     _admin: User = Depends(require_cap(CAP_AI_TEAM)),
 ):
     try:
-        return AiTeamCampaignService.start_send_all(db, campaign_id)
+        payload = body or {}
+        resend = bool(payload.get("resend") or payload.get("resend_all"))
+        return AiTeamCampaignService.start_send_all(db, campaign_id, resend=resend)
     except Exception as exc:
         raise _err(exc) from exc
 

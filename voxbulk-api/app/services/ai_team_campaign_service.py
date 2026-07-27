@@ -352,6 +352,24 @@ class AiTeamCampaignService:
         camp = db.get(AiTeamCampaign, row.campaign_id)
         item["campaign_name"] = camp.name if camp else ""
         item["campaign_subject"] = camp.subject if camp else ""
+        # Prefer stored outbound snapshot; fall back to live render for older rows
+        out_subj = getattr(row, "last_outbound_subject", None) or ""
+        out_text = getattr(row, "last_outbound_text", None) or ""
+        out_html = getattr(row, "last_outbound_html", None) or ""
+        if camp is not None and (not out_subj or not (out_html or out_text)):
+            try:
+                rendered = AiTeamCampaignService.render_for_recipient(db, camp, row)
+                out_subj = out_subj or rendered.get("subject") or camp.subject or ""
+                out_text = out_text or rendered.get("text") or rendered.get("body_text") or ""
+                out_html = out_html or rendered.get("html") or ""
+            except Exception:
+                out_subj = out_subj or (camp.subject or "")
+                out_text = out_text or (camp.body_text or "")
+        item["outbound_subject"] = out_subj
+        item["outbound_text"] = out_text
+        item["outbound_html"] = out_html
+        item["inbound_subject"] = getattr(row, "last_inbound_subject", None) or ""
+        item["inbound_body"] = getattr(row, "last_inbound_body", None) or ""
         return item
 
     @staticmethod
@@ -379,7 +397,40 @@ class AiTeamCampaignService:
             "unsubscribed_at": row.unsubscribed_at.isoformat() if getattr(row, "unsubscribed_at", None) else None,
             "last_inbound_subject": getattr(row, "last_inbound_subject", None) or None,
             "last_inbound_body": getattr(row, "last_inbound_body", None) or None,
+            "last_outbound_subject": getattr(row, "last_outbound_subject", None) or None,
+            "last_outbound_text": getattr(row, "last_outbound_text", None) or None,
+            "last_outbound_html": getattr(row, "last_outbound_html", None) or None,
         }
+
+    @staticmethod
+    def inbound_message_detail(db: Session, message_id: str) -> dict[str, Any]:
+        msg = AiTeamCampaignService.get_inbound_message(db, message_id)
+        data = AiTeamCampaignService.inbound_message_to_dict(msg)
+        data["inbound_subject"] = msg.subject or ""
+        data["inbound_body"] = msg.body_text or ""
+        data["outbound_subject"] = ""
+        data["outbound_text"] = ""
+        data["outbound_html"] = ""
+        data["campaign_name"] = ""
+        if msg.recipient_id:
+            try:
+                detail = AiTeamCampaignService.recipient_detail(db, msg.recipient_id)
+                data["outbound_subject"] = detail.get("outbound_subject") or ""
+                data["outbound_text"] = detail.get("outbound_text") or ""
+                data["outbound_html"] = detail.get("outbound_html") or ""
+                data["campaign_name"] = detail.get("campaign_name") or ""
+                data["company_name"] = detail.get("company_name") or ""
+                data["full_name"] = detail.get("full_name") or ""
+            except AiTeamServiceError:
+                pass
+        elif msg.campaign_id:
+            camp = db.get(AiTeamCampaign, msg.campaign_id)
+            if camp:
+                data["campaign_name"] = camp.name
+                data["outbound_subject"] = camp.subject or ""
+                data["outbound_text"] = camp.body_text or ""
+                data["outbound_html"] = camp.html_template or ""
+        return data
 
 
     @staticmethod
@@ -1057,14 +1108,24 @@ class AiTeamCampaignService:
             ).strip()[:255]
             if email in existing:
                 row = existing[email]
-                # Allow filling event name on re-import / manual update
-                if event_name and not (row.event_name or "").strip():
+                row.first_name = str(raw.get("first_name") or row.first_name or "").strip()[:120]
+                row.last_name = str(raw.get("last_name") or row.last_name or "").strip()[:120]
+                company = str(raw.get("company_name") or raw.get("company") or "").strip()[:255]
+                if company:
+                    row.company_name = company
+                if event_name:
                     row.event_name = event_name
-                    row.updated_at = now
-                    db.add(row)
-                    updated += 1
-                else:
-                    skipped += 1
+                job = str(raw.get("job_title") or "").strip()[:255]
+                if job:
+                    row.job_title = job
+                # Re-import should re-queue previously sent/failed so Send all works again
+                if row.status in {"sent", "failed", "cancelled"}:
+                    row.status = "pending"
+                    row.last_error = None
+                    row.sent_at = None
+                row.updated_at = now
+                db.add(row)
+                updated += 1
                 continue
             suppressed = AiTeamCampaignService.is_email_suppressed(db, email)
             row = AiTeamCampaignRecipient(
@@ -1409,7 +1470,12 @@ class AiTeamCampaignService:
         }
 
     @staticmethod
-    def start_send_all(db: Session, campaign_id: str) -> dict[str, Any]:
+    def start_send_all(
+        db: Session,
+        campaign_id: str,
+        *,
+        resend: bool = False,
+    ) -> dict[str, Any]:
         campaign = AiTeamCampaignService.refresh_counts(
             db, AiTeamCampaignService.get_campaign(db, campaign_id)
         )
@@ -1425,6 +1491,29 @@ class AiTeamCampaignService:
         has_html = bool((campaign.html_template or "").strip())
         if not has_body and not has_html:
             raise AiTeamServiceError("Add email body or HTML template before sending")
+
+        total = int(campaign.total_count or 0)
+        if total < 1:
+            raise AiTeamServiceError(
+                "Audience is empty. Drop Excel/CSV → Preview contacts → click Add to audience first."
+            )
+
+        if resend:
+            now_reset = AiTeamCampaignService._now()
+            for row in db.execute(
+                select(AiTeamCampaignRecipient).where(
+                    AiTeamCampaignRecipient.campaign_id == campaign_id,
+                    AiTeamCampaignRecipient.status.in_(["sent", "failed"]),
+                )
+            ).scalars().all():
+                row.status = "pending"
+                row.last_error = None
+                row.sent_at = None
+                row.updated_at = now_reset
+                db.add(row)
+            db.commit()
+            campaign = AiTeamCampaignService.refresh_counts(db, campaign)
+
         pending = db.scalar(
             select(func.count()).select_from(AiTeamCampaignRecipient).where(
                 AiTeamCampaignRecipient.campaign_id == campaign_id,
@@ -1432,7 +1521,21 @@ class AiTeamCampaignService:
             )
         ) or 0
         if int(pending) < 1:
-            raise AiTeamServiceError("Upload an Excel audience (or import a scrape) before sending")
+            sent_n = int(campaign.sent_count or 0)
+            failed_n = int(campaign.failed_count or 0)
+            if sent_n > 0:
+                raise AiTeamServiceError(
+                    f"All {sent_n} contact(s) were already sent. "
+                    "Use Resend, or re-import the sheet (Add to audience) to queue them again."
+                )
+            if failed_n < 1 and total > 0:
+                raise AiTeamServiceError(
+                    f"Audience has {total} contact(s) but none are pending "
+                    "(they may be unsubscribed). Re-import the sheet or pick another list."
+                )
+            raise AiTeamServiceError(
+                "No pending emails to send. Drop Excel/CSV and click Add to audience."
+            )
         settings = AiTeamService.get_settings(db)
         from_addr = AiTeamService._from_address(settings)
         if not from_addr or "@" not in from_addr:
@@ -1589,6 +1692,9 @@ class AiTeamCampaignService:
                     row.sent_at = now
                     row.last_error = None
                     row.provider_message_id = result.get("email_id")
+                    row.last_outbound_subject = str(rendered.get("subject") or "")[:500] or None
+                    row.last_outbound_text = str(rendered.get("text") or rendered.get("body_text") or "")[:50000] or None
+                    row.last_outbound_html = str(rendered.get("html") or "")[:200000] or None
                     row.updated_at = now
                     db.add(row)
                     db.commit()

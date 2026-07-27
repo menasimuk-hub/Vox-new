@@ -67,6 +67,10 @@ class AiTeamCampaignRecipient(Base):
     unsubscribed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_inbound_subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
     last_inbound_body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Snapshot of what we actually sent (for Tracking / reply thread)
+    last_outbound_subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    last_outbound_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_outbound_html: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
