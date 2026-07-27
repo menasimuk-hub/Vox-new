@@ -388,12 +388,21 @@ class AiTeamService:
     def _body_html_fragment(text: str) -> str:
         clean = str(text or "").strip()
         if not clean:
-            return "<p style=\"margin:0 0 12px;font-size:14px;color:#4A4958;\"></p>"
+            return '<p style="margin:0 0 12px;font-size:14px;line-height:1.5;"></p>'
+        # Keep rich HTML (pricing tables, buttons, branded blocks) intact — wrapping
+        # those in <p color:…> is what squeezes tables and overrides template colours.
+        if re.search(
+            r"</?(?:table|tr|td|th|div|span|a|img|h[1-6]|ul|ol|li|strong|em|br|p|section|center)\b",
+            clean,
+            re.I,
+        ):
+            return clean
         parts = [p.strip() for p in re.split(r"\n\s*\n", clean) if p.strip()]
         if not parts:
             parts = [clean]
+        # Inherit colour from the HTML wrapper — do not force a grey tint.
         return "".join(
-            f"<p style=\"margin:0 0 12px;font-size:14px;color:#4A4958;\">{p.replace(chr(10), '<br>')}</p>"
+            f'<p style="margin:0 0 12px;font-size:14px;line-height:1.5;">{p.replace(chr(10), "<br>")}</p>'
             for p in parts
         )
 

@@ -434,10 +434,25 @@
 }
 .ai-team-page .ait-html-preview {
   border: 1px solid var(--ait-border);
-  border-radius: var(--ait-r);
+  border-radius: 4px;
   background: #fff;
-  min-height: 320px;
+  min-height: 420px;
   width: 100%;
+  max-width: 600px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08);
+}
+.ai-team-page .ait-email-client-frame {
+  background: #e8ecf1;
+  border-radius: var(--ait-r);
+  padding: 20px 12px;
+  display: flex;
+  justify-content: center;
+}
+.ai-team-page .ait-campaign-name-input {
+  height: 44px !important;
+  font-size: 15px !important;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 .ai-team-page .ait-code-editor {
   font-family: var(--ait-mono);

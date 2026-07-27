@@ -29,7 +29,7 @@ const SUGGESTED_ACTORS = [
 
 const DEFAULT_MERGE = [
   'first_name', 'last_name', 'company', 'company_name', 'job_title',
-  'email', 'sector', 'country_code', 'promo_code', 'body',
+  'email', 'sector', 'country_code', 'promo_code', 'signup_url', 'trial_url', 'body',
 ]
 
 function guessCsvMapping(headers) {
@@ -684,10 +684,18 @@ export default function ApifyOutreach() {
                   )}
 
                   <div className="ait-card">
-                    <div className="ait-card-hdr"><span className="ait-card-title">1 · Name</span></div>
+                    <div className="ait-card-hdr"><span className="ait-card-title">1 · Campaign</span></div>
                     <div className="ait-card-body">
-                      <input value={campaign.name || ''} disabled={campaign.status === 'sending'}
-                        onChange={(e) => setCampaign({ ...campaign, name: e.target.value })} />
+                      <div className="ait-field" style={{ marginBottom: 0 }}>
+                        <label>Campaign name</label>
+                        <input
+                          className="ait-campaign-name-input"
+                          value={campaign.name || ''}
+                          disabled={campaign.status === 'sending'}
+                          placeholder="e.g. London Packaging Week — outreach"
+                          onChange={(e) => setCampaign({ ...campaign, name: e.target.value })}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -885,7 +893,11 @@ export default function ApifyOutreach() {
                       <textarea className="ait-code-editor" style={{ minHeight: 180 }} value={tplDraft.html_template || ''} onChange={(e) => setTplDraft({ ...tplDraft, html_template: e.target.value })} />
                     </div>
                     <p className="ait-hint">
-                      All codes: {mergeTags.map((t) => `{{${t}}}`).join(' ')}
+                      All codes: {mergeTags.map((t) => `{{${t}}}`).join(' ')}.
+                      Trial link: use {'{{signup_url}}'} or {'{{trial_url}}'} → https://voxbulk.com/signin?promo=CODE
+                    </p>
+                    <p className="ait-hint" style={{ marginTop: 4 }}>
+                      Preview matches email width (600px). Saving a template also updates linked campaigns. Prefer inline styles (not CSS classes) so Gmail/Outlook keep your colours.
                     </p>
                   </div>
                 </div>
@@ -1047,7 +1059,12 @@ export default function ApifyOutreach() {
               </div>
               <button type="button" className="ait-btn ghost sm" onClick={() => setPreview(null)}>Close</button>
             </div>
-            <iframe title="preview" className="ait-html-preview" srcDoc={preview.html || ''} />
+            <div className="ait-email-client-frame">
+              <iframe title="preview" className="ait-html-preview" srcDoc={preview.html || ''} />
+            </div>
+            <p className="ait-hint" style={{ marginTop: 10, marginBottom: 0 }}>
+              Shown at ~600px (typical inbox width). If tables look squeezed here, fix widths in the HTML wrapper (use width=&quot;100%&quot; / max-width:600px).
+            </p>
             {preview.body_text ? (
               <details style={{ marginTop: 12 }}>
                 <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--ait-text3)' }}>Plain text</summary>

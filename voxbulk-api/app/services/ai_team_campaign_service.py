@@ -34,6 +34,8 @@ MERGE_TAGS = [
     "sector",
     "country_code",
     "promo_code",
+    "signup_url",
+    "trial_url",
     "body",
 ]
 
@@ -51,7 +53,54 @@ class AiTeamCampaignService:
         return out
 
     @staticmethod
+    def _signup_url(promo_code: str | None = None) -> str:
+        from app.core.config import get_settings
+
+        base = str(get_settings().public_site_base_url or "https://voxbulk.com").rstrip("/")
+        code = str(promo_code or "").strip()
+        if code:
+            return f"{base}/signin?promo={code}"
+        return f"{base}/signin"
+
+    @staticmethod
+    def _prepare_email_html(html: str) -> str:
+        """Light email-client hints so colours/tables match Preview more closely."""
+        out = str(html or "")
+        if not out.strip():
+            return out
+        lower = out.lower()
+        if "color-scheme" not in lower:
+            meta = (
+                '<meta name="color-scheme" content="light only">'
+                '<meta name="supported-color-schemes" content="light">'
+            )
+            if re.search(r"<head[^>]*>", out, re.I):
+                out = re.sub(r"(<head[^>]*>)", r"\1" + meta, out, count=1, flags=re.I)
+            elif re.search(r"<html[^>]*>", out, re.I):
+                out = re.sub(r"(<html[^>]*>)", r"\1<head>" + meta + "</head>", out, count=1, flags=re.I)
+            else:
+                out = meta + out
+
+        def _table_repl(match: re.Match[str]) -> str:
+            tag = match.group(0)
+            if "border-collapse" in tag.lower():
+                return tag
+            if re.search(r"\bstyle\s*=", tag, re.I):
+                return re.sub(
+                    r'\bstyle\s*=\s*(["\'])',
+                    r'style=\1border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;',
+                    tag,
+                    count=1,
+                    flags=re.I,
+                )
+            return tag[:-1] + ' style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">'
+
+        return re.sub(r"<table\b[^>]*>", _table_repl, out, flags=re.I)
+
+    @staticmethod
     def recipient_vars(row: AiTeamCampaignRecipient) -> dict[str, str]:
+        promo = row.promo_code or ""
+        signup = AiTeamCampaignService._signup_url(promo)
         return {
             "first_name": row.first_name or "there",
             "last_name": row.last_name or "",
@@ -61,7 +110,9 @@ class AiTeamCampaignService:
             "email": row.email or "",
             "sector": row.sector or "",
             "country_code": row.country_code or "GB",
-            "promo_code": row.promo_code or "",
+            "promo_code": promo,
+            "signup_url": signup,
+            "trial_url": signup,
         }
 
     @staticmethod
@@ -250,12 +301,24 @@ class AiTeamCampaignService:
             row.html_template = str(html) if html is not None else None
         row.updated_at = AiTeamCampaignService._now()
         db.add(row)
+        # Keep linked campaigns (not currently sending) in sync with the saved template.
+        linked = list(
+            db.execute(
+                select(AiTeamCampaign).where(AiTeamCampaign.template_id == row.id)
+            ).scalars().all()
+        )
+        now = AiTeamCampaignService._now()
+        for campaign in linked:
+            if campaign.status == "sending":
+                continue
+            campaign.subject = row.subject or ""
+            campaign.body_text = row.body_text or ""
+            campaign.html_template = row.html_template
+            campaign.updated_at = now
+            db.add(campaign)
         db.commit()
         db.refresh(row)
         return row
-
-    @staticmethod
-    def delete_template(db: Session, template_id: str) -> dict[str, Any]:
         row = AiTeamCampaignService.get_template(db, template_id)
         db.delete(row)
         db.commit()
@@ -546,6 +609,11 @@ class AiTeamCampaignService:
         else:
             vars_map = AiTeamCampaignService.recipient_vars(recipient)
 
+        promo = vars_map.get("promo_code") or ""
+        signup = AiTeamCampaignService._signup_url(promo)
+        vars_map.setdefault("signup_url", signup)
+        vars_map.setdefault("trial_url", signup)
+
         body_merged = AiTeamCampaignService._apply_merge(campaign.body_text or "", vars_map)
         subject = AiTeamCampaignService._apply_merge(campaign.subject or "", vars_map).strip() or "Hello"
         template = str(campaign.html_template or "").strip() or AiTeamService.effective_html_template(settings)
@@ -553,6 +621,7 @@ class AiTeamCampaignService:
         html = AiTeamCampaignService._apply_merge(template, vars_map)
         # Also allow unmerged leftover tags to stay empty-ish
         html = re.sub(r"\{\{[a-zA-Z0-9_]+\}\}", "", html)
+        html = AiTeamCampaignService._prepare_email_html(html)
         text = re.sub(r"<[^>]+>", "", html)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         if not text:
