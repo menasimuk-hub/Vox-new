@@ -1195,8 +1195,8 @@ export default function ApifyOutreach() {
                         </button>
                       </div>
                       <p className="ait-hint" style={{ marginTop: 10 }}>
-                        After Excel preview click <strong>Add to audience</strong>. Use <strong>Send test</strong> first, then Send all.
-                        Queue: 1 email every <strong>{sendIntervalSec}s</strong> (change under Sending → Save).
+                        <strong>Send test</strong> always prefixes the subject with <code>[TEST]</code> — that is not the live campaign.
+                        <strong> Send all</strong> uses the real subject only. Queue: 1 email every <strong>{sendIntervalSec}s</strong>.
                       </p>
                     </div>
                   </div>

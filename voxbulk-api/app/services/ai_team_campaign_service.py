@@ -1512,7 +1512,10 @@ class AiTeamCampaignService:
             )
         ).scalar_one_or_none()
         now = AiTeamCampaignService._now()
+        created_for_test = False
+        prior_status = None
         if test_row is None:
+            created_for_test = True
             test_row = AiTeamCampaignRecipient(
                 campaign_id=campaign.id,
                 email=dest,
@@ -1530,7 +1533,7 @@ class AiTeamCampaignService:
                 promo_code=AiTeamCampaignService.resolve_promo_code(
                     db, sample_source.promo_code if sample_source else None
                 )[:64],
-                status="pending",
+                status="test",
                 created_at=now,
                 updated_at=now,
             )
@@ -1538,22 +1541,35 @@ class AiTeamCampaignService:
             db.commit()
             db.refresh(test_row)
             AiTeamCampaignService.refresh_counts(db, campaign)
+        else:
+            prior_status = str(test_row.status or "pending")
 
         rendered = AiTeamCampaignService.render_for_recipient(db, campaign, test_row, sample=False)
+        # [TEST] is ONLY for the Send test button — Send all never adds this prefix.
+        test_subject = f"[TEST] {rendered['subject']}"
         AiTeamService._deliver_email(
             db,
             settings,
             to_email=dest,
-            subject=f"[TEST] {rendered['subject']}",
+            subject=test_subject,
             text=rendered["text"],
             html=rendered["html"],
             recipient_id=test_row.id,
         )
-        test_row.status = "sent"
-        test_row.sent_at = now
+        # Do not mark real audience contacts as "sent" — that blocked Send all / looked like a campaign send.
+        if created_for_test:
+            test_row.status = "test"
+            test_row.sent_at = now
+        else:
+            test_row.status = prior_status or "pending"
+            if test_row.status == "sent":
+                test_row.sent_at = test_row.sent_at or now
+            else:
+                # Keep them queued for the real campaign send
+                test_row.sent_at = None
         test_row.updated_at = now
         test_row.last_error = None
-        test_row.last_outbound_subject = str(rendered.get("subject") or "")[:500] or None
+        test_row.last_outbound_subject = test_subject[:500]
         test_row.last_outbound_text = str(rendered.get("text") or "")[:50000] or None
         test_row.last_outbound_html = str(rendered.get("html") or "")[:200000] or None
         db.add(test_row)
@@ -1564,14 +1580,14 @@ class AiTeamCampaignService:
         return {
             "ok": True,
             "message": (
-                f"Test email sent to {dest}. Open it and click a button — Tracking should show Opened/Clicked. "
-                f"Queue pace is 1 email every {int(interval)}s. "
-                "Reply from that same inbox, then Tracking → Refresh inbox."
+                f"Test only — subject starts with [TEST]. Send all uses the real subject (no [TEST]). "
+                f"Sent to {dest}. Queue pace: 1 every {int(interval)}s."
             ),
             "recipient_id": test_row.id,
             "send_interval_seconds": int(interval),
             "open_pixel_url": open_url,
             "trial_click_url": click_url,
+            "is_test": True,
         }
 
     @staticmethod

@@ -55,7 +55,7 @@ class AiTeamCampaignRecipient(Base):
     promo_code: Mapped[str] = mapped_column(String(64), nullable=False, default="")
 
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
-    # pending | sent | failed | skipped
+    # pending | sent | failed | skipped | test | unsubscribed
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
