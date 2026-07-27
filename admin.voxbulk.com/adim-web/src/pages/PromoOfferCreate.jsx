@@ -408,12 +408,17 @@ export default function PromoOfferCreate() {
         </label>
 
         <label className="field">
-          <span>Code (optional)</span>
-          <input className="input" value={draft.code} onChange={(e) => setField('code', e.target.value)} placeholder="Auto if blank" />
+          <span>Name</span>
+          <input
+            className="input"
+            value={draft.name}
+            onChange={(e) => setField('name', e.target.value)}
+            placeholder="Display name for this promo code"
+          />
         </label>
         <label className="field">
-          <span>Display name (optional)</span>
-          <input className="input" value={draft.name} onChange={(e) => setField('name', e.target.value)} />
+          <span>Code (optional)</span>
+          <input className="input" value={draft.code} onChange={(e) => setField('code', e.target.value)} placeholder="Auto if blank" />
         </label>
 
         <p className="muted">Preview: {previewLine}</p>

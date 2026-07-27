@@ -85,7 +85,9 @@ export default function PromoOffers() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [msg, setMsg] = useState(params.get('created') ? 'Promo offer created.' : '')
+  const [msg, setMsg] = useState(
+    params.get('created') ? 'Promo offer created.' : params.get('updated') ? 'Promo offer updated.' : '',
+  )
   const [busyId, setBusyId] = useState('')
   const [query, setQuery] = useState('')
   const [applyPromo, setApplyPromo] = useState(null)
@@ -169,6 +171,7 @@ export default function PromoOffers() {
     if (next === 'all') nextParams.delete('tab')
     else nextParams.set('tab', next)
     nextParams.delete('created')
+    nextParams.delete('updated')
     setParams(nextParams)
   }
 
@@ -403,7 +406,13 @@ export default function PromoOffers() {
                                 <i className='ti ti-ticket' />
                               </span>
                               <div>
-                                <strong title={row.name || row.code}>{row.name || row.code}</strong>
+                                <Link
+                                  to={`/marketing/promo-offers/${row.id}/edit`}
+                                  title={row.name || row.code}
+                                  style={{ color: 'inherit', textDecoration: 'none' }}
+                                >
+                                  <strong>{row.name || row.code}</strong>
+                                </Link>
                                 <button
                                   type='button'
                                   className='promoCodeChip'
@@ -441,6 +450,14 @@ export default function PromoOffers() {
                           </td>
                           <td>
                             <div className='promoIconActions'>
+                              <Link
+                                className='promoIconBtn'
+                                to={`/marketing/promo-offers/${row.id}/edit`}
+                                title='Edit promo'
+                                aria-label='Edit promo'
+                              >
+                                <i className='ti ti-pencil' />
+                              </Link>
                               <button
                                 type='button'
                                 className='promoIconBtn'

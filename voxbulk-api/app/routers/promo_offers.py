@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
 from app.core.dependencies import CurrentPrincipal, get_current_principal
+from app.models.promo_offer import PromoOffer
 from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
 router = APIRouter(tags=["promo"])
@@ -49,6 +50,18 @@ def redeem_promo_authenticated(
 def admin_list_promo_offers(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     rows = PromoOfferService.list_all(db)
     return [PromoOfferService.to_admin_dict(row) for row in rows]
+
+
+@router.get("/admin/promo-offers/{promo_id}")
+def admin_get_promo_offer(
+    promo_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    row = db.get(PromoOffer, promo_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promo not found")
+    return PromoOfferService.to_admin_dict(row)
 
 
 @router.post("/admin/promo-offers")

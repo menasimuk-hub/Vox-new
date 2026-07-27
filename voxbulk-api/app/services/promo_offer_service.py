@@ -441,8 +441,9 @@ class PromoOfferService:
         now = datetime.utcnow()
         if "is_active" in payload:
             row.is_active = bool(payload["is_active"])
-        if "name" in payload and str(payload["name"] or "").strip():
-            row.name = str(payload["name"]).strip()
+        if "name" in payload:
+            cleaned = str(payload["name"] or "").strip()
+            row.name = cleaned or row.code
         if "max_redemptions" in payload:
             row.max_redemptions = max(1, int(payload["max_redemptions"] or 1))
         if "expires_in_days" in payload:

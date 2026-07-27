@@ -85,6 +85,7 @@ export default function App() {
         <Route path='/marketing/apify' element={<P.ApifyOutreach />} />
         <Route path='/marketing/promo-offers' element={<P.PromoOffers />} />
         <Route path='/marketing/promo-offers/new' element={<P.PromoOfferCreate />} />
+        <Route path='/marketing/promo-offers/:id/edit' element={<P.PromoOfferEdit />} />
         <Route path='/marketing/frontpage-call-leads' element={<P.FrontpageCallLeads />} />
         <Route path='/marketing/news-blog' element={<P.NewsBlog />} />
         <Route path='/marketing/seo-control' element={<P.SeoControl />} />
