@@ -861,6 +861,9 @@ class AiTeamCampaignService:
         else:
             reply_subject = f"Re: {base}"[:500]
 
+        default_sig = "Best,\nVoxBulk team · voxbulk.com"
+        signature = getattr(settings, "email_signature", None) or default_sig
+        inbound_snippet = (inbound_body or "(empty)")[:4000]
         system = (
             "You write professional B2B email replies for VoxBulk "
             "(customer feedback, WhatsApp surveys, voice AI for expo/events). "
@@ -877,9 +880,9 @@ class AiTeamCampaignService:
             f"Name: {first_name or 'there'}\n"
             f"Company: {company or 'their company'}\n"
             f"Their subject: {inbound_subject or '(none)'}\n"
-            f"Their message:\n{(inbound_body or '(empty)')[:4000]}\n\n"
+            f"Their message:\n{inbound_snippet}\n\n"
             f"Suggested subject: {reply_subject}\n"
-            f"Signature to append:\n{getattr(settings, 'email_signature', None) or 'Best,\\nVoxBulk team · voxbulk.com'}"
+            f"Signature to append:\n{signature}"
         )
         try:
             from app.services.agents.base import AgentMessage
@@ -900,7 +903,7 @@ class AiTeamCampaignService:
                 f"Hi {first_name or 'there'},\n\n"
                 "Thanks for getting back to us — happy to help.\n\n"
                 "Would you like a quick call this week, or shall I send a short overview of how VoxBulk works for expo teams?\n\n"
-                f"{getattr(settings, 'email_signature', None) or 'Best,\\nVoxBulk team · voxbulk.com'}"
+                f"{signature}"
             )
 
         subject_out = reply_subject
