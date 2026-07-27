@@ -180,17 +180,34 @@
 }
 
 .ai-team-page .ait-tabs {
-  display: flex; padding: 0 28px; border-bottom: 1px solid var(--ait-border);
-  flex-shrink: 0; overflow-x: auto; background: var(--ait-bg2); gap: 4px;
+  display: flex; padding: 8px 24px; border-bottom: 1px solid #e8e2d8;
+  flex-shrink: 0; overflow-x: auto; gap: 4px;
+  background: #f5f1ea; /* match admin sidebar beige */
 }
 .ai-team-page .ait-tab {
-  padding: 14px 14px; font-size: 13px; cursor: pointer; color: var(--ait-text3);
-  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 10px 14px; font-size: 13px; cursor: pointer; color: #6b645a;
+  border: 1px solid transparent; border-radius: 8px;
   display: flex; align-items: center; gap: 6px; white-space: nowrap; font-weight: 500;
-  background: none; border-top: none; border-left: none; border-right: none;
+  background: transparent; margin: 0;
+  transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
-.ai-team-page .ait-tab:hover { color: var(--ait-text); }
-.ai-team-page .ait-tab.active { color: var(--ait-accent); border-bottom-color: var(--ait-accent); font-weight: 600; }
+.ai-team-page .ait-tab:hover {
+  color: #0a2540;
+  background: rgba(255, 255, 255, 0.55);
+  border-color: #e8e2d8;
+}
+.ai-team-page .ait-tab.active {
+  color: #0a2540;
+  font-weight: 600;
+  background: #ffffff;
+  border-color: #ddd5c8;
+  box-shadow: 0 1px 2px rgba(26, 24, 20, 0.06);
+}
+.ai-team-page .ait-tab.active:hover {
+  background: #fffdf9;
+  border-color: #d0c6b6;
+  box-shadow: 0 2px 6px rgba(26, 24, 20, 0.08);
+}
 .ai-team-page .ait-tab-badge {
   background: var(--ait-red-dim); color: var(--ait-red); font-size: 10px;
   padding: 1px 6px; border-radius: 999px; font-weight: 700;
