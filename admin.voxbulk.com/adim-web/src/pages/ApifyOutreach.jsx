@@ -110,8 +110,9 @@ export default function ApifyOutreach() {
   const [csvMapping, setCsvMapping] = useState({})
 
   const [apifyExpoUrl, setApifyExpoUrl] = useState('')
-  const [apifyActorUrl, setApifyActorUrl] = useState('')
+  const [scrapeEngine, setScrapeEngine] = useState('auto')
   const [apifyActorOverride, setApifyActorOverride] = useState('')
+  const [scrapeAdvancedOpen, setScrapeAdvancedOpen] = useState(false)
   const [scrapeFollowWebsites, setScrapeFollowWebsites] = useState(true)
   const [apifyRuns, setApifyRuns] = useState([])
   const [apifyPreview, setApifyPreview] = useState(null)
@@ -226,6 +227,28 @@ export default function ApifyOutreach() {
   const liveStandsDone = Number(liveProgress?.stands_done || 0)
   const liveEmails = Number(liveProgress?.emails_found || liveScrapeRun?.emails_found || 0)
   const livePct = liveStandsTotal > 0 ? Math.min(100, Math.round((liveStandsDone / liveStandsTotal) * 100)) : 0
+
+  const scrapePlan = (() => {
+    const tokenOk = !!(settings.apify_token_configured || apifyToken.trim())
+    const actor = (
+      apifyActorOverride.trim()
+      || settings.apify_exhibitor_actor_id
+      || settings.default_free_actor
+      || 'vdrmota~contact-info-scraper'
+    )
+    const actorSource = apifyActorOverride.trim()
+      ? 'override'
+      : (settings.apify_exhibitor_actor_id ? 'saved' : 'auto free')
+    if (scrapeEngine === 'builtin') {
+      return { engine: 'builtin', label: 'Built-in scraper (forced)' }
+    }
+    if (scrapeEngine === 'apify') {
+      if (!tokenOk) return { engine: 'need-token', label: 'Apify (save token under Apify API first)' }
+      return { engine: 'apify', label: `Apify · ${actor} (${actorSource})` }
+    }
+    if (tokenOk) return { engine: 'apify', label: `Apify · ${actor} (${actorSource})` }
+    return { engine: 'builtin', label: 'Built-in (save Apify token for better results on any site)' }
+  })()
 
   const createCampaign = async () => {
     const name = newName.trim() || `Campaign ${new Date().toLocaleDateString()}`
@@ -428,35 +451,22 @@ export default function ApifyOutreach() {
       showBanner('err', 'Paste an exhibitor directory URL')
       return
     }
-    await act('scrape', async () => {
-      const data = await apiFetch('/admin/ai-team/scrape/directory', {
-        method: 'POST',
-        body: JSON.stringify({ expo_url: apifyExpoUrl.trim(), follow_websites: scrapeFollowWebsites }),
-      })
-      showBanner('ok', data.message || 'Scrape started')
-      await loadApifyRuns()
-    })
-  }
-
-  const startApifyActorRun = async () => {
-    if (!apifyActorUrl.trim()) {
-      showBanner('err', 'Paste a URL for the Apify actor')
-      return
-    }
-    if (!settings.apify_token_configured && !apifyToken.trim()) {
-      showBanner('err', 'Save Apify token under Apify API first')
+    if (scrapeEngine === 'apify' && !settings.apify_token_configured && !apifyToken.trim()) {
+      showBanner('err', 'Save Apify token under Apify API first (or use Auto / Built-in)')
       setTab('apify')
       return
     }
-    await act('apify-actor', async () => {
-      const data = await apiFetch('/admin/ai-team/apify/runs', {
+    await act('scrape', async () => {
+      const data = await apiFetch('/admin/ai-team/scrape', {
         method: 'POST',
         body: JSON.stringify({
-          expo_url: apifyActorUrl.trim(),
-          actor_id: apifyActorOverride.trim() || settings.apify_exhibitor_actor_id || undefined,
+          expo_url: apifyExpoUrl.trim(),
+          follow_websites: scrapeFollowWebsites,
+          engine: scrapeEngine || 'auto',
+          actor_id: apifyActorOverride.trim() || undefined,
         }),
       })
-      showBanner('ok', data.message || 'Apify run started')
+      showBanner('ok', data.message || 'Scrape started')
       await loadApifyRuns()
     })
   }
@@ -913,20 +923,72 @@ export default function ApifyOutreach() {
               <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh</button>
             </div>
             <div className="ait-card-body">
-              <div className="ait-msg-banner ok" style={{ margin: '0 0 12px' }}>
-                Built-in scrape for Easyfairs — then <strong>Add to campaign</strong>.
+              <div className={`ait-msg-banner ${scrapePlan.engine === 'need-token' ? 'err' : 'ok'}`} style={{ margin: '0 0 12px' }}>
+                <strong>Will use:</strong> {scrapePlan.label}
               </div>
               <div className="ait-field">
-                <label>Expo exhibitor URL</label>
-                <input value={apifyExpoUrl} onChange={(e) => setApifyExpoUrl(e.target.value)} placeholder="https://www.londonpackagingweek.com/exhibitors/" />
+                <label>Expo / directory URL</label>
+                <input
+                  value={apifyExpoUrl}
+                  onChange={(e) => setApifyExpoUrl(e.target.value)}
+                  placeholder="https://…/exhibitors/ (any show directory)"
+                />
               </div>
               <label className="ait-check" style={{ marginBottom: 12 }}>
                 <input type="checkbox" checked={scrapeFollowWebsites} onChange={(e) => setScrapeFollowWebsites(e.target.checked)} />
-                Also scrape company websites
+                Also scrape company websites (built-in path)
               </label>
               <div className="ait-btn-row">
-                <button type="button" className="ait-btn primary sm" disabled={!!busy || !apifyExpoUrl.trim()} onClick={startScrape}>Scrape exhibitors</button>
+                <button type="button" className="ait-btn primary sm" disabled={!!busy || !apifyExpoUrl.trim()} onClick={startScrape}>
+                  Scrape
+                </button>
+                <button type="button" className="ait-btn ghost sm" onClick={() => setScrapeAdvancedOpen((v) => !v)}>
+                  {scrapeAdvancedOpen ? 'Hide advanced' : 'Advanced'}
+                </button>
               </div>
+              {scrapeAdvancedOpen && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--ait-border)' }}>
+                  <div className="ait-fg-2">
+                    <div className="ait-field">
+                      <label>Engine</label>
+                      <select value={scrapeEngine} onChange={(e) => setScrapeEngine(e.target.value)}>
+                        <option value="auto">Auto (Apify if ready, else built-in)</option>
+                        <option value="apify">Force Apify</option>
+                        <option value="builtin">Force built-in</option>
+                      </select>
+                    </div>
+                    <div className="ait-field">
+                      <label>Actor override</label>
+                      <input
+                        value={apifyActorOverride}
+                        onChange={(e) => setApifyActorOverride(e.target.value)}
+                        placeholder={settings.apify_exhibitor_actor_id || settings.default_free_actor || 'username~actor'}
+                      />
+                    </div>
+                  </div>
+                  <div className="ait-chip-row">
+                    {(settings.curated_free_actors || SUGGESTED_ACTORS.map((a) => a.id)).map((id) => {
+                      const label = SUGGESTED_ACTORS.find((a) => a.id === id)?.label || id
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          className="ait-chip"
+                          onClick={() => setApifyActorOverride(id)}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="ait-hint" style={{ marginBottom: 0 }}>
+                    Auto picks a free/community actor when none is saved. If Apify fails to start, built-in runs automatically.
+                  </p>
+                </div>
+              )}
+              <p className="ait-hint">
+                Manual alternative: <button type="button" className="ait-btn ghost xs" onClick={() => setTab('campaigns')}>Campaigns → upload Excel</button>
+              </p>
               {liveScrapeRun && (
                 <div className="ait-msg-banner ok" style={{ margin: '12px 0' }}>
                   <strong>Live:</strong> {liveProgress?.message || 'Running…'} · {liveStandsDone}/{liveStandsTotal || '—'} · emails {liveEmails} · {livePct}%
@@ -934,34 +996,28 @@ export default function ApifyOutreach() {
               )}
               <div className="ait-table-wrap" style={{ marginTop: 12 }}>
                 <table className="ait-tbl ait-tbl-compact">
-                  <thead><tr><th>Status</th><th>URL</th><th>Emails</th><th /></tr></thead>
+                  <thead><tr><th>Status</th><th>Engine</th><th>URL</th><th>Emails</th><th /></tr></thead>
                   <tbody>
-                    {apifyRuns.map((run) => (
-                      <tr key={run.id}>
-                        <td><span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : 'b-pending'}`}>{run.status}</span></td>
-                        <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
-                        <td>{run.emails_found ?? 0}</td>
-                        <td>
-                          <div className="ait-btn-row" style={{ margin: 0 }}>
-                            <button type="button" className="ait-btn xs" disabled={run.status !== 'SUCCEEDED'} onClick={() => exportApifyRun(run.id)}>Excel</button>
-                            <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => addScrapeToCampaign(run.id)}>Add to campaign</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {!apifyRuns.length && <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No scrapes yet</td></tr>}
+                    {apifyRuns.map((run) => {
+                      const isBuiltin = String(run.actor_id || '').startsWith('builtin:') || run.provider === 'builtin' || run.engine === 'builtin'
+                      return (
+                        <tr key={run.id}>
+                          <td><span className={`ait-badge ${run.status === 'SUCCEEDED' ? 'b-sent' : 'b-pending'}`}>{run.status}</span></td>
+                          <td style={{ fontSize: 11 }}>{isBuiltin ? 'built-in' : (run.actor_id || 'apify')}</td>
+                          <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
+                          <td>{run.emails_found ?? 0}</td>
+                          <td>
+                            <div className="ait-btn-row" style={{ margin: 0 }}>
+                              <button type="button" className="ait-btn xs" disabled={run.status !== 'SUCCEEDED'} onClick={() => exportApifyRun(run.id)}>Excel</button>
+                              <button type="button" className="ait-btn xs primary" disabled={!!busy || run.status !== 'SUCCEEDED'} onClick={() => addScrapeToCampaign(run.id)}>Add to campaign</button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {!apifyRuns.length && <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No scrapes yet</td></tr>}
                   </tbody>
                 </table>
-              </div>
-              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--ait-border)' }}>
-                <div className="ait-card-title" style={{ marginBottom: 8 }}>Apify actor run</div>
-                <div className="ait-field"><label>Target URL</label>
-                  <input value={apifyActorUrl} onChange={(e) => setApifyActorUrl(e.target.value)} />
-                </div>
-                <div className="ait-field"><label>Actor override</label>
-                  <input value={apifyActorOverride} onChange={(e) => setApifyActorOverride(e.target.value)} placeholder={settings.apify_exhibitor_actor_id || 'username~actor'} />
-                </div>
-                <button type="button" className="ait-btn primary sm" disabled={!!busy || !apifyActorUrl.trim()} onClick={startApifyActorRun}>Start Apify run</button>
               </div>
             </div>
           </div>
@@ -1086,7 +1142,7 @@ export default function ApifyOutreach() {
               <li><strong>Sending</strong> — save From + SMTP and test.</li>
               <li><strong>Templates</strong> — create subject/body/HTML with merge codes.</li>
               <li><strong>Campaigns</strong> — name → select template → Excel → Preview → Send all.</li>
-              <li><strong>Scrape</strong> — Easyfairs or Apify actor → Add to campaign.</li>
+              <li><strong>Scrape</strong> — paste any exhibitor URL; uses Apify + free actor when token is set, otherwise built-in → Add to campaign. Manual: Campaigns → Excel.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>
               AI Team (sidebar) is the older approval-queue tool. This Apify page is template + bulk send.

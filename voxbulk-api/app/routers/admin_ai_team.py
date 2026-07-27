@@ -251,6 +251,24 @@ def start_apify_run(body: dict[str, Any], db: Session = Depends(get_db), _admin:
         raise _err(exc) from exc
 
 
+@router.post("/scrape")
+def smart_scrape(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    """Smart scrape: Apify (auto free actor) when token set, else built-in; fallback on Apify start failure."""
+    try:
+        follow_raw = body.get("follow_websites")
+        follow_websites = True if follow_raw is None else bool(follow_raw)
+        return AiTeamService.start_smart_scrape(
+            db,
+            expo_url=str(body.get("expo_url") or body.get("url") or ""),
+            follow_websites=follow_websites,
+            engine=str(body.get("engine") or "auto").strip() or "auto",
+            actor_id=str(body.get("actor_id") or "").strip() or None,
+            max_stands=int(body.get("max_stands") or 500),
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.post("/scrape/directory")
 def scrape_directory(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     """Built-in exhibitor directory scrape (Easyfairs / HTML). No Apify actor required."""

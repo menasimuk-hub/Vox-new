@@ -74,6 +74,14 @@ _SECTOR_KEYWORDS = {
     "recruitment": ["recruitment", "recruiting", "staffing", "hiring"],
 }
 
+# Community / no-rental actors used when no exhibitor actor ID is saved.
+CURATED_FREE_ACTORS = [
+    "vdrmota~contact-info-scraper",
+    "foo121~website-contact-scraper",
+    "goat255~website-contact-scraper",
+]
+DEFAULT_FREE_ACTOR = CURATED_FREE_ACTORS[0]
+
 
 class AiTeamServiceError(ValueError):
     pass
@@ -154,6 +162,8 @@ class AiTeamService:
             "apify_user_id": (getattr(row, "apify_user_id", None) or "").strip(),
             "apify_exhibitor_actor_id": row.apify_exhibitor_actor_id or "",
             "apify_contact_actor_id": row.apify_contact_actor_id or "",
+            "curated_free_actors": list(CURATED_FREE_ACTORS),
+            "default_free_actor": DEFAULT_FREE_ACTOR,
             "run_schedule": row.run_schedule,
             "max_emails_per_day": row.max_emails_per_day,
             "sending_window": row.sending_window,
@@ -1987,6 +1997,119 @@ class AiTeamService:
         if not isinstance(contacts, list):
             return []
         return [c for c in contacts if isinstance(c, dict) and str(c.get("email") or "").strip()]
+
+    @staticmethod
+    def resolve_scrape_actor(
+        settings: AiTeamSettings,
+        *,
+        actor_id: str | None = None,
+    ) -> tuple[str, str]:
+        """Pick actor ID and source: override | saved | auto_free."""
+        override = str(actor_id or "").strip()
+        if override:
+            return override, "override"
+        saved = str(
+            settings.apify_exhibitor_actor_id or settings.apify_contact_actor_id or ""
+        ).strip()
+        if saved:
+            return saved, "saved"
+        return DEFAULT_FREE_ACTOR, "auto_free"
+
+    @staticmethod
+    def start_smart_scrape(
+        db: Session,
+        *,
+        expo_url: str,
+        follow_websites: bool = True,
+        engine: str = "auto",
+        actor_id: str | None = None,
+        max_stands: int = 500,
+    ) -> dict[str, Any]:
+        """Apify-first scrape with curated free actor + built-in fallback.
+
+        engine: auto | apify | builtin
+        """
+        url = str(expo_url or "").strip().replace("\\", "/")
+        if not url.startswith("http"):
+            raise AiTeamServiceError("Enter a valid expo directory URL (https://…)")
+
+        mode = str(engine or "auto").strip().lower()
+        if mode not in {"auto", "apify", "builtin"}:
+            mode = "auto"
+
+        def _builtin(reason: str, *, fallback_from: str | None = None, apify_error: str | None = None) -> dict[str, Any]:
+            result = AiTeamService.start_directory_scrape(
+                db,
+                expo_url=url,
+                follow_websites=follow_websites,
+                max_stands=max_stands,
+            )
+            out: dict[str, Any] = {
+                **result,
+                "ok": True,
+                "engine": "builtin",
+                "actor_id": None,
+                "actor_source": None,
+                "reason": reason,
+                "message": result.get("message") or "Using built-in scrape",
+            }
+            if fallback_from:
+                out["fallback_from"] = fallback_from
+                out["message"] = f"Apify failed — using built-in. {apify_error or reason}"
+            if apify_error:
+                out["apify_error"] = apify_error
+            return out
+
+        if mode == "builtin":
+            return _builtin("Forced built-in scrape")
+
+        settings = AiTeamService.get_settings(db)
+        token = AiTeamService._apify_token(settings, db=db)
+
+        if mode == "apify" and not token:
+            raise AiTeamServiceError("Apify API token is not configured — save it under Apify API, or use engine=auto")
+
+        if mode == "auto" and not token:
+            return _builtin("Apify token not configured — using built-in")
+
+        actor, actor_source = AiTeamService.resolve_scrape_actor(settings, actor_id=actor_id)
+        try:
+            result = AiTeamService.start_apify_run(db, expo_url=url, actor_id=actor)
+            # start_apify_run may still return builtin if actor empty — we always pass actor.
+            run = result.get("run") or {}
+            used_builtin = str(run.get("actor_id") or "").startswith("builtin:")
+            if used_builtin:
+                return {
+                    **result,
+                    "ok": True,
+                    "engine": "builtin",
+                    "actor_id": None,
+                    "actor_source": None,
+                    "reason": "Apify path returned built-in scrape",
+                    "message": result.get("message") or "Using built-in scrape",
+                }
+            source_label = {
+                "override": "override",
+                "saved": "saved actor",
+                "auto_free": "auto free actor",
+            }.get(actor_source, actor_source)
+            return {
+                **result,
+                "ok": True,
+                "engine": "apify",
+                "actor_id": actor,
+                "actor_source": actor_source,
+                "reason": f"Apify token ready; using {source_label}",
+                "message": f"Using Apify · {actor}" + (f" ({source_label})" if actor_source == "auto_free" else ""),
+            }
+        except (AiTeamServiceError, ApifyServiceError) as exc:
+            if mode == "apify":
+                raise AiTeamServiceError(str(exc)) from exc
+            return _builtin(
+                f"Apify failed to start; using built-in",
+                fallback_from="apify",
+                apify_error=str(exc),
+            )
 
     @staticmethod
     def start_apify_run(db: Session, *, expo_url: str, actor_id: str | None = None) -> dict[str, Any]:
