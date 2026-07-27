@@ -219,6 +219,8 @@ def service_code_to_enabled_key(service_code: str) -> str | None:
         "appointments": "appointments",
         "appointment": "appointments",
         "appointment_manager": "appointments",
+        "expo": "expo",
+        "voxbulk_expo": "expo",
     }
     return mapping.get(code)
 

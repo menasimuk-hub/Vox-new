@@ -4,9 +4,13 @@ export type MarketingServiceId =
   | "whatsapp_surveys"
   | "ai_calling"
   | "ats"
-  | "customer_success";
+  | "customer_success"
+  | "voxbulk_expo";
 
-export type BackendServiceKey = "interview" | "survey" | "recovery" | "follow_up";
+export type BackendServiceKey = "interview" | "survey" | "recovery" | "follow_up" | "expo";
+
+/** Opt-in products that should stay visible in onboarding even when not yet admin-granted. */
+const ONBOARDING_ALWAYS_VISIBLE: ReadonlySet<MarketingServiceId> = new Set(["voxbulk_expo"]);
 
 export const MARKETING_SERVICES: {
   id: MarketingServiceId;
@@ -20,11 +24,14 @@ export const MARKETING_SERVICES: {
   { id: "ats", label: "ATS & CV scanning", desc: "Bulk parsing, ranking, scoring", backendKey: "interview" },
   { id: "recruitment", label: "Recruitment automation", desc: "CV screening, scheduling, hiring", backendKey: "recovery" },
   { id: "customer_success", label: "Customer success", desc: "Onboarding, check-ins, retention", backendKey: "follow_up" },
+  { id: "voxbulk_expo", label: "VoxBulk Expo", desc: "Booth QR & WhatsApp lead capture", backendKey: "expo" },
 ];
 
 export function allowedMarketingServices(allowed?: Record<string, boolean> | null) {
   if (!allowed) return MARKETING_SERVICES;
-  return MARKETING_SERVICES.filter((s) => allowed[s.backendKey] !== false);
+  return MARKETING_SERVICES.filter(
+    (s) => ONBOARDING_ALWAYS_VISIBLE.has(s.id) || allowed[s.backendKey] !== false,
+  );
 }
 
 export function marketingSelectionToEnabled(
@@ -36,10 +43,12 @@ export function marketingSelectionToEnabled(
     survey: false,
     recovery: false,
     follow_up: false,
+    expo: false,
   };
   for (const svc of MARKETING_SERVICES) {
     if (!selected.includes(svc.id)) continue;
-    if (allowed && allowed[svc.backendKey] === false) continue;
+    // Expo is self-serve during company setup — still send enable even if not yet granted.
+    if (svc.id !== "voxbulk_expo" && allowed && allowed[svc.backendKey] === false) continue;
     out[svc.backendKey] = true;
   }
   if (!Object.values(out).some(Boolean)) {

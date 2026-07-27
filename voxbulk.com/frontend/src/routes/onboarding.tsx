@@ -6,15 +6,15 @@ import { toast } from "sonner";
 import {
   Building2, Phone, Globe, Mail, MapPin, Image as ImageIcon,
   Loader2, ArrowRight, ArrowLeft, Check, Upload, X,
-  Briefcase, MessageSquare, PhoneCall, FileText, BarChart3, Headphones,
+  Briefcase, MessageSquare, PhoneCall, FileText, BarChart3, Headphones, QrCode,
 } from "lucide-react";
-import { useAuth } from "@/lib/auth";
-import { apiFetch, apiUpload, getPostLoginHandoffUrl, hasPlatformAdminAccess } from "@/lib/api";
 import {
   marketingSelectionToEnabled,
-  MARKETING_SERVICES,
+  allowedMarketingServices,
   type MarketingServiceId,
 } from "@/lib/services";
+import { useAuth } from "@/lib/auth";
+import { apiFetch, apiUpload, getPostLoginHandoffUrl, hasPlatformAdminAccess } from "@/lib/api";
 
 export const Route = createFileRoute("/onboarding")({
   head: () => ({
@@ -40,9 +40,8 @@ const ICONS: Record<ServiceId, typeof Briefcase> = {
   ai_calling: Headphones,
   ats: FileText,
   customer_success: BarChart3,
+  voxbulk_expo: QrCode,
 };
-
-const SERVICES = MARKETING_SERVICES.map((s) => ({ ...s, Icon: ICONS[s.id] }));
 
 const COUNTRIES = [
   "United Kingdom", "United States", "Australia", "Canada", "Ireland",
@@ -66,9 +65,10 @@ function CompanyWizard() {
   const [userEmail, setUserEmail] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [allowedServices, setAllowedServices] = useState<Record<string, boolean> | null>(null);
-  const availableServices = SERVICES.filter(
-    (s) => !allowedServices || allowedServices[s.backendKey] !== false,
-  );
+  const availableServices = allowedMarketingServices(allowedServices).map((s) => ({
+    ...s,
+    Icon: ICONS[s.id],
+  }));
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -200,8 +200,10 @@ function CompanyWizard() {
 
       <main className="flex-1 pt-[110px] md:pt-[130px] pb-16 relative">
         <div className="max-w-[980px] mx-auto px-4 sm:px-6 md:px-10">
-          <div className="text-center max-w-[640px] mx-auto">
-            <span className="eyebrow">Welcome{userEmail && `, ${userEmail.split("@")[0]}`}</span>
+          <div className="text-center max-w-[640px] mx-auto min-w-0 px-1">
+            <span className="eyebrow block truncate max-w-full">
+              Welcome{userEmail && `, ${userEmail.split("@")[0]}`}
+            </span>
             <h1 className="mt-3 text-[28px] sm:text-[34px] md:text-[42px] font-bold tracking-[-0.03em] text-heading leading-[1.1]">
               Set up your <span className="serif-italic text-primary">company</span>
             </h1>
@@ -234,7 +236,7 @@ function CompanyWizard() {
           </ol>
 
           {/* Card */}
-          <div className="mt-8 bg-white border border-border rounded-2xl shadow-elegant p-5 sm:p-8 md:p-10 relative">
+          <div className="mt-8 bg-white border border-border rounded-2xl shadow-elegant p-4 sm:p-8 md:p-10 relative overflow-hidden min-w-0">
             {step === 1 && (
               <div className="space-y-5">
                 <h2 className="text-[18px] sm:text-[20px] font-bold text-heading">Company details</h2>
@@ -291,7 +293,7 @@ function CompanyWizard() {
                               <h3 className="text-[14.5px] font-bold text-heading truncate">{s.label}</h3>
                               {active && <Check size={14} className="text-primary shrink-0" strokeWidth={3} />}
                             </div>
-                            <p className="mt-0.5 text-[12.5px] text-body leading-snug">{s.desc}</p>
+                            <p className="mt-0.5 text-[12.5px] text-body leading-snug break-words">{s.desc}</p>
                           </div>
                         </div>
                       </button>
@@ -345,15 +347,22 @@ function CompanyWizard() {
                 </div>
 
                 {/* Summary */}
-                <div className="mt-8 rounded-2xl bg-beige/70 border border-border p-5">
+                <div className="mt-8 rounded-2xl bg-beige/70 border border-border p-4 sm:p-5 min-w-0 overflow-hidden">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text mb-3">Review</div>
-                  <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-2 text-[13.5px]">
+                  <dl className="grid sm:grid-cols-2 gap-x-6 gap-y-3 text-[13.5px] min-w-0">
                     <SummaryRow label="Company" value={name || "—"} />
                     <SummaryRow label="Phone" value={phone || "—"} />
                     <SummaryRow label="Website" value={website || "—"} />
                     <SummaryRow label="Contact email" value={contactEmail || "—"} />
                     <SummaryRow label="Country" value={country || "—"} />
-                    <SummaryRow label="Services" value={services.length ? services.map(id => availableServices.find(s => s.id === id)?.label).filter(Boolean).join(", ") : "—"} />
+                    <SummaryRow
+                      label="Services"
+                      value={
+                        services.length
+                          ? services.map((id) => availableServices.find((s) => s.id === id)?.label).filter(Boolean).join(", ")
+                          : "—"
+                      }
+                    />
                   </dl>
                 </div>
               </div>
@@ -413,9 +422,9 @@ function Field({
 
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-3 border-b border-border/60 pb-1.5">
-      <dt className="text-muted-text">{label}</dt>
-      <dd className="font-semibold text-heading text-right truncate max-w-[60%]">{value}</dd>
+    <div className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3 border-b border-border/60 pb-1.5 min-w-0">
+      <dt className="text-muted-text shrink-0">{label}</dt>
+      <dd className="font-semibold text-heading sm:text-right break-words [overflow-wrap:anywhere] min-w-0">{value}</dd>
     </div>
   );
 }

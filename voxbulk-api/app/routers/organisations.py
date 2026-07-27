@@ -171,6 +171,7 @@ def update_enabled_services(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    from app.models.membership import OrganisationMembership
     from app.schemas.organisation import EnabledServicesUpdate
 
     body = EnabledServicesUpdate.model_validate(payload or {})
@@ -183,6 +184,21 @@ def update_enabled_services(
         for k in SERVICE_KEYS
         if getattr(body, k, None) is not None
     }
+
+    # Self-serve Expo opt-in during company setup (before dashboard wizard is complete).
+    if patch.get("expo") is True and not allowed.get("expo"):
+        membership = db.execute(
+            select(OrganisationMembership).where(
+                OrganisationMembership.user_id == principal.user_id,
+                OrganisationMembership.org_id == principal.org_id,
+            )
+        ).scalar_one_or_none()
+        onboarding_open = membership is not None and membership.dashboard_setup_completed_at is None
+        if onboarding_open:
+            allowed = dict(allowed)
+            allowed["expo"] = True
+            org.allowed_services_json = serialize_allowed_services(allowed)
+
     try:
         enabled = merge_user_enabled_services(allowed, enabled, patch)
     except AtLeastOneServiceRequiredError as e:
