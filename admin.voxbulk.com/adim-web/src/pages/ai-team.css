@@ -507,3 +507,31 @@
   font-size: 15px;
   margin-bottom: 6px;
 }
+
+.ai-team-page .ait-campaign-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .ai-team-page .ait-campaign-layout { grid-template-columns: 1fr; }
+}
+.ai-team-page .ait-campaign-rail { position: sticky; top: 0; }
+.ai-team-page .ait-campaign-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: min(70vh, 640px); overflow-y: auto;
+}
+.ai-team-page .ait-campaign-item {
+  text-align: left; width: 100%;
+  border: 1px solid var(--ait-border); background: var(--ait-bg3);
+  border-radius: 8px; padding: 10px 12px; cursor: pointer;
+  font: inherit; color: inherit;
+}
+.ai-team-page .ait-campaign-item:hover { border-color: #cfd7e2; background: #fff; }
+.ai-team-page .ait-campaign-item.active {
+  border-color: var(--ait-accent);
+  background: var(--ait-accent-dim);
+  box-shadow: 0 0 0 1px var(--ait-accent-border);
+}
+.ai-team-page .ait-campaign-main { min-width: 0; }

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.admin_rbac import CAP_AI_TEAM, require_cap
 from app.core.database import get_db
 from app.models.user import User
+from app.services.ai_team_campaign_service import AiTeamCampaignService
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
 from app.services.apollo_service import ApolloService, ApolloServiceError
 from app.services.apify_service import ApifyService, ApifyServiceError
@@ -28,12 +29,8 @@ def _err(exc: Exception) -> HTTPException:
 def get_dashboard(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     stats = AiTeamService.dashboard_stats(db)
     settings = AiTeamService.settings_to_dict(db, AiTeamService.get_settings(db))
-    pending = [
-        AiTeamService.prospect_to_dict(db, p)
-        for p in AiTeamService.list_prospects(db)
-        if str(p.status or "").lower() in {"pending", "new"}
-    ]
-    return {"stats": stats, "settings": settings, "queue": pending}
+    campaigns = [AiTeamCampaignService.campaign_to_dict(c) for c in AiTeamCampaignService.list_campaigns(db)]
+    return {"stats": stats, "settings": settings, "campaigns": campaigns}
 
 
 @router.get("/settings")
@@ -597,5 +594,171 @@ def test_all(body: dict[str, Any], db: Session = Depends(get_db), _admin: User =
 def test_deepseek_sample(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     try:
         return AiTeamService.generate_sample_email(db)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+# ── Campaigns (bulk outreach) ───────────────────────────────────────────────
+
+
+@router.get("/campaigns")
+def list_campaigns(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    return {"campaigns": [AiTeamCampaignService.campaign_to_dict(c) for c in AiTeamCampaignService.list_campaigns(db)]}
+
+
+@router.post("/campaigns")
+def create_campaign(body: dict[str, Any], db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        row = AiTeamCampaignService.create_campaign(db, name=str(body.get("name") or ""))
+        return {"campaign": AiTeamCampaignService.campaign_to_dict(row)}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/campaigns/{campaign_id}")
+def get_campaign(campaign_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        row = AiTeamCampaignService.refresh_counts(db, AiTeamCampaignService.get_campaign(db, campaign_id))
+        recipients = AiTeamCampaignService.list_recipients(db, campaign_id, limit=500)
+        return {
+            "campaign": AiTeamCampaignService.campaign_to_dict(row),
+            "recipients": [AiTeamCampaignService.recipient_to_dict(r) for r in recipients],
+        }
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.put("/campaigns/{campaign_id}")
+def update_campaign(
+    campaign_id: str,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        row = AiTeamCampaignService.update_campaign(db, campaign_id, body)
+        return {"campaign": AiTeamCampaignService.campaign_to_dict(row)}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/campaigns/{campaign_id}")
+def delete_campaign(campaign_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamCampaignService.delete_campaign(db, campaign_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/campaigns/{campaign_id}/recipients")
+def list_campaign_recipients(
+    campaign_id: str,
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        rows = AiTeamCampaignService.list_recipients(db, campaign_id, status=status, limit=2000)
+        return {"recipients": [AiTeamCampaignService.recipient_to_dict(r) for r in rows]}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/campaigns/{campaign_id}/recipients")
+def clear_campaign_recipients(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.clear_recipients(db, campaign_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/import/csv")
+async def campaign_import_csv(
+    campaign_id: str,
+    file: UploadFile = File(...),
+    mapping: str = Form(...),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    import json as _json
+
+    try:
+        mapping_dict = _json.loads(mapping)
+        if not isinstance(mapping_dict, dict):
+            raise AiTeamServiceError("Invalid field mapping")
+        raw = await file.read()
+        return AiTeamCampaignService.import_csv(db, campaign_id, raw, mapping_dict)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/import/scrape")
+def campaign_import_scrape(
+    campaign_id: str,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.import_from_scrape_run(
+            db, campaign_id, str(body.get("run_id") or "")
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/preview")
+def campaign_preview(
+    campaign_id: str,
+    body: dict[str, Any] | None = Body(default=None),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        payload = body or {}
+        return AiTeamCampaignService.preview(
+            db, campaign_id, recipient_id=str(payload.get("recipient_id") or "") or None
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/test")
+def campaign_send_test(
+    campaign_id: str,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.send_test(db, campaign_id, str(body.get("to_email") or ""))
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/send")
+def campaign_send_all(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.start_send_all(db, campaign_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/campaigns/{campaign_id}/cancel")
+def campaign_cancel(
+    campaign_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.cancel_send(db, campaign_id)
     except Exception as exc:
         raise _err(exc) from exc

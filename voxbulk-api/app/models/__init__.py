@@ -117,6 +117,7 @@ from app.models.ai_team_settings import AiTeamSettings  # noqa: F401
 from app.models.ai_team_prospect import AiTeamProspect  # noqa: F401
 from app.models.ai_team_message import AiTeamMessage  # noqa: F401
 from app.models.ai_team_apify_run import AiTeamApifyRun  # noqa: F401
+from app.models.ai_team_campaign import AiTeamCampaign, AiTeamCampaignRecipient  # noqa: F401
 from app.models.customer_feedback import (  # noqa: F401
     FeedbackAiFollowUpJob,
     FeedbackIndustry,

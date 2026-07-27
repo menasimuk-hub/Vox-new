@@ -39,3 +39,20 @@ def scrape_directory_task(
     )
     logger.info("ai_team_directory_scrape_complete run_id=%s stats=%s", run_id, stats)
     return stats
+
+
+@celery_app.task(
+    name="ai_team.send_campaign",
+    bind=True,
+    max_retries=0,
+    soft_time_limit=3600,
+    time_limit=3660,
+    queue="voxbulk",
+)
+def send_campaign_task(self, campaign_id: str) -> dict:
+    """Background bulk send for an AI Team campaign."""
+    from app.services.ai_team_campaign_service import AiTeamCampaignService
+
+    stats = AiTeamCampaignService.process_send_job(campaign_id)
+    logger.info("ai_team_campaign_send_complete campaign_id=%s stats=%s", campaign_id, stats)
+    return stats
