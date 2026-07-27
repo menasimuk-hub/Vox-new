@@ -9,10 +9,13 @@ from __future__ import annotations
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
 import httpx
+
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 logger = logging.getLogger(__name__)
 
@@ -284,24 +287,82 @@ class ExpoDirectoryScraper:
         return out
 
     @staticmethod
+    def _emit_progress(cb: ProgressCallback | None, payload: dict[str, Any]) -> None:
+        if not cb:
+            return
+        try:
+            data = dict(payload)
+            data.setdefault("heartbeat_at", datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z")
+            cb(data)
+        except Exception:
+            logger.debug("expo_scrape_progress_callback_failed", exc_info=True)
+
+    @staticmethod
     def scrape_easyfairs(
         directory_url: str,
         *,
         follow_websites: bool = True,
         max_stands: int = 500,
         workers: int = 10,
+        progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "listing",
+                "message": "Detecting Easyfairs editions…",
+                "provider": "easyfairs",
+                "follow_websites": bool(follow_websites),
+                "stands_total": 0,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
         editions = ExpoDirectoryScraper.detect_easyfairs_editions(directory_url)
         if not editions:
             raise ExpoDirectoryScraperError(
                 "This URL does not look like an Easyfairs exhibitor directory "
                 "(or the widget loader is unavailable)."
             )
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "listing",
+                "message": "Listing stands from Easyfairs…",
+                "provider": "easyfairs",
+                "follow_websites": bool(follow_websites),
+                "editions": editions,
+                "stands_total": 0,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
         hits = ExpoDirectoryScraper._search_stands(directory_url, editions)
         hits = hits[: max(1, min(int(max_stands or 500), 1000))]
         contacts: list[dict[str, Any]] = []
         stands_with_email = 0
         errors = 0
+        stands_done = 0
+        total = len(hits)
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "stands",
+                "message": f"Scanning {total} stands…",
+                "provider": "easyfairs",
+                "follow_websites": bool(follow_websites),
+                "editions": editions,
+                "stands_total": total,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
 
         def _one(hit: dict[str, Any]) -> list[dict[str, Any]]:
             stand_id = str(hit.get("objectID") or "").strip()
@@ -336,6 +397,24 @@ class ExpoDirectoryScraper:
                 except Exception:
                     errors += 1
                     logger.exception("expo_stand_scrape_failed")
+                stands_done += 1
+                # Dedupe emails for live count
+                seen_emails = {str(c.get("email") or "").lower() for c in contacts if c.get("email")}
+                ExpoDirectoryScraper._emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "stands",
+                        "message": f"Scanning stands {stands_done}/{total}…",
+                        "provider": "easyfairs",
+                        "follow_websites": bool(follow_websites),
+                        "editions": editions,
+                        "stands_total": total,
+                        "stands_done": stands_done,
+                        "stands_with_email": stands_with_email,
+                        "emails_found": len(seen_emails),
+                        "errors": errors,
+                    },
+                )
 
         # Dedupe by email (first company wins)
         by_email: dict[str, dict[str, Any]] = {}
@@ -344,7 +423,7 @@ class ExpoDirectoryScraper:
             if email and email not in by_email:
                 by_email[email] = c
 
-        return {
+        result = {
             "ok": True,
             "provider": "easyfairs",
             "editions": editions,
@@ -354,6 +433,21 @@ class ExpoDirectoryScraper:
             "errors": errors,
             "contacts": list(by_email.values()),
         }
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "done",
+                "message": "Scrape finished — saving results…",
+                "provider": "easyfairs",
+                "follow_websites": bool(follow_websites),
+                "stands_total": total,
+                "stands_done": total,
+                "stands_with_email": stands_with_email,
+                "emails_found": len(by_email),
+                "errors": errors,
+            },
+        )
+        return result
 
     @staticmethod
     def scrape_html_directory(
@@ -362,8 +456,23 @@ class ExpoDirectoryScraper:
         follow_websites: bool = True,
         max_pages: int = 300,
         workers: int = 8,
+        progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         """Generic fallback: collect /exhibitors/* links from the listing HTML, then extract emails."""
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "listing",
+                "message": "Fetching directory HTML…",
+                "provider": "html",
+                "follow_websites": bool(follow_websites),
+                "stands_total": 0,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
         headers = ExpoDirectoryScraper._headers(directory_url)
         with httpx.Client(timeout=60.0, follow_redirects=True) as client:
             resp = client.get(directory_url, headers=headers)
@@ -413,6 +522,22 @@ class ExpoDirectoryScraper:
         contacts: list[dict[str, Any]] = []
         stands_with_email = 0
         errors = 0
+        stands_done = 0
+        total = len(uniq)
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "stands",
+                "message": f"Scanning {total} exhibitor pages…",
+                "provider": "html",
+                "follow_websites": bool(follow_websites),
+                "stands_total": total,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
 
         def _page(url: str) -> list[dict[str, Any]]:
             with httpx.Client(timeout=40.0, follow_redirects=True) as client:
@@ -467,6 +592,22 @@ class ExpoDirectoryScraper:
                         contacts.extend(rows)
                 except Exception:
                     errors += 1
+                stands_done += 1
+                seen_emails = {str(c.get("email") or "").lower() for c in contacts if c.get("email")}
+                ExpoDirectoryScraper._emit_progress(
+                    progress_callback,
+                    {
+                        "phase": "stands",
+                        "message": f"Scanning pages {stands_done}/{total}…",
+                        "provider": "html",
+                        "follow_websites": bool(follow_websites),
+                        "stands_total": total,
+                        "stands_done": stands_done,
+                        "stands_with_email": stands_with_email,
+                        "emails_found": len(seen_emails),
+                        "errors": errors,
+                    },
+                )
 
         by_email: dict[str, dict[str, Any]] = {}
         for c in contacts:
@@ -490,6 +631,7 @@ class ExpoDirectoryScraper:
         *,
         follow_websites: bool = True,
         max_stands: int = 500,
+        progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
         url = str(directory_url or "").strip()
         if not url.startswith("http"):
@@ -497,8 +639,14 @@ class ExpoDirectoryScraper:
         editions = ExpoDirectoryScraper.detect_easyfairs_editions(url)
         if editions:
             return ExpoDirectoryScraper.scrape_easyfairs(
-                url, follow_websites=follow_websites, max_stands=max_stands
+                url,
+                follow_websites=follow_websites,
+                max_stands=max_stands,
+                progress_callback=progress_callback,
             )
         return ExpoDirectoryScraper.scrape_html_directory(
-            url, follow_websites=follow_websites, max_pages=max_stands
+            url,
+            follow_websites=follow_websites,
+            max_pages=max_stands,
+            progress_callback=progress_callback,
         )

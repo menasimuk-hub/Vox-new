@@ -1453,6 +1453,16 @@ class AiTeamService:
                 stats = raw
         except Exception:
             stats = {}
+        progress = stats.get("progress") if isinstance(stats.get("progress"), dict) else {}
+        stands_total = int(
+            progress.get("stands_total")
+            or stats.get("stands_found")
+            or row.item_count
+            or 0
+        )
+        stands_done = int(progress.get("stands_done") or 0)
+        if str(row.status or "").upper() == "SUCCEEDED" and stands_total and not stands_done:
+            stands_done = stands_total
         return {
             "id": row.id,
             "apify_run_id": row.apify_run_id,
@@ -1462,15 +1472,84 @@ class AiTeamService:
             "dataset_id": row.dataset_id,
             "item_count": row.item_count,
             "imported_count": row.imported_count,
-            "emails_found": int(stats.get("emails_found") or 0),
-            "stands_found": int(stats.get("stands_found") or row.item_count or 0),
-            "stands_with_email": int(stats.get("stands_with_email") or 0),
-            "provider": stats.get("provider") or ("builtin" if str(row.actor_id or "").startswith("builtin:") else "apify"),
+            "emails_found": int(stats.get("emails_found") or progress.get("emails_found") or 0),
+            "stands_found": int(stats.get("stands_found") or stands_total or 0),
+            "stands_with_email": int(stats.get("stands_with_email") or progress.get("stands_with_email") or 0),
+            "provider": stats.get("provider") or progress.get("provider") or (
+                "builtin" if str(row.actor_id or "").startswith("builtin:") else "apify"
+            ),
+            "progress": {
+                "phase": progress.get("phase") or ("done" if str(row.status or "").upper() == "SUCCEEDED" else "queued"),
+                "message": progress.get("message") or stats.get("message") or "",
+                "stands_total": stands_total,
+                "stands_done": stands_done,
+                "stands_with_email": int(progress.get("stands_with_email") or stats.get("stands_with_email") or 0),
+                "emails_found": int(progress.get("emails_found") or stats.get("emails_found") or 0),
+                "errors": int(progress.get("errors") or stats.get("errors") or 0),
+                "heartbeat_at": progress.get("heartbeat_at")
+                or (row.updated_at.isoformat() if row.updated_at else None),
+                "follow_websites": bool(
+                    progress.get("follow_websites")
+                    if "follow_websites" in progress
+                    else stats.get("follow_websites")
+                ),
+            },
             "error": row.error,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             "finished_at": row.finished_at.isoformat() if row.finished_at else None,
         }
+
+    @staticmethod
+    def _write_scrape_progress(run_id: str, progress: dict[str, Any]) -> None:
+        """Persist live scrape progress (short separate session; safe from Celery worker)."""
+        from app.core.database import get_sessionmaker
+
+        session = get_sessionmaker()()
+        try:
+            row = session.get(AiTeamApifyRun, run_id)
+            if row is None or str(row.status or "").upper() != "RUNNING":
+                return
+            try:
+                stats = json.loads(row.stats_json or "{}")
+                if not isinstance(stats, dict):
+                    stats = {}
+            except Exception:
+                stats = {}
+            now = AiTeamService._now()
+            hb = progress.get("heartbeat_at") or (now.isoformat() + "Z")
+            stats["progress"] = {
+                "phase": progress.get("phase") or "stands",
+                "message": str(progress.get("message") or "")[:240],
+                "stands_total": int(progress.get("stands_total") or 0),
+                "stands_done": int(progress.get("stands_done") or 0),
+                "stands_with_email": int(progress.get("stands_with_email") or 0),
+                "emails_found": int(progress.get("emails_found") or 0),
+                "errors": int(progress.get("errors") or 0),
+                "heartbeat_at": hb,
+                "follow_websites": bool(progress.get("follow_websites")),
+                "provider": progress.get("provider") or stats.get("provider") or "pending",
+            }
+            # Mirror live counters for the table columns while RUNNING
+            if stats["progress"]["stands_total"]:
+                stats["stands_found"] = stats["progress"]["stands_total"]
+            stats["stands_with_email"] = stats["progress"]["stands_with_email"]
+            stats["emails_found"] = stats["progress"]["emails_found"]
+            stats["errors"] = stats["progress"]["errors"]
+            if progress.get("provider"):
+                stats["provider"] = progress.get("provider")
+            row.stats_json = json.dumps(stats, ensure_ascii=False)
+            row.updated_at = now
+            session.add(row)
+            session.commit()
+        except Exception:
+            logger.debug("directory_scrape_progress_write_failed run_id=%s", run_id, exc_info=True)
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        finally:
+            session.close()
 
     @staticmethod
     def run_directory_scrape_job(
@@ -1488,11 +1567,29 @@ class AiTeamService:
             if row is None:
                 return {"ok": False, "error": "run not found"}
             url = str(row.expo_url or "").strip()
+            last_progress_at = 0.0
+
+            def _on_progress(payload: dict[str, Any]) -> None:
+                nonlocal last_progress_at
+                import time as _time
+
+                now_ts = _time.monotonic()
+                phase = str(payload.get("phase") or "")
+                done = int(payload.get("stands_done") or 0)
+                total = int(payload.get("stands_total") or 0)
+                # Throttle DB writes: phase changes, every 5 stands, or every 1.5s
+                force = phase in {"listing", "done"} or done <= 1 or (total and done >= total)
+                if not force and (now_ts - last_progress_at) < 1.5 and (done % 5) != 0:
+                    return
+                last_progress_at = now_ts
+                AiTeamService._write_scrape_progress(run_id, payload)
+
             try:
                 result = ExpoDirectoryScraper.scrape(
                     url,
                     follow_websites=bool(follow_websites),
                     max_stands=max(1, min(int(max_stands or 500), 1000)),
+                    progress_callback=_on_progress,
                 )
             except ExpoDirectoryScraperError as exc:
                 row.status = "FAILED"
@@ -1516,6 +1613,7 @@ class AiTeamService:
             finished = AiTeamService._now()
             row.status = "SUCCEEDED"
             row.item_count = int(result.get("emails_found") or len(contacts) or result.get("stands_found") or 0)
+            stands_total = int(result.get("stands_found") or 0)
             payload = {
                 "provider": result.get("provider"),
                 "editions": result.get("editions") or [],
@@ -1524,7 +1622,20 @@ class AiTeamService:
                 "emails_found": result.get("emails_found"),
                 "errors": result.get("errors"),
                 "warning": result.get("warning"),
+                "follow_websites": bool(follow_websites),
                 "contacts": contacts,
+                "progress": {
+                    "phase": "done",
+                    "message": "Completed",
+                    "stands_total": stands_total,
+                    "stands_done": stands_total,
+                    "stands_with_email": int(result.get("stands_with_email") or 0),
+                    "emails_found": int(result.get("emails_found") or len(contacts) or 0),
+                    "errors": int(result.get("errors") or 0),
+                    "heartbeat_at": finished.isoformat() + "Z",
+                    "follow_websites": bool(follow_websites),
+                    "provider": result.get("provider"),
+                },
             }
             row.stats_json = json.dumps(payload, ensure_ascii=False)
             row.error = None
@@ -1626,6 +1737,18 @@ class AiTeamService:
                     "provider": "pending",
                     "message": "queued",
                     "follow_websites": bool(follow_websites),
+                    "progress": {
+                        "phase": "queued",
+                        "message": "Queued — waiting for Celery worker…",
+                        "stands_total": 0,
+                        "stands_done": 0,
+                        "stands_with_email": 0,
+                        "emails_found": 0,
+                        "errors": 0,
+                        "heartbeat_at": now.isoformat() + "Z",
+                        "follow_websites": bool(follow_websites),
+                        "provider": "pending",
+                    },
                 }
             ),
         )

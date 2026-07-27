@@ -222,16 +222,39 @@ export default function AiTeam() {
     if (tab === 'apify' && apifySubTab === 'scrape') loadApifyRuns()
   }, [tab, apifySubTab, prospectSource, loadProspects, loadReplies, loadPromo, loadAnalytics, loadApifyRuns])
 
-  // Auto-poll while any scrape run is still RUNNING
+  // Auto-poll while any scrape run is still RUNNING (faster for live progress)
   useEffect(() => {
     if (tab !== 'apify' || apifySubTab !== 'scrape') return undefined
     const running = apifyRuns.some((r) => String(r.status || '').toUpperCase() === 'RUNNING')
     if (!running) return undefined
     const id = window.setInterval(() => {
       loadApifyRuns()
-    }, 5000)
+    }, 2000)
     return () => window.clearInterval(id)
   }, [tab, apifySubTab, apifyRuns, loadApifyRuns])
+
+  const liveScrapeRun = apifyRuns.find((r) => String(r.status || '').toUpperCase() === 'RUNNING') || null
+  const liveProgress = liveScrapeRun?.progress || null
+  const liveStandsTotal = Number(liveProgress?.stands_total || liveScrapeRun?.stands_found || 0)
+  const liveStandsDone = Number(liveProgress?.stands_done || 0)
+  const liveEmails = Number(liveProgress?.emails_found || liveScrapeRun?.emails_found || 0)
+  const livePct = liveStandsTotal > 0 ? Math.min(100, Math.round((liveStandsDone / liveStandsTotal) * 100)) : 0
+  const liveHeartbeatAge = (() => {
+    const hb = liveProgress?.heartbeat_at || liveScrapeRun?.updated_at
+    if (!hb) return null
+    const ms = Date.now() - new Date(hb).getTime()
+    if (Number.isNaN(ms)) return null
+    const sec = Math.max(0, Math.floor(ms / 1000))
+    if (sec < 5) return 'just now'
+    if (sec < 60) return `${sec}s ago`
+    return `${Math.floor(sec / 60)}m ${sec % 60}s ago`
+  })()
+  const liveLooksStuck = (() => {
+    const hb = liveProgress?.heartbeat_at || liveScrapeRun?.updated_at
+    if (!hb) return false
+    const ms = Date.now() - new Date(hb).getTime()
+    return !Number.isNaN(ms) && ms > 90000
+  })()
 
   const openDrawer = async (prospect) => {
     setDrawer(prospect)
@@ -1219,6 +1242,46 @@ export default function AiTeam() {
                       Remove all links
                     </button>
                   </div>
+                  {liveScrapeRun && (
+                    <div
+                      className={`ait-msg-banner ${liveLooksStuck ? 'err' : 'ok'}`}
+                      style={{ margin: '10px 0', padding: '12px 12px' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                        <div>
+                          <strong style={{ fontSize: 13 }}>Live scrape progress</strong>
+                          <div style={{ fontSize: 12, marginTop: 4 }}>
+                            {liveProgress?.message || 'Queued / starting…'}
+                          </div>
+                          <div className="ait-ellipsis" style={{ fontSize: 11, opacity: 0.85, marginTop: 2, maxWidth: 520 }} title={liveScrapeRun.expo_url}>
+                            {liveScrapeRun.expo_url}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 11, textAlign: 'right' }}>
+                          <div>Heartbeat: <strong>{liveHeartbeatAge || '—'}</strong></div>
+                          <div>Phase: <strong>{liveProgress?.phase || 'queued'}</strong></div>
+                          {liveLooksStuck ? <div style={{ fontWeight: 700 }}>No update &gt; 90s — may be stuck</div> : <div>Auto-refresh 2s</div>}
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 10, height: 8, background: 'rgba(0,0,0,0.08)', borderRadius: 999, overflow: 'hidden' }}>
+                        <div
+                          style={{
+                            width: `${livePct}%`,
+                            height: '100%',
+                            background: liveLooksStuck ? '#b42318' : '#067647',
+                            transition: 'width 0.4s ease',
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 8, fontSize: 12, fontWeight: 600 }}>
+                        <span>Stands: {liveStandsDone}/{liveStandsTotal || '—'}</span>
+                        <span>With email: {liveProgress?.stands_with_email ?? liveScrapeRun.stands_with_email ?? 0}</span>
+                        <span>Emails: {liveEmails}</span>
+                        <span>Errors: {liveProgress?.errors ?? 0}</span>
+                        <span>{livePct}%</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="ait-table-wrap">
                     <table className="ait-tbl ait-tbl-compact">
                       <thead>
@@ -1234,8 +1297,12 @@ export default function AiTeam() {
                               {run.error ? <div style={{ color: '#b42318', fontSize: 10, maxWidth: 160 }} title={run.error}>{run.error}</div> : null}
                             </td>
                             <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
-                            <td>{run.stands_found ?? run.item_count ?? 0}</td>
-                            <td>{run.emails_found ?? 0}</td>
+                            <td>
+                              {String(run.status || '').toUpperCase() === 'RUNNING'
+                                ? `${run.progress?.stands_done || 0}/${run.progress?.stands_total || run.stands_found || '…'}`
+                                : (run.stands_found ?? run.item_count ?? 0)}
+                            </td>
+                            <td>{run.emails_found ?? run.progress?.emails_found ?? 0}</td>
                             <td>{run.imported_count}</td>
                             <td>
                               <div className="ait-btn-row" style={{ margin: 0, flexWrap: 'nowrap' }}>
