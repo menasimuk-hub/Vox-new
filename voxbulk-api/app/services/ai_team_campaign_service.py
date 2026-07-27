@@ -1097,48 +1097,35 @@ class AiTeamCampaignService:
         db: Session,
         campaign_id: str,
         raw: bytes,
-        mapping: dict[str, str],
+        mapping: dict[str, str] | None = None,
+        *,
+        filename: str = "",
     ) -> dict[str, Any]:
+        from app.services.csv_column_auto_map import (
+            auto_map_headers,
+            parse_tabular_bytes,
+            rows_from_mapping,
+        )
+
         campaign = AiTeamCampaignService.get_campaign(db, campaign_id)
-        email_col = str(mapping.get("email") or "").strip()
-        if not email_col:
-            raise AiTeamServiceError("Map which column contains email")
-        from app.utils.text_decoding import decode_uploaded_text
-
-        text = decode_uploaded_text(raw)
-        reader = csv.DictReader(io.StringIO(text))
-
-        def col(name: str) -> str:
-            return str(mapping.get(name) or "").strip()
-
-        rows: list[dict[str, Any]] = []
-        for row in reader:
-            email = str(row.get(email_col) or "").strip().lower()
-            if not email or "@" not in email:
-                continue
-            rows.append(
-                {
-                    "email": email,
-                    "first_name": str(row.get(col("first_name")) or "").strip(),
-                    "last_name": str(row.get(col("last_name")) or "").strip(),
-                    "company_name": str(row.get(col("company_name")) or row.get(col("company")) or "").strip(),
-                    "event_name": str(
-                        row.get(col("event_name"))
-                        or row.get(col("event-name"))
-                        or row.get("event_name")
-                        or row.get("event-name")
-                        or row.get("Event Name")
-                        or ""
-                    ).strip(),
-                    "job_title": str(row.get(col("job_title")) or "").strip(),
-                    "sector": str(row.get(col("sector")) or "").strip().lower(),
-                    "country_code": str(row.get(col("country_code")) or row.get(col("country")) or "GB").strip(),
-                    "promo_code": str(row.get(col("promo_code")) or "").strip(),
-                }
+        headers, raw_rows = parse_tabular_bytes(raw, filename)
+        if not headers:
+            raise AiTeamServiceError("File has no header row")
+        auto = auto_map_headers(headers)
+        user_map = {k: str(v or "").strip() for k, v in (mapping or {}).items() if str(v or "").strip()}
+        # Prefer user overrides when provided; fill gaps from auto-detect
+        final_map = {**auto, **user_map}
+        if not final_map.get("email"):
+            raise AiTeamServiceError(
+                "Could not find an email column. Use a header like Email, E-mail, or Email Address."
             )
+        rows = rows_from_mapping(raw_rows, final_map)
         if not rows:
             raise AiTeamServiceError("No valid email rows found in the sheet")
-        return AiTeamCampaignService._upsert_recipient_rows(db, campaign, rows)
+        result = AiTeamCampaignService._upsert_recipient_rows(db, campaign, rows)
+        result["mapping_used"] = final_map
+        result["contacts_preview"] = rows[:50]
+        return result
 
     @staticmethod
     def import_from_scrape_run(db: Session, campaign_id: str, run_id: str) -> dict[str, Any]:

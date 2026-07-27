@@ -165,9 +165,13 @@ export default function ApifyOutreach() {
   const [csvFile, setCsvFile] = useState(null)
   const [csvDrag, setCsvDrag] = useState(false)
   const [csvHeaders, setCsvHeaders] = useState([])
-  const [csvPreviewRows, setCsvPreviewRows] = useState([])
+  const [csvContacts, setCsvContacts] = useState([])
   const [csvTotal, setCsvTotal] = useState(0)
   const [csvMapping, setCsvMapping] = useState({})
+  const [csvDetected, setCsvDetected] = useState({})
+  const [csvEmailOk, setCsvEmailOk] = useState(false)
+  const [csvMapOpen, setCsvMapOpen] = useState(false)
+  const [contactsModal, setContactsModal] = useState(null) // { title, rows }
 
   const [apifyExpoUrl, setApifyExpoUrl] = useState('')
   const [scrapeEngine, setScrapeEngine] = useState('auto')
@@ -398,34 +402,87 @@ export default function ApifyOutreach() {
     })
   }
 
+  const resetCsvUpload = () => {
+    setCsvFile(null)
+    setCsvHeaders([])
+    setCsvContacts([])
+    setCsvTotal(0)
+    setCsvMapping({})
+    setCsvDetected({})
+    setCsvEmailOk(false)
+    setCsvMapOpen(false)
+  }
+
   const parseCsvFile = async (file) => {
     if (!file) return
     setCsvFile(file)
     const fd = new FormData()
     fd.append('file', file)
     const data = await apiUpload('/admin/ai-team/import/csv/preview', fd)
+    const detected = data.detected_fields || data.suggested_mapping || {}
+    const mapping = Object.keys(detected).length ? detected : guessCsvMapping(data.headers || [])
     setCsvHeaders(data.headers || [])
-    setCsvPreviewRows(data.preview_rows || [])
-    setCsvTotal(data.total_rows || 0)
-    setCsvMapping(guessCsvMapping(data.headers || []))
+    setCsvContacts(data.contacts || [])
+    setCsvTotal(data.contacts_count ?? data.total_rows ?? 0)
+    setCsvMapping(mapping)
+    setCsvDetected(detected)
+    setCsvEmailOk(Boolean(data.email_detected || mapping.email))
+    setCsvMapOpen(!data.email_detected && !mapping.email)
+    if (!data.email_detected && !mapping.email) {
+      showBanner('err', 'Could not auto-detect email column — pick it under Fix columns')
+    }
   }
 
   const importCsvToCampaign = async () => {
-    if (!activeId || !csvFile || !csvMapping.email) {
-      showBanner('err', 'Select a campaign, upload a sheet, and map email')
+    if (!activeId || !csvFile) {
+      showBanner('err', 'Select a campaign and upload a sheet')
+      return
+    }
+    if (!csvMapping.email && !csvEmailOk) {
+      showBanner('err', 'No email column detected — open Fix columns and map Email')
       return
     }
     await act('csv', async () => {
       const fd = new FormData()
       fd.append('file', csvFile)
-      fd.append('mapping', JSON.stringify(csvMapping))
+      if (csvMapping && Object.keys(csvMapping).length) {
+        fd.append('mapping', JSON.stringify(csvMapping))
+      }
       const data = await apiUpload(`/admin/ai-team/campaigns/${activeId}/import/csv`, fd)
       showBanner('ok', `Added ${data.created || 0} (${data.skipped || 0} skipped)`)
-      setCsvFile(null)
-      setCsvHeaders([])
-      setCsvPreviewRows([])
+      resetCsvUpload()
       await loadCampaign(activeId)
       await loadCampaigns()
+    })
+  }
+
+  const openSheetContactsPreview = () => {
+    if (!csvContacts.length) {
+      showBanner('err', 'No contacts with valid emails in this file yet')
+      return
+    }
+    setContactsModal({
+      title: `Sheet preview · ${csvContacts.length} contact${csvContacts.length === 1 ? '' : 's'}`,
+      rows: csvContacts,
+    })
+  }
+
+  const openAudiencePreview = () => {
+    if (!recipients.length) {
+      showBanner('err', 'Audience is empty — import a sheet first')
+      return
+    }
+    setContactsModal({
+      title: `Audience · ${recipients.length} contact${recipients.length === 1 ? '' : 's'}`,
+      rows: recipients.map((r) => ({
+        email: r.email,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        company_name: r.company_name,
+        job_title: r.job_title,
+        event_name: r.event_name,
+        status: r.status,
+      })),
     })
   }
 
@@ -890,7 +947,12 @@ export default function ApifyOutreach() {
                   <div className="ait-card">
                     <div className="ait-card-hdr">
                       <span className="ait-card-title">3 · Audience · {campaign.total_count}</span>
-                      <button type="button" className="ait-btn danger xs" disabled={!recipients.length || campaign.status === 'sending'} onClick={clearAudience}>Clear</button>
+                      <div className="ait-btn-row" style={{ margin: 0, gap: 6 }}>
+                        <button type="button" className="ait-btn xs" disabled={!recipients.length} onClick={openAudiencePreview}>
+                          Preview contacts
+                        </button>
+                        <button type="button" className="ait-btn danger xs" disabled={!recipients.length || campaign.status === 'sending'} onClick={clearAudience}>Clear</button>
+                      </div>
                     </div>
                     <div className="ait-card-body">
                       <div
@@ -904,32 +966,115 @@ export default function ApifyOutreach() {
                         }}
                         onClick={() => document.getElementById('apify-campaign-csv')?.click()}
                       >
-                        <input id="apify-campaign-csv" type="file" accept=".csv,text/csv" style={{ display: 'none' }}
+                        <input
+                          id="apify-campaign-csv"
+                          type="file"
+                          accept=".csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                          style={{ display: 'none' }}
                           onChange={(e) => {
                             const f = e.target.files?.[0]
                             if (f) parseCsvFile(f).catch((err) => showBanner('err', err?.message || 'Parse failed'))
                           }}
                         />
-                        <div style={{ fontWeight: 600 }}>{csvFile ? csvFile.name : 'Drop Excel/CSV or click'}</div>
-                        <div style={{ fontSize: 12, color: 'var(--ait-text3)', marginTop: 6 }}>Save as CSV from Excel if needed</div>
+                        <div style={{ fontWeight: 600 }}>{csvFile ? csvFile.name : 'Drop Excel or CSV'}</div>
+                        <div style={{ fontSize: 12, color: 'var(--ait-text3)', marginTop: 6 }}>
+                          Columns auto-detected (name, email, company…) — no mapping needed
+                        </div>
                       </div>
                       {csvHeaders.length > 0 && (
-                        <>
-                          <div className="ait-fg-3" style={{ marginTop: 14 }}>
-                            {CSV_MAP_FIELDS.map((f) => (
-                              <div className="ait-field" key={f.key}>
-                                <label>{f.label}{f.required ? ' *' : ''}</label>
-                                <select value={csvMapping[f.key] || ''} onChange={(e) => setCsvMapping({ ...csvMapping, [f.key]: e.target.value })}>
-                                  <option value="">— skip —</option>
-                                  {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                                </select>
-                              </div>
-                            ))}
+                        <div style={{ marginTop: 14 }}>
+                          <div style={{ fontSize: 13, color: 'var(--ait-text2)', marginBottom: 8 }}>
+                            {csvEmailOk
+                              ? `Detected ${csvTotal} contact${csvTotal === 1 ? '' : 's'} with email`
+                              : 'Email column not found — use Fix columns'}
                           </div>
-                          <button type="button" className="ait-btn primary sm" disabled={!!busy || !csvMapping.email} onClick={importCsvToCampaign}>
-                            Add {csvTotal} rows
-                          </button>
-                        </>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                            {CSV_MAP_FIELDS.filter((f) => csvDetected[f.key] || csvMapping[f.key]).map((f) => (
+                              <span
+                                key={f.key}
+                                style={{
+                                  fontSize: 11,
+                                  padding: '3px 8px',
+                                  borderRadius: 6,
+                                  background: 'var(--ait-surface2, #f1f3f5)',
+                                  color: 'var(--ait-text2)',
+                                }}
+                              >
+                                {f.label}: <strong>{csvDetected[f.key] || csvMapping[f.key]}</strong>
+                              </span>
+                            ))}
+                            {!csvDetected.email && !csvMapping.email && (
+                              <span style={{ fontSize: 11, color: '#b42318' }}>Email not detected</span>
+                            )}
+                          </div>
+                          <div className="ait-btn-row">
+                            <button type="button" className="ait-btn sm" disabled={!csvContacts.length} onClick={openSheetContactsPreview}>
+                              Preview contacts
+                            </button>
+                            <button
+                              type="button"
+                              className="ait-btn primary sm"
+                              disabled={!!busy || (!csvMapping.email && !csvEmailOk)}
+                              onClick={importCsvToCampaign}
+                            >
+                              Add to audience ({csvTotal})
+                            </button>
+                            <button type="button" className="ait-btn ghost sm" onClick={() => setCsvMapOpen((v) => !v)}>
+                              {csvMapOpen ? 'Hide columns' : 'Fix columns'}
+                            </button>
+                            <button type="button" className="ait-btn ghost sm" onClick={resetCsvUpload}>Cancel</button>
+                          </div>
+                          {csvMapOpen && (
+                            <div className="ait-fg-3" style={{ marginTop: 14 }}>
+                              <p className="ait-hint" style={{ marginTop: 0 }}>Only needed if auto-detect got a column wrong.</p>
+                              {CSV_MAP_FIELDS.map((f) => (
+                                <div className="ait-field" key={f.key}>
+                                  <label>{f.label}{f.required ? ' *' : ''}</label>
+                                  <select
+                                    value={csvMapping[f.key] || ''}
+                                    onChange={(e) => {
+                                      const next = { ...csvMapping, [f.key]: e.target.value }
+                                      setCsvMapping(next)
+                                      setCsvEmailOk(Boolean(next.email))
+                                    }}
+                                  >
+                                    <option value="">— skip —</option>
+                                    {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
+                                  </select>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {recipients.length > 0 && (
+                        <div className="ait-table-wrap" style={{ marginTop: 16 }}>
+                          <table className="ait-table">
+                            <thead>
+                              <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Company</th>
+                                <th>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {recipients.slice(0, 8).map((r) => (
+                                <tr key={r.id}>
+                                  <td>{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
+                                  <td>{r.email}</td>
+                                  <td>{r.company_name || '—'}</td>
+                                  <td>{r.status || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {recipients.length > 8 && (
+                            <button type="button" className="ait-btn ghost xs" style={{ marginTop: 8 }} onClick={openAudiencePreview}>
+                              View all {recipients.length} contacts
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1581,6 +1726,45 @@ export default function ApifyOutreach() {
         </div>
       )}
 
+      {contactsModal && (
+        <div className="ait-modal-backdrop" onClick={() => setContactsModal(null)}>
+          <div className="ait-modal ait-modal-wide" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="ait-modal-hdr">
+              <h3>{contactsModal.title}</h3>
+              <button type="button" className="ait-btn ghost sm" onClick={() => setContactsModal(null)}>Close</button>
+            </div>
+            <div className="ait-table-wrap" style={{ overflow: 'auto', flex: 1, marginTop: 0 }}>
+              <table className="ait-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Company</th>
+                    <th>Job title</th>
+                    <th>Event</th>
+                    {contactsModal.rows.some((r) => r.status) ? <th>Status</th> : null}
+                  </tr>
+                </thead>
+                <tbody>
+                  {contactsModal.rows.map((r, i) => (
+                    <tr key={r.email || i}>
+                      <td>{i + 1}</td>
+                      <td>{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
+                      <td>{r.email || '—'}</td>
+                      <td>{r.company_name || '—'}</td>
+                      <td>{r.job_title || '—'}</td>
+                      <td>{r.event_name || '—'}</td>
+                      {contactsModal.rows.some((x) => x.status) ? <td>{r.status || '—'}</td> : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {howtoOpen && (
         <div className="ait-modal-backdrop" onClick={() => setHowtoOpen(false)}>
           <div className="ait-modal" onClick={(e) => e.stopPropagation()}>
@@ -1591,7 +1775,7 @@ export default function ApifyOutreach() {
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
               <li><strong>Sending</strong> — save From + SMTP to send, and IMAP to receive replies (SMTP alone cannot inbox).</li>
               <li><strong>Templates</strong> — paste HTML; on Save we inline CSS for Gmail/Outlook. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}. Prefer tables over flex/grid for mobile.</li>
-              <li><strong>Campaigns</strong> — name + event name → template → Excel (optional Event name column) → Preview → Send all.</li>
+              <li><strong>Campaigns</strong> — name + event name → template → drop Excel/CSV (auto-detects columns) → Preview contacts → Add → Preview email → Send all.</li>
               <li><strong>Tracking</strong> — Received + Refresh inbox (IMAP). Reply From must match an audience email; Send test registers that inbox.</li>
               <li><strong>Scrape</strong> — paste any exhibitor URL → Add to campaign.</li>
             </ol>

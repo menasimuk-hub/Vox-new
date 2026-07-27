@@ -202,7 +202,7 @@ async def csv_preview(
 ):
     try:
         raw = await file.read()
-        return AiTeamService.parse_csv_preview(raw)
+        return AiTeamService.parse_csv_preview(raw, filename=file.filename or "")
     except Exception as exc:
         raise _err(exc) from exc
 
@@ -210,18 +210,23 @@ async def csv_preview(
 @router.post("/import/csv")
 async def csv_import(
     file: UploadFile = File(...),
-    mapping: str = Form(...),
+    mapping: str = Form(""),
     db: Session = Depends(get_db),
     _admin: User = Depends(require_cap(CAP_AI_TEAM)),
 ):
     import json as _json
 
     try:
-        mapping_dict = _json.loads(mapping)
-        if not isinstance(mapping_dict, dict):
-            raise AiTeamServiceError("Invalid field mapping")
+        mapping_dict: dict = {}
+        raw_map = str(mapping or "").strip()
+        if raw_map:
+            mapping_dict = _json.loads(raw_map)
+            if not isinstance(mapping_dict, dict):
+                raise AiTeamServiceError("Invalid field mapping")
         raw = await file.read()
-        return AiTeamService.import_csv_prospects(db, raw, mapping_dict)
+        return AiTeamService.import_csv_prospects(
+            db, raw, mapping_dict, filename=file.filename or ""
+        )
     except Exception as exc:
         raise _err(exc) from exc
 
@@ -806,18 +811,23 @@ def clear_campaign_recipients(
 async def campaign_import_csv(
     campaign_id: str,
     file: UploadFile = File(...),
-    mapping: str = Form(...),
+    mapping: str = Form(""),
     db: Session = Depends(get_db),
     _admin: User = Depends(require_cap(CAP_AI_TEAM)),
 ):
     import json as _json
 
     try:
-        mapping_dict = _json.loads(mapping)
-        if not isinstance(mapping_dict, dict):
-            raise AiTeamServiceError("Invalid field mapping")
+        mapping_dict: dict = {}
+        raw_map = str(mapping or "").strip()
+        if raw_map:
+            mapping_dict = _json.loads(raw_map)
+            if not isinstance(mapping_dict, dict):
+                raise AiTeamServiceError("Invalid field mapping")
         raw = await file.read()
-        return AiTeamCampaignService.import_csv(db, campaign_id, raw, mapping_dict)
+        return AiTeamCampaignService.import_csv(
+            db, campaign_id, raw, mapping_dict, filename=file.filename or ""
+        )
     except Exception as exc:
         raise _err(exc) from exc
 

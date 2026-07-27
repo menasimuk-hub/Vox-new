@@ -667,21 +667,30 @@ class AiTeamService:
         return {"ok": True, "provider": "resend", "email_id": result.get("email_id")}
 
     @staticmethod
-    def parse_csv_preview(raw: bytes) -> dict[str, Any]:
-        from app.utils.text_decoding import decode_uploaded_text
+    def parse_csv_preview(raw: bytes, filename: str = "") -> dict[str, Any]:
+        from app.services.csv_column_auto_map import (
+            auto_map_headers,
+            parse_tabular_bytes,
+            rows_from_mapping,
+        )
 
-        text = decode_uploaded_text(raw)
-        reader = csv.DictReader(io.StringIO(text))
-        if not reader.fieldnames:
-            raise AiTeamServiceError("CSV has no header row")
-        headers = [str(h or "").strip() for h in reader.fieldnames if str(h or "").strip()]
-        rows: list[dict[str, str]] = []
-        total = 0
-        for row in reader:
-            total += 1
-            if len(rows) < 5:
-                rows.append({k: str(v or "").strip() for k, v in row.items()})
-        return {"headers": headers, "preview_rows": rows, "total_rows": total}
+        headers, raw_rows = parse_tabular_bytes(raw, filename)
+        if not headers:
+            raise AiTeamServiceError("File has no header row")
+        mapping = auto_map_headers(headers)
+        contacts = rows_from_mapping(raw_rows, mapping)
+        preview_raw = raw_rows[:8]
+        return {
+            "headers": headers,
+            "preview_rows": preview_raw,
+            "total_rows": len(raw_rows),
+            "suggested_mapping": mapping,
+            "contacts": contacts,
+            "contacts_count": len(contacts),
+            "email_detected": bool(mapping.get("email")),
+            "detected_fields": {k: v for k, v in mapping.items() if v},
+        }
+
 
     @staticmethod
     def import_prospect_rows(
@@ -838,36 +847,35 @@ class AiTeamService:
         return AiTeamService.import_prospect_rows(db, rows, source=source or "paste", apply_min_score=False)
 
     @staticmethod
-    def import_csv_prospects(db: Session, raw: bytes, mapping: dict[str, str]) -> dict[str, Any]:
-        email_col = str(mapping.get("email") or "").strip()
-        if not email_col:
-            raise AiTeamServiceError("Map which CSV column contains email")
-        from app.utils.text_decoding import decode_uploaded_text
+    def import_csv_prospects(
+        db: Session,
+        raw: bytes,
+        mapping: dict[str, str] | None = None,
+        *,
+        filename: str = "",
+    ) -> dict[str, Any]:
+        from app.services.csv_column_auto_map import (
+            auto_map_headers,
+            parse_tabular_bytes,
+            rows_from_mapping,
+        )
 
-        text = decode_uploaded_text(raw)
-        reader = csv.DictReader(io.StringIO(text))
-
-        def col(name: str) -> str:
-            return str(mapping.get(name) or "").strip()
-
-        rows: list[dict[str, Any]] = []
-        for row in reader:
-            email = str(row.get(email_col) or "").strip().lower()
-            if not email or "@" not in email:
-                continue
-            rows.append(
-                {
-                    "email": email,
-                    "first_name": str(row.get(col("first_name")) or "").strip(),
-                    "last_name": str(row.get(col("last_name")) or "").strip(),
-                    "company_name": str(row.get(col("company_name")) or row.get(col("company")) or "").strip(),
-                    "job_title": str(row.get(col("job_title")) or "").strip(),
-                    "sector": str(row.get(col("sector")) or "").strip().lower(),
-                    "country_code": str(row.get(col("country_code")) or row.get(col("country")) or "GB").strip().upper()[:8],
-                    "profile_json": dict(row),
-                }
+        headers, raw_rows = parse_tabular_bytes(raw, filename)
+        if not headers:
+            raise AiTeamServiceError("File has no header row")
+        auto = auto_map_headers(headers)
+        user_map = {k: str(v or "").strip() for k, v in (mapping or {}).items() if str(v or "").strip()}
+        final_map = {**auto, **user_map}
+        if not final_map.get("email"):
+            raise AiTeamServiceError(
+                "Could not find an email column. Use a header like Email, E-mail, or Email Address."
             )
-        return AiTeamService.import_prospect_rows(db, rows, source="csv", apply_min_score=False)
+        rows = rows_from_mapping(raw_rows, final_map)
+        if not rows:
+            raise AiTeamServiceError("No valid email rows found in the sheet")
+        result = AiTeamService.import_prospect_rows(db, rows, source="csv", apply_min_score=False)
+        result["mapping_used"] = final_map
+        return result
 
     @staticmethod
     def _infer_sector(job_title: str, company: str, configured: str) -> str:
