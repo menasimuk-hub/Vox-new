@@ -64,6 +64,7 @@ if str(ROOT) not in sys.path:
 
 REPORT_DIR = ROOT / "seed-data" / "customer-feedback" / "push-reports"
 STATE_DIR = REPORT_DIR / "chunk-state"
+COOLDOWN_REPORT = REPORT_DIR / "telnyx-cooldown-skips.jsonl"
 
 
 def _configure_stdio() -> None:
@@ -77,6 +78,43 @@ def _configure_stdio() -> None:
 
 def _log(msg: str, *, err: bool = False) -> None:
     print(msg, file=sys.stderr if err else sys.stdout, flush=True)
+
+
+def _is_category_deletion_cooldown(exc: BaseException) -> bool:
+    """Meta 2388025 — name locked after MARKETING delete; do not hard-stop the industry."""
+    from app.services.wa_template_meta_sync import (
+        META_ERROR_CATEGORY_DELETION_COOLDOWN,
+        META_SUBCODE_CATEGORY_DELETION_COOLDOWN,
+        parse_meta_error_from_provider_detail,
+    )
+
+    text = str(exc or "")
+    meta = parse_meta_error_from_provider_detail(text)
+    if meta.get("kind") == META_ERROR_CATEGORY_DELETION_COOLDOWN:
+        return True
+    try:
+        if int(meta.get("subcode") or 0) == META_SUBCODE_CATEGORY_DELETION_COOLDOWN:
+            return True
+    except (TypeError, ValueError):
+        pass
+    lower = text.lower()
+    return "2388025" in lower or (
+        "being deleted" in lower and ("4 weeks" in lower or "use marketing" in lower)
+    )
+
+
+def _record_cooldown_skip(*, industry_slug: str, topic_slug: str, language: str, template_key: str, error: str) -> None:
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    row = {
+        "at": _utc_now(),
+        "industry_slug": industry_slug,
+        "topic_slug": topic_slug,
+        "language": language,
+        "template_key": template_key,
+        "error": error[:800],
+    }
+    with COOLDOWN_REPORT.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def _utc_now() -> str:
@@ -173,6 +211,8 @@ def _push_lang_slice(
     force_meta: bool,
     force_backup: bool,
     meta_only: bool,
+    industry_slug: str = "",
+    topic_slug: str = "",
 ) -> dict:
     from app.services.customer_feedback.feedback_telnyx_push_service import (
         FeedbackTelnyxPushError,
@@ -189,6 +229,7 @@ def _push_lang_slice(
             "linked_primary": 0,
             "linked_backup": 0,
             "failed": 0,
+            "cooldown_skipped": 0,
             "errors": [],
             "has_more_langs": False,
             "next_lang_offset": start,
@@ -200,6 +241,7 @@ def _push_lang_slice(
         "linked_primary": 0,
         "linked_backup": 0,
         "failed": 0,
+        "cooldown_skipped": 0,
         "errors": [],
     }
 
@@ -238,11 +280,23 @@ def _push_lang_slice(
                 outcome = result.get("message") or ("dry-run" if dry_run else "ok")
                 _log(f"  [{label}] {lang} {name_hint}: {outcome}")
             except FeedbackTelnyxPushError as exc:
-                totals["failed"] += 1
-                err = {"language": lang, "template_key": name_hint, "profile": label, "error": str(exc)}
-                totals["errors"].append(err)
-                _log(f"  [{label}] FAIL {lang} {name_hint}: {exc}")
-                result = {}
+                if label == "Telnyx" and _is_category_deletion_cooldown(exc):
+                    totals["cooldown_skipped"] += 1
+                    _record_cooldown_skip(
+                        industry_slug=industry_slug,
+                        topic_slug=topic_slug,
+                        language=lang,
+                        template_key=name_hint,
+                        error=str(exc),
+                    )
+                    _log(f"  [{label}] COOLDOWN-SKIP {lang} {name_hint}: {exc}")
+                    result = {"skipped_push": True, "cooldown_skip": True}
+                else:
+                    totals["failed"] += 1
+                    err = {"language": lang, "template_key": name_hint, "profile": label, "error": str(exc)}
+                    totals["errors"].append(err)
+                    _log(f"  [{label}] FAIL {lang} {name_hint}: {exc}")
+                    result = {}
             if not dry_run:
                 pause = linked_delay_sec if result.get("skipped_push") or result.get("linked") else delay_sec
                 if pause > 0:
@@ -472,6 +526,8 @@ def main() -> int:
                     force_meta=bool(args.force_meta),
                     force_backup=bool(args.force_backup),
                     meta_only=meta_only,
+                    industry_slug=str(industry.slug or args.industry_slug or ""),
+                    topic_slug=str(topic.slug or ""),
                 )
                 topic_result["batches"].append(batch_result)
                 if batch_result.get("failed"):

@@ -137,6 +137,7 @@ from app.models.customer_feedback import (  # noqa: F401
     FeedbackPromoSend,
     FeedbackPromoWallet,
 )
+from app.models.feedback_wa_template_profile_status import FeedbackWaTemplateProfileStatus  # noqa: F401
 from app.models.expo import (  # noqa: F401
     ExpoBooth,
     ExpoBoothAsset,

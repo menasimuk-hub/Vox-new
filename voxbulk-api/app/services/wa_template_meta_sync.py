@@ -106,8 +106,11 @@ META_ERROR_LANGUAGE_UNSUPPORTED = "language_not_supported"
 META_ERROR_CONTENT_ALREADY_EXISTS = "content_already_exists"
 META_ERROR_MISSING_BODY_EXAMPLE = "missing_body_example"
 META_ERROR_CANNOT_UPDATE_CATEGORY = "cannot_update_category"
+META_ERROR_CATEGORY_DELETION_COOLDOWN = "category_deletion_cooldown"
 
 META_SUBCODE_LANGUAGE_DELETION_LOCK = 2388023
+# After deleting a language/category, Meta blocks recreating as a different category (~4 weeks).
+META_SUBCODE_CATEGORY_DELETION_COOLDOWN = 2388025
 META_SUBCODE_LANGUAGE_UNSUPPORTED = 2388049
 META_SUBCODE_CONTENT_ALREADY_EXISTS = 2388024
 META_SUBCODE_MISSING_BODY_EXAMPLE = 2388043
@@ -258,6 +261,8 @@ def parse_meta_error_from_provider_detail(detail: str | None) -> dict[str, Any]:
     subcode = out.get("subcode")
     if subcode == META_SUBCODE_LANGUAGE_DELETION_LOCK:
         out["kind"] = META_ERROR_LANGUAGE_DELETION_LOCK
+    elif subcode == META_SUBCODE_CATEGORY_DELETION_COOLDOWN:
+        out["kind"] = META_ERROR_CATEGORY_DELETION_COOLDOWN
     elif subcode == META_SUBCODE_LANGUAGE_UNSUPPORTED:
         out["kind"] = META_ERROR_LANGUAGE_UNSUPPORTED
     elif subcode == META_SUBCODE_CONTENT_ALREADY_EXISTS:
@@ -272,6 +277,10 @@ def parse_meta_error_from_provider_detail(detail: str | None) -> dict[str, Any]:
         out["kind"] = META_ERROR_CANNOT_UPDATE_CATEGORY
     elif "missing expected field(s) (example)" in text.lower():
         out["kind"] = META_ERROR_MISSING_BODY_EXAMPLE
+    elif "being deleted" in text.lower() and (
+        "try again in 4 weeks" in text.lower() or "use marketing" in text.lower()
+    ):
+        out["kind"] = META_ERROR_CATEGORY_DELETION_COOLDOWN
     elif "language is being deleted" in text.lower():
         out["kind"] = META_ERROR_LANGUAGE_DELETION_LOCK
     elif "language is not supported" in text.lower():

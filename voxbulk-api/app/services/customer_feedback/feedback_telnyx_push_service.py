@@ -320,13 +320,43 @@ def _extract_telnyx_error_detail(body: Any) -> str:
     return str(body)
 
 
-def _mark_template_submitted(db: Session, tpl: FeedbackWaTemplate) -> None:
+def _mark_template_submitted(
+    db: Session,
+    tpl: FeedbackWaTemplate,
+    *,
+    connection_profile_id: str | None = None,
+    service_code: str | None = "customer_feedback",
+) -> None:
+    """Update primary-row sync status only when pushing the primary profile.
+
+    Backup (Telnyx) mirrors must not rewrite the shared CF row status used by Admin/send.
+    """
+    from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+    pid = str(connection_profile_id or "").strip()
+    if pid and not WaTemplateProfilePushService.is_primary_profile(
+        db, pid, service_code=service_code or "customer_feedback"
+    ):
+        return
     now = datetime.utcnow()
     tpl.telnyx_sync_status = "submitted"
     tpl.updated_at = now
     db.add(tpl)
     db.commit()
     db.refresh(tpl)
+
+
+def _record_profile_ledger(db: Session, tpl: FeedbackWaTemplate, result: dict[str, Any]) -> None:
+    from app.services.customer_feedback.feedback_wa_template_profile_status_service import (
+        FeedbackWaTemplateProfileStatusService,
+    )
+
+    FeedbackWaTemplateProfileStatusService.upsert_from_push_result(
+        db,
+        feedback_template_id=str(tpl.id),
+        connection_profile_id=result.get("connection_profile_id"),
+        result=result,
+    )
 
 
 def map_remote_meta_status_to_local(remote_status: str | None) -> str:
@@ -493,8 +523,10 @@ def push_feedback_template_to_telnyx(
 
     existing_remote = find_remote_feedback_template(prefetched or [], name=name, language=language)
     if existing_remote and not force_push:
-        _mark_template_submitted(db, tpl)
-        return {
+        _mark_template_submitted(
+            db, tpl, connection_profile_id=connection_profile_id, service_code=service_code
+        )
+        out = {
             "ok": True,
             "linked": True,
             "skipped_push": True,
@@ -505,8 +537,11 @@ def push_feedback_template_to_telnyx(
             "language": language,
             "telnyx_record_id": existing_remote.get("id"),
             "telnyx_sync_status": tpl.telnyx_sync_status,
+            "connection_profile_id": connection_profile_id,
             "message": "Already on Meta for this language — linked, not re-created.",
         }
+        _record_profile_ledger(db, tpl, out)
+        return out
 
     from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
 
@@ -529,8 +564,10 @@ def push_feedback_template_to_telnyx(
             )
         except MetaWhatsappTemplateError as exc:
             raise FeedbackTelnyxPushError(str(exc), payload=getattr(exc, "payload", None)) from exc
-        _mark_template_submitted(db, tpl)
-        return {
+        _mark_template_submitted(
+            db, tpl, connection_profile_id=connection_profile_id, service_code=service_code
+        )
+        out = {
             "ok": True,
             "dry_run": False,
             "template_id": tpl.id,
@@ -540,8 +577,11 @@ def push_feedback_template_to_telnyx(
             "language": language,
             "telnyx_record_id": item.get("id"),
             "telnyx_sync_status": tpl.telnyx_sync_status,
+            "connection_profile_id": connection_profile_id,
             "message": "Template submitted to Meta for approval.",
         }
+        _record_profile_ledger(db, tpl, out)
+        return out
 
     if connection_profile_id:
         from app.services.connection.config_resolver import resolve_whatsapp_route_by_profile_id
@@ -593,6 +633,7 @@ def push_feedback_template_to_telnyx(
         "language": language,
         "waba_id": waba_id,
         "payload": payload,
+        "connection_profile_id": connection_profile_id,
     }
 
     response = _post_feedback_template_to_telnyx(api_key=api_key, payload=payload)
@@ -607,12 +648,15 @@ def push_feedback_template_to_telnyx(
         subcode = meta.get("subcode")
 
         if subcode == META_SUBCODE_CONTENT_ALREADY_EXISTS:
-            _mark_template_submitted(db, tpl)
+            _mark_template_submitted(
+                db, tpl, connection_profile_id=connection_profile_id, service_code=service_code
+            )
             result["ok"] = True
             result["linked"] = True
             result["skipped_push"] = True
             result["message"] = "Arabic content already exists on Meta for this template — treated as linked."
             result["telnyx_sync_status"] = tpl.telnyx_sync_status
+            _record_profile_ledger(db, tpl, result)
             return result
 
         if subcode == META_SUBCODE_CATEGORY_MISMATCH:
@@ -630,7 +674,12 @@ def push_feedback_template_to_telnyx(
                     detail_text = _extract_telnyx_error_detail(body)
                     meta = parse_meta_error_from_provider_detail(detail_text)
                     if meta.get("subcode") == META_SUBCODE_CONTENT_ALREADY_EXISTS:
-                        _mark_template_submitted(db, tpl)
+                        _mark_template_submitted(
+                            db,
+                            tpl,
+                            connection_profile_id=connection_profile_id,
+                            service_code=service_code,
+                        )
                         result["ok"] = True
                         result["linked"] = True
                         result["skipped_push"] = True
@@ -638,6 +687,7 @@ def push_feedback_template_to_telnyx(
                             "Category adjusted to match Meta; Arabic content already exists — linked."
                         )
                         result["telnyx_sync_status"] = tpl.telnyx_sync_status
+                        _record_profile_ledger(db, tpl, result)
                         return result
 
     if status_code >= 400:
@@ -646,7 +696,9 @@ def push_feedback_template_to_telnyx(
             payload=result,
         )
 
-    _mark_template_submitted(db, tpl)
+    _mark_template_submitted(
+        db, tpl, connection_profile_id=connection_profile_id, service_code=service_code
+    )
 
     record_id = None
     if isinstance(body, dict):
@@ -658,6 +710,7 @@ def push_feedback_template_to_telnyx(
     result["message"] = "Template submitted to Telnyx for Meta approval."
     result["telnyx_record_id"] = record_id
     result["telnyx_sync_status"] = tpl.telnyx_sync_status
+    _record_profile_ledger(db, tpl, result)
     return result
 
 
