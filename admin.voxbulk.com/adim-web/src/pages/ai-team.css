@@ -118,17 +118,66 @@
 }
 @media (max-width: 1200px) { .ai-team-page .ait-stats { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 640px) { .ai-team-page .ait-stats { grid-template-columns: repeat(2, 1fr); } }
+.ai-team-page .ait-stats-home { background: var(--ait-bg2); }
 .ai-team-page .ait-stat {
   background: var(--ait-bg2); border: 1px solid var(--ait-border);
   border-radius: var(--ait-r-lg); padding: 14px 16px;
   box-shadow: var(--ait-shadow);
+  text-align: left; width: 100%; color: inherit; font: inherit;
 }
+.ai-team-page .ait-stat-click {
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.ai-team-page .ait-stat-click:hover {
+  border-color: var(--ait-accent-border);
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.08);
+  transform: translateY(-1px);
+}
+.ai-team-page .ait-stat-click.active {
+  border-color: var(--ait-accent-border);
+  background: var(--ait-accent-dim);
+}
+.ai-team-page .ait-stat.tone-sent { border-left: 3px solid var(--ait-blue); }
+.ai-team-page .ait-stat.tone-opened { border-left: 3px solid var(--ait-green); }
+.ai-team-page .ait-stat.tone-clicked { border-left: 3px solid var(--ait-amber); }
+.ai-team-page .ait-stat.tone-received { border-left: 3px solid var(--ait-purple); }
+.ai-team-page .ait-stat.tone-inbox { border-left: 3px solid var(--ait-accent); }
+.ai-team-page .ait-stat.tone-pending { border-left: 3px solid var(--ait-text3); }
 .ai-team-page .ait-stat-lbl {
   font-size: 11px; color: var(--ait-text3); text-transform: uppercase;
   letter-spacing: .04em; margin-bottom: 6px; font-weight: 600;
 }
 .ai-team-page .ait-stat-val { font-size: 22px; font-weight: 600; line-height: 1; letter-spacing: -.03em; }
 .ai-team-page .ait-stat-sub { font-size: 11px; color: var(--ait-text3); margin-top: 4px; }
+
+.ai-team-page .ait-workflow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 28px; border-bottom: 1px solid var(--ait-border);
+  background: linear-gradient(180deg, #fff 0%, var(--ait-bg) 100%);
+}
+.ai-team-page .ait-workflow-step {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--ait-border); background: var(--ait-bg2);
+  color: var(--ait-text2); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.ai-team-page .ait-workflow-step:hover { border-color: var(--ait-accent-border); color: var(--ait-text); }
+.ai-team-page .ait-workflow-step.active {
+  border-color: var(--ait-accent-border); background: var(--ait-accent-dim); color: var(--ait-accent);
+}
+.ai-team-page .ait-workflow-n {
+  width: 16px; height: 16px; border-radius: 999px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+  background: var(--ait-bg4); color: var(--ait-text3);
+}
+.ai-team-page .ait-workflow-step.active .ait-workflow-n {
+  background: var(--ait-accent); color: #fff;
+}
+.ai-team-page .ait-workflow-arrow { color: var(--ait-text3); font-size: 12px; }
+.ai-team-page .ait-workflow-hint {
+  margin-left: auto; font-size: 11px; color: var(--ait-text3);
+}
 
 .ai-team-page .ait-tabs {
   display: flex; padding: 0 28px; border-bottom: 1px solid var(--ait-border);

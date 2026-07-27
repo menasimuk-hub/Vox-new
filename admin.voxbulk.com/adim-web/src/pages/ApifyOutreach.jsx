@@ -4,12 +4,28 @@ import { apiFetch, apiFetchBlob, apiUpload } from '../lib/api'
 import './ai-team.css'
 
 const TABS = [
-  { id: 'campaigns', label: 'Campaigns', icon: 'ti-send' },
-  { id: 'tracking', label: 'Tracking', icon: 'ti-chart-bar' },
-  { id: 'templates', label: 'Templates', icon: 'ti-template' },
-  { id: 'scrape', label: 'Scrape', icon: 'ti-world' },
-  { id: 'apify', label: 'Apify API', icon: 'ti-key' },
-  { id: 'sending', label: 'Sending', icon: 'ti-mail' },
+  { id: 'campaigns', label: 'Campaigns', icon: 'ti-send', group: 'Work' },
+  { id: 'scrape', label: 'Scrape', icon: 'ti-world', group: 'Work' },
+  { id: 'templates', label: 'Templates', icon: 'ti-template', group: 'Work' },
+  { id: 'tracking', label: 'Tracking', icon: 'ti-chart-bar', group: 'Results' },
+  { id: 'sending', label: 'Sending', icon: 'ti-mail', group: 'Setup' },
+  { id: 'apify', label: 'Apify API', icon: 'ti-key', group: 'Setup' },
+]
+
+const WORKFLOW_STEPS = [
+  { id: 'scrape', n: 1, label: 'Scrape contacts' },
+  { id: 'templates', n: 2, label: 'Edit template' },
+  { id: 'campaigns', n: 3, label: 'Create & send' },
+  { id: 'tracking', n: 4, label: 'Track results' },
+]
+
+const HOME_KPIS = [
+  { key: 'sent', label: 'Sent', filter: 'sent', tone: 'sent', hint: 'Emails delivered' },
+  { key: 'opened', label: 'Opened', filter: 'opened', tone: 'opened', hint: 'Pixel opens' },
+  { key: 'clicked', label: 'Clicked', filter: 'clicked', tone: 'clicked', hint: 'Link clicks' },
+  { key: 'received', label: 'Received', filter: 'received', tone: 'received', hint: 'Matched replies' },
+  { key: 'inbox', label: 'Inbox', filter: 'inbox', tone: 'inbox', hint: 'All IMAP mail' },
+  { key: 'pending', label: 'Pending', filter: 'pending', tone: 'pending', hint: 'Still in queue' },
 ]
 
 const CSV_MAP_FIELDS = [
@@ -174,6 +190,7 @@ export default function ApifyOutreach() {
   const [tplLiveHtml, setTplLiveHtml] = useState('')
 
   const [tracking, setTracking] = useState(null)
+  const [kpis, setKpis] = useState(null)
   const [trackingFilter, setTrackingFilter] = useState(() => searchParams.get('filter') || 'all')
   const [trackingQ, setTrackingQ] = useState('')
   const [trackingCampaignId, setTrackingCampaignId] = useState('')
@@ -264,6 +281,7 @@ export default function ApifyOutreach() {
     const qs = params.toString()
     const data = await apiFetch(`/admin/ai-team/tracking${qs ? `?${qs}` : ''}`)
     setTracking(data)
+    if (data?.summary) setKpis(data.summary)
     if (trackingFilter === 'unsub_list' || trackingFilter === 'unsubscribed') {
       try {
         const s = await apiFetch('/admin/ai-team/suppressions')
@@ -275,6 +293,28 @@ export default function ApifyOutreach() {
     return data
   }, [trackingFilter, trackingCampaignId, trackingQ])
 
+  const loadKpis = useCallback(async () => {
+    const data = await apiFetch('/admin/ai-team/tracking?limit=1')
+    if (data?.summary) setKpis(data.summary)
+    return data
+  }, [])
+
+  const openKpi = useCallback((filter) => {
+    setTrackingFilter(filter)
+    setTrackingCampaignId('')
+    setTab('tracking')
+    navigate(`/marketing/apify?tab=tracking&filter=${encodeURIComponent(filter)}`)
+  }, [navigate])
+
+  const goTab = useCallback((id) => {
+    setTab(id)
+    if (id === 'tracking') {
+      navigate(`/marketing/apify?tab=tracking&filter=${encodeURIComponent(trackingFilter || 'all')}`)
+    } else {
+      navigate(`/marketing/apify?tab=${encodeURIComponent(id)}`)
+    }
+  }, [navigate, trackingFilter])
+
   const loadBoot = useCallback(async () => {
     setLoading(true)
     try {
@@ -283,15 +323,20 @@ export default function ApifyOutreach() {
       const list = data.campaigns || []
       setCampaigns(list)
       setActiveId((prev) => prev || list[0]?.id || null)
-      await loadTemplates()
+      await Promise.all([loadTemplates(), loadKpis().catch(() => null)])
     } catch (e) {
       showBanner('err', e?.message || 'Could not load Apify hub')
     } finally {
       setLoading(false)
     }
-  }, [loadTemplates])
+  }, [loadTemplates, loadKpis])
 
   useEffect(() => { loadBoot() }, [loadBoot])
+  useEffect(() => {
+    if (isCampaignPage) return undefined
+    const id = window.setInterval(() => loadKpis().catch(() => {}), 20000)
+    return () => window.clearInterval(id)
+  }, [isCampaignPage, loadKpis])
   useEffect(() => {
     if (routeCampaignId) {
       setActiveId(routeCampaignId)
@@ -655,7 +700,7 @@ export default function ApifyOutreach() {
   const viewCampaignSent = (c) => {
     setTrackingFilter('sent')
     setTrackingCampaignId(c.id)
-    navigate('/marketing/apify')
+    navigate(`/marketing/apify?tab=tracking&filter=sent`)
     setTab('tracking')
   }
 
@@ -1015,7 +1060,7 @@ export default function ApifyOutreach() {
           <div className="ait-logo-mark">AP</div>
           <div>
             <div className="ait-page-title">Apify</div>
-            <div className="ait-page-sub">Templates · campaigns · scrape · send all</div>
+            <div className="ait-page-sub">Scrape → template → campaign → track</div>
           </div>
         </div>
         <div className="ait-topbar-right">
@@ -1029,14 +1074,57 @@ export default function ApifyOutreach() {
       {banner && <div className={`ait-msg-banner ${banner.type}`}>{banner.text}</div>}
 
       {!isCampaignPage && (
-        <div className="ait-tabs">
-          {TABS.map((t) => (
-            <button key={t.id} type="button" className={`ait-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
-              <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
-              {t.label}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="ait-workflow" aria-label="Suggested workflow">
+            {WORKFLOW_STEPS.map((s, i) => (
+              <React.Fragment key={s.id}>
+                {i > 0 && <span className="ait-workflow-arrow" aria-hidden>→</span>}
+                <button
+                  type="button"
+                  className={`ait-workflow-step ${tab === s.id ? 'active' : ''}`}
+                  onClick={() => goTab(s.id)}
+                >
+                  <span className="ait-workflow-n">{s.n}</span>
+                  {s.label}
+                </button>
+              </React.Fragment>
+            ))}
+            <span className="ait-workflow-hint">Setup: Sending · Apify API</span>
+          </div>
+
+          {tab !== 'tracking' && (
+            <div className="ait-stats ait-stats-home" aria-label="Outreach KPIs">
+              {HOME_KPIS.map((k) => {
+                const val = kpis?.[k.key]
+                return (
+                  <button
+                    key={k.key}
+                    type="button"
+                    className={`ait-stat ait-stat-click tone-${k.tone}`}
+                    onClick={() => openKpi(k.filter)}
+                    title={`Open ${k.label.toLowerCase()} list`}
+                  >
+                    <div className="ait-stat-lbl">{k.label}</div>
+                    <div className="ait-stat-val">{val == null ? '—' : val}</div>
+                    <div className="ait-stat-sub">{k.hint} · click to open</div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          <div className="ait-tabs">
+            {TABS.map((t) => (
+              <button key={t.id} type="button" className={`ait-tab ${tab === t.id ? 'active' : ''}`} onClick={() => goTab(t.id)}>
+                <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
+                {t.label}
+                {t.id === 'tracking' && Number(kpis?.inbox || 0) > 0 ? (
+                  <span className="ait-tab-badge">{kpis.inbox}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       <div className="ait-content">
@@ -1511,19 +1599,25 @@ export default function ApifyOutreach() {
 
         {tab === 'tracking' && (
           <div>
-            <div className="ait-stats" style={{ marginBottom: 14 }}>
+            <div className="ait-stats" style={{ marginBottom: 14, padding: 0, border: 'none', background: 'transparent' }}>
               {[
-                ['Sent', tracking?.summary?.sent ?? '—'],
-                ['Opened', tracking?.summary?.opened ?? '—'],
-                ['Clicked', tracking?.summary?.clicked ?? '—'],
-                ['Failed', tracking?.summary?.failed ?? '—'],
-                ['Pending', tracking?.summary?.pending ?? '—'],
-                ['Campaigns', tracking?.summary?.campaigns ?? '—'],
-              ].map(([label, val]) => (
-                <div className="ait-stat" key={label}>
+                ['Sent', tracking?.summary?.sent ?? kpis?.sent ?? '—', 'sent'],
+                ['Opened', tracking?.summary?.opened ?? kpis?.opened ?? '—', 'opened'],
+                ['Clicked', tracking?.summary?.clicked ?? kpis?.clicked ?? '—', 'clicked'],
+                ['Received', tracking?.summary?.received ?? kpis?.received ?? '—', 'received'],
+                ['Inbox', tracking?.summary?.inbox ?? kpis?.inbox ?? '—', 'inbox'],
+                ['Failed', tracking?.summary?.failed ?? kpis?.failed ?? '—', 'failed'],
+              ].map(([label, val, filter]) => (
+                <button
+                  type="button"
+                  className={`ait-stat ait-stat-click tone-${filter === 'failed' ? 'pending' : filter}${trackingFilter === filter ? ' active' : ''}`}
+                  key={label}
+                  onClick={() => openKpi(filter)}
+                >
                   <div className="ait-stat-lbl">{label}</div>
                   <div className="ait-stat-val">{val}</div>
-                </div>
+                  <div className="ait-stat-sub">Click to filter</div>
+                </button>
               ))}
             </div>
 
@@ -2407,11 +2501,12 @@ export default function ApifyOutreach() {
               <button type="button" className="ait-btn ghost sm" onClick={() => setHowtoOpen(false)}>Close</button>
             </div>
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
+              <li><strong>Top KPIs</strong> — Sent / Opened / Clicked / Received / Inbox. Click any tile to open that email list in Tracking.</li>
+              <li><strong>Workflow</strong> — Scrape contacts → Templates → Campaigns (Edit → send) → Tracking. Sending + Apify API are setup tabs.</li>
               <li><strong>Sending</strong> — save From + SMTP to send, and IMAP to receive replies (SMTP alone cannot inbox).</li>
-              <li><strong>Templates</strong> — paste HTML; on Save we inline CSS for Gmail/Outlook. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}. Prefer tables over flex/grid for mobile.</li>
-              <li><strong>Campaigns</strong> — table only. Edit opens campaign settings page. Scrape shows live status (READY = queued on Apify) with Force pause.</li>
-              <li><strong>Tracking</strong> — filter by campaign for Sent. <strong>Unsub list</strong> = DB table <code>ai_team_email_suppressions</code>.</li>
-              <li><strong>Scrape</strong> — paste any exhibitor URL → Add to campaign.</li>
+              <li><strong>Templates</strong> — paste HTML; on Save we inline CSS for Gmail/Outlook. Use {'{{trial_url}}'}, {'{{event-name}}'}, {'{{unsubscribe_url}}'}.</li>
+              <li><strong>Scrape</strong> — Auto picks the best engine: Easyfairs API, SPA+Supabase directories, HTML exhibitor crawl, or Apify actors. Not every website has public emails.</li>
+              <li><strong>Tracking</strong> — filter by status or campaign. <strong>Unsub list</strong> = DB suppressions.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>
               AI Team (sidebar) is the older approval-queue tool. This Apify page is template + bulk send.

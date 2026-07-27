@@ -919,6 +919,17 @@ class AiTeamCampaignService:
             sum_opened += int(c.opened_count or 0)
             sum_recipients += int(c.total_count or 0)
 
+        sum_received = int(
+            db.scalar(
+                select(func.count()).select_from(AiTeamCampaignRecipient).where(
+                    (AiTeamCampaignRecipient.replied_at.is_not(None))
+                    | (AiTeamCampaignRecipient.last_inbound_body.is_not(None))
+                )
+            )
+            or 0
+        )
+        inbox_total = int(db.scalar(select(func.count()).select_from(AiTeamInboundMessage)) or 0)
+
         stmt = (
             select(AiTeamCampaignRecipient, AiTeamCampaign.name)
             .join(AiTeamCampaign, AiTeamCampaign.id == AiTeamCampaignRecipient.campaign_id)
@@ -984,7 +995,8 @@ class AiTeamCampaignService:
                 "pending": sum_pending,
                 "clicked": sum_clicked,
                 "opened": sum_opened,
-                "inbox": len(inbox),
+                "received": sum_received,
+                "inbox": inbox_total,
             },
             "campaigns": campaign_dicts,
             "activity": activity,
