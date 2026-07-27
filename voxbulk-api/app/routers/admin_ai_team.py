@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,11 @@ def _err(exc: Exception) -> HTTPException:
 def get_dashboard(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     stats = AiTeamService.dashboard_stats(db)
     settings = AiTeamService.settings_to_dict(db, AiTeamService.get_settings(db))
-    pending = [AiTeamService.prospect_to_dict(db, p) for p in AiTeamService.list_prospects(db, status="pending")]
+    pending = [
+        AiTeamService.prospect_to_dict(db, p)
+        for p in AiTeamService.list_prospects(db)
+        if str(p.status or "").lower() in {"pending", "new"}
+    ]
     return {"stats": stats, "settings": settings, "queue": pending}
 
 
@@ -58,8 +62,77 @@ def list_prospects(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_cap(CAP_AI_TEAM)),
 ):
-    rows = AiTeamService.list_prospects(db, status=status, q=q, source=source)
+    if status in {"queue", "pending"}:
+        rows = [
+            r
+            for r in AiTeamService.list_prospects(db, q=q, source=source)
+            if str(r.status or "").lower() in {"pending", "new"}
+        ]
+    elif status == "engagement":
+        rows = [
+            r
+            for r in AiTeamService.list_prospects(db, q=q, source=source)
+            if str(r.status or "").lower() in {"sent", "opened", "replied", "converted"}
+        ]
+    elif status == "opened":
+        rows = [
+            r
+            for r in AiTeamService.list_prospects(db, q=q, source=source)
+            if r.opened_at or str(r.status or "").lower() in {"opened", "replied", "converted"}
+        ]
+    elif status == "replied":
+        rows = [
+            r
+            for r in AiTeamService.list_prospects(db, q=q, source=source)
+            if r.replied_at or str(r.status or "").lower() in {"replied", "converted"}
+        ]
+    else:
+        rows = AiTeamService.list_prospects(db, status=status, q=q, source=source)
     return {"prospects": [AiTeamService.prospect_to_dict(db, r) for r in rows]}
+
+
+@router.get("/prospects/export.csv")
+def export_prospects_csv(
+    status: str | None = None,
+    source: str | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        filename, body = AiTeamService.export_prospects_csv(db, status=status, source=source)
+    except Exception as exc:
+        raise _err(exc) from exc
+    return Response(
+        content=body.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.delete("/prospects")
+def purge_prospects(
+    body: dict[str, Any] | None = Body(default=None),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    """Hard-delete prospects. Body: { status: 'pending'|'queue'|... } or { statuses: [...] }."""
+    payload = body or {}
+    try:
+        return AiTeamService.purge_prospects(
+            db,
+            status=str(payload.get("status") or "pending"),
+            statuses=payload.get("statuses") if isinstance(payload.get("statuses"), list) else None,
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/prospects/{prospect_id}")
+def delete_prospect(prospect_id: str, db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
+    try:
+        return AiTeamService.delete_prospect(db, prospect_id)
+    except Exception as exc:
+        raise _err(exc) from exc
 
 
 @router.get("/prospects/{prospect_id}")

@@ -1132,6 +1132,134 @@ class AiTeamService:
         return prospect
 
     @staticmethod
+    def delete_prospect(db: Session, prospect_id: str) -> dict[str, Any]:
+        prospect = db.get(AiTeamProspect, prospect_id)
+        if prospect is None:
+            raise AiTeamServiceError("Prospect not found")
+        # Remove message rows first (no cascade guaranteed across DBs)
+        for msg in AiTeamService.list_messages(db, prospect_id):
+            db.delete(msg)
+        db.delete(prospect)
+        db.commit()
+        return {"ok": True, "deleted": 1, "id": prospect_id}
+
+    @staticmethod
+    def purge_prospects(
+        db: Session,
+        *,
+        status: str | None = "pending",
+        statuses: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Hard-delete prospects. Default: approval queue (pending + new)."""
+        wanted: list[str]
+        if statuses:
+            wanted = [str(s).strip().lower() for s in statuses if str(s).strip()]
+        elif status in {None, "", "queue", "pending"}:
+            wanted = ["pending", "new"]
+        else:
+            wanted = [str(status).strip().lower()]
+        if not wanted:
+            raise AiTeamServiceError("No status selected to purge")
+        rows = list(
+            db.execute(select(AiTeamProspect).where(AiTeamProspect.status.in_(wanted))).scalars().all()
+        )
+        deleted = 0
+        for row in rows:
+            for msg in AiTeamService.list_messages(db, row.id):
+                db.delete(msg)
+            db.delete(row)
+            deleted += 1
+        db.commit()
+        return {
+            "ok": True,
+            "deleted": deleted,
+            "statuses": wanted,
+            "message": f"Deleted {deleted} prospect(s)",
+        }
+
+    @staticmethod
+    def export_prospects_csv(
+        db: Session,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+    ) -> tuple[str, str]:
+        if status in {"queue", "pending"}:
+            rows = [
+                r
+                for r in AiTeamService.list_prospects(db, source=source)
+                if str(r.status or "").lower() in {"pending", "new"}
+            ]
+            label = "queue"
+        elif status == "engagement":
+            rows = [
+                r
+                for r in AiTeamService.list_prospects(db, source=source)
+                if str(r.status or "").lower() in {"sent", "opened", "replied", "converted"}
+            ]
+            label = "engagement"
+        elif status == "opened":
+            rows = [
+                r
+                for r in AiTeamService.list_prospects(db, source=source)
+                if r.opened_at or str(r.status or "").lower() in {"opened", "replied", "converted"}
+            ]
+            label = "opened"
+        elif status == "replied":
+            rows = [
+                r
+                for r in AiTeamService.list_prospects(db, source=source)
+                if r.replied_at or str(r.status or "").lower() in {"replied", "converted"}
+            ]
+            label = "replied"
+        else:
+            rows = AiTeamService.list_prospects(db, status=status, source=source)
+            label = status or "all"
+        if not rows:
+            raise AiTeamServiceError("No prospects to export")
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            [
+                "email",
+                "first_name",
+                "last_name",
+                "company_name",
+                "job_title",
+                "status",
+                "source",
+                "sector",
+                "promo_code",
+                "draft_subject",
+                "sent_at",
+                "opened_at",
+                "replied_at",
+                "match_score",
+            ]
+        )
+        for r in rows:
+            d = AiTeamService.prospect_to_dict(db, r)
+            writer.writerow(
+                [
+                    d.get("email") or "",
+                    d.get("first_name") or "",
+                    d.get("last_name") or "",
+                    d.get("company_name") or "",
+                    d.get("job_title") or "",
+                    d.get("status") or "",
+                    d.get("source") or "",
+                    d.get("sector") or "",
+                    d.get("promo_code") or "",
+                    d.get("draft_subject") or "",
+                    d.get("sent_at") or "",
+                    d.get("opened_at") or "",
+                    d.get("replied_at") or "",
+                    d.get("match_score") or "",
+                ]
+            )
+        return f"ai-team-{label}.csv", "\ufeff" + buf.getvalue()
+
+    @staticmethod
     def regenerate_draft(db: Session, prospect_id: str) -> AiTeamProspect:
         prospect = db.get(AiTeamProspect, prospect_id)
         if prospect is None:

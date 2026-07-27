@@ -38,6 +38,7 @@ function guessCsvMapping(headers) {
 
 const TABS = [
   { id: 'queue', label: 'Approval queue', icon: 'ti-mail' },
+  { id: 'tracking', label: 'Sent / Tracking', icon: 'ti-eye' },
   { id: 'prospects', label: 'Prospects', icon: 'ti-users' },
   { id: 'replies', label: 'Replies', icon: 'ti-messages' },
   { id: 'search', label: 'Search & email', icon: 'ti-adjustments-horizontal' },
@@ -45,6 +46,7 @@ const TABS = [
   { id: 'promo', label: 'Promo codes', icon: 'ti-tag' },
   { id: 'analytics', label: 'Analytics', icon: 'ti-chart-bar' },
   { id: 'api', label: 'API settings', icon: 'ti-settings' },
+  { id: 'howto', label: 'How to use', icon: 'ti-book' },
 ]
 
 const APIFY_SUB_TABS = [
@@ -144,6 +146,9 @@ export default function AiTeam() {
   const [csvMapping, setCsvMapping] = useState({})
   const [emailPreview, setEmailPreview] = useState(null)
   const [templatePreview, setTemplatePreview] = useState(null)
+  const [queueView, setQueueView] = useState('cards') // cards | list
+  const [trackingFilter, setTrackingFilter] = useState('engagement') // engagement | sent | opened | replied
+  const [trackingRows, setTrackingRows] = useState([])
 
   const showBanner = (type, text) => {
     setBanner({ type, text })
@@ -171,6 +176,16 @@ export default function AiTeam() {
       setProspects(data.prospects || [])
     } catch (e) {
       showBanner('err', e?.message || 'Could not load prospects')
+    }
+  }, [])
+
+  const loadTracking = useCallback(async (filter) => {
+    try {
+      const status = filter || 'engagement'
+      const data = await apiFetch(`/admin/ai-team/prospects?status=${encodeURIComponent(status)}`)
+      setTrackingRows(data.prospects || [])
+    } catch (e) {
+      showBanner('err', e?.message || 'Could not load tracking')
     }
   }, [])
 
@@ -216,11 +231,12 @@ export default function AiTeam() {
 
   useEffect(() => {
     if (tab === 'prospects') loadProspects(prospectSource)
+    if (tab === 'tracking') loadTracking(trackingFilter)
     if (tab === 'replies') loadReplies()
     if (tab === 'promo') loadPromo()
     if (tab === 'analytics') loadAnalytics()
     if (tab === 'apify' && apifySubTab === 'scrape') loadApifyRuns()
-  }, [tab, apifySubTab, prospectSource, loadProspects, loadReplies, loadPromo, loadAnalytics, loadApifyRuns])
+  }, [tab, apifySubTab, prospectSource, trackingFilter, loadProspects, loadTracking, loadReplies, loadPromo, loadAnalytics, loadApifyRuns])
 
   // Auto-poll while any scrape run is still RUNNING (faster for live progress)
   useEffect(() => {
@@ -282,6 +298,7 @@ export default function AiTeam() {
       await fn()
       await loadDashboard()
       if (tab === 'prospects') await loadProspects(prospectSource)
+      if (tab === 'tracking') await loadTracking(trackingFilter)
       if (tab === 'replies') await loadReplies()
       if (tab === 'apify') await loadApifyRuns()
     } catch (e) {
@@ -289,6 +306,46 @@ export default function AiTeam() {
     } finally {
       setBusy('')
     }
+  }
+
+  const exportProspects = async (status, filename) => {
+    await act(`export-${status}`, async () => {
+      const blob = await apiFetchBlob(`/admin/ai-team/prospects/export.csv?status=${encodeURIComponent(status)}`)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || `ai-team-${status}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      showBanner('ok', 'Excel/CSV download started')
+    })
+  }
+
+  const deleteProspect = async (prospectId) => {
+    if (!window.confirm('Permanently delete this prospect and their messages?')) return
+    await act(`del-${prospectId}`, async () => {
+      await apiFetch(`/admin/ai-team/prospects/${prospectId}`, { method: 'DELETE' })
+      setEmailPreview((prev) => (prev?.prospect?.id === prospectId ? null : prev))
+      setDrawer((prev) => (prev?.id === prospectId ? null : prev))
+      showBanner('ok', 'Prospect deleted')
+    })
+  }
+
+  const purgeQueue = async () => {
+    if (!queue.length) {
+      showBanner('err', 'Approval queue is empty')
+      return
+    }
+    if (!window.confirm(`Permanently delete all ${queue.length} draft(s) in the approval queue? This cannot be undone.`)) return
+    await act('purge-queue', async () => {
+      const data = await apiFetch('/admin/ai-team/prospects', {
+        method: 'DELETE',
+        body: JSON.stringify({ status: 'queue' }),
+      })
+      showBanner('ok', data.message || `Deleted ${data.deleted || 0} prospect(s)`)
+    })
   }
 
   const saveSettings = async (partial = {}) => {
@@ -605,47 +662,52 @@ export default function AiTeam() {
   const ProspectCard = ({ p, showActions = true }) => (
     <div className="ait-pcard" key={p.id}>
       <div className="ait-pcard-top">
-        <div className="ait-avatar b-prop">{initials(p.full_name)}</div>
-        <div style={{ flex: 1 }}>
+        <div className="ait-avatar b-prop">{initials(p.full_name || p.email)}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            <strong>{p.full_name}</strong>
+            <strong>{p.full_name || p.email}</strong>
             <span className={`ait-badge ${sectorClass(p.sector)}`}>{p.sector || 'General'}</span>
             <span className={`ait-badge ${statusBadge(p.status)}`}>{p.status}</span>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 2 }}>
-            {p.job_title} — {p.company_name} · {p.email} · {p.country_code}
+          <div style={{ fontSize: 12, color: 'var(--ait-text3)', marginTop: 2 }}>
+            {[p.job_title, p.company_name, p.email, p.country_code].filter(Boolean).join(' · ')}
           </div>
-          <div style={{ fontSize: 11, marginTop: 6 }}>
-            Match <strong style={{ color: p.match_score >= 80 ? 'var(--ait-green)' : 'var(--ait-amber)' }}>{p.match_score}</strong>
+          <div style={{ fontSize: 12, marginTop: 6 }}>
+            Match <strong style={{ color: p.match_score >= 80 ? 'var(--ait-green)' : 'var(--ait-amber)' }}>{p.match_score ?? '—'}</strong>
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           {p.promo_code && <div className="ait-promo-pill">{p.promo_code}</div>}
-          <div style={{ fontSize: 10, color: 'var(--ait-text3)', marginTop: 4 }}>{p.source || 'apollo'}</div>
+          <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }}>{p.source || '—'}</div>
         </div>
       </div>
       {(p.draft_subject || p.draft_body) && (
         <div className="ait-pcard-body">
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{p.draft_subject}</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>{p.draft_subject || '(no subject)'}</div>
+          {p.draft_body && <div className="ait-email-snippet">{p.draft_body}</div>}
           {showActions && (
             <div className="ait-btn-row">
               <button type="button" className="ait-btn sm" onClick={() => openProspectPreview(p)}>
-                Preview email
+                View email
               </button>
               <button type="button" className="ait-btn success sm" disabled={busy === p.id}
                 onClick={() => act(p.id, () => apiFetch(`/admin/ai-team/prospects/${p.id}/approve`, { method: 'POST' }))}>
                 Approve & send
               </button>
               <button type="button" className="ait-btn sm" onClick={() => setEditDraft({ id: p.id, subject: p.draft_subject, body: p.draft_body })}>Edit</button>
-              <button type="button" className="ait-btn sm" disabled={busy === p.id}
+              <button type="button" className="ait-btn sm" disabled={busy === `reg-${p.id}`}
                 onClick={() => act(`reg-${p.id}`, () => apiFetch(`/admin/ai-team/prospects/${p.id}/regenerate`, { method: 'POST' }))}>
                 Regenerate
               </button>
-              <button type="button" className="ait-btn danger sm" disabled={busy === p.id}
+              <button type="button" className="ait-btn sm" disabled={busy === `rej-${p.id}`}
                 onClick={() => act(`rej-${p.id}`, () => apiFetch(`/admin/ai-team/prospects/${p.id}/reject`, { method: 'POST' }))}>
                 Reject
               </button>
-              <span style={{ fontSize: 10, color: 'var(--ait-text3)', marginLeft: 'auto' }}>
+              <button type="button" className="ait-btn danger sm" disabled={busy === `del-${p.id}`}
+                onClick={() => deleteProspect(p.id)}>
+                Delete
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--ait-text3)', marginLeft: 'auto' }}>
                 {timeAgo(p.drafted_at)} · <button type="button" className="ait-btn ghost xs" onClick={() => openDrawer(p)}>Profile →</button>
               </span>
             </div>
@@ -667,16 +729,21 @@ export default function AiTeam() {
     <div className="ai-team-page">
       <div className="ait-topbar">
         <div className="ait-topbar-left">
+          <div className="ait-logo-mark">AI</div>
           <div>
-            <div className="ait-page-title">AI Team — Sales Agent</div>
-            <div className="ait-page-sub">Semi-automatic outreach · Apify + Apollo + SMTP/Resend + DeepSeek</div>
+            <div className="ait-page-title">AI Team</div>
+            <div className="ait-page-sub">Scrape → draft → approve → send → track opens & replies</div>
           </div>
+          <div className="ait-sep" />
           <div className="ait-agent-pill">
             <span className="ait-pulse" />
-            {settings.agent_paused ? 'Paused' : 'Active'}
+            {settings.agent_paused ? 'Paused' : 'Live'}
           </div>
         </div>
         <div className="ait-topbar-right">
+          <button type="button" className="ait-btn ghost sm" onClick={() => setTab('howto')}>
+            How to use
+          </button>
           <button type="button" className="ait-btn ghost sm" disabled={!!busy}
             onClick={() => act('run', () => apiFetch('/admin/ai-team/agent/run', { method: 'POST' }))}>
             Run agent
@@ -706,7 +773,9 @@ export default function AiTeam() {
           <button key={t.id} type="button" className={`ait-tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
             <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
             {t.label}
-            {t.id === 'queue' && stats.pending_approval > 0 && <span className="ait-tab-badge">{stats.pending_approval}</span>}
+            {t.id === 'queue' && (stats.pending_approval > 0 || queue.length > 0) && (
+              <span className="ait-tab-badge">{stats.pending_approval || queue.length}</span>
+            )}
             {t.id === 'replies' && stats.replied_count > 0 && <span className="ait-tab-badge">{stats.replied_count}</span>}
           </button>
         ))}
@@ -715,19 +784,235 @@ export default function AiTeam() {
       <div className="ait-content">
         {tab === 'queue' && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ color: 'var(--ait-text3)', fontSize: 12 }}>{queue.length} awaiting approval</span>
-              <button type="button" className="ait-btn primary sm" disabled={!queue.length || !!busy}
-                onClick={() => act('approve-all', () => apiFetch('/admin/ai-team/prospects/approve-all', { method: 'POST' }))}>
-                Approve all {queue.length}
-              </button>
+            <div className="ait-toolbar">
+              <div className="ait-toolbar-left">
+                <span className="ait-toolbar-meta">{queue.length} awaiting approval</span>
+                <div className="ait-seg" role="group" aria-label="Queue view">
+                  <button type="button" className={queueView === 'cards' ? 'active' : ''} onClick={() => setQueueView('cards')}>Cards</button>
+                  <button type="button" className={queueView === 'list' ? 'active' : ''} onClick={() => setQueueView('list')}>List</button>
+                </div>
+              </div>
+              <div className="ait-toolbar-right">
+                <button type="button" className="ait-btn sm" disabled={!queue.length || !!busy}
+                  onClick={() => exportProspects('queue', 'ai-team-approval-queue.csv')}>
+                  Export Excel
+                </button>
+                <button type="button" className="ait-btn danger sm" disabled={!queue.length || busy === 'purge-queue'}
+                  onClick={purgeQueue}>
+                  Delete all
+                </button>
+                <button type="button" className="ait-btn primary sm" disabled={!queue.length || !!busy}
+                  onClick={() => act('approve-all', () => apiFetch('/admin/ai-team/prospects/approve-all', { method: 'POST' }))}>
+                  Approve & send all ({queue.length})
+                </button>
+              </div>
             </div>
             {queue.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 48, color: 'var(--ait-text3)' }}>
-                No drafts in queue. Run a search or configure Apollo in API settings.
+              <div className="ait-empty">
+                <strong>No drafts in the queue</strong>
+                Scrape an expo directory (Apify tab), import emails, or run Apollo search — drafts land here for approval before send.
               </div>
-            ) : queue.map((p) => <ProspectCard key={p.id} p={p} />)}
+            ) : queueView === 'list' ? (
+              <div className="ait-card">
+                <div className="ait-table-wrap">
+                  <table className="ait-tbl">
+                    <thead>
+                      <tr>
+                        <th>Prospect</th>
+                        <th>Company</th>
+                        <th>Subject</th>
+                        <th>Promo</th>
+                        <th>Drafted</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {queue.map((p) => (
+                        <tr key={p.id}>
+                          <td>
+                            <strong>{p.full_name || p.email}</strong>
+                            <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{p.email}</div>
+                          </td>
+                          <td>{p.company_name || '—'}</td>
+                          <td className="ait-ellipsis" title={p.draft_subject || ''}>{p.draft_subject || '—'}</td>
+                          <td>{p.promo_code ? <span className="ait-promo-pill">{p.promo_code}</span> : '—'}</td>
+                          <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(p.drafted_at)}</td>
+                          <td>
+                            <div className="ait-btn-row" style={{ marginTop: 0, justifyContent: 'flex-end' }}>
+                              <button type="button" className="ait-btn xs" onClick={() => openProspectPreview(p)}>View</button>
+                              <button type="button" className="ait-btn success xs" disabled={busy === p.id}
+                                onClick={() => act(p.id, () => apiFetch(`/admin/ai-team/prospects/${p.id}/approve`, { method: 'POST' }))}>
+                                Send
+                              </button>
+                              <button type="button" className="ait-btn danger xs" disabled={busy === `del-${p.id}`}
+                                onClick={() => deleteProspect(p.id)}>×</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              queue.map((p) => <ProspectCard key={p.id} p={p} />)
+            )}
           </>
+        )}
+
+        {tab === 'tracking' && (
+          <>
+            <div className="ait-toolbar">
+              <div className="ait-toolbar-left">
+                <span className="ait-toolbar-meta">Who opened · who replied</span>
+                <div className="ait-seg" role="group" aria-label="Tracking filter">
+                  {[
+                    { id: 'engagement', label: 'All sent' },
+                    { id: 'opened', label: 'Opened' },
+                    { id: 'replied', label: 'Replied' },
+                    { id: 'sent', label: 'Sent only' },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      className={trackingFilter === f.id ? 'active' : ''}
+                      onClick={() => setTrackingFilter(f.id)}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="ait-toolbar-right">
+                <button type="button" className="ait-btn sm" disabled={!trackingRows.length || !!busy}
+                  onClick={() => exportProspects(trackingFilter, `ai-team-${trackingFilter}.csv`)}>
+                  Export Excel
+                </button>
+                <button type="button" className="ait-btn sm" onClick={() => loadTracking(trackingFilter)}>
+                  Refresh
+                </button>
+              </div>
+            </div>
+            <div className="ait-card">
+              <div className="ait-table-wrap">
+                <table className="ait-tbl">
+                  <thead>
+                    <tr>
+                      <th>Prospect</th>
+                      <th>Company</th>
+                      <th>Status</th>
+                      <th>Sent</th>
+                      <th>Opened</th>
+                      <th>Replied</th>
+                      <th>Subject</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trackingRows.map((p) => (
+                      <tr key={p.id}>
+                        <td>
+                          <strong>{p.full_name || p.email}</strong>
+                          <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{p.email}</div>
+                        </td>
+                        <td>{p.company_name || '—'}</td>
+                        <td><span className={`ait-badge ${statusBadge(p.status)}`}>{p.status}</span></td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(p.sent_at)}</td>
+                        <td style={{ fontSize: 12, color: p.opened_at ? 'var(--ait-purple)' : 'var(--ait-text3)' }}>
+                          {p.opened_at ? timeAgo(p.opened_at) : '—'}
+                        </td>
+                        <td style={{ fontSize: 12, color: p.replied_at ? 'var(--ait-green)' : 'var(--ait-text3)' }}>
+                          {p.replied_at ? timeAgo(p.replied_at) : '—'}
+                        </td>
+                        <td className="ait-ellipsis" title={p.draft_subject || ''}>{p.draft_subject || '—'}</td>
+                        <td>
+                          <div className="ait-btn-row" style={{ marginTop: 0, justifyContent: 'flex-end' }}>
+                            <button type="button" className="ait-btn xs" onClick={() => openProspectPreview(p)}>Email</button>
+                            <button type="button" className="ait-btn xs" onClick={() => openDrawer(p)}>Profile</button>
+                            {(p.replied_at || p.status === 'replied') && (
+                              <button type="button" className="ait-btn xs" onClick={() => { setTab('replies'); selectThread(p) }}>Thread</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!trackingRows.length && (
+                      <tr>
+                        <td colSpan={8} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 32 }}>
+                          No tracked emails yet — approve drafts from the queue to start sending.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+
+        {tab === 'howto' && (
+          <div className="ait-howto">
+            <div className="ait-howto-step">
+              <h3><span className="ait-howto-num">1</span> Connect sending</h3>
+              <ol>
+                <li>Open <strong>Apify → SMTP</strong> (or API settings) and save SMTP / Resend.</li>
+                <li>Send a test email to yourself.</li>
+                <li>Optional: set writing tone under <strong>Apify → AI</strong>.</li>
+              </ol>
+            </div>
+            <div className="ait-howto-step">
+              <h3><span className="ait-howto-num">2</span> Scrape expo emails</h3>
+              <ol>
+                <li>Go to <strong>Apify → Scrape</strong>.</li>
+                <li>Paste the exhibitor directory URL (e.g. London Packaging Week).</li>
+                <li>Tick <strong>Also scrape company websites</strong> for more emails.</li>
+                <li>Click <strong>Scrape</strong> and wait for SUCCEEDED (live progress updates).</li>
+                <li>Use <strong>View</strong> / <strong>Export Excel</strong>, then <strong>Import</strong>.</li>
+              </ol>
+            </div>
+            <div className="ait-howto-step">
+              <h3><span className="ait-howto-num">3</span> Approve & send</h3>
+              <ol>
+                <li>Imported rows become drafts in <strong>Approval queue</strong>.</li>
+                <li><strong>View email</strong> shows the full HTML; Edit / Regenerate as needed.</li>
+                <li><strong>Approve & send</strong> one row, or <strong>Approve & send all</strong>.</li>
+                <li><strong>Delete</strong> removes one; <strong>Delete all</strong> clears the whole queue.</li>
+                <li><strong>Export Excel</strong> downloads the queue as CSV (opens in Excel).</li>
+              </ol>
+            </div>
+            <div className="ait-howto-step">
+              <h3><span className="ait-howto-num">4</span> Track engagement</h3>
+              <ol>
+                <li><strong>Sent / Tracking</strong> lists who was emailed, opened, or replied.</li>
+                <li>Filter: All sent · Opened · Replied · Sent only.</li>
+                <li><strong>Replies</strong> is the inbox for conversation threads.</li>
+                <li>Stats strip at the top shows open rate, reply rate, and conversions.</li>
+              </ol>
+            </div>
+            <div className="ait-howto-step">
+              <h3><span className="ait-howto-num">5</span> Other intake</h3>
+              <ul>
+                <li><strong>Search & email</strong> — paste emails / CSV / Apollo search.</li>
+                <li><strong>Prospects</strong> — full pipeline table (all statuses).</li>
+                <li><strong>Promo codes</strong> — codes attached to outreach.</li>
+                <li>Nothing sends until you approve (unless auto-send is enabled in settings).</li>
+              </ul>
+            </div>
+            <div className="ait-howto-step">
+              <h3><span className="ait-howto-num">!</span> Tips</h3>
+              <ul>
+                <li>Scrape jobs run on Celery — if status sticks on RUNNING with no heartbeat, check workers on the VPS.</li>
+                <li>Reject keeps a rejected status; Delete removes the row permanently.</li>
+                <li>Open tracking needs pixel / provider open events configured on your mail path.</li>
+              </ul>
+              <p style={{ marginTop: 12 }}>
+                Need the scrape tab now?{' '}
+                <button type="button" className="ait-btn primary sm" onClick={() => { setTab('apify'); setApifySubTab('scrape') }}>
+                  Open Scrape
+                </button>
+              </p>
+            </div>
+          </div>
         )}
 
         {tab === 'prospects' && (
@@ -1720,7 +2005,7 @@ export default function AiTeam() {
               </button>
               <button
                 type="button"
-                className="ait-btn danger"
+                className="ait-btn"
                 disabled={busy === `rej-${emailPreview.prospect?.id}`}
                 onClick={() => act(`rej-${emailPreview.prospect.id}`, async () => {
                   await apiFetch(`/admin/ai-team/prospects/${emailPreview.prospect.id}/reject`, { method: 'POST' })
@@ -1729,6 +2014,14 @@ export default function AiTeam() {
                 })}
               >
                 Reject
+              </button>
+              <button
+                type="button"
+                className="ait-btn danger"
+                disabled={busy === `del-${emailPreview.prospect?.id}`}
+                onClick={() => deleteProspect(emailPreview.prospect.id)}
+              >
+                Delete
               </button>
             </div>
           </div>
