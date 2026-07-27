@@ -709,6 +709,23 @@ def apply_campaign_template(
 # ── Campaigns (bulk outreach) ───────────────────────────────────────────────
 
 
+@router.get("/tracking")
+def tracking_overview(
+    status: str | None = None,
+    campaign_id: str | None = None,
+    q: str | None = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.tracking_overview(
+            db, status=status, campaign_id=campaign_id, q=q, limit=limit
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.get("/campaigns")
 def list_campaigns(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     return {"campaigns": [AiTeamCampaignService.campaign_to_dict(c) for c in AiTeamCampaignService.list_campaigns(db)]}

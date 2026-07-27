@@ -281,6 +281,7 @@ class AiTeamCampaignService:
             "sent_count": int(row.sent_count or 0),
             "failed_count": int(row.failed_count or 0),
             "opened_count": int(row.opened_count or 0),
+            "clicked_count": int(getattr(row, "_clicked_count", 0) or 0),
             "replied_count": int(row.replied_count or 0),
             "last_error": row.last_error,
             "started_at": row.started_at.isoformat() if row.started_at else None,
@@ -571,6 +572,12 @@ class AiTeamCampaignService:
                 AiTeamCampaignRecipient.opened_at.is_not(None),
             )
         ) or 0
+        clicked = db.scalar(
+            select(func.count()).select_from(AiTeamCampaignRecipient).where(
+                AiTeamCampaignRecipient.campaign_id == cid,
+                AiTeamCampaignRecipient.clicked_at.is_not(None),
+            )
+        ) or 0
         replied = db.scalar(
             select(func.count()).select_from(AiTeamCampaignRecipient).where(
                 AiTeamCampaignRecipient.campaign_id == cid,
@@ -586,7 +593,102 @@ class AiTeamCampaignService:
         db.add(campaign)
         db.commit()
         db.refresh(campaign)
+        campaign._clicked_count = int(clicked)  # type: ignore[attr-defined]
         return campaign
+
+    @staticmethod
+    def tracking_overview(
+        db: Session,
+        *,
+        status: str | None = None,
+        campaign_id: str | None = None,
+        q: str | None = None,
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """Cross-campaign send/click activity for the Apify Tracking tab."""
+        campaigns = AiTeamCampaignService.list_campaigns(db)
+        campaign_dicts: list[dict[str, Any]] = []
+        sum_sent = sum_failed = sum_pending = sum_clicked = sum_opened = sum_recipients = 0
+        for c in campaigns:
+            clicked = int(
+                db.scalar(
+                    select(func.count()).select_from(AiTeamCampaignRecipient).where(
+                        AiTeamCampaignRecipient.campaign_id == c.id,
+                        AiTeamCampaignRecipient.clicked_at.is_not(None),
+                    )
+                )
+                or 0
+            )
+            pending = int(
+                db.scalar(
+                    select(func.count()).select_from(AiTeamCampaignRecipient).where(
+                        AiTeamCampaignRecipient.campaign_id == c.id,
+                        AiTeamCampaignRecipient.status == "pending",
+                    )
+                )
+                or 0
+            )
+            c._clicked_count = clicked  # type: ignore[attr-defined]
+            d = AiTeamCampaignService.campaign_to_dict(c)
+            d["clicked_count"] = clicked
+            d["pending_count"] = pending
+            campaign_dicts.append(d)
+            sum_sent += int(c.sent_count or 0)
+            sum_failed += int(c.failed_count or 0)
+            sum_pending += pending
+            sum_clicked += clicked
+            sum_opened += int(c.opened_count or 0)
+            sum_recipients += int(c.total_count or 0)
+
+        stmt = (
+            select(AiTeamCampaignRecipient, AiTeamCampaign.name)
+            .join(AiTeamCampaign, AiTeamCampaign.id == AiTeamCampaignRecipient.campaign_id)
+            .order_by(AiTeamCampaignRecipient.updated_at.desc())
+            .limit(max(1, min(int(limit or 200), 1000)))
+        )
+        cid = str(campaign_id or "").strip()
+        if cid:
+            stmt = stmt.where(AiTeamCampaignRecipient.campaign_id == cid)
+        st = str(status or "").strip().lower()
+        if st == "sent":
+            stmt = stmt.where(AiTeamCampaignRecipient.status == "sent")
+        elif st == "failed":
+            stmt = stmt.where(AiTeamCampaignRecipient.status == "failed")
+        elif st == "pending":
+            stmt = stmt.where(AiTeamCampaignRecipient.status == "pending")
+        elif st == "clicked":
+            stmt = stmt.where(AiTeamCampaignRecipient.clicked_at.is_not(None))
+        elif st == "opened":
+            stmt = stmt.where(AiTeamCampaignRecipient.opened_at.is_not(None))
+        needle = str(q or "").strip().lower()
+        if needle:
+            like = f"%{needle}%"
+            stmt = stmt.where(
+                (AiTeamCampaignRecipient.email.ilike(like))
+                | (AiTeamCampaignRecipient.company_name.ilike(like))
+                | (AiTeamCampaignRecipient.first_name.ilike(like))
+                | (AiTeamCampaignRecipient.last_name.ilike(like))
+            )
+
+        activity: list[dict[str, Any]] = []
+        for row, camp_name in db.execute(stmt).all():
+            item = AiTeamCampaignService.recipient_to_dict(row)
+            item["campaign_name"] = camp_name or ""
+            activity.append(item)
+
+        return {
+            "summary": {
+                "campaigns": len(campaigns),
+                "recipients": sum_recipients,
+                "sent": sum_sent,
+                "failed": sum_failed,
+                "pending": sum_pending,
+                "clicked": sum_clicked,
+                "opened": sum_opened,
+            },
+            "campaigns": campaign_dicts,
+            "activity": activity,
+        }
 
     @staticmethod
     def list_recipients(
@@ -764,6 +866,7 @@ class AiTeamCampaignService:
         *,
         sample: bool = False,
     ) -> dict[str, str]:
+        """Merge {{tags}} only — do not alter colours, sizes, tables, or wrappers."""
         AiTeamCampaignService.ensure_default_expo_promo(db)
         default_promo = DEFAULT_EXPO_PROMO_CODE
         if sample or recipient is None:
@@ -785,7 +888,6 @@ class AiTeamCampaignService:
             }
         else:
             vars_map = AiTeamCampaignService.recipient_vars(recipient, db=db)
-            # Persist default promo so click redirect always has a code.
             if not (recipient.promo_code or "").strip():
                 recipient.promo_code = vars_map["promo_code"]
                 recipient.updated_at = AiTeamCampaignService._now()
@@ -794,38 +896,26 @@ class AiTeamCampaignService:
 
         body_merged = AiTeamCampaignService._apply_merge(campaign.body_text or "", vars_map)
         subject = AiTeamCampaignService._apply_merge(campaign.subject or "", vars_map).strip() or "Hello"
-        template = str(campaign.html_template or "").strip() or _DEFAULT_HTML_TEMPLATE
-        # Full HTML pasted into body (no {{body}} in wrapper): use body as the document.
-        if (
-            body_merged
-            and re.search(r"<html\b|<body\b|<table\b", body_merged, re.I)
-            and "{{body}}" not in template
-            and template.strip() in {"", _DEFAULT_HTML_TEMPLATE.strip()}
-        ):
-            template = body_merged
-            vars_map["body"] = ""
-        elif (
-            body_merged
-            and re.search(r"<html\b", body_merged, re.I)
-            and "{{body}}" in template
-        ):
-            # User pasted a full email into Body — prefer it as the whole message.
-            template = body_merged
-            vars_map["body"] = ""
+        template = str(campaign.html_template or "").strip()
+
+        if not template:
+            # No HTML wrapper: use body as the document if it looks like HTML, else default shell.
+            if body_merged and re.search(r"</?(?:html|body|table|div|a)\b", body_merged, re.I):
+                template = body_merged
+                vars_map["body"] = ""
+            else:
+                template = _DEFAULT_HTML_TEMPLATE
+                vars_map["body"] = body_merged.replace("\n", "<br>") if body_merged else ""
+        elif "{{body}}" in template:
+            # Insert body text as-is (no colour/size wrappers).
+            vars_map["body"] = body_merged
         else:
-            vars_map["body"] = AiTeamService._body_html_fragment(body_merged)
+            # Full HTML document — ignore body for HTML output (plain text still returned).
+            vars_map["body"] = ""
+
         html = AiTeamCampaignService._apply_merge(template, vars_map)
         html = re.sub(r"\{\{[a-zA-Z0-9_]+\}\}", "", html)
-        # Rewrite bare /signin links to the tracked trial URL (keeps CTA working + tracked).
-        trial = str(vars_map.get("trial_url") or "").strip()
-        if trial:
-            html = re.sub(
-                r"""href=(['"])https?://(?:www\.)?voxbulk\.com/signin(?:\?[^'"]*)?\1""",
-                lambda m: f"href={m.group(1)}{trial}{m.group(1)}",
-                html,
-                flags=re.I,
-            )
-        html = AiTeamCampaignService._prepare_email_html(html)
+        # Intentionally no _prepare_email_html / no style or href rewriting.
         text = re.sub(r"<[^>]+>", "", html)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
         if not text:

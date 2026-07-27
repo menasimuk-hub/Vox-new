@@ -4,6 +4,7 @@ import './ai-team.css'
 
 const TABS = [
   { id: 'campaigns', label: 'Campaigns', icon: 'ti-send' },
+  { id: 'tracking', label: 'Tracking', icon: 'ti-chart-bar' },
   { id: 'templates', label: 'Templates', icon: 'ti-template' },
   { id: 'scrape', label: 'Scrape', icon: 'ti-world' },
   { id: 'apify', label: 'Apify API', icon: 'ti-key' },
@@ -95,13 +96,17 @@ export default function ApifyOutreach() {
   const [newName, setNewName] = useState('')
   const [preview, setPreview] = useState(null)
   const [testEmail, setTestEmail] = useState('')
-  const [recipientFilter, setRecipientFilter] = useState('all')
 
   const [templates, setTemplates] = useState([])
   const [mergeTags, setMergeTags] = useState(DEFAULT_MERGE)
   const [defaultPromoCode, setDefaultPromoCode] = useState('EXPO3DAYS')
   const [activeTplId, setActiveTplId] = useState(null)
   const [tplDraft, setTplDraft] = useState(null)
+
+  const [tracking, setTracking] = useState(null)
+  const [trackingFilter, setTrackingFilter] = useState('all')
+  const [trackingQ, setTrackingQ] = useState('')
+  const [trackingCampaignId, setTrackingCampaignId] = useState('')
 
   const [csvFile, setCsvFile] = useState(null)
   const [csvDrag, setCsvDrag] = useState(false)
@@ -172,6 +177,17 @@ export default function ApifyOutreach() {
     setApifyRuns(data.runs || [])
   }, [])
 
+  const loadTracking = useCallback(async () => {
+    const params = new URLSearchParams()
+    if (trackingFilter && trackingFilter !== 'all') params.set('status', trackingFilter)
+    if (trackingCampaignId) params.set('campaign_id', trackingCampaignId)
+    if (trackingQ.trim()) params.set('q', trackingQ.trim())
+    const qs = params.toString()
+    const data = await apiFetch(`/admin/ai-team/tracking${qs ? `?${qs}` : ''}`)
+    setTracking(data)
+    return data
+  }, [trackingFilter, trackingCampaignId, trackingQ])
+
   const loadBoot = useCallback(async () => {
     setLoading(true)
     try {
@@ -195,7 +211,16 @@ export default function ApifyOutreach() {
   useEffect(() => {
     if (tab === 'scrape') loadApifyRuns().catch(() => {})
     if (tab === 'templates') loadTemplates().catch(() => {})
-  }, [tab, loadApifyRuns, loadTemplates])
+    if (tab === 'tracking') loadTracking().catch((e) => showBanner('err', e?.message || 'Tracking load failed'))
+  }, [tab, loadApifyRuns, loadTemplates, loadTracking])
+
+  useEffect(() => {
+    if (tab !== 'tracking') return undefined
+    const sending = (tracking?.campaigns || campaigns).some((c) => c.status === 'sending')
+    if (!sending) return undefined
+    const id = window.setInterval(() => loadTracking().catch(() => {}), 3000)
+    return () => window.clearInterval(id)
+  }, [tab, tracking, campaigns, loadTracking])
 
   useEffect(() => {
     if (!activeId || campaign?.status !== 'sending') return undefined
@@ -589,13 +614,6 @@ export default function ApifyOutreach() {
     })
   }
 
-  const filteredRecipients = recipients.filter((r) => {
-    if (recipientFilter === 'all') return true
-    if (recipientFilter === 'opened') return !!r.opened_at
-    if (recipientFilter === 'clicked') return !!r.clicked_at || (r.click_count || 0) > 0
-    return r.status === recipientFilter
-  })
-
   const sendPct = campaign?.total_count
     ? Math.min(100, Math.round(((campaign.sent_count + campaign.failed_count) / campaign.total_count) * 100))
     : 0
@@ -814,40 +832,158 @@ export default function ApifyOutreach() {
                   <div className="ait-card">
                     <div className="ait-card-hdr">
                       <span className="ait-card-title">5 · Results</span>
-                      <div className="ait-seg">
-                        {[['all', 'All'], ['pending', 'Pending'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['failed', 'Failed']].map(([id, label]) => (
-                          <button key={id} type="button" className={recipientFilter === id ? 'active' : ''} onClick={() => setRecipientFilter(id)}>{label}</button>
-                        ))}
-                      </div>
+                      <button type="button" className="ait-btn xs primary" onClick={() => {
+                        setTrackingCampaignId(activeId || '')
+                        setTab('tracking')
+                      }}>
+                        Open Tracking
+                      </button>
                     </div>
-                    <div className="ait-table-wrap">
-                      <table className="ait-tbl">
-                        <thead><tr><th>Email</th><th>Company</th><th>Promo</th><th>Status</th><th>Clicks</th><th>Sent</th><th>Error</th></tr></thead>
-                        <tbody>
-                          {filteredRecipients.map((r) => (
-                            <tr key={r.id}>
-                              <td><strong>{r.full_name || r.email}</strong><div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{r.email}</div></td>
-                              <td>{r.company_name || '—'}</td>
-                              <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.promo_code || defaultPromoCode}</td>
-                              <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span></td>
-                              <td style={{ fontSize: 12 }}>
-                                {(r.click_count || 0) > 0 ? (
-                                  <span className="ait-badge b-opened" title={r.clicked_at || ''}>{r.click_count} click{r.click_count === 1 ? '' : 's'}</span>
-                                ) : '—'}
-                              </td>
-                              <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(r.sent_at)}</td>
-                              <td className="ait-ellipsis" title={r.last_error || ''}>{r.last_error || '—'}</td>
-                            </tr>
-                          ))}
-                          {!filteredRecipients.length && (
-                            <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>No recipients yet</td></tr>
-                          )}
-                        </tbody>
-                      </table>
+                    <div className="ait-card-body">
+                      <p className="ait-hint" style={{ margin: 0 }}>
+                        Sent {campaign.sent_count || 0}/{campaign.total_count || 0}
+                        {' · '}failed {campaign.failed_count || 0}
+                        {' · '}opened {campaign.opened_count || 0}.
+                        Full send/click history is on the <strong>Tracking</strong> tab.
+                      </p>
                     </div>
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {tab === 'tracking' && (
+          <div>
+            <div className="ait-stats" style={{ marginBottom: 14 }}>
+              {[
+                ['Sent', tracking?.summary?.sent ?? '—'],
+                ['Failed', tracking?.summary?.failed ?? '—'],
+                ['Pending', tracking?.summary?.pending ?? '—'],
+                ['Clicked', tracking?.summary?.clicked ?? '—'],
+                ['Campaigns', tracking?.summary?.campaigns ?? '—'],
+              ].map(([label, val]) => (
+                <div className="ait-stat" key={label}>
+                  <div className="ait-stat-lbl">{label}</div>
+                  <div className="ait-stat-val">{val}</div>
+                </div>
+              ))}
+            </div>
+
+            <div className="ait-card">
+              <div className="ait-card-hdr">
+                <span className="ait-card-title">Campaigns</span>
+                <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Refresh</button>
+              </div>
+              <div className="ait-table-wrap">
+                <table className="ait-tbl ait-tbl-compact">
+                  <thead>
+                    <tr>
+                      <th>Campaign</th>
+                      <th>Status</th>
+                      <th>Sent</th>
+                      <th>Clicks</th>
+                      <th>Updated</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(tracking?.campaigns || []).map((c) => (
+                      <tr key={c.id}>
+                        <td><strong>{c.name}</strong></td>
+                        <td><span className={`ait-badge ${statusBadge(c.status)}`}>{c.status}</span></td>
+                        <td>{c.sent_count}/{c.total_count}</td>
+                        <td>{c.clicked_count || 0}</td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(c.updated_at)}</td>
+                        <td>
+                          <div className="ait-btn-row" style={{ margin: 0 }}>
+                            <button type="button" className="ait-btn xs" onClick={() => setTrackingCampaignId(c.id)}>Filter</button>
+                            <button type="button" className="ait-btn xs primary" onClick={() => { setActiveId(c.id); setTab('campaigns') }}>Open</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!(tracking?.campaigns || []).length && (
+                      <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>No campaigns yet</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="ait-card">
+              <div className="ait-card-hdr">
+                <span className="ait-card-title">Activity</span>
+                <div className="ait-seg">
+                  {[['all', 'All'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
+                    <button key={id} type="button" className={trackingFilter === id ? 'active' : ''} onClick={() => setTrackingFilter(id)}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="ait-card-body" style={{ paddingBottom: 8 }}>
+                <div className="ait-fg-2">
+                  <div className="ait-field">
+                    <label>Search</label>
+                    <input
+                      value={trackingQ}
+                      placeholder="Email or company"
+                      onChange={(e) => setTrackingQ(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') loadTracking().catch((err) => showBanner('err', err?.message || 'Failed')) }}
+                    />
+                  </div>
+                  <div className="ait-field">
+                    <label>Campaign</label>
+                    <select value={trackingCampaignId} onChange={(e) => setTrackingCampaignId(e.target.value)}>
+                      <option value="">All campaigns</option>
+                      {(tracking?.campaigns || campaigns).map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Apply filters</button>
+              </div>
+              <div className="ait-table-wrap">
+                <table className="ait-tbl">
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Company</th>
+                      <th>Campaign</th>
+                      <th>Promo</th>
+                      <th>Status</th>
+                      <th>Clicks</th>
+                      <th>Sent</th>
+                      <th>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(tracking?.activity || []).map((r) => (
+                      <tr key={r.id}>
+                        <td>
+                          <strong>{r.full_name || r.email}</strong>
+                          <div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{r.email}</div>
+                        </td>
+                        <td>{r.company_name || '—'}</td>
+                        <td style={{ fontSize: 12 }}>{r.campaign_name || '—'}</td>
+                        <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.promo_code || defaultPromoCode}</td>
+                        <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span></td>
+                        <td style={{ fontSize: 12 }}>
+                          {(r.click_count || 0) > 0 ? (
+                            <span className="ait-badge b-opened" title={r.clicked_at || ''}>{r.click_count}</span>
+                          ) : '—'}
+                        </td>
+                        <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(r.sent_at)}</td>
+                        <td className="ait-ellipsis" title={r.last_error || ''}>{r.last_error || '—'}</td>
+                      </tr>
+                    ))}
+                    {!(tracking?.activity || []).length && (
+                      <tr><td colSpan={8} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>No activity yet — send a campaign first</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -908,17 +1044,17 @@ export default function ApifyOutreach() {
                       >{`{{body}}`}</button>
                       <span className="ait-hint" style={{ margin: 0 }}>Use in HTML wrapper for the text block</span>
                     </div>
-                    <div className="ait-field" style={{ marginBottom: 0 }}><label>HTML wrapper (paste full email HTML here — shown as-is)</label>
+                    <div className="ait-field" style={{ marginBottom: 0 }}><label>HTML (paste full email — sent exactly as pasted)</label>
                       <textarea className="ait-code-editor" style={{ minHeight: 220 }} value={tplDraft.html_template || ''} onChange={(e) => setTplDraft({ ...tplDraft, html_template: e.target.value })} />
                     </div>
                     <p className="ait-hint">
-                      Trial CTA: use <code>{'{{trial_url}}'}</code> or <code>{'{{signup_url}}'}</code> —
-                      sends track who clicked, then open signup with promo <strong>{defaultPromoCode}</strong> (3-day Expo trial).
-                      Per-company codes: map the Promo column in Excel.
+                      HTML is sent <strong>as-is</strong>. Only merge codes are replaced:
+                      {' '}{mergeTags.filter((t) => t !== 'body').map((t) => `{{${t}}}`).join(' ')}.
+                      Put <code>href=&quot;{'{{trial_url}}'}&quot;</code> on your Start free trial button
+                      (tracks clicks → signup with <strong>{defaultPromoCode}</strong>).
                     </p>
                     <p className="ait-hint" style={{ marginTop: 4 }}>
-                      Keep button colours with <strong>inline styles</strong> (e.g. <code>style=&quot;color:#fff;background:#111&quot;</code>) —
-                      CSS classes are stripped by Gmail/Outlook. Pricing tables: <code>width=&quot;100%&quot;</code> + <code>max-width:600px</code>.
+                      Use Body text only if your HTML contains <code>{'{{body}}'}</code>. Otherwise paste the full design in HTML and leave Body short or empty.
                     </p>
                   </div>
                 </div>
@@ -1151,10 +1287,10 @@ export default function ApifyOutreach() {
             </div>
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
               <li><strong>Sending</strong> — save From + SMTP and test.</li>
-              <li><strong>Templates</strong> — paste HTML as-is; use {'{{trial_url}}'} for the Start free trial button (tracks clicks → signup with {defaultPromoCode}).</li>
+              <li><strong>Templates</strong> — paste HTML as-is; only {'{{…}}'} codes are replaced. Use {'{{trial_url}}'} on the CTA.</li>
               <li><strong>Campaigns</strong> — name → select template → Excel → Preview → Send all.</li>
-              <li><strong>Scrape</strong> — paste any exhibitor URL; uses Apify + free actor when token is set, otherwise built-in → Add to campaign. Manual: Campaigns → Excel.</li>
-              <li><strong>Results</strong> — filter Clicked to see who opened the trial link.</li>
+              <li><strong>Tracking</strong> — all sends, failures, and trial-link clicks across campaigns.</li>
+              <li><strong>Scrape</strong> — paste any exhibitor URL; uses Apify + free actor when token is set, otherwise built-in → Add to campaign.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>
               AI Team (sidebar) is the older approval-queue tool. This Apify page is template + bulk send.
