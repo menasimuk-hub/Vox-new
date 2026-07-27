@@ -781,6 +781,8 @@ function CreateExpoBooth() {
                                   : packageStartDate
                                 : null
                             }
+                            companyWebsite={companyWebsite}
+                            contactEmail={representatives.find((r) => r.email?.trim())?.email || null}
                           />
                         </div>
 

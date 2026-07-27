@@ -328,6 +328,8 @@ function EditExpoBooth() {
                 boothCode={boothCode || booth.booth_code}
                 eventName={exhibitionName || booth.exhibition_name || booth.name}
                 eventDates={venue || booth.venue || null}
+                companyWebsite={companyWebsite || booth.company_website}
+                contactEmail={representatives.find((r) => r.email?.trim())?.email || null}
               />
             </div>
           ) : (

@@ -1,7 +1,8 @@
 import * as React from "react";
 
-import { brandAssets } from "@/lib/brand";
 import { buildExpoQrImageCandidates, resolveExpoWebUrl } from "@/lib/expo-qr";
+import { useOrganisation } from "@/lib/queries";
+import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,9 +12,6 @@ const DEFAULT_HEADLINE = "No time to wait?";
 const DEFAULT_SUBLINE = "Scan and chat with our AI.";
 const DEFAULT_SUPPORT =
   "Get answers and your catalogue in seconds —\nWhatsApp or web, under a minute.";
-const DEFAULT_POWERED =
-  "Powered by VOXBULK AI · Instant lead capture · Every scan becomes a lead";
-const FOOTER_BAR = "EXPO · voxbulk.com · expo@voxbulk.com";
 
 export type ExpoBoothPrintCardProps = {
   boothId?: string | null;
@@ -25,6 +23,8 @@ export type ExpoBoothPrintCardProps = {
   boothCode?: string | null;
   eventName: string;
   eventDates?: string | null;
+  companyWebsite?: string | null;
+  contactEmail?: string | null;
   className?: string;
 };
 
@@ -32,7 +32,6 @@ type StoredCopy = {
   headline: string;
   subline: string;
   support: string;
-  powered: string;
 };
 
 function storageKey(boothId: string) {
@@ -65,7 +64,7 @@ function useExpoQrSrc(preferred: string | null | undefined, webUrl: string) {
     const list: string[] = [];
     const pref = String(preferred || "").trim();
     if (pref) list.push(pref);
-    for (const c of buildExpoQrImageCandidates(webUrl, 200)) {
+    for (const c of buildExpoQrImageCandidates(webUrl, 280)) {
       if (c && !list.includes(c)) list.push(c);
     }
     return list;
@@ -83,8 +82,12 @@ function useExpoQrSrc(preferred: string | null | undefined, webUrl: string) {
   return { src, onError, hasQr: Boolean(src) };
 }
 
+function stripUrlDisplay(url: string) {
+  return url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+
 /**
- * Pixel-faithful port of qr print.html — editable top/bottom copy, live preview, browser print.
+ * Pixel-faithful booth print card — company logo, editable CTA copy, full-page colour print.
  */
 export function ExpoBoothPrintCard({
   boothId,
@@ -95,17 +98,21 @@ export function ExpoBoothPrintCard({
   boothCode,
   eventName,
   eventDates,
+  companyWebsite,
+  contactEmail,
   className,
 }: ExpoBoothPrintCardProps) {
+  const orgQ = useOrganisation();
+  const companyLogo = useOrgLogoPreview(orgQ.data?.logo_url);
+
   const stored = React.useMemo(() => loadStored(boothId), [boothId]);
   const [headline, setHeadline] = React.useState(stored?.headline || DEFAULT_HEADLINE);
   const [subline, setSubline] = React.useState(stored?.subline || DEFAULT_SUBLINE);
   const [support, setSupport] = React.useState(stored?.support || DEFAULT_SUPPORT);
-  const [powered, setPowered] = React.useState(stored?.powered || DEFAULT_POWERED);
 
   React.useEffect(() => {
-    saveStored(boothId, { headline, subline, support, powered });
-  }, [boothId, headline, subline, support, powered]);
+    saveStored(boothId, { headline, subline, support });
+  }, [boothId, headline, subline, support]);
 
   const webUrl = resolveExpoWebUrl({ web_url: webUrlProp, qr_token: qrToken });
   const { src: qrSrc, onError: onQrError, hasQr } = useExpoQrSrc(preferredQr, webUrl);
@@ -116,6 +123,17 @@ export function ExpoBoothPrintCard({
   const datesLabel = String(eventDates || "").trim();
   const supportLines = support.split(/\n/).filter((l) => l.length > 0);
 
+  const footerEmail =
+    String(contactEmail || "").trim() ||
+    String(orgQ.data?.contact_email || "").trim() ||
+    "expo@voxbulk.com";
+  const footerWebsite =
+    String(companyWebsite || "").trim() ||
+    String(orgQ.data?.website || "").trim() ||
+    "voxbulk.com";
+  const footerWebsiteDisplay = stripUrlDisplay(footerWebsite);
+  const footerLine = `Powered by VoxBulk · ${footerEmail} · ${footerWebsiteDisplay}`;
+
   const handlePrint = () => {
     window.print();
   };
@@ -124,22 +142,53 @@ export function ExpoBoothPrintCard({
     <div className={["expo-booth-print-root", className].filter(Boolean).join(" ")}>
       <style>{`
         @media print {
+          @page {
+            size: A4;
+            margin: 10mm;
+          }
+          html, body {
+            height: 100% !important;
+            background: #f5f1ea !important;
+          }
           body * { visibility: hidden !important; }
           .expo-booth-print-root,
           .expo-booth-print-root * { visibility: visible !important; }
           .expo-booth-print-root {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: fixed !important;
+            inset: 0 !important;
             width: 100% !important;
+            height: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
-            background: white !important;
+            background: #f5f1ea !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
           }
           .expo-booth-print-root .no-print { display: none !important; }
+          .expo-booth-print-root .expo-booth-print-sheet {
+            width: 100% !important;
+            height: 100% !important;
+            padding: 0 !important;
+            background: #f5f1ea !important;
+            display: flex !important;
+            align-items: stretch !important;
+            justify-content: center !important;
+          }
           .expo-booth-print-root .booth-card {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-height: 100% !important;
+            height: 100% !important;
             box-shadow: none !important;
-            border: 1px solid #ccc !important;
+            border: 3px solid #1a2d5c !important;
+            border-radius: 12px !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .expo-booth-print-root .print-qr {
+            width: 220px !important;
+            height: 220px !important;
           }
         }
       `}</style>
@@ -153,7 +202,7 @@ export function ExpoBoothPrintCard({
             Print this card and place it at your expo booth
           </p>
           <p className="mt-0.5 text-xs" style={{ color: "#6b6560" }}>
-            Edit the text below — the live preview updates instantly. Your booth QR is saved with the booth
+            Uses your company logo from Settings. Edit the text below — preview updates instantly
             {webUrl ? (
               <>
                 {" "}
@@ -196,15 +245,6 @@ export function ExpoBoothPrintCard({
               maxLength={200}
             />
           </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label htmlFor="expo-print-powered">Bottom note</Label>
-            <Input
-              id="expo-print-powered"
-              value={powered}
-              onChange={(e) => setPowered(e.target.value)}
-              maxLength={120}
-            />
-          </div>
         </div>
         <Button
           type="button"
@@ -220,10 +260,16 @@ export function ExpoBoothPrintCard({
             QR image is still loading. If it stays blank, open the scan link above and try again after refresh.
           </p>
         ) : null}
+        {!companyLogo ? (
+          <p className="text-xs" style={{ color: "#6b6560" }}>
+            No company logo yet — upload one in Settings → Profile so it appears on the printed card.
+          </p>
+        ) : null}
       </div>
 
       <table
         role="presentation"
+        className="expo-booth-print-sheet"
         width="100%"
         cellSpacing={0}
         cellPadding={0}
@@ -239,7 +285,7 @@ export function ExpoBoothPrintCard({
       >
         <tbody>
           <tr>
-            <td align="center">
+            <td align="center" style={{ verticalAlign: "middle" }}>
               <table
                 role="presentation"
                 className="booth-card"
@@ -269,18 +315,34 @@ export function ExpoBoothPrintCard({
                         <tbody>
                           <tr>
                             <td valign="middle">
-                              <img
-                                src={brandAssets.logoBlack}
-                                alt="VOXBULK"
-                                width={120}
-                                style={{
-                                  display: "block",
-                                  border: 0,
-                                  outline: "none",
-                                  maxWidth: 120,
-                                  height: "auto",
-                                }}
-                              />
+                              {companyLogo ? (
+                                <img
+                                  src={companyLogo}
+                                  alt={exhibitor}
+                                  style={{
+                                    display: "block",
+                                    border: 0,
+                                    outline: "none",
+                                    maxWidth: 140,
+                                    maxHeight: 56,
+                                    width: "auto",
+                                    height: "auto",
+                                    objectFit: "contain",
+                                  }}
+                                />
+                              ) : (
+                                <p
+                                  style={{
+                                    margin: 0,
+                                    fontSize: 16,
+                                    fontWeight: 800,
+                                    color: "#1a2d5c",
+                                    letterSpacing: "-0.02em",
+                                  }}
+                                >
+                                  {exhibitor}
+                                </p>
+                              )}
                             </td>
                             <td align="right" valign="middle">
                               <span
@@ -364,6 +426,7 @@ export function ExpoBoothPrintCard({
                       >
                         {qrSrc ? (
                           <img
+                            className="print-qr"
                             src={qrSrc}
                             alt="Scan to chat with AI"
                             referrerPolicy="no-referrer"
@@ -501,24 +564,13 @@ export function ExpoBoothPrintCard({
                           </tr>
                         </tbody>
                       </table>
-
-                      <p
-                        style={{
-                          margin: "12px 0 0",
-                          fontSize: 9,
-                          color: "#a39a91",
-                          textAlign: "center",
-                        }}
-                      >
-                        {powered || DEFAULT_POWERED}
-                      </p>
                     </td>
                   </tr>
 
                   <tr>
                     <td
                       style={{
-                        padding: "10px 24px",
+                        padding: "12px 24px",
                         background: "#1a2d5c",
                         textAlign: "center",
                       }}
@@ -526,12 +578,12 @@ export function ExpoBoothPrintCard({
                       <p
                         style={{
                           margin: 0,
-                          fontSize: 10,
-                          color: "rgba(255,255,255,0.4)",
-                          letterSpacing: "0.05em",
+                          fontSize: 11,
+                          color: "rgba(255,255,255,0.85)",
+                          letterSpacing: "0.02em",
                         }}
                       >
-                        {FOOTER_BAR}
+                        {footerLine}
                       </p>
                     </td>
                   </tr>
@@ -569,7 +621,8 @@ export function ExpoBoothPrintCard({
           🖨️ Print Booth Card
         </button>
         <p style={{ margin: "6px 0 0", fontSize: 11, color: "#6b6560" }}>
-          Place this card on your booth table or stand for visitors to scan
+          Place this card on your booth table or stand for visitors to scan. Enable “Background graphics” in the
+          print dialog to keep colours.
         </p>
       </div>
     </div>
