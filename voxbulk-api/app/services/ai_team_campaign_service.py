@@ -773,6 +773,195 @@ class AiTeamCampaignService:
         }
 
     @staticmethod
+    def get_inbound_message(db: Session, message_id: str) -> AiTeamInboundMessage:
+        row = db.get(AiTeamInboundMessage, str(message_id or "").strip())
+        if row is None:
+            raise AiTeamServiceError("Inbox message not found")
+        return row
+
+    @staticmethod
+    def delete_inbound_message(db: Session, message_id: str) -> dict[str, Any]:
+        row = AiTeamCampaignService.get_inbound_message(db, message_id)
+        mid = row.id
+        db.delete(row)
+        db.commit()
+        return {"ok": True, "deleted": mid}
+
+    @staticmethod
+    def generate_reply_draft(
+        db: Session,
+        *,
+        inbound_message_id: str | None = None,
+        recipient_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate an editable AI reply draft (DeepSeek) for an inbox message or recipient."""
+        from_email = ""
+        inbound_subject = ""
+        inbound_body = ""
+        company = ""
+        first_name = ""
+        campaign_subject = ""
+
+        if inbound_message_id:
+            msg = AiTeamCampaignService.get_inbound_message(db, inbound_message_id)
+            from_email = msg.from_email or ""
+            inbound_subject = msg.subject or ""
+            inbound_body = msg.body_text or ""
+            if msg.recipient_id:
+                recip = db.get(AiTeamCampaignRecipient, msg.recipient_id)
+                if recip is not None:
+                    company = recip.company_name or ""
+                    first_name = recip.first_name or ""
+                    camp = db.get(AiTeamCampaign, recip.campaign_id)
+                    if camp is not None:
+                        campaign_subject = camp.subject or ""
+            if msg.campaign_id and not campaign_subject:
+                camp = db.get(AiTeamCampaign, msg.campaign_id)
+                if camp is not None:
+                    campaign_subject = camp.subject or ""
+        elif recipient_id:
+            recip = db.get(AiTeamCampaignRecipient, str(recipient_id or "").strip())
+            if recip is None:
+                raise AiTeamServiceError("Recipient not found")
+            from_email = recip.email or ""
+            inbound_subject = recip.last_inbound_subject or ""
+            inbound_body = recip.last_inbound_body or ""
+            company = recip.company_name or ""
+            first_name = recip.first_name or ""
+            camp = db.get(AiTeamCampaign, recip.campaign_id)
+            if camp is not None:
+                campaign_subject = camp.subject or ""
+        else:
+            raise AiTeamServiceError("inbound_message_id or recipient_id required")
+
+        if not from_email or "@" not in from_email:
+            raise AiTeamServiceError("No From address to reply to")
+
+        settings = AiTeamService.get_settings(db)
+        base = (inbound_subject or campaign_subject or "VoxBulk").strip() or "VoxBulk"
+        if base.lower().startswith("re:"):
+            reply_subject = base[:500]
+        else:
+            reply_subject = f"Re: {base}"[:500]
+
+        system = (
+            "You write short professional B2B email replies for VoxBulk (customer feedback / WhatsApp / voice AI). "
+            "Return JSON with keys subject and body. Body is plain text with line breaks. "
+            f"Tone: {getattr(settings, 'email_tone', None) or 'friendly professional'}. "
+            "Be helpful, concise, and invite a short next step. Do not invent pricing or contracts."
+        )
+        user = (
+            f"Reply to this inbound email.\n"
+            f"From: {from_email}\n"
+            f"Name: {first_name or 'there'}\n"
+            f"Company: {company or 'their company'}\n"
+            f"Their subject: {inbound_subject or '(none)'}\n"
+            f"Their message:\n{(inbound_body or '(empty)')[:4000]}\n\n"
+            f"Suggested subject: {reply_subject}\n"
+            f"Signature to append:\n{getattr(settings, 'email_signature', None) or 'Best,\\nVoxBulk team · voxbulk.com'}"
+        )
+        try:
+            from app.services.agents.base import AgentMessage
+            from app.services.providers.openai_service import OpenAIProviderService
+
+            result = OpenAIProviderService.complete(
+                db,
+                system_prompt=system,
+                messages=[AgentMessage(role="user", content=user)],
+                max_tokens=700,
+                temperature=0.45,
+                provider="deepseek",
+            )
+            text = str(result.assistant_text or "").strip()
+        except Exception as exc:
+            logger.warning("ai_team_generate_reply_failed err=%s", exc)
+            text = (
+                f"Hi {first_name or 'there'},\n\n"
+                "Thanks for getting back to us — happy to help.\n\n"
+                "Would you like a quick call this week, or shall I send a short overview of how VoxBulk works for expo teams?\n\n"
+                f"{getattr(settings, 'email_signature', None) or 'Best,\\nVoxBulk team · voxbulk.com'}"
+            )
+
+        subject_out = reply_subject
+        body_out = text
+        try:
+            import json as _json
+
+            parsed = _json.loads(text)
+            if isinstance(parsed, dict):
+                subject_out = str(parsed.get("subject") or subject_out).strip()[:500] or subject_out
+                body_out = str(parsed.get("body") or text).strip() or text
+        except Exception:
+            if "\n" in text:
+                first, rest = text.split("\n", 1)
+                if first.lower().startswith("subject:"):
+                    subject_out = first.split(":", 1)[1].strip()[:500] or subject_out
+                    body_out = rest.strip() or text
+
+        return {
+            "ok": True,
+            "from_email": from_email,
+            "subject": subject_out,
+            "body": body_out,
+            "inbound_message_id": inbound_message_id,
+            "recipient_id": recipient_id,
+        }
+
+    @staticmethod
+    def send_inbox_reply(
+        db: Session,
+        message_id: str,
+        *,
+        body: str,
+        subject: str | None = None,
+    ) -> dict[str, Any]:
+        """Reply to an IMAP inbox message From address (matched or unmatched)."""
+        msg = AiTeamCampaignService.get_inbound_message(db, message_id)
+        to_email = str(msg.from_email or "").strip().lower()
+        if not to_email or "@" not in to_email:
+            raise AiTeamServiceError("Inbox message has no From address")
+        text = str(body or "").strip()
+        if not text:
+            raise AiTeamServiceError("Enter a reply message")
+        settings = AiTeamService.get_settings(db)
+        subj = str(subject or "").strip()
+        if not subj:
+            base = (msg.subject or "VoxBulk").strip() or "VoxBulk"
+            subj = base if base.lower().startswith("re:") else f"Re: {base}"
+        if re.search(r"</?(?:p|div|br|table|a|html|body)\b", text, re.I):
+            html = text
+        else:
+            parts = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+            if not parts:
+                parts = [text]
+            html = "".join(
+                f'<p style="margin:0 0 12px;">{p.replace(chr(10), "<br>")}</p>'
+                for p in parts
+            )
+        AiTeamService._deliver_email(
+            db,
+            settings,
+            to_email=to_email,
+            subject=subj,
+            text=text,
+            html=html,
+            recipient_id=msg.recipient_id,
+        )
+        now = AiTeamCampaignService._now()
+        if msg.recipient_id:
+            recip = db.get(AiTeamCampaignRecipient, msg.recipient_id)
+            if recip is not None:
+                recip.replied_at = recip.replied_at or now
+                recip.updated_at = now
+                db.add(recip)
+                camp = db.get(AiTeamCampaign, recip.campaign_id)
+                if camp is not None:
+                    AiTeamCampaignService.refresh_counts(db, camp)
+        db.commit()
+        return {"ok": True, "message": f"Reply sent to {to_email}"}
+
+
+    @staticmethod
     def list_recipients(
         db: Session,
         campaign_id: str,

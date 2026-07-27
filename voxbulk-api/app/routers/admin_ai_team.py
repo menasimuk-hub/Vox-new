@@ -884,6 +884,73 @@ def tracking_recipient_reply(
         raise _err(exc) from exc
 
 
+@router.post("/tracking/recipients/{recipient_id}/ai-reply")
+def tracking_recipient_ai_reply(
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.generate_reply_draft(db, recipient_id=recipient_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.get("/tracking/inbox/{message_id}")
+def tracking_inbox_get(
+    message_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        row = AiTeamCampaignService.get_inbound_message(db, message_id)
+        return {"message": AiTeamCampaignService.inbound_message_to_dict(row)}
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.delete("/tracking/inbox/{message_id}")
+def tracking_inbox_delete(
+    message_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.delete_inbound_message(db, message_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/tracking/inbox/{message_id}/ai-reply")
+def tracking_inbox_ai_reply(
+    message_id: str,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.generate_reply_draft(db, inbound_message_id=message_id)
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/tracking/inbox/{message_id}/reply")
+def tracking_inbox_reply(
+    message_id: str,
+    body: dict[str, Any],
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    try:
+        return AiTeamCampaignService.send_inbox_reply(
+            db,
+            message_id,
+            body=str(body.get("body") or ""),
+            subject=str(body.get("subject") or "") or None,
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.post("/tracking/imap/refresh")
 def tracking_imap_refresh(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
     try:
