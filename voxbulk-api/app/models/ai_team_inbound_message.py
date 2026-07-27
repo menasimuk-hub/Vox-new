@@ -24,4 +24,5 @@ class AiTeamInboundMessage(Base):
     recipient_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     campaign_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     received_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

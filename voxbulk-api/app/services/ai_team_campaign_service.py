@@ -545,6 +545,10 @@ class AiTeamCampaignService:
     @staticmethod
     def inbound_message_detail(db: Session, message_id: str) -> dict[str, Any]:
         msg = AiTeamCampaignService.get_inbound_message(db, message_id)
+        if msg.read_at is None:
+            msg.read_at = datetime.utcnow()
+            db.commit()
+            db.refresh(msg)
         data = AiTeamCampaignService.inbound_message_to_dict(msg)
         data["inbound_subject"] = msg.subject or ""
         data["inbound_body"] = msg.body_text or ""
@@ -929,6 +933,14 @@ class AiTeamCampaignService:
             or 0
         )
         inbox_total = int(db.scalar(select(func.count()).select_from(AiTeamInboundMessage)) or 0)
+        inbox_unread = int(
+            db.scalar(
+                select(func.count()).select_from(AiTeamInboundMessage).where(
+                    AiTeamInboundMessage.read_at.is_(None)
+                )
+            )
+            or 0
+        )
 
         stmt = (
             select(AiTeamCampaignRecipient, AiTeamCampaign.name)
@@ -997,11 +1009,23 @@ class AiTeamCampaignService:
                 "opened": sum_opened,
                 "received": sum_received,
                 "inbox": inbox_total,
+                "inbox_unread": inbox_unread,
             },
             "campaigns": campaign_dicts,
             "activity": activity,
             "inbox": inbox,
         }
+
+    @staticmethod
+    def inbox_unread_count(db: Session) -> int:
+        return int(
+            db.scalar(
+                select(func.count()).select_from(AiTeamInboundMessage).where(
+                    AiTeamInboundMessage.read_at.is_(None)
+                )
+            )
+            or 0
+        )
 
     @staticmethod
     def inbound_message_to_dict(row: AiTeamInboundMessage) -> dict[str, Any]:
@@ -1014,6 +1038,8 @@ class AiTeamCampaignService:
             "recipient_id": row.recipient_id,
             "campaign_id": row.campaign_id,
             "received_at": row.received_at.isoformat() if row.received_at else None,
+            "read_at": row.read_at.isoformat() if row.read_at else None,
+            "unread": row.read_at is None,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
 
@@ -1031,7 +1057,8 @@ class AiTeamCampaignService:
         db.delete(row)
         db.commit()
         inbox_left = int(db.scalar(select(func.count()).select_from(AiTeamInboundMessage)) or 0)
-        return {"ok": True, "deleted": mid, "inbox": inbox_left}
+        inbox_unread = AiTeamCampaignService.inbox_unread_count(db)
+        return {"ok": True, "deleted": mid, "inbox": inbox_left, "inbox_unread": inbox_unread}
 
     @staticmethod
     def generate_reply_draft(

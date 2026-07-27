@@ -1024,7 +1024,11 @@ def tracking_inbox_get(
     _admin: User = Depends(require_cap(CAP_AI_TEAM)),
 ):
     try:
-        return {"message": AiTeamCampaignService.inbound_message_detail(db, message_id)}
+        message = AiTeamCampaignService.inbound_message_detail(db, message_id)
+        return {
+            "message": message,
+            "inbox_unread": AiTeamCampaignService.inbox_unread_count(db),
+        }
     except Exception as exc:
         raise _err(exc) from exc
 

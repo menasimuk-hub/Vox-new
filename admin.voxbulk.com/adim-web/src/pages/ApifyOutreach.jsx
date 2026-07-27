@@ -893,6 +893,22 @@ export default function ApifyOutreach() {
 
   const openInboxMessage = (msg) => {
     if (!msg?.id) return
+    const isUnread = msg.unread !== false && !msg.read_at
+    if (isUnread) {
+      const dec = (n) => Math.max(0, Number(n ?? 0) - 1)
+      setTracking((prev) => {
+        if (!prev) return prev
+        const base = prev.summary?.inbox_unread ?? prev.summary?.inbox ?? 0
+        return {
+          ...prev,
+          inbox: (prev.inbox || []).map((m) => (
+            m.id === msg.id ? { ...m, read_at: new Date().toISOString(), unread: false } : m
+          )),
+          summary: { ...(prev.summary || {}), inbox_unread: dec(base) },
+        }
+      })
+      setKpis((prev) => (prev ? { ...prev, inbox_unread: dec(prev.inbox_unread ?? prev.inbox) } : prev))
+    }
     navigate(`/marketing/apify/inbox/${msg.id}`)
   }
 
@@ -903,19 +919,27 @@ export default function ApifyOutreach() {
     await act('inbox-del', async () => {
       const data = await apiFetch(`/admin/ai-team/tracking/inbox/${mid}`, { method: 'DELETE' })
       const left = data?.inbox != null ? Number(data.inbox) : null
-      // Optimistic / authoritative: badge must match DB after delete (was stuck at 2)
+      const unreadLeft = data?.inbox_unread != null ? Number(data.inbox_unread) : null
       setTracking((prev) => {
         if (!prev) return prev
+        const wasUnread = (prev.inbox || []).find((m) => m.id === mid)?.unread !== false
+          && !(prev.inbox || []).find((m) => m.id === mid)?.read_at
         const nextInbox = left != null ? left : Math.max(0, Number(prev.summary?.inbox ?? 1) - 1)
+        const nextUnread = unreadLeft != null
+          ? unreadLeft
+          : Math.max(0, Number(prev.summary?.inbox_unread ?? prev.summary?.inbox ?? 0) - (wasUnread ? 1 : 0))
         return {
           ...prev,
           inbox: (prev.inbox || []).filter((m) => m.id !== mid),
-          summary: { ...(prev.summary || {}), inbox: nextInbox },
+          summary: { ...(prev.summary || {}), inbox: nextInbox, inbox_unread: nextUnread },
         }
       })
       setKpis((prev) => {
         const nextInbox = left != null ? left : Math.max(0, Number(prev?.inbox ?? 1) - 1)
-        return prev ? { ...prev, inbox: nextInbox } : { inbox: nextInbox }
+        const nextUnread = unreadLeft != null
+          ? unreadLeft
+          : Math.max(0, Number(prev?.inbox_unread ?? 0) - (msg.unread !== false && !msg.read_at ? 1 : 0))
+        return prev ? { ...prev, inbox: nextInbox, inbox_unread: nextUnread } : { inbox: nextInbox, inbox_unread: nextUnread }
       })
       showBanner('ok', 'Inbox message deleted')
       await Promise.all([loadTracking(), loadKpis().catch(() => null)])
@@ -1241,13 +1265,12 @@ export default function ApifyOutreach() {
               <i className={`ti ${t.icon}`} style={{ fontSize: 12 }} />
               {t.label}
                 {t.id === 'tracking' && (() => {
-                  const inboxN = Number(
-                    tracking?.summary?.inbox
-                    ?? kpis?.inbox
-                    ?? (Array.isArray(tracking?.inbox) ? tracking.inbox.length : 0)
+                  const unreadN = Number(
+                    tracking?.summary?.inbox_unread
+                    ?? kpis?.inbox_unread
                     ?? 0,
                   )
-                  return inboxN > 0 ? <span className="ait-tab-badge">{inboxN}</span> : null
+                  return unreadN > 0 ? <span className="ait-tab-badge">{unreadN}</span> : null
                 })()}
             </button>
           ))}
@@ -1824,6 +1847,7 @@ export default function ApifyOutreach() {
                 {trackingFilter === 'inbox' && (
                   <p className="ait-hint" style={{ marginTop: 8 }}>
                     Inbox lists every message pulled from IMAP (matched or not). Use Refresh inbox to fetch.
+                    The number on the Tracking tab is <strong>unread</strong> only — it clears when you open a message.
                   </p>
                 )}
                 {trackingFilter === 'opened' && (
@@ -1899,10 +1923,12 @@ export default function ApifyOutreach() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(tracking?.inbox || []).map((m) => (
-                      <tr key={m.id}>
+                    {(tracking?.inbox || []).map((m) => {
+                      const unread = m.unread !== false && !m.read_at
+                      return (
+                      <tr key={m.id} className={unread ? 'ait-inbox-unread' : ''}>
                         <td style={{ fontSize: 12 }}>{m.from_email || '—'}</td>
-                        <td><strong style={{ fontSize: 13 }}>{m.subject || '(no subject)'}</strong></td>
+                        <td><strong style={{ fontSize: 13, fontWeight: unread ? 700 : 500 }}>{m.subject || '(no subject)'}</strong></td>
                         <td>
                           {m.matched
                             ? <span className="ait-badge b-opened">yes</span>
@@ -1921,7 +1947,8 @@ export default function ApifyOutreach() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                     {!(tracking?.inbox || []).length && (
                       <tr>
                         <td colSpan={6} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 20 }}>
