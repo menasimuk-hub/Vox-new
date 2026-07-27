@@ -1037,9 +1037,15 @@ export default function ApifyOutreach() {
       <div className="ait-content">
         {(tab === 'campaigns' && !isCampaignPage) && (
           <div className="ait-campaigns-page">
-            <div className="ait-card ait-campaigns-table-card">
+            <div className="ait-card ait-campaigns-table-card ait-sec ait-sec-list">
               <div className="ait-card-hdr">
-                <span className="ait-card-title">Campaigns</span>
+                <div className="ait-sec-title-wrap">
+                  <span className="ait-sec-step ait-sec-step-list"><i className="ti ti-list" /></span>
+                  <div>
+                    <span className="ait-card-title">Campaigns</span>
+                    <span className="ait-sec-sub">Open Edit to configure & send</span>
+                  </div>
+                </div>
                 <div className="ait-btn-row" style={{ margin: 0, gap: 8 }}>
                   <input
                     className="ait-inline-input"
@@ -1191,8 +1197,16 @@ export default function ApifyOutreach() {
                     </div>
                   )}
 
-                  <div className="ait-card">
-                    <div className="ait-card-hdr"><span className="ait-card-title">1 · Campaign</span></div>
+                  <div className="ait-card ait-sec ait-sec-campaign">
+                    <div className="ait-card-hdr">
+                      <div className="ait-sec-title-wrap">
+                        <span className="ait-sec-step">1</span>
+                        <div>
+                          <span className="ait-card-title">Campaign</span>
+                          <span className="ait-sec-sub">Name, event & schedule</span>
+                        </div>
+                      </div>
+                    </div>
                     <div className="ait-card-body">
                       <div className="ait-fg-2" style={{ marginBottom: 0 }}>
                         <div className="ait-field">
@@ -1250,9 +1264,15 @@ export default function ApifyOutreach() {
                     </div>
                   </div>
 
-                  <div className="ait-card">
+                  <div className="ait-card ait-sec ait-sec-template">
                     <div className="ait-card-hdr">
-                      <span className="ait-card-title">2 · Template</span>
+                      <div className="ait-sec-title-wrap">
+                        <span className="ait-sec-step">2</span>
+                        <div>
+                          <span className="ait-card-title">Template</span>
+                          <span className="ait-sec-sub">Email subject & HTML</span>
+                        </div>
+                      </div>
                       <button type="button" className="ait-btn xs" onClick={() => { navigate('/marketing/apify'); setTab('templates') }}>Edit templates</button>
                     </div>
                     <div className="ait-card-body">
@@ -1279,9 +1299,15 @@ export default function ApifyOutreach() {
                     </div>
                   </div>
 
-                  <div className="ait-card">
+                  <div className="ait-card ait-sec ait-sec-audience">
                     <div className="ait-card-hdr">
-                      <span className="ait-card-title">3 · Audience · {campaign.total_count}</span>
+                      <div className="ait-sec-title-wrap">
+                        <span className="ait-sec-step">3</span>
+                        <div>
+                          <span className="ait-card-title">Audience</span>
+                          <span className="ait-sec-sub">{campaign.total_count || 0} contact{(campaign.total_count || 0) === 1 ? '' : 's'}</span>
+                        </div>
+                      </div>
                       <div className="ait-btn-row" style={{ margin: 0, gap: 6 }}>
                         <button type="button" className="ait-btn xs" disabled={!recipients.length} onClick={openAudiencePreview}>
                           Preview contacts
@@ -1415,8 +1441,16 @@ export default function ApifyOutreach() {
                     </div>
                   </div>
 
-                  <div className="ait-card">
-                    <div className="ait-card-hdr"><span className="ait-card-title">4 · Preview & send</span></div>
+                  <div className="ait-card ait-sec ait-sec-send">
+                    <div className="ait-card-hdr">
+                      <div className="ait-sec-title-wrap">
+                        <span className="ait-sec-step">4</span>
+                        <div>
+                          <span className="ait-card-title">Preview & send</span>
+                          <span className="ait-sec-sub">Test mail, then send all</span>
+                        </div>
+                      </div>
+                    </div>
                     <div className="ait-card-body">
                       <div className="ait-fg-2">
                         <div className="ait-field">

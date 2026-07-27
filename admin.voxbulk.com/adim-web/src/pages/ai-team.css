@@ -913,5 +913,121 @@
 .ai-team-page .ait-link-btn:hover strong { color: var(--ait-accent); }
 .ai-team-page .ait-campaign-main { max-width: none; }
 .ai-team-page .ait-campaign-main .ait-card { margin-top: 12px; }
-.ai-team-page .ait-campaign-main .ait-card-hdr { padding: 10px 14px; }
-.ai-team-page .ait-campaign-main .ait-card-body { padding: 12px 14px; }
+.ai-team-page .ait-campaign-main .ait-card-hdr { padding: 12px 14px; }
+.ai-team-page .ait-campaign-main .ait-card-body { padding: 14px 16px; }
+
+/* Soft colored section cards — easy to scan */
+.ai-team-page .ait-sec {
+  overflow: hidden;
+  border-left-width: 3px;
+  border-left-style: solid;
+}
+.ai-team-page .ait-sec-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ai-team-page .ait-sec-title-wrap > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.ai-team-page .ait-sec-step {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+  letter-spacing: -0.02em;
+}
+.ai-team-page .ait-sec-step-list {
+  font-size: 13px;
+}
+.ai-team-page .ait-sec .ait-card-title {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.ai-team-page .ait-sec-sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ait-text3);
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+
+.ai-team-page .ait-sec-list {
+  border-left-color: #94a3b8;
+}
+.ai-team-page .ait-sec-list .ait-card-hdr {
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+}
+.ai-team-page .ait-sec-list .ait-sec-step {
+  background: #e2e8f0;
+  color: #475569;
+}
+.ai-team-page .ait-sec-list .ait-card-title { color: #334155; }
+
+.ai-team-page .ait-sec-campaign {
+  border-left-color: #6366f1;
+  background: linear-gradient(180deg, #f8f7ff 0%, #ffffff 48px);
+}
+.ai-team-page .ait-sec-campaign .ait-card-hdr {
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.02));
+  border-bottom-color: rgba(99, 102, 241, 0.14);
+}
+.ai-team-page .ait-sec-campaign .ait-sec-step {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+.ai-team-page .ait-sec-campaign .ait-card-title { color: #3730a3; }
+
+.ai-team-page .ait-sec-template {
+  border-left-color: #0d9488;
+  background: linear-gradient(180deg, #f3fbfa 0%, #ffffff 48px);
+}
+.ai-team-page .ait-sec-template .ait-card-hdr {
+  background: linear-gradient(90deg, rgba(13, 148, 136, 0.09), rgba(13, 148, 136, 0.02));
+  border-bottom-color: rgba(13, 148, 136, 0.14);
+}
+.ai-team-page .ait-sec-template .ait-sec-step {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+.ai-team-page .ait-sec-template .ait-card-title { color: #115e59; }
+
+.ai-team-page .ait-sec-audience {
+  border-left-color: #d97706;
+  background: linear-gradient(180deg, #fffbf5 0%, #ffffff 48px);
+}
+.ai-team-page .ait-sec-audience .ait-card-hdr {
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.09), rgba(217, 119, 6, 0.02));
+  border-bottom-color: rgba(217, 119, 6, 0.14);
+}
+.ai-team-page .ait-sec-audience .ait-sec-step {
+  background: #fef3c7;
+  color: #b45309;
+}
+.ai-team-page .ait-sec-audience .ait-card-title { color: #92400e; }
+
+.ai-team-page .ait-sec-send {
+  border-left-color: #2563eb;
+  background: linear-gradient(180deg, #f5f9ff 0%, #ffffff 48px);
+}
+.ai-team-page .ait-sec-send .ait-card-hdr {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.09), rgba(37, 99, 235, 0.02));
+  border-bottom-color: rgba(37, 99, 235, 0.14);
+}
+.ai-team-page .ait-sec-send .ait-sec-step {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.ai-team-page .ait-sec-send .ait-card-title { color: #1e40af; }
