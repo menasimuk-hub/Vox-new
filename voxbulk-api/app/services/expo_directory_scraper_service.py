@@ -6,6 +6,7 @@ stand descriptions and company websites — no Apify actor required.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -632,6 +633,214 @@ class ExpoDirectoryScraper:
         }
 
     @staticmethod
+    def _looks_like_spa_shell(html: str) -> bool:
+        low = (html or "").lower()
+        if "/assets/" in low and ".js" in low and ("<div id=\"root\"" in low or "<div id=\"app\"" in low):
+            return True
+        if "__next_data__" in low or "/assets/index-" in low:
+            return True
+        # Tiny HTML shells with a big JS bundle and almost no exhibitor links
+        if len(html or "") < 20000 and re.search(r'/assets/[^"\']+\.js', html or "", re.I):
+            return True
+        return False
+
+    @staticmethod
+    def scrape_spa_supabase(
+        directory_url: str,
+        *,
+        max_stands: int = 500,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any] | None:
+        """JS SPA exhibitor sites that load contacts from public Supabase REST.
+
+        Example: takeawayexpo.co.uk/exhibitors → exhibitor_contacts (+ exhibitors).
+        Returns None when this pattern is not detected.
+        """
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "listing",
+                "message": "Detecting SPA / API directory…",
+                "provider": "spa",
+                "stands_total": 0,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
+        headers = ExpoDirectoryScraper._headers(directory_url)
+        try:
+            with httpx.Client(timeout=45.0, follow_redirects=True) as client:
+                resp = client.get(directory_url, headers=headers)
+                if resp.status_code >= 400:
+                    return None
+                html = resp.text or ""
+                if not ExpoDirectoryScraper._looks_like_spa_shell(html):
+                    return None
+                script_srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html, re.I)
+                js_url = None
+                for src in script_srcs:
+                    if "/assets/" in src and src.endswith(".js"):
+                        js_url = urljoin(directory_url, src)
+                        break
+                if not js_url:
+                    return None
+                js_resp = client.get(js_url, headers=headers)
+                if js_resp.status_code >= 400:
+                    return None
+                js = js_resp.text or ""
+        except Exception:
+            return None
+
+        hosts = sorted(set(re.findall(r"https://[a-z0-9]+\.supabase\.co", js, re.I)))
+        keys = sorted(
+            set(
+                re.findall(
+                    r"eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}",
+                    js,
+                )
+            )
+        )
+        if not hosts or not keys:
+            return None
+
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "listing",
+                "message": "Fetching exhibitor contacts from site API…",
+                "provider": "spa_supabase",
+                "stands_total": 0,
+                "stands_done": 0,
+                "stands_with_email": 0,
+                "emails_found": 0,
+                "errors": 0,
+            },
+        )
+
+        contact_rows: list[dict[str, Any]] = []
+        exhibitor_by_id: dict[str, dict[str, Any]] = {}
+        used_host = ""
+        with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+            for host in hosts:
+                for key in keys[:3]:
+                    api_headers = {
+                        **headers,
+                        "Accept": "application/json",
+                        "apikey": key,
+                        "Authorization": f"Bearer {key}",
+                    }
+                    try:
+                        c_resp = client.get(
+                            f"{host}/rest/v1/exhibitor_contacts",
+                            headers=api_headers,
+                            params={"select": "*", "limit": str(max(1, min(int(max_stands or 500), 2000)))},
+                        )
+                        if c_resp.status_code >= 400:
+                            continue
+                        data = c_resp.json()
+                        if not isinstance(data, list) or not data:
+                            continue
+                        # Need at least one email-like field
+                        sample = data[0] if isinstance(data[0], dict) else {}
+                        if not any(k in sample for k in ("email", "contact_email", "Email")):
+                            # still accept if any row has @
+                            blob = json.dumps(data[:5], ensure_ascii=False)
+                            if "@" not in blob:
+                                continue
+                        contact_rows = [r for r in data if isinstance(r, dict)]
+                        used_host = host
+                        try:
+                            e_resp = client.get(
+                                f"{host}/rest/v1/exhibitors",
+                                headers=api_headers,
+                                params={"select": "id,name,website,slug,booth_number,category", "limit": "2000"},
+                            )
+                            if e_resp.status_code < 400:
+                                for ex in e_resp.json() or []:
+                                    if isinstance(ex, dict) and ex.get("id"):
+                                        exhibitor_by_id[str(ex["id"])] = ex
+                        except Exception:
+                            pass
+                        break
+                    except Exception:
+                        continue
+                if contact_rows:
+                    break
+
+        if not contact_rows:
+            return None
+
+        by_email: dict[str, dict[str, Any]] = {}
+        for row in contact_rows[: max(1, min(int(max_stands or 500), 2000))]:
+            email = str(row.get("email") or row.get("contact_email") or "").strip().lower()
+            if not email or "@" not in email:
+                continue
+            for junk in _JUNK_EMAIL_SUBSTR:
+                if junk in email:
+                    email = ""
+                    break
+            if not email:
+                continue
+            ex_id = str(row.get("exhibitor_id") or "")
+            ex = exhibitor_by_id.get(ex_id) or {}
+            full_name = str(row.get("full_name") or row.get("name") or "").strip()
+            first = ""
+            last = ""
+            if full_name:
+                parts = full_name.split(None, 1)
+                first = parts[0]
+                last = parts[1] if len(parts) > 1 else ""
+            company = str(ex.get("name") or row.get("company_name") or "").strip()
+            website = str(ex.get("website") or row.get("website") or "").strip()
+            by_email[email] = {
+                "email": email,
+                "first_name": first,
+                "last_name": last,
+                "company_name": company,
+                "job_title": str(row.get("job_title") or "Exhibitor").strip() or "Exhibitor",
+                "sector": str(ex.get("category") or "expo").strip() or "expo",
+                "country_code": "GB",
+                "source": "expo_spa_supabase",
+                "profile_json": {
+                    "expo_url": directory_url,
+                    "website": website,
+                    "stand_number": ex.get("booth_number"),
+                    "slug": ex.get("slug"),
+                    "provider": "spa_supabase",
+                    "api_host": used_host,
+                },
+            }
+
+        contacts = list(by_email.values())
+        if not contacts:
+            return None
+
+        ExpoDirectoryScraper._emit_progress(
+            progress_callback,
+            {
+                "phase": "done",
+                "message": f"SPA API · {len(contacts)} emails",
+                "provider": "spa_supabase",
+                "stands_total": len(contacts),
+                "stands_done": len(contacts),
+                "stands_with_email": len(contacts),
+                "emails_found": len(contacts),
+                "errors": 0,
+            },
+        )
+        return {
+            "ok": True,
+            "provider": "spa_supabase",
+            "stands_found": len(contacts),
+            "stands_with_email": len(contacts),
+            "emails_found": len(contacts),
+            "errors": 0,
+            "contacts": contacts,
+        }
+
+    @staticmethod
     def scrape(
         directory_url: str,
         *,
@@ -650,6 +859,14 @@ class ExpoDirectoryScraper:
                 max_stands=max_stands,
                 progress_callback=progress_callback,
             )
+        # JS SPA directories (Supabase / similar) before naive HTML crawl
+        spa = ExpoDirectoryScraper.scrape_spa_supabase(
+            url,
+            max_stands=max_stands,
+            progress_callback=progress_callback,
+        )
+        if spa and int(spa.get("emails_found") or 0) > 0:
+            return spa
         return ExpoDirectoryScraper.scrape_html_directory(
             url,
             follow_websites=follow_websites,

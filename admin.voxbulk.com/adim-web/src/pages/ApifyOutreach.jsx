@@ -386,12 +386,17 @@ export default function ApifyOutreach() {
     const actorSource = apifyActorOverride.trim()
       ? 'override'
       : (settings.apify_exhibitor_actor_id ? 'saved' : 'auto free')
+    const path = String(apifyExpoUrl || '').toLowerCase()
+    const looksDirectory = ['/exhibitor', '/directory', '/stands', '/participants'].some((t) => path.includes(t))
     if (scrapeEngine === 'builtin') {
       return { engine: 'builtin', label: 'Built-in scraper (forced)' }
     }
     if (scrapeEngine === 'apify') {
       if (!tokenOk) return { engine: 'need-token', label: 'Apify (save token under Apify API first)' }
       return { engine: 'apify', label: `Apify · ${actor} (${actorSource})` }
+    }
+    if (looksDirectory) {
+      return { engine: 'builtin', label: 'Built-in first for /exhibitors (SPA API + HTML) — best for any show site' }
     }
     if (tokenOk) return { engine: 'apify', label: `Apify · ${actor} (${actorSource})` }
     return { engine: 'builtin', label: 'Built-in (save Apify token for better results on any site)' }
@@ -1522,9 +1527,15 @@ export default function ApifyOutreach() {
               ))}
             </div>
 
-            <div className="ait-card">
+            <div className="ait-card ait-sec ait-sec-tracking">
               <div className="ait-card-hdr">
-                <span className="ait-card-title">Campaigns</span>
+                <div className="ait-sec-title-wrap">
+                  <span className="ait-sec-step"><i className="ti ti-chart-bar" /></span>
+                  <div>
+                    <span className="ait-card-title">Campaigns</span>
+                    <span className="ait-sec-sub">Filter tracking by campaign</span>
+                  </div>
+                </div>
                 <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Refresh</button>
               </div>
               <div className="ait-table-wrap">
@@ -1563,9 +1574,15 @@ export default function ApifyOutreach() {
               </div>
             </div>
 
-            <div className="ait-card">
+            <div className="ait-card ait-sec ait-sec-activity">
               <div className="ait-card-hdr">
-                <span className="ait-card-title">Activity</span>
+                <div className="ait-sec-title-wrap">
+                  <span className="ait-sec-step"><i className="ti ti-activity" /></span>
+                  <div>
+                    <span className="ait-card-title">Activity</span>
+                    <span className="ait-sec-sub">Sent, opens, inbox &amp; unsubs</span>
+                  </div>
+                </div>
                 <div className="ait-seg ait-seg-right">
                   {[['all', 'All'], ['sent', 'Sent'], ['opened', 'Opened'], ['clicked', 'Clicked'], ['received', 'Received'], ['inbox', 'Inbox'], ['unsubscribed', 'Unsubscribed'], ['unsub_list', 'Unsub list'], ['failed', 'Failed'], ['pending', 'Pending']].map(([id, label]) => (
                     <button key={id} type="button" className={trackingFilter === id ? 'active' : ''} onClick={() => setTrackingFilter(id)}>{label}</button>
@@ -1784,9 +1801,15 @@ export default function ApifyOutreach() {
         {tab === 'templates' && (
           <div>
             {!tplDraft ? (
-              <div className="ait-card">
+              <div className="ait-card ait-sec ait-sec-templates">
                 <div className="ait-card-hdr">
-                  <span className="ait-card-title">Email templates</span>
+                  <div className="ait-sec-title-wrap">
+                    <span className="ait-sec-step"><i className="ti ti-template" /></span>
+                    <div>
+                      <span className="ait-card-title">Email templates</span>
+                      <span className="ait-sec-sub">Library · create &amp; edit</span>
+                    </div>
+                  </div>
                   <button type="button" className="ait-btn sm primary" disabled={!!busy} onClick={createTemplate}>
                     <i className="ti ti-plus" style={{ marginRight: 6 }} />Create new template
                   </button>
@@ -1831,13 +1854,19 @@ export default function ApifyOutreach() {
                 </div>
               </div>
             ) : (
-              <div className="ait-card" style={{ marginBottom: 0 }}>
+              <div className="ait-card ait-sec ait-sec-tpl-edit" style={{ marginBottom: 0 }}>
                 <div className="ait-card-hdr">
                   <div className="ait-btn-row" style={{ margin: 0 }}>
                     <button type="button" className="ait-btn ghost sm" onClick={() => { setActiveTplId(null); setTplDraft(null) }}>
                       <i className="ti ti-arrow-left" style={{ marginRight: 4 }} />Templates
                     </button>
-                    <span className="ait-card-title">{tplDraft.name || 'Edit template'}</span>
+                    <div className="ait-sec-title-wrap">
+                      <span className="ait-sec-step"><i className="ti ti-code" /></span>
+                      <div>
+                        <span className="ait-card-title">{tplDraft.name || 'Edit template'}</span>
+                        <span className="ait-sec-sub">HTML left · live preview right</span>
+                      </div>
+                    </div>
                   </div>
                   <div className="ait-btn-row" style={{ margin: 0 }}>
                     <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={saveTemplate}>Save</button>
@@ -1933,9 +1962,15 @@ export default function ApifyOutreach() {
         )}
 
         {tab === 'scrape' && (
-          <div className="ait-card">
+          <div className="ait-card ait-sec ait-sec-scrape">
             <div className="ait-card-hdr">
-              <span className="ait-card-title">Scrape exhibitor emails</span>
+              <div className="ait-sec-title-wrap">
+                <span className="ait-sec-step"><i className="ti ti-world" /></span>
+                <div>
+                  <span className="ait-card-title">Scrape exhibitor emails</span>
+                  <span className="ait-sec-sub">Auto uses built-in for /exhibitors (SPA + HTML)</span>
+                </div>
+              </div>
               <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => loadApifyRuns()}>Refresh</button>
             </div>
             <div className="ait-card-body">
@@ -1968,7 +2003,7 @@ export default function ApifyOutreach() {
                     <div className="ait-field">
                       <label>Engine</label>
                       <select value={scrapeEngine} onChange={(e) => setScrapeEngine(e.target.value)}>
-                        <option value="auto">Auto (Apify if ready, else built-in)</option>
+                        <option value="auto">Auto (built-in for /exhibitors, else Apify)</option>
                         <option value="apify">Force Apify</option>
                         <option value="builtin">Force built-in</option>
                       </select>
@@ -2111,9 +2146,15 @@ export default function ApifyOutreach() {
         )}
 
         {tab === 'apify' && (
-          <div className="ait-card">
+          <div className="ait-card ait-sec ait-sec-apify">
             <div className="ait-card-hdr">
-              <span className="ait-card-title">Apify API</span>
+              <div className="ait-sec-title-wrap">
+                <span className="ait-sec-step"><i className="ti ti-key" /></span>
+                <div>
+                  <span className="ait-card-title">Apify API</span>
+                  <span className="ait-sec-sub">Token &amp; actor settings</span>
+                </div>
+              </div>
               <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={() => saveSettings()}>Save</button>
             </div>
             <div className="ait-card-body ait-compact">
@@ -2151,9 +2192,15 @@ export default function ApifyOutreach() {
         )}
 
         {tab === 'sending' && (
-          <div className="ait-card">
+          <div className="ait-card ait-sec ait-sec-sending">
             <div className="ait-card-hdr">
-              <span className="ait-card-title">Sending</span>
+              <div className="ait-sec-title-wrap">
+                <span className="ait-sec-step"><i className="ti ti-mail" /></span>
+                <div>
+                  <span className="ait-card-title">Sending</span>
+                  <span className="ait-sec-sub">SMTP · IMAP · pace</span>
+                </div>
+              </div>
               <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={() => saveSettings()}>Save</button>
             </div>
             <div className="ait-card-body ait-compact">

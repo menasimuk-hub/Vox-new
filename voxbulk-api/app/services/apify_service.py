@@ -276,17 +276,40 @@ class ApifyService:
         email = str(email or "").strip().lower()
         if not email or "@" not in email:
             # Try nested contacts
-            contacts = item.get("emails") or item.get("contacts") or []
+            contacts = item.get("emails") or item.get("contacts") or item.get("emailDetails") or []
             if isinstance(contacts, list):
                 for c in contacts:
                     if isinstance(c, str) and "@" in c:
                         email = c.strip().lower()
                         break
                     if isinstance(c, dict):
-                        e = str(c.get("email") or c.get("value") or "").strip().lower()
+                        e = str(c.get("email") or c.get("value") or c.get("address") or "").strip().lower()
                         if e and "@" in e:
                             email = e
                             break
+        if not email or "@" not in email:
+            # Deep scan any string fields (actors vary wildly)
+            import re as _re
+
+            blob_parts: list[str] = []
+            for key, val in item.items():
+                if key in {"raw", "html", "body", "content"} and isinstance(val, str) and len(val) > 5000:
+                    blob_parts.append(val[:8000])
+                elif isinstance(val, str):
+                    blob_parts.append(val)
+                elif isinstance(val, list):
+                    for x in val[:50]:
+                        if isinstance(x, str):
+                            blob_parts.append(x)
+                        elif isinstance(x, dict):
+                            blob_parts.append(str(x.get("email") or x.get("value") or ""))
+            found = _re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", " ".join(blob_parts))
+            for raw in found:
+                cand = raw.strip().lower().rstrip(".")
+                if any(j in cand for j in ("example.com", "sentry.", "wixpress", "noreply@", "no-reply@")):
+                    continue
+                email = cand
+                break
         if not email or "@" not in email:
             return None
 
@@ -304,9 +327,14 @@ class ApifyService:
             or item.get("companyName")
             or item.get("exhibitor")
             or item.get("organization")
+            or item.get("domain")
             or ""
         ).strip()
-        website = str(item.get("website") or item.get("url") or item.get("companyWebsite") or "").strip()
+        website = str(
+            item.get("website") or item.get("url") or item.get("companyWebsite") or item.get("domain") or ""
+        ).strip()
+        if website and not website.startswith("http"):
+            website = f"https://{website}"
         job_title = str(item.get("job_title") or item.get("title") or item.get("jobTitle") or "Exhibitor").strip()
 
         return {

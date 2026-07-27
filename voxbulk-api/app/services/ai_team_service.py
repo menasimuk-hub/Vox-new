@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -2186,6 +2187,16 @@ class AiTeamService:
         if mode == "builtin":
             return _builtin("Forced built-in scrape")
 
+        # Exhibitor directories: built-in first (Easyfairs / SPA APIs / HTML + website follow).
+        # Free Apify "website-contact" actors often scrape only the SPA shell → 0 emails.
+        path_l = urlparse(url).path.lower()
+        looks_directory = any(
+            token in path_l
+            for token in ("/exhibitor", "/exhibitors", "/directory", "/stands", "/participants")
+        )
+        if mode == "auto" and looks_directory:
+            return _builtin("Exhibitor directory — built-in first (SPA/API/HTML); use Force Apify only if needed")
+
         settings = AiTeamService.get_settings(db)
         token = AiTeamService._apify_token(settings, db=db)
 
@@ -2534,6 +2545,7 @@ class AiTeamService:
                     items = ApifyService.fetch_dataset_items(token, dataset_id=row.dataset_id, limit=5000)
                     row.item_count = len(items)
                     emails = 0
+                    contacts_payload: list[dict[str, Any]] = []
                     for item in items:
                         if not isinstance(item, dict):
                             continue
@@ -2542,16 +2554,55 @@ class AiTeamService:
                         )
                         if normalized and normalized.get("email"):
                             emails += 1
+                            contacts_payload.append(normalized)
                     merged["emails_found"] = emails
-                    merged["progress"] = {
-                        **progress,
-                        "phase": "done",
-                        "message": f"Completed · {emails} email(s) from {len(items)} item(s)",
-                        "emails_found": emails,
-                        "stands_total": len(items),
-                        "stands_done": len(items),
-                    }
-                    row.stats_json = json.dumps(merged, ensure_ascii=False)
+                    if emails > 0:
+                        merged["contacts"] = contacts_payload[:5000]
+                        merged["progress"] = {
+                            **progress,
+                            "phase": "done",
+                            "message": f"Completed · {emails} email(s) from {len(items)} item(s)",
+                            "emails_found": emails,
+                            "stands_total": len(items),
+                            "stands_done": len(items),
+                        }
+                        row.stats_json = json.dumps(merged, ensure_ascii=False)
+                    else:
+                        # Wrong actor / SPA shell — kick built-in which handles SPA APIs
+                        merged["progress"] = {
+                            **progress,
+                            "phase": "done",
+                            "message": (
+                                f"Apify returned 0 emails from {len(items)} item(s) "
+                                "(often a SPA shell). Starting built-in directory scrape…"
+                            ),
+                            "emails_found": 0,
+                            "stands_total": len(items),
+                            "stands_done": len(items),
+                        }
+                        merged["apify_zero_emails"] = True
+                        row.stats_json = json.dumps(merged, ensure_ascii=False)
+                        row.error = (
+                            "Apify found 0 emails — auto built-in scrape started. "
+                            "Prefer Auto/Built-in for /exhibitors directories."
+                        )[:2000]
+                        db.add(row)
+                        db.commit()
+                        try:
+                            AiTeamService.start_directory_scrape(
+                                db,
+                                expo_url=row.expo_url or "",
+                                follow_websites=True,
+                                max_stands=500,
+                            )
+                        except Exception as fallback_exc:
+                            logger.warning(
+                                "apify_zero_email_builtin_fallback_failed run_id=%s err=%s",
+                                row.id,
+                                fallback_exc,
+                            )
+                        db.refresh(row)
+                        return {"ok": True, "run": AiTeamService._run_to_dict(row), "fallback_builtin": True}
                 except ApifyServiceError as exc:
                     row.error = str(exc)
         db.add(row)
