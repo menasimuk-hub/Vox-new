@@ -41,14 +41,34 @@ _DEFAULT_SIGNATURE = "Best,\nVoxBulk team · voxbulk.com"
 
 _DEFAULT_EMAIL_HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="font-family:'DM Sans',Arial,sans-serif;line-height:1.65;color:#2a2620;max-width:560px;margin:0 auto;padding:28px 24px;background:#fbf8f3;">
-  <div style="background:#ffffff;border:1px solid rgba(42,38,32,0.08);border-radius:12px;padding:28px 24px;">
-    <p style="margin:0 0 16px;font-size:15px;">Hi {{first_name}},</p>
-    {{body}}
-    <p style="margin:24px 0 0;font-size:14px;color:#6b6458;">Use code <strong style="color:#854F0B;font-family:monospace;">{{promo_code}}</strong> to start your free trial at {{company}}.</p>
-    <p style="margin:28px 0 0;font-size:12px;color:#9a9288;border-top:1px solid rgba(42,38,32,0.08);padding-top:16px;">VoxBulk · voxbulk.com · outreach@voxbulk.com</p>
-  </div>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head>
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;background:#f4f6f8;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:collapse;background:#ffffff;border:1px solid #e5e7eb;">
+        <tr><td style="padding:28px 24px;font-size:15px;line-height:1.6;color:#1a1a1a;">
+          <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1a1a1a;">Hi {{first_name}},</p>
+          {{body}}
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 8px;border-collapse:collapse;">
+            <tr>
+              <td align="center" bgcolor="#ffffff" style="border-radius:6px;background:#ffffff;border:1px solid #111111;">
+                <a href="{{trial_url}}" target="_blank"
+                   style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:700;line-height:1.2;
+                          color:#111111 !important;text-decoration:none;border-radius:6px;background:#ffffff;">
+                  <span style="color:#111111 !important;text-decoration:none;">Start free trial</span>
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:12px 0 0;font-size:13px;line-height:1.5;color:#6b7280;">
+            Code <strong style="color:#111111;font-family:monospace;">{{promo_code}}</strong> · 3-day Expo trial
+          </p>
+          <p style="margin:28px 0 0;font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:16px;">VoxBulk · voxbulk.com</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
 </body>
 </html>"""
 
@@ -56,7 +76,7 @@ _SAMPLE_PREVIEW_VARS = {
     "first_name": "Alex",
     "last_name": "Taylor",
     "company": "Example Estates Ltd",
-    "promo_code": "TRIAL-EXAMPLE",
+    "promo_code": "EXPO3DAYS",
     "job_title": "Operations Director",
     "email": "alex.taylor@example.com",
     "sector": "property",

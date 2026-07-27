@@ -99,6 +99,7 @@ export default function ApifyOutreach() {
 
   const [templates, setTemplates] = useState([])
   const [mergeTags, setMergeTags] = useState(DEFAULT_MERGE)
+  const [defaultPromoCode, setDefaultPromoCode] = useState('EXPO3DAYS')
   const [activeTplId, setActiveTplId] = useState(null)
   const [tplDraft, setTplDraft] = useState(null)
 
@@ -162,6 +163,7 @@ export default function ApifyOutreach() {
     const data = await apiFetch('/admin/ai-team/templates')
     setTemplates(data.templates || [])
     setMergeTags(data.merge_tags?.length ? data.merge_tags : DEFAULT_MERGE)
+    if (data.default_promo_code) setDefaultPromoCode(data.default_promo_code)
     return data.templates || []
   }, [])
 
@@ -590,6 +592,7 @@ export default function ApifyOutreach() {
   const filteredRecipients = recipients.filter((r) => {
     if (recipientFilter === 'all') return true
     if (recipientFilter === 'opened') return !!r.opened_at
+    if (recipientFilter === 'clicked') return !!r.clicked_at || (r.click_count || 0) > 0
     return r.status === recipientFilter
   })
 
@@ -812,26 +815,32 @@ export default function ApifyOutreach() {
                     <div className="ait-card-hdr">
                       <span className="ait-card-title">5 · Results</span>
                       <div className="ait-seg">
-                        {[['all', 'All'], ['pending', 'Pending'], ['sent', 'Sent'], ['failed', 'Failed']].map(([id, label]) => (
+                        {[['all', 'All'], ['pending', 'Pending'], ['sent', 'Sent'], ['clicked', 'Clicked'], ['failed', 'Failed']].map(([id, label]) => (
                           <button key={id} type="button" className={recipientFilter === id ? 'active' : ''} onClick={() => setRecipientFilter(id)}>{label}</button>
                         ))}
                       </div>
                     </div>
                     <div className="ait-table-wrap">
                       <table className="ait-tbl">
-                        <thead><tr><th>Email</th><th>Company</th><th>Status</th><th>Sent</th><th>Error</th></tr></thead>
+                        <thead><tr><th>Email</th><th>Company</th><th>Promo</th><th>Status</th><th>Clicks</th><th>Sent</th><th>Error</th></tr></thead>
                         <tbody>
                           {filteredRecipients.map((r) => (
                             <tr key={r.id}>
                               <td><strong>{r.full_name || r.email}</strong><div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{r.email}</div></td>
                               <td>{r.company_name || '—'}</td>
+                              <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.promo_code || defaultPromoCode}</td>
                               <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status}</span></td>
+                              <td style={{ fontSize: 12 }}>
+                                {(r.click_count || 0) > 0 ? (
+                                  <span className="ait-badge b-opened" title={r.clicked_at || ''}>{r.click_count} click{r.click_count === 1 ? '' : 's'}</span>
+                                ) : '—'}
+                              </td>
                               <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(r.sent_at)}</td>
                               <td className="ait-ellipsis" title={r.last_error || ''}>{r.last_error || '—'}</td>
                             </tr>
                           ))}
                           {!filteredRecipients.length && (
-                            <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>No recipients yet</td></tr>
+                            <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--ait-text3)', padding: 28 }}>No recipients yet</td></tr>
                           )}
                         </tbody>
                       </table>
@@ -899,15 +908,17 @@ export default function ApifyOutreach() {
                       >{`{{body}}`}</button>
                       <span className="ait-hint" style={{ margin: 0 }}>Use in HTML wrapper for the text block</span>
                     </div>
-                    <div className="ait-field" style={{ marginBottom: 0 }}><label>HTML wrapper</label>
-                      <textarea className="ait-code-editor" style={{ minHeight: 180 }} value={tplDraft.html_template || ''} onChange={(e) => setTplDraft({ ...tplDraft, html_template: e.target.value })} />
+                    <div className="ait-field" style={{ marginBottom: 0 }}><label>HTML wrapper (paste full email HTML here — shown as-is)</label>
+                      <textarea className="ait-code-editor" style={{ minHeight: 220 }} value={tplDraft.html_template || ''} onChange={(e) => setTplDraft({ ...tplDraft, html_template: e.target.value })} />
                     </div>
                     <p className="ait-hint">
-                      All codes: {mergeTags.map((t) => `{{${t}}}`).join(' ')}.
-                      Trial link: use {'{{signup_url}}'} or {'{{trial_url}}'} → https://voxbulk.com/signin?promo=CODE
+                      Trial CTA: use <code>{'{{trial_url}}'}</code> or <code>{'{{signup_url}}'}</code> —
+                      sends track who clicked, then open signup with promo <strong>{defaultPromoCode}</strong> (3-day Expo trial).
+                      Per-company codes: map the Promo column in Excel.
                     </p>
                     <p className="ait-hint" style={{ marginTop: 4 }}>
-                      Preview matches email width (600px). Saving a template also updates linked campaigns. Prefer inline styles (not CSS classes) so Gmail/Outlook keep your colours.
+                      Keep button colours with <strong>inline styles</strong> (e.g. <code>style=&quot;color:#fff;background:#111&quot;</code>) —
+                      CSS classes are stripped by Gmail/Outlook. Pricing tables: <code>width=&quot;100%&quot;</code> + <code>max-width:600px</code>.
                     </p>
                   </div>
                 </div>
@@ -1107,22 +1118,22 @@ export default function ApifyOutreach() {
 
       {preview && (
         <div className="ait-modal-backdrop" onClick={() => setPreview(null)}>
-          <div className="ait-modal ait-modal-wide" onClick={(e) => e.stopPropagation()}>
+          <div className="ait-modal ait-modal-wide ait-modal-fullscreen" onClick={(e) => e.stopPropagation()}>
             <div className="ait-modal-hdr">
               <div>
                 <h3>{preview.subject}</h3>
-                <div style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{preview.sample ? 'Sample' : `To ${preview.recipient?.email}`}</div>
+                <div style={{ fontSize: 12, color: 'var(--ait-text3)' }}>
+                  {preview.sample ? 'Sample preview · full screen' : `To ${preview.recipient?.email}`}
+                  {' · '}promo {defaultPromoCode}
+                </div>
               </div>
               <button type="button" className="ait-btn ghost sm" onClick={() => setPreview(null)}>Close</button>
             </div>
             <div className="ait-email-client-frame">
               <iframe title="preview" className="ait-html-preview" srcDoc={preview.html || ''} />
             </div>
-            <p className="ait-hint" style={{ marginTop: 10, marginBottom: 0 }}>
-              Shown at ~600px (typical inbox width). If tables look squeezed here, fix widths in the HTML wrapper (use width=&quot;100%&quot; / max-width:600px).
-            </p>
             {preview.body_text ? (
-              <details style={{ marginTop: 12 }}>
+              <details style={{ marginTop: 10, flexShrink: 0 }}>
                 <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--ait-text3)' }}>Plain text</summary>
                 <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, marginTop: 8 }}>{preview.body_text || preview.text}</pre>
               </details>
@@ -1140,9 +1151,10 @@ export default function ApifyOutreach() {
             </div>
             <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--ait-text2)', lineHeight: 1.6, fontSize: 13 }}>
               <li><strong>Sending</strong> — save From + SMTP and test.</li>
-              <li><strong>Templates</strong> — create subject/body/HTML with merge codes.</li>
+              <li><strong>Templates</strong> — paste HTML as-is; use {'{{trial_url}}'} for the Start free trial button (tracks clicks → signup with {defaultPromoCode}).</li>
               <li><strong>Campaigns</strong> — name → select template → Excel → Preview → Send all.</li>
               <li><strong>Scrape</strong> — paste any exhibitor URL; uses Apify + free actor when token is set, otherwise built-in → Add to campaign. Manual: Campaigns → Excel.</li>
+              <li><strong>Results</strong> — filter Clicked to see who opened the trial link.</li>
             </ol>
             <p className="ait-hint" style={{ marginTop: 12 }}>
               AI Team (sidebar) is the older approval-queue tool. This Apify page is template + bulk send.

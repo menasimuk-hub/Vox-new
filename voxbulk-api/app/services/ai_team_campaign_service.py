@@ -14,15 +14,67 @@ from sqlalchemy.orm import Session
 from app.models.ai_team_apify_run import AiTeamApifyRun
 from app.models.ai_team_campaign import AiTeamCampaign, AiTeamCampaignRecipient
 from app.models.ai_team_email_template import AiTeamEmailTemplate
+from app.models.promo_offer import PromoOffer
 from app.services.ai_team_service import AiTeamService, AiTeamServiceError
+from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
 logger = logging.getLogger(__name__)
+
+# Shared Expo booth trial for Apify / AI Marketing outreach (register → 3 free Expo days).
+DEFAULT_EXPO_PROMO_CODE = "EXPO3DAYS"
 
 _DEFAULT_BODY = (
     "I noticed {{company}} at the show and thought a quick note might help.\n\n"
     "VoxBulk automates customer feedback by phone and WhatsApp so your team sees results faster.\n\n"
-    "Happy to share a short demo if useful — use code {{promo_code}} if you want to try it."
+    "Start a free 3-day Expo trial with code {{promo_code}} — no card required."
 )
+
+_DEFAULT_HTML_TEMPLATE = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light only">
+<meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;background:#f4f6f8;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;border-collapse:collapse;background:#ffffff;border:1px solid #e5e7eb;">
+          <tr>
+            <td style="padding:28px 24px;font-size:15px;line-height:1.6;color:#1a1a1a;">
+              <p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1a1a1a;">Hi {{first_name}},</p>
+              {{body}}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 8px;border-collapse:collapse;">
+                <tr>
+                  <td align="center" bgcolor="#ffffff" style="border-radius:6px;background:#ffffff;border:1px solid #111111;">
+                    <a href="{{trial_url}}" target="_blank"
+                       style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:700;line-height:1.2;
+                              color:#111111 !important;text-decoration:none;border-radius:6px;
+                              background:#ffffff;mso-padding-alt:0;">
+                      <!--[if mso]><i style="letter-spacing:28px;mso-font-width:-100%;mso-text-raise:21pt;">&nbsp;</i><![endif]-->
+                      <span style="color:#111111 !important;text-decoration:none;">Start free trial</span>
+                      <!--[if mso]><i style="letter-spacing:28px;mso-font-width:-100%;">&nbsp;</i><![endif]-->
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:12px 0 0;font-size:13px;line-height:1.5;color:#6b7280;">
+                Code <strong style="color:#111111;font-family:monospace;">{{promo_code}}</strong> · 3-day Expo trial ·
+                or open <a href="{{trial_url}}" style="color:#111111;text-decoration:underline;">{{trial_url}}</a>
+              </p>
+              <p style="margin:28px 0 0;font-size:12px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:16px;">
+                VoxBulk · voxbulk.com
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>"""
 
 MERGE_TAGS = [
     "first_name",
@@ -53,18 +105,101 @@ class AiTeamCampaignService:
         return out
 
     @staticmethod
-    def _signup_url(promo_code: str | None = None) -> str:
+    def ensure_default_expo_promo(db: Session) -> PromoOffer:
+        """Idempotent: shared EXPO3DAYS promo (3 free Expo days) for outreach CTAs."""
+        code = DEFAULT_EXPO_PROMO_CODE
+        existing = PromoOfferService.get_by_code(db, code)
+        if existing is not None:
+            return existing
+        try:
+            return PromoOfferService.create_admin(
+                db,
+                {
+                    "code": code,
+                    "name": "Apify outreach · 3-day Expo trial",
+                    "benefit_kind": "free_usage",
+                    "service_kind": "expo",
+                    "usage_amount": 3,
+                    "trial_days": 3,
+                    "expires_in_days": 365,
+                    "max_redemptions": 100000,
+                    "redeem_mode": "anyone",
+                },
+            )
+        except PromoOfferError:
+            # Race: another worker created it
+            row = PromoOfferService.get_by_code(db, code)
+            if row is None:
+                raise
+            return row
+
+    @staticmethod
+    def resolve_promo_code(db: Session, raw: str | None = None) -> str:
+        AiTeamCampaignService.ensure_default_expo_promo(db)
+        code = str(raw or "").strip().upper()
+        if code:
+            return code[:64]
+        return DEFAULT_EXPO_PROMO_CODE
+
+    @staticmethod
+    def _public_signin_url(promo_code: str | None = None) -> str:
         from app.core.config import get_settings
 
-        base = str(get_settings().public_site_base_url or "https://voxbulk.com").rstrip("/")
+        base = str(
+            get_settings().public_app_origin
+            or get_settings().public_site_base_url
+            or "https://voxbulk.com"
+        ).rstrip("/")
         code = str(promo_code or "").strip()
         if code:
             return f"{base}/signin?promo={code}"
         return f"{base}/signin"
 
     @staticmethod
+    def _tracked_trial_url(recipient_id: str) -> str:
+        from app.services.brand_assets import api_public_origin
+
+        api = api_public_origin().rstrip("/") or "https://api.voxbulk.com"
+        return f"{api}/public/ai-team/c/{recipient_id}/trial"
+
+    @staticmethod
+    def _signup_url(promo_code: str | None = None, *, recipient_id: str | None = None) -> str:
+        """Direct signup for previews; tracked redirect when sending to a recipient."""
+        if recipient_id:
+            return AiTeamCampaignService._tracked_trial_url(recipient_id)
+        return AiTeamCampaignService._public_signin_url(promo_code)
+
+    @staticmethod
+    def record_trial_click_and_destination(db: Session, recipient_id: str) -> str:
+        """Mark click on Start Free Trial and return the signup URL with promo."""
+        rid = str(recipient_id or "").strip()
+        promo = DEFAULT_EXPO_PROMO_CODE
+        if rid:
+            row = db.get(AiTeamCampaignRecipient, rid)
+            if row is not None:
+                now = AiTeamCampaignService._now()
+                promo = AiTeamCampaignService.resolve_promo_code(db, row.promo_code)
+                if not (row.promo_code or "").strip():
+                    row.promo_code = promo
+                row.click_count = int(row.click_count or 0) + 1
+                if row.clicked_at is None:
+                    row.clicked_at = now
+                if row.opened_at is None:
+                    row.opened_at = now
+                row.updated_at = now
+                db.add(row)
+                campaign = db.get(AiTeamCampaign, row.campaign_id)
+                if campaign is not None:
+                    AiTeamCampaignService.refresh_counts(db, campaign)
+                else:
+                    db.commit()
+        else:
+            AiTeamCampaignService.ensure_default_expo_promo(db)
+        return AiTeamCampaignService._public_signin_url(promo)
+
+    @staticmethod
     def _prepare_email_html(html: str) -> str:
-        """Light email-client hints so colours/tables match Preview more closely."""
+        """Preserve pasted HTML; add light email-client hints for tables/colours."""
         out = str(html or "")
         if not out.strip():
             return out
@@ -95,12 +230,28 @@ class AiTeamCampaignService:
                 )
             return tag[:-1] + ' style="border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt;">'
 
-        return re.sub(r"<table\b[^>]*>", _table_repl, out, flags=re.I)
+        out = re.sub(r"<table\b[^>]*>", _table_repl, out, flags=re.I)
+        # Keep CTA / link colours from the template (avoid client forcing blue).
+        if "a[x-apple-data-detectors]" not in lower:
+            style_block = (
+                "<style type=\"text/css\">"
+                "a,a:link,a:visited{text-decoration:none;}"
+                "a[x-apple-data-detectors]{color:inherit!important;text-decoration:none!important;}"
+                "</style>"
+            )
+            if re.search(r"<head[^>]*>", out, re.I):
+                out = re.sub(r"(<head[^>]*>)", r"\1" + style_block, out, count=1, flags=re.I)
+        return out
 
     @staticmethod
-    def recipient_vars(row: AiTeamCampaignRecipient) -> dict[str, str]:
-        promo = row.promo_code or ""
-        signup = AiTeamCampaignService._signup_url(promo)
+    def recipient_vars(row: AiTeamCampaignRecipient, *, db: Session | None = None) -> dict[str, str]:
+        promo = str(row.promo_code or "").strip()
+        if db is not None:
+            promo = AiTeamCampaignService.resolve_promo_code(db, promo)
+        elif not promo:
+            promo = DEFAULT_EXPO_PROMO_CODE
+        tracked = AiTeamCampaignService._signup_url(promo, recipient_id=row.id)
+        direct = AiTeamCampaignService._public_signin_url(promo)
         return {
             "first_name": row.first_name or "there",
             "last_name": row.last_name or "",
@@ -111,8 +262,9 @@ class AiTeamCampaignService:
             "sector": row.sector or "",
             "country_code": row.country_code or "GB",
             "promo_code": promo,
-            "signup_url": signup,
-            "trial_url": signup,
+            "signup_url": tracked,
+            "trial_url": tracked,
+            "direct_signup_url": direct,
         }
 
     @staticmethod
@@ -155,6 +307,8 @@ class AiTeamCampaignService:
             "last_error": row.last_error,
             "sent_at": row.sent_at.isoformat() if row.sent_at else None,
             "opened_at": row.opened_at.isoformat() if row.opened_at else None,
+            "clicked_at": row.clicked_at.isoformat() if getattr(row, "clicked_at", None) else None,
+            "click_count": int(getattr(row, "click_count", 0) or 0),
             "replied_at": row.replied_at.isoformat() if row.replied_at else None,
         }
 
@@ -176,14 +330,14 @@ class AiTeamCampaignService:
         title = str(name or "").strip()
         if not title:
             raise AiTeamServiceError("Campaign name is required")
-        settings = AiTeamService.get_settings(db)
+        AiTeamCampaignService.ensure_default_expo_promo(db)
         now = AiTeamCampaignService._now()
         row = AiTeamCampaign(
             name=title[:255],
             status="draft",
             subject="Quick idea for {{company}}",
             body_text=_DEFAULT_BODY,
-            html_template=AiTeamService.effective_html_template(settings),
+            html_template=_DEFAULT_HTML_TEMPLATE,
             created_at=now,
             updated_at=now,
         )
@@ -232,19 +386,19 @@ class AiTeamCampaignService:
 
     @staticmethod
     def list_templates(db: Session) -> list[AiTeamEmailTemplate]:
+        AiTeamCampaignService.ensure_default_expo_promo(db)
         rows = list(
             db.execute(select(AiTeamEmailTemplate).order_by(AiTeamEmailTemplate.updated_at.desc())).scalars().all()
         )
         if rows:
             return rows
         # Seed one default so the Templates tab is never empty on first visit
-        settings = AiTeamService.get_settings(db)
         now = AiTeamCampaignService._now()
         seed = AiTeamEmailTemplate(
             name="Default expo outreach",
             subject="Quick idea for {{company}}",
             body_text=_DEFAULT_BODY,
-            html_template=AiTeamService.effective_html_template(settings),
+            html_template=_DEFAULT_HTML_TEMPLATE,
             created_at=now,
             updated_at=now,
         )
@@ -265,7 +419,7 @@ class AiTeamCampaignService:
         name = str(payload.get("name") or "").strip()
         if not name:
             raise AiTeamServiceError("Template name is required")
-        settings = AiTeamService.get_settings(db)
+        AiTeamCampaignService.ensure_default_expo_promo(db)
         now = AiTeamCampaignService._now()
         row = AiTeamEmailTemplate(
             name=name[:255],
@@ -274,7 +428,7 @@ class AiTeamCampaignService:
             html_template=(
                 str(payload["html_template"])
                 if payload.get("html_template") is not None
-                else AiTeamService.effective_html_template(settings)
+                else _DEFAULT_HTML_TEMPLATE
             ),
             created_at=now,
             updated_at=now,
@@ -319,7 +473,19 @@ class AiTeamCampaignService:
         db.commit()
         db.refresh(row)
         return row
+
+    @staticmethod
+    def delete_template(db: Session, template_id: str) -> dict[str, Any]:
         row = AiTeamCampaignService.get_template(db, template_id)
+        linked = list(
+            db.execute(
+                select(AiTeamCampaign).where(AiTeamCampaign.template_id == row.id)
+            ).scalars().all()
+        )
+        for campaign in linked:
+            campaign.template_id = None
+            campaign.updated_at = AiTeamCampaignService._now()
+            db.add(campaign)
         db.delete(row)
         db.commit()
         return {"ok": True, "deleted": 1}
@@ -333,13 +499,16 @@ class AiTeamCampaignService:
         html_template: str | None = None,
     ) -> dict[str, str]:
         """Render a template draft with sample merge data (for Templates Preview)."""
-        settings = AiTeamService.get_settings(db)
         fake = AiTeamCampaign(
             name="preview",
             status="draft",
             subject=str(subject or "Quick idea for {{company}}").strip()[:500] or "Hello",
             body_text=str(body_text if body_text is not None else _DEFAULT_BODY),
-            html_template=str(html_template).strip() if html_template is not None else AiTeamService.effective_html_template(settings),
+            html_template=(
+                str(html_template).strip()
+                if html_template is not None
+                else _DEFAULT_HTML_TEMPLATE
+            ),
         )
         rendered = AiTeamCampaignService.render_for_recipient(db, fake, None, sample=True)
         return {**rendered, "sample": True}
@@ -488,7 +657,9 @@ class AiTeamCampaignService:
                 job_title=str(raw.get("job_title") or "").strip()[:255],
                 sector=str(raw.get("sector") or "").strip().lower()[:64],
                 country_code=(str(raw.get("country_code") or raw.get("country") or "GB").strip().upper()[:8] or "GB"),
-                promo_code=str(raw.get("promo_code") or "").strip()[:64],
+                promo_code=AiTeamCampaignService.resolve_promo_code(
+                    db, str(raw.get("promo_code") or "").strip()
+                )[:64],
                 status="pending",
                 created_at=now,
                 updated_at=now,
@@ -593,8 +764,11 @@ class AiTeamCampaignService:
         *,
         sample: bool = False,
     ) -> dict[str, str]:
-        settings = AiTeamService.get_settings(db)
+        AiTeamCampaignService.ensure_default_expo_promo(db)
+        default_promo = DEFAULT_EXPO_PROMO_CODE
         if sample or recipient is None:
+            promo = default_promo
+            direct = AiTeamCampaignService._public_signin_url(promo)
             vars_map = {
                 "first_name": "Alex",
                 "last_name": "Taylor",
@@ -604,23 +778,53 @@ class AiTeamCampaignService:
                 "email": "alex@example.com",
                 "sector": "expo",
                 "country_code": "GB",
-                "promo_code": "TRIAL-EXAMPLE",
+                "promo_code": promo,
+                "signup_url": direct,
+                "trial_url": direct,
+                "direct_signup_url": direct,
             }
         else:
-            vars_map = AiTeamCampaignService.recipient_vars(recipient)
-
-        promo = vars_map.get("promo_code") or ""
-        signup = AiTeamCampaignService._signup_url(promo)
-        vars_map.setdefault("signup_url", signup)
-        vars_map.setdefault("trial_url", signup)
+            vars_map = AiTeamCampaignService.recipient_vars(recipient, db=db)
+            # Persist default promo so click redirect always has a code.
+            if not (recipient.promo_code or "").strip():
+                recipient.promo_code = vars_map["promo_code"]
+                recipient.updated_at = AiTeamCampaignService._now()
+                db.add(recipient)
+                db.commit()
 
         body_merged = AiTeamCampaignService._apply_merge(campaign.body_text or "", vars_map)
         subject = AiTeamCampaignService._apply_merge(campaign.subject or "", vars_map).strip() or "Hello"
-        template = str(campaign.html_template or "").strip() or AiTeamService.effective_html_template(settings)
-        vars_map["body"] = AiTeamService._body_html_fragment(body_merged)
+        template = str(campaign.html_template or "").strip() or _DEFAULT_HTML_TEMPLATE
+        # Full HTML pasted into body (no {{body}} in wrapper): use body as the document.
+        if (
+            body_merged
+            and re.search(r"<html\b|<body\b|<table\b", body_merged, re.I)
+            and "{{body}}" not in template
+            and template.strip() in {"", _DEFAULT_HTML_TEMPLATE.strip()}
+        ):
+            template = body_merged
+            vars_map["body"] = ""
+        elif (
+            body_merged
+            and re.search(r"<html\b", body_merged, re.I)
+            and "{{body}}" in template
+        ):
+            # User pasted a full email into Body — prefer it as the whole message.
+            template = body_merged
+            vars_map["body"] = ""
+        else:
+            vars_map["body"] = AiTeamService._body_html_fragment(body_merged)
         html = AiTeamCampaignService._apply_merge(template, vars_map)
-        # Also allow unmerged leftover tags to stay empty-ish
         html = re.sub(r"\{\{[a-zA-Z0-9_]+\}\}", "", html)
+        # Rewrite bare /signin links to the tracked trial URL (keeps CTA working + tracked).
+        trial = str(vars_map.get("trial_url") or "").strip()
+        if trial:
+            html = re.sub(
+                r"""href=(['"])https?://(?:www\.)?voxbulk\.com/signin(?:\?[^'"]*)?\1""",
+                lambda m: f"href={m.group(1)}{trial}{m.group(1)}",
+                html,
+                flags=re.I,
+            )
         html = AiTeamCampaignService._prepare_email_html(html)
         text = re.sub(r"<[^>]+>", "", html)
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -692,8 +896,10 @@ class AiTeamCampaignService:
             }
         if not (campaign.subject or "").strip():
             raise AiTeamServiceError("Add a subject before sending")
-        if not (campaign.body_text or "").strip():
-            raise AiTeamServiceError("Add email body text before sending")
+        has_body = bool((campaign.body_text or "").strip())
+        has_html = bool((campaign.html_template or "").strip())
+        if not has_body and not has_html:
+            raise AiTeamServiceError("Add email body or HTML template before sending")
         pending = db.scalar(
             select(func.count()).select_from(AiTeamCampaignRecipient).where(
                 AiTeamCampaignRecipient.campaign_id == campaign_id,

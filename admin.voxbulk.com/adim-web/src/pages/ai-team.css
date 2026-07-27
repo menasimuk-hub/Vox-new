@@ -400,6 +400,31 @@
   max-height: 90vh;
   overflow: auto;
 }
+.ai-team-page .ait-modal-fullscreen {
+  width: min(1280px, 98vw);
+  height: 96vh;
+  max-height: 96vh;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem 1.25rem 1.25rem;
+}
+.ai-team-page .ait-modal-fullscreen .ait-modal-hdr {
+  flex-shrink: 0;
+}
+.ai-team-page .ait-modal-fullscreen .ait-email-client-frame {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  align-items: stretch;
+  padding: 12px;
+}
+.ai-team-page .ait-modal-fullscreen .ait-html-preview {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  min-height: calc(96vh - 140px);
+  border-radius: 6px;
+}
 .ai-team-page .ait-modal-backdrop {
   position: fixed;
   inset: 0;

@@ -626,12 +626,14 @@ def test_deepseek_sample(db: Session = Depends(get_db), _admin: User = Depends(r
 
 @router.get("/templates")
 def list_templates(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_AI_TEAM))):
-    from app.services.ai_team_campaign_service import MERGE_TAGS
+    from app.services.ai_team_campaign_service import DEFAULT_EXPO_PROMO_CODE, MERGE_TAGS
 
     rows = AiTeamCampaignService.list_templates(db)
     return {
         "templates": [AiTeamCampaignService.template_to_dict(r) for r in rows],
         "merge_tags": MERGE_TAGS,
+        "default_promo_code": DEFAULT_EXPO_PROMO_CODE,
+        "default_trial_days": 3,
     }
 
 
