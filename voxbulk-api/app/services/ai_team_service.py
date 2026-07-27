@@ -574,6 +574,8 @@ class AiTeamService:
         subject: str,
         text: str,
         html: str | None = None,
+        message_id: str | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         host = (settings.smtp_host or "").strip()
         port = int(settings.smtp_port or 587)
@@ -592,6 +594,12 @@ class AiTeamService:
         reply_to = (settings.reply_to_email or "").strip()
         if reply_to:
             msg["Reply-To"] = reply_to
+        mid = str(message_id or "").strip()
+        if mid:
+            msg["Message-ID"] = mid if mid.startswith("<") else f"<{mid}>"
+        for hk, hv in (extra_headers or {}).items():
+            if hk and hv and hk.lower() not in {"from", "to", "subject", "message-id"}:
+                msg[str(hk)] = str(hv)
         msg.attach(MIMEText(text or "", "plain", "utf-8"))
         if html:
             msg.attach(MIMEText(html, "html", "utf-8"))
@@ -608,7 +616,7 @@ class AiTeamService:
                 server.ehlo()
                 server.login(user, pwd)
                 server.sendmail(from_email, [to_email], msg.as_string())
-        return {"ok": True, "provider": "smtp", "email_id": None}
+        return {"ok": True, "provider": "smtp", "email_id": None, "message_id": mid or None}
 
     @staticmethod
     def _deliver_email(
@@ -619,11 +627,21 @@ class AiTeamService:
         subject: str,
         text: str,
         html: str | None = None,
+        recipient_id: str | None = None,
     ) -> dict[str, Any]:
+        rid = str(recipient_id or "").strip()
+        message_id = f"<ait-c-{rid}@outreach.voxbulk.com>" if rid else None
+        extra = {"X-VoxBulk-Recipient": rid} if rid else None
         provider = AiTeamService._delivery_provider(settings)
         if provider == "smtp":
             return AiTeamService._send_via_smtp(
-                settings, to_email=to_email, subject=subject, text=text, html=html
+                settings,
+                to_email=to_email,
+                subject=subject,
+                text=text,
+                html=html,
+                message_id=message_id,
+                extra_headers=extra,
             )
         api_key = AiTeamService._resend_key(db)
         from_addr = AiTeamService._from_address(settings)
@@ -637,7 +655,12 @@ class AiTeamService:
                 subject=subject,
                 text=text,
                 html=html,
-                reply_to=(settings.reply_to_email or None),
+                reply_to=(settings.reply_to_email or "").strip() or None,
+                headers={
+                    **({"Message-ID": message_id} if message_id else {}),
+                    **({"X-VoxBulk-Recipient": rid} if rid else {}),
+                }
+                or None,
             )
         except ResendServiceError as exc:
             raise AiTeamServiceError(str(exc)) from exc

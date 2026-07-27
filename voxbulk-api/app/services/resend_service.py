@@ -56,6 +56,7 @@ class ResendService:
         text: str,
         html: str | None = None,
         reply_to: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "from": from_email,
@@ -67,6 +68,9 @@ class ResendService:
             payload["html"] = html
         if reply_to:
             payload["reply_to"] = reply_to
+        if headers:
+            # Resend custom headers: [{name, value}, ...]
+            payload["headers"] = [{"name": str(k), "value": str(v)} for k, v in headers.items() if k and v]
 
         with httpx.Client(timeout=45.0) as client:
             resp = client.post(RESEND_API_URL, headers=ResendService._headers(api_key), json=payload)

@@ -706,11 +706,10 @@ class AiTeamCampaignService:
         elif st == "opened":
             stmt = stmt.where(AiTeamCampaignRecipient.opened_at.is_not(None))
         elif st == "received":
-            # Inbound replies (IMAP) or already emailed conversation candidates.
+            # Only real inbound replies (IMAP). Use Sent filter for outbound-only rows.
             stmt = stmt.where(
                 (AiTeamCampaignRecipient.replied_at.is_not(None))
                 | (AiTeamCampaignRecipient.last_inbound_body.is_not(None))
-                | (AiTeamCampaignRecipient.status == "sent")
             )
         elif st == "unsubscribed":
             stmt = stmt.where(
@@ -1106,6 +1105,7 @@ class AiTeamCampaignService:
             subject=f"[TEST] {rendered['subject']}",
             text=rendered["text"],
             html=rendered["html"],
+            recipient_id=test_row.id,
         )
         test_row.status = "sent"
         test_row.sent_at = now
@@ -1161,6 +1161,7 @@ class AiTeamCampaignService:
             subject=subj,
             text=text,
             html=html,
+            recipient_id=row.id,
         )
         now = AiTeamCampaignService._now()
         row.replied_at = row.replied_at or now
@@ -1316,6 +1317,7 @@ class AiTeamCampaignService:
                         subject=rendered["subject"],
                         text=rendered["text"],
                         html=rendered["html"],
+                        recipient_id=row.id,
                     )
                     now = AiTeamCampaignService._now()
                     row.status = "sent"
@@ -1448,35 +1450,115 @@ class AiTeamCampaignService:
         }
 
     @staticmethod
+    def normalize_match_email(email: str | None) -> str:
+        """Lowercase + Gmail-style normalisation so replies still match audience rows."""
+        addr = str(email or "").strip().lower()
+        if not addr or "@" not in addr:
+            return addr
+        local, domain = addr.rsplit("@", 1)
+        if domain in {"gmail.com", "googlemail.com"}:
+            local = local.split("+", 1)[0].replace(".", "")
+            domain = "gmail.com"
+        return f"{local}@{domain}"
+
+    @staticmethod
     def record_inbound_reply(
         db: Session,
         *,
         from_email: str,
         subject: str,
         body: str,
+        recipient_id: str | None = None,
+        reply_to_email: str | None = None,
     ) -> AiTeamCampaignRecipient | None:
-        """Match inbound IMAP mail to the latest sent campaign recipient by From address."""
-        addr = str(from_email or "").strip().lower()
-        if not addr or "@" not in addr:
+        """Match inbound IMAP mail to a campaign recipient.
+
+        Prefer Message-ID / In-Reply-To thread id (``ait-c-<uuid>``), then From / Reply-To.
+        """
+        rid = str(recipient_id or "").strip()
+        if rid:
+            row = db.get(AiTeamCampaignRecipient, rid)
+            if row is not None:
+                return AiTeamCampaignService._apply_inbound_fields(db, row, subject=subject, body=body)
+
+        candidates: list[str] = []
+        for raw in (from_email, reply_to_email):
+            raw_l = str(raw or "").strip().lower()
+            norm = AiTeamCampaignService.normalize_match_email(raw)
+            for addr in (raw_l, norm):
+                if addr and "@" in addr and addr not in candidates:
+                    candidates.append(addr)
+        subj_l = str(subject or "").lower()
+        looks_like_test_reply = "[test]" in subj_l and (subj_l.startswith("re:") or "re:" in subj_l[:8])
+
+        if not candidates:
+            if looks_like_test_reply:
+                row = db.execute(
+                    select(AiTeamCampaignRecipient)
+                    .where(AiTeamCampaignRecipient.status == "sent")
+                    .order_by(AiTeamCampaignRecipient.sent_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                if row is not None:
+                    return AiTeamCampaignService._apply_inbound_fields(db, row, subject=subject, body=body)
             return None
-        row = db.execute(
-            select(AiTeamCampaignRecipient)
-            .where(
-                func.lower(AiTeamCampaignRecipient.email) == addr,
-                AiTeamCampaignRecipient.status.in_(["sent", "unsubscribed"]),
-            )
-            .order_by(AiTeamCampaignRecipient.sent_at.desc(), AiTeamCampaignRecipient.updated_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        if row is None:
+
+        for addr in candidates:
+            row = db.execute(
+                select(AiTeamCampaignRecipient)
+                .where(
+                    func.lower(AiTeamCampaignRecipient.email) == addr,
+                    AiTeamCampaignRecipient.status.in_(["sent", "unsubscribed"]),
+                )
+                .order_by(AiTeamCampaignRecipient.sent_at.desc(), AiTeamCampaignRecipient.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if row is not None:
+                return AiTeamCampaignService._apply_inbound_fields(db, row, subject=subject, body=body)
+
+        # Gmail dots/+ aliases: compare normalised forms
+        recent = list(
+            db.execute(
+                select(AiTeamCampaignRecipient)
+                .where(AiTeamCampaignRecipient.status.in_(["sent", "unsubscribed", "pending"]))
+                .order_by(AiTeamCampaignRecipient.sent_at.desc(), AiTeamCampaignRecipient.updated_at.desc())
+                .limit(800)
+            ).scalars().all()
+        )
+        norms = {AiTeamCampaignService.normalize_match_email(a) for a in candidates}
+        for cand in recent:
+            if AiTeamCampaignService.normalize_match_email(cand.email) in norms:
+                return AiTeamCampaignService._apply_inbound_fields(db, cand, subject=subject, body=body)
+
+        for addr in candidates:
             row = db.execute(
                 select(AiTeamCampaignRecipient)
                 .where(func.lower(AiTeamCampaignRecipient.email) == addr)
                 .order_by(AiTeamCampaignRecipient.updated_at.desc())
                 .limit(1)
             ).scalar_one_or_none()
-        if row is None:
-            return None
+            if row is not None:
+                return AiTeamCampaignService._apply_inbound_fields(db, row, subject=subject, body=body)
+
+        if looks_like_test_reply:
+            row = db.execute(
+                select(AiTeamCampaignRecipient)
+                .where(AiTeamCampaignRecipient.status == "sent")
+                .order_by(AiTeamCampaignRecipient.sent_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if row is not None:
+                return AiTeamCampaignService._apply_inbound_fields(db, row, subject=subject, body=body)
+        return None
+
+    @staticmethod
+    def _apply_inbound_fields(
+        db: Session,
+        row: AiTeamCampaignRecipient,
+        *,
+        subject: str,
+        body: str,
+    ) -> AiTeamCampaignRecipient:
         now = AiTeamCampaignService._now()
         row.replied_at = row.replied_at or now
         row.last_inbound_subject = str(subject or "")[:500] or None

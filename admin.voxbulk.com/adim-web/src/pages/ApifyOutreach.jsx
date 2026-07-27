@@ -645,7 +645,14 @@ export default function ApifyOutreach() {
   const refreshInbox = async () => {
     await act('imap-refresh', async () => {
       const data = await apiFetch('/admin/ai-team/tracking/imap/refresh', { method: 'POST' })
-      showBanner('ok', data.message || 'Inbox refreshed')
+      const samples = Array.isArray(data.unmatched_samples) ? data.unmatched_samples : []
+      const extra = samples.length
+        ? ` Unmatched From: ${samples.map((s) => s.from).join(', ')}`
+        : ''
+      showBanner(
+        data.matched > 0 ? 'ok' : (data.scanned > 0 ? 'err' : 'ok'),
+        `${data.message || 'Inbox refreshed'}${extra && !(data.message || '').includes('Unmatched From') ? extra : ''}`,
+      )
       setSettings((prev) => ({
         ...prev,
         imap_last_sync_at: data.imap_last_sync_at || prev.imap_last_sync_at,
@@ -1062,9 +1069,9 @@ export default function ApifyOutreach() {
                 )}
                 {trackingFilter === 'received' && (
                   <p className="ait-hint" style={{ marginTop: 8 }}>
-                    Received shows inbound replies (after Refresh inbox) and people you can reply to.
-                    Configure IMAP under Sending — SMTP cannot fetch mail. Reply From must match a campaign
-                    audience email (Send test now registers that test inbox).
+                    Received = only people who actually replied (IMAP). IMAP Test OK only means login works.
+                    Reply must come FROM the same address as Send test / audience. After deploy: Send test again,
+                    reply, then Refresh — new sends include a thread id for matching.
                   </p>
                 )}
               </div>
