@@ -358,6 +358,29 @@ def abort_apify_run(run_id: str, db: Session = Depends(get_db), _admin: User = D
         raise _err(exc) from exc
 
 
+@router.post("/apify/runs/{run_id}/update")
+def update_apify_run(
+    run_id: str,
+    body: dict[str, Any] | None = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_AI_TEAM)),
+):
+    """Re-scrape the same directory URL; keep existing emails and only append new ones."""
+    try:
+        payload = body or {}
+        follow_raw = payload.get("follow_websites")
+        follow_websites = True if follow_raw is None else bool(follow_raw)
+        return AiTeamService.update_scrape_run(
+            db,
+            run_id,
+            follow_websites=follow_websites,
+            max_stands=int(payload.get("max_stands") or 500),
+            engine=str(payload.get("engine") or "auto").strip() or "auto",
+        )
+    except Exception as exc:
+        raise _err(exc) from exc
+
+
 @router.get("/apify/runs/{run_id}/preview")
 def preview_apify_run(
     run_id: str,

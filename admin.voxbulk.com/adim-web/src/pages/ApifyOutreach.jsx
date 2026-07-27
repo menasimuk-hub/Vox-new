@@ -735,6 +735,30 @@ export default function ApifyOutreach() {
     })
   }
 
+  const updateScrapeRun = async (run) => {
+    if (!run?.id) return
+    const url = run.expo_url || 'this directory'
+    if (!window.confirm(`Update scrape for this URL?\n\n${url}\n\nExisting emails stay. Only new emails are added.`)) return
+    await act(`update-${run.id}`, async () => {
+      const data = await apiFetch(`/admin/ai-team/apify/runs/${run.id}/update`, {
+        method: 'POST',
+        body: JSON.stringify({
+          follow_websites: scrapeFollowWebsites,
+          engine: scrapeEngine || 'auto',
+        }),
+      })
+      const added = data.emails_added
+      const skipped = data.emails_skipped
+      const found = data.emails_found
+      const msg = data.message
+        || (added != null
+          ? `Update · ${found ?? '—'} found · ${skipped ?? 0} already had · ${added} new`
+          : 'Update started')
+      showBanner('ok', msg)
+      await loadApifyRuns()
+    })
+  }
+
   const runPreview = async () => {
     if (!activeId) return
     await act('preview', async () => {
@@ -2342,7 +2366,12 @@ export default function ApifyOutreach() {
                           </td>
                           <td style={{ fontSize: 11 }}>{isBuiltin ? 'built-in' : (run.actor_id || 'apify')}</td>
                           <td className="ait-ellipsis" title={run.expo_url}>{run.expo_url}</td>
-                          <td>{run.emails_found ?? prog.emails_found ?? 0}</td>
+                          <td>
+                            {run.emails_found ?? prog.emails_found ?? 0}
+                            {run.emails_added != null && Number(run.emails_added) > 0 ? (
+                              <div style={{ fontSize: 10, color: 'var(--ait-text3)' }}>+{run.emails_added} new</div>
+                            ) : null}
+                          </td>
                           <td style={{ fontSize: 11, color: 'var(--ait-text3)', maxWidth: 220 }}>
                             {prog.message || (active ? 'Waiting…' : '—')}
                             {active && (prog.stands_total || prog.stands_done) ? (
@@ -2354,6 +2383,17 @@ export default function ApifyOutreach() {
                               {active ? (
                                 <button type="button" className="ait-btn xs danger" disabled={!!busy} onClick={() => pauseScrape(run.id)}>
                                   Force pause
+                                </button>
+                              ) : null}
+                              {!active ? (
+                                <button
+                                  type="button"
+                                  className="ait-btn xs"
+                                  disabled={!!busy}
+                                  title="Re-scrape this URL; keep existing emails, add only new ones"
+                                  onClick={() => updateScrapeRun(run)}
+                                >
+                                  Update
                                 </button>
                               ) : null}
                               <button type="button" className="ait-btn xs" disabled={run.status !== 'SUCCEEDED'} onClick={() => exportApifyRun(run.id)}>Excel</button>

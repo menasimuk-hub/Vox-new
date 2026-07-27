@@ -41,12 +41,14 @@ def scrape_directory_task(
     run_id: str,
     follow_websites: bool = True,
     max_stands: int = 500,
+    merge_existing: bool = False,
 ) -> dict:
     """Background exhibitor-directory scrape (Easyfairs / HTML). Survives API worker recycle."""
     stats = AiTeamService.run_directory_scrape_job(
         run_id,
         follow_websites=follow_websites,
         max_stands=max_stands,
+        merge_existing=bool(merge_existing),
     )
     logger.info("ai_team_directory_scrape_complete run_id=%s stats=%s", run_id, stats)
     return stats

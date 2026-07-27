@@ -1706,10 +1706,17 @@ class AiTeamService:
             "dataset_id": row.dataset_id,
             "item_count": row.item_count,
             "imported_count": row.imported_count,
-            "emails_found": int(stats.get("emails_found") or progress.get("emails_found") or 0),
+            "emails_found": int(
+                stats.get("emails_total")
+                or stats.get("emails_found")
+                or progress.get("emails_found")
+                or 0
+            ),
             "emails_added": int(stats.get("emails_added") or 0) if "emails_added" in stats else None,
             "emails_skipped": int(stats.get("emails_skipped") or 0) if "emails_skipped" in stats else None,
-            "emails_total": int(stats.get("emails_total") or 0) if "emails_total" in stats else None,
+            "emails_total": int(stats.get("emails_total") or stats.get("emails_found") or 0)
+            if ("emails_total" in stats or stats.get("merge_update"))
+            else None,
             "stands_found": int(stats.get("stands_found") or stands_total or 0),
             "stands_with_email": int(stats.get("stands_with_email") or progress.get("stands_with_email") or 0),
             "provider": stats.get("provider") or progress.get("provider") or (
@@ -1817,6 +1824,7 @@ class AiTeamService:
                 return {"ok": False, "error": "run not found"}
             url = str(row.expo_url or "").strip()
             prior_contacts: list[dict[str, Any]] = []
+            prior_skip_emails: set[str] = set()
             try:
                 stats0 = json.loads(row.stats_json or "{}")
                 if isinstance(stats0, dict):
@@ -1829,9 +1837,17 @@ class AiTeamService:
                             prior_contacts = [
                                 c for c in raw_contacts if isinstance(c, dict) and c.get("email")
                             ]
+                    raw_skip = stats0.get("prior_skip_emails")
+                    if isinstance(raw_skip, list):
+                        prior_skip_emails = {
+                            str(e or "").strip().lower()
+                            for e in raw_skip
+                            if str(e or "").strip() and "@" in str(e)
+                        }
             except Exception:
                 prior_contacts = []
-            merge_mode = bool(merge_existing or prior_contacts)
+                prior_skip_emails = set()
+            merge_mode = bool(merge_existing or prior_contacts or prior_skip_emails)
             last_progress_at = 0.0
 
             def _on_progress(payload: dict[str, Any]) -> None:
@@ -1914,33 +1930,91 @@ class AiTeamService:
             session.refresh(row)
             if str(row.status or "").upper() in {"ABORTED", "PAUSED"}:
                 return {"ok": True, "aborted": True, "run_id": run_id}
+
+            emails_found = int(result.get("emails_found") or len(contacts) or 0)
+            emails_skipped = 0
+            emails_added = emails_found
+            if merge_mode:
+                prior_slim = AiTeamService._slim_directory_contacts(prior_contacts)
+                by_email: dict[str, dict[str, Any]] = {}
+                for c in prior_slim:
+                    em = str(c.get("email") or "").strip().lower()
+                    if em and "@" in em:
+                        by_email[em] = c
+                known = set(by_email.keys()) | set(prior_skip_emails)
+                emails_skipped = 0
+                emails_added = 0
+                for c in contacts:
+                    em = str(c.get("email") or "").strip().lower()
+                    if not em or "@" not in em:
+                        continue
+                    if em in known:
+                        emails_skipped += 1
+                        if em in by_email:
+                            # Refresh sparse prior fields when the new scrape has better data
+                            prev = by_email[em]
+                            for key in (
+                                "first_name",
+                                "last_name",
+                                "company_name",
+                                "job_title",
+                                "website",
+                                "profile_url",
+                                "event_name",
+                                "stand_number",
+                            ):
+                                if not str(prev.get(key) or "").strip() and str(c.get(key) or "").strip():
+                                    prev[key] = c.get(key)
+                            by_email[em] = prev
+                        continue
+                    by_email[em] = c
+                    known.add(em)
+                    emails_added += 1
+                contacts = list(by_email.values())
+
             row.status = "SUCCEEDED"
-            row.item_count = int(result.get("emails_found") or len(contacts) or result.get("stands_found") or 0)
+            row.item_count = len(contacts) if merge_mode else int(
+                result.get("emails_found") or len(contacts) or result.get("stands_found") or 0
+            )
             stands_total = int(result.get("stands_found") or 0)
             payload = {
                 "provider": result.get("provider"),
                 "editions": result.get("editions") or [],
                 "stands_found": result.get("stands_found"),
                 "stands_with_email": result.get("stands_with_email"),
-                "emails_found": result.get("emails_found"),
+                "emails_found": emails_found,
+                "emails_skipped": emails_skipped if merge_mode else None,
+                "emails_added": emails_added if merge_mode else None,
+                "emails_total": len(contacts),
+                "merge_update": bool(merge_mode),
                 "errors": result.get("errors"),
                 "warning": result.get("warning"),
                 "follow_websites": bool(follow_websites),
                 "contacts": contacts,
                 "progress": {
                     "phase": "done",
-                    "message": "Completed",
+                    "message": (
+                        f"Update complete · {emails_added} new · {emails_skipped} already had"
+                        if merge_mode
+                        else "Completed"
+                    ),
                     "stands_total": stands_total,
                     "stands_done": stands_total,
                     "stands_with_email": int(result.get("stands_with_email") or 0),
-                    "emails_found": int(result.get("emails_found") or len(contacts) or 0),
+                    "emails_found": emails_found,
+                    "emails_added": emails_added if merge_mode else None,
+                    "emails_skipped": emails_skipped if merge_mode else None,
                     "errors": int(result.get("errors") or 0),
                     "heartbeat_at": finished.isoformat() + "Z",
                     "follow_websites": bool(follow_websites),
                     "provider": result.get("provider"),
                 },
             }
-            row.stats_json = json.dumps(payload, ensure_ascii=False)
+            # Drop bulky prior_contacts snapshot once merged
+            row.stats_json = json.dumps(
+                {k: v for k, v in payload.items() if v is not None},
+                ensure_ascii=False,
+            )
             row.error = None
             row.finished_at = finished
             row.updated_at = finished
@@ -1954,14 +2028,14 @@ class AiTeamService:
                 row = session.get(AiTeamApifyRun, run_id)
                 if row is None:
                     return {"ok": False, "error": str(exc)}
-                slim = {k: v for k, v in payload.items() if k != "contacts"}
+                slim = {k: v for k, v in payload.items() if k != "contacts" and v is not None}
                 slim["contacts"] = [
                     {"email": c.get("email"), "company_name": c.get("company_name")}
                     for c in contacts
                     if isinstance(c, dict) and c.get("email")
                 ]
                 row.status = "SUCCEEDED"
-                row.item_count = int(result.get("emails_found") or len(slim["contacts"]) or 0)
+                row.item_count = int(slim.get("emails_total") or len(slim["contacts"]) or 0)
                 row.stats_json = json.dumps(slim, ensure_ascii=False)
                 row.error = None
                 row.finished_at = finished
@@ -1971,8 +2045,12 @@ class AiTeamService:
             return {
                 "ok": True,
                 "stands_found": result.get("stands_found"),
-                "emails_found": result.get("emails_found"),
+                "emails_found": emails_found,
+                "emails_skipped": emails_skipped if merge_mode else 0,
+                "emails_added": emails_added if merge_mode else emails_found,
+                "emails_total": len(contacts),
                 "provider": result.get("provider"),
+                "merge_update": bool(merge_mode),
             }
         finally:
             session.close()
@@ -2164,16 +2242,218 @@ class AiTeamService:
 
     @staticmethod
     def _builtin_run_contacts(row: AiTeamApifyRun) -> list[dict[str, Any]]:
-        if not str(row.actor_id or "").startswith("builtin:"):
-            return []
+        """Contacts stored on a scrape run (builtin stats_json), regardless of actor prefix."""
         try:
             stats = json.loads(row.stats_json or "{}")
         except Exception:
             return []
         contacts = stats.get("contacts") if isinstance(stats, dict) else None
         if not isinstance(contacts, list):
-            return []
+            # Update jobs stash prior emails here until the scrape finishes
+            prior = stats.get("prior_contacts") if isinstance(stats, dict) else None
+            if isinstance(prior, list):
+                contacts = prior
+            else:
+                return []
         return [c for c in contacts if isinstance(c, dict) and str(c.get("email") or "").strip()]
+
+    @staticmethod
+    def _load_run_contacts_for_update(db: Session, row: AiTeamApifyRun) -> list[dict[str, Any]]:
+        """All known emails for this run (stored contacts, or Apify dataset preview)."""
+        contacts = AiTeamService._builtin_run_contacts(row)
+        if contacts:
+            return contacts
+        if str(row.actor_id or "").startswith("builtin:"):
+            return []
+        if not row.dataset_id:
+            return []
+        try:
+            preview = AiTeamService.preview_apify_run(db, row.id, limit=10000)
+            return list(preview.get("preview") or [])
+        except Exception:
+            logger.debug("update_scrape_prior_apify_load_failed run_id=%s", row.id, exc_info=True)
+            return []
+
+    @staticmethod
+    def _known_emails_for_directory(db: Session, *, expo_url: str, exclude_run_id: str | None = None) -> set[str]:
+        """Emails already stored on other scrape runs for the same directory URL."""
+        url = str(expo_url or "").strip()
+        known: set[str] = set()
+        if not url:
+            return known
+        rows = list(
+            db.execute(
+                select(AiTeamApifyRun).where(AiTeamApifyRun.expo_url == url).limit(50)
+            ).scalars().all()
+        )
+        for r in rows:
+            if exclude_run_id and r.id == exclude_run_id:
+                continue
+            for c in AiTeamService._builtin_run_contacts(r):
+                em = str(c.get("email") or "").strip().lower()
+                if em and "@" in em:
+                    known.add(em)
+        return known
+
+    @staticmethod
+    def update_scrape_run(
+        db: Session,
+        run_id: str,
+        *,
+        follow_websites: bool = True,
+        max_stands: int = 500,
+        engine: str = "auto",
+    ) -> dict[str, Any]:
+        """Re-scrape the same expo_url on an existing run; keep old emails, append only new ones."""
+        row = db.get(AiTeamApifyRun, run_id)
+        if row is None:
+            raise AiTeamServiceError("Scrape run not found")
+        st = str(row.status or "").upper()
+        if st in {"RUNNING", "READY", "CREATED", "ABORTING"}:
+            raise AiTeamServiceError("Scrape is still running — Force pause or wait, then Update")
+        url = str(row.expo_url or "").strip().replace("\\", "/")
+        if not url.startswith("http"):
+            raise AiTeamServiceError("This run has no valid directory URL to update")
+
+        prior = AiTeamService._slim_directory_contacts(
+            AiTeamService._load_run_contacts_for_update(db, row)
+        )
+        prior_emails = {
+            str(c.get("email") or "").strip().lower()
+            for c in prior
+            if str(c.get("email") or "").strip() and "@" in str(c.get("email") or "")
+        }
+        known_extra = AiTeamService._known_emails_for_directory(
+            db, expo_url=url, exclude_run_id=row.id
+        ) - prior_emails
+        prior_count = len(prior_emails)
+        now = AiTeamService._now()
+        # Force built-in for Update so results land in stats_json contacts (mergeable).
+        _ = engine
+        row.actor_id = "builtin:directory"
+        row.status = "RUNNING"
+        row.error = None
+        row.finished_at = None
+        row.dataset_id = None
+        row.apify_run_id = None
+        row.updated_at = now
+        row.stats_json = json.dumps(
+            {
+                "provider": "pending",
+                "message": "update queued",
+                "merge_update": True,
+                "is_update": True,
+                "follow_websites": bool(follow_websites),
+                "prior_contacts": prior,
+                "prior_skip_emails": sorted(known_extra),
+                "prior_emails_count": prior_count,
+                "progress": {
+                    "phase": "queued",
+                    "message": f"Updating — keeping {prior_count} existing email(s), scanning for new…",
+                    "stands_total": 0,
+                    "stands_done": 0,
+                    "stands_with_email": 0,
+                    "emails_found": 0,
+                    "errors": 0,
+                    "heartbeat_at": now.isoformat() + "Z",
+                    "follow_websites": bool(follow_websites),
+                    "provider": "pending",
+                },
+            },
+            ensure_ascii=False,
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+        queued = False
+        queue_error = ""
+        celery_task_id = ""
+        use_celery = str(os.environ.get("VOX_SCRAPE_USE_CELERY") or "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+        if use_celery:
+            try:
+                from app.workers.ai_team_tasks import scrape_directory_task
+
+                async_result = scrape_directory_task.apply_async(
+                    args=[run_id],
+                    kwargs={
+                        "follow_websites": bool(follow_websites),
+                        "max_stands": max(1, min(int(max_stands or 500), 1000)),
+                        "merge_existing": True,
+                    },
+                    queue="voxbulk",
+                )
+                celery_task_id = str(async_result.id or "")
+                if celery_task_id:
+                    row.apify_run_id = celery_task_id
+                    row.updated_at = AiTeamService._now()
+                    db.add(row)
+                    db.commit()
+                    db.refresh(row)
+                queued = True
+            except Exception as exc:
+                queue_error = str(exc)
+                logger.warning("directory_scrape_update_celery_enqueue_failed: %s", exc)
+
+        if not queued:
+            try:
+                job = AiTeamService.run_directory_scrape_job(
+                    run_id,
+                    follow_websites=bool(follow_websites),
+                    max_stands=max_stands,
+                    merge_existing=True,
+                )
+                db.commit()
+                db.expire_all()
+                row = db.get(AiTeamApifyRun, run_id)
+                if row is None:
+                    raise AiTeamServiceError("Scrape run disappeared after update")
+                db.refresh(row)
+                info = AiTeamService._run_to_dict(row)
+                added = int(job.get("emails_added") or info.get("emails_added") or 0)
+                skipped = int(job.get("emails_skipped") or info.get("emails_skipped") or 0)
+                found = int(job.get("emails_found") or info.get("emails_found") or 0)
+                total = int(job.get("emails_total") or info.get("emails_total") or info.get("emails_found") or 0)
+                return {
+                    "ok": True,
+                    "run": info,
+                    "queued_via": "inline",
+                    "emails_found": found,
+                    "emails_skipped": skipped,
+                    "emails_added": added,
+                    "emails_total": total,
+                    "provider": info.get("provider"),
+                    "message": f"Update finished · {found} found · {skipped} already had · {added} new · {total} total",
+                }
+            except AiTeamServiceError:
+                raise
+            except Exception as inline_exc:
+                row = db.get(AiTeamApifyRun, run_id) or row
+                row.status = "FAILED"
+                row.error = (
+                    f"Update scrape failed: {inline_exc}"
+                    if not queue_error
+                    else f"Celery enqueue failed ({queue_error[:200]}); update also failed: {inline_exc}"
+                )[:2000]
+                row.finished_at = AiTeamService._now()
+                row.updated_at = row.finished_at
+                db.add(row)
+                db.commit()
+                raise AiTeamServiceError(row.error) from inline_exc
+
+        return {
+            "ok": True,
+            "run": AiTeamService._run_to_dict(row),
+            "queued_via": "celery",
+            "celery_task_id": celery_task_id,
+            "emails_found": 0,
+            "emails_skipped": 0,
+            "emails_added": 0,
+            "emails_total": prior_count,
+            "message": f"Update queued — keeping {prior_count} existing email(s); live progress updates every few seconds.",
+        }
 
     @staticmethod
     def resolve_scrape_actor(
