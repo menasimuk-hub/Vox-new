@@ -375,6 +375,10 @@ class OrgControlCenterActionsService:
         if org is None:
             raise ValueError("Organisation not found")
         org.allow_overage = bool(allow_overage)
+        if allow_overage:
+            from datetime import datetime
+
+            org.overage_consent_accepted_at = datetime.utcnow()
         db.add(org)
         db.commit()
         db.refresh(org)
@@ -386,11 +390,20 @@ class OrgControlCenterActionsService:
             entity_type="organisation",
             entity_id=org_id,
             detail=reason,
-            metadata={"allow_overage": allow_overage},
+            metadata={
+                "allow_overage": allow_overage,
+                "overage_consent_accepted_at": (
+                    org.overage_consent_accepted_at.isoformat() if org.overage_consent_accepted_at else None
+                ),
+            },
             actor_user_id=actor_user_id,
             actor_email=actor_email,
         )
-        return {"ok": True, "allow_overage": org.allow_overage}
+        return {
+            "ok": True,
+            "allow_overage": org.allow_overage,
+            "overage_consent_accepted_at": org.overage_consent_accepted_at,
+        }
 
     @staticmethod
     def set_billing_payment_provider(

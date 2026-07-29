@@ -70,7 +70,8 @@ def resolve_org_billing_profile(db: Session, org: Organisation | None) -> dict[s
         "contact_name": org.contact_name,
         "contact_phone": org.contact_phone,
         "payment_method": sub_payment,
-        "allow_overage": bool(getattr(org, "allow_overage", True)),
+        "allow_overage": bool(getattr(org, "allow_overage", False)),
+        "overage_consent_accepted_at": getattr(org, "overage_consent_accepted_at", None),
         "billing_currency_locked": bool(str(getattr(org, "billing_currency", None) or "").strip()),
     }
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -670,6 +671,8 @@ def set_customer_overage(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="allow_overage required")
     allow_overage = bool(payload.get("allow_overage"))
     org.allow_overage = allow_overage
+    if allow_overage:
+        org.overage_consent_accepted_at = datetime.utcnow()
     db.add(org)
     db.commit()
     db.refresh(org)
@@ -681,9 +684,19 @@ def set_customer_overage(
         entity_type="organisation",
         entity_id=org.id,
         actor_user_id=principal.user_id,
-        metadata={"allow_overage": allow_overage, "source": "customer"},
+        metadata={
+            "allow_overage": allow_overage,
+            "source": "customer",
+            "overage_consent_accepted_at": (
+                org.overage_consent_accepted_at.isoformat() if org.overage_consent_accepted_at else None
+            ),
+        },
     )
-    return {"ok": True, "allow_overage": org.allow_overage}
+    return {
+        "ok": True,
+        "allow_overage": org.allow_overage,
+        "overage_consent_accepted_at": org.overage_consent_accepted_at,
+    }
 
 
 @router.post("/subscription/test-cash")
