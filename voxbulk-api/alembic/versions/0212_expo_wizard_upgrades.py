@@ -1,7 +1,7 @@
-"""0208 — Expo wizard upgrades: contact email, offers, preview draft, visitor identity, mailbox.
+"""0212 — Expo wizard upgrades: contact email, offers, preview draft, visitor identity, mailbox.
 
-Revision ID: 0208_expo_wizard_upgrades
-Revises: 0207_ai_team_inbound_read_at
+Revision ID: 0212_expo_wizard_upgrades
+Revises: 0211_promo_redemption_org_unique
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0208_expo_wizard_upgrades"
-down_revision = "0207_ai_team_inbound_read_at"
+revision = "0212_expo_wizard_upgrades"
+down_revision = "0211_promo_redemption_org_unique"
 branch_labels = None
 depends_on = None
 
