@@ -163,25 +163,40 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
     if booth is None:
         raise HTTPException(status_code=404, detail="Booth not found")
     expired = booth_is_expired(booth)
+    archived = str(booth.status or "").lower() == "archived"
     before_start = booth_is_before_start(booth)
     preview_remaining = booth_preview_remaining(booth)
     paid = booth_is_paid(booth)
     live = booth_is_live(booth)
     closed_message = booth_access_block_reason(booth)
-    if expired:
+    if expired or archived:
         closed_message = BOOTH_CLOSED_MESSAGE
     public_status = (
-        "expired"
-        if expired
+        "archived"
+        if archived
         else (
-            "unpaid"
-            if not paid
-            else ("preview" if before_start else ("live" if live else str(booth.status or "paused")))
+            "expired"
+            if expired
+            else (
+                "unpaid"
+                if not paid
+                else ("preview" if before_start else ("live" if live else str(booth.status or "paused")))
+            )
         )
     )
     steps = ExpoSessionFlowService.steps_for_booth(booth)
     exhibition = db.get(ExpoExhibition, booth.exhibition_id)
     event_name = exhibition.name if exhibition else "Exhibition"
+    starts_on = None
+    ends_on = None
+    if exhibition and exhibition.starts_on:
+        starts_on = exhibition.starts_on.isoformat()
+    elif booth.activated_at:
+        starts_on = booth.activated_at.isoformat()
+    if exhibition and exhibition.ends_on:
+        ends_on = exhibition.ends_on.isoformat()
+    elif booth.expires_at:
+        ends_on = booth.expires_at.isoformat()
     org = db.get(Organisation, booth.org_id)
     country_code = str(getattr(org, "country_code", None) or "gb")
     phone = resolve_feedback_wa_phone_for_qr(db, country_code, org_id=booth.org_id)
@@ -245,14 +260,18 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
             "exhibition_id": booth.exhibition_id,
             "exhibition_name": event_name,
             "status": public_status,
-            "is_expired": expired,
+            "is_expired": expired or archived,
+            "is_archived": archived,
             "is_before_start": before_start,
             "is_paid": paid,
             "is_live": live,
             "is_preview_draft": bool(getattr(booth, "is_preview_draft", False)),
             "payment_status": str(getattr(booth, "payment_status", None) or "unpaid"),
             "preview_tests_remaining": preview_remaining,
+            "activated_at": booth.activated_at.isoformat() if booth.activated_at else None,
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
+            "starts_on": starts_on,
+            "ends_on": ends_on,
             "question_count": len(steps),
             "closed_message": closed_message,
             "contact_capture": contact_capture,

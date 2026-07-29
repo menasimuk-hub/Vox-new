@@ -288,6 +288,24 @@ function CreateExpoBooth() {
     8: true,
   };
 
+  function nextBlockedReason(s: Step): string | null {
+    if (canNext[s]) return null;
+    if (s === 1) return "Choose an industry to continue";
+    if (s === 2) {
+      if (!exhibitionName.trim()) return "Enter the exhibition name to continue";
+      if (!company.trim()) return "Enter the company name on WhatsApp to continue";
+      if (!visitorContactEmail.trim()) return "Enter a contact email to continue";
+      if (!EMAIL_RE.test(visitorContactEmail.trim())) return "Enter a valid contact email to continue";
+      return "Fill the required event fields to continue";
+    }
+    if (s === 5) return "Select at least one qualifying question to continue";
+    if (s === 7) return "Choose a package to continue";
+    return null;
+  }
+
+  const contactEmailInvalid =
+    Boolean(visitorContactEmail.trim()) && !EMAIL_RE.test(visitorContactEmail.trim());
+
   function buildPayload(extra?: Record<string, unknown>) {
     const keys = [...selectedQKeys];
     if (includeAddon && industry?.addon_question && !keys.includes("industry_addon")) {
@@ -491,7 +509,9 @@ function CreateExpoBooth() {
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>Exhibition name</Label>
+                  <Label>
+                    Exhibition name <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     value={exhibitionName}
                     onChange={(e) => setExhibitionName(e.target.value)}
@@ -507,7 +527,9 @@ function CreateExpoBooth() {
                   <Input value={boothCode} onChange={(e) => setBoothCode(e.target.value)} placeholder="H45" />
                 </div>
                 <div className="space-y-2">
-                  <Label>Company name on WhatsApp</Label>
+                  <Label>
+                    Company name on WhatsApp <span className="text-destructive">*</span>
+                  </Label>
                   <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Supplies" />
                 </div>
                 <div className="space-y-2">
@@ -529,31 +551,39 @@ function CreateExpoBooth() {
                   />
                 </div>
                 <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="expo-contact-email">Contact email (shown to visitors)</Label>
+                  <Label htmlFor="expo-contact-email">
+                    Contact email (shown to visitors) <span className="text-destructive">*</span>
+                  </Label>
                   <div className="relative">
                     <Mail className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       id="expo-contact-email"
-                      className="pl-8"
+                      className={cn("pl-8", contactEmailInvalid ? "border-destructive" : "")}
                       type="email"
                       required
                       value={visitorContactEmail}
                       onChange={(e) => setVisitorContactEmail(e.target.value)}
                       placeholder="hello@acme.com"
+                      aria-invalid={contactEmailInvalid}
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Required — printed on the booth card and used if a visitor needs to reach you by email.
-                  </p>
+                  {contactEmailInvalid ? (
+                    <p className="text-xs text-destructive">Enter a valid email address</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Required — printed on the booth card and used if a visitor needs to reach you by email.
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Representative contacts</CardTitle>
+                <CardTitle className="text-base">Representative</CardTitle>
                 <CardDescription>
-                  Who visitors are meeting — shown on the digital business card visitors can save.
+                  One stand contact for the digital business card and hot-lead WhatsApp alerts. Visitor emails use the
+                  contact email above.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -564,6 +594,7 @@ function CreateExpoBooth() {
                   onCompanyWebsiteChange={setCompanyWebsite}
                   notifyMobile={notifyMobile}
                   onNotifyMobileChange={setNotifyMobile}
+                  maxRepresentatives={1}
                 />
               </CardContent>
             </Card>
@@ -1063,28 +1094,42 @@ function CreateExpoBooth() {
       />
 
       {step < 8 || !created ? (
-        <div className="flex items-center justify-between gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={step === 1}
-            onClick={() => setStep((s) => (s > 1 ? ((s - 1) as Step) : s))}
-          >
-            <ChevronLeft className="mr-1 size-4" /> Back
-          </Button>
-          {step < 8 ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3">
             <Button
               type="button"
-              disabled={!canNext[step]}
-              onClick={() => setStep((s) => (s < 8 ? ((s + 1) as Step) : s))}
+              variant="outline"
+              disabled={step === 1}
+              onClick={() => setStep((s) => (s > 1 ? ((s - 1) as Step) : s))}
             >
-              Next <ChevronRight className="ml-1 size-4" />
+              <ChevronLeft className="mr-1 size-4" /> Back
             </Button>
-          ) : (
-            <Button type="button" disabled={saving || !packageId || Boolean(created)} onClick={() => void activate()}>
-              {saving ? "Saving…" : "Save booth"}
-            </Button>
-          )}
+            {step < 8 ? (
+              <div className="flex flex-col items-end gap-1">
+                {nextBlockedReason(step) ? (
+                  <p className="max-w-xs text-right text-xs text-muted-foreground">{nextBlockedReason(step)}</p>
+                ) : null}
+                <Button
+                  type="button"
+                  disabled={!canNext[step]}
+                  onClick={() => {
+                    const reason = nextBlockedReason(step);
+                    if (reason) {
+                      toast.message(reason);
+                      return;
+                    }
+                    setStep((s) => (s < 8 ? ((s + 1) as Step) : s));
+                  }}
+                >
+                  Next <ChevronRight className="ml-1 size-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button type="button" disabled={saving || !packageId || Boolean(created)} onClick={() => void activate()}>
+                {saving ? "Saving…" : "Save booth"}
+              </Button>
+            )}
+          </div>
         </div>
       ) : null}
     </div>

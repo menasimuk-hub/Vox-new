@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 
 from sqlalchemy.orm import Session
 
@@ -78,12 +78,21 @@ def list_packages(zone: str = "gb", db: Session = Depends(get_db), principal=Dep
 
 
 @router.get("/booths")
-def list_booths(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def list_booths(
+    status: str | None = Query(None, description="active (default), archived, or all"),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
     _require_expo_enabled(db, principal.org_id)
     owner_filter = _campaign_owner_user_id(db, principal)
+    filt = str(status or "active").strip().lower() or "active"
+    if filt not in ("active", "archived", "all"):
+        filt = "active"
     return {
         "ok": True,
-        "items": ExpoBoothService.list_booths(db, org_id=principal.org_id, owner_user_id=owner_filter),
+        "items": ExpoBoothService.list_booths(
+            db, org_id=principal.org_id, owner_user_id=owner_filter, status_filter=filt
+        ),
     }
 
 
@@ -276,6 +285,42 @@ def delete_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends
         code = 404 if "not found" in msg.lower() else 400
         raise HTTPException(status_code=code, detail=msg) from e
     return {"ok": True}
+
+
+@router.post("/booths/{booth_id}/archive")
+def archive_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    owner_filter = _campaign_owner_user_id(db, principal)
+    _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    try:
+        item = ExpoBoothService.archive_booth(db, org_id=principal.org_id, booth_id=booth_id)
+    except ValueError as e:
+        msg = str(e)
+        code = 404 if "not found" in msg.lower() else 400
+        raise HTTPException(status_code=code, detail=msg) from e
+    return {"ok": True, "item": item}
+
+
+@router.post("/booths/{booth_id}/restore")
+def restore_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    owner_filter = _campaign_owner_user_id(db, principal)
+    _get_owned_booth(db, org_id=principal.org_id, booth_id=booth_id, owner_user_id=owner_filter)
+    try:
+        item = ExpoBoothService.restore_booth(db, org_id=principal.org_id, booth_id=booth_id)
+    except ValueError as e:
+        msg = str(e)
+        code = 404 if "not found" in msg.lower() else 400
+        raise HTTPException(status_code=code, detail=msg) from e
+    return {"ok": True, "item": item}
 
 
 @router.get("/results/summary")

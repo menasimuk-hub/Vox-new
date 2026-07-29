@@ -177,7 +177,10 @@ def booth_preview_remaining(booth: ExpoBooth) -> int:
 def booth_access_block_reason(booth: ExpoBooth, *, now: datetime | None = None) -> str | None:
     """Return a visitor-facing error if the booth must not accept a new session."""
     stamp = now or datetime.utcnow()
-    if str(booth.status or "").lower() != "active":
+    status = str(booth.status or "").lower()
+    if status == "archived":
+        return BOOTH_CLOSED_MESSAGE
+    if status != "active":
         return BOOTH_CLOSED_MESSAGE
     if booth_is_expired(booth, now=stamp) and not bool(getattr(booth, "is_preview_draft", False)):
         return BOOTH_CLOSED_MESSAGE
@@ -571,21 +574,24 @@ class ExpoBoothService:
                 ExpoBooth.org_id == org_id,
                 ExpoBooth.payment_status != "paid",
                 ExpoBooth.status == "active",
+                ExpoBooth.is_preview_draft.is_(False),
             )
         ).scalar() or 0
         if int(unpaid) >= 1:
             raise ValueError(
-                "You already have an unpaid Expo QR draft. Pay for that package first, "
-                "or delete it — each QR code requires its own package purchase."
+                "You can have many paid Expo QRs. Finish or delete your unpaid draft "
+                "before creating another — each QR code requires its own package purchase."
             )
 
     @staticmethod
     def _normalize_reps(payload: dict[str, Any] | list | None) -> list[dict[str, Any]]:
         if isinstance(payload, list):
-            return parse_representative_contacts(json.dumps(payload))
-        if isinstance(payload, dict) and isinstance(payload.get("representatives"), list):
-            return parse_representative_contacts(json.dumps(payload.get("representatives")))
-        return []
+            reps = parse_representative_contacts(json.dumps(payload))
+        elif isinstance(payload, dict) and isinstance(payload.get("representatives"), list):
+            reps = parse_representative_contacts(json.dumps(payload.get("representatives")))
+        else:
+            reps = []
+        return reps[:1]
 
     @staticmethod
     def _save_catalog_tree(
@@ -737,7 +743,13 @@ class ExpoBoothService:
             )
 
     @staticmethod
-    def list_booths(db: Session, *, org_id: str, owner_user_id: str | None = None) -> list[dict[str, Any]]:
+    def list_booths(
+        db: Session,
+        *,
+        org_id: str,
+        owner_user_id: str | None = None,
+        status_filter: str | None = "active",
+    ) -> list[dict[str, Any]]:
         import logging
 
         q = (
@@ -745,6 +757,12 @@ class ExpoBoothService:
             .where(ExpoBooth.org_id == org_id, ExpoBooth.is_preview_draft.is_(False))
             .order_by(ExpoBooth.created_at.desc())
         )
+        filt = str(status_filter or "active").strip().lower()
+        if filt == "archived":
+            q = q.where(ExpoBooth.status == "archived")
+        elif filt != "all":
+            # Default: non-archived (live, unpaid, expired, paused)
+            q = q.where(ExpoBooth.status != "archived")
         if owner_user_id:
             # Members see their own booths; also include legacy rows with no owner stamp
             q = q.where(
@@ -760,6 +778,37 @@ class ExpoBoothService:
                     "expo_serialize_booth_failed booth_id=%s err=%s", booth.id, str(exc)[:200]
                 )
         return items
+
+    @staticmethod
+    def archive_booth(db: Session, *, org_id: str, booth_id: str) -> dict[str, Any]:
+        booth = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=booth_id)
+        if booth is None:
+            raise ValueError("Booth not found")
+        if bool(getattr(booth, "is_preview_draft", False)):
+            raise ValueError("Preview drafts cannot be archived — delete or finish the wizard instead")
+        booth.status = "archived"
+        booth.updated_at = datetime.utcnow()
+        db.add(booth)
+        db.commit()
+        db.refresh(booth)
+        return ExpoBoothService.serialize_booth(db, booth)
+
+    @staticmethod
+    def restore_booth(db: Session, *, org_id: str, booth_id: str) -> dict[str, Any]:
+        booth = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=booth_id)
+        if booth is None:
+            raise ValueError("Booth not found")
+        if str(booth.status or "").lower() != "archived":
+            raise ValueError("Booth is not archived")
+        # Restoring an unpaid draft must not exceed the one-unpaid-active rule
+        if not booth_is_paid(booth):
+            ExpoBoothService.assert_can_create_booth(db, org_id=org_id)
+        booth.status = "active"
+        booth.updated_at = datetime.utcnow()
+        db.add(booth)
+        db.commit()
+        db.refresh(booth)
+        return ExpoBoothService.serialize_booth(db, booth)
 
     @staticmethod
     def create_booth(

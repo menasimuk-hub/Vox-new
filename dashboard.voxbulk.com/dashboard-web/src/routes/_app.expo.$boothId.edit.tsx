@@ -367,8 +367,10 @@ function EditExpoBooth() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Representative contacts</CardTitle>
-          <CardDescription>Who visitors are meeting — shown on the digital business card visitors can save.</CardDescription>
+          <CardTitle className="text-base">Representative</CardTitle>
+          <CardDescription>
+            One stand contact for the digital business card and hot-lead WhatsApp alerts.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <RepresentativesEditor
@@ -378,6 +380,7 @@ function EditExpoBooth() {
             onCompanyWebsiteChange={setCompanyWebsite}
             notifyMobile={notifyMobile}
             onNotifyMobileChange={setNotifyMobile}
+            maxRepresentatives={1}
           />
         </CardContent>
       </Card>

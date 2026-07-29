@@ -55,19 +55,24 @@ export function representativesFromApi(
   items: Array<Record<string, unknown>> | null | undefined,
 ): RepresentativeDraft[] {
   if (!Array.isArray(items) || items.length === 0) return [];
-  return items.map((r) => ({
-    id: randomId("rep"),
-    name: String(r.name || ""),
-    company_name: String(r.company_name || ""),
-    email: String(r.email || ""),
-    mobile: String(r.mobile || ""),
-    telephone: String(r.telephone || ""),
-    website: String(r.website || ""),
-  }));
+  // One stand contact only — keep the first if legacy data has more.
+  const r = items[0];
+  return [
+    {
+      id: randomId("rep"),
+      name: String(r.name || ""),
+      company_name: String(r.company_name || ""),
+      email: String(r.email || ""),
+      mobile: String(r.mobile || ""),
+      telephone: String(r.telephone || ""),
+      website: String(r.website || ""),
+    },
+  ];
 }
 
 export function representativesToPayload(reps: RepresentativeDraft[]) {
   return reps
+    .slice(0, 1)
     .filter((r) => r.name.trim() || r.email.trim() || r.mobile.trim())
     .map((r) => ({
       name: r.name.trim(),
@@ -86,6 +91,7 @@ export function RepresentativesEditor({
   onCompanyWebsiteChange,
   notifyMobile,
   onNotifyMobileChange,
+  maxRepresentatives = 1,
 }: {
   representatives: RepresentativeDraft[];
   onChange: (next: RepresentativeDraft[]) => void;
@@ -93,36 +99,22 @@ export function RepresentativesEditor({
   onCompanyWebsiteChange: (v: string) => void;
   notifyMobile: string;
   onNotifyMobileChange: (v: string) => void;
+  /** Cap stand contacts (default 1). */
+  maxRepresentatives?: number;
 }) {
+  const capped = representatives.slice(0, Math.max(1, maxRepresentatives));
   const updateRep = (id: string, patch: Partial<RepresentativeDraft>) => {
-    onChange(representatives.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    onChange(capped.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   };
-  const removeRep = (id: string) => {
-    onChange(representatives.filter((r) => r.id !== id));
-  };
-  const addRep = () => {
-    onChange([...representatives, emptyRepresentative()]);
-  };
-  const firstMobile = representatives.find((r) => r.mobile.trim())?.mobile || "";
+  const firstMobile = capped.find((r) => r.mobile.trim())?.mobile || "";
 
   return (
     <div className="space-y-4">
       <div className="space-y-3">
-        {representatives.map((rep, idx) => (
+        {capped.map((rep) => (
           <div key={rep.id} className="rounded-xl border p-3">
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-medium text-muted-foreground">Representative {idx + 1}</p>
-              {representatives.length > 1 ? (
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Remove representative"
-                  onClick={() => removeRep(rep.id)}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              ) : null}
+              <p className="text-xs font-medium text-muted-foreground">Representative</p>
             </div>
             <div className="grid gap-2.5 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -202,9 +194,6 @@ export function RepresentativesEditor({
           </div>
         ))}
       </div>
-      <Button type="button" size="sm" variant="outline" onClick={addRep} className="gap-1.5">
-        <Plus className="size-3.5" /> Add representative
-      </Button>
 
       <div className="grid gap-4 border-t pt-4 sm:grid-cols-2">
         <div className="space-y-2">
@@ -223,7 +212,7 @@ export function RepresentativesEditor({
             placeholder={firstMobile || "+44 7700 900123"}
           />
           <p className="text-xs text-muted-foreground">
-            Gets a WhatsApp alert on hot leads. Defaults to the first representative&apos;s mobile if left blank.
+            Gets a WhatsApp alert on hot leads. Defaults to the representative&apos;s mobile if left blank.
           </p>
         </div>
       </div>

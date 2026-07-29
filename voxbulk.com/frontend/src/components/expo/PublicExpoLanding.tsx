@@ -36,10 +36,17 @@ type ExpoPublicPayload = {
     name?: string;
     company_display_name?: string;
     exhibition_name?: string;
+    exhibition_id?: string;
     is_expired?: boolean;
+    is_archived?: boolean;
+    status?: string;
     closed_message?: string | null;
     contact_capture?: string;
     question_count?: number;
+    starts_on?: string | null;
+    ends_on?: string | null;
+    activated_at?: string | null;
+    expires_at?: string | null;
   };
 };
 
@@ -419,7 +426,12 @@ export function PublicExpoLanding({
         const data = await apiFetch<ExpoPublicPayload>(`/public/expo/${encodeURIComponent(token)}`);
         if (cancelled) return;
         setPayload(data);
-        if (data?.booth?.is_expired) {
+        if (data?.booth?.is_expired || data?.booth?.is_archived || data?.booth?.status === "archived") {
+          setPhase("closed");
+          clearStoredSession(token);
+          return;
+        }
+        if (data?.booth?.closed_message && data?.booth?.status && ["expired", "archived", "paused"].includes(String(data.booth.status))) {
           setPhase("closed");
           clearStoredSession(token);
           return;
@@ -951,13 +963,38 @@ export function PublicExpoLanding({
   }
 
   if (phase === "closed") {
+    const fmtDay = (iso?: string | null) => {
+      if (!iso) return null;
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    };
+    const startLabel =
+      fmtDay(payload?.booth?.starts_on) || fmtDay(payload?.booth?.activated_at);
+    const endLabel = fmtDay(payload?.booth?.ends_on) || fmtDay(payload?.booth?.expires_at);
+    const datesLabel =
+      startLabel && endLabel
+        ? `${startLabel} → ${endLabel}`
+        : startLabel || endLabel || null;
+    const showName = eventName || payload?.booth?.exhibition_name || "";
     return (
       <div className="feedback-survey-root">
         <main className={`grid h-[100svh] place-items-center px-6 ${theme.bgClass}`} style={themeStyleVars(theme)}>
           <div className="max-w-sm text-center">
-            <h1 className="font-display text-2xl">Stand closed</h1>
-            <p className="mt-2 text-sm" style={{ color: theme.sub }}>
-              {payload?.booth?.closed_message || "This Expo stand has closed for this exhibition."}
+            <h1 className="font-display text-2xl">Expo QR expired</h1>
+            {showName ? (
+              <p className="mt-3 font-display text-lg font-semibold" style={{ color: theme.ink }}>
+                {showName}
+              </p>
+            ) : null}
+            {datesLabel ? (
+              <p className="mt-1 text-sm" style={{ color: theme.sub }}>
+                {datesLabel}
+              </p>
+            ) : null}
+            <p className="mt-4 text-sm" style={{ color: theme.sub }}>
+              {payload?.booth?.closed_message ||
+                "This Expo has ended / QR expired — it is no longer accepting scans."}
             </p>
           </div>
         </main>

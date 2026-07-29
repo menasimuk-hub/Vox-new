@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  Archive,
+  ArchiveRestore,
   ArrowDownRight,
   ArrowUpRight,
   CreditCard,
@@ -48,6 +50,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
 import { buildExpoQrImageUrl, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { cn } from "@/lib/utils";
@@ -91,6 +94,7 @@ type ExpoSummary = {
   warm: number;
   cold: number;
   offers_sent: number;
+  emails_sent?: number;
   booths_total?: number;
   booths_live?: number;
   daily?: Array<{ day: string; scans: number; leads: number; hot: number }>;
@@ -110,10 +114,24 @@ function deltaMeta(today: number, yesterday: number) {
 
 function ExpoHub() {
   const queryClient = useQueryClient();
+  const [listTab, setListTab] = React.useState<"active" | "archived">("active");
   const boothsQ = useQuery({
-    queryKey: ["expo", "booths"],
-    queryFn: () => apiFetch<{ ok: boolean; items: ExpoBooth[] }>("/expo/booths"),
+    queryKey: ["expo", "booths", listTab],
+    queryFn: () =>
+      apiFetch<{ ok: boolean; items: ExpoBooth[] }>(`/expo/booths?status=${listTab}`),
     refetchOnMount: "always",
+  });
+  const archivedCountQ = useQuery({
+    queryKey: ["expo", "booths", "archived", "count"],
+    queryFn: () => apiFetch<{ ok: boolean; items: ExpoBooth[] }>("/expo/booths?status=archived"),
+    refetchOnMount: "always",
+    select: (d) => (d.items || []).length,
+  });
+  const activeCountQ = useQuery({
+    queryKey: ["expo", "booths", "active", "count"],
+    queryFn: () => apiFetch<{ ok: boolean; items: ExpoBooth[] }>("/expo/booths?status=active"),
+    refetchOnMount: "always",
+    select: (d) => (d.items || []).length,
   });
   const summaryQ = useQuery({
     queryKey: ["expo", "summary"],
@@ -121,11 +139,15 @@ function ExpoHub() {
     refetchOnMount: "always",
   });
   const [deleteTarget, setDeleteTarget] = React.useState<ExpoBooth | null>(null);
+  const [archiveTarget, setArchiveTarget] = React.useState<ExpoBooth | null>(null);
   const [payTarget, setPayTarget] = React.useState<ExpoBooth | null>(null);
   const [deleting, setDeleting] = React.useState(false);
+  const [archiving, setArchiving] = React.useState(false);
   const items = boothsQ.data?.items || [];
   const summary = summaryQ.data;
   const daily = summary?.daily || [];
+  const activeCount = activeCountQ.data ?? (listTab === "active" ? items.length : undefined);
+  const archivedCount = archivedCountQ.data ?? (listTab === "archived" ? items.length : undefined);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -142,6 +164,31 @@ function ExpoHub() {
     }
   };
 
+  const confirmArchive = async () => {
+    if (!archiveTarget) return;
+    setArchiving(true);
+    try {
+      await apiFetch(`/expo/booths/${archiveTarget.id}/archive`, { method: "POST" });
+      toast.success(`Archived “${archiveTarget.name}”`);
+      setArchiveTarget(null);
+      await queryClient.invalidateQueries({ queryKey: ["expo"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not archive booth");
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const restoreBooth = async (booth: ExpoBooth) => {
+    try {
+      await apiFetch(`/expo/booths/${booth.id}/restore`, { method: "POST" });
+      toast.success(`Restored “${booth.name}”`);
+      await queryClient.invalidateQueries({ queryKey: ["expo"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not restore booth");
+    }
+  };
+
   const scorePie = [
     { name: "Hot", value: summary?.hot || 0, color: "#ea580c" },
     { name: "Warm", value: summary?.warm || 0, color: "#d97706" },
@@ -153,7 +200,7 @@ function ExpoHub() {
       <PageHeader
         eyebrow="VoxBulk Expo"
         title="Saved booths"
-        description="Print these QR codes at your stand — visitors scan, choose WhatsApp or web, and leads are captured automatically."
+        description="Print these QR codes at your stand — visitors scan, choose WhatsApp or web, and leads are captured automatically. Paid stands can create another QR anytime; each new QR needs its own package."
         actions={
           <Button asChild className="gap-1.5">
             <Link to="/expo/new">
@@ -311,14 +358,42 @@ function ExpoHub() {
           </CardContent>
         </Card>
       ) : (
+        <div className="space-y-4">
+          <Tabs
+            value={listTab}
+            onValueChange={(v) => setListTab(v === "archived" ? "archived" : "active")}
+          >
+            <TabsList>
+              <TabsTrigger value="active">
+                Active{typeof activeCount === "number" ? ` (${activeCount})` : ""}
+              </TabsTrigger>
+              <TabsTrigger value="archived">
+                Archived{typeof archivedCount === "number" ? ` (${archivedCount})` : ""}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {items.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center text-sm text-muted-foreground">
+                {listTab === "archived"
+                  ? "No archived booths"
+                  : "No saved booths yet — create one to get a stand QR."}
+              </CardContent>
+            </Card>
+          ) : null}
+
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((it) => {
             const expired = Boolean(it.is_expired);
             const beforeStart = Boolean(it.is_before_start);
             const paid = Boolean(it.is_paid) || String(it.payment_status || "").toLowerCase() === "paid";
+            const archived = String(it.status || "").toLowerCase() === "archived";
             const live = Boolean(it.is_live) || (paid && !expired && !beforeStart && String(it.status || "").toLowerCase() === "active");
-            const unpaid = !paid && !expired;
-            const badgeLabel = expired
+            const unpaid = !paid && !expired && !archived;
+            const badgeLabel = archived
+              ? "Archived"
+              : expired
               ? "Expired"
               : unpaid
                 ? "Unpaid"
@@ -352,7 +427,9 @@ function ExpoHub() {
                     <p className="mt-0.5 text-[11px] text-muted-foreground">{it.company_display_name}</p>
                     {startLabel || endLabel ? (
                       <p className="mt-1 text-[11px] text-muted-foreground">
-                        {expired
+                        {archived
+                          ? `Archived${endLabel ? ` · ended ${endLabel}` : ""}`.trim()
+                          : expired
                           ? `Expired ${endLabel || ""}`.trim()
                           : unpaid
                             ? `Pay to go live${startLabel ? ` from ${startLabel}` : ""}${endLabel ? ` · ends ${endLabel}` : ""}`
@@ -367,7 +444,7 @@ function ExpoHub() {
                       </p>
                     ) : null}
                   </div>
-                  <Badge variant={expired || unpaid ? "secondary" : live ? "default" : "secondary"}>
+                  <Badge variant={expired || unpaid || archived ? "secondary" : live ? "default" : "secondary"}>
                     {badgeLabel}
                   </Badge>
                 </CardHeader>
@@ -430,33 +507,56 @@ function ExpoHub() {
                     </div>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2">
-                    {unpaid ? (
+                    {unpaid && !archived ? (
                       <Button size="sm" className="gap-1.5" onClick={() => setPayTarget(it)}>
                         <CreditCard className="size-3.5" /> Pay
                       </Button>
                     ) : null}
-                    {qrSrc ? (
+                    {qrSrc && !archived ? (
                       <Button size="sm" variant="outline" className="gap-1.5" asChild>
                         <a href={qrSrc} target="_blank" rel="noreferrer">
                           <Download className="size-3.5" /> Download QR
                         </a>
                       </Button>
                     ) : null}
-                    <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                      <Link to="/expo/$boothId/edit" params={{ boothId: it.id }} hash="print">
-                        <QrCode className="size-3.5" /> Print card
-                      </Link>
-                    </Button>
+                    {!archived ? (
+                      <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                        <Link to="/expo/$boothId/edit" params={{ boothId: it.id }} hash="print">
+                          <QrCode className="size-3.5" /> Print card
+                        </Link>
+                      </Button>
+                    ) : null}
                     <Button size="sm" variant="ghost" className="gap-1.5" asChild>
                       <Link to="/expo/leads" search={{ booth_id: it.id }}>
                         <Eye className="size-3.5" /> Results
                       </Link>
                     </Button>
-                    <Button size="sm" variant="ghost" className="gap-1.5" asChild>
-                      <Link to="/expo/$boothId/edit" params={{ boothId: it.id }}>
-                        <Pencil className="size-3.5" /> Edit
-                      </Link>
-                    </Button>
+                    {!archived ? (
+                      <Button size="sm" variant="ghost" className="gap-1.5" asChild>
+                        <Link to="/expo/$boothId/edit" params={{ boothId: it.id }}>
+                          <Pencil className="size-3.5" /> Edit
+                        </Link>
+                      </Button>
+                    ) : null}
+                    {archived ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5"
+                        onClick={() => void restoreBooth(it)}
+                      >
+                        <ArchiveRestore className="size-3.5" /> Restore
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1.5"
+                        onClick={() => setArchiveTarget(it)}
+                      >
+                        <Archive className="size-3.5" /> Archive
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -471,17 +571,20 @@ function ExpoHub() {
             );
           })}
 
-          <Link
-            to="/expo/new"
-            className="grid place-items-center rounded-xl border-2 border-dashed border-border bg-background/30 p-8 text-center text-sm text-muted-foreground transition hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
-          >
-            <div className="flex flex-col items-center gap-2">
-              <div className="grid size-12 place-items-center rounded-xl bg-primary/10 text-primary">
-                <QrCode className="size-6" />
+          {listTab === "active" ? (
+            <Link
+              to="/expo/new"
+              className="grid place-items-center rounded-xl border-2 border-dashed border-border bg-background/30 p-8 text-center text-sm text-muted-foreground transition hover:border-primary/50 hover:bg-primary/5 hover:text-primary"
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className="grid size-12 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <QrCode className="size-6" />
+                </div>
+                <p className="font-medium">Create new Expo booth</p>
               </div>
-              <p className="font-medium">Create new Expo booth</p>
-            </div>
-          </Link>
+            </Link>
+          ) : null}
+        </div>
         </div>
       )}
 
@@ -495,6 +598,29 @@ function ExpoHub() {
           void queryClient.invalidateQueries({ queryKey: ["expo"] });
         }}
       />
+
+      <AlertDialog open={archiveTarget != null} onOpenChange={(open) => !open && setArchiveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Archive “{archiveTarget?.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Archived QRs stop accepting scans and show an expired page with the expo name and dates.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={archiving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={archiving}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmArchive();
+              }}
+            >
+              Archive
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteTarget != null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
