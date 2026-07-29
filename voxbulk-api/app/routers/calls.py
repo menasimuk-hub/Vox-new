@@ -82,9 +82,18 @@ def get_recovery_job(job_id: str, db: Session = Depends(get_db), principal=Depen
 
 
 @router.get("/recovery/tasks/{task_id}")
-def get_task_status(task_id: str, principal=Depends(get_current_principal)):
+def get_task_status(task_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    # M3: only return Celery state for tasks belonging to this tenant's recovery jobs.
+    job = db.execute(
+        select(RecoveryJob).where(
+            RecoveryJob.celery_task_id == str(task_id),
+            RecoveryJob.org_id == principal.org_id,
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recovery task not found")
     res = celery_app.AsyncResult(task_id)
-    return {"task_id": task_id, "state": res.state, "result": res.result if res.successful() else None}
+    return {"task_id": task_id, "job_id": job.id, "state": res.state, "result": res.result if res.successful() else None}
 
 
 @router.get("/recovery/jobs")

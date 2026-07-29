@@ -16,7 +16,7 @@ router = APIRouter(prefix="/admin/platform-services", tags=["admin-platform-serv
 
 
 def _admin_resolve_order(db: Session, order_ref: str) -> ServiceOrder:
-    order = ServiceOrderService.resolve_order_ref(db, order_ref)
+    order = ServiceOrderService.resolve_order_ref(db, order_ref, unscoped=True)
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     return order

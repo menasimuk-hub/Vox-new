@@ -22,7 +22,6 @@ from app.core.encryption import get_encryptor
 from app.models.organisation import Organisation
 from app.models.partner import PartnerApiKey, PartnerProvider, PartnerScreening
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
-from app.models.user import User
 from app.services.interview_intake_service import create_new_interview_draft, intake_contacts_merge
 from app.services.platform_catalog_service import ServiceOrderService
 
@@ -188,10 +187,10 @@ class PartnerService:
         ).scalar_one_or_none()
         if any_member:
             return str(any_member)
-        user = db.execute(select(User.id).limit(1)).scalar_one_or_none()
-        if user:
-            return str(user)
-        raise HTTPException(status_code=400, detail="No user available to own partner screening order")
+        raise HTTPException(
+            status_code=400,
+            detail="Organisation has no members to own partner screening order",
+        )
 
     @staticmethod
     def create_screening(

@@ -786,9 +786,17 @@ def handle_survey_telnyx_event(db: Session, payload: dict[str, Any]) -> bool:
     if not order_id or not recipient_id:
         return False
 
-    order = ServiceOrderService.get_order(db, order_id)
+    org_from_state = str(parsed.get("org_id") or "").strip() or None
+    order = ServiceOrderService.get_order(
+        db,
+        order_id,
+        org_id=org_from_state,
+        unscoped=not bool(org_from_state),
+    )
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if order is None or recipient is None or recipient.order_id != order.id:
+        return False
+    if org_from_state and str(order.org_id) != org_from_state:
         return False
 
     if str(recipient.status or "").lower() in VOICE_TERMINAL:

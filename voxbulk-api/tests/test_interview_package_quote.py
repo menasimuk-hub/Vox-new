@@ -66,7 +66,7 @@ def _seed_pro_user(app_client, *, email: str = "pro_quote@example.com"):
 
 def _add_recipient(order_id: str) -> None:
     with get_sessionmaker()() as db:
-        order = ServiceOrderService.get_order(db, order_id)
+        order = ServiceOrderService.get_order(db, order_id, unscoped=True)
         db.add(
             ServiceOrderRecipient(
                 order_id=order.id,
@@ -214,6 +214,6 @@ def test_interview_launch_without_checkout_for_pro_package(app_client, monkeypat
     assert launched.json().get("ok") is True
 
     with get_sessionmaker()() as db:
-        order = ServiceOrderService.get_order(db, order_id)
+        order = ServiceOrderService.get_order(db, order_id, unscoped=True)
         assert order.payment_status == "approved"
         assert order.payment_method == "subscription"

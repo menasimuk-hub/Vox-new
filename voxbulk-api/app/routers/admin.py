@@ -4538,6 +4538,12 @@ def admin_retry_recovery_job(job_id: str, db: Session = Depends(get_db), _admin=
     try:
         task = process_recovery_job.delay(job_id=job.id)
         task_id = getattr(task, "id", None)
+        if task_id:
+            job.celery_task_id = str(task_id)
+            job.updated_at = datetime.utcnow()
+            db.add(job)
+            db.commit()
+            db.refresh(job)
     except Exception as e:
         dispatch_error = str(e)[:500]
         job.last_error = f"Queued for retry, but worker dispatch failed: {dispatch_error}"

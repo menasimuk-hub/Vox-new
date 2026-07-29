@@ -25,6 +25,7 @@ class RecoveryJob(Base):
     provider: Mapped[str] = mapped_column(String(30), nullable=False, default="twilio")
     provider_ref: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)  # e.g. Twilio CallSid
     provider_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    celery_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
     state: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")  # queued/calling/messaged/recovered/failed/skipped
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

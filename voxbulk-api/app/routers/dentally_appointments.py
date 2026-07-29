@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -89,4 +91,9 @@ def enqueue_dentally_recovery(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     async_result = process_recovery_job.delay(job_id=job.id)
+    job.celery_task_id = str(async_result.id)
+    job.updated_at = datetime.utcnow()
+    db.add(job)
+    db.commit()
+    db.refresh(job)
     return {"job_id": job.id, "task_id": async_result.id, "state": job.state}
