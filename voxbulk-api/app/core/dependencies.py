@@ -30,7 +30,9 @@ def _principal_from_token(request: Request, db: Session, token: str) -> CurrentP
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
 
     user_id = payload.get("sub")
-    org_id = payload.get("org_id") or request.headers.get("X-Voxbulk-Org-Id") or request.headers.get("X-Retover-Org-Id")
+    # Tenant scope comes from the JWT only. Client org headers are ignored so a
+    # stolen/minted access token cannot be pointed at another org via X-Voxbulk-Org-Id.
+    org_id = payload.get("org_id")
 
     if not user_id or not org_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")

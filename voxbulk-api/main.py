@@ -227,6 +227,11 @@ def _log_provider_key_status(logger) -> None:
 def _warn_production_app_origins(settings, logger) -> None:
     env = str(getattr(settings, "env", "") or "").lower()
     if bool(getattr(settings, "allow_insecure_webhooks", False)):
+        if env in {"production", "prod"}:
+            raise RuntimeError(
+                "ALLOW_INSECURE_WEBHOOKS is enabled while ENV is production/prod. "
+                "Disable ALLOW_INSECURE_WEBHOOKS (unset or set to 0/false) before starting."
+            )
         logger.warning(
             "ALLOW_INSECURE_WEBHOOKS is enabled — unsigned Meta/Telnyx webhooks may be processed. "
             "Disable this on production VPS."
@@ -234,9 +239,15 @@ def _warn_production_app_origins(settings, logger) -> None:
     if env not in {"production", "prod"}:
         return
     if str(getattr(settings, "jwt_secret_key", "") or "").strip() in {"", "change-me"}:
-        logger.error("production_jwt_secret_is_default — set JWT_SECRET_KEY to a strong unique value")
+        raise RuntimeError(
+            "JWT_SECRET_KEY is empty or still 'change-me' while ENV is production/prod. "
+            "Set a strong unique JWT_SECRET_KEY before starting."
+        )
     if str(getattr(settings, "encryption_key", "") or "").strip() in {"", "change-me"}:
-        logger.error("production_encryption_key_is_default — set ENCRYPTION_KEY to a Fernet key")
+        raise RuntimeError(
+            "ENCRYPTION_KEY is empty or still 'change-me' while ENV is production/prod. "
+            "Set a Fernet ENCRYPTION_KEY before starting."
+        )
     for name, value in (
         ("PUBLIC_APP_ORIGIN", getattr(settings, "public_app_origin", "")),
         ("DASHBOARD_APP_ORIGIN", getattr(settings, "dashboard_app_origin", "")),

@@ -1,5 +1,7 @@
 from app.core.security import hash_password, verify_password
 
+import pytest
+
 
 def _seed_user_org(db):
     from sqlalchemy import select
@@ -288,4 +290,131 @@ def test_admin_org_users_lists_self_serve_user_before_and_after_approve(app_clie
         u.get("user_id") == new_user_id and u.get("email") == "selfserve_member@example.com"
         for u in listed_after.json()
     )
+
+
+def test_org_header_cannot_supply_missing_jwt_org_id(app_client):
+    """M2: tenant org must come from JWT; X-Voxbulk-Org-Id alone must not authenticate."""
+    from datetime import datetime, timedelta, timezone
+
+    from jose import jwt
+
+    from app.core.config import get_settings
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_user_org(db)
+
+    settings = get_settings()
+    token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=30),
+            "iat": datetime.now(timezone.utc),
+            "type": "access",
+            "tv": 0,
+        },
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
+    )
+
+    r = app_client.get(
+        "/auth/me",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Voxbulk-Org-Id": str(org.id),
+        },
+    )
+    assert r.status_code == 401
+
+
+def test_org_header_cannot_override_jwt_org_id(app_client):
+    """Even with a valid JWT, client org headers must not switch tenant."""
+    from app.core.database import get_sessionmaker
+    from app.models.organisation import Organisation
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_user_org(db)
+        other = Organisation(name="Other Org")
+        db.add(other)
+        db.commit()
+        other_id = other.id
+
+    tok = app_client.post(
+        "/auth/token",
+        data={"username": user.email, "password": "pass123", "org_id": org.id},
+    )
+    assert tok.status_code == 200
+    token = tok.json()["access_token"]
+
+    r = app_client.get(
+        "/auth/me",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Voxbulk-Org-Id": str(other_id),
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["org_id"] == org.id
+
+
+def test_production_startup_rejects_default_secrets():
+    """M13: production must refuse to start with JWT/encryption placeholders."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from main import _warn_production_app_origins
+
+    logger = MagicMock()
+    with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
+        _warn_production_app_origins(
+            SimpleNamespace(
+                env="production",
+                allow_insecure_webhooks=False,
+                jwt_secret_key="change-me",
+                encryption_key="not-change-me-but-valid-looking",
+                public_app_origin="https://voxbulk.com",
+                dashboard_app_origin="https://dashboard.voxbulk.com",
+            ),
+            logger,
+        )
+
+    with pytest.raises(RuntimeError, match="ENCRYPTION_KEY"):
+        _warn_production_app_origins(
+            SimpleNamespace(
+                env="production",
+                allow_insecure_webhooks=False,
+                jwt_secret_key="strong-unique-secret",
+                encryption_key="change-me",
+                public_app_origin="https://voxbulk.com",
+                dashboard_app_origin="https://dashboard.voxbulk.com",
+            ),
+            logger,
+        )
+
+    with pytest.raises(RuntimeError, match="ALLOW_INSECURE_WEBHOOKS"):
+        _warn_production_app_origins(
+            SimpleNamespace(
+                env="production",
+                allow_insecure_webhooks=True,
+                jwt_secret_key="strong-unique-secret",
+                encryption_key="strong-unique-fernet-key",
+                public_app_origin="https://voxbulk.com",
+                dashboard_app_origin="https://dashboard.voxbulk.com",
+            ),
+            logger,
+        )
+
+    # Non-production still only warns for insecure webhooks.
+    _warn_production_app_origins(
+        SimpleNamespace(
+            env="development",
+            allow_insecure_webhooks=True,
+            jwt_secret_key="change-me",
+            encryption_key="change-me",
+            public_app_origin="http://localhost:5173",
+            dashboard_app_origin="http://localhost:5175",
+        ),
+        logger,
+    )
+    logger.warning.assert_called()
 
