@@ -15,6 +15,7 @@ import math
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
@@ -281,10 +282,32 @@ class LaunchBillingService:
         user_id: str | None = None,
     ) -> dict[str, Any]:
         """Execute the launch charge per the estimate breakdown. Idempotent per order."""
+        # Row lock + re-check payment_status so concurrent launches cannot double-debit.
+        locked_order = db.execute(
+            select(ServiceOrder).where(ServiceOrder.id == order.id).with_for_update()
+        ).scalar_one_or_none()
+        if locked_order is None:
+            raise LaunchBillingError("Order not found")
+        order = locked_order
         if order.payment_status == "approved":
+            return {"ok": True, "already_charged": True}
+        try:
+            existing_snap = json.loads(order.launch_billing_json or "{}")
+        except Exception:
+            existing_snap = {}
+        if isinstance(existing_snap, dict) and (
+            existing_snap.get("charged_at") or existing_snap.get("wallet_transaction_id")
+        ):
             return {"ok": True, "already_charged": True}
         if not breakdown.get("can_launch"):
             raise LaunchBillingError(str(breakdown.get("block_reason") or "Launch is blocked"))
+
+        locked_org = db.execute(
+            select(Organisation).where(Organisation.id == org.id).with_for_update()
+        ).scalar_one_or_none()
+        if locked_org is None:
+            raise LaunchBillingError("Organisation not found")
+        org = locked_org
 
         currency = str(breakdown.get("currency") or resolve_org_currency(db, org))
         wallet_charge = int(breakdown.get("wallet_charge_minor") or 0)

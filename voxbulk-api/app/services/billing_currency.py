@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -62,6 +65,25 @@ def money_display(amount_minor: int | None, currency: str | None = "GBP") -> str
         return "Custom"
     sym = currency_symbol(currency)
     return f"{sym}{(int(amount_minor) / 100):,.2f}"
+
+
+def major_amount_to_minor(raw: Any) -> int:
+    """Convert provider major-unit amounts (e.g. Airwallex 10.50) to integer minor units.
+
+    Uses Decimal — never float×100 — so values like 0.29 / 1.005 stay exact.
+    """
+    if raw is None:
+        return 0
+    if isinstance(raw, bool):
+        return 0
+    if isinstance(raw, int):
+        # Airwallex PaymentIntent amounts are major units; ints are whole currency units.
+        return int(raw) * 100
+    try:
+        value = Decimal(str(raw).strip())
+    except (InvalidOperation, AttributeError, ValueError):
+        return 0
+    return int((value * Decimal(100)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def currency_for_country_code(country_code: str | None) -> str:
