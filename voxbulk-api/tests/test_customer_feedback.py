@@ -1156,6 +1156,7 @@ def test_web_survey_submit_poor_rating_with_reason():
         result = FeedbackWebSurveyService.submit_answer(
             db,
             session_id=session_id,
+            token=location.qr_token,
             answer="Poor",
             reason="Service was slow",
             reason_source="text",
@@ -1177,6 +1178,7 @@ def test_web_survey_voice_answer_advances_flow():
     from unittest.mock import patch
 
     from app.models.customer_feedback import FeedbackResponse
+    from app.services.customer_feedback.feedback_voice_note_service import process_voice_job
     from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
     from app.services.voice_transcription_service import VoiceTranscriptionResult
 
@@ -1185,7 +1187,7 @@ def test_web_survey_voice_answer_advances_flow():
         location, _ = _seed_web_survey_location(db, org_id=org_id, open_question=True)
         started = FeedbackWebSurveyService.start_session(db, location.qr_token)
         session_id = started["session_id"]
-        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, answer="Excellent")
+        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, token=location.qr_token, answer="Excellent")
         with patch(
             "app.services.voice_transcription_service.VoiceTranscriptionService.transcribe_uploaded_audio",
             return_value=VoiceTranscriptionResult(ok=True, transcript="Great atmosphere", confidence=0.9),
@@ -1193,18 +1195,21 @@ def test_web_survey_voice_answer_advances_flow():
             result = FeedbackWebSurveyService.submit_voice(
                 db,
                 session_id=session_id,
+                token=location.qr_token,
                 audio_bytes=b"fake-audio",
                 filename="voice.webm",
                 content_type="audio/webm",
                 mode="answer",
             )
+            assert result.get("pending") is True
+            assert result.get("job_id")
+            process_voice_job(db, result["job_id"])
         assert result.get("completed") is True
-        assert result.get("transcript") == "Great atmosphere"
         responses = list(
             db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
         )
         assert any(r.answer_source == "voice" for r in responses)
-        assert any("Great atmosphere" in (r.answer_text or "") for r in responses)
+        assert any("Great atmosphere" in (r.answer_text or r.original_text or "") for r in responses)
 
 
 def test_web_survey_results_visible_in_dashboard():
@@ -1215,7 +1220,7 @@ def test_web_survey_results_visible_in_dashboard():
     with get_sessionmaker()() as db:
         location, survey_type = _seed_web_survey_location(db, org_id=org_id)
         started = FeedbackWebSurveyService.start_session(db, location.qr_token)
-        FeedbackWebSurveyService.submit_answer(db, session_id=started["session_id"], answer="Good")
+        FeedbackWebSurveyService.submit_answer(db, session_id=started["session_id"], token=location.qr_token, answer="Good")
         payload = FeedbackResultsService.customer_results(db, org_id, location_id=location.id)
         rows = payload.get("rows") or []
         assert rows
@@ -1315,6 +1320,7 @@ def test_web_survey_voice_spanish_translates():
     from unittest.mock import patch
 
     from app.models.customer_feedback import FeedbackResponse
+    from app.services.customer_feedback.feedback_voice_note_service import process_voice_job
     from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
     from app.services.voice_transcription_service import VoiceTranscriptionResult
 
@@ -1323,7 +1329,7 @@ def test_web_survey_voice_spanish_translates():
         location, _ = _seed_web_survey_location(db, org_id=org_id, open_question=True)
         started = FeedbackWebSurveyService.start_session(db, location.qr_token)
         session_id = started["session_id"]
-        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, answer="Excellent")
+        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, token=location.qr_token, answer="Excellent")
         with patch(
             "app.services.voice_transcription_service.VoiceTranscriptionService.transcribe_uploaded_audio",
             return_value=VoiceTranscriptionResult(
@@ -1345,11 +1351,14 @@ def test_web_survey_voice_spanish_translates():
             result = FeedbackWebSurveyService.submit_voice(
                 db,
                 session_id=session_id,
+                token=location.qr_token,
                 audio_bytes=b"fake-audio",
                 filename="voice.webm",
                 content_type="audio/webm",
                 mode="answer",
             )
+            assert result.get("job_id")
+            process_voice_job(db, result["job_id"])
         assert result.get("completed") is True
         responses = list(
             db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
@@ -1364,6 +1373,7 @@ def test_web_survey_voice_stt_failure_not_saved():
     from unittest.mock import patch
 
     from app.models.customer_feedback import FeedbackResponse
+    from app.services.customer_feedback.feedback_voice_note_service import process_voice_job
     from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
     from app.services.voice_transcription_service import VoiceTranscriptionResult
 
@@ -1372,7 +1382,7 @@ def test_web_survey_voice_stt_failure_not_saved():
         location, _ = _seed_web_survey_location(db, org_id=org_id, open_question=True)
         started = FeedbackWebSurveyService.start_session(db, location.qr_token)
         session_id = started["session_id"]
-        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, answer="Excellent")
+        FeedbackWebSurveyService.submit_answer(db, session_id=session_id, token=location.qr_token, answer="Excellent")
         before = len(
             list(
                 db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
@@ -1385,15 +1395,47 @@ def test_web_survey_voice_stt_failure_not_saved():
             result = FeedbackWebSurveyService.submit_voice(
                 db,
                 session_id=session_id,
+                token=location.qr_token,
                 audio_bytes=b"fake-audio",
                 filename="voice.webm",
                 content_type="audio/webm",
                 mode="answer",
             )
-        assert result.get("saved") is False
-        after = len(
-            list(
-                db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
-            )
+            # Async path creates a pending row; failed STT clears/fails the job without a usable transcript.
+            assert result.get("pending") is True
+            assert result.get("job_id")
+            process_voice_job(db, result["job_id"])
+        responses = list(
+            db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
         )
-        assert after == before
+        voice_ok = [
+            r
+            for r in responses
+            if r.answer_source == "voice" and (r.answer_text or r.original_text)
+        ]
+        assert not voice_ok
+        assert len(responses) >= before  # rating answer remains; failed voice has no transcript text
+
+
+def test_web_survey_rejects_wrong_location_token():
+    from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        location, _ = _seed_web_survey_location(db, org_id=org_id)
+        started = FeedbackWebSurveyService.start_session(db, location.qr_token)
+        session_id = started["session_id"]
+        with pytest.raises(ValueError, match="Invalid survey token"):
+            FeedbackWebSurveyService.submit_answer(
+                db,
+                session_id=session_id,
+                token="wrong-token-xxxxxxxx",
+                answer="Excellent",
+            )
+        with pytest.raises(ValueError, match="Survey token required"):
+            FeedbackWebSurveyService.submit_answer(
+                db,
+                session_id=session_id,
+                token="",
+                answer="Excellent",
+            )

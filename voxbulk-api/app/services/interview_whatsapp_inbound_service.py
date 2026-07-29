@@ -438,7 +438,11 @@ def handle_inbound_reply(
     except ValueError as exc:
         logger.warning(
             "interview_wa_inbound_failed",
-            extra={"intent": intent, "token": token_row.token, "error": str(exc)},
+            extra={
+                "intent": intent,
+                "booking_token_id": token_row.id,
+                "error": str(exc),
+            },
         )
         err_msg = f"Hi {first}, we couldn't update your booking ({exc}). Please try again: {book_url}"
         sent = _send_text_reply(db, org_id=order.org_id, to_number=recipient.phone, body=err_msg)
@@ -446,6 +450,6 @@ def handle_inbound_reply(
     except Exception as exc:
         logger.exception(
             "interview_wa_inbound_unexpected",
-            extra={"intent": intent, "token": token_row.token},
+            extra={"intent": intent, "booking_token_id": token_row.id},
         )
         return {"handled": False, "reason": "handler_error", "error": str(exc), "log_id": log_id}

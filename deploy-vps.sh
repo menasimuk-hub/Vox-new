@@ -358,6 +358,9 @@ ensure_auth_url_env() {
   local env_file="$API_DIR/.env"
   [[ -f "$env_file" ]] || return 0
 
+  # Restrict secrets file permissions on every deploy (M16).
+  chmod 600 "$env_file" 2>/dev/null || true
+
   set_env_flag() {
     local key="$1" val="$2"
     if grep -q "^${key}=" "$env_file" 2>/dev/null; then
@@ -371,9 +374,10 @@ ensure_auth_url_env() {
     fi
   }
 
-  # shellcheck disable=SC1090
-  source "$env_file" 2>/dev/null || true
-  if [[ "${ENV:-}" == "production" || "${ENV:-}" == "prod" ]]; then
+  # Read ENV only — do not `source` the whole .env (avoids executing secrets / side effects).
+  local env_name=""
+  env_name="$(grep -E '^ENV=' "$env_file" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d "\"'[:space:]" || true)"
+  if [[ "${env_name}" == "production" || "${env_name}" == "prod" ]]; then
     set_env_flag PUBLIC_APP_ORIGIN "https://voxbulk.com"
     set_env_flag DASHBOARD_APP_ORIGIN "https://dashboard.voxbulk.com"
   fi
