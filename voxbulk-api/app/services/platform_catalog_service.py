@@ -458,6 +458,7 @@ class ServiceOrderService:
         if not any(h for h in headers):
             raise ValueError("Excel header row must include name and phone columns.")
         rows: list[dict[str, str]] = []
+        max_rows = ServiceOrderService._recipient_upload_max_rows()
         for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             data: dict[str, str] = {}
             for i, header in enumerate(headers):
@@ -468,7 +469,15 @@ class ServiceOrderService:
             parsed = ServiceOrderService._row_from_dict(data, idx)
             if parsed:
                 rows.append(parsed)
+                if len(rows) > max_rows:
+                    raise ValueError(f"Too many contacts (max {max_rows} rows)")
         return rows
+
+    @staticmethod
+    def _recipient_upload_max_rows() -> int:
+        from app.utils.upload_limits import recipient_upload_max_rows
+
+        return recipient_upload_max_rows()
 
     @staticmethod
     def parse_recipient_file(content: bytes, filename: str) -> list[dict[str, str]]:
@@ -482,11 +491,14 @@ class ServiceOrderService:
         if not reader.fieldnames:
             raise ValueError("CSV must include a header row: name, phone, email")
         rows: list[dict[str, str]] = []
+        max_rows = ServiceOrderService._recipient_upload_max_rows()
         for idx, raw in enumerate(reader, start=2):
             data = {ServiceOrderService._norm_header(k): str(v or "").strip() for k, v in raw.items()}
             parsed = ServiceOrderService._row_from_dict(data, idx)
             if parsed:
                 rows.append(parsed)
+                if len(rows) > max_rows:
+                    raise ValueError(f"Too many contacts (max {max_rows} rows)")
         return rows
 
     @staticmethod

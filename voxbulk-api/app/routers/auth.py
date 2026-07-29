@@ -98,7 +98,8 @@ def _organisation_or_403_if_suspended(db: Session, org_id: str) -> Organisation:
 
 
 @router.get("/invite-preview")
-def invite_preview(token: str, db: Session = Depends(get_db)):
+def invite_preview(token: str, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(scope="invite-preview", identity=_client_ip(request))
     if not token or not str(token).strip():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="token required")
     tok = str(token).strip()
@@ -119,7 +120,8 @@ def invite_preview(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/accept-invite")
-def accept_invite(payload: dict, db: Session = Depends(get_db)):
+def accept_invite(payload: dict, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(scope="invite", identity=_client_ip(request))
     tok = str(payload.get("token") or "").strip()
     password = payload.get("password")
     pwd = str(password) if password is not None else ""
@@ -186,10 +188,12 @@ def pending_invites(db: Session = Depends(get_db), principal: CurrentPrincipal =
 @router.post("/accept-invite-session")
 def accept_invite_session(
     payload: dict,
+    request: Request,
     db: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(get_current_principal),
 ):
     """Accept a team invite while already signed in (no password required)."""
+    _enforce_auth_rate_limit(scope="invite-session", identity=_client_ip(request))
     tok = str(payload.get("token") or "").strip()
     if not tok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="token required")
@@ -241,7 +245,8 @@ def _decode_oauth_org_selection_token(token: str) -> dict:
 
 
 @router.get("/oauth/org-selection")
-def oauth_org_selection_preview(token: str, db: Session = Depends(get_db)):
+def oauth_org_selection_preview(token: str, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(scope="oauth-org-selection", identity=_client_ip(request))
     payload = _decode_oauth_org_selection_token(str(token or "").strip())
     user_id = str(payload.get("user_id") or "")
     user = db.execute(select(User).where(User.id == user_id, User.is_active.is_(True))).scalar_one_or_none()
@@ -254,7 +259,8 @@ def oauth_org_selection_preview(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/oauth/complete-org-selection")
-def oauth_complete_org_selection(payload: dict, db: Session = Depends(get_db)):
+def oauth_complete_org_selection(payload: dict, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(scope="oauth-org-complete", identity=_client_ip(request))
     sel_tok = str(payload.get("selection_token") or "").strip()
     org_id = str(payload.get("org_id") or "").strip()
     if not sel_tok or not org_id:
@@ -697,6 +703,7 @@ def oauth_start(
     - invite_token/org_id are optional context hints to preserve invite/tenant flows.
     - return_to=dashboard sends the user back to the dashboard login page after OAuth.
     """
+    _enforce_auth_rate_limit(scope="oauth-start", identity=_client_ip(request))
     try:
         # Bind state to this browser using a nonce cookie (prevents login CSRF/replay).
         nonce = secrets.token_urlsafe(20)
@@ -764,6 +771,7 @@ async def oauth_callback(
 
     Redirects back to the sign-in page with the normal FastAPI bearer token handed off in the URL hash.
     """
+    _enforce_auth_rate_limit(scope="oauth-callback", identity=_client_ip(request))
     settings = get_settings()
     landing = _oauth_landing_path(settings, return_to=_resolve_oauth_return_to(request, state))
 
