@@ -30,7 +30,10 @@ def test_health_build_returns_explicit_marker_flags(app_client):
 
 
 def test_health_build_requires_token_when_configured(app_client, monkeypatch):
+    from app.core.config import get_settings
+
     monkeypatch.setenv("HEALTH_SECRET_TOKEN", "test-health-token")
+    get_settings.cache_clear()
     assert app_client.get("/health/build").status_code == 403
     assert app_client.get("/health/build", headers={"X-Health-Token": "wrong"}).status_code == 403
     assert app_client.get("/health/build", headers={"X-Health-Token": "test-health-token"}).status_code == 200
@@ -39,3 +42,22 @@ def test_health_build_requires_token_when_configured(app_client, monkeypatch):
         == 200
     )
     assert app_client.get("/health").status_code == 200
+    get_settings.cache_clear()
+
+
+def test_health_build_requires_token_from_settings(app_client, monkeypatch):
+    """Token may live only in Settings/.env (not exported to os.environ)."""
+    from app.core.config import get_settings
+
+    monkeypatch.delenv("HEALTH_SECRET_TOKEN", raising=False)
+    get_settings.cache_clear()
+    monkeypatch.setattr(
+        "main.get_settings",
+        lambda: type("S", (), {"health_secret_token": "settings-only-token"})(),
+    )
+    assert app_client.get("/health/build").status_code == 403
+    assert (
+        app_client.get("/health/build", headers={"X-Health-Token": "settings-only-token"}).status_code
+        == 200
+    )
+    get_settings.cache_clear()

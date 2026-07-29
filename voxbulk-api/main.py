@@ -573,7 +573,10 @@ async def db_programming_error_handler(request: Request, exc: ProgrammingError):
 
 
 def _require_health_token(request: Request) -> None:
+    # Prefer process env (tests / systemd), then Settings (.env via pydantic).
     expected = (os.getenv("HEALTH_SECRET_TOKEN") or "").strip()
+    if not expected:
+        expected = (get_settings().health_secret_token or "").strip()
     if not expected:
         return
     auth = request.headers.get("Authorization") or ""

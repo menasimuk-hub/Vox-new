@@ -6,6 +6,15 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 API_DIR="$ROOT/voxbulk-api"
 cd "$API_DIR"
 
+# Export .env into the process so os.getenv (health token, local bootstrap, etc.) works
+# under systemd, which does not set EnvironmentFile= by default.
+if [[ -f "$API_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$API_DIR/.env"
+  set +a
+fi
+
 GUNICORN_BIN="$API_DIR/.venv/bin/gunicorn"
 UVICORN_BIN="$API_DIR/.venv/bin/uvicorn"
 # 2+ workers keep at least one worker serving during `systemctl reload`

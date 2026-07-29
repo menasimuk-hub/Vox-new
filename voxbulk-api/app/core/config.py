@@ -130,6 +130,8 @@ class Settings(BaseSettings):
 
     # Bootstrap
     bootstrap_token: str = Field(default="", alias="BOOTSTRAP_TOKEN")
+    # Protects /health/build|/db|/pricing when set (X-Health-Token or Bearer).
+    health_secret_token: str = Field(default="", alias="HEALTH_SECRET_TOKEN")
     enable_test_cash_billing: bool = Field(default=False, alias="ENABLE_TEST_CASH_BILLING")
 
     # Invite links returned by admin API (public sign-in origin)
