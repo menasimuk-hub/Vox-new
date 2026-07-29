@@ -8,9 +8,9 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
 
-from app.core.database import SessionLocal
+from app.core.database import get_sessionmaker
 from app.models.expo import (
     ExpoBooth,
     ExpoExhibition,
@@ -59,59 +59,53 @@ def _stand_row(db, lead: ExpoLead, booth: ExpoBooth) -> dict[str, Any]:
 
 @celery_app.task(name="expo.purge_expired_visitor_identities")
 def purge_expired_visitor_identities() -> dict[str, Any]:
-    db = SessionLocal()
-    try:
+    with get_sessionmaker()() as db:
         n = ExpoVisitorIdentityService.purge_expired(db)
         return {"purged": n}
-    finally:
-        db.close()
 
 
 @celery_app.task(name="expo.send_visitor_day_summaries")
 def send_visitor_day_summaries() -> dict[str, Any]:
     """Hourly: send daily digests near local expo end-of-day; final digests when expo ended."""
-    db = SessionLocal()
     sent_daily = 0
     sent_final = 0
-    try:
-        now_utc = datetime.utcnow()
-        exhibitions = db.execute(
-            select(ExpoExhibition).where(ExpoExhibition.status == "active")
-        ).scalars().all()
-        for exhibition in exhibitions:
-            tz = _local_tz(getattr(exhibition, "timezone", None))
-            local_now = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
-            local_date = local_now.date().isoformat()
-            # Daily window: local 20:00–21:00
-            if local_now.hour == 20:
-                sent_daily += _send_for_exhibition(
-                    db,
-                    exhibition=exhibition,
-                    summary_date=local_date,
-                    is_final=False,
-                    day_filter=local_now.date(),
-                )
-            # Final: exhibition ended within last 26h
-            ends = exhibition.ends_on
-            if ends is not None:
-                ends_naive = ends.replace(tzinfo=None) if ends.tzinfo else ends
-                if ends_naive <= now_utc and ends_naive >= now_utc - timedelta(hours=26):
-                    sent_final += _send_for_exhibition(
+    with get_sessionmaker()() as db:
+        try:
+            now_utc = datetime.utcnow()
+            exhibitions = db.execute(
+                select(ExpoExhibition).where(ExpoExhibition.status == "active")
+            ).scalars().all()
+            for exhibition in exhibitions:
+                tz = _local_tz(getattr(exhibition, "timezone", None))
+                local_now = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
+                local_date = local_now.date().isoformat()
+                # Daily window: local 20:00–21:00
+                if local_now.hour == 20:
+                    sent_daily += _send_for_exhibition(
                         db,
                         exhibition=exhibition,
                         summary_date=local_date,
-                        is_final=True,
-                        day_filter=None,
+                        is_final=False,
+                        day_filter=local_now.date(),
                     )
-        db.commit()
-        return {"daily": sent_daily, "final": sent_final}
-    except Exception:
-        logger.exception("expo_send_visitor_day_summaries_failed")
-        db.rollback()
-        return {"daily": sent_daily, "final": sent_final, "error": True}
-    finally:
-        db.close()
-
+                # Final: exhibition ended within last 26h
+                ends = exhibition.ends_on
+                if ends is not None:
+                    ends_naive = ends.replace(tzinfo=None) if ends.tzinfo else ends
+                    if ends_naive <= now_utc and ends_naive >= now_utc - timedelta(hours=26):
+                        sent_final += _send_for_exhibition(
+                            db,
+                            exhibition=exhibition,
+                            summary_date=local_date,
+                            is_final=True,
+                            day_filter=None,
+                        )
+            db.commit()
+            return {"daily": sent_daily, "final": sent_final}
+        except Exception:
+            logger.exception("expo_send_visitor_day_summaries_failed")
+            db.rollback()
+            return {"daily": sent_daily, "final": sent_final, "error": True}
 
 def _send_for_exhibition(
     db,
