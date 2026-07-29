@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -96,29 +97,27 @@ from app.services.uk_compliance_retention_service import uk_compliance_retention
 from app.services.weekly_digest_scheduler import weekly_digest_scheduler_loop
 
 
-LOCAL_ADMIN_EMAIL = os.getenv("LOCAL_ADMIN_EMAIL", "zaghlolno@gmail.com").strip().lower()
-LOCAL_ADMIN_PASSWORD = os.getenv("LOCAL_ADMIN_PASSWORD", "testtest1")
-LOCAL_DASHBOARD_EMAIL = os.getenv("LOCAL_DASHBOARD_EMAIL", "user@user.com").strip().lower()
-LOCAL_DASHBOARD_PASSWORD = os.getenv("LOCAL_DASHBOARD_PASSWORD", LOCAL_ADMIN_PASSWORD)
+LOCAL_ADMIN_EMAIL = (os.getenv("LOCAL_ADMIN_EMAIL") or "").strip().lower()
+LOCAL_ADMIN_PASSWORD = os.getenv("LOCAL_ADMIN_PASSWORD") or ""
+LOCAL_DASHBOARD_EMAIL = (os.getenv("LOCAL_DASHBOARD_EMAIL") or "").strip().lower()
+LOCAL_DASHBOARD_PASSWORD = os.getenv("LOCAL_DASHBOARD_PASSWORD") or ""
 
 
 def _ensure_local_demo_admin() -> None:
     with get_sessionmaker()() as db:
         email = LOCAL_ADMIN_EMAIL
-        pwd_hash = hash_password(LOCAL_ADMIN_PASSWORD)
         user = db.execute(select(User).where(func.lower(User.email) == email)).scalar_one_or_none()
 
         if user is None:
             user = User(
                 email=email,
-                password_hash=pwd_hash,
+                password_hash=hash_password(LOCAL_ADMIN_PASSWORD),
                 is_active=True,
                 is_superuser=True,
             )
             db.add(user)
             db.flush()
         else:
-            user.password_hash = pwd_hash
             user.is_active = True
             user.is_superuser = True
             db.add(user)
@@ -141,18 +140,16 @@ def _ensure_local_demo_user() -> None:
     with get_sessionmaker()() as db:
         email = LOCAL_DASHBOARD_EMAIL
         user = db.execute(select(User).where(func.lower(User.email) == email)).scalar_one_or_none()
-        pwd_hash = hash_password(LOCAL_DASHBOARD_PASSWORD)
         if user is None:
             user = User(
                 email=email,
-                password_hash=pwd_hash,
+                password_hash=hash_password(LOCAL_DASHBOARD_PASSWORD),
                 is_active=True,
                 is_superuser=False,
             )
             db.add(user)
             db.flush()
         else:
-            user.password_hash = pwd_hash
             user.is_active = True
             user.is_superuser = False
             db.add(user)
@@ -227,6 +224,11 @@ def _log_provider_key_status(logger) -> None:
 def _warn_production_app_origins(settings, logger) -> None:
     env = str(getattr(settings, "env", "") or "").lower()
     if bool(getattr(settings, "allow_insecure_webhooks", False)):
+        if env in {"production", "prod"}:
+            raise RuntimeError(
+                "ALLOW_INSECURE_WEBHOOKS is enabled while ENV is production/prod. "
+                "Disable ALLOW_INSECURE_WEBHOOKS (unset or set to 0/false) before starting."
+            )
         logger.warning(
             "ALLOW_INSECURE_WEBHOOKS is enabled — unsigned Meta/Telnyx webhooks may be processed. "
             "Disable this on production VPS."
@@ -261,15 +263,23 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("init_db failed — fix DATABASE_URL/migrations; /health still works")
         try:
-            _ensure_local_demo_admin()
-            _ensure_local_demo_user()
-            logger.info(
-                "local_demo_accounts",
-                extra={
-                    "dashboard_email": LOCAL_DASHBOARD_EMAIL,
-                    "admin_email": LOCAL_ADMIN_EMAIL,
-                },
-            )
+            created = {}
+            if not LOCAL_ADMIN_EMAIL or not LOCAL_ADMIN_PASSWORD:
+                logger.warning(
+                    "LOCAL_ADMIN_EMAIL/LOCAL_ADMIN_PASSWORD not set — skipping local demo admin"
+                )
+            else:
+                _ensure_local_demo_admin()
+                created["admin_email"] = LOCAL_ADMIN_EMAIL
+            if not LOCAL_DASHBOARD_EMAIL or not LOCAL_DASHBOARD_PASSWORD:
+                logger.warning(
+                    "LOCAL_DASHBOARD_EMAIL/LOCAL_DASHBOARD_PASSWORD not set — skipping local demo user"
+                )
+            else:
+                _ensure_local_demo_user()
+                created["dashboard_email"] = LOCAL_DASHBOARD_EMAIL
+            if created:
+                logger.info("local_demo_accounts", extra=created)
         except Exception:
             logger.exception("local demo bootstrap failed — create users manually")
     logger.info("app_starting", extra={"env": settings.env, "app_name": settings.app_name})
@@ -556,8 +566,23 @@ async def db_programming_error_handler(request: Request, exc: ProgrammingError):
     return apply_cors_headers(request, response, get_settings())
 
 
+def _require_health_token(request: Request) -> None:
+    expected = (os.getenv("HEALTH_SECRET_TOKEN") or "").strip()
+    if not expected:
+        return
+    auth = request.headers.get("Authorization") or ""
+    token = ""
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+    if not token:
+        token = (request.headers.get("X-Health-Token") or "").strip()
+    if not token or not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
 @app.get("/health/pricing", tags=["health"])
-def health_pricing():
+def health_pricing(request: Request):
+    _require_health_token(request)
     from app.core.database import get_engine, _table_columns
     from app.core.pricing_schema import WHATSAPP_SURVEY_FEE_PENCE_COLUMN
     from app.services.pricing_bootstrap_service import get_pricing_bootstrap_status
@@ -581,8 +606,9 @@ def health():
 
 
 @app.get("/health/build", tags=["health"])
-def health_build():
+def health_build(request: Request):
     """Deploy verification — explicit marker flags on disk and in the running process."""
+    _require_health_token(request)
     from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, get_deploy_verification
 
     data = get_deploy_verification()
@@ -626,8 +652,9 @@ def health_build():
 
 
 @app.get("/health/db", tags=["health"])
-def health_db():
+def health_db(request: Request):
     """Quick schema probe — fails with 503 if migrations were not applied."""
+    _require_health_token(request)
     SessionLocal = get_sessionmaker()
     with SessionLocal() as db:
         db.execute(text("SELECT 1"))

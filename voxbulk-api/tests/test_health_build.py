@@ -27,3 +27,15 @@ def test_health_build_returns_explicit_marker_flags(app_client):
     )
     assert data.get("deploy_ok") is True
     assert "wa_survey_debug_markers" not in data
+
+
+def test_health_build_requires_token_when_configured(app_client, monkeypatch):
+    monkeypatch.setenv("HEALTH_SECRET_TOKEN", "test-health-token")
+    assert app_client.get("/health/build").status_code == 403
+    assert app_client.get("/health/build", headers={"X-Health-Token": "wrong"}).status_code == 403
+    assert app_client.get("/health/build", headers={"X-Health-Token": "test-health-token"}).status_code == 200
+    assert (
+        app_client.get("/health/build", headers={"Authorization": "Bearer test-health-token"}).status_code
+        == 200
+    )
+    assert app_client.get("/health").status_code == 200
