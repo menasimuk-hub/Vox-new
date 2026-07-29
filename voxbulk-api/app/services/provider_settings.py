@@ -113,7 +113,7 @@ class ProviderSettingsService:
         "gocardless": {"access_token", "webhook_secret"},
         "stripe": {"secret_key", "webhook_secret"},
         "airwallex": {"api_key", "webhook_secret"},
-        "telnyx": {"api_key"},
+        "telnyx": {"api_key", "media_stream_token"},
         "meta_whatsapp": {"access_token", "app_secret", "webhook_verify_token"},
         "azure_speech": {"api_key"},
         "openai": {"api_key"},
@@ -770,14 +770,23 @@ class ProviderSettingsService:
             base=webhook_base,
         )
         ws_base = webhook_base.replace("https://", "wss://").replace("http://", "ws://")
-        cfg["media_stream_url"] = ProviderSettingsService._canonical_telnyx_webhook_url(
+        stream_url = ProviderSettingsService._canonical_telnyx_webhook_url(
             str(cfg.get("media_stream_url") or ""),
             suffix="/telnyx/media-stream",
             base=ws_base,
         )
+        stream_token = str(cfg.get("media_stream_token") or "").strip()
+        if stream_token:
+            from urllib.parse import urlencode
+
+            stream_url = f"{stream_url}?{urlencode({'token': stream_token})}"
+        cfg["media_stream_url"] = stream_url
+        if stream_token:
+            cfg["media_stream_token"] = stream_token
         if connection_id:
             cfg["connection_id"] = connection_id
             cfg["voice_api_application_id"] = connection_id
+        fallback_raw = str(cfg.get("fallback_caller_id") or "").strip()
         if from_number:
             try:
                 from_number = normalize_telnyx_e164(from_number)
@@ -785,6 +794,13 @@ class ProviderSettingsService:
                 pass
             cfg["default_outbound_number"] = from_number
             cfg["from_phone_number"] = from_number
+        if fallback_raw:
+            try:
+                fallback_raw = normalize_telnyx_e164(fallback_raw)
+            except ValueError:
+                pass
+            cfg["fallback_caller_id"] = fallback_raw
+        elif from_number:
             cfg["fallback_caller_id"] = from_number
         sms_from = str(cfg.get("sms_from") or "").strip()
         if sms_from:
@@ -831,7 +847,9 @@ class ProviderSettingsService:
             first_voice = cfg["voice_routes"][0]["number"]
             cfg["default_outbound_number"] = first_voice
             cfg["from_phone_number"] = first_voice
-            cfg["fallback_caller_id"] = first_voice
+            # Do not clobber an explicitly configured fallback with the primary outbound line.
+            if not str(fallback_raw or "").strip():
+                cfg["fallback_caller_id"] = first_voice
         if cfg["whatsapp_routes"]:
             cfg["whatsapp_from"] = cfg["whatsapp_routes"][0]["number"]
         return cfg

@@ -24,13 +24,17 @@ def _headers(app_client):
     return {"Authorization": f"Bearer {token}"}, org_id
 
 
+# Telnyx portal keys are ~58 chars; upsert rejects short placeholders.
+_TEST_TELNYX_API_KEY = "KEY" + ("a" * 55)
+
+
 def _save_voice_stack(app_client, headers):
     telnyx = app_client.put(
         "/admin/integrations/telnyx",
         json={
             "is_enabled": True,
             "config": {
-                "api_key": "KEYtelnyx",
+                "api_key": _TEST_TELNYX_API_KEY,
                 "connection_id": "conn-123",
                 "default_outbound_number": "+442071111111",
                 "fallback_caller_id": "+442072222222",
@@ -86,7 +90,7 @@ def test_telnyx_settings_and_verified_caller_id_flow(app_client, monkeypatch):
     assert saved.json()["verification_status"] == "unverified"
 
     def fake_verified_number_request(**kwargs):
-        assert kwargs["api_key"] == "KEYtelnyx"
+        assert kwargs["api_key"] == _TEST_TELNYX_API_KEY
         assert kwargs["phone_number"] == "+447700900456"
         return {"data": {"id": "VN123", "verification_id": "VER123", "status": "pending", "verification_code": "123456"}}
 
@@ -109,9 +113,9 @@ def test_telnyx_settings_and_verified_caller_id_flow(app_client, monkeypatch):
     assert refreshed.json()["telnyx_verified_number_id"] == "VN123"
 
     def fake_call(**kwargs):
-        assert kwargs["api_key"] == "KEYtelnyx"
+        assert kwargs["api_key"] == _TEST_TELNYX_API_KEY
         assert kwargs["from_number"] == "+447700900456"
-        assert kwargs["media_stream_url"] == "wss://testserver/telnyx/media-stream"
+        assert str(kwargs["media_stream_url"]).endswith("/telnyx/media-stream")
         return {"data": {"call_control_id": "call-123", "status": "queued"}}
 
     monkeypatch.setattr("app.services.telnyx_voice_service.TelnyxVoiceAdapter._create_call", staticmethod(fake_call))
@@ -129,13 +133,14 @@ def test_telnyx_unverified_user_falls_back_to_admin_caller_id(app_client, monkey
     app_client.put("/auth/me/phone", json={"phone_number": "+447700900789"}, headers=headers)
 
     def fake_call(**kwargs):
-        assert kwargs["from_number"] == "+442072222222"
+        # Unverified users use the platform voice route (legacy default outbound), not a personal CLI.
+        assert kwargs["from_number"] == "+442071111111"
         return {"data": {"call_control_id": "call-fallback", "status": "queued"}}
 
     monkeypatch.setattr("app.services.telnyx_voice_service.TelnyxVoiceAdapter._create_call", staticmethod(fake_call))
     call = app_client.post("/calls/start", json={"to_number": "+447700900123"}, headers=headers)
     assert call.status_code == 200
-    assert call.json()["log"]["from_number"] == "+442072222222"
+    assert call.json()["log"]["from_number"] == "+442071111111"
 
 
 def test_telnyx_media_stream_appends_transcript(app_client, monkeypatch):
@@ -168,3 +173,46 @@ def test_telnyx_media_stream_appends_transcript(app_client, monkeypatch):
     row = next(x for x in logs.json() if x["external_call_id"] == "call-stream")
     assert "Can I move my appointment?" in row["transcript_text"]
     assert "We can help you rebook tomorrow." in row["transcript_text"]
+
+
+def test_telnyx_media_stream_requires_token_when_signatures_required(app_client, monkeypatch):
+    """M9: outside test/insecure mode, media-stream must present configured token."""
+    headers, _org_id = _headers(app_client)
+    telnyx = app_client.put(
+        "/admin/integrations/telnyx",
+        json={
+            "is_enabled": True,
+            "config": {
+                "api_key": _TEST_TELNYX_API_KEY,
+                "connection_id": "conn-123",
+                "default_outbound_number": "+442071111111",
+                "fallback_caller_id": "+442072222222",
+                "voice_webhook_url": "http://testserver/telnyx/webhooks/voice",
+                "status_callback_url": "http://testserver/telnyx/webhooks/status",
+                "verified_number_webhook_url": "http://testserver/telnyx/webhooks/verified-numbers",
+                "media_stream_url": "wss://testserver/telnyx/media-stream",
+                "media_stream_token": "stream-secret-test",
+            },
+        },
+        headers=headers,
+    )
+    assert telnyx.status_code == 200
+
+    monkeypatch.setattr(
+        "app.services.telnyx_webhook_security.webhook_signature_required",
+        lambda: True,
+    )
+
+    rejected = False
+    try:
+        with app_client.websocket_connect("/telnyx/media-stream") as ws:
+            ws.send_json({"call_control_id": "x", "transcript": "hi"})
+            ws.receive_json()
+    except Exception:
+        rejected = True
+    assert rejected
+
+    with app_client.websocket_connect("/telnyx/media-stream?token=stream-secret-test") as ws:
+        ws.send_json({"call_control_id": "missing-call", "transcript": "hi"})
+        msg = ws.receive_json()
+        assert msg["status"] == "rejected"

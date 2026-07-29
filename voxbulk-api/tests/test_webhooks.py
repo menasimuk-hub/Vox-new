@@ -172,3 +172,141 @@ def test_gocardless_duplicate_external_event_id_is_ignored(app_client):
             select(func.count()).select_from(WebhookEvent).where(WebhookEvent.provider == "gocardless")
         ).scalar_one()
     assert int(cnt) == 1
+
+
+def test_extract_meta_whatsapp_external_event_id():
+    from app.services.recovery_service import WebhookEventService
+
+    body = b'{"entry":[{"changes":[{"value":{"messages":[{"id":"wamid.abc"}],"statuses":[{"id":"wamid.abc","status":"delivered"}]}}]}]}'
+    eid = WebhookEventService.extract_external_event_id("meta_whatsapp", body)
+    assert eid
+    assert "wamid.abc" in eid or len(eid) == 64
+
+
+def test_telnyx_inbound_ignores_forged_org_header_when_line_maps_to_profile(app_client):
+    """M8: X-Retover-Org-Id must not override To-number → connection profile org."""
+    from sqlalchemy import select
+
+    from app.core.database import get_sessionmaker
+    from app.models.connection_profile import (
+        CHANNEL_WHATSAPP,
+        PROVIDER_TELNYX,
+        ConnectionProfile,
+        ConnectionProfileOrg,
+    )
+    from app.models.organisation import Organisation
+    from app.models.whatsapp_log import WhatsAppLog
+
+    with get_sessionmaker()() as db:
+        victim = Organisation(name="Victim Org")
+        owner = Organisation(name="Line Owner Org")
+        db.add_all([victim, owner])
+        db.flush()
+        profile = ConnectionProfile(
+            name="Telnyx line",
+            channel=CHANNEL_WHATSAPP,
+            provider=PROVIDER_TELNYX,
+            is_default=False,
+            is_active=True,
+            telnyx_number="+442046203055",
+        )
+        db.add(profile)
+        db.flush()
+        db.add(ConnectionProfileOrg(profile_id=profile.id, org_id=owner.id))
+        db.commit()
+        victim_id = victim.id
+        owner_id = owner.id
+
+    payload = {
+        "data": {
+            "event_type": "message.received",
+            "payload": {
+                "id": "msg-org-header-ignore",
+                "direction": "inbound",
+                "type": "WHATSAPP",
+                "from": {"phone_number": "+447700900999"},
+                "to": [{"phone_number": "+442046203055"}],
+                "text": "hello line owner",
+                "status": "received",
+            },
+        }
+    }
+    r = app_client.post(
+        "/telnyx/webhooks/messages",
+        json=payload,
+        headers={"X-Retover-Org-Id": victim_id},
+    )
+    assert r.status_code == 200
+
+    with get_sessionmaker()() as db:
+        row = db.execute(
+            select(WhatsAppLog).where(WhatsAppLog.external_message_id == "msg-org-header-ignore")
+        ).scalar_one()
+        assert row.org_id == owner_id
+        assert row.org_id != victim_id
+
+
+def test_meta_whatsapp_duplicate_webhook_is_not_reprocessed(app_client, monkeypatch):
+    """M6 Meta: persist_received created=False must skip inbound handler."""
+    from app.core.database import get_sessionmaker
+    from app.models.organisation import Organisation
+
+    calls = {"n": 0}
+
+    def _count_handle(db, payload=None):
+        calls["n"] += 1
+        return {"ok": True, "status_updated": 0}
+
+    monkeypatch.setattr(
+        "app.routers.webhooks.MetaWhatsappInboundService.handle_webhook",
+        staticmethod(_count_handle),
+    )
+    monkeypatch.setattr(
+        "app.routers.webhooks._meta_whatsapp_app_secret",
+        lambda db: "",
+    )
+
+    with get_sessionmaker()() as db:
+        db.add(Organisation(name="Meta Dedup Org"))
+        db.commit()
+
+    body = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "waba-dedup",
+                "changes": [
+                    {
+                        "field": "messages",
+                        "value": {
+                            "statuses": [
+                                {
+                                    "id": "wamid.dedup.1",
+                                    "status": "delivered",
+                                    "timestamp": "1710000000",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    r1 = app_client.post("/webhooks/meta/whatsapp", json=body)
+    r2 = app_client.post("/webhooks/meta/whatsapp", json=body)
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r2.json().get("duplicate") is True
+    assert calls["n"] == 1
+
+
+def test_extract_meta_whatsapp_external_event_id():
+    from app.services.recovery_service import WebhookEventService
+
+    body = (
+        b'{"entry":[{"changes":[{"value":{"messages":[{"id":"wamid.abc"}],'
+        b'"statuses":[{"id":"wamid.abc","status":"delivered"}]}}]}]}'
+    )
+    eid = WebhookEventService.extract_external_event_id("meta_whatsapp", body)
+    assert eid
+    assert "wamid.abc" in eid or len(eid) == 64

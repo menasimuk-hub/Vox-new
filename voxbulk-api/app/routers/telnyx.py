@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import json
 import base64
+import hmac
+import json
 import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, WebSocketDisconnect, status
@@ -108,7 +109,6 @@ async def telnyx_messages_webhook_probe():
 async def telnyx_messages_webhook(
     request: Request,
     db: Session = Depends(get_db),
-    x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
 ):
     # TELNYX_WEBHOOK_BUILD_MARKER_20260606_2250 — router inbound instrumentation
     from app.core.runtime_build_info import WEBHOOK_BUILD_MARKER, log_webhook_entry
@@ -127,21 +127,54 @@ async def telnyx_messages_webhook(
     log_webhook_entry(
         event_type=event_type,
         from_phone=from_phone,
-        org_id=x_retover_org_id,
+        org_id=None,
         handler="app.routers.telnyx.telnyx_messages_webhook",
     )
     logger.info(
         "%s router_dispatch file=app/routers/telnyx.py endpoint=telnyx_messages_webhook",
         WEBHOOK_BUILD_MARKER,
     )
-    result = TelnyxInboundMessagingService.handle_webhook(db, payload, header_org_id=x_retover_org_id)
+    # Tenant org is resolved from To-number / connection profile — never from client headers (M8).
+    result = TelnyxInboundMessagingService.handle_webhook(db, payload)
     return result
+
+
+def _media_stream_expected_token(db: Session | None = None) -> str:
+    """Shared secret Telnyx must present as ?token= on the media-stream WebSocket URL."""
+    if db is None:
+        return ""
+    try:
+        from app.services.provider_settings import ProviderSettingsService
+
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        if isinstance(cfg, dict):
+            return str(cfg.get("media_stream_token") or "").strip()
+    except Exception:
+        logger.debug("media_stream_token_lookup_failed", exc_info=True)
+    return ""
 
 
 @router.websocket("/media-stream")
 async def telnyx_media_stream(websocket: WebSocket):
-    await websocket.accept()
+    from app.services.telnyx_webhook_security import webhook_signature_required
+
     sessionmaker = get_sessionmaker()
+    with sessionmaker() as db:
+        expected_token = _media_stream_expected_token(db)
+    provided = str(
+        websocket.query_params.get("token") or websocket.query_params.get("stream_token") or ""
+    ).strip()
+
+    # Fail closed outside test/insecure mode: require a configured stream token and a match.
+    if webhook_signature_required():
+        if not expected_token or not provided or not hmac.compare_digest(provided, expected_token):
+            await websocket.close(code=1008)
+            return
+    elif expected_token and provided and not hmac.compare_digest(provided, expected_token):
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
     try:
         while True:
             message = await websocket.receive_text()

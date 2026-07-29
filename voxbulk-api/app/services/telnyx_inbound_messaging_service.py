@@ -221,9 +221,39 @@ def _deep_wa_reply_text(value: Any, *, depth: int = 0) -> str:
     return ""
 
 
-def _resolve_org_id(db: Session, *, header_org_id: str | None, config: dict[str, Any]) -> str:
+def _resolve_org_id(
+    db: Session,
+    *,
+    config: dict[str, Any],
+    to_number: str | None = None,
+    from_phone: str | None = None,
+) -> tuple[str, Any]:
+    """Resolve tenant from business To-number / active conversation / platform config.
+
+    Client org headers are ignored (M8) — they are not a trust boundary after webhook verify.
+    Returns (org_id, connection_profile_or_none).
+    """
+    from app.services.connection.resolver import ConnectionProfileResolver
+
+    org_from_line, profile = ConnectionProfileResolver.resolve_org_id_by_business_number(
+        db, to_number=to_number
+    )
+    if org_from_line:
+        return org_from_line, profile
+
+    if from_phone:
+        try:
+            from app.services.survey_whatsapp_conversation_service import find_active_recipient_for_inbound
+
+            order, _recipient, _via = find_active_recipient_for_inbound(
+                db, from_phone=str(from_phone), org_id=None
+            )
+            if order and str(order.org_id or "").strip():
+                return str(order.org_id), profile
+        except Exception:
+            pass
+
     for candidate in (
-        str(header_org_id or "").strip(),
         str(config.get("messaging_org_id") or "").strip(),
         str(config.get("default_messaging_org_id") or "").strip(),
     ):
@@ -231,11 +261,14 @@ def _resolve_org_id(db: Session, *, header_org_id: str | None, config: dict[str,
             continue
         row = db.execute(select(Organisation.id).where(Organisation.id == candidate)).scalar_one_or_none()
         if row:
-            return candidate
+            return candidate, profile
     fallback = db.execute(select(Organisation.id).order_by(Organisation.created_at.asc()).limit(1)).scalar_one_or_none()
     if fallback:
-        return str(fallback)
-    raise ValueError("No organisation found to attach inbound Telnyx messages — create an org or set messaging_org_id in Telnyx settings.")
+        return str(fallback), profile
+    raise ValueError(
+        "No organisation found to attach inbound Telnyx messages — map the To-number to a "
+        "connection profile org, or set messaging_org_id in Telnyx settings."
+    )
 
 
 def _message_channel(msg_type: str) -> str:
@@ -346,10 +379,12 @@ class TelnyxInboundMessagingService:
         event_type = str(data.get("event_type") or payload.get("event_type") or "").strip().lower()
         record = data.get("payload") if isinstance(data.get("payload"), dict) else data
         from_number_early = _phone_from(record.get("from"))
+        # header_org_id is accepted for backwards-compatible callers but never used for tenancy (M8).
+        _ = header_org_id
         log_webhook_entry(
             event_type=event_type,
             from_phone=from_number_early,
-            org_id=header_org_id,
+            org_id=None,
             handler="app.services.telnyx_inbound_messaging_service.TelnyxInboundMessagingService.handle_webhook",
         )
         logger.info(
@@ -372,10 +407,6 @@ class TelnyxInboundMessagingService:
         status = _extract_delivery_status(record) or ("received" if direction == "inbound" else "sent")
         delivery_error = _format_delivery_errors(record)
 
-        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
-        config = cfg if isinstance(cfg, dict) else {}
-        org_id = _resolve_org_id(db, header_org_id=header_org_id, config=config)
-
         try:
             from_norm = normalize_e164(from_number) if from_number else from_number
         except ValueError:
@@ -390,6 +421,15 @@ class TelnyxInboundMessagingService:
         )
         if to_norm:
             to_number = to_norm
+
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+        config = cfg if isinstance(cfg, dict) else {}
+        org_id, inbound_profile = _resolve_org_id(
+            db,
+            config=config,
+            to_number=to_norm or to_number,
+            from_phone=from_norm or from_number,
+        )
 
         if message_id:
             existing = db.execute(
@@ -498,9 +538,10 @@ class TelnyxInboundMessagingService:
         media_json = json.dumps(media, ensure_ascii=False)[:8000] if media else None
         raw_payload = json.dumps(payload, ensure_ascii=False)[:8000]
 
-        from app.services.connection.resolver import ConnectionProfileResolver
+        if inbound_profile is None:
+            from app.services.connection.resolver import ConnectionProfileResolver
 
-        inbound_profile = ConnectionProfileResolver.resolve_whatsapp_by_business_number(db, to_number=to_norm)
+            inbound_profile = ConnectionProfileResolver.resolve_whatsapp_by_business_number(db, to_number=to_norm)
         connection_profile_id = str(inbound_profile.id) if inbound_profile else None
 
         row = WhatsAppLog(

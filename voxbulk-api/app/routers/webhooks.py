@@ -186,13 +186,16 @@ async def meta_whatsapp_webhook(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid payload")
-    WebhookEventService.persist_received(
+    external_event_id = WebhookEventService.extract_external_event_id("meta_whatsapp", raw_body)
+    _event_row, created = WebhookEventService.persist_received(
         db,
         provider="meta_whatsapp",
         raw_body=raw_body,
-        external_event_id=None,
+        external_event_id=external_event_id,
         signature_valid=signature_valid,
     )
+    if not created:
+        return {"status": "ok", "duplicate": True}
     # Dev/test may process without signature; production always requires valid signature.
     if webhook_signature_required() and not signature_valid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unsigned Meta webhook rejected")

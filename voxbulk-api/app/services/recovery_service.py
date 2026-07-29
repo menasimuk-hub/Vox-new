@@ -171,6 +171,39 @@ class WebhookEventService:
                 return hashlib.sha256((",".join(sorted(ids))).encode("utf-8")).hexdigest()
             except Exception:
                 return None
+        if provider == "meta_whatsapp":
+            try:
+                data = json.loads(raw_body.decode("utf-8"))
+                ids: list[str] = []
+                entries = data.get("entry") if isinstance(data, dict) else None
+                if isinstance(entries, list):
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+                        changes = entry.get("changes")
+                        if not isinstance(changes, list):
+                            continue
+                        for change in changes:
+                            if not isinstance(change, dict):
+                                continue
+                            value = change.get("value")
+                            if not isinstance(value, dict):
+                                continue
+                            for msg in value.get("messages") or []:
+                                if isinstance(msg, dict) and msg.get("id"):
+                                    ids.append(f"m:{msg['id']}")
+                            for status in value.get("statuses") or []:
+                                if not isinstance(status, dict) or not status.get("id"):
+                                    continue
+                                st = str(status.get("status") or "").strip()
+                                ids.append(f"s:{status['id']}:{st}" if st else f"s:{status['id']}")
+                if not ids:
+                    return None
+                if len(ids) == 1:
+                    return ids[0]
+                return hashlib.sha256((",".join(sorted(ids))).encode("utf-8")).hexdigest()
+            except Exception:
+                return None
         return None
     @staticmethod
     def _dedupe_key(provider: str, raw_body: bytes, external_event_id: str | None) -> str:
