@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _DEFERRED_PHASES = frozenset({"held", "pending_settlement", "billing_failed"})
 _VOICE_BILLING_CHANNELS = frozenset({"ai_call", "ai_meeting", "phone", "call", "meeting"})
+_COMPLETION_INVOICE_PROVIDERS = ("internal", "gocardless", "campaign")
 
 
 class CampaignBillingSettlementService:
@@ -41,9 +44,61 @@ class CampaignBillingSettlementService:
         db.refresh(order)
 
     @staticmethod
+    def _lock_order(db: Session, order_id: str) -> ServiceOrder | None:
+        return db.execute(
+            select(ServiceOrder).where(ServiceOrder.id == order_id).with_for_update()
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def _completion_external_id(order_id: str) -> str:
+        return f"completion-{order_id}"
+
+    @staticmethod
+    def _find_completion_invoice(db: Session, order_id: str):
+        from app.services.invoice_service import InvoiceService
+
+        existing = InvoiceService.get_for_order(db, order_id=order_id)
+        if existing is not None:
+            kind = str(existing.kind or "").strip().lower()
+            ext = str(existing.external_invoice_id or "")
+            if kind == "campaign" or ext.startswith("completion-"):
+                return existing
+        ext = CampaignBillingSettlementService._completion_external_id(order_id)
+        for provider in _COMPLETION_INVOICE_PROVIDERS:
+            row = InvoiceService.get_by_external(db, provider=provider, external_invoice_id=ext)
+            if row is not None:
+                return row
+        return None
+
+    @staticmethod
+    def _claim_settlement(db: Session, order: ServiceOrder, snapshot: dict[str, Any]) -> dict[str, Any] | None:
+        """Flip phase to settling before any charge. Returns None if another worker won the claim."""
+        claim_id = str(uuid.uuid4())
+        snapshot["billing_phase"] = "settling"
+        snapshot["settlement_claim_id"] = claim_id
+        snapshot["settlement_claim_at"] = datetime.utcnow().isoformat()
+        CampaignBillingSettlementService._save_snapshot(db, order, snapshot)
+
+        locked = CampaignBillingSettlementService._lock_order(db, order.id) or order
+        db.refresh(locked)
+        latest = CampaignBillingSettlementService._load_snapshot(locked)
+        if latest.get("settlement"):
+            return latest
+        if str(latest.get("settlement_claim_id") or "") != claim_id:
+            logger.info(
+                "campaign_settlement_claim_lost order_id=%s claim=%s winner=%s",
+                order.id,
+                claim_id,
+                latest.get("settlement_claim_id"),
+            )
+            return None
+        order.launch_billing_json = locked.launch_billing_json
+        return latest
+
+    @staticmethod
     def uses_deferred_settlement(order: ServiceOrder) -> bool:
         phase = str(CampaignBillingSettlementService._load_snapshot(order).get("billing_phase") or "")
-        return phase in _DEFERRED_PHASES
+        return phase in _DEFERRED_PHASES or phase == "settling"
 
     @staticmethod
     def _recipient_result(recipient) -> dict[str, Any]:
@@ -203,6 +258,7 @@ class CampaignBillingSettlementService:
         db: Session,
         order: ServiceOrder,
         org: Organisation,
+        snapshot: dict[str, Any],
         *,
         amount_minor: int,
         catalog_minor: int,
@@ -210,18 +266,22 @@ class CampaignBillingSettlementService:
         line_items: list[dict[str, Any]],
         description: str,
         collect_dd: bool,
-    ) -> str | None:
+    ) -> tuple[str | None, bool]:
         from app.services.invoice_line_item_service import InvoiceLineItemService
         from app.services.invoice_service import InvoiceService
         from app.services.usage_wallet_service import UsageWalletService
 
         if not line_items:
-            return None
+            return None, False
+
+        existing = CampaignBillingSettlementService._find_completion_invoice(db, order.id)
+        if existing is not None:
+            return existing.id, False
 
         email = UsageWalletService.get_org_billing_email(db, org.id) or (org.contact_email or "")
         if not email:
             logger.warning("completion_invoice_no_email order_id=%s", order.id)
-            return None
+            return None, False
 
         charge_amount = max(0, int(amount_minor))
         due_total = InvoiceLineItemService.amount_due_pence(line_items)
@@ -229,21 +289,38 @@ class CampaignBillingSettlementService:
             charge_amount = due_total
         is_paid = charge_amount <= 0
 
-        invoice = InvoiceService.create_from_payment(
-            db,
-            org_id=org.id,
-            client_email=email,
-            subtotal_pence=charge_amount,
-            currency=currency,
-            description=description[:255],
-            provider="gocardless" if collect_dd and not is_paid else "internal",
-            external_invoice_id=f"completion-{order.id}",
-            payment_method="subscription_allowance" if is_paid else ("gocardless" if collect_dd else "wallet"),
-            status="paid" if is_paid else "pending",
-            line_items=line_items,
-            kind="campaign",
-            order_id=order.id,
-        )
+        # Stable provider for this order — never flip internal↔gocardless on retry.
+        provider = str(snapshot.get("completion_invoice_provider") or "").strip().lower()
+        if provider not in {"internal", "gocardless"}:
+            provider = "gocardless" if collect_dd and not is_paid else "internal"
+            snapshot["completion_invoice_provider"] = provider
+
+        # Prefer create_from_payment + guarded email (issue_from_payment emails eagerly and can
+        # fail on allowance invoices). Uniqueness is enforced via lookup above + DB constraint.
+        try:
+            invoice = InvoiceService.create_from_payment(
+                db,
+                org_id=org.id,
+                client_email=email,
+                subtotal_pence=charge_amount,
+                currency=currency,
+                description=description[:255],
+                provider=provider,
+                external_invoice_id=CampaignBillingSettlementService._completion_external_id(order.id),
+                payment_method="subscription_allowance" if is_paid else ("gocardless" if collect_dd else "wallet"),
+                status="paid" if is_paid else "pending",
+                line_items=line_items,
+                kind="campaign",
+                order_id=order.id,
+            )
+        except Exception:
+            db.rollback()
+            raced = CampaignBillingSettlementService._find_completion_invoice(db, order.id)
+            if raced is not None:
+                return raced.id, False
+            raise
+        created = True
+
         if catalog_minor > charge_amount and is_paid:
             invoice.description = (description[:200] + f" — campaign value {money_display(catalog_minor, currency)}")[:255]
             db.add(invoice)
@@ -288,7 +365,7 @@ class CampaignBillingSettlementService:
         from app.services.service_order_payment_workflow_service import ServiceOrderPaymentWorkflowService
 
         ServiceOrderPaymentWorkflowService.link_payment_invoice(db, order, invoice.id)
-        return invoice.id
+        return invoice.id, created
 
     @staticmethod
     def settle_order(db: Session, order: ServiceOrder, *, trigger: str) -> dict[str, Any] | None:
@@ -296,15 +373,34 @@ class CampaignBillingSettlementService:
         if order.payment_status != "approved":
             return None
 
+        locked = CampaignBillingSettlementService._lock_order(db, order.id)
+        if locked is not None:
+            order = locked
+
         snapshot = CampaignBillingSettlementService._load_snapshot(order)
         if snapshot.get("settlement"):
             return snapshot["settlement"]
         phase = str(snapshot.get("billing_phase") or "")
+        if phase == "settling":
+            # Resume after crash or lost race: re-claim. Invoice/hold/usage paths are idempotent.
+            logger.warning("campaign_settlement_resume_settling order_id=%s trigger=%s", order.id, trigger)
+            snapshot["billing_phase"] = "pending_settlement"
+            phase = "pending_settlement"
         if phase not in _DEFERRED_PHASES:
             return None
         if phase == "billing_failed":
             snapshot.pop("billing_failure", None)
             snapshot["billing_phase"] = "pending_settlement"
+
+        claimed = CampaignBillingSettlementService._claim_settlement(db, order, snapshot)
+        if claimed is None:
+            # Lost race to another worker — return their settlement if already written.
+            db.refresh(order)
+            latest = CampaignBillingSettlementService._load_snapshot(order)
+            return latest.get("settlement")
+        if claimed.get("settlement"):
+            return claimed["settlement"]
+        snapshot = claimed
 
         org = db.get(Organisation, order.org_id)
         if org is None:
@@ -335,6 +431,7 @@ class CampaignBillingSettlementService:
         )
 
         invoice_id = None
+        invoice_created = False
         if has_activity:
             from app.services.invoice_line_item_service import InvoiceLineItemService
 
@@ -351,10 +448,11 @@ class CampaignBillingSettlementService:
                 desc = f"{label} — {order.title} ({mins} min actual)"
             else:
                 desc = f"WhatsApp survey — {order.title} ({costs.get('actual_units', 0)} surveys)"
-            invoice_id = CampaignBillingSettlementService._issue_completion_invoice(
+            invoice_id, invoice_created = CampaignBillingSettlementService._issue_completion_invoice(
                 db,
                 order,
                 org,
+                snapshot,
                 amount_minor=final_minor,
                 catalog_minor=catalog_minor,
                 currency=currency,
@@ -362,7 +460,7 @@ class CampaignBillingSettlementService:
                 description=desc,
                 collect_dd=collect_dd,
             )
-            if invoice_id and final_minor > 0:
+            if invoice_created and invoice_id and final_minor > 0:
                 CampaignBillingSettlementService._sync_overage_invoiced(db, order.org_id, amount_minor=final_minor)
 
         hold_minor = int(snapshot.get("wallet_hold_minor") or snapshot.get("wallet_charge_minor") or 0)
@@ -371,7 +469,7 @@ class CampaignBillingSettlementService:
             from app.services.billing_lifecycle_service import BillingLifecycleService
 
             hold_refund = max(0, hold_minor - final_minor)
-            if hold_refund > 0:
+            if hold_refund > 0 and not snapshot.get("hold_refunded"):
                 BillingLifecycleService.issue_wallet_refund(
                     db,
                     org,
@@ -382,7 +480,11 @@ class CampaignBillingSettlementService:
                     invoice_id=invoice_id,
                     trigger=trigger,
                 )
-            elif final_minor > hold_minor:
+                snapshot["hold_refunded"] = True
+                snapshot["hold_refund_minor"] = hold_refund
+            elif snapshot.get("hold_refunded"):
+                hold_refund = int(snapshot.get("hold_refund_minor") or hold_refund)
+            elif final_minor > hold_minor and not snapshot.get("hold_topup_debited"):
                 from app.services.wallet_service import InsufficientWalletBalance, WalletService
 
                 try:
@@ -394,6 +496,7 @@ class CampaignBillingSettlementService:
                         description=f"Campaign completion top-up — {order.title}"[:500],
                         order_id=order.id,
                     )
+                    snapshot["hold_topup_debited"] = True
                 except InsufficientWalletBalance as exc:
                     snapshot["billing_phase"] = "billing_failed"
                     snapshot["billing_failure"] = {
@@ -405,7 +508,7 @@ class CampaignBillingSettlementService:
                     CampaignBillingSettlementService._save_snapshot(db, order, snapshot)
                     raise
 
-        if is_voice:
+        if is_voice and not snapshot.get("usage_recorded"):
             from app.services.interview_session_billing_service import unmetered_billable_minutes
             from app.services.platform_catalog_service import ServiceOrderService
 
@@ -419,7 +522,8 @@ class CampaignBillingSettlementService:
                     org_id=order.org_id,
                     units=units,
                 )
-        elif channel == "whatsapp" and int(costs.get("actual_units") or 0) > 0:
+            snapshot["usage_recorded"] = True
+        elif channel == "whatsapp" and int(costs.get("actual_units") or 0) > 0 and not snapshot.get("usage_recorded"):
             from app.services.usage_wallet_service import UsageWalletService
 
             UsageWalletService.record_whatsapp_usage(
@@ -427,6 +531,7 @@ class CampaignBillingSettlementService:
                 org_id=order.org_id,
                 units=int(costs.get("actual_units") or 0),
             )
+            snapshot["usage_recorded"] = True
 
         settlement = {
             "trigger": trigger,
@@ -450,12 +555,13 @@ class CampaignBillingSettlementService:
             snapshot["invoice_id"] = invoice_id
         CampaignBillingSettlementService._save_snapshot(db, order, snapshot)
         logger.info(
-            "campaign_settled order_id=%s trigger=%s final=%s extra_min=%s invoice=%s",
+            "campaign_settled order_id=%s trigger=%s final=%s extra_min=%s invoice=%s created=%s",
             order.id,
             trigger,
             final_minor,
             costs.get("extra_minutes"),
             invoice_id,
+            invoice_created,
         )
         return settlement
 
@@ -471,7 +577,8 @@ class CampaignBillingSettlementService:
         except Exception as exc:
             logger.exception("campaign_billing_terminal_failed order_id=%s trigger=%s", order.id, trigger)
             snapshot = CampaignBillingSettlementService._load_snapshot(order)
-            if str(snapshot.get("billing_phase") or "") in _DEFERRED_PHASES:
+            phase = str(snapshot.get("billing_phase") or "")
+            if phase in _DEFERRED_PHASES or phase == "settling":
                 snapshot["billing_phase"] = "billing_failed"
                 snapshot["billing_failure"] = {
                     "reason": type(exc).__name__,

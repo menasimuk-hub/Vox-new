@@ -83,3 +83,73 @@ def test_payg_settlement_refunds_hold_when_call_shorter_than_estimate():
         assert result.get("invoice_id")
         org = db.get(Organisation, org_id)
         assert int(org.wallet_balance_pence or 0) == wallet_before + 275
+
+
+def test_settle_order_is_idempotent_single_invoice():
+    from app.models.billing_invoice import BillingInvoice
+    from sqlalchemy import func, select
+
+    org_id, user_id = _seed_org()
+    with get_sessionmaker()() as db:
+        order = ServiceOrder(
+            org_id=org_id,
+            user_id=user_id,
+            service_code="survey",
+            title="Idempotent settle",
+            status="running",
+            payment_status="approved",
+            payment_method="wallet",
+            recipient_count=1,
+            launch_billing_json=json.dumps(
+                {
+                    "channel": "ai_call",
+                    "currency": "GBP",
+                    "billing_phase": "held",
+                    "payment_method": "wallet",
+                    "unit_rate_minor": 100,
+                    "connection_fee_minor": 0,
+                    "wallet_hold_minor": 375,
+                    "wallet_charge_minor": 375,
+                    "duration_minutes": 3,
+                }
+            ),
+        )
+        db.add(order)
+        db.flush()
+        db.add(
+            ServiceOrderRecipient(
+                order_id=order.id,
+                row_number=1,
+                name="Test",
+                phone="+447700900999",
+                status="completed",
+                result_json=json.dumps(
+                    {"duration_seconds": 60, "billable_minutes": 1, "hangup_cause": "normal_clearing"}
+                ),
+            )
+        )
+        db.commit()
+        order_id = order.id
+        org_before = db.get(Organisation, org_id)
+        wallet_before = int(org_before.wallet_balance_pence or 0)
+
+    with get_sessionmaker()() as db:
+        order = db.get(ServiceOrder, order_id)
+        first = CampaignBillingSettlementService.settle_order(db, order, trigger="completion")
+        assert first is not None
+        invoice_id = first.get("invoice_id")
+        assert invoice_id
+
+        order = db.get(ServiceOrder, order_id)
+        second = CampaignBillingSettlementService.settle_order(db, order, trigger="completion")
+        assert second is not None
+        assert second.get("invoice_id") == invoice_id
+
+        count = db.execute(
+            select(func.count()).select_from(BillingInvoice).where(BillingInvoice.order_id == order_id)
+        ).scalar_one()
+        assert int(count) == 1
+
+        org = db.get(Organisation, org_id)
+        # Hold refund applied once (275), not twice.
+        assert int(org.wallet_balance_pence or 0) == wallet_before + 275
