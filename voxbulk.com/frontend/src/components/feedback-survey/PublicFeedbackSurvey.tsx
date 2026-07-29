@@ -608,8 +608,10 @@ export function PublicFeedbackSurvey({
     [goToStep],
   );
 
+  const sessionQuery = `?token=${encodeURIComponent(token)}`;
+
   const postAnswer = (answer: string, opts?: { reason?: string; reasonSource?: string }) =>
-    apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/answer`, {
+    apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/answer${sessionQuery}`, {
       method: "POST",
       body: JSON.stringify({
         answer,
@@ -623,11 +625,14 @@ export function PublicFeedbackSurvey({
     form.append("file", blob, "voice.webm");
     form.append("mode", mode);
     if (answer != null) form.append("answer", answer);
-    return apiUpload(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice`, form);
+    return apiUpload(
+      `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/voice${sessionQuery}`,
+      form,
+    );
   };
 
   const postReason = (reason: string, reasonSource: string) =>
-    apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/reason`, {
+    apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/reason${sessionQuery}`, {
       method: "POST",
       body: JSON.stringify({ reason, reason_source: reasonSource }),
     });
@@ -889,7 +894,7 @@ export function PublicFeedbackSurvey({
         setError("");
         try {
           await sendQueueRef.current.catch(() => undefined);
-          const data = (await apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back`, {
+          const data = (await apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back?token=${encodeURIComponent(token)}`, {
             method: "POST",
           })) as AdvanceResponse;
           if (typeof data.step_index === "number") {
@@ -914,7 +919,7 @@ export function PublicFeedbackSurvey({
     setError("");
     try {
       await sendQueueRef.current.catch(() => undefined);
-      await apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back`, {
+      await apiFetch(`/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/back?token=${encodeURIComponent(token)}`, {
         method: "POST",
       });
       goToStep(stepIndex - 1);
@@ -935,7 +940,7 @@ export function PublicFeedbackSurvey({
     const pollStatus = async () => {
       try {
         const data = await apiFetch<SessionStatusResponse>(
-          `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/status`,
+          `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/status?token=${encodeURIComponent(token)}`,
         );
         if (cancelled) return;
         const epoch = navEpochRef.current;

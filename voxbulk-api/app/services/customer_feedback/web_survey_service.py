@@ -217,12 +217,18 @@ class FeedbackWebSurveyService:
         }
 
     @staticmethod
-    def get_active_web_session(db: Session, session_id: str) -> FeedbackSession:
+    def get_active_web_session(db: Session, session_id: str, *, token: str) -> FeedbackSession:
         session = db.get(FeedbackSession, session_id)
         if session is None or session.status != "active":
             raise ValueError("Session not found or expired")
         if not str(session.visitor_phone or "").startswith("web:"):
             raise ValueError("Not a web survey session")
+        clean = str(token or "").strip()
+        if not clean:
+            raise ValueError("Survey token required")
+        location = FeedbackLocationService.resolve_by_token(db, clean)
+        if location is None or location.id != session.location_id:
+            raise ValueError("Invalid survey token for session")
         return session
 
     @staticmethod
@@ -345,12 +351,13 @@ class FeedbackWebSurveyService:
         *,
         session_id: str,
         answer: str,
+        token: str,
         answer_source: str = "text",
         reason: str | None = None,
         reason_source: str = "text",
         source_language: str | None = None,
     ) -> dict[str, Any]:
-        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id, token=token)
 
         location = db.get(FeedbackLocation, session.location_id)
         if location is None:
@@ -515,10 +522,11 @@ class FeedbackWebSurveyService:
         *,
         session_id: str,
         reason: str,
+        token: str,
         reason_source: str = "text",
     ) -> dict[str, Any]:
         """Attach a low-rating reason to the step immediately before current_step."""
-        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id, token=token)
         location = db.get(FeedbackLocation, session.location_id)
         if location is None:
             raise ValueError("Location not found")
@@ -547,9 +555,9 @@ class FeedbackWebSurveyService:
         return {"saved": True}
 
     @staticmethod
-    def step_back(db: Session, session_id: str) -> dict[str, Any]:
+    def step_back(db: Session, session_id: str, *, token: str) -> dict[str, Any]:
         """Return to the previous step, discarding the answer saved for it."""
-        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id, token=token)
         location = db.get(FeedbackLocation, session.location_id)
         if location is None:
             raise ValueError("Location not found")
@@ -594,6 +602,7 @@ class FeedbackWebSurveyService:
         audio_bytes: bytes,
         filename: str,
         content_type: str,
+        token: str,
         mode: str = "answer",
         answer: str | None = None,
     ) -> dict[str, Any]:
@@ -613,7 +622,7 @@ class FeedbackWebSurveyService:
             save_feedback_session_state,
         )
 
-        session = FeedbackWebSurveyService.get_active_web_session(db, session_id)
+        session = FeedbackWebSurveyService.get_active_web_session(db, session_id, token=token)
         location = db.get(FeedbackLocation, session.location_id)
         if location is None:
             raise ValueError("Location not found")
@@ -797,14 +806,20 @@ class FeedbackWebSurveyService:
         return {"transcript": "", "saved": False, "stt_error": "unsupported_mode"}
 
     @staticmethod
-    def session_status(db: Session, session_id: str) -> dict[str, Any]:
+    def session_status(db: Session, session_id: str, *, token: str) -> dict[str, Any]:
         """Lightweight poll for tell-us-more deadline auto-advance on web clients."""
+        clean = str(token or "").strip()
+        if not clean:
+            raise ValueError("Survey token required")
+        location_from_token = FeedbackLocationService.resolve_by_token(db, clean)
+        if location_from_token is None:
+            raise ValueError("Invalid survey token")
         session = db.get(FeedbackSession, session_id)
-        if session is None or session.status != "active":
-            return {"active": False, "completed": session is not None and session.status == "completed"}
-        location = db.get(FeedbackLocation, session.location_id)
-        if location is None:
-            raise ValueError("Location not found")
+        if session is None or session.location_id != location_from_token.id:
+            raise ValueError("Invalid survey token for session")
+        if session.status != "active":
+            return {"active": False, "completed": session.status == "completed"}
+        location = location_from_token
         steps = _web_steps(db, location)
         state = load_feedback_session_state(session)
         if is_tell_us_more_pending(state):

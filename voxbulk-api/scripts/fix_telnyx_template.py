@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Fix the Telnyx interview_email_sent template by deleting and re-syncing."""
+"""NEVER run in production.
+
+Ops-only one-shot: delete/resync the Telnyx ``interview_email_sent`` WhatsApp template.
+Loads the API key from DB settings and mutates the provider — not for boot or deploy paths.
+"""
 
 import os
 import sys

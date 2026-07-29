@@ -1,8 +1,12 @@
-"""Public web survey API for QR feedback (no auth)."""
+"""Public web survey API for QR feedback (no auth).
+
+Mutating session endpoints require the location QR ``token`` query param so a
+leaked session_id alone cannot submit answers (M4).
+"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -41,7 +45,12 @@ def start_web_session(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/survey/sessions/{session_id}/answer")
-def submit_web_answer(session_id: str, payload: dict, db: Session = Depends(get_db)):
+def submit_web_answer(
+    session_id: str,
+    payload: dict,
+    token: str = Query(..., min_length=6),
+    db: Session = Depends(get_db),
+):
     answer = str(payload.get("answer") or "").strip()
     if not answer:
         raise HTTPException(status_code=400, detail="answer required")
@@ -52,6 +61,7 @@ def submit_web_answer(session_id: str, payload: dict, db: Session = Depends(get_
             **FeedbackWebSurveyService.submit_answer(
                 db,
                 session_id=session_id,
+                token=token,
                 answer=answer,
                 answer_source=str(payload.get("answer_source") or "text"),
                 reason=(str(reason).strip() if reason else None),
@@ -63,7 +73,12 @@ def submit_web_answer(session_id: str, payload: dict, db: Session = Depends(get_
 
 
 @router.post("/survey/sessions/{session_id}/reason")
-def submit_web_reason(session_id: str, payload: dict, db: Session = Depends(get_db)):
+def submit_web_reason(
+    session_id: str,
+    payload: dict,
+    token: str = Query(..., min_length=6),
+    db: Session = Depends(get_db),
+):
     reason = str(payload.get("reason") or "").strip()
     if not reason:
         raise HTTPException(status_code=400, detail="reason required")
@@ -73,6 +88,7 @@ def submit_web_reason(session_id: str, payload: dict, db: Session = Depends(get_
             **FeedbackWebSurveyService.save_low_reason_for_previous_step(
                 db,
                 session_id=session_id,
+                token=token,
                 reason=reason,
                 reason_source=str(payload.get("reason_source") or "text"),
             ),
@@ -82,17 +98,25 @@ def submit_web_reason(session_id: str, payload: dict, db: Session = Depends(get_
 
 
 @router.post("/survey/sessions/{session_id}/back")
-def go_back_web(session_id: str, db: Session = Depends(get_db)):
+def go_back_web(
+    session_id: str,
+    token: str = Query(..., min_length=6),
+    db: Session = Depends(get_db),
+):
     try:
-        return {"ok": True, **FeedbackWebSurveyService.step_back(db, session_id)}
+        return {"ok": True, **FeedbackWebSurveyService.step_back(db, session_id, token=token)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/survey/sessions/{session_id}/status")
-def web_session_status(session_id: str, db: Session = Depends(get_db)):
+def web_session_status(
+    session_id: str,
+    token: str = Query(..., min_length=6),
+    db: Session = Depends(get_db),
+):
     try:
-        return {"ok": True, **FeedbackWebSurveyService.session_status(db, session_id)}
+        return {"ok": True, **FeedbackWebSurveyService.session_status(db, session_id, token=token)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -103,6 +127,7 @@ async def submit_web_voice(
     file: UploadFile = File(...),
     mode: str = Form("answer"),
     answer: str | None = Form(None),
+    token: str = Query(..., min_length=6),
     db: Session = Depends(get_db),
 ):
     audio_bytes = await file.read()
@@ -117,6 +142,7 @@ async def submit_web_voice(
             **FeedbackWebSurveyService.submit_voice(
                 db,
                 session_id=session_id,
+                token=token,
                 audio_bytes=audio_bytes,
                 filename=file.filename or "voice.webm",
                 content_type=file.content_type or "audio/webm",
