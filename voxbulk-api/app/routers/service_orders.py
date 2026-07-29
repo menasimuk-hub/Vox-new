@@ -259,9 +259,11 @@ async def preview_recipients_file(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    from app.utils.upload_limits import read_upload_capped
+
     code = str(service_code or "interview").strip().lower()
     _require_org_service(db, principal.org_id, code)
-    content = await file.read()
+    content = await read_upload_capped(file)
     try:
         rows = ServiceOrderService.parse_recipient_file(content, file.filename or "upload.csv")
         if not rows:
@@ -718,7 +720,9 @@ async def intake_contacts_file(
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    content = await file.read()
+    from app.utils.upload_limits import read_upload_capped
+
+    content = await read_upload_capped(file)
     try:
         rows = parse_contacts_csv_relaxed_from_bytes(content, file.filename or "upload.csv")
         if not rows:
@@ -738,6 +742,7 @@ async def intake_mixed_uploads(
     principal=Depends(get_current_principal),
 ):
     from app.services.interview_intake_service import intake_mixed_files
+    from app.utils.upload_limits import read_upload_capped
 
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
@@ -746,7 +751,7 @@ async def intake_mixed_uploads(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one file")
     payload: list[tuple[str, bytes]] = []
     for upload in files:
-        payload.append((upload.filename or "upload", await upload.read()))
+        payload.append((upload.filename or "upload", await read_upload_capped(upload)))
     try:
         result = intake_mixed_files(db, order, payload)
         order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
@@ -764,6 +769,7 @@ async def intake_cv_uploads(
     principal=Depends(get_current_principal),
 ):
     from app.services.interview_intake_service import intake_cv_files
+    from app.utils.upload_limits import read_upload_capped
 
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
@@ -772,7 +778,7 @@ async def intake_cv_uploads(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload at least one CV file")
     payload: list[tuple[str, bytes]] = []
     for upload in files:
-        payload.append((upload.filename or "cv.pdf", await upload.read()))
+        payload.append((upload.filename or "cv.pdf", await read_upload_capped(upload)))
     try:
         result = intake_cv_files(db, order, payload)
         order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
@@ -780,7 +786,6 @@ async def intake_cv_uploads(
         return result
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-
 
 @router.patch("/{order_id}/recipients/{recipient_id}")
 def patch_recipient(
@@ -976,10 +981,12 @@ async def upload_recipients(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    from app.utils.upload_limits import read_upload_capped
+
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
-    content = await file.read()
+    content = await read_upload_capped(file)
     try:
         rows = ServiceOrderService.parse_recipient_file(content, file.filename or "upload.csv")
         if not rows:

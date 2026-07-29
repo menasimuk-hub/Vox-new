@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     auth_rate_limit_per_min: int = Field(default=20, alias="AUTH_RATE_LIMIT_PER_MIN")
     # Local Meta/Telnyx webhook testing without signatures. Never set on production VPS.
     allow_insecure_webhooks: bool = Field(default=False, alias="ALLOW_INSECURE_WEBHOOKS")
+    # Recipient CSV/XLSX upload caps (service-orders preview + replace).
+    recipient_upload_max_mb: int = Field(default=5, alias="RECIPIENT_UPLOAD_MAX_MB")
+    recipient_upload_max_rows: int = Field(default=10_000, alias="RECIPIENT_UPLOAD_MAX_ROWS")
 
     # Encryption
     encryption_key: str = Field(default="change-me", alias="ENCRYPTION_KEY")
