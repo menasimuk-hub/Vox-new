@@ -108,6 +108,47 @@ class ConnectionProfileResolver:
         return None
 
     @staticmethod
+    def resolve_org_id_by_business_number(
+        db: Session,
+        *,
+        to_number: str | None,
+    ) -> tuple[str | None, ConnectionProfile | None]:
+        """Resolve tenant org from inbound business To-number via connection profile assignments.
+
+        Prefer a dedicated custom-org profile link, else a single connection_profile_orgs row.
+        Ambiguous multi-org assignments return (None, profile) so callers can disambiguate.
+        """
+        profile = ConnectionProfileResolver.resolve_whatsapp_by_business_number(db, to_number=to_number)
+        if profile is None:
+            return None, None
+
+        try:
+            from app.models.custom_org_profile import CustomOrgProfile, STATUS_ACTIVE
+
+            custom = db.execute(
+                select(CustomOrgProfile).where(
+                    CustomOrgProfile.wa_profile_id == profile.id,
+                    CustomOrgProfile.org_id.is_not(None),
+                    CustomOrgProfile.status == STATUS_ACTIVE,
+                )
+            ).scalar_one_or_none()
+            if custom and str(custom.org_id or "").strip():
+                return str(custom.org_id), profile
+        except Exception:
+            pass
+
+        org_ids = [
+            str(row)
+            for row in db.execute(
+                select(ConnectionProfileOrg.org_id).where(ConnectionProfileOrg.profile_id == profile.id)
+            ).scalars().all()
+            if str(row or "").strip()
+        ]
+        if len(org_ids) == 1:
+            return org_ids[0], profile
+        return None, profile
+
+    @staticmethod
     def _query_profiles(
         db: Session,
         *,
