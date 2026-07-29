@@ -1,0 +1,22 @@
+﻿VoxBulk Zoho Marketplace — rebuilt 2026-07-24 11:35
+===============================================================
+
+FOLDER:
+C:\Voxbulk-project\Vox-new-main\zoho-recruit-extension\marketplace-submit
+
+ZIP (upload when Zoho unlocks):
+C:\Voxbulk-project\Vox-new-main\zoho-recruit-extension\marketplace-submit\VoxBulk-Zoho-Recruit-Widget.zip
+
+LOGO:
+C:\Voxbulk-project\Vox-new-main\zoho-recruit-extension\marketplace-submit\logo-black.png
+C:\Voxbulk-project\Vox-new-main\zoho-recruit-extension\marketplace-submit\logo.svg
+
+SCREENSHOTS:
+C:\Voxbulk-project\Vox-new-main\zoho-recruit-extension\marketplace-submit\screenshots\01-widget-open-voxbulk.png     LIVE widget
+C:\Voxbulk-project\Vox-new-main\zoho-recruit-extension\marketplace-submit\screenshots\03-dashboard-import-zoho.png   Import Step 2 (real logo)
+C:\Voxbulk-project\Vox-new-main\zoho-recruit-extension\marketplace-submit\screenshots\05-help-zoho-recruit.png       LIVE hybrid help (voxbulk.com)
+
+LIVE LINKS:
+https://dashboard.voxbulk.com/zoho-recruit-widget/
+https://voxbulk.com/help/zoho-recruit
+https://marketplace.zoho.eu/partner-console#apps

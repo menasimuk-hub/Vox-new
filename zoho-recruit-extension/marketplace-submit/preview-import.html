@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VoxBulk — Import from Zoho Recruit</title>
+    <style>
+      :root {
+        --bg: #f8fafc;
+        --card: #fff;
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --teal: #0f766e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        font-size: 14px;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 20px;
+        background: #fff;
+        border-bottom: 1px solid var(--line);
+      }
+      .top img { height: 28px; width: auto; }
+      .shell { max-width: 920px; margin: 24px auto; padding: 0 16px 40px; }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      h1 { margin: 0 0 6px; font-size: 20px; }
+      .sub { color: var(--muted); margin-bottom: 18px; }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px;
+        background: #fff;
+      }
+      .panel h2 { margin: 0 0 12px; font-size: 15px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+      label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+      select, input {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+      }
+      .cand {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        max-height: 220px;
+        overflow: auto;
+      }
+      .cand label {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--line);
+        margin: 0;
+        color: var(--ink);
+        font-weight: 400;
+        font-size: 13px;
+      }
+      .cand label:last-child { border-bottom: 0; }
+      .cand strong { display: block; font-size: 13px; }
+      .cand span { color: var(--muted); font-size: 12px; }
+      .actions { display: flex; gap: 8px; margin-top: 14px; }
+      .btn {
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 14px;
+        font: inherit;
+        font-weight: 600;
+        cursor: default;
+      }
+      .btn.primary { background: var(--teal); color: #fff; }
+      .btn.ghost { background: #e2e8f0; color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <img src="/logo-black.png" alt="VoxBulk" />
+      <div style="color:var(--muted);font-size:13px">Interviews · New campaign</div>
+    </header>
+    <div class="shell">
+      <div class="card">
+        <h1>Step 2 · Collect candidates</h1>
+        <p class="sub">Import from Zoho Recruit, upload CVs, then run ATS and apply your cutoff.</p>
+        <div class="panel">
+          <h2>Import from Zoho Recruit</h2>
+          <div class="row">
+            <div>
+              <label>Job opening (optional)</label>
+              <select>
+                <option>Customer Support Agent</option>
+                <option>All recent candidates</option>
+              </select>
+            </div>
+            <div>
+              <label>Stage / Candidate Status (optional)</label>
+              <input value="Qualified" readonly />
+            </div>
+          </div>
+          <div class="cand">
+            <label><input type="checkbox" checked /> <div><strong>Sara Al-Hassan</strong><span>+447700900123 · sara@example.com · Qualified</span></div></label>
+            <label><input type="checkbox" checked /> <div><strong>Omar Khan</strong><span>+447700900456 · omar@example.com · Qualified</span></div></label>
+            <label><input type="checkbox" /> <div><strong>Ada Lovelace</strong><span>No phone · ada@example.com · needs phone before launch</span></div></label>
+          </div>
+          <div class="actions">
+            <button class="btn primary" type="button">Import selected (2)</button>
+            <button class="btn ghost" type="button">Import all shown</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
