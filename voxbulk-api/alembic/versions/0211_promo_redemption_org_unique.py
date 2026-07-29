@@ -1,10 +1,8 @@
 """Unique promo redemption per (promo_offer_id, org_id).
 
-Revision ID: 0208_promo_redemption_org_unique
-Revises: 0207_ai_team_inbound_read_at
+Revision ID: 0211_promo_redemption_org_unique
+Revises: 0210_recovery_job_celery_task_id
 Create Date: 2026-07-29
-
-Note: other open remediation PRs also claim 0208_* off 0207; rebase/merge heads when landing the stack.
 """
 
 from __future__ import annotations
@@ -12,8 +10,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0208_promo_redemption_org_unique"
-down_revision = "0207_ai_team_inbound_read_at"
+revision = "0211_promo_redemption_org_unique"
+down_revision = "0210_recovery_job_celery_task_id"
 branch_labels = None
 depends_on = None
 

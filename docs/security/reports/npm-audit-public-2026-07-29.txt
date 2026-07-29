@@ -1,0 +1,147 @@
+# npm audit report
+
+@babel/core  <=7.29.0
+@babel/core: Arbitrary File Read via sourceMappingURL Comment - https://github.com/advisories/GHSA-4x5r-pxfx-6jf8
+fix available via `npm audit fix`
+node_modules/@babel/core
+
+@tanstack/start-server-core  <1.167.30
+Severity: moderate
+TanStack Start - Server Core: Inbound server-function request deserialization could invoke a sibling client-referenced server function - https://github.com/advisories/GHSA-9m65-766c-r333
+fix available via `npm audit fix`
+node_modules/@tanstack/start-server-core
+  @tanstack/react-start  1.121.23 - 1.167.63
+  Depends on vulnerable versions of @tanstack/react-start-rsc
+  Depends on vulnerable versions of @tanstack/react-start-server
+  Depends on vulnerable versions of @tanstack/start-plugin-core
+  Depends on vulnerable versions of @tanstack/start-server-core
+  node_modules/@tanstack/react-start
+  @tanstack/react-start-rsc  <=0.0.42
+  Depends on vulnerable versions of @tanstack/react-start-server
+  Depends on vulnerable versions of @tanstack/start-plugin-core
+  Depends on vulnerable versions of @tanstack/start-server-core
+  node_modules/@tanstack/react-start-rsc
+  @tanstack/react-start-server  1.121.23 - 1.166.51
+  Depends on vulnerable versions of @tanstack/start-server-core
+  node_modules/@tanstack/react-start-server
+  @tanstack/start-plugin-core  1.121.23 - 1.169.18
+  Depends on vulnerable versions of @tanstack/start-server-core
+  node_modules/@tanstack/start-plugin-core
+
+brace-expansion  <=5.0.7
+Severity: high
+brace-expansion: Large numeric range defeats documented `max` DoS protection - https://github.com/advisories/GHSA-jxxr-4gwj-5jf2
+brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups - https://github.com/advisories/GHSA-3jxr-9vmj-r5cp
+brace-expansion: DoS via exponential-time expansion of consecutive non-expanding {} groups - https://github.com/advisories/GHSA-3jxr-9vmj-r5cp
+brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash - https://github.com/advisories/GHSA-mh99-v99m-4gvg
+fix available via `npm audit fix`
+node_modules/@typescript-eslint/typescript-estree/node_modules/brace-expansion
+node_modules/brace-expansion
+
+esbuild  0.27.3 - 0.28.0
+esbuild allows arbitrary file read when running the development server on Windows - https://github.com/advisories/GHSA-g7r4-m6w7-qqqr
+fix available via `npm audit fix`
+node_modules/tsx/node_modules/esbuild
+node_modules/vite/node_modules/esbuild
+node_modules/wrangler/node_modules/esbuild
+  wrangler  <=0.0.0-31bfd374c || 4.64.0 - 4.101.0
+  Depends on vulnerable versions of esbuild
+  Depends on vulnerable versions of miniflare
+  node_modules/wrangler
+    @cloudflare/vite-plugin  <=0.0.0-fff677e35 || 0.1.5 - 1.41.0
+    Depends on vulnerable versions of miniflare
+    Depends on vulnerable versions of wrangler
+    Depends on vulnerable versions of ws
+    node_modules/@cloudflare/vite-plugin
+
+js-yaml  4.0.0 - 4.2.0
+Severity: high
+JS-YAML: Quadratic-complexity DoS in merge key handling via repeated aliases - https://github.com/advisories/GHSA-h67p-54hq-rp68
+js-yaml: YAML merge-key chains can force quadratic CPU consumption - https://github.com/advisories/GHSA-52cp-r559-cp3m
+fix available via `npm audit fix`
+node_modules/js-yaml
+
+postcss  <=8.5.17
+Severity: high
+PostCSS has XSS via Unescaped </style> in its CSS Stringify Output - https://github.com/advisories/GHSA-qx2v-qp2m-jg93
+PostCSS: Arbitrary file read and information disclosure via attacker-controlled sourceMappingURL in CSS comments - https://github.com/advisories/GHSA-6g55-p6wh-862q
+PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure - https://github.com/advisories/GHSA-r28c-9q8g-f849
+fix available via `npm audit fix`
+node_modules/postcss
+
+seroval  <=1.5.2
+Severity: critical
+seroval: `seroval.fromJSON()` Promise resolver type confusion invokes attacker-controlled methods during deserialization - https://github.com/advisories/GHSA-mv8w-475r-vwqw
+fix available via `npm audit fix`
+node_modules/seroval
+
+sharp  <0.35.0
+Severity: high
+sharp inherited vulnerabilities in libvips: CVE-2026-33327, CVE-2026-33328, CVE-2026-35590, CVE-2026-35591 - https://github.com/advisories/GHSA-f88m-g3jw-g9cj
+fix available via `npm audit fix`
+node_modules/sharp
+  miniflare  <=0.0.0-fff677e35 || 3.20250204.0 - 4.20260721.0
+  Depends on vulnerable versions of sharp
+  Depends on vulnerable versions of undici
+  Depends on vulnerable versions of ws
+  node_modules/miniflare
+
+shell-quote  <=1.8.4
+Severity: critical
+shell-quote quote() does not escape newlines in object .op values - https://github.com/advisories/GHSA-w7jw-789q-3m8p
+shell-quote: Quadratic-complexity Denial of Service in `parse()` (CWE-407) - https://github.com/advisories/GHSA-395f-4hp3-45gv
+fix available via `npm audit fix`
+node_modules/shell-quote
+  concurrently  9.2.1
+  Depends on vulnerable versions of shell-quote
+  node_modules/concurrently
+
+undici  7.0.0 - 7.27.2
+Severity: high
+undici vulnerable to TLS certificate validation bypass via dropped requestTls in SOCKS5 ProxyAgent - https://github.com/advisories/GHSA-vmh5-mc38-953g
+undici vulnerable to HTTP header injection via Set-Cookie percent-decoding - https://github.com/advisories/GHSA-p88m-4jfj-68fv
+undici WebSocket client vulnerable to denial of service via fragment count bypass - https://github.com/advisories/GHSA-vxpw-j846-p89q
+undici vulnerable to cross-origin request routing via SOCKS5 proxy pool reuse - https://github.com/advisories/GHSA-hm92-r4w5-c3mj
+undici vulnerable to HTTP response queue poisoning via keep-alive socket reuse - https://github.com/advisories/GHSA-35p6-xmwp-9g52
+undici vulnerable to Set-Cookie SameSite attribute downgrade via permissive substring matching - https://github.com/advisories/GHSA-g8m3-5g58-fq7m
+undici vulnerable to cross-user information disclosure via shared cache whitespace bypass - https://github.com/advisories/GHSA-pr7r-676h-xcf6
+fix available via `npm audit fix`
+node_modules/miniflare/node_modules/undici
+node_modules/undici
+
+uuid  <11.1.1
+Severity: moderate
+uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided - https://github.com/advisories/GHSA-w5hq-g745-h8pq
+fix available via `npm audit fix --force`
+Will install @telnyx/webrtc@1.0.9, which is a breaking change
+node_modules/@peermetrics/webrtc-stats/node_modules/uuid
+node_modules/uuid
+  @peermetrics/webrtc-stats  >=5.1.0
+  Depends on vulnerable versions of uuid
+  node_modules/@peermetrics/webrtc-stats
+    @telnyx/webrtc  >=2.0.1
+    Depends on vulnerable versions of @peermetrics/webrtc-stats
+    Depends on vulnerable versions of uuid
+    node_modules/@telnyx/webrtc
+
+vite  7.0.0 - 7.3.3
+Severity: high
+launch-editor: NTLMv2 hash disclosure via UNC path handling on Windows - https://github.com/advisories/GHSA-v6wh-96g9-6wx3
+vite: `server.fs.deny` bypass on Windows alternate paths - https://github.com/advisories/GHSA-fx2h-pf6j-xcff
+fix available via `npm audit fix`
+node_modules/vite
+
+ws  8.0.0 - 8.20.1
+Severity: high
+ws: Uninitialized memory disclosure - https://github.com/advisories/GHSA-58qx-3vcg-4xpx
+ws: Memory exhaustion DoS from tiny fragments and data chunks - https://github.com/advisories/GHSA-96hv-2xvq-fx4p
+fix available via `npm audit fix`
+node_modules/ws
+
+23 vulnerabilities (2 low, 8 moderate, 10 high, 3 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force

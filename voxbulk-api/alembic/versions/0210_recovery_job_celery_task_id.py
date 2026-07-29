@@ -1,7 +1,7 @@
 """Store Celery task id on recovery jobs for org-bound status polling.
 
-Revision ID: 0208_recovery_job_celery_task_id
-Revises: 0207_ai_team_inbound_read_at
+Revision ID: 0210_recovery_job_celery_task_id
+Revises: 0209_org_overage_consent
 Create Date: 2026-07-29
 """
 
@@ -10,8 +10,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0208_recovery_job_celery_task_id"
-down_revision = "0207_ai_team_inbound_read_at"
+revision = "0210_recovery_job_celery_task_id"
+down_revision = "0209_org_overage_consent"
 branch_labels = None
 depends_on = None
 

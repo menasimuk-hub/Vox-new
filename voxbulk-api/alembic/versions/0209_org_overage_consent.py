@@ -1,7 +1,7 @@
 """Org overage consent timestamp + default allow_overage False for new orgs.
 
-Revision ID: 0208_org_overage_consent
-Revises: 0207_ai_team_inbound_read_at
+Revision ID: 0209_org_overage_consent
+Revises: 0208_wallet_tx_provider_ref_unique
 Create Date: 2026-07-29
 
 No backfill: existing organisations keep their current allow_overage values.
@@ -13,8 +13,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0208_org_overage_consent"
-down_revision = "0207_ai_team_inbound_read_at"
+revision = "0209_org_overage_consent"
+down_revision = "0208_wallet_tx_provider_ref_unique"
 branch_labels = None
 depends_on = None
 

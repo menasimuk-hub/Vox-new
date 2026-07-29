@@ -490,22 +490,22 @@ Organisation model:
 | **Admin — Service Pricing Rules** | ✅ Fully built | Survey/Interview bundles, channels, overage rates |
 | **Admin — Promo Offers** | ✅ Exists | Discounts, free credit, overage rate override |
 | **Dashboard — Billing Page** | ✅ Fully built | Loads plans dynamically, shows usage |
-| **Dashboard — Survey Page** | ❌ Missing | No UI to browse/order surveys |
-| **Dashboard — Settings** | ⚠️ Partial | No overage consent toggle |
-| **Overage Consent** | ❌ Missing | No model field, no consent capture |
-| **Pay-as-you-go (Surveys)** | ❌ Missing | No prepaid credit pool for surveys |
-| **Subscription-bundled Surveys** | ❌ Missing | Surveys not tied to subscription tiers |
-| **Tier-specific Survey Pricing** | ❌ Missing | Pricing is global, not org-context-aware |
+| **Dashboard — Survey Page** | ❌ Missing | No UI to browse/order surveys (product roadmap; not security Phase 1–10) |
+| **Dashboard — Settings** | ⚠️ Partial | Overage consent wired in remediation PR #10 (Phase 3) — merge/deploy to clear this row |
+| **Overage Consent** | ⚠️ Remediation open | PR #10 — `allow_overage` gate + consent timestamp (was ❌ in May 2026 product audit) |
+| **Pay-as-you-go (Surveys)** | ✅ Exists in product | Wallet / PAYG launch holds — see billing services (this May table was stale) |
+| **Subscription-bundled Surveys** | ⚠️ Partial | Allowance + overage paths exist; marketing “bundled surveys” UX still incomplete |
+| **Tier-specific Survey Pricing** | ⚠️ Partial | Per-currency `plan_prices` / org currency; not every tier has unique survey SKUs |
 
 ---
 
-**End of Audit**
+**End of product/package audit (2026-05-24)**
 
 ---
 
 ## Code Audit Findings (Cursor, 2026-07-29)
 
-Read-only production audit of `voxbulk-api` (sync SQLAlchemy + FastAPI). VPS live `.env` / nginx not verified (no SSH from agent). Branch context at audit time included Phase 1 security work on `cursor/security-phase1-audit-bd1f` (may not yet be on `main`).
+Read-only production audit of `voxbulk-api` (sync SQLAlchemy + FastAPI). Remediation stack **#7–#17 merged to `main`** (see phase map). VPS still needs `git pull` + `./deploy-vps.sh` and the secret checklist below.
 
 Severity: Critical / Moderate / Low / Info. Every item cites file paths verified by reading source.
 
@@ -548,30 +548,75 @@ Severity: Critical / Moderate / Low / Info. Every item cites file paths verified
 | L4 | VAT float rate | Basis points (deferred) |
 | L5 | `maybe_invoice_overage` retired | Keep; harden C2 |
 | I1–I4 | Prod CORS locked; admin caps OK; GC/Telnyx verify-before-DB good | Keep |
-| I5 | This file §6–7 stale (`allow_overage_charges`, live `maybe_invoice_overage`) | Refresh later |
-| I6 | pip-audit/npm audit not run | Phase 10 |
+| I5 | This file §6–7 / summary stale | Refreshed in Phase 10 |
+| I6 | pip-audit/npm audit not run | Phase 10 reports under `docs/security/` |
 
-### Unverified
+### Unverified (ops)
 
-Live VPS secrets/modes; PR #7 merge status; nginx rate limits; concurrent pen-tests; full Meta redelivery matrix; `pip-audit` CVEs; git-history secret exposure beyond known `.env.example` placeholders.
+Live VPS secrets/modes; nginx rate limits; concurrent pen-tests; full Meta redelivery matrix; whether historical `.env.example` placeholders were ever live.
 
 ---
 
-## Prioritized remediation phases (test-before-deliver)
+## Prioritized remediation phases (merged to main)
 
-| Phase | Branch | Closes | Test gate before PR |
-|-------|--------|--------|---------------------|
-| 0 | merge PR #7 | M7 partial | VPS health + HEALTH_SECRET_TOKEN |
-| 1 | `cursor/billing-webhook-idempotency-bd1f` | C1, M6 Stripe/AW | `pytest tests/test_webhooks.py tests/test_payg_and_wallet.py tests/test_stripe_subscription_renewal.py tests/test_card_subscription_checkout.py -q` |
-| 2 | `cursor/settlement-idempotency-bd1f` | C2 | `pytest tests/test_phone_campaign_settlement.py -q` |
-| 3 | `cursor/billing-overage-consent-gate-bd1f` | M12 | billing + OCC + settlement tests |
-| 4 | `cursor/auth-fail-closed-bd1f` | M13, M2 | auth + billing_access |
-| 5 | `cursor/webhook-stream-hardening-bd1f` | M8, M9, M6 Meta | meta webhook tests |
-| 6 | `cursor/upload-rate-limits-bd1f` | M14, M15 | auth + upload cap test |
-| 7 | `cursor/tenant-hygiene-bd1f` | M1, M3, M5 | OCC + partner/task tests |
-| 8 | `cursor/promo-launch-money-bd1f` | M10, M17, M11 | wallet + settlement |
-| 9 | `cursor/security-hygiene-bd1f` | L1, L2, M16, M4 | feedback + script hygiene |
-| 10 | ops | L3, L4, I6, secret rotate | pip-audit / npm audit reports |
+| Phase | Branch | PR | Closes | Status |
+|-------|--------|----|--------|--------|
+| 0 | `cursor/security-phase1-audit-bd1f` | #7 | M7 partial, health token, demo bootstrap | Merged |
+| 1 | `cursor/billing-webhook-idempotency-bd1f` | #8 | C1, M6 Stripe/AW | Merged |
+| 2 | `cursor/settlement-idempotency-bd1f` | #9 | C2, L5 | Merged |
+| 3 | `cursor/billing-overage-consent-gate-bd1f` | #10 | M12 | Merged |
+| 4 | `cursor/auth-fail-closed-bd1f` | #11 | M13, M2 | Merged |
+| 5 | `cursor/webhook-stream-hardening-bd1f` | #12 | M8, M9, M6 Meta | Merged |
+| 6 | `cursor/upload-rate-limits-bd1f` | #13 | M14, M15 | Merged |
+| 7 | `cursor/tenant-hygiene-bd1f` | #14 | M1, M3, M5 | Merged |
+| 8 | `cursor/promo-launch-money-bd1f` | #15 | M10, M17, M11 | Merged |
+| 9 | `cursor/security-hygiene-bd1f` | #16 | L1, L2, M16, M4 | Merged |
+| 10 | `cursor/ops-audits-bd1f` | #17 | I5, I6, secret checklist; L3/L4 deferred | Merged |
 
-**Delivery rule:** implement → listed pytest exit 0 → commit/push → draft PR → next phase.
+Alembic on `main` after landing: linear `0208` wallet unique → `0209` overage consent → `0210` recovery celery task → `0211` promo redemption unique.
 
+## Explicitly deferred
+
+| Item | Why |
+|------|-----|
+| SQLAlchemy global tenant `with_loader_criteria` middleware | Large rewrite; Phase 7 covers highest-risk call sites |
+| Live nginx rate limits / Redis bind | Needs VPS operator access |
+| L3 OAuth fragment redesign | UX + frontend + IdP console |
+| L4 VAT integer / basis points | Billing correctness PR |
+| Git history purge for leaked example secrets | Ops decision after confirming whether live secrets ever matched examples |
+| Dependency CVE upgrades | Inventored in Phase 10; upgrade in dedicated PRs |
+
+## Secret remediation checklist (ops — VPS)
+
+Rotate **on the production VPS** if any live value ever matched historical `.env.example` placeholders or shared demos. This is **not** done by deploy scripts.
+
+- [ ] Confirm `ENV=production` / `prod` and `ALLOW_INSECURE_WEBHOOKS` unset/false
+- [ ] Rotate `JWT_SECRET_KEY` if it was ever `change-me` (logs out all sessions)
+- [ ] Rotate `ENCRYPTION_KEY` only with a planned re-encrypt path — **do not** swap Fernet keys blindly (breaks stored integration ciphertext)
+- [ ] Rotate webhook secrets: Telnyx, Meta, Stripe, Airwallex, GoCardless, Vapi (`VAPI_WEBHOOK_SECRET`, etc.) and update provider consoles
+- [ ] Confirm `HEALTH_SECRET_TOKEN` set; `/health/build|db|pricing` return 403 without token
+- [ ] Confirm `voxbulk-api/.env` mode `600` after deploy (Phase 9)
+- [ ] Admin → Integrations: re-save Telnyx/Meta/Stripe/Airwallex after any key rotation
+- [ ] OAuth provider consoles: Google/Apple/LinkedIn redirect URIs still `https://api.voxbulk.com/auth/oauth/{provider}/callback`
+- [ ] Optional: `git filter-repo` / history scrub only after confirming secrets were committed (prefer rotation over rewrite)
+
+## Dependency audit (I6)
+
+See [`docs/security/dependency-audit-2026-07-29.md`](docs/security/dependency-audit-2026-07-29.md).
+
+Highlights (2026-07-29 scan):
+
+- Python: 22 advisories in 6 packages (`python-jose`, `cryptography`, `starlette`, `weasyprint`, `ecdsa`, `pytest`)
+- npm: dashboard 8 / admin 13 / public 23 total vulns (mix of Vite, ws, Telnyx webrtc → uuid)
+
+Follow-up: dedicated upgrade PRs with build + pytest/vitest — **not** silent majors in Phase 10.
+
+## L3 / L4 (documented only)
+
+**L3 — OAuth fragment / one-time code:** schedule separately with dashboard/public auth UX.
+
+**L4 — VAT basis points:** dedicated billing PR for integer minor units / basis points.
+
+---
+
+**End of Code Audit Findings ledger**
