@@ -490,13 +490,125 @@ Organisation model:
 | **Admin — Service Pricing Rules** | ✅ Fully built | Survey/Interview bundles, channels, overage rates |
 | **Admin — Promo Offers** | ✅ Exists | Discounts, free credit, overage rate override |
 | **Dashboard — Billing Page** | ✅ Fully built | Loads plans dynamically, shows usage |
-| **Dashboard — Survey Page** | ❌ Missing | No UI to browse/order surveys |
-| **Dashboard — Settings** | ⚠️ Partial | No overage consent toggle |
-| **Overage Consent** | ❌ Missing | No model field, no consent capture |
-| **Pay-as-you-go (Surveys)** | ❌ Missing | No prepaid credit pool for surveys |
-| **Subscription-bundled Surveys** | ❌ Missing | Surveys not tied to subscription tiers |
-| **Tier-specific Survey Pricing** | ❌ Missing | Pricing is global, not org-context-aware |
+| **Dashboard — Survey Page** | ❌ Missing | No UI to browse/order surveys (product roadmap; not security Phase 1–10) |
+| **Dashboard — Settings** | ⚠️ Partial | Overage consent wired in remediation PR #10 (Phase 3) — merge/deploy to clear this row |
+| **Overage Consent** | ⚠️ Remediation open | PR #10 — `allow_overage` gate + consent timestamp (was ❌ in May 2026 product audit) |
+| **Pay-as-you-go (Surveys)** | ✅ Exists in product | Wallet / PAYG launch holds — see billing services (this May table was stale) |
+| **Subscription-bundled Surveys** | ⚠️ Partial | Allowance + overage paths exist; marketing “bundled surveys” UX still incomplete |
+| **Tier-specific Survey Pricing** | ⚠️ Partial | Per-currency `plan_prices` / org currency; not every tier has unique survey SKUs |
 
 ---
 
-**End of Audit**
+**End of product/package audit (2026-05-24)**
+
+---
+
+# Code Audit Findings & remediation (2026-07)
+
+Security / reliability findings from the Cursor code audit, tracked through phased PRs on `menasimuk-hub/Vox-new`. Product sections above (§1–7) remain the May 2026 **pricing/infra** snapshot; this section is the **security remediation** ledger.
+
+## Finding tables
+
+### Critical
+
+| ID | Finding | Remediation |
+|----|---------|-------------|
+| C1 | Stripe/Airwallex webhook retries can double-credit wallet | Phase 1 — PR #8 (`cursor/billing-webhook-idempotency-bd1f`) |
+| C2 | Campaign settlement can double-invoice / double-charge on retry | Phase 2 — PR #9 (`cursor/settlement-idempotency-bd1f`) |
+
+### Medium
+
+| ID | Finding | Remediation |
+|----|---------|-------------|
+| M1 | `get_order` usable without org scope (tenant IDOR risk) | Phase 7 — PR #14 |
+| M2 | Org header fallback when JWT lacks `org_id` | Phase 4 — PR #11 |
+| M3 | Celery task status readable cross-org | Phase 7 — PR #14 |
+| M4 | Public feedback session mutations by `session_id` alone | Phase 9 — PR #16 |
+| M5 | Partner screening owner falls back to any `User` | Phase 7 — PR #14 |
+| M6 | Webhook handlers process duplicates (Stripe/AW/Meta) | Phases 1 + 5 — PRs #8, #12 |
+| M7 | `ALLOW_INSECURE_WEBHOOKS` in production | Phase 0/1 security — PR #7 (+ Phase 4 `.env.example`) |
+| M8 | Telnyx messages trust client org header | Phase 5 — PR #12 |
+| M9 | Media stream WS under-authenticated | Phase 5 — PR #12 |
+| M10 | Promo redeem race (no unique org+promo) | Phase 8 — PR #15 |
+| M11 | Launch/complete charge race | Phase 8 — PR #15 |
+| M12 | Overage charged without consent | Phase 3 — PR #10 |
+| M13 | Prod JWT/encryption `change-me` fail-open | Phase 4 — PR #11 |
+| M14 | Recipient upload unbounded | Phase 6 — PR #13 |
+| M15 | Invite/OAuth missing rate limits | Phase 6 — PR #13 |
+| M16 | Deploy leaves `.env` world-readable / sources full file | Phase 9 — PR #16 |
+| M17 | Airwallex amounts via `float×100` | Phase 8 — PR #15 |
+
+### Low / info
+
+| ID | Finding | Remediation |
+|----|---------|-------------|
+| L1 | Root `get_api_key.py` prints secrets | Phase 9 — PR #16 |
+| L2 | Booking token in application logs | Phase 9 — PR #16 |
+| L3 | OAuth redirect fragment / one-time code UX | **Deferred** — needs frontend + provider console coordination |
+| L4 | VAT rates as floats / basis-point cleanup | **Deferred** — dedicated billing PR |
+| L5 | Retired `maybe_invoice_overage` leftover risk | Covered with Phase 2 settlement idempotency |
+| I5 | Stale naming in this document (§6–7 / summary) | Phase 10 — summary table notes refreshed above |
+| I6 | Dependency CVEs not inventoried | Phase 10 — [`docs/security/dependency-audit-2026-07-29.md`](docs/security/dependency-audit-2026-07-29.md) |
+
+## Phase → PR map
+
+| Phase | Branch | PR | Closes |
+|-------|--------|----|--------|
+| 0 / security baseline | `cursor/security-phase1-audit-bd1f` | #7 | Demo bootstrap, health token, prod insecure-webhook refuse |
+| 1 | `cursor/billing-webhook-idempotency-bd1f` | #8 | C1, M6 Stripe/AW |
+| 2 | `cursor/settlement-idempotency-bd1f` | #9 | C2, L5 |
+| 3 | `cursor/billing-overage-consent-gate-bd1f` | #10 | M12 |
+| 4 | `cursor/auth-fail-closed-bd1f` | #11 | M13, M2 |
+| 5 | `cursor/webhook-stream-hardening-bd1f` | #12 | M8, M9, M6 Meta |
+| 6 | `cursor/upload-rate-limits-bd1f` | #13 | M14, M15 |
+| 7 | `cursor/tenant-hygiene-bd1f` | #14 | M1, M3, M5 |
+| 8 | `cursor/promo-launch-money-bd1f` | #15 | M10, M17, M11 |
+| 9 | `cursor/security-hygiene-bd1f` | #16 | L1, L2, M16, M4 |
+| 10 | `cursor/ops-audits-bd1f` | (this) | I5, I6, secret checklist; L3/L4 documented deferred |
+
+**Note:** Several Alembic revisions claim `0208_*` off `0207` across open PRs — rebase/merge heads when landing the stack.
+
+## Explicitly deferred (do not invent scope)
+
+| Item | Why |
+|------|-----|
+| SQLAlchemy global tenant `with_loader_criteria` middleware | Large rewrite; Phase 7 covers highest-risk call sites |
+| Live nginx rate limits / Redis bind | Needs VPS operator access |
+| L3 OAuth fragment redesign | UX + frontend + IdP console |
+| L4 VAT integer / basis points | Billing correctness PR |
+| Git history purge for leaked example secrets | Ops decision after confirming whether live secrets ever matched examples |
+
+## Secret remediation checklist (ops — VPS)
+
+Rotate **on the production VPS** if any live value ever matched historical `.env.example` placeholders or shared demos. This is **not** done by deploy scripts.
+
+- [ ] Confirm `ENV=production` / `prod` and `ALLOW_INSECURE_WEBHOOKS` unset/false
+- [ ] Rotate `JWT_SECRET_KEY` if it was ever `change-me` (logs out all sessions)
+- [ ] Rotate `ENCRYPTION_KEY` only with a planned re-encrypt path — **do not** swap Fernet keys blindly (breaks stored integration ciphertext)
+- [ ] Rotate webhook secrets: Telnyx, Meta, Stripe, Airwallex, GoCardless, Vapi (`VAPI_WEBHOOK_SECRET`, etc.) and update provider consoles
+- [ ] Confirm `HEALTH_SECRET_TOKEN` set; `/health/build|db|pricing` return 403 without token
+- [ ] Confirm `voxbulk-api/.env` mode `600` after deploy (Phase 9)
+- [ ] Admin → Integrations: re-save Telnyx/Meta/Stripe/Airwallex after any key rotation
+- [ ] OAuth provider consoles: Google/Apple/LinkedIn redirect URIs still `https://api.voxbulk.com/auth/oauth/{provider}/callback`
+- [ ] Optional: `git filter-repo` / history scrub only after confirming secrets were committed (prefer rotation over rewrite)
+
+## Dependency audit (I6)
+
+See [`docs/security/dependency-audit-2026-07-29.md`](docs/security/dependency-audit-2026-07-29.md).
+
+Highlights (2026-07-29 scan):
+
+- Python: 22 advisories in 6 packages (`python-jose`, `cryptography`, `starlette`, `weasyprint`, `ecdsa`, `pytest`)
+- npm: dashboard 8 / admin 13 / public 23 total vulns (mix of Vite, ws, Telnyx webrtc → uuid)
+
+Follow-up: dedicated upgrade PRs with build + pytest/vitest — **not** silent majors in Phase 10.
+
+## L3 / L4 (documented only)
+
+**L3 — OAuth fragment / one-time code:** current OAuth callback may expose tokens in ways that deserve a one-time exchange code + frontend handoff. Requires dashboard/public auth UX and provider testing — schedule separately.
+
+**L4 — VAT basis points:** store/compare VAT as integer minor units or basis points end-to-end; avoid float money in VAT math. Touch `country_vat_service` / invoice totals in a billing-focused PR.
+
+---
+
+**End of Code Audit Findings ledger**

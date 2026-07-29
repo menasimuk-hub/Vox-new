@@ -1,0 +1,89 @@
+# npm audit report
+
+@babel/core  <=7.29.0
+@babel/core: Arbitrary File Read via sourceMappingURL Comment - https://github.com/advisories/GHSA-4x5r-pxfx-6jf8
+fix available via `npm audit fix`
+node_modules/@babel/core
+
+axios  1.0.0 - 1.17.0
+Severity: high
+Axios: Excessive recursion in formDataToJSON can cause denial of service - https://github.com/advisories/GHSA-42h9-826w-cgv3
+Axios: Prototype pollution auth subfields can inject Basic auth - https://github.com/advisories/GHSA-xj6q-8x83-jv6g
+Axios: Deep formToJSON Key Recursion Can Cause Denial of Service - https://github.com/advisories/GHSA-pmv8-rq9r-6j72
+Axios: Fetch adapter `ReadableStream` uploads bypass `maxBodyLength` - https://github.com/advisories/GHSA-jqh4-m9w3-8hp9
+Axios: Prototype pollution gadgets can alter axios request construction - https://github.com/advisories/GHSA-mmx7-hfxf-jppx
+Axios: NO_PROXY bypass for 0.0.0.0 local addresses in axios - https://github.com/advisories/GHSA-f4gw-2p7v-4548
+Axios Node HTTP adapter can use an inherited proxy after interceptor config cloning - https://github.com/advisories/GHSA-gcfj-64vw-6mp9
+Axios form serializer maxDepth bypass via {} metatoken - https://github.com/advisories/GHSA-hcpx-6fm6-wx23
+Axios: Nested axios option objects can consume polluted prototype values - https://github.com/advisories/GHSA-7q8q-rj6j-mhjq
+Axios: HTTP/2 streamed uploads bypass `maxBodyLength` - https://github.com/advisories/GHSA-mwf2-3pr3-8698
+fix available via `npm audit fix`
+node_modules/axios
+
+esbuild  <=0.24.2
+Severity: moderate
+esbuild enables any website to send any requests to the development server and read the response - https://github.com/advisories/GHSA-67mh-4wv8-2f99
+fix available via `npm audit fix --force`
+Will install vite@8.1.5, which is a breaking change
+node_modules/esbuild
+  vite  <=6.4.2
+  Depends on vulnerable versions of esbuild
+  node_modules/vite
+
+form-data  4.0.0 - 4.0.5
+Severity: high
+form-data: CRLF injection in form-data via unescaped multipart field names and filenames - https://github.com/advisories/GHSA-hmw2-7cc7-3qxx
+fix available via `npm audit fix`
+node_modules/form-data
+
+postcss  <=8.5.17
+Severity: high
+PostCSS: Path Traversal in Previous Source Map Auto-Loading (sourceMappingURL) leads to Arbitrary .map File Disclosure - https://github.com/advisories/GHSA-r28c-9q8g-f849
+fix available via `npm audit fix`
+node_modules/postcss
+
+react-router  6.0.0 - 7.17.0
+Severity: moderate
+React Router's same-origin redirect with path starting // causes open redirect via protocol-relative URL reinterpretation - https://github.com/advisories/GHSA-2j2x-hqr9-3h42
+React Router: Open redirect via backslash in <Link> and useNavigate (CVE-2025-68470 bypass) - https://github.com/advisories/GHSA-wrjc-x8rr-h8h6
+React Router: Arbitrary Constructor Injection via deserializeErrors() in React Router SSR Hydration - https://github.com/advisories/GHSA-337j-9hxr-rhxg
+fix available via `npm audit fix`
+node_modules/react-router
+  react-router-dom  6.6.3-pre.0 - 6.30.4
+  Depends on vulnerable versions of react-router
+  node_modules/react-router-dom
+
+
+shell-quote  <=1.8.4
+Severity: critical
+shell-quote quote() does not escape newlines in object .op values - https://github.com/advisories/GHSA-w7jw-789q-3m8p
+shell-quote: Quadratic-complexity Denial of Service in `parse()` (CWE-407) - https://github.com/advisories/GHSA-395f-4hp3-45gv
+fix available via `npm audit fix`
+node_modules/shell-quote
+  concurrently  9.2.1
+  Depends on vulnerable versions of shell-quote
+  node_modules/concurrently
+
+uuid  <11.1.1
+Severity: moderate
+uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided - https://github.com/advisories/GHSA-w5hq-g745-h8pq
+fix available via `npm audit fix --force`
+Will install @telnyx/webrtc@1.0.9, which is a breaking change
+node_modules/@peermetrics/webrtc-stats/node_modules/uuid
+node_modules/uuid
+  @peermetrics/webrtc-stats  >=5.1.0
+  Depends on vulnerable versions of uuid
+  node_modules/@peermetrics/webrtc-stats
+    @telnyx/webrtc  >=2.0.1
+    Depends on vulnerable versions of @peermetrics/webrtc-stats
+    Depends on vulnerable versions of uuid
+    node_modules/@telnyx/webrtc
+
+
+13 vulnerabilities (1 low, 6 moderate, 4 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
