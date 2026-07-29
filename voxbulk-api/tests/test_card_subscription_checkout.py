@@ -261,3 +261,43 @@ def test_stripe_webhook_wallet_topup_still_credits(db):
         result = StripePaymentService.handle_webhook_event(db, event)
     assert result.get("credited") is True
     assert db.query(WalletTransaction).count() == 1
+
+
+def test_stripe_webhook_wallet_topup_is_idempotent(db):
+    org, _plan = _seed_plan(db)
+    event = {
+        "type": "payment_intent.succeeded",
+        "data": {
+            "object": {
+                "id": "pi_topup_dup",
+                "amount_received": 2500,
+                "metadata": {"voxbulk_org_id": org.id, "voxbulk_kind": "wallet_topup"},
+            }
+        },
+    }
+    with patch.object(StripePaymentService, "_issue_topup_invoice") as invoice_mock:
+        first = StripePaymentService.handle_webhook_event(db, event)
+        second = StripePaymentService.handle_webhook_event(db, event)
+    assert first.get("credited") is True
+    assert second.get("duplicate") is True
+    assert second.get("credited") is False
+    assert db.query(WalletTransaction).count() == 1
+    db.refresh(org)
+    assert int(org.wallet_balance_pence or 0) == 2500
+    assert invoice_mock.call_count == 1
+
+
+def test_wallet_credit_same_provider_reference_does_not_double(db):
+    from app.services.wallet_service import WalletService
+
+    org, _plan = _seed_plan(db)
+    first = WalletService.credit(
+        db, org, amount_minor=1000, kind="topup", provider="stripe", provider_reference="pi_once"
+    )
+    second = WalletService.credit(
+        db, org, amount_minor=1000, kind="topup", provider="stripe", provider_reference="pi_once"
+    )
+    assert first.id == second.id
+    assert db.query(WalletTransaction).count() == 1
+    db.refresh(org)
+    assert int(org.wallet_balance_pence or 0) == 1000

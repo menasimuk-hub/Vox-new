@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -13,6 +13,9 @@ class WalletTransaction(Base):
     """Append-only wallet ledger entry. amount_minor is always positive; direction tells the sign."""
 
     __tablename__ = "wallet_transactions"
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_reference", name="uq_wallet_tx_provider_reference"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)

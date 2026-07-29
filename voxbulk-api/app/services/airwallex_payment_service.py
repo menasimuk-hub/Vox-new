@@ -452,6 +452,7 @@ class AirwallexPaymentService:
         amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
         if amount <= 0:
             return {"ok": True, "ignored": True, "reason": "zero_amount"}
+        balance_before = WalletService.balance_minor(org)
         WalletService.credit(
             db,
             org,
@@ -461,5 +462,8 @@ class AirwallexPaymentService:
             provider_reference=pid,
             description="Wallet top-up via Airwallex",
         )
+        db.refresh(org)
+        if WalletService.balance_minor(org) == balance_before:
+            return {"ok": True, "credited": False, "duplicate": True}
         AirwallexPaymentService._issue_topup_invoice(db, org, amount_minor=amount, reference=pid)
         return {"ok": True, "credited": True, "amount_minor": amount}

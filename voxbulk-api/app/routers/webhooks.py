@@ -92,9 +92,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         event = StripePaymentService.verify_webhook_signature(db, payload=body, signature_header=sig)
     except (StripeConfigError, StripeProviderError) as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
-    WebhookEventService.persist_received(
+    _event_row, created = WebhookEventService.persist_received(
         db, provider="stripe", raw_body=body, external_event_id=str(event.get("id") or "") or None, signature_valid=True
     )
+    if not created:
+        return {"status": "ok", "duplicate": True}
     return StripePaymentService.handle_webhook_event(db, event)
 
 
@@ -115,9 +117,11 @@ async def airwallex_webhook(request: Request, db: Session = Depends(get_db)):
         event = AirwallexPaymentService.verify_webhook_signature(db, payload=body, timestamp=timestamp, signature=sig)
     except (AirwallexConfigError, AirwallexProviderError) as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
-    WebhookEventService.persist_received(
+    _event_row, created = WebhookEventService.persist_received(
         db, provider="airwallex", raw_body=body, external_event_id=str(event.get("id") or "") or None, signature_valid=True
     )
+    if not created:
+        return {"status": "ok", "duplicate": True}
     return AirwallexPaymentService.handle_webhook_event(db, event)
 
 

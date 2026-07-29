@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
@@ -35,6 +36,12 @@ class PromoWalletRestricted(WalletError):
     pass
 
 
+class DuplicateWalletReference(WalletError):
+    """Raised only when a provider reference collision cannot be resolved to an existing row."""
+
+    pass
+
+
 PROMO_RESTRICTED_DEBIT_KINDS = frozenset(
     {"launch_debit", "launch_hold", "invoice_payment", "feedback_promo", "campaign_debit"}
 )
@@ -42,6 +49,20 @@ PROMO_RESTRICTED_DEBIT_KINDS = frozenset(
 
 class WalletService:
     MIN_TOPUP_MINOR = 500
+
+    @staticmethod
+    def _existing_provider_reference(
+        db: Session, *, provider: str | None, provider_reference: str | None
+    ) -> WalletTransaction | None:
+        if not provider or not provider_reference:
+            return None
+        return db.execute(
+            select(WalletTransaction).where(
+                WalletTransaction.provider == provider,
+                WalletTransaction.provider_reference == provider_reference,
+                WalletTransaction.status == "succeeded",
+            )
+        ).scalar_one_or_none()
 
     @staticmethod
     def promo_balance_minor(org: Organisation) -> int:
@@ -135,6 +156,11 @@ class WalletService:
         amount = int(amount_minor or 0)
         if amount <= 0:
             raise WalletError("Credit amount must be positive")
+        existing = WalletService._existing_provider_reference(
+            db, provider=provider, provider_reference=provider_reference
+        )
+        if existing is not None:
+            return existing
         currency = resolve_org_currency(db, org, persist=True)
         org.wallet_balance_pence = WalletService.balance_minor(org) + amount
         promo_flag = bool((metadata or {}).get("restricted_spend"))
@@ -158,8 +184,19 @@ class WalletService:
             balance_after=int(org.wallet_balance_pence),
         )
         if commit:
-            db.commit()
-            db.refresh(row)
+            try:
+                db.commit()
+                db.refresh(row)
+            except IntegrityError:
+                db.rollback()
+                raced = WalletService._existing_provider_reference(
+                    db, provider=provider, provider_reference=provider_reference
+                )
+                if raced is not None:
+                    return raced
+                raise DuplicateWalletReference(
+                    f"Duplicate wallet reference {provider}:{provider_reference}"
+                ) from None
         logger.info(
             "wallet_credit org_id=%s amount=%s kind=%s provider=%s ref=%s balance=%s",
             org.id, amount, kind, provider, provider_reference, org.wallet_balance_pence,
@@ -231,16 +268,12 @@ class WalletService:
 
     @staticmethod
     def has_transaction_for_reference(db: Session, *, provider: str, provider_reference: str) -> bool:
-        if not provider_reference:
-            return False
-        row = db.execute(
-            select(WalletTransaction.id).where(
-                WalletTransaction.provider == provider,
-                WalletTransaction.provider_reference == provider_reference,
-                WalletTransaction.status == "succeeded",
+        return (
+            WalletService._existing_provider_reference(
+                db, provider=provider, provider_reference=provider_reference
             )
-        ).first()
-        return row is not None
+            is not None
+        )
 
     @staticmethod
     def list_transactions(db: Session, org_id: str, *, limit: int = 100) -> list[WalletTransaction]:

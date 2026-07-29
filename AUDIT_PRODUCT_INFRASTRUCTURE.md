@@ -500,3 +500,78 @@ Organisation model:
 ---
 
 **End of Audit**
+
+---
+
+## Code Audit Findings (Cursor, 2026-07-29)
+
+Read-only production audit of `voxbulk-api` (sync SQLAlchemy + FastAPI). VPS live `.env` / nginx not verified (no SSH from agent). Branch context at audit time included Phase 1 security work on `cursor/security-phase1-audit-bd1f` (may not yet be on `main`).
+
+Severity: Critical / Moderate / Low / Info. Every item cites file paths verified by reading source.
+
+### Critical
+
+| ID | Finding | Evidence | Fix |
+|----|---------|----------|-----|
+| C1 | Stripe/Airwallex webhooks ignore `persist_received` `created`; wallet top-up check-then-credit with no unique on `(provider, provider_reference)` → double-credit race | `app/routers/webhooks.py` ~95–120; `stripe_payment_service.py` ~446–462; `wallet_transaction.py` ~28–29; `wallet_service.py` ~233–243 | Gate handle on `created`; UniqueConstraint + idempotent `credit` |
+| C2 | Campaign settlement soft idempotency; marker after invoice; `create_from_payment` vs `issue_from_payment`; provider+external unique can allow two completion invoices | `campaign_billing_settlement_service.py` ~294–451; `invoice_service.py` ~576–638 vs ~483–503; `billing_invoice.py` ~14 | Claim-before-charge; `issue_from_payment`; stable external id |
+
+### Moderate
+
+| ID | Finding | Evidence | Fix |
+|----|---------|----------|-----|
+| M1 | No shared tenant query layer; `get_order` optional `org_id` | `platform_catalog_service.py` ~1734–1746 | Require org on tenant paths |
+| M2 | JWT org falls back to `X-Voxbulk-Org-Id` / `X-Retover-Org-Id` | `dependencies.py` ~33–55 | JWT claim only |
+| M3 | Celery `AsyncResult(task_id)` returns result to any auth user | `calls.py` ~84–87 | Org-bind task results |
+| M4 | Public feedback mutates by `session_id` alone | `public_feedback.py` + web survey session get | Bind to start token |
+| M5 | Partner owner fallback: any `User.id` if org has no members | `partner_service.py` ~191–194 | Fail hard |
+| M6 | GC gates on `created`; Stripe/Airwallex/Meta re-process | `webhooks.py` GC ~71–76 vs Stripe ~95–98 | `if created` everywhere |
+| M7 | `ALLOW_INSECURE_WEBHOOKS` / `ENV=test` skip verify when key missing | `telnyx_webhook_security.py` ~34–48 | Fail closed in prod |
+| M8 | Telnyx messages pass client org header after verify | `telnyx.py` ~137 | Resolve org from To-number |
+| M9 | `/telnyx/media-stream` unauthenticated WS | `telnyx.py` ~141–209 | Stream auth |
+| M10 | Promo redeem no DB unique; stacking / TOCTOU | `promo_offer_service.py` ~757–851 | Unique `(promo, org)` |
+| M11 | Launch/complete without row lock; meter before start | `platform_catalog_service.py` ~1252–1616 | CAS / FOR UPDATE |
+| M12 | `allow_overage` defaults True; settlement/launch not gated | `organisation.py` ~56; settlement; eligibility | Consent gate (Phase 3) |
+| M13 | Prod JWT `change-me` only logs, does not refuse start | `config.py` ~27; `main.py` ~238–241 | RuntimeError in prod |
+| M14 | Unbounded recipient CSV `file.read()` | `service_orders.py` ~264–266, 982–987 | Cap bytes/rows |
+| M15 | Auth rate limit missing on invite/OAuth; no public/webhook app limits | `auth.py` | Extend limiter |
+| M16 | `deploy-vps.sh` sources full `.env`; no `chmod 600` | `deploy-vps.sh` ~357–375 | Parse keys; chmod |
+| M17 | Airwallex float×100 money | `airwallex_payment_service.py` | Integer minor units |
+
+### Low / Info
+
+| ID | Finding | Fix |
+|----|---------|-----|
+| L1 | `get_api_key.py` prints Telnyx key | Move/delete (Phase 9) |
+| L2 | Booking token in logs | Fingerprint only |
+| L3 | OAuth token in URL fragment | One-time code (deferred) |
+| L4 | VAT float rate | Basis points (deferred) |
+| L5 | `maybe_invoice_overage` retired | Keep; harden C2 |
+| I1–I4 | Prod CORS locked; admin caps OK; GC/Telnyx verify-before-DB good | Keep |
+| I5 | This file §6–7 stale (`allow_overage_charges`, live `maybe_invoice_overage`) | Refresh later |
+| I6 | pip-audit/npm audit not run | Phase 10 |
+
+### Unverified
+
+Live VPS secrets/modes; PR #7 merge status; nginx rate limits; concurrent pen-tests; full Meta redelivery matrix; `pip-audit` CVEs; git-history secret exposure beyond known `.env.example` placeholders.
+
+---
+
+## Prioritized remediation phases (test-before-deliver)
+
+| Phase | Branch | Closes | Test gate before PR |
+|-------|--------|--------|---------------------|
+| 0 | merge PR #7 | M7 partial | VPS health + HEALTH_SECRET_TOKEN |
+| 1 | `cursor/billing-webhook-idempotency-bd1f` | C1, M6 Stripe/AW | `pytest tests/test_webhooks.py tests/test_payg_and_wallet.py tests/test_stripe_subscription_renewal.py tests/test_card_subscription_checkout.py -q` |
+| 2 | `cursor/settlement-idempotency-bd1f` | C2 | `pytest tests/test_phone_campaign_settlement.py -q` |
+| 3 | `cursor/billing-overage-consent-gate-bd1f` | M12 | billing + OCC + settlement tests |
+| 4 | `cursor/auth-fail-closed-bd1f` | M13, M2 | auth + billing_access |
+| 5 | `cursor/webhook-stream-hardening-bd1f` | M8, M9, M6 Meta | meta webhook tests |
+| 6 | `cursor/upload-rate-limits-bd1f` | M14, M15 | auth + upload cap test |
+| 7 | `cursor/tenant-hygiene-bd1f` | M1, M3, M5 | OCC + partner/task tests |
+| 8 | `cursor/promo-launch-money-bd1f` | M10, M17, M11 | wallet + settlement |
+| 9 | `cursor/security-hygiene-bd1f` | L1, L2, M16, M4 | feedback + script hygiene |
+| 10 | ops | L3, L4, I6, secret rotate | pip-audit / npm audit reports |
+
+**Delivery rule:** implement → listed pytest exit 0 → commit/push → draft PR → next phase.
+
