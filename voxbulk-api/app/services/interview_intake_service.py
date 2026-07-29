@@ -735,7 +735,7 @@ def intake_mixed_files(db: Session, order: ServiceOrder, files: list[tuple[str, 
     }
     if cv_files:
         cv_result = intake_cv_files(db, order, cv_files)
-        order = ServiceOrderService.get_order(db, order.id) or order
+        order = ServiceOrderService.get_order(db, order.id, org_id=order.org_id) or order
 
     final_recipients = list(
         db.execute(

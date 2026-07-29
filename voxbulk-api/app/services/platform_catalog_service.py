@@ -1749,10 +1749,19 @@ class ServiceOrderService:
         *,
         org_id: str | None = None,
         created_by_user_id: str | None = None,
+        unscoped: bool = False,
     ) -> ServiceOrder | None:
+        """Load a service order. Tenant paths must pass org_id (M1).
+
+        Admin/cross-tenant tools may set unscoped=True. Workers should pass the
+        org from client_state or the already-loaded order row.
+        """
+        org_key = str(org_id or "").strip()
+        if not org_key and not unscoped:
+            raise ValueError("org_id is required for tenant order lookup")
         stmt = select(ServiceOrder).where(ServiceOrder.id == order_id)
-        if org_id:
-            stmt = stmt.where(ServiceOrder.org_id == org_id)
+        if org_key:
+            stmt = stmt.where(ServiceOrder.org_id == org_key)
         if created_by_user_id:
             stmt = stmt.where(ServiceOrder.user_id == created_by_user_id)
         return db.execute(stmt).scalar_one_or_none()
@@ -1764,13 +1773,21 @@ class ServiceOrderService:
         *,
         org_id: str | None = None,
         created_by_user_id: str | None = None,
+        unscoped: bool = False,
     ) -> ServiceOrder | None:
         """Match order UUID, campaign_id (VB-CMP-…), or reference_id (VB-INT-…)."""
         key = str(ref or "").strip()
         if not key:
             return None
+        org_key = str(org_id or "").strip()
+        if not org_key and not unscoped:
+            raise ValueError("org_id is required for tenant order lookup")
         order = ServiceOrderService.get_order(
-            db, key, org_id=org_id, created_by_user_id=created_by_user_id
+            db,
+            key,
+            org_id=org_key or None,
+            created_by_user_id=created_by_user_id,
+            unscoped=unscoped,
         )
         if order is not None:
             return order
@@ -1778,8 +1795,8 @@ class ServiceOrderService:
         stmt = select(ServiceOrder).where(
             (ServiceOrder.campaign_id == upper) | (ServiceOrder.reference_id == upper)
         )
-        if org_id:
-            stmt = stmt.where(ServiceOrder.org_id == org_id)
+        if org_key:
+            stmt = stmt.where(ServiceOrder.org_id == org_key)
         if created_by_user_id:
             stmt = stmt.where(ServiceOrder.user_id == created_by_user_id)
         return db.execute(stmt.limit(1)).scalar_one_or_none()

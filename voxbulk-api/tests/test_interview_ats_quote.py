@@ -54,7 +54,7 @@ def test_interview_ats_quote_returns_pricing(app_client):
     order_id = created.json()["id"]
 
     with get_sessionmaker()() as db:
-        order = ServiceOrderService.get_order(db, order_id)
+        order = ServiceOrderService.get_order(db, order_id, unscoped=True)
         db.add(
             ServiceOrderRecipient(
                 order_id=order.id,
@@ -92,7 +92,7 @@ def test_interview_ats_quote_skips_already_scored(app_client):
     order_id = created.json()["id"]
 
     with get_sessionmaker()() as db:
-        order = ServiceOrderService.get_order(db, order_id)
+        order = ServiceOrderService.get_order(db, order_id, unscoped=True)
         db.add(
             ServiceOrderRecipient(
                 order_id=order.id,
@@ -131,7 +131,7 @@ def test_interview_ats_quote_charges_only_unscored_when_one_already_complete(app
     order_id = created.json()["id"]
 
     with get_sessionmaker()() as db:
-        order = ServiceOrderService.get_order(db, order_id)
+        order = ServiceOrderService.get_order(db, order_id, unscoped=True)
         db.add(
             ServiceOrderRecipient(
                 order_id=order.id,
