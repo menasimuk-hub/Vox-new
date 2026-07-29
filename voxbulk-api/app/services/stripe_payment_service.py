@@ -450,6 +450,7 @@ class StripePaymentService:
         amount = int(intent.get("amount_received") or intent.get("amount") or 0)
         if amount <= 0:
             return {"ok": True, "ignored": True, "reason": "zero_amount"}
+        balance_before = WalletService.balance_minor(org)
         WalletService.credit(
             db,
             org,
@@ -459,5 +460,8 @@ class StripePaymentService:
             provider_reference=pid,
             description="Wallet top-up via Stripe",
         )
+        db.refresh(org)
+        if WalletService.balance_minor(org) == balance_before:
+            return {"ok": True, "credited": False, "duplicate": True}
         StripePaymentService._issue_topup_invoice(db, org, amount_minor=amount, reference=pid, provider="stripe")
         return {"ok": True, "credited": True, "amount_minor": amount}
