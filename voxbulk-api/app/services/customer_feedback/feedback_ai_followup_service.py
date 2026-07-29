@@ -360,7 +360,7 @@ def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
         calls_remaining = max(0, int(usage_row.calls_included or 0) - int(usage_row.calls_used or 0))
 
     if has_subscription:
-        if not bool(getattr(org, "allow_overage", True)) and calls_remaining <= 0:
+        if not bool(getattr(org, "allow_overage", False)) and calls_remaining <= 0:
             return False, "No included AI minutes remaining and overage is disabled.", "subscription"
         return True, "", "subscription"
 

@@ -134,7 +134,7 @@ def purge_billing_for_org(db: Session, org_id: str) -> dict[str, int]:
         org.interview_credits_balance = 0
         org.credit_limit_minor = 0
         org.billing_currency = None
-        org.allow_overage = True
+        org.allow_overage = False
         db.add(org)
     return counts
 

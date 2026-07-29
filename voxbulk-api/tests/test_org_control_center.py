@@ -108,6 +108,15 @@ def test_control_center_overage_toggle(app_client):
     admin = _admin_headers(app_client)
     org_id = _seed_customer_org()
 
+    enabled = app_client.patch(
+        f"/admin/organisations/{org_id}/control-center/overage",
+        headers=admin,
+        json={"allow_overage": True},
+    )
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["allow_overage"] is True
+    assert enabled.json().get("overage_consent_accepted_at")
+
     disabled = app_client.patch(
         f"/admin/organisations/{org_id}/control-center/overage",
         headers=admin,

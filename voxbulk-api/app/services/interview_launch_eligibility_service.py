@@ -209,6 +209,22 @@ class InterviewLaunchEligibilityService:
                     }
                 )
                 return base
+            if not bool(getattr(org, "allow_overage", False)):
+                base.update(
+                    {
+                        "can_launch": False,
+                        "payment_required": True,
+                        "mode": "overage_disabled",
+                        "launch_action": "blocked",
+                        "block_reason": (
+                            "This launch needs extra call minutes beyond your plan allowance, but overage billing "
+                            "is disabled. Enable overage in Billing settings, top up your wallet, or reduce the campaign."
+                        ),
+                        "block_reason_code": "overage_disabled",
+                        "summary": "Overage billing is disabled for this organisation.",
+                    }
+                )
+                return base
             base.update(
                 {
                     "can_launch": True,

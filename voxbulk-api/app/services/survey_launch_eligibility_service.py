@@ -426,6 +426,18 @@ class SurveyLaunchEligibilityService:
                 )
                 blocked["mode"] = "pending_first_payment"
                 return blocked
+            if not bool(getattr(org, "allow_overage", False)):
+                blocked = SurveyLaunchEligibilityService._set_block(
+                    base,
+                    code="overage_disabled",
+                    reason=(
+                        "This launch needs extra recipients beyond your plan allowance, but overage billing "
+                        "is disabled. Enable overage in Billing settings, top up your wallet, or reduce recipients."
+                    ),
+                    summary="Overage billing is disabled for this organisation.",
+                )
+                blocked["mode"] = "overage_disabled"
+                return blocked
             base.update(
                 {
                     "can_launch": True,
@@ -569,6 +581,18 @@ class SurveyLaunchEligibilityService:
                     summary="First payment pending — Direct Debit launches are blocked.",
                 )
                 blocked["mode"] = "pending_first_payment"
+                return blocked
+            if not bool(getattr(org, "allow_overage", False)):
+                blocked = SurveyLaunchEligibilityService._set_block(
+                    base,
+                    code="overage_disabled",
+                    reason=(
+                        "This launch needs extra call minutes beyond your plan allowance, but overage billing "
+                        "is disabled. Enable overage in Billing settings, top up your wallet, or reduce the campaign."
+                    ),
+                    summary="Overage billing is disabled for this organisation.",
+                )
+                blocked["mode"] = "overage_disabled"
                 return blocked
             base.update(
                 {

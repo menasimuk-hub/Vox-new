@@ -61,7 +61,7 @@ def _usage_metrics(db: Session, org: Organisation, usage_row, *, profile: dict[s
             "wa_remaining": 0,
             "sms_included": 0,
             "sms_remaining": 0,
-            "allow_overage": profile.get("allow_overage", True),
+            "allow_overage": profile.get("allow_overage", False),
             "period_start": None,
             "period_end": None,
             "billing_currency": profile.get("billing_currency"),
@@ -77,7 +77,7 @@ def _usage_metrics(db: Session, org: Organisation, usage_row, *, profile: dict[s
     calls = summary.get("calls") or {}
     wa = summary.get("whatsapp") or {}
     sms = summary.get("sms") or {}
-    allow_overage = bool(getattr(org, "allow_overage", True))
+    allow_overage = bool(getattr(org, "allow_overage", False))
     return {
         **flat,
         "calls_included": int(calls.get("included") or 0),
@@ -368,7 +368,7 @@ def _light_billing_profile(db: Session, org: Organisation, core_sub: Subscriptio
         "wallet_display": money_for_org(db, org, int(org.wallet_balance_pence or 0)),
         "billing_email": org.contact_email,
         "contact_email": org.contact_email,
-        "allow_overage": bool(getattr(org, "allow_overage", True)),
+        "allow_overage": bool(getattr(org, "allow_overage", False)),
         "payment_method": sub_payment,
     }
 
@@ -491,7 +491,7 @@ class OrgControlCenterService:
                 "market_label": profile.get("market_label"),
                 "billing_currency": profile.get("billing_currency"),
                 "currency_symbol": profile.get("currency_symbol"),
-                "allow_overage": profile.get("allow_overage", True),
+                "allow_overage": profile.get("allow_overage", False),
                 **usage,
             }
 
@@ -637,7 +637,7 @@ class OrgControlCenterService:
                 "market_label": profile.get("market_label"),
                 "billing_currency": currency,
                 "currency_symbol": profile.get("currency_symbol"),
-                "allow_overage": profile.get("allow_overage", True),
+                "allow_overage": profile.get("allow_overage", False),
                 "billing_payment_provider": getattr(org, "billing_payment_provider", None),
                 "subscription_routing": PaymentProviderRouter.routing_explain(db, org),
                 "billing_start": usage.get("period_start"),

@@ -188,7 +188,8 @@ class BillingAccessService:
             "mandate_status": getattr(sub, "mandate_status", None) if sub else None,
             "subscription_status": sub.status if sub else None,
             "pending_first_payment": BillingAccessService.pending_first_payment_blocks_dd(db, org.id),
-            "allow_overage": bool(getattr(org, "allow_overage", True)),
+            "allow_overage": bool(getattr(org, "allow_overage", False)),
+            "overage_consent_accepted_at": getattr(org, "overage_consent_accepted_at", None),
         }
 
     @staticmethod

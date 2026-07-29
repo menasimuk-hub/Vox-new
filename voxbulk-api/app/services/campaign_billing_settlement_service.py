@@ -328,6 +328,32 @@ class CampaignBillingSettlementService:
             "gocardless_dd",
         }
 
+        # Subscription overage charge without consent — fail closed (do not invoice).
+        if (
+            is_subscription
+            and final_minor > 0
+            and not bool(getattr(org, "allow_overage", False))
+        ):
+            logger.warning(
+                "campaign_settlement_overage_blocked order_id=%s org_id=%s final_minor=%s",
+                order.id,
+                org.id,
+                final_minor,
+            )
+            snapshot["billing_phase"] = "billing_failed"
+            snapshot["billing_failure"] = {
+                "reason": "overage_disabled",
+                "message": (
+                    "Campaign used more than the plan allowance but overage billing is disabled "
+                    "for this organisation."
+                ),
+                "failed_at": datetime.utcnow().isoformat(),
+                "amount_minor": final_minor,
+                "trigger": trigger,
+            }
+            CampaignBillingSettlementService._save_snapshot(db, order, snapshot)
+            return None
+
         has_activity = (
             int(costs.get("total_billable_minutes") or 0) > 0
             or int(costs.get("actual_units") or 0) > 0
