@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -50,6 +50,9 @@ class PromoOffer(Base):
 
 class PromoRedemption(Base):
     __tablename__ = "promo_redemptions"
+    __table_args__ = (
+        UniqueConstraint("promo_offer_id", "org_id", name="uq_promo_redemption_offer_org"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     promo_offer_id: Mapped[str] = mapped_column(String(36), ForeignKey("promo_offers.id"), nullable=False, index=True)

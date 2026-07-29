@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 from app.models.subscription import Subscription
-from app.services.billing_currency import resolve_org_currency
+from app.services.billing_currency import major_amount_to_minor, resolve_org_currency
 from app.services.provider_settings import ProviderSettingsService
 
 logger = logging.getLogger(__name__)
@@ -189,7 +189,7 @@ class AirwallexPaymentService:
             raise AirwallexProviderError("Invoice not found")
         if not InvoicePaymentService.is_payable(invoice):
             raise AirwallexProviderError("This invoice is no longer payable")
-        amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
+        amount = major_amount_to_minor(intent.get("captured_amount") or intent.get("amount") or 0)
         due = InvoicePaymentService.amount_due_minor(invoice)
         if amount < due:
             raise AirwallexProviderError("Card payment amount is less than invoice due")
@@ -292,7 +292,7 @@ class AirwallexPaymentService:
             return {"ok": False, "status": status, "credited": False}
         if WalletService.has_transaction_for_reference(db, provider="airwallex", provider_reference=pid):
             return {"ok": True, "status": status, "credited": False, "duplicate": True}
-        amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
+        amount = major_amount_to_minor(intent.get("captured_amount") or intent.get("amount") or 0)
         if amount <= 0:
             raise AirwallexProviderError("Airwallex payment has no captured amount")
         WalletService.credit(
@@ -400,7 +400,7 @@ class AirwallexPaymentService:
                 return {"ok": True, "ignored": True, "reason": "invoice_not_found"}
             if str(invoice.status or "").lower() == "paid":
                 return {"ok": True, "paid": True, "duplicate": True}
-            amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
+            amount = major_amount_to_minor(intent.get("captured_amount") or intent.get("amount") or 0)
             InvoicePaymentService.mark_paid_from_card(
                 db,
                 org,
@@ -449,7 +449,7 @@ class AirwallexPaymentService:
             return {"ok": True, "ignored": True, "reason": "not_a_wallet_topup"}
         if WalletService.has_transaction_for_reference(db, provider="airwallex", provider_reference=pid):
             return {"ok": True, "credited": False, "duplicate": True}
-        amount = int(round(float(intent.get("captured_amount") or intent.get("amount") or 0) * 100))
+        amount = major_amount_to_minor(intent.get("captured_amount") or intent.get("amount") or 0)
         if amount <= 0:
             return {"ok": True, "ignored": True, "reason": "zero_amount"}
         balance_before = WalletService.balance_minor(org)

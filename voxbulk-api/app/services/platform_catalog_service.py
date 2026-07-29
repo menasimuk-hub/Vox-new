@@ -1261,7 +1261,18 @@ class ServiceOrderService:
         return order
 
     @staticmethod
+    def _lock_order(db: Session, order_id: str) -> ServiceOrder | None:
+        """SELECT … FOR UPDATE so concurrent launch/complete cannot race status transitions."""
+        return db.execute(
+            select(ServiceOrder).where(ServiceOrder.id == order_id).with_for_update()
+        ).scalar_one_or_none()
+
+    @staticmethod
     def complete_order(db: Session, order: ServiceOrder) -> ServiceOrder:
+        locked = ServiceOrderService._lock_order(db, order.id)
+        if locked is None:
+            raise ValueError("Order not found")
+        order = locked
         if order.status not in {"running", "paused"}:
             raise ValueError("Only running surveys can be finished")
         now = datetime.utcnow()
@@ -1594,6 +1605,12 @@ class ServiceOrderService:
 
     @staticmethod
     def start_order(db: Session, order: ServiceOrder) -> ServiceOrder:
+        if order.payment_status != "approved":
+            raise ValueError("Payment must be approved by admin before starting")
+        locked = ServiceOrderService._lock_order(db, order.id)
+        if locked is None:
+            raise ValueError("Order not found")
+        order = locked
         if order.payment_status != "approved":
             raise ValueError("Payment must be approved by admin before starting")
         from app.services.service_order_payment_workflow_service import (

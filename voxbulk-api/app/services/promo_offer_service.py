@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -748,10 +749,16 @@ class PromoOfferService:
         source: str = "signup",
     ) -> PromoOffer:
         """source: signup | dashboard | admin"""
-        row = PromoOfferService.get_by_code(db, promo_code)
-        if row is None or not row.is_active:
+        found = PromoOfferService.get_by_code(db, promo_code)
+        if found is None or not found.is_active:
             raise PromoOfferError("Invalid promo code")
+        # Lock the offer row so max_redemptions / count stay consistent under concurrency.
+        row = db.execute(
+            select(PromoOffer).where(PromoOffer.id == found.id).with_for_update()
+        ).scalar_one()
         now = datetime.utcnow()
+        if not row.is_active:
+            raise PromoOfferError("Invalid promo code")
         if row.expires_at and row.expires_at < now:
             raise PromoOfferError("Promo code expired")
         if row.redemption_count >= row.max_redemptions:
@@ -848,7 +855,11 @@ class PromoOfferService:
                 redeemed_at=now,
             )
         )
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            raise PromoOfferError("Promo already redeemed for this organisation") from exc
         db.refresh(row)
         try:
             from app.services.sales_automation_service import SalesAutomationService
