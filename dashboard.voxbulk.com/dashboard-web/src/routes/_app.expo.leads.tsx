@@ -359,7 +359,7 @@ function ExpoLeads() {
             icon={<Flame className="size-4 text-orange-600" />}
           />
           <Kpi
-            title="Offers sent"
+            title="Emails sent"
             value={summary.offers_sent}
             accent="from-violet-500/15 to-violet-500/5"
             icon={<Mail className="size-4 text-violet-600" />}
@@ -563,7 +563,8 @@ function ExpoLeads() {
                       label="Language"
                       value={detail.detected_language_label || detail.detected_language || detail.country_hint}
                     />
-                    <DetailRow label="Offer sent" value={detail.offer_sent_at ? formatTs(detail.offer_sent_at) : "No"} />
+                    <DetailRow label="Email sent" value={detail.email_sent_at || detail.offer_sent_at ? formatTs(detail.email_sent_at || detail.offer_sent_at) : "No"} />
+                    <DetailRow label="Offer interested" value={detail.offer_interested ? "Yes" : "No"} />
                     <DetailRow
                       label="Catalogue requested"
                       value={detail.catalogue_requested ? "Yes" : "No"}

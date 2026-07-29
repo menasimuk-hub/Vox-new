@@ -2,6 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { PublicExpoLanding } from "@/components/expo/PublicExpoLanding";
 
 export const Route = createFileRoute("/expo/$token")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    preview: search.preview === "1" || search.preview === 1 || search.preview === true,
+  }),
   head: () => ({
     meta: [
       { title: "Expo stand — VoxBulk" },
@@ -13,5 +16,6 @@ export const Route = createFileRoute("/expo/$token")({
 
 function ExpoRoute() {
   const { token } = Route.useParams();
-  return <PublicExpoLanding token={token} />;
+  const { preview } = Route.useSearch();
+  return <PublicExpoLanding token={token} livePreview={Boolean(preview)} />;
 }

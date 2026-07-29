@@ -462,15 +462,42 @@ class ExpoSessionFlowService:
         visitor_phone: str,
         visitor_email: str | None = None,
         name: str | None = None,
+        company: str | None = None,
+        visitor_token: str | None = None,
+        is_preview: bool | None = None,
     ) -> dict[str, Any]:
         from app.services.expo.booth_service import (
             booth_access_block_reason,
             booth_requires_preview_quota,
         )
+        from app.services.expo.visitor_identity_service import ExpoVisitorIdentityService
 
         blocked = booth_access_block_reason(booth)
         if blocked:
             raise ValueError(blocked)
+
+        preview_mode = bool(is_preview) or bool(getattr(booth, "is_preview_draft", False))
+
+        # Returning visitor — reuse contact details (skip card) when known for this exhibition.
+        known = None
+        if not preview_mode:
+            known = ExpoVisitorIdentityService.lookup(
+                db,
+                exhibition_id=booth.exhibition_id,
+                visitor_token=visitor_token,
+                visitor_phone=visitor_phone,
+                visitor_email=visitor_email,
+            )
+            if known is not None:
+                name = name or known.name
+                company = company or known.company
+                visitor_email = visitor_email or known.visitor_email
+                if known.visitor_phone and (
+                    not visitor_phone
+                    or visitor_phone.startswith("web-pending")
+                    or visitor_phone.startswith("web:")
+                ):
+                    visitor_phone = known.visitor_phone
 
         # One phone → one active Expo booth chat. New QR always wins (stops catalog mix-ups).
         closed = ExpoSessionFlowService.supersede_active_sessions(
@@ -479,7 +506,7 @@ class ExpoSessionFlowService:
             reason="new_booth_scan",
         )
         booth.scan_count = int(booth.scan_count or 0) + 1
-        if booth_requires_preview_quota(booth):
+        if not preview_mode and booth_requires_preview_quota(booth):
             booth.preview_tests_used = int(getattr(booth, "preview_tests_used", 0) or 0) + 1
         db.add(booth)
 
@@ -492,8 +519,15 @@ class ExpoSessionFlowService:
             visitor_phone=visitor_phone,
             visitor_email=visitor_email,
             status="active",
+            is_preview=preview_mode,
             current_step=0,
-            session_state_json=json.dumps({}),
+            session_state_json=json.dumps(
+                {
+                    "is_preview": preview_mode,
+                    "visitor_token": (visitor_token or (known.visitor_token if known else None)),
+                    "known_visitor": bool(known),
+                }
+            ),
             started_at=now,
             created_at=now,
         )
@@ -509,6 +543,7 @@ class ExpoSessionFlowService:
             visitor_phone=visitor_phone,
             visitor_email=visitor_email,
             name=name,
+            company=company,
             created_at=now,
             updated_at=now,
         )
@@ -527,25 +562,44 @@ class ExpoSessionFlowService:
                     company_name=booth.company_display_name or booth.name,
                 ),
                 "superseded_sessions": closed,
+                "is_preview": preview_mode,
             }
 
-        first = steps[0]
+        # Skip contact capture when returning visitor already has name+company
+        contact_skipped = bool(known and known.name and known.company)
+        first_idx = 0
+        if contact_skipped and steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
+            first_idx = 1 if len(steps) > 1 else 0
+            state = {"contact_substep": "done", "contact_done": True, "known_visitor": True}
+            if visitor_token or (known and known.visitor_token):
+                state["visitor_token"] = visitor_token or known.visitor_token
+            session.current_step = first_idx
+            session.session_state_json = json.dumps(state)
+            db.add(session)
+
+        first = steps[first_idx]
         channel_l = str(channel or "whatsapp").lower()
-        if str(first.get("key") or "") == CONTACT_STEP_KEY:
+        if contact_skipped and str(first.get("key") or "") != CONTACT_STEP_KEY:
+            prompt = str(first.get("prompt") or "")
+        elif str(first.get("key") or "") == CONTACT_STEP_KEY:
             capture = parse_contact_capture(booth.question_config_json)
             prompt = contact_prompt_for_mode(capture, channel=channel_l)
             if channel_l == "web" and first.get("prompt_web"):
-                # Prefer mode-aware prompt; stored prompt_web may be stale
                 prompt = contact_prompt_for_mode(capture, channel="web")
-            state = {"contact_substep": "awaiting"}
+            state = {"contact_substep": "awaiting", "is_preview": preview_mode}
+            if visitor_token:
+                state["visitor_token"] = visitor_token
             session.session_state_json = json.dumps(state)
             db.add(session)
         else:
             prompt = str(first.get("prompt") or "")
 
-        # Web start may already include name
+        # Web start may already include name / company
         if name and lead is not None:
             lead.name = str(name)[:255]
+            db.add(lead)
+        if company and lead is not None:
+            lead.company = str(company)[:255]
             db.add(lead)
 
         db.commit()
@@ -554,6 +608,9 @@ class ExpoSessionFlowService:
             "done": False,
             "prompt": prompt,
             "superseded_sessions": closed,
+            "is_preview": preview_mode,
+            "known_visitor": contact_skipped,
+            "visitor_token": (visitor_token or (known.visitor_token if known else None)),
         }
         if str(first.get("key") or "") == CONTACT_STEP_KEY:
             return enrich_step_payload(
@@ -797,6 +854,13 @@ class ExpoSessionFlowService:
                 lead.detected_language = str(detected_language)[:32]
             db.add(lead)
 
+        if key == "offer_interest" and lead is not None:
+            yes = _looks_affirmative(answer_en)
+            lead.offer_interested = yes
+            if yes:
+                lead.offer_claimed_at = datetime.utcnow()
+            db.add(lead)
+
         session.current_step = step_index + 1
         db.add(session)
 
@@ -992,6 +1056,7 @@ class ExpoSessionFlowService:
             if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
                 session.current_step = 1
             db.add(session)
+            ExpoSessionFlowService._persist_visitor_identity(db, booth=booth, session=session, lead=lead)
             db.commit()
             nxt = ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
             next_prompt = str(nxt.get("prompt") or "").strip()
@@ -1238,8 +1303,41 @@ class ExpoSessionFlowService:
         if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
             session.current_step = 1
         db.add(session)
+        ExpoSessionFlowService._persist_visitor_identity(db, booth=booth, session=session, lead=lead)
         db.commit()
         return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+
+    @staticmethod
+    def _persist_visitor_identity(
+        db: Session,
+        *,
+        booth: ExpoBooth,
+        session: ExpoSession,
+        lead: ExpoLead | None,
+    ) -> None:
+        if bool(getattr(session, "is_preview", False)):
+            return
+        if lead is None:
+            return
+        from app.services.expo.visitor_identity_service import ExpoVisitorIdentityService
+
+        state = ExpoSessionFlowService._load_state(session)
+        token = str(state.get("visitor_token") or "").strip() or None
+        identity = ExpoVisitorIdentityService.upsert(
+            db,
+            org_id=booth.org_id,
+            exhibition_id=booth.exhibition_id,
+            booth=booth,
+            visitor_token=token,
+            visitor_phone=lead.visitor_phone or session.visitor_phone,
+            visitor_email=lead.visitor_email or session.visitor_email,
+            name=lead.name,
+            company=lead.company,
+        )
+        if identity is not None:
+            state["visitor_token"] = identity.visitor_token
+            ExpoSessionFlowService._save_state(session, state)
+            db.add(session)
 
     @staticmethod
     def _apply_answer_to_lead(lead: ExpoLead, key: str, text: str) -> None:
@@ -1382,13 +1480,15 @@ class ExpoSessionFlowService:
         if delivered:
             lead.consent_acknowledged = True
             db.add(lead)
-            try:
-                from app.services.expo.expo_email_service import ExpoEmailService
+            sess = db.get(ExpoSession, lead.session_id) if lead.session_id else None
+            if sess is None or not bool(getattr(sess, "is_preview", False)):
+                try:
+                    from app.services.expo.expo_email_service import ExpoEmailService
 
-                ExpoEmailService.send_visitor_catalogue(db, booth=booth, lead=lead, assets=delivered)
-            except Exception:
-                logger = __import__("logging").getLogger(__name__)
-                logger.exception("expo_visitor_catalogue_email_failed lead=%s", lead.id)
+                    ExpoEmailService.send_visitor_catalogue(db, booth=booth, lead=lead, assets=delivered)
+                except Exception:
+                    logger = __import__("logging").getLogger(__name__)
+                    logger.exception("expo_visitor_catalogue_email_failed lead=%s", lead.id)
         return delivered, None
 
     @staticmethod

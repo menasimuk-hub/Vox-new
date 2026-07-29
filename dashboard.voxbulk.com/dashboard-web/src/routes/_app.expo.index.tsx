@@ -200,9 +200,9 @@ function ExpoHub() {
               accent="orange"
             />
             <RichKpi
-              label="Offers sent"
-              value={summary.offers_sent}
-              sub="Product packs delivered"
+              label="Emails sent"
+              value={summary.emails_sent ?? summary.offers_sent}
+              sub="Catalogue & price emails"
               trend="flat"
               labelDelta="In-session"
               todayLabel={`${summary.sessions_today ?? 0} chats today`}

@@ -115,8 +115,12 @@ def _deliver_message(
     body: str,
     attachments: list[dict[str, Any]] | None = None,
     reply_to: str | None = None,
+    from_email: str | None = None,
+    from_name: str | None = None,
+    smtp_username: str | None = None,
+    smtp_password: str | None = None,
 ) -> None:
-    """Same SMTP path as Admin → Email → Send test (row From/SSL); optional Reply-To."""
+    """Same SMTP path as Admin → Email → Send test (row From/SSL); optional Reply-To / From override."""
     clean_body = str(body or "")
     try:
         if _looks_like_html(clean_body):
@@ -127,6 +131,10 @@ def _deliver_message(
                 body=clean_body,
                 attachments=attachments,
                 reply_to=reply_to,
+                from_email=from_email,
+                from_name=from_name,
+                smtp_username=smtp_username,
+                smtp_password=smtp_password,
             )
         else:
             SmtpMailerService.send_plain(
@@ -136,6 +144,10 @@ def _deliver_message(
                 body=clean_body or subject,
                 attachments=attachments,
                 reply_to=reply_to,
+                from_email=from_email,
+                from_name=from_name,
+                smtp_username=smtp_username,
+                smtp_password=smtp_password,
             )
     except SmtpMailerError:
         if not _looks_like_html(clean_body):
@@ -150,6 +162,10 @@ def _deliver_message(
             body=plain,
             attachments=attachments,
             reply_to=reply_to,
+            from_email=from_email,
+            from_name=from_name,
+            smtp_username=smtp_username,
+            smtp_password=smtp_password,
         )
 
 
@@ -169,6 +185,10 @@ class TransactionalEmailService:
         to_email: str,
         variables: dict[str, str],
         attachments: list[dict[str, Any]] | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
+        smtp_username: str | None = None,
+        smtp_password: str | None = None,
     ) -> tuple[bool, str | None]:
         """
         Sends using the admin email template when enabled.
@@ -196,7 +216,17 @@ class TransactionalEmailService:
         subject = substitute_placeholders(subject_tpl, variables).strip() or k.replace("_", " ").title()
         body = substitute_placeholders(body_tpl, variables)
         try:
-            _deliver_message(db, to_addr=to_addr, subject=subject, body=body, attachments=attachments)
+            _deliver_message(
+                db,
+                to_addr=to_addr,
+                subject=subject,
+                body=body,
+                attachments=attachments,
+                from_email=from_email,
+                from_name=from_name,
+                smtp_username=smtp_username,
+                smtp_password=smtp_password,
+            )
         except SmtpMailerError as e:
             logger.warning("transactional_smtp_failed", extra={"template": k, "err": str(e)})
             return False, str(e)

@@ -111,6 +111,13 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
         "description": "Shown when the booth has catalogue or price-list files — visitor can download what they want.",
         "matches_products": False,
     },
+    {
+        "key": "offer_interest",
+        "prompt": "🎁 Are you interested in our special trade-show offer? (Yes / No)",
+        "label": "Trade-show offer",
+        "description": "Shown when you add an optional expo offer — claim link is emailed if they say yes.",
+        "matches_products": False,
+    },
     # Optional extras (not selected by default)
     {
         "key": "products_wanted",
@@ -174,6 +181,7 @@ QUESTION_TOPIC_EMOJI: dict[str, str] = {
     "timeline": "🗓️",
     "follow_up": "📞",
     "consent_info": "📋",
+    "offer_interest": "🎁",
     "products_wanted": "📦",
     "budget": "💷",
     "volume": "📊",

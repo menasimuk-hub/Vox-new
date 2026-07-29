@@ -31,6 +31,7 @@ from app.models.expo import (
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
+from app.services.expo.org_profile_service import ExpoOrgProfileService
 from app.services.expo.question_bank import (
     build_vcard,
     default_free_gift_text,
@@ -56,6 +57,38 @@ BOOTH_UNPAID_EXHAUSTED_MESSAGE = (
     "the exhibitor must pay for the package before it can go live."
 )
 PREVIEW_TESTS_LIMIT = 15
+
+
+def parse_offer_config(raw: Any) -> dict[str, Any] | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        if not raw.strip():
+            return None
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return None
+    if not isinstance(raw, dict):
+        return None
+    title = str(raw.get("title") or "").strip()
+    if not title:
+        return None
+    return {
+        "title": title[:255],
+        "description": str(raw.get("description") or "").strip()[:2000],
+        "claim_url": str(raw.get("claim_url") or "").strip()[:1024],
+        "code": str(raw.get("code") or "").strip()[:64],
+        "ends_at": str(raw.get("ends_at") or "").strip()[:64],
+    }
+
+
+def normalize_visitor_contact_email(raw: Any) -> str | None:
+    email = str(raw or "").strip().lower()
+    if email and "@" in email and "." in email.split("@")[-1]:
+        return email[:255]
+    return None
+
 EXPO_PACKAGE_CHECKOUT_KIND = "expo_package_checkout"
 _LONDON = ZoneInfo("Europe/London")
 _UTC = ZoneInfo("UTC")
@@ -146,8 +179,11 @@ def booth_access_block_reason(booth: ExpoBooth, *, now: datetime | None = None) 
     stamp = now or datetime.utcnow()
     if str(booth.status or "").lower() != "active":
         return BOOTH_CLOSED_MESSAGE
-    if booth_is_expired(booth, now=stamp):
+    if booth_is_expired(booth, now=stamp) and not bool(getattr(booth, "is_preview_draft", False)):
         return BOOTH_CLOSED_MESSAGE
+    # Wizard preview drafts never consume the 15 unpaid preview tests.
+    if bool(getattr(booth, "is_preview_draft", False)):
+        return None
     if booth_requires_preview_quota(booth, now=stamp) and booth_preview_remaining(booth) <= 0:
         if not booth_is_paid(booth):
             return BOOTH_UNPAID_EXHAUSTED_MESSAGE
@@ -423,11 +459,17 @@ class ExpoBoothService:
             "representatives": parse_representative_contacts(
                 getattr(booth, "representative_contacts_json", None)
             ),
+            "visitor_contact_email": getattr(booth, "visitor_contact_email", None),
+            "offer": parse_offer_config(getattr(booth, "offer_config_json", None)),
+            "is_preview_draft": bool(getattr(booth, "is_preview_draft", False)),
             "company_website": getattr(booth, "company_website", None),
             "notify_mobile": getattr(booth, "notify_mobile", None),
             "max_categories": ExpoBoothService.package_max_categories(db, booth.package_id),
             "venue": exhibition.venue if exhibition else None,
             "industry_id": exhibition.industry_id if exhibition else None,
+            "exhibition_starts_on": exhibition.starts_on.isoformat() if exhibition and exhibition.starts_on else None,
+            "exhibition_ends_on": exhibition.ends_on.isoformat() if exhibition and exhibition.ends_on else None,
+            "exhibition_timezone": getattr(exhibition, "timezone", None) or "Europe/London" if exhibition else "Europe/London",
             "created_at": booth.created_at.isoformat() if booth.created_at else None,
         }
 
@@ -698,7 +740,11 @@ class ExpoBoothService:
     def list_booths(db: Session, *, org_id: str, owner_user_id: str | None = None) -> list[dict[str, Any]]:
         import logging
 
-        q = select(ExpoBooth).where(ExpoBooth.org_id == org_id).order_by(ExpoBooth.created_at.desc())
+        q = (
+            select(ExpoBooth)
+            .where(ExpoBooth.org_id == org_id, ExpoBooth.is_preview_draft.is_(False))
+            .order_by(ExpoBooth.created_at.desc())
+        )
         if owner_user_id:
             # Members see their own booths; also include legacy rows with no owner stamp
             q = q.where(
@@ -726,24 +772,45 @@ class ExpoBoothService:
         org = db.get(Organisation, org_id)
         if org is None:
             raise ValueError("Organisation not found")
-        ExpoBoothService.assert_can_create_booth(db, org_id=org_id)
         industry_id = str(payload.get("industry_id") or "").strip() or None
         industry = db.get(ExpoIndustry, industry_id) if industry_id else None
         now = datetime.utcnow()
-        exhibition = ExpoExhibition(
-            id=str(uuid.uuid4()),
-            org_id=org_id,
-            industry_id=industry.id if industry else None,
-            name=str(payload.get("exhibition_name") or "Exhibition").strip()[:255],
-            venue=(str(payload.get("venue") or "").strip() or None),
-            preferred_language=str(payload.get("preferred_language") or "en")[:16],
-            status="active",
-            created_by_user_id=user_id,
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(exhibition)
-        db.flush()
+
+        draft_id = str(payload.get("draft_booth_id") or "").strip() or None
+        existing_draft = None
+        if draft_id:
+            candidate = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=draft_id)
+            if candidate is not None and getattr(candidate, "is_preview_draft", False):
+                existing_draft = candidate
+
+        if existing_draft is None:
+            ExpoBoothService.assert_can_create_booth(db, org_id=org_id)
+
+        if existing_draft is not None:
+            exhibition = db.get(ExpoExhibition, existing_draft.exhibition_id)
+            if exhibition is None:
+                raise ValueError("Exhibition not found for draft booth")
+            if industry is not None:
+                exhibition.industry_id = industry.id
+            exhibition.name = str(payload.get("exhibition_name") or exhibition.name).strip()[:255]
+            exhibition.venue = (str(payload.get("venue") or "").strip() or None)
+            exhibition.updated_at = now
+            db.add(exhibition)
+        else:
+            exhibition = ExpoExhibition(
+                id=str(uuid.uuid4()),
+                org_id=org_id,
+                industry_id=industry.id if industry else None,
+                name=str(payload.get("exhibition_name") or "Exhibition").strip()[:255],
+                venue=(str(payload.get("venue") or "").strip() or None),
+                preferred_language=str(payload.get("preferred_language") or "en")[:16],
+                status="active",
+                created_by_user_id=user_id,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(exhibition)
+            db.flush()
 
         company = str(payload.get("company_display_name") or org.name or "Company").strip()[:255]
         booth_name = str(payload.get("name") or payload.get("booth_code") or "Stand").strip()[:255]
@@ -794,6 +861,10 @@ class ExpoBoothService:
         package_id = str(payload.get("package_id") or "").strip() or None
         start_raw = payload.get("start_date") or payload.get("starts_on") or payload.get("package_start_date")
         start_at = parse_package_start_at(start_raw, fallback=now)
+        expo_start_raw = payload.get("exhibition_starts_at") or payload.get("exhibition_start") or start_raw
+        expo_end_raw = payload.get("exhibition_ends_at") or payload.get("exhibition_end")
+        expo_start = parse_package_start_at(expo_start_raw, fallback=start_at)
+        expo_end = parse_package_start_at(expo_end_raw, fallback=None) if expo_end_raw else None
         reps = ExpoBoothService._normalize_reps(payload.get("representatives") or payload.get("representative_contacts"))
         company_website = (str(payload.get("company_website") or "").strip() or None)
         if company_website:
@@ -803,35 +874,86 @@ class ExpoBoothService:
             notify_mobile = str(reps[0].get("mobile") or "").strip() or None
         if notify_mobile:
             notify_mobile = notify_mobile[:64]
-
-        booth = ExpoBooth(
-            id=str(uuid.uuid4()),
-            org_id=org_id,
-            exhibition_id=exhibition.id,
-            package_id=package_id,
-            name=booth_name,
-            company_display_name=company,
-            booth_code=booth_code,
-            qr_token=token,
-            status="active",
-            scan_count=0,
-            preview_tests_used=0,
-            payment_status="unpaid",
-            question_config_json=question_json,
-            representative_contacts_json=json.dumps(reps) if reps else None,
-            company_website=company_website,
-            notify_mobile=notify_mobile,
-            created_by_user_id=user_id,
-            created_at=now,
-            updated_at=now,
+        visitor_contact_email = normalize_visitor_contact_email(
+            payload.get("visitor_contact_email") or payload.get("contact_email")
         )
-        apply_package_window(db, booth, now=now, start_at=start_at)
-        exhibition.starts_on = booth.activated_at
-        exhibition.ends_on = booth.expires_at
-        exhibition.updated_at = now
-        db.add(exhibition)
-        db.add(booth)
-        db.flush()
+        if not visitor_contact_email and not bool(payload.get("is_preview_draft")):
+            raise ValueError("visitor_contact_email is required")
+        offer = parse_offer_config(payload.get("offer") or payload.get("offer_config"))
+        # Auto-include offer_interest question when offer configured
+        if offer and isinstance(selected_keys, list) and "offer_interest" not in selected_keys:
+            if "consent_info" in selected_keys:
+                selected_keys.insert(selected_keys.index("consent_info"), "offer_interest")
+            else:
+                selected_keys.append("offer_interest")
+            question_json = json.dumps(
+                default_question_config(
+                    include_industry_addon=include_addon,
+                    addon_question=addon,
+                    free_gift_enabled=free_gift_enabled,
+                    free_gift_text=free_gift_text,
+                    thank_you_message=thank_you_message,
+                    selected_question_keys=selected_keys,
+                    contact_capture=contact_capture,
+                    db=db,
+                )
+            )
+        is_preview_draft = bool(payload.get("is_preview_draft"))
+
+        if existing_draft is not None:
+            booth = existing_draft
+            booth.package_id = package_id
+            booth.name = booth_name
+            booth.company_display_name = company
+            booth.booth_code = booth_code
+            booth.question_config_json = question_json
+            booth.representative_contacts_json = json.dumps(reps) if reps else None
+            booth.visitor_contact_email = visitor_contact_email
+            booth.offer_config_json = json.dumps(offer) if offer else None
+            booth.company_website = company_website
+            booth.notify_mobile = notify_mobile
+            booth.is_preview_draft = is_preview_draft
+            booth.updated_at = now
+            if exhibition is not None:
+                exhibition.starts_on = expo_start
+                exhibition.ends_on = expo_end or booth.expires_at
+                exhibition.timezone = str(payload.get("timezone") or "Europe/London")[:64]
+                exhibition.updated_at = now
+                db.add(exhibition)
+            apply_package_window(db, booth, now=now, start_at=start_at)
+        else:
+            booth = ExpoBooth(
+                id=str(uuid.uuid4()),
+                org_id=org_id,
+                exhibition_id=exhibition.id,
+                package_id=package_id,
+                name=booth_name,
+                company_display_name=company,
+                booth_code=booth_code,
+                qr_token=token,
+                status="active",
+                scan_count=0,
+                preview_tests_used=0,
+                payment_status="unpaid",
+                question_config_json=question_json,
+                representative_contacts_json=json.dumps(reps) if reps else None,
+                visitor_contact_email=visitor_contact_email,
+                offer_config_json=json.dumps(offer) if offer else None,
+                is_preview_draft=is_preview_draft,
+                company_website=company_website,
+                notify_mobile=notify_mobile,
+                created_by_user_id=user_id,
+                created_at=now,
+                updated_at=now,
+            )
+            apply_package_window(db, booth, now=now, start_at=start_at)
+            exhibition.starts_on = expo_start or booth.activated_at
+            exhibition.ends_on = expo_end or booth.expires_at
+            exhibition.timezone = str(payload.get("timezone") or "Europe/London")[:64]
+            exhibition.updated_at = now
+            db.add(exhibition)
+            db.add(booth)
+            db.flush()
 
         categories_payload = payload.get("categories")
         if isinstance(categories_payload, list) and categories_payload:
@@ -852,9 +974,39 @@ class ExpoBoothService:
                 legacy_assets=list(payload.get("assets") or []),
                 now=now,
             )
+
+        ExpoOrgProfileService.save(
+            db,
+            org_id=org_id,
+            visitor_contact_email=visitor_contact_email,
+            representatives=reps,
+            company_website=company_website,
+            notify_mobile=notify_mobile,
+        )
         db.commit()
         db.refresh(booth)
         return ExpoBoothService.serialize_booth(db, booth)
+
+    @staticmethod
+    def upsert_preview_draft(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str | None,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create or refresh a wizard preview draft booth (excluded from Saved booths)."""
+        data = dict(payload)
+        data["is_preview_draft"] = True
+        # Soft-require contact email for draft — use placeholder only if missing
+        if not normalize_visitor_contact_email(data.get("visitor_contact_email") or data.get("contact_email")):
+            data["visitor_contact_email"] = "preview@expo.local"
+        if not data.get("package_id"):
+            # Pick cheapest active package if wizard has not reached Package step
+            pkgs = ExpoBoothService.list_packages(db, market_zone="gb")
+            if pkgs:
+                data["package_id"] = pkgs[0]["id"]
+        return ExpoBoothService.create_booth(db, org_id=org_id, user_id=user_id, payload=data)
 
     @staticmethod
     def update_booth(
@@ -877,6 +1029,12 @@ class ExpoBoothService:
         if payload.get("industry_id") is not None and exhibition is not None:
             iid = str(payload.get("industry_id") or "").strip() or None
             exhibition.industry_id = iid
+        if payload.get("exhibition_starts_at") is not None and exhibition is not None:
+            exhibition.starts_on = parse_package_start_at(payload.get("exhibition_starts_at"), fallback=None)
+        if payload.get("exhibition_ends_at") is not None and exhibition is not None:
+            exhibition.ends_on = parse_package_start_at(payload.get("exhibition_ends_at"), fallback=None)
+        if payload.get("timezone") is not None and exhibition is not None:
+            exhibition.timezone = str(payload.get("timezone") or "Europe/London")[:64]
         if exhibition is not None:
             exhibition.updated_at = now
             db.add(exhibition)
@@ -891,6 +1049,15 @@ class ExpoBoothService:
             booth.company_website = str(payload.get("company_website") or "").strip()[:512] or None
         if payload.get("notify_mobile") is not None:
             booth.notify_mobile = str(payload.get("notify_mobile") or "").strip()[:64] or None
+        if "visitor_contact_email" in payload or "contact_email" in payload:
+            booth.visitor_contact_email = normalize_visitor_contact_email(
+                payload.get("visitor_contact_email") or payload.get("contact_email")
+            )
+        if "offer" in payload or "offer_config" in payload:
+            offer = parse_offer_config(payload.get("offer") or payload.get("offer_config"))
+            booth.offer_config_json = json.dumps(offer) if offer else None
+        if payload.get("is_preview_draft") is False:
+            booth.is_preview_draft = False
         if "representatives" in payload or "representative_contacts" in payload:
             reps = ExpoBoothService._normalize_reps(
                 payload.get("representatives") or payload.get("representative_contacts")
@@ -918,6 +1085,12 @@ class ExpoBoothService:
                 if isinstance(selected_keys_raw, list)
                 else None
             )
+            offer = parse_offer_config(booth.offer_config_json)
+            if offer and selected_keys is not None and "offer_interest" not in selected_keys:
+                if "consent_info" in selected_keys:
+                    selected_keys.insert(selected_keys.index("consent_info"), "offer_interest")
+                else:
+                    selected_keys.append("offer_interest")
             qcfg = payload.get("question_config")
             if isinstance(qcfg, dict) and qcfg.get("steps"):
                 booth.question_config_json = json.dumps(qcfg)
@@ -963,6 +1136,14 @@ class ExpoBoothService:
                 now=now,
             )
 
+        ExpoOrgProfileService.save(
+            db,
+            org_id=org_id,
+            visitor_contact_email=booth.visitor_contact_email,
+            representatives=parse_representative_contacts(booth.representative_contacts_json),
+            company_website=booth.company_website,
+            notify_mobile=booth.notify_mobile,
+        )
         booth.updated_at = now
         db.add(booth)
         db.commit()

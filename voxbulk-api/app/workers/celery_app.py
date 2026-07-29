@@ -102,6 +102,14 @@ celery_app.conf.update(
             "task": "seo.refresh_keyword_ideas",
             "schedule": crontab(hour=6, minute=30, day_of_week="mon"),
         },
+        "expo-visitor-day-summaries-hourly": {
+            "task": "expo.send_visitor_day_summaries",
+            "schedule": 3600.0,
+        },
+        "expo-purge-visitor-identities-daily": {
+            "task": "expo.purge_expired_visitor_identities",
+            "schedule": 86400.0,
+        },
     },
 )
 
@@ -121,6 +129,7 @@ from app.workers import survey_wa_template_tasks  # noqa: E402, F401
 from app.workers import survey_wa_dispatch_tasks  # noqa: E402, F401
 from app.workers import feedback_voice_note_tasks  # noqa: E402, F401
 from app.workers import expo_voice_note_tasks  # noqa: E402, F401
+from app.workers import expo_summary_tasks  # noqa: E402, F401
 from app.workers import seo_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""

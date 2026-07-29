@@ -6,6 +6,8 @@ import {
   ChevronRight,
   Eye,
   FileUp,
+  Gift,
+  Mail,
   Package,
   QrCode,
   Rocket,
@@ -17,12 +19,12 @@ import { toast } from "sonner";
 import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
 import { ExpoBoothPrintCard } from "@/components/expo-booth-print-card";
 import { ExpoPayDialog } from "@/components/expo-pay-dialog";
-import { ExpoScanChoosePreview, ExpoWaPhonePreview, ExpoWebPhonePreview } from "@/components/expo-phone-preview";
 import {
   categoriesToPayload,
   CategoryProductsEditor,
   emptyRepresentative,
   RepresentativesEditor,
+  representativesFromApi,
   representativesToPayload,
   type CategoryDraft,
   type RepresentativeDraft,
@@ -42,7 +44,7 @@ import { cn } from "@/lib/utils";
 import { waIndustryIcon } from "@/lib/wa-industry-icon";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 type Industry = { id: string; slug: string; name: string; addon_question?: string | null };
 type Package = {
@@ -65,17 +67,47 @@ type QuestionOpt = {
   matches_products?: boolean;
 };
 
+type BoothResult = {
+  id: string;
+  qr_image_url?: string;
+  web_url?: string;
+  qr_token?: string;
+  trigger_text?: string;
+  whatsapp_url?: string;
+  is_paid?: boolean;
+  is_live?: boolean;
+  payment_status?: string;
+  activated_at?: string | null;
+};
+
+type ExpoProfile = {
+  visitor_contact_email?: string | null;
+  representatives?: Array<Record<string, unknown>>;
+  company_website?: string | null;
+  notify_mobile?: string | null;
+};
+
 const EXPO_STEPS: WizardStepDef[] = [
   { id: 1, title: "Industry", icon: Briefcase },
   { id: 2, title: "Event", icon: CalendarDays },
-  { id: 3, title: "Questions", icon: Target },
+  { id: 3, title: "Offers", icon: Gift },
   { id: 4, title: "Products", icon: FileUp },
-  { id: 5, title: "Preview", icon: Eye },
-  { id: 6, title: "Package", icon: Package },
-  { id: 7, title: "Activate", icon: Rocket },
+  { id: 5, title: "Questions", icon: Target },
+  { id: 6, title: "Preview", icon: Eye },
+  { id: 7, title: "Package", icon: Package },
+  { id: 8, title: "Activate", icon: Rocket },
 ];
 
 const DEFAULT_Q_KEYS = ["interest", "role", "timeline", "follow_up", "consent_info"];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function defaultFreeGiftText(companyName: string) {
   const name = companyName.trim();
@@ -115,6 +147,9 @@ function CreateExpoBooth() {
   const [venue, setVenue] = React.useState("");
   const [boothCode, setBoothCode] = React.useState("");
   const [company, setCompany] = React.useState(session?.org?.name || "");
+  const [visitorContactEmail, setVisitorContactEmail] = React.useState("");
+  const [exhibitionStartsAt, setExhibitionStartsAt] = React.useState("");
+  const [exhibitionEndsAt, setExhibitionEndsAt] = React.useState("");
   const [selectedQKeys, setSelectedQKeys] = React.useState<string[]>([...DEFAULT_Q_KEYS]);
   const [includeAddon, setIncludeAddon] = React.useState(true);
   const [contactCapture, setContactCapture] = React.useState<"offer_both" | "manual_only" | "card_only">(
@@ -130,36 +165,75 @@ function CreateExpoBooth() {
     if (freeGiftCustomized) return;
     setFreeGiftText(defaultFreeGiftText(company));
   }, [company, freeGiftCustomized]);
+
   const [representatives, setRepresentatives] = React.useState<RepresentativeDraft[]>(() => [
     emptyRepresentative(session?.org?.name || ""),
   ]);
   const [companyWebsite, setCompanyWebsite] = React.useState("");
   const [notifyMobile, setNotifyMobile] = React.useState("");
+
+  const [offerEnabled, setOfferEnabled] = React.useState(false);
+  const [offerTitle, setOfferTitle] = React.useState("");
+  const [offerDescription, setOfferDescription] = React.useState("");
+  const [offerClaimUrl, setOfferClaimUrl] = React.useState("");
+  const [offerCode, setOfferCode] = React.useState("");
+
   const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
   const [packageId, setPackageId] = React.useState("");
-  const [packageStartDate, setPackageStartDate] = React.useState(() => {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  });
-  const [previewChannel, setPreviewChannel] = React.useState<"scan" | "web" | "wa">("scan");
-  const [webTemplate] = React.useState("Default template");
+  const [packageStartDate, setPackageStartDateRaw] = React.useState(() => todayIso());
+  const [packageStartDateTouched, setPackageStartDateTouched] = React.useState(false);
+  const setPackageStartDate = (v: string) => {
+    setPackageStartDateTouched(true);
+    setPackageStartDateRaw(v);
+  };
+
   const [saving, setSaving] = React.useState(false);
-  const [created, setCreated] = React.useState<{
-    id: string;
-    qr_image_url?: string;
-    web_url?: string;
-    qr_token?: string;
-    trigger_text?: string;
-    whatsapp_url?: string;
-    is_paid?: boolean;
-    is_live?: boolean;
-    payment_status?: string;
-    activated_at?: string | null;
-  } | null>(null);
+  const [previewSaving, setPreviewSaving] = React.useState(false);
+  const [draftBooth, setDraftBooth] = React.useState<BoothResult | null>(null);
+  const [created, setCreated] = React.useState<BoothResult | null>(null);
   const [payOpen, setPayOpen] = React.useState(false);
+
+  // Prefill from org Expo profile (contact email, reps, website, notify mobile).
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch<{ ok: boolean; item: ExpoProfile }>("/expo/profile");
+        if (cancelled) return;
+        const item = res?.item || {};
+        if (item.visitor_contact_email) {
+          setVisitorContactEmail((prev) => prev || String(item.visitor_contact_email));
+        }
+        if (Array.isArray(item.representatives) && item.representatives.length > 0) {
+          setRepresentatives(representativesFromApi(item.representatives));
+        }
+        if (item.company_website) {
+          setCompanyWebsite((prev) => prev || String(item.company_website));
+        }
+        if (item.notify_mobile) {
+          setNotifyMobile((prev) => prev || String(item.notify_mobile));
+        }
+      } catch {
+        // Optional prefill — ignore failures silently.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the package start date synced to the event start date until the user edits it.
+  React.useEffect(() => {
+    if (packageStartDateTouched || !exhibitionStartsAt) return;
+    setPackageStartDateRaw(exhibitionStartsAt.slice(0, 10));
+  }, [exhibitionStartsAt, packageStartDateTouched]);
+
+  // Auto-include the trade-show offer question once an offer is configured.
+  React.useEffect(() => {
+    if (!offerEnabled) return;
+    setSelectedQKeys((keys) => (keys.includes("offer_interest") ? keys : [...keys, "offer_interest"]));
+  }, [offerEnabled]);
 
   const industries = industriesQ.data?.items || [];
   const packages = packagesQ.data?.items || [];
@@ -179,8 +253,6 @@ function CreateExpoBooth() {
     ];
   }, [questionsQ.data?.items, industry?.addon_question]);
 
-  const selectedPrompts = questionBank.filter((q) => selectedQKeys.includes(q.key)).map((q) => q.prompt);
-
   const selectedPackage = packages.find((p) => p.id === packageId);
   const packageDays = Math.max(1, selectedPackage?.duration_days || 1);
   const packageEndDate = React.useMemo(() => {
@@ -194,19 +266,106 @@ function CreateExpoBooth() {
     return `${y}-${m}-${day}`;
   }, [packageDays, packageStartDate]);
 
+  const eventDatesLabel = React.useMemo(() => {
+    const start = exhibitionStartsAt ? exhibitionStartsAt.slice(0, 10) : "";
+    const end = exhibitionEndsAt ? exhibitionEndsAt.slice(0, 10) : "";
+    if (start && end) return `${start} → ${end}`;
+    return start || null;
+  }, [exhibitionStartsAt, exhibitionEndsAt]);
+
   const categoryMaxCategories: number | null | undefined = selectedPackage
     ? selectedPackage.max_categories ?? null
     : undefined;
 
   const canNext: Record<Step, boolean> = {
     1: Boolean(industryId),
-    2: Boolean(exhibitionName.trim() && company.trim()),
-    3: selectedQKeys.length > 0,
+    2: Boolean(exhibitionName.trim() && company.trim() && EMAIL_RE.test(visitorContactEmail.trim())),
+    3: true,
     4: true,
-    5: true,
-    6: Boolean(packageId),
-    7: true,
+    5: selectedQKeys.length > 0,
+    6: true,
+    7: Boolean(packageId),
+    8: true,
   };
+
+  function buildPayload(extra?: Record<string, unknown>) {
+    const keys = [...selectedQKeys];
+    if (includeAddon && industry?.addon_question && !keys.includes("industry_addon")) {
+      keys.splice(Math.max(0, keys.indexOf("consent_info")), 0, "industry_addon");
+    }
+    if (offerEnabled && offerTitle.trim() && !keys.includes("offer_interest")) {
+      keys.splice(Math.max(0, keys.indexOf("consent_info")), 0, "offer_interest");
+    }
+    return {
+      industry_id: industryId,
+      exhibition_name: exhibitionName.trim(),
+      venue: venue.trim() || null,
+      booth_code: boothCode.trim() || exhibitionName.trim(),
+      name: boothCode.trim() || exhibitionName.trim(),
+      company_display_name: company.trim(),
+      visitor_contact_email: visitorContactEmail.trim(),
+      exhibition_starts_at: exhibitionStartsAt || packageStartDate,
+      exhibition_ends_at: exhibitionEndsAt || null,
+      include_industry_addon: includeAddon,
+      selected_question_keys: keys,
+      contact_capture: contactCapture,
+      free_gift_enabled: freeGiftEnabled,
+      free_gift_text: freeGiftEnabled ? freeGiftText.trim() : null,
+      package_id: packageId || undefined,
+      start_date: packageStartDate || exhibitionStartsAt?.slice(0, 10),
+      representatives: representativesToPayload(representatives),
+      company_website: companyWebsite.trim() || null,
+      notify_mobile: notifyMobile.trim() || null,
+      categories: categoriesToPayload(categories),
+      offer:
+        offerEnabled && offerTitle.trim()
+          ? {
+              title: offerTitle.trim(),
+              description: offerDescription.trim() || null,
+              claim_url: offerClaimUrl.trim() || null,
+              code: offerCode.trim() || null,
+            }
+          : null,
+      draft_booth_id: draftBooth?.id,
+      ...extra,
+    };
+  }
+
+  async function runPreviewDraft() {
+    setPreviewSaving(true);
+    try {
+      const payload = buildPayload({ is_preview_draft: true });
+      const res = await apiFetch<{ ok: boolean; item: BoothResult }>("/expo/booths/preview-draft", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setDraftBooth(res.item);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not generate the preview");
+    } finally {
+      setPreviewSaving(false);
+    }
+  }
+
+  React.useEffect(() => {
+    if (step === 6) {
+      void runPreviewDraft();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  const draftWebUrlBase = resolveExpoWebUrl({ web_url: draftBooth?.web_url, qr_token: draftBooth?.qr_token });
+  const draftWebUrl = React.useMemo(() => {
+    if (!draftWebUrlBase) return "";
+    try {
+      const u = new URL(draftWebUrlBase);
+      u.searchParams.set("preview", "1");
+      return u.toString();
+    } catch {
+      return draftWebUrlBase.includes("?") ? `${draftWebUrlBase}&preview=1` : `${draftWebUrlBase}?preview=1`;
+    }
+  }, [draftWebUrlBase]);
+  const draftQrSrc = draftWebUrl ? buildExpoQrImageUrl(draftWebUrl, 280) : "";
 
   if (!canCreate) {
     return (
@@ -234,35 +393,13 @@ function CreateExpoBooth() {
     }
     setSaving(true);
     try {
-      const keys = [...selectedQKeys];
-      if (includeAddon && industry?.addon_question && !keys.includes("industry_addon")) {
-        keys.splice(Math.max(0, keys.indexOf("consent_info")), 0, "industry_addon");
-      }
-      const payload = {
-        industry_id: industryId,
-        exhibition_name: exhibitionName.trim(),
-        venue: venue.trim() || null,
-        booth_code: boothCode.trim() || exhibitionName.trim(),
-        name: boothCode.trim() || exhibitionName.trim(),
-        company_display_name: company.trim(),
-        include_industry_addon: includeAddon,
-        selected_question_keys: keys,
-        contact_capture: contactCapture,
-        free_gift_enabled: freeGiftEnabled,
-        free_gift_text: freeGiftEnabled ? freeGiftText.trim() : null,
-        package_id: packageId,
-        start_date: packageStartDate,
-        representatives: representativesToPayload(representatives),
-        company_website: companyWebsite.trim() || null,
-        notify_mobile: notifyMobile.trim() || null,
-        categories: categoriesToPayload(categories),
-      };
-      const res = await apiFetch<{ ok: boolean; item: typeof created & { id: string } }>("/expo/booths", {
+      const payload = buildPayload({ is_preview_draft: false, draft_booth_id: draftBooth?.id });
+      const res = await apiFetch<{ ok: boolean; item: BoothResult }>("/expo/booths", {
         method: "POST",
         body: JSON.stringify(payload),
       });
       setCreated(res.item);
-      setStep(7);
+      setStep(8);
       // Seed Saved booths cache so the new QR appears immediately
       queryClient.setQueryData<{ ok: boolean; items: Array<typeof res.item> }>(["expo", "booths"], (prev) => {
         const items = prev?.items ? [...prev.items] : [];
@@ -279,28 +416,6 @@ function CreateExpoBooth() {
       setSaving(false);
     }
   };
-
-  const waMessages = [
-    {
-      from: "user" as const,
-      text: `Hi ${company || "your stand"} — scanned your QR at ${exhibitionName || "the exhibition"}. Please send the catalogue / next steps.`,
-    },
-    {
-      from: "bot" as const,
-      text:
-        contactCapture === "card_only"
-          ? "Please send a photo of your business card to continue."
-          : contactCapture === "manual_only"
-            ? "Thanks for stopping by — what's your full name?"
-            : "Send a photo of your business card, or reply with your full name (photo skips name, company and mobile).",
-    },
-    ...(selectedPrompts[0]
-      ? [
-          { from: "user" as const, text: "Alex Carter" },
-          { from: "bot" as const, text: selectedPrompts[0] },
-        ]
-      : []),
-  ];
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -370,7 +485,9 @@ function CreateExpoBooth() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Event & booth</CardTitle>
-                <CardDescription>Two fields per row — keep stand details clear for the QR message.</CardDescription>
+                <CardDescription>
+                  Two fields per row — keep stand details clear for the QR message and visitor contact.
+                </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -392,6 +509,42 @@ function CreateExpoBooth() {
                 <div className="space-y-2">
                   <Label>Company name on WhatsApp</Label>
                   <Input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Acme Supplies" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="expo-event-starts">Exhibition starts</Label>
+                  <Input
+                    id="expo-event-starts"
+                    type="datetime-local"
+                    value={exhibitionStartsAt}
+                    onChange={(e) => setExhibitionStartsAt(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="expo-event-ends">Exhibition ends</Label>
+                  <Input
+                    id="expo-event-ends"
+                    type="datetime-local"
+                    value={exhibitionEndsAt}
+                    onChange={(e) => setExhibitionEndsAt(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="expo-contact-email">Contact email (shown to visitors)</Label>
+                  <div className="relative">
+                    <Mail className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="expo-contact-email"
+                      className="pl-8"
+                      type="email"
+                      required
+                      value={visitorContactEmail}
+                      onChange={(e) => setVisitorContactEmail(e.target.value)}
+                      placeholder="hello@acme.com"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Required — printed on the booth card and used if a visitor needs to reach you by email.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -418,6 +571,98 @@ function CreateExpoBooth() {
         )}
 
         {step === 3 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Gift className="size-4 text-primary" /> Trade-show offer
+              </CardTitle>
+              <CardDescription>
+                Optional — give visitors an exclusive show-only deal. Skip this step if you don't want one.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label className="flex items-start gap-3 rounded-xl border p-4">
+                <Checkbox
+                  checked={offerEnabled}
+                  onCheckedChange={(v) => setOfferEnabled(Boolean(v))}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-medium">Add a trade-show offer</span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    Adds a qualifying question asking visitors if they're interested — interested visitors get the
+                    offer details.
+                  </span>
+                </span>
+              </label>
+
+              {offerEnabled ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Offer title</Label>
+                    <Input
+                      value={offerTitle}
+                      onChange={(e) => setOfferTitle(e.target.value)}
+                      placeholder="20% off your first order"
+                    />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Offer description (optional)</Label>
+                    <Textarea
+                      value={offerDescription}
+                      onChange={(e) => setOfferDescription(e.target.value)}
+                      rows={3}
+                      placeholder="Valid for orders placed within 30 days of the show — mention this code at checkout."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Claim URL (optional)</Label>
+                    <Input
+                      value={offerClaimUrl}
+                      onChange={(e) => setOfferClaimUrl(e.target.value)}
+                      placeholder="https://acme.com/offer"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Offer code (optional)</Label>
+                    <Input
+                      value={offerCode}
+                      onChange={(e) => setOfferCode(e.target.value)}
+                      placeholder="EXPO20"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  Skip — no offer question will be shown to visitors. You can add one later by editing this booth.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {step === 4 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Products & files</CardTitle>
+              <CardDescription>
+                Optional — group products into categories with catalogue, price list, or product sheet files.
+                Visitors who consent get catalogue/price list downloads; product sheets can match interest. Skip to
+                capture leads only.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CategoryProductsEditor
+                categories={categories}
+                onChange={setCategories}
+                maxCategories={categoryMaxCategories}
+                packages={packages}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {step === 5 && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Qualifying questions</CardTitle>
@@ -460,16 +705,19 @@ function CreateExpoBooth() {
                 <div className="grid gap-2 sm:grid-cols-2">
                   {questionBank.map((q) => {
                     const checked = selectedQKeys.includes(q.key);
+                    const lockedOn = q.key === "offer_interest" && offerEnabled;
                     return (
                       <label
                         key={q.key}
                         className={cn(
                           "flex cursor-pointer gap-3 rounded-xl border p-3 transition hover:border-primary/40",
                           checked && "border-primary bg-primary/5",
+                          lockedOn && "cursor-default opacity-90",
                         )}
                       >
                         <Checkbox
                           checked={checked}
+                          disabled={lockedOn}
                           onCheckedChange={(v) => {
                             setSelectedQKeys((keys) =>
                               v ? [...keys, q.key] : keys.filter((k) => k !== q.key),
@@ -482,6 +730,11 @@ function CreateExpoBooth() {
                             {q.matches_products ? (
                               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-normal text-primary">
                                 Matches products
+                              </span>
+                            ) : null}
+                            {lockedOn ? (
+                              <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-normal text-amber-700">
+                                Auto-added · you set an offer
                               </span>
                             ) : null}
                           </span>
@@ -539,122 +792,57 @@ function CreateExpoBooth() {
           </Card>
         )}
 
-        {step === 4 && (
+        {step === 6 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Products & files</CardTitle>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Eye className="size-4 text-primary" /> Preview journey
+              </CardTitle>
               <CardDescription>
-                Optional — group products into categories with catalogue, price list, or product sheet files.
-                Visitors who consent get catalogue/price list downloads; product sheets can match interest. Skip to
-                capture leads only.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <CategoryProductsEditor
-                categories={categories}
-                onChange={setCategories}
-                maxCategories={categoryMaxCategories}
-                packages={packages}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 5 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Preview journey</CardTitle>
-              <CardDescription>
-                Same as the live QR scan: visitors choose WhatsApp or Web (default template). Switch tabs to preview
-                each path.
+                This is exactly what visitors will see when they scan — nothing here is saved as a live booth.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={previewChannel === "scan" ? "default" : "outline"}
-                  onClick={() => setPreviewChannel("scan")}
-                >
-                  Scan choice
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={previewChannel === "web" ? "default" : "outline"}
-                  onClick={() => setPreviewChannel("web")}
-                >
-                  Web form
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={previewChannel === "wa" ? "default" : "outline"}
-                  onClick={() => setPreviewChannel("wa")}
-                >
-                  WhatsApp
-                </Button>
-                <span className="self-center text-xs text-muted-foreground">
-                  Default template: {webTemplate}
-                </span>
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                Preview only — scan to try the journey. Nothing is saved. Go back to edit.
               </div>
-              <div className="grid gap-6 lg:grid-cols-2 lg:justify-items-center">
-                <div className={cn(previewChannel !== "scan" && "opacity-60 lg:opacity-100")}>
-                  <ExpoScanChoosePreview
-                    companyName={company || "Your stand"}
-                    eventName={exhibitionName}
-                    templateName={webTemplate}
-                  />
+
+              {previewSaving && !draftBooth ? (
+                <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                  Generating your preview…
                 </div>
-                <div
-                  className={cn(
-                    "flex flex-col items-center gap-3",
-                    previewChannel === "scan" && "opacity-60 lg:opacity-100",
-                  )}
-                >
-                  {previewChannel === "wa" ? (
-                    <ExpoWaPhonePreview businessName={company || "Your stand"} messages={waMessages} />
-                  ) : (
-                    <ExpoWebPhonePreview
-                      companyName={company}
-                      eventName={exhibitionName}
-                      contactHint={
-                        contactCapture === "card_only"
-                          ? "Capture a business card photo to continue."
-                          : "Capture a business card photo, or enter name, company and mobile."
-                      }
-                      questions={selectedPrompts}
-                      templateName={webTemplate}
-                    />
-                  )}
-                  <div className="rounded-xl border bg-background/80 p-3 text-center shadow-sm">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Preview QR
-                    </p>
-                    <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
-                        `https://voxbulk.com/expo/preview-${encodeURIComponent((company || "stand").slice(0, 24))}`,
-                      )}`}
-                      alt="Expo web QR preview"
-                      className="mx-auto mt-2 size-16 rounded-md border bg-white p-1"
-                    />
-                    <p className="mt-1.5 max-w-[160px] text-[10px] leading-snug text-muted-foreground">
-                      Live QR opens the scan landing (WhatsApp or Web) — same as Customer Feedback.
-                    </p>
-                  </div>
+              ) : draftBooth ? (
+                <ExpoBoothPrintCard
+                  boothId={draftBooth.id}
+                  qrSrc={draftQrSrc}
+                  webUrl={draftWebUrl}
+                  qrToken={draftBooth.qr_token}
+                  company={company}
+                  boothCode={boothCode || exhibitionName}
+                  eventName={exhibitionName}
+                  eventDates={eventDatesLabel}
+                  companyWebsite={companyWebsite}
+                  contactEmail={visitorContactEmail}
+                />
+              ) : (
+                <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                  <p>Could not generate a preview.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    onClick={() => void runPreviewDraft()}
+                  >
+                    Try again
+                  </Button>
                 </div>
-              </div>
-              {freeGiftEnabled ? (
-                <p className="text-center text-xs text-muted-foreground">
-                  Closing includes thank-you + free gift instructions.
-                </p>
-              ) : null}
+              )}
             </CardContent>
           </Card>
         )}
 
-        {step === 6 && (
+        {step === 7 && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Choose package</CardTitle>
@@ -704,7 +892,7 @@ function CreateExpoBooth() {
           </Card>
         )}
 
-        {step === 7 && (
+        {step === 8 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -718,6 +906,11 @@ function CreateExpoBooth() {
             <CardContent className="space-y-4">
               {!created ? (
                 <>
+                  {eventDatesLabel ? (
+                    <p className="text-xs text-muted-foreground">
+                      Event dates: <span className="font-medium text-foreground">{eventDatesLabel}</span>
+                    </p>
+                  ) : null}
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="expo-start-date">Package start date</Label>
@@ -782,7 +975,9 @@ function CreateExpoBooth() {
                                 : null
                             }
                             companyWebsite={companyWebsite}
-                            contactEmail={representatives.find((r) => r.email?.trim())?.email || null}
+                            contactEmail={
+                              visitorContactEmail || representatives.find((r) => r.email?.trim())?.email || null
+                            }
                           />
                         </div>
 
@@ -867,7 +1062,7 @@ function CreateExpoBooth() {
         }}
       />
 
-      {step < 7 || !created ? (
+      {step < 8 || !created ? (
         <div className="flex items-center justify-between gap-3">
           <Button
             type="button"
@@ -877,11 +1072,11 @@ function CreateExpoBooth() {
           >
             <ChevronLeft className="mr-1 size-4" /> Back
           </Button>
-          {step < 7 ? (
+          {step < 8 ? (
             <Button
               type="button"
               disabled={!canNext[step]}
-              onClick={() => setStep((s) => (s < 7 ? ((s + 1) as Step) : s))}
+              onClick={() => setStep((s) => (s < 8 ? ((s + 1) as Step) : s))}
             >
               Next <ChevronRight className="ml-1 size-4" />
             </Button>

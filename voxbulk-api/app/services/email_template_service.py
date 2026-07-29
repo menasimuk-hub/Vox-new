@@ -62,6 +62,7 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "sales_payout_invoice_paid",
     "expo_visitor_catalogue",
     "expo_exhibitor_lead_digest",
+    "expo_visitor_day_summary",
 )
 
 _TEMPLATE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")

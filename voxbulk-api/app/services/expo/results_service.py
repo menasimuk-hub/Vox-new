@@ -83,6 +83,7 @@ _EMPTY_SUMMARY: dict[str, Any] = {
     "warm": 0,
     "cold": 0,
     "offers_sent": 0,
+    "emails_sent": 0,
     "catalogue_requested": 0,
     "assets_opened": 0,
     "booths_total": 0,
@@ -246,6 +247,7 @@ class ExpoResultsService:
             "warm": sum(1 for lead in leads if lead.lead_score == "warm"),
             "cold": sum(1 for lead in leads if lead.lead_score == "cold"),
             "offers_sent": sum(1 for lead in leads if lead.offer_sent_at is not None),
+            "emails_sent": sum(1 for lead in leads if lead.offer_sent_at is not None),
             "catalogue_requested": sum(1 for lead in leads if lead.consent_acknowledged),
             "assets_opened": sum(
                 1
@@ -289,6 +291,21 @@ class ExpoResultsService:
             q = q.where(ExpoLead.consent_acknowledged.is_(False))
         capped = max(1, min(int(limit or 200), 5000))
         rows = db.execute(q.order_by(ExpoLead.created_at.desc()).limit(capped)).scalars().all()
+
+        # Drop leads from preview sessions (wizard / ?preview=1)
+        session_ids = [r.session_id for r in rows if r.session_id]
+        preview_session_ids: set[str] = set()
+        if session_ids:
+            preview_session_ids = {
+                s.id
+                for s in db.execute(
+                    select(ExpoSession).where(
+                        ExpoSession.id.in_(session_ids),
+                        ExpoSession.is_preview.is_(True),
+                    )
+                ).scalars().all()
+            }
+        rows = [r for r in rows if not r.session_id or r.session_id not in preview_session_ids]
 
         booths = {
             b.id: b for b in db.execute(select(ExpoBooth).where(ExpoBooth.id.in_(booth_ids))).scalars().all()
@@ -480,6 +497,8 @@ class ExpoResultsService:
             "catalogue_requested": catalogue_requested,
             "price_list_requested": price_list_requested,
             "offer_sent_at": lead.offer_sent_at.isoformat() if lead.offer_sent_at else None,
+            "email_sent_at": lead.offer_sent_at.isoformat() if lead.offer_sent_at else None,
+            "offer_interested": bool(getattr(lead, "offer_interested", False)),
             "assets_sent": assets_sent,
             "assets_opened": assets_opened,
             "assets_opened_count": len(assets_opened),
@@ -516,6 +535,7 @@ class ExpoResultsService:
                 "Timeline",
                 "Score",
                 "Consent",
+                "Offer interested",
                 "Booth",
                 "Assets sent",
                 "Created at",
@@ -532,8 +552,12 @@ class ExpoResultsService:
                     lead.get("buying_timeline") or "",
                     lead.get("lead_score") or "",
                     "Yes" if lead.get("consent_acknowledged") else "No",
+                    "Yes" if lead.get("offer_interested") else "No",
                     lead.get("booth_name") or "",
-                    ", ".join(lead.get("assets_sent") or []),
+                    ", ".join(
+                        a.get("title") if isinstance(a, dict) else str(a)
+                        for a in (lead.get("assets_sent") or [])
+                    ),
                     lead.get("created_at") or "",
                 ]
             )
@@ -574,6 +598,7 @@ class ExpoResultsService:
             "Timeline",
             "Score",
             "Consent",
+            "Offer interested",
             "Booth",
             "Assets sent",
             "Created at",
@@ -591,6 +616,10 @@ class ExpoResultsService:
             interest = str(lead.get("interest") or "")
             if interest == "[Translation unavailable]":
                 interest = ""
+            assets = lead.get("assets_sent") or []
+            assets_txt = ", ".join(
+                a.get("title") if isinstance(a, dict) else str(a) for a in assets
+            )
             ws.append(
                 [
                     lead.get("name") or "",
@@ -601,15 +630,16 @@ class ExpoResultsService:
                     lead.get("buying_timeline") or "",
                     lead.get("lead_score") or "",
                     "Yes" if lead.get("consent_acknowledged") else "No",
+                    "Yes" if lead.get("offer_interested") else "No",
                     lead.get("booth_name") or "",
-                    ", ".join(lead.get("assets_sent") or []),
+                    assets_txt,
                     lead.get("created_at") or "",
                 ]
             )
         # Reasonable column widths
         from openpyxl.utils import get_column_letter
 
-        widths = [22, 22, 18, 28, 36, 16, 10, 10, 22, 28, 20]
+        widths = [22, 22, 18, 28, 36, 16, 10, 10, 14, 22, 28, 20]
         for idx, width in enumerate(widths, start=1):
             ws.column_dimensions[get_column_letter(idx)].width = width
         out = io.BytesIO()

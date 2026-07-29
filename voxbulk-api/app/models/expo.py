@@ -79,6 +79,7 @@ class ExpoExhibition(Base):
     venue: Mapped[str | None] = mapped_column(String(255), nullable=True)
     starts_on: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ends_on: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Europe/London")
     preferred_language: Mapped[str] = mapped_column(String(16), nullable=False, default="en")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
@@ -109,6 +110,11 @@ class ExpoBooth(Base):
     question_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # JSON list of {name, company_name, email, mobile, telephone, website?}
     representative_contacts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Single visitor-facing contact email (catalogue / summary emails).
+    visitor_contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Optional trade-show offer: {title, description, claim_url, code?, ends_at?}
+    offer_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_preview_draft: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)
     notify_mobile: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
@@ -195,6 +201,8 @@ class ExpoLead(Base):
     lead_score: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     consent_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     offer_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    offer_interested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    offer_claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     assets_sent_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     # JSON list of {asset_id, asset_key, purpose, opened_at}
     assets_opened_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -213,12 +221,70 @@ class ExpoSession(Base):
     visitor_phone: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     visitor_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    is_preview: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     detected_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     session_state_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoVisitorIdentity(Base):
+    """Returning visitor at an exhibition — skip business card on later booth scans."""
+
+    __tablename__ = "expo_visitor_identities"
+    __table_args__ = (
+        UniqueConstraint("exhibition_id", "visitor_token", name="uq_expo_visitor_exhibition_token"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    exhibition_id: Mapped[str] = mapped_column(String(36), ForeignKey("expo_exhibitions.id"), nullable=False, index=True)
+    visitor_token: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    visitor_phone: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    visitor_email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoOrgProfile(Base):
+    """Org-level defaults for Expo Event step (contact email + representatives)."""
+
+    __tablename__ = "expo_org_profiles"
+
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), primary_key=True)
+    visitor_contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    representatives_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    company_website: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    notify_mobile: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoVisitorSummarySend(Base):
+    """Idempotency for daily / final visitor summary emails."""
+
+    __tablename__ = "expo_visitor_summary_sends"
+    __table_args__ = (
+        UniqueConstraint(
+            "exhibition_id",
+            "visitor_email",
+            "summary_date",
+            "is_final",
+            name="uq_expo_visitor_summary_send",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    exhibition_id: Mapped[str] = mapped_column(String(36), ForeignKey("expo_exhibitions.id"), nullable=False, index=True)
+    visitor_email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    summary_date: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_final: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class ExpoResponse(Base):

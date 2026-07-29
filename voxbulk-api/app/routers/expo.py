@@ -103,6 +103,31 @@ def create_booth(payload: dict, db: Session = Depends(get_db), principal=Depends
     return {"ok": True, "item": item}
 
 
+@router.post("/booths/preview-draft")
+def upsert_preview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Wizard Preview step — create/refresh draft booth so QR works; excluded from Saved booths."""
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    try:
+        item = ExpoBoothService.upsert_preview_draft(
+            db, org_id=principal.org_id, user_id=principal.user_id, payload=payload
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "item": item}
+
+
+@router.get("/profile")
+def get_expo_profile(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    from app.services.expo.org_profile_service import ExpoOrgProfileService
+
+    return {"ok": True, "item": ExpoOrgProfileService.get(db, principal.org_id)}
+
+
 @router.post("/assets/upload")
 async def upload_expo_asset(
     file: UploadFile = File(...),

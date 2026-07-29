@@ -256,24 +256,51 @@ function ArrowGlyph({ className = "" }: { className?: string }) {
 
 export type PublicExpoLandingProps = {
   token: string;
+  /** Dashboard mock — no API calls. */
   preview?: boolean;
+  /** Real QR test from wizard — API runs but nothing durable is saved. */
+  livePreview?: boolean;
   previewCompanyName?: string;
   previewEventName?: string;
   previewWaUrl?: string;
 };
 
+function visitorTokenStorageKey(exhibitionId: string | null | undefined) {
+  return `expo:visitor:${exhibitionId || "unknown"}`;
+}
+
+function readVisitorToken(exhibitionId: string | null | undefined): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(visitorTokenStorageKey(exhibitionId));
+  } catch {
+    return null;
+  }
+}
+
+function writeVisitorToken(exhibitionId: string | null | undefined, value: string) {
+  if (typeof window === "undefined" || !value) return;
+  try {
+    localStorage.setItem(visitorTokenStorageKey(exhibitionId), value);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function PublicExpoLanding({
   token,
   preview = false,
+  livePreview = false,
   previewCompanyName,
   previewEventName,
   previewWaUrl,
 }: PublicExpoLandingProps) {
-  const [phase, setPhase] = useState<Phase>(preview ? "choose" : "loading");
+  const mockPreview = preview && !livePreview;
+  const [phase, setPhase] = useState<Phase>(mockPreview ? "choose" : "loading");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [payload, setPayload] = useState<ExpoPublicPayload | null>(
-    preview
+    mockPreview
       ? {
           ok: true,
           theme_id: EXPO_THEME_ID,
@@ -385,7 +412,7 @@ export function PublicExpoLanding({
   const logo = logoSrc(payload?.logo_url);
 
   useEffect(() => {
-    if (preview) return;
+    if (mockPreview) return;
     let cancelled = false;
     (async () => {
       try {
@@ -432,7 +459,7 @@ export function PublicExpoLanding({
     };
     // applyAdvance is stable enough; omit to avoid remount loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, preview]);
+  }, [token, mockPreview]);
 
   const mergeDownloadAssets = useCallback((incoming: ExpoAsset[]) => {
     if (!incoming.length) return;
@@ -452,6 +479,13 @@ export function PublicExpoLanding({
 
   const applyAdvance = useCallback((res: AdvanceResult) => {
     if (res.session_id) setSessionId(String(res.session_id));
+    const vt = (res as { visitor_token?: string }).visitor_token;
+    if (vt) {
+      writeVisitorToken(
+        (payload as { booth?: { exhibition_id?: string } } | null)?.booth?.exhibition_id,
+        String(vt),
+      );
+    }
     if (res.error) setError(String(res.error));
     else setError("");
     if (typeof res.step_index === "number" && res.step_index > 0) setProgressIndex(res.step_index);
@@ -548,7 +582,7 @@ export function PublicExpoLanding({
 
   // Persist progress for refresh / PDF download return
   useEffect(() => {
-    if (preview || phase !== "web" || !sessionId) return;
+    if (mockPreview || phase !== "web" || !sessionId) return;
     writeStoredSession(token, {
       sessionId,
       webStep,
@@ -557,7 +591,7 @@ export function PublicExpoLanding({
       contact,
       downloadAssets,
     });
-  }, [phase, preview, token, sessionId, webStep, progressIndex, progressTotal, contact, downloadAssets]);
+  }, [phase, mockPreview, livePreview, token, sessionId, webStep, progressIndex, progressTotal, contact, downloadAssets]);
 
   const startWeb = useCallback(async () => {
     clearStoredSession(token);
@@ -582,7 +616,7 @@ export function PublicExpoLanding({
 
   const stopAndFinish = useCallback(async () => {
     const sid = sessionIdRef.current;
-    if (!sid || preview) {
+    if (!sid || mockPreview) {
       setPhase("thanks");
       return;
     }
@@ -598,7 +632,7 @@ export function PublicExpoLanding({
     } finally {
       setBusy(false);
     }
-  }, [applyAdvance, preview, token]);
+  }, [applyAdvance, mockPreview, livePreview, token]);
 
   const handleBack = useCallback(async () => {
     if (busy) return;
@@ -607,7 +641,7 @@ export function PublicExpoLanding({
       else setPhase("choose");
       return;
     }
-    if (preview) {
+    if (mockPreview) {
       if (webStep === "confirm") setWebStep("contact");
       else if (webStep === "pick") setWebStep("question");
       else setWebStep("contact");
@@ -634,7 +668,7 @@ export function PublicExpoLanding({
   }, [applyAdvance, busy, preview, sessionId, stopAndFinish, token, webStep]);
 
   useEffect(() => {
-    if (preview || phase !== "web") return;
+    if (mockPreview || phase !== "web") return;
     const onLeave = () => {
       if (isDownloadingRef.current || suppressStopRef.current) return;
       const sid = sessionIdRef.current;
@@ -650,7 +684,7 @@ export function PublicExpoLanding({
     };
     window.addEventListener("pagehide", onLeave);
     return () => window.removeEventListener("pagehide", onLeave);
-  }, [phase, preview, token]);
+  }, [phase, mockPreview, livePreview, token]);
 
   const handleAssetDownload = useCallback(
     async (a: ExpoAsset) => {
@@ -678,7 +712,7 @@ export function PublicExpoLanding({
   );
 
   const submitCardOrContact = useCallback(async () => {
-    if (preview) {
+    if (mockPreview) {
       setWebStep("question");
       setLiveQ({
         key: questions[0]?.key || "interest",
@@ -696,7 +730,14 @@ export function PublicExpoLanding({
         const start = await apiFetch<AdvanceResult>(`/public/expo/${encodeURIComponent(token)}/start`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ card_first: true, defer_contact: true }),
+          body: JSON.stringify({
+            card_first: true,
+            defer_contact: true,
+            preview: livePreview,
+            visitor_token: readVisitorToken(
+              (payload as { booth?: { exhibition_id?: string } } | null)?.booth?.exhibition_id,
+            ),
+          }),
         });
         const sid = String(start.session_id || "");
         if (!sid) throw new Error("Could not start session");
@@ -735,6 +776,10 @@ export function PublicExpoLanding({
           email,
           name,
           company: companyVal,
+          preview: livePreview,
+          visitor_token: readVisitorToken(
+            (payload as { booth?: { exhibition_id?: string } } | null)?.booth?.exhibition_id,
+          ),
         }),
       });
       applyAdvance(res);
@@ -743,10 +788,10 @@ export function PublicExpoLanding({
     } finally {
       setBusy(false);
     }
-  }, [applyAdvance, cardFile, contact, contactCapture, preview, questions, token]);
+  }, [applyAdvance, cardFile, contact, contactCapture, mockPreview, livePreview, questions, token]);
 
   const submitConfirmContact = useCallback(async () => {
-    if (preview) {
+    if (mockPreview) {
       setWebStep("question");
       setLiveQ({
         key: "interest",
@@ -783,14 +828,14 @@ export function PublicExpoLanding({
     } finally {
       setBusy(false);
     }
-  }, [applyAdvance, contact, preview, sessionId, token]);
+  }, [applyAdvance, contact, mockPreview, livePreview, sessionId, token]);
 
   const submitAnswer = useCallback(
     async (rawAnswer?: string) => {
       const answer = String(
         rawAnswer !== undefined && rawAnswer !== null ? rawAnswer : selectedValue || textAnswer,
       ).trim();
-      if (preview) {
+      if (mockPreview) {
         const idx = questions.findIndex((q) => q.key === liveQ?.key);
         const next = questions[idx + 1];
         if (!next) setPhase("thanks");
@@ -834,7 +879,7 @@ export function PublicExpoLanding({
   );
 
   const submitVoice = useCallback(async () => {
-    if (preview) {
+    if (mockPreview) {
       await submitAnswer(textAnswer || "Voice note");
       return;
     }
@@ -1558,6 +1603,14 @@ export function PublicExpoLanding({
         <Art />
 
         <div className="relative mx-auto flex h-[100svh] w-full max-w-md flex-col px-5 pb-5 pt-4 sm:max-w-lg sm:px-6 sm:pt-6">
+          {livePreview ? (
+            <div
+              className="mb-3 rounded-xl px-3 py-2 text-center text-[12px] font-medium"
+              style={{ background: "rgba(255,255,255,0.85)", color: theme.ink }}
+            >
+              Preview only — nothing is saved. Scan works so you can try the journey.
+            </div>
+          ) : null}
           <header className="animate-rise flex flex-col items-center gap-2 text-center" style={{ animationDelay: "60ms" }}>
             {logo ? (
               <img

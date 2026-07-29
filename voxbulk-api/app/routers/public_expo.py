@@ -242,12 +242,14 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
         "booth": {
             "name": booth.name,
             "company_display_name": booth.company_display_name,
+            "exhibition_id": booth.exhibition_id,
             "exhibition_name": event_name,
             "status": public_status,
             "is_expired": expired,
             "is_before_start": before_start,
             "is_paid": paid,
             "is_live": live,
+            "is_preview_draft": bool(getattr(booth, "is_preview_draft", False)),
             "payment_status": str(getattr(booth, "payment_status", None) or "unpaid"),
             "preview_tests_remaining": preview_remaining,
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
@@ -263,7 +265,7 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
     booth = ExpoBoothService.find_by_token(db, token)
     if booth is None:
         raise HTTPException(status_code=404, detail="Booth not found")
-    if booth_is_expired(booth):
+    if booth_is_expired(booth) and not bool(getattr(booth, "is_preview_draft", False)):
         raise HTTPException(status_code=400, detail=BOOTH_CLOSED_MESSAGE)
     block = booth_access_block_reason(booth)
     if block:
@@ -275,6 +277,10 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
     email = str(payload.get("email") or "").strip()
     name = str(payload.get("name") or "").strip() or None
     company = str(payload.get("company") or "").strip() or None
+    visitor_token = str(payload.get("visitor_token") or "").strip() or None
+    is_preview = bool(payload.get("preview") or payload.get("is_preview")) or bool(
+        getattr(booth, "is_preview_draft", False)
+    )
     # Real card OCR is POST /sessions/{id}/card after start — start needs phone+email or placeholders for card-first.
     defer_contact = bool(payload.get("defer_contact") or payload.get("card_first"))
     if defer_contact:
@@ -294,6 +300,9 @@ def start_web_session(token: str, payload: dict, db: Session = Depends(get_db)):
             visitor_phone=mobile,
             visitor_email=email,
             name=name,
+            company=company,
+            visitor_token=visitor_token,
+            is_preview=is_preview,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -147,12 +147,16 @@ from app.models.expo import (  # noqa: F401
     ExpoExhibition,
     ExpoIndustry,
     ExpoLead,
+    ExpoOrgProfile,
     ExpoPackage,
     ExpoQuestionTemplate,
     ExpoResponse,
     ExpoSession,
+    ExpoVisitorIdentity,
+    ExpoVisitorSummarySend,
     ExpoVoiceNoteJob,
 )
+from app.models.expo_mailbox_settings import ExpoMailboxSettings  # noqa: F401
 from app.models.expo_signup_trial import ExpoCompanyDomainClaim, ExpoSignupEntitlement  # noqa: F401
 from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob  # noqa: F401
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401

@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 MIN_TRANSCRIPT_CHARS = 2
 DEFAULT_STT_LANGUAGE = "auto"
 DEFAULT_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
-WEB_UPLOAD_STT_PROVIDER_ORDER = ("deepinfra", "deepgram", "whisper_cpp", "groq")
+WEB_UPLOAD_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
 
 _LAUGHTER_PATTERN = re.compile(
     r"^(?:ha+|he+|hi+|ho+|hu+|ah+|eh+|oh+|uh+|lol+|haha+|hehe+|hihi+|"

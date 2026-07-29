@@ -500,6 +500,13 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p>Thank you for visiting <strong>{{company_name}}</strong> at the exhibition (<strong>{{booth_name}}</strong>).</p>
   <p>Here are the files you requested:</p>
   {{asset_links}}
+  {{offer_block}}
+  <p style="margin-top:20px;padding:14px 16px;background:#f7f5f2;border-radius:10px;">
+    <strong>Contact this stand</strong><br />
+    Email: <a href="mailto:{{contact_email}}">{{contact_email}}</a><br />
+    {{contact_phone_line}}
+    {{company_website_line}}
+  </p>
   <p style="font-size:13px;color:#6b6560;">If a link does not open, reply to this email and we will resend.</p>""",
             footer="Sent via VOXBULK Expo · expo@voxbulk.com",
             badge="Expo",
@@ -520,11 +527,27 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <strong>Timeline:</strong> {{timeline}}<br />
   <strong>Catalogue requested:</strong> {{catalogue_requested}}<br />
   <strong>Price list requested:</strong> {{price_list_requested}}<br />
+  <strong>Offer interested:</strong> {{offer_interested}}<br />
   <strong>Files sent:</strong> {{asset_list}}<br />
   <strong>Opened:</strong> {{opened_summary}}</p>
   """ + cta_button(href="{{leads_url}}", label="Open Expo leads") + "",
             footer="Sent via VOXBULK Expo · expo@voxbulk.com",
             badge="Expo lead",
+        ),
+    },
+    "expo_visitor_day_summary": {
+        "title": "Expo visitor day / end summary",
+        "subject": "Your Expo day at {{exhibition_name}} — {{stands_visited}} stands",
+        "body": wrap_brand_email(
+            title="{{summary_heading}}",
+            inner_html="""<p>Hi <strong>{{first_name}}</strong>,</p>
+  <p>{{summary_intro}}</p>
+  {{kpi_html}}
+  <p style="margin-top:24px;font-weight:600;">Stands you visited</p>
+  {{stands_html}}
+  <p style="font-size:13px;color:#6b6560;margin-top:20px;">Save the contact emails below to follow up after the show.</p>""",
+            footer="Sent via VOXBULK Expo · expo@voxbulk.com",
+            badge="Expo summary",
         ),
     },
 }
