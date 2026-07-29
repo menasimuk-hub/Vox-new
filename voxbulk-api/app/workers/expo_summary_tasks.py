@@ -107,6 +107,7 @@ def send_visitor_day_summaries() -> dict[str, Any]:
             db.rollback()
             return {"daily": sent_daily, "final": sent_final, "error": True}
 
+
 def _send_for_exhibition(
     db,
     *,
@@ -134,11 +135,8 @@ def _send_for_exhibition(
             created = lead.created_at
             if created is None:
                 continue
-            # Compare UTC date roughly; exhibition TZ used for summary label only
-            if created.date() != day_filter and getattr(created, "date", lambda: None)():
-                # Allow slight TZ skew: created within summary calendar day UTC±1
-                if abs((created.date() - day_filter).days) > 0:
-                    continue
+            if created.date() != day_filter:
+                continue
         by_email.setdefault(email, []).append(lead)
 
     sent = 0
