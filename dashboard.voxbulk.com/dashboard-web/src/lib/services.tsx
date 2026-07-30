@@ -11,6 +11,7 @@ export type ServiceKey =
   | "feedback"
   | "feedbackCampaigns"
   | "expo"
+  | "smartCard"
   | "appointments"
   | "recovery"
   | "followup"
@@ -22,6 +23,7 @@ const DEFAULT: Record<ServiceKey, boolean> = {
   feedback: false,
   feedbackCampaigns: false,
   expo: false,
+  smartCard: false,
   appointments: false,
   recovery: false,
   followup: false,
@@ -37,6 +39,7 @@ function fromAllowedApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     feedback: Boolean(raw.customer_feedback),
     feedbackCampaigns: Boolean(raw.feedback_campaigns),
     expo: Boolean(raw.expo),
+    smartCard: Boolean(raw.smart_card),
     appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
@@ -58,6 +61,7 @@ function fromEnabledApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     feedback: Boolean(raw.customer_feedback),
     feedbackCampaigns: Boolean(raw.feedback_campaigns),
     expo: Boolean(raw.expo),
+    smartCard: Boolean(raw.smart_card),
     appointments: Boolean(raw.appointments),
     recovery: Boolean(raw.recovery),
     followup: Boolean(raw.follow_up),
@@ -77,6 +81,7 @@ function toApi(state: Record<ServiceKey, boolean>): ApiEnabledServices {
     customer_feedback: state.feedback,
     feedback_campaigns: state.feedbackCampaigns,
     expo: state.expo,
+    smart_card: state.smartCard,
     appointments: state.appointments,
     recovery: showRecoveryModules ? state.recovery : false,
     follow_up: showRecoveryModules ? state.followup : false,
@@ -91,6 +96,7 @@ function visibleFrom(allowed: Record<ServiceKey, boolean>, enabled: Record<Servi
     feedback: allowed.feedback && enabled.feedback,
     feedbackCampaigns: allowed.feedbackCampaigns && enabled.feedbackCampaigns,
     expo: allowed.expo && enabled.expo,
+    smartCard: allowed.smartCard && enabled.smartCard,
     appointments: allowed.appointments && enabled.appointments,
     recovery: allowed.recovery && enabled.recovery,
     followup: allowed.followup && enabled.followup,

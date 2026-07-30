@@ -80,6 +80,9 @@ from app.routers.public_feedback import router as public_feedback_router
 from app.routers.admin_expo import router as admin_expo_router
 from app.routers.expo import router as expo_router
 from app.routers.public_expo import router as public_expo_router
+from app.routers.admin_smart_card import router as admin_smart_card_router
+from app.routers.smart_card import router as smart_card_router
+from app.routers.public_smart_card import router as public_smart_card_router
 from app.routers.service_orders import router as service_orders_router
 from app.routers.interview_booking_public import router as interview_booking_public_router
 from app.routers.partner_v1 import router as partner_v1_router
@@ -340,6 +343,14 @@ async def lifespan(app: FastAPI):
             ExpoSeedService.ensure_seeded(db)
     except Exception:
         logger.exception("expo_seed failed")
+    try:
+        from app.core.database import get_sessionmaker
+        from app.services.smart_card.seed_service import SmartCardSeedService
+
+        with get_sessionmaker()() as db:
+            SmartCardSeedService.ensure_seeded(db)
+    except Exception:
+        logger.exception("smart_card_seed failed")
     try:
         from app.core.database import get_sessionmaker
         from app.services.sales_offer_template_service import ensure_default_offer_templates
@@ -757,6 +768,9 @@ app.include_router(public_feedback_router)
 app.include_router(admin_expo_router)
 app.include_router(expo_router)
 app.include_router(public_expo_router)
+app.include_router(admin_smart_card_router)
+app.include_router(smart_card_router)
+app.include_router(public_smart_card_router)
 app.include_router(admin_sales_reps_router)
 app.include_router(admin_sales_reps_router, prefix="/api")
 app.include_router(sales_router)

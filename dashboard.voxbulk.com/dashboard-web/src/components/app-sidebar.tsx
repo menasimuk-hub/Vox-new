@@ -9,6 +9,7 @@ import {
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
   CalendarClock, Repeat, QrCode, GitCompare, Sparkles, Send,
   Ticket,
+  IdCard,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
   Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus,
 } from "lucide-react";
@@ -144,6 +145,12 @@ const groups: Group[] = [
     { title: "Lead results", url: "/expo/leads", icon: BarChart3 },
     { title: "Packages & pricing", url: "/account/expo/packages", icon: Package },
   ]},
+  { key: "smartCard", label: "Smart Card QR", visibleKey: "smartCard", items: [
+    { title: "Dashboard", url: "/smart-card", icon: LayoutDashboard },
+    { title: "Company", url: "/smart-card/company", icon: Briefcase },
+    { title: "Representatives", url: "/smart-card/representatives", icon: Users },
+    { title: "Packages & pricing", url: "/account/smart-card/packages", icon: Package },
+  ]},
   { key: "campaigns", label: "Campaigns", items: [
     { title: "Create template", url: "/campaigns/new", icon: FilePlus2 },
     { title: "My templates", url: "/campaigns", icon: ListChecks },
@@ -171,6 +178,7 @@ const groups: Group[] = [
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },
     { title: "Expo packages", url: "/account/expo/packages", icon: Package },
+    { title: "Smart Card packages", url: "/account/smart-card/packages", icon: IdCard },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
     { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },
@@ -406,6 +414,7 @@ function headIcon(key: GroupKey) {
     case "surveys": return ClipboardList;
     case "feedback": return QrCode;
     case "expo": return Ticket;
+    case "smartCard": return IdCard;
     case "appointments": return CalendarClock;
     case "campaigns": return Megaphone;
     case "recovery": return HeartPulse;

@@ -6,6 +6,7 @@ SERVICE_AI_INTERVIEW = "ai_interview"
 SERVICE_SURVEY = "survey"
 SERVICE_CUSTOMER_FEEDBACK = "customer_feedback"
 SERVICE_EXPO = "expo"
+SERVICE_SMART_CARD = "smart_card"
 SERVICE_BOOKING = "booking"
 SERVICE_MARKETING = "marketing"
 
@@ -14,6 +15,7 @@ ALL_SERVICE_CODES: tuple[str, ...] = (
     SERVICE_SURVEY,
     SERVICE_CUSTOMER_FEEDBACK,
     SERVICE_EXPO,
+    SERVICE_SMART_CARD,
     SERVICE_BOOKING,
     SERVICE_MARKETING,
 )
@@ -23,6 +25,9 @@ _SERVICE_ALIASES: dict[str, str] = {
     "ai-interview": SERVICE_AI_INTERVIEW,
     "feedback": SERVICE_CUSTOMER_FEEDBACK,
     "customer-feedback": SERVICE_CUSTOMER_FEEDBACK,
+    "smart-card": SERVICE_SMART_CARD,
+    "smart_card_qr": SERVICE_SMART_CARD,
+    "smartcard": SERVICE_SMART_CARD,
     "appointments": SERVICE_BOOKING,
     "appointment": SERVICE_BOOKING,
 }

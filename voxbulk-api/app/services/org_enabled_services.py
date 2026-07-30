@@ -11,6 +11,7 @@ DEFAULT_ENABLED_SERVICES: dict[str, bool] = {
     "customer_feedback": False,
     "feedback_campaigns": False,
     "expo": False,
+    "smart_card": False,
     "recovery": False,
     "follow_up": False,
     "campaigns": False,
@@ -25,6 +26,7 @@ SERVICE_LABELS: dict[str, str] = {
     "customer_feedback": "Customer feedback",
     "feedback_campaigns": "Add-on · Send campaign",
     "expo": "VoxBulk Expo",
+    "smart_card": "Smart Card QR",
     "appointments": "Appointments",
     "recovery": "Recovery",
     "follow_up": "Follow up",
@@ -37,6 +39,7 @@ SERVICE_ADMIN_ICONS: dict[str, str] = {
     "customer_feedback": "ti-message-circle",
     "feedback_campaigns": "ti-send",
     "expo": "ti-qrcode",
+    "smart_card": "ti-id-badge",
     "appointments": "ti-calendar",
     "recovery": "ti-heart",
     "follow_up": "ti-bell",
@@ -50,6 +53,7 @@ DASHBOARD_SERVICE_ICONS: dict[str, str] = {
     "customer_feedback": "icon-black",
     "feedback_campaigns": "icon-black",
     "expo": "icon-black",
+    "smart_card": "icon-black",
     "recovery": "icon-black",
     "follow_up": "icon-black",
     "campaigns": "icon-dark",
@@ -115,7 +119,7 @@ def validate_at_least_one_enabled(services: dict[str, bool]) -> None:
     if not any_service_enabled(services):
         raise AtLeastOneServiceRequiredError(
             "At least one dashboard service must remain enabled "
-            "(interview, survey, customer feedback, expo, send campaign add-on, recovery, follow up, or campaigns)."
+            "(interview, survey, customer feedback, expo, smart card QR, send campaign add-on, recovery, follow up, or campaigns)."
         )
 
 
@@ -221,6 +225,10 @@ def service_code_to_enabled_key(service_code: str) -> str | None:
         "appointment_manager": "appointments",
         "expo": "expo",
         "voxbulk_expo": "expo",
+        "smart_card": "smart_card",
+        "smart-card": "smart_card",
+        "smart_card_qr": "smart_card",
+        "smartcard": "smart_card",
     }
     return mapping.get(code)
 

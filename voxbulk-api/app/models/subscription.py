@@ -46,6 +46,8 @@ class Subscription(Base):
     amount_next_payment_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
     billing_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     billing_interval: Mapped[str] = mapped_column(String(10), nullable=False, default="monthly")
+    # Seat quantity for service_code=smart_card (yearly per-seat packages).
+    seat_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tax_rate_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     tax_country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
 
