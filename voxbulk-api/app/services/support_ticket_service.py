@@ -21,7 +21,7 @@ from app.models.support_ticket import (
 from app.models.user import User
 
 
-CATEGORIES = {"technical", "invoices", "pre-sale"}
+CATEGORIES = {"technical", "invoices", "pre-sale", "smart_card"}
 STATUSES = {"open", "pending", "closed"}
 
 
@@ -31,8 +31,10 @@ def normalize_category(category: str) -> str:
         c = "invoices"
     if c in {"presale", "pre_sale", "sales"}:
         c = "pre-sale"
+    if c in {"smart-card", "smartcard", "smart-card-qr"}:
+        c = "smart_card"
     if c not in CATEGORIES:
-        raise ValueError("category must be one of: technical, invoices, pre-sale")
+        raise ValueError("category must be one of: technical, invoices, pre-sale, smart_card")
     return c
 
 
@@ -50,7 +52,7 @@ def support_visible_categories(role: str) -> set[str] | None:
     if r == "accountant":
         return {"invoices"}
     if r in {"technical", "support", "technical/support"}:
-        return {"technical"}
+        return {"technical", "smart_card"}
     if r == "marketing":
         return {"pre-sale"}
     return set()

@@ -16,13 +16,15 @@ from app.models.org_package_assignment import OrgPackageAssignment, PlanUnitRate
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
+from app.models.smart_card import SMART_CARD_SERVICE_CODE, SmartCardPackage
 from app.services.billing_currency import SUPPORTED_CURRENCIES, normalize_currency
 from app.services.plan_admin_service import PlanAdminError, PlanAdminService
 from app.services.plan_price_service import PlanPriceService
 
-PRIVATE_SERVICE_KINDS = ("voxbulk", "customer_feedback", "expo")
+PRIVATE_SERVICE_KINDS = ("voxbulk", "customer_feedback", "expo", "smart_card")
 CORE_CF_INTERVALS = frozenset({"monthly", "yearly"})
 EXPO_INTERVALS = frozenset({"one_time", "yearly"})
+SMART_CARD_INTERVALS = frozenset({"yearly"})
 
 
 class PrivatePackagesError(ValueError):
@@ -41,6 +43,10 @@ class PrivatePackagesService:
             if value in EXPO_INTERVALS:
                 return value
             return "one_time"
+        if service_kind == SMART_CARD_SERVICE_CODE:
+            if value in SMART_CARD_INTERVALS:
+                return value
+            return "yearly"
         if value in CORE_CF_INTERVALS:
             return value
         return "monthly"
@@ -131,6 +137,14 @@ class PrivatePackagesService:
                     "tier": pkg.tier,
                     "max_booths": pkg.max_booths,
                     "max_assets": pkg.max_assets,
+                    "package_id": pkg.id,
+                }
+        if plan.service_kind == SMART_CARD_SERVICE_CODE:
+            pkg = db.execute(select(SmartCardPackage).where(SmartCardPackage.plan_id == plan.id)).scalar_one_or_none()
+            if pkg:
+                meta = {
+                    "tier": pkg.tier,
+                    "monthly_unit_hint_usd_cents": int(pkg.monthly_unit_hint_usd_cents or 500),
                     "package_id": pkg.id,
                 }
         return {**base, "prices": prices, "unit_rates": unit_rates, "orgs": orgs, "org_ids": [x["org_id"] for x in orgs], **meta}
@@ -236,6 +250,19 @@ class PrivatePackagesService:
                     updated_at=now,
                 )
             )
+        if kind == SMART_CARD_SERVICE_CODE:
+            db.add(
+                SmartCardPackage(
+                    id=str(uuid.uuid4()),
+                    plan_id=plan.id,
+                    tier=str(payload.get("tier") or "seat").strip()[:32] or "seat",
+                    monthly_unit_hint_usd_cents=int(payload.get("monthly_unit_hint_usd_cents") or 500),
+                    display_order=int(payload.get("sort_order") or 900),
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
 
         PrivatePackagesService._upsert_prices(db, plan.id, payload.get("prices") or defaults["prices"], defaults["prices"])
         PrivatePackagesService._upsert_unit_rates(db, plan.id, payload.get("unit_rates") or defaults["unit_rates"], defaults["unit_rates"])
@@ -303,6 +330,20 @@ class PrivatePackagesService:
                     pkg.max_assets = int(payload["max_assets"] or 5)
                 if "is_active" in payload:
                     pkg.is_active = bool(payload["is_active"])
+                pkg.updated_at = now
+                db.add(pkg)
+
+        if plan.service_kind == SMART_CARD_SERVICE_CODE:
+            pkg = db.execute(select(SmartCardPackage).where(SmartCardPackage.plan_id == plan.id)).scalar_one_or_none()
+            if pkg:
+                if "tier" in payload and payload["tier"] is not None:
+                    pkg.tier = str(payload["tier"]).strip()[:32] or pkg.tier
+                if "monthly_unit_hint_usd_cents" in payload and payload["monthly_unit_hint_usd_cents"] is not None:
+                    pkg.monthly_unit_hint_usd_cents = int(payload["monthly_unit_hint_usd_cents"])
+                if "is_active" in payload:
+                    pkg.is_active = bool(payload["is_active"])
+                if "sort_order" in payload:
+                    pkg.display_order = int(payload["sort_order"] or 900)
                 pkg.updated_at = now
                 db.add(pkg)
 

@@ -29,6 +29,13 @@ const SERVICES = [
     tint: 'expo',
     priceMode: 'expo',
   },
+  {
+    key: 'smart_card',
+    title: 'Smart Card QR',
+    blurb: '$5/seat/month billed annually — edit yearly unit price',
+    tint: 'feedback',
+    priceMode: 'subscription',
+  },
 ]
 
 function emptyPriceDraft() {
@@ -111,6 +118,21 @@ function newDraftFor(serviceKey) {
       prices: emptyPriceDraft(),
     }
   }
+  if (serviceKey === 'smart_card') {
+    return {
+      service_kind: 'smart_card',
+      name: '',
+      code: '',
+      tier: 'seat',
+      monthly_unit_hint_usd_cents: 500,
+      interval: 'yearly',
+      is_active: true,
+      is_featured: false,
+      sort_order: 100,
+      features: [],
+      prices: emptyPriceDraft(),
+    }
+  }
   if (serviceKey === 'customer_feedback') {
     return {
       service_kind: 'customer_feedback',
@@ -186,7 +208,15 @@ export default function PricingPackages() {
     const focus = searchParams.get('service') || searchParams.get('tab')
     const planCode = searchParams.get('plan')
     if ((!focus && !planCode) || !data) return
-    const map = { core: 'voxbulk', voxbulk: 'voxbulk', feedback: 'customer_feedback', customer_feedback: 'customer_feedback', expo: 'expo' }
+    const map = {
+      core: 'voxbulk',
+      voxbulk: 'voxbulk',
+      feedback: 'customer_feedback',
+      customer_feedback: 'customer_feedback',
+      expo: 'expo',
+      smart_card: 'smart_card',
+      'smart-card': 'smart_card',
+    }
     const key = map[String(focus || '').toLowerCase()]
     const t = window.setTimeout(() => {
       if (key) document.getElementById(`pricing-pkg-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -275,6 +305,13 @@ export default function PricingPackages() {
           ai_summary_report_enabled: Boolean(draft.ai_summary_report_enabled),
         })
       }
+      if (serviceKey === 'smart_card') {
+        Object.assign(payload, {
+          interval: draft.interval || 'yearly',
+          tier: draft.tier || 'seat',
+          monthly_unit_hint_usd_cents: Number(draft.monthly_unit_hint_usd_cents ?? 500),
+        })
+      }
 
       if (mode === 'create') {
         await apiFetch('/admin/pricing/packages', { method: 'POST', body: JSON.stringify(payload) })
@@ -351,6 +388,12 @@ export default function PricingPackages() {
                               <th>One-time (GBP)</th>
                               <th>Annual (GBP)</th>
                             </>
+                          ) : svc.key === 'smart_card' ? (
+                            <>
+                              <th>Tier</th>
+                              <th>Yearly (GBP)</th>
+                              <th>Monthly hint (USD¢)</th>
+                            </>
                           ) : (
                             <>
                               <th>Monthly (GBP)</th>
@@ -381,6 +424,12 @@ export default function PricingPackages() {
                                     <td>{pkg.duration_days || '—'}</td>
                                     <td>{formatMinor(gbp.monthly_price_minor, 'GBP')}</td>
                                     <td>{formatMinor(gbp.yearly_price_minor, 'GBP')}</td>
+                                  </>
+                                ) : svc.key === 'smart_card' ? (
+                                  <>
+                                    <td>{pkg.tier || 'seat'}</td>
+                                    <td><strong>{formatMinor(gbp.yearly_price_minor, 'GBP')}</strong></td>
+                                    <td className="muted">{pkg.monthly_unit_hint_usd_cents ?? 500}</td>
                                   </>
                                 ) : (
                                   <>
@@ -511,6 +560,25 @@ export default function PricingPackages() {
                     </div>
                   ) : null}
 
+                  {drawer.serviceKey === 'smart_card' ? (
+                    <div className="pricingPkgFieldGrid">
+                      <div className="pricingPkgField">
+                        <label>Tier</label>
+                        <input className="input" value={drawer.draft.tier || 'seat'} onChange={(e) => setDraftField('tier', e.target.value)} />
+                      </div>
+                      <div className="pricingPkgField">
+                        <label>Monthly unit hint (USD cents)</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          value={drawer.draft.monthly_unit_hint_usd_cents ?? 500}
+                          onChange={(e) => setDraftField('monthly_unit_hint_usd_cents', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
                   <div className="pricingPkgField">
                     <label>Features (one per line)</label>
                     <textarea
@@ -522,14 +590,26 @@ export default function PricingPackages() {
                   </div>
 
                   <h4 className="pricingPkgPricesTitle">
-                    {drawer.serviceKey === 'expo' ? 'One-time & optional annual prices' : 'Monthly & yearly prices'}
+                    {drawer.serviceKey === 'expo'
+                      ? 'One-time & optional annual prices'
+                      : drawer.serviceKey === 'smart_card'
+                        ? 'Yearly seat prices (billed annually)'
+                        : 'Monthly & yearly prices'}
                   </h4>
                   <table className="pricingPlanPriceTable">
                     <thead>
                       <tr>
                         <th>Currency</th>
-                        <th>{drawer.serviceKey === 'expo' ? 'One-time' : 'Monthly'}</th>
-                        <th>{drawer.serviceKey === 'expo' ? 'Annual (optional)' : 'Yearly'}</th>
+                        {drawer.serviceKey === 'smart_card' ? null : (
+                          <th>{drawer.serviceKey === 'expo' ? 'One-time' : 'Monthly'}</th>
+                        )}
+                        <th>
+                          {drawer.serviceKey === 'expo'
+                            ? 'Annual (optional)'
+                            : drawer.serviceKey === 'smart_card'
+                              ? 'Yearly (per seat)'
+                              : 'Yearly'}
+                        </th>
                         {drawer.serviceKey === 'voxbulk' ? (
                           <>
                             <th>Per minute</th>
@@ -545,9 +625,11 @@ export default function PricingPackages() {
                         return (
                           <tr key={currency}>
                             <td><strong>{sym} {currency}</strong></td>
-                            <td>
-                              <MoneyInput value={row.monthly ?? ''} onChange={(v) => setPriceField(currency, 'monthly', v)} />
-                            </td>
+                            {drawer.serviceKey === 'smart_card' ? null : (
+                              <td>
+                                <MoneyInput value={row.monthly ?? ''} onChange={(v) => setPriceField(currency, 'monthly', v)} />
+                              </td>
+                            )}
                             <td>
                               <MoneyInput
                                 value={row.yearly ?? ''}

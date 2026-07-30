@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from app.models.plan_price import PlanPrice
 from app.models.smart_card import SMART_CARD_SERVICE_CODE, SmartCardPackage, SmartCardQuestionTemplate
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
 from app.services.org_rbac import OrgRbacService, can_view_all_campaigns
+from app.services.smart_card.asset_storage_service import save_smart_card_asset_upload
 from app.services.smart_card.company_service import SmartCardCompanyService, SmartCardEntitlementService
 from app.services.smart_card.representative_service import SmartCardRepError, SmartCardRepresentativeService
 
@@ -301,6 +302,19 @@ def delete_product(product_id: str, db: Session = Depends(get_db), principal=Dep
     SmartCardCatalogueService.delete_product(db, org_id=principal.org_id, product_id=product_id)
     db.commit()
     return {"ok": True}
+
+
+@router.post("/catalogue/assets/upload")
+async def upload_catalogue_asset(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Upload a PDF/image before creating a catalogue asset; returns storage_path to attach on create."""
+    _require_smart_card_enabled(db, principal.org_id)
+    _require_manage(db, principal)
+    saved = await save_smart_card_asset_upload(org_id=principal.org_id, upload=file)
+    return {"ok": True, "item": saved}
 
 
 @router.post("/catalogue/assets")

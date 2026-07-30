@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Check, Clock, FileText, MessageCircle, Phone, Wallet, Smile, Megaphone, Sparkles, Briefcase, ClipboardList, Loader2 } from "lucide-react";
+import { Check, Clock, FileText, MessageCircle, Phone, Wallet, Smile, Megaphone, Sparkles, Briefcase, ClipboardList, Loader2, Building2, QrCode } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -51,6 +51,8 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { requireBillingAccess } from "@/lib/guards/billing-route";
 
+type ServiceTab = "core" | "feedback" | "campaigns" | "expo" | "smartCard";
+
 export const Route = createFileRoute("/_app/account/packages")({
   beforeLoad: () => requireBillingAccess(),
   head: () => ({ meta: [{ title: "Packages & pricing — VoxBulk" }] }),
@@ -58,11 +60,16 @@ export const Route = createFileRoute("/_app/account/packages")({
     const tab = typeof search.tab === "string" ? search.tab : undefined;
     const product = search.product === "feedback" ? ("feedback" as const) : undefined;
     const plan = typeof search.plan === "string" && search.plan.trim() ? search.plan.trim() : undefined;
+    const normalizedTab = tab === "smart_card" ? "smartCard" : tab;
     const resolvedTab =
-      tab === "core" || tab === "feedback" || tab === "campaigns"
-        ? tab
+      normalizedTab === "core" ||
+      normalizedTab === "feedback" ||
+      normalizedTab === "campaigns" ||
+      normalizedTab === "expo" ||
+      normalizedTab === "smartCard"
+        ? (normalizedTab as ServiceTab)
         : product === "feedback"
-          ? "feedback"
+          ? ("feedback" as const)
           : undefined;
     return { tab: resolvedTab, plan, product };
   },
@@ -70,7 +77,6 @@ export const Route = createFileRoute("/_app/account/packages")({
 });
 
 type PlanRow = Record<string, unknown>;
-type ServiceTab = "core" | "feedback" | "campaigns";
 
 const CURRENCY_SYMBOL: Record<string, string> = {
   GBP: "£",
@@ -84,6 +90,8 @@ const SERVICE_TABS: Record<ServiceTab, { label: string; icon: React.ComponentTyp
   core: { label: "Core platform", icon: Sparkles, tint: "text-primary", ring: "ring-primary/30", bg: "from-primary/10", chip: "bg-primary/15 text-primary", blurb: "AI interviews + outbound WA & AI-call surveys. Does not include Customer Feedback QR.", billing: "Subscription + top-up" },
   feedback: { label: "Customer Feedback", icon: Smile, tint: "text-success", ring: "ring-success/30", bg: "from-success/10", chip: "bg-success/15 text-success", blurb: "QR-driven inbound WhatsApp feedback. Separate subscription — not included in Core platform.", billing: "Subscription only" },
   campaigns: { label: "Campaigns", icon: Megaphone, tint: "text-amber-500", ring: "ring-amber-500/30", bg: "from-amber-500/10", chip: "bg-amber-500/15 text-amber-500", blurb: "WhatsApp broadcast templates — buy credit packs when you need to send.", billing: "Top-up credits" },
+  expo: { label: "Expo", icon: Building2, tint: "text-sky-600", ring: "ring-sky-500/30", bg: "from-sky-500/10", chip: "bg-sky-500/15 text-sky-700 dark:text-sky-400", blurb: "Trade-show booth QR capture — packages are managed on a dedicated page.", billing: "Event packages" },
+  smartCard: { label: "Smart Card QR", icon: QrCode, tint: "text-violet-600", ring: "ring-violet-500/30", bg: "from-violet-500/10", chip: "bg-violet-500/15 text-violet-700 dark:text-violet-400", blurb: "Personal Smart Card QR for reps — packages are managed on a dedicated page.", billing: "Subscription" },
 };
 
 const CAMPAIGN_CREDIT_PACKS = [
@@ -221,8 +229,10 @@ function PackagesPage() {
   const visibleTabs = React.useMemo((): ServiceTab[] => {
     const tabs: ServiceTab[] = ["core", "feedback"];
     if (visible.campaigns) tabs.push("campaigns");
+    if (visible.expo) tabs.push("expo");
+    if (visible.smartCard) tabs.push("smartCard");
     return tabs;
-  }, [visible.campaigns]);
+  }, [visible.campaigns, visible.expo, visible.smartCard]);
   const resolveTab = React.useCallback(
     (tab: ServiceTab | undefined): ServiceTab => {
       if (tab && visibleTabs.includes(tab)) return tab;
@@ -467,7 +477,13 @@ function PackagesPage() {
 
       <Tabs value={packagesTab} onValueChange={(v) => setPackagesTab(v as ServiceTab)} className="w-full">
         <TabsList
-          className={`grid h-auto w-full gap-1 p-1 ${visibleTabs.length >= 3 ? "grid-cols-3" : "grid-cols-2"}`}
+          className={`grid h-auto w-full gap-1 p-1 ${
+            visibleTabs.length >= 5
+              ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+              : visibleTabs.length >= 3
+                ? "grid-cols-3"
+                : "grid-cols-2"
+          }`}
         >
           {visibleTabs.map((key) => {
             const s = SERVICE_TABS[key];
@@ -935,6 +951,38 @@ function PackagesPage() {
                       </div>
                       <p className="text-xs text-muted-foreground">Pure top-up — credits never expire.</p>
                     </>
+                  ) : null}
+
+                  {key === "expo" ? (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Expo packages</CardTitle>
+                        <CardDescription>
+                          Browse booth packages, purchase or renew on the dedicated Expo billing page.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Button asChild>
+                          <Link to="/account/expo/packages">Open Expo packages</Link>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
+                  {key === "smartCard" ? (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Smart Card QR packages</CardTitle>
+                        <CardDescription>
+                          Manage Smart Card subscriptions and renewals on the dedicated packages page.
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <Button asChild>
+                          <Link to="/account/smart-card/packages">Open Smart Card packages</Link>
+                        </Button>
+                      </CardContent>
+                    </Card>
                   ) : null}
                 </div>
               </div>

@@ -104,6 +104,81 @@ class SmartCardWhatsappService:
                 return {"handled": True, "reason": "stopped", "sent": True}
             return {"handled": False, "reason": "no_session"}
 
+        # Voice note while in an active Smart Card session
+        from app.services.smart_card.voice_note_service import is_audio_inbound, process_voice_for_session
+
+        if is_audio_inbound(record if isinstance(record, dict) else None) and not text:
+            voice_session = SmartCardWhatsappService.find_active_session(db, visitor_phone=phone)
+            if voice_session is not None:
+                SmartCardWhatsappService._send(
+                    db,
+                    to_number=phone,
+                    body="Got your voice note — translating…",
+                    org_id=voice_session.org_id,
+                    from_number=reply_from,
+                )
+                voice = process_voice_for_session(
+                    db,
+                    session=voice_session,
+                    record=record if isinstance(record, dict) else None,
+                )
+                if not voice.get("ok"):
+                    SmartCardWhatsappService._send(
+                        db,
+                        to_number=phone,
+                        body="Sorry — I couldn't hear that clearly. Please type your answer, or send the voice note again.",
+                        org_id=voice_session.org_id,
+                        from_number=reply_from,
+                    )
+                    return {
+                        "handled": True,
+                        "reason": "voice_failed",
+                        "sent": True,
+                        "session_id": voice_session.id,
+                        "org_id": voice_session.org_id,
+                    }
+                answer = str(voice.get("answer_text_en") or voice.get("original_text") or "").strip()
+                try:
+                    result = SmartCardSessionFlowService.advance(
+                        db,
+                        session=voice_session,
+                        answer=answer,
+                        answer_source="voice",
+                    )
+                    db.commit()
+                except SmartCardSessionError as e:
+                    db.rollback()
+                    msg = str(e).replace("_", " ")
+                    SmartCardWhatsappService._send(
+                        db,
+                        to_number=phone,
+                        body=msg,
+                        org_id=voice_session.org_id,
+                        from_number=reply_from,
+                    )
+                    return {"handled": True, "reason": str(e), "sent": True, "session_id": voice_session.id}
+                reply = (
+                    str(result.get("message") or result.get("prompt") or "").strip()
+                    if result.get("done")
+                    else str(result.get("prompt") or "").strip()
+                )
+                sent = False
+                if reply:
+                    sent = SmartCardWhatsappService._send(
+                        db,
+                        to_number=phone,
+                        body=reply,
+                        org_id=voice_session.org_id,
+                        from_number=reply_from,
+                    )
+                return {
+                    "handled": True,
+                    "reason": "voice_completed" if result.get("done") else "voice_advanced",
+                    "sent": sent,
+                    "session_id": voice_session.id,
+                    "org_id": voice_session.org_id,
+                }
+
         token = find_smart_card_token_in_text(db, text)
         active = SmartCardWhatsappService.find_active_session(db, visitor_phone=phone)
 

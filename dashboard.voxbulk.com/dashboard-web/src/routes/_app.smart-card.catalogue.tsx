@@ -7,11 +7,17 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUploadFiles } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 
-type Asset = { id: string; title: string; external_url?: string | null; purpose?: string };
+type Asset = {
+  id: string;
+  title: string;
+  external_url?: string | null;
+  storage_path?: string | null;
+  purpose?: string;
+};
 type Product = { id: string; name: string; short_description?: string | null; assets: Asset[] };
 type Category = { id: string; name: string; products: Product[]; assets: Asset[] };
 
@@ -29,6 +35,10 @@ function SmartCardCataloguePage() {
   const [pdfTitle, setPdfTitle] = React.useState("");
   const [pdfUrl, setPdfUrl] = React.useState("");
   const [pdfProduct, setPdfProduct] = React.useState("");
+  const [uploadPath, setUploadPath] = React.useState("");
+  const [uploadKind, setUploadKind] = React.useState("pdf");
+  const [uploadName, setUploadName] = React.useState("");
+  const [uploading, setUploading] = React.useState(false);
 
   const treeQ = useQuery({
     queryKey: ["smart-card", "catalogue"],
@@ -66,7 +76,9 @@ function SmartCardCataloguePage() {
         method: "POST",
         body: JSON.stringify({
           title: pdfTitle,
-          external_url: pdfUrl,
+          ...(uploadPath
+            ? { storage_path: uploadPath, kind: uploadKind || "pdf" }
+            : { external_url: pdfUrl }),
           product_id: pdfProduct || undefined,
           purpose: "catalogue",
         }),
@@ -74,20 +86,45 @@ function SmartCardCataloguePage() {
     onSuccess: async () => {
       setPdfTitle("");
       setPdfUrl("");
-      toast.success("PDF link added");
+      setUploadPath("");
+      setUploadKind("pdf");
+      setUploadName("");
+      toast.success("Asset added");
       await qc.invalidateQueries({ queryKey: ["smart-card", "catalogue"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const onFileSelected = async (file: File | null) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const res = (await apiUploadFiles("/smart-card/catalogue/assets/upload", [file], "file")) as {
+        item?: { storage_path?: string; original_filename?: string; kind?: string };
+      };
+      const item = res?.item || {};
+      setUploadPath(String(item.storage_path || ""));
+      setUploadKind(String(item.kind || "pdf"));
+      setUploadName(String(item.original_filename || file.name));
+      if (!pdfTitle.trim()) setPdfTitle(String(item.original_filename || file.name));
+      setPdfUrl("");
+      toast.success("File uploaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const cats = treeQ.data?.categories || [];
+  const canAddAsset = Boolean(pdfTitle.trim() && pdfProduct && (uploadPath || pdfUrl.trim()));
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Smart Card QR"
         title="Catalogue"
-        description="Categories, products, and PDF links. Assign products to representatives from the reps page (product_ids)."
+        description="Categories, products, and PDF links or uploads. Assign products to representatives from the reps page (product_ids)."
       />
 
       {canEdit ? (
@@ -130,7 +167,7 @@ function SmartCardCataloguePage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Add PDF URL</CardTitle>
+              <CardTitle className="text-sm">Add PDF / file</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <select
@@ -146,9 +183,36 @@ function SmartCardCataloguePage() {
                 ))}
               </select>
               <Input value={pdfTitle} onChange={(e) => setPdfTitle(e.target.value)} placeholder="Title" />
-              <Input value={pdfUrl} onChange={(e) => setPdfUrl(e.target.value)} placeholder="https://…" />
-              <Button disabled={!pdfTitle.trim() || !pdfUrl.trim() || !pdfProduct} onClick={() => addPdf.mutate()}>
-                Add PDF
+              <Input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.xls,.xlsx,.csv,application/pdf,image/*"
+                disabled={uploading}
+                onChange={(e) => void onFileSelected(e.target.files?.[0] || null)}
+              />
+              {uploadPath ? (
+                <p className="text-xs text-muted-foreground">
+                  Uploaded: {uploadName || uploadPath}
+                  <button
+                    type="button"
+                    className="ml-2 text-sky-600 hover:underline"
+                    onClick={() => {
+                      setUploadPath("");
+                      setUploadName("");
+                      setUploadKind("pdf");
+                    }}
+                  >
+                    Clear
+                  </button>
+                </p>
+              ) : (
+                <Input
+                  value={pdfUrl}
+                  onChange={(e) => setPdfUrl(e.target.value)}
+                  placeholder="Or paste https://…"
+                />
+              )}
+              <Button disabled={!canAddAsset || uploading} onClick={() => addPdf.mutate()}>
+                {uploading ? "Uploading…" : "Add asset"}
               </Button>
             </CardContent>
           </Card>
@@ -175,6 +239,10 @@ function SmartCardCataloguePage() {
                           <a className="text-sky-600 hover:underline" href={a.external_url} target="_blank" rel="noreferrer">
                             {a.title}
                           </a>
+                        ) : a.storage_path ? (
+                          <span>
+                            {a.title} <span className="text-muted-foreground">(uploaded)</span>
+                          </span>
                         ) : (
                           a.title
                         )}

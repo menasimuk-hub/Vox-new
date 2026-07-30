@@ -114,6 +114,10 @@ celery_app.conf.update(
             "task": "smart_card.send_renewal_reminders",
             "schedule": 86400.0,
         },
+        "smart-card-mailbox-sync-daily": {
+            "task": "smart_card.sync_mailbox_to_tickets",
+            "schedule": 86400.0,
+        },
     },
 )
 

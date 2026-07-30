@@ -180,6 +180,9 @@ def apply_admin_org_service_grants(
     allowed = {key: bool(grants.get(key)) for key in SERVICE_KEYS}
     validate_at_least_one_enabled(allowed)
     enabled = clamp_enabled_to_allowed(allowed, current_enabled)
+    # Admin grant for Smart Card → customer-visible without a separate Settings step
+    if allowed.get("smart_card"):
+        enabled["smart_card"] = True
     if not any_service_enabled(effective_services(allowed, enabled)):
         enabled = {key: bool(allowed.get(key)) for key in SERVICE_KEYS}
     return allowed, enabled
@@ -192,6 +195,10 @@ def merge_admin_allowed_services(
 ) -> tuple[dict[str, bool], dict[str, bool]]:
     allowed = merge_enabled_services(current_allowed, patch)
     enabled = clamp_enabled_to_allowed(allowed, current_enabled)
+    if allowed.get("smart_card") and (
+        (patch and bool(patch.get("smart_card"))) or not current_allowed.get("smart_card")
+    ):
+        enabled["smart_card"] = True
     if not any_service_enabled(effective_services(allowed, enabled)):
         enabled = dict(allowed)
     validate_at_least_one_enabled(allowed)

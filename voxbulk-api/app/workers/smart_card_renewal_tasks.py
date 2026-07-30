@@ -141,3 +141,17 @@ def send_renewal_reminders() -> dict[str, Any]:
                 sent += 1
         db.commit()
     return {"ok": True, "reminders_sent": sent, "expired_notices": expired}
+
+
+@celery_app.task(name="smart_card.sync_mailbox_to_tickets")
+def sync_mailbox_to_tickets() -> dict[str, Any]:
+    """Daily IMAP sync: unseen smartqr mail → support tickets."""
+    from app.services.smart_card.mailbox_sync_service import sync_to_tickets
+
+    with get_sessionmaker()() as db:
+        try:
+            return sync_to_tickets(db)
+        except Exception as e:
+            logger.exception("smart_card_mailbox_beat_sync_failed")
+            return {"ok": False, "message": str(e)}
+

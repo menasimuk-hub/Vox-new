@@ -21,6 +21,8 @@ const GROUP_ACTIONS = {
     { label: 'Edit feedback pricing', to: '/pricing/packages?service=feedback' },
     { label: 'Feedback hub', to: '/customer-feedback/overview' },
   ],
+  expo: [{ label: 'Edit Expo pricing', to: '/pricing/packages?service=expo' }],
+  smart_card: [{ label: 'Edit Smart Card pricing', to: '/pricing/packages?service=smart_card' }],
   campaign: [{ label: 'Campaign pricing', to: '/pricing/services' }],
 }
 
@@ -71,6 +73,9 @@ function ProductRow({ row, selected, onSelect }) {
       </td>
       <td>
         <div className="phPlanName">
+          {row.is_active ? (
+            <span className="phActiveDot" style={{ background: 'var(--ph-green)' }} title="Active" aria-hidden />
+          ) : null}
           {row.name}
           <span className="phTierChip" style={{ background: tc.chipBg, color: tc.chipText }}>
             {String(row.tier_key || '').replace(/_/g, ' ')}
@@ -304,7 +309,7 @@ export default function ProductsHub() {
     return GROUP_ORDER.filter((k) => map.has(k)).map((k) => ({
       key: k,
       label: map.get(k)[0]?.group_label || k,
-      rows: map.get(k),
+      rows: [...map.get(k)].sort((a, b) => Number(Boolean(b.is_active)) - Number(Boolean(a.is_active))),
     }))
   }, [filtered])
 

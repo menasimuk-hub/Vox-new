@@ -13,6 +13,7 @@ from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
 from app.models.smart_card import (
     SMART_CARD_SERVICE_CODE,
+    SmartCardIndustry,
     SmartCardPackage,
     SmartCardQuestionTemplate,
 )
@@ -42,6 +43,34 @@ PACKAGE_SEED = {
         "15 free preview tests before go-live",
     ],
 }
+
+INDUSTRY_SEEDS: list[dict] = [
+    {
+        "name": "Construction / Trade",
+        "addon_question": "What size or type of projects are you currently working on?",
+        "sort_order": 10,
+    },
+    {
+        "name": "Retail / Wholesale",
+        "addon_question": "Do you buy for one location, or multiple stores/branches?",
+        "sort_order": 20,
+    },
+    {
+        "name": "Tech / Solutions",
+        "addon_question": "Do you have a rough budget range for this project?",
+        "sort_order": 30,
+    },
+    {
+        "name": "Food / Hospitality",
+        "addon_question": "Are you sourcing for your business, or for events?",
+        "sort_order": 40,
+    },
+    {
+        "name": "Health / Wellness",
+        "addon_question": "Are you buying for a clinic, practice, or retail setting?",
+        "sort_order": 50,
+    },
+]
 
 QUESTION_TEMPLATES: list[dict] = [
     {
@@ -108,10 +137,34 @@ class SmartCardSeedService:
     @staticmethod
     def ensure_seeded(db: Session) -> None:
         SmartCardSeedService._ensure_mailbox(db)
+        SmartCardSeedService._ensure_industries(db)
         SmartCardSeedService._ensure_question_templates(db)
         SmartCardSeedService._ensure_packages(db)
         SmartCardSeedService._ensure_connection_profile_service(db)
         db.commit()
+
+    @staticmethod
+    def _ensure_industries(db: Session) -> None:
+        now = datetime.utcnow()
+        for item in INDUSTRY_SEEDS:
+            name = str(item["name"]).strip()
+            existing = db.execute(
+                select(SmartCardIndustry).where(SmartCardIndustry.name == name)
+            ).scalar_one_or_none()
+            if existing is not None:
+                continue
+            db.add(
+                SmartCardIndustry(
+                    id=str(uuid.uuid4()),
+                    name=name[:128],
+                    addon_question=item.get("addon_question"),
+                    is_active=True,
+                    sort_order=int(item.get("sort_order") or 100),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        db.flush()
 
     @staticmethod
     def _ensure_mailbox(db: Session) -> None:

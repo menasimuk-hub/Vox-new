@@ -36,7 +36,17 @@ _ZONE_LABELS: dict[str, tuple[str, str]] = {
 _GROUP_LABELS = {
     "voxbulk": "Core platform",
     "customer_feedback": "Customer Feedback",
+    "expo": "VoxBulk Expo",
+    "smart_card": "Smart Card QR",
     "campaign": "Campaign packs",
+}
+
+_LINE_SORT = {
+    "voxbulk": 0,
+    "customer_feedback": 1,
+    "expo": 2,
+    "smart_card": 3,
+    "campaign": 4,
 }
 
 _CAMPAIGN_TIER: dict[str, str] = {
@@ -75,6 +85,10 @@ class ProductsHubService:
             return None
         kind = str(getattr(plan, "service_kind", None) or "voxbulk").strip().lower()
         code = str(plan.code or "").strip().lower()
+        if kind == "expo":
+            return "expo"
+        if kind == "smart_card":
+            return "smart_card"
         if kind == "customer_feedback" or code.startswith("cf_"):
             return "customer_feedback"
         if kind == "voxbulk" or BillingAccessService.is_valid_core_plan(None, plan):
@@ -271,6 +285,10 @@ class ProductsHubService:
         code = str(plan.code or "")
         if line == "customer_feedback":
             return f"/pricing/packages?service=feedback&plan={code}"
+        if line == "expo":
+            return f"/pricing/packages?service=expo&plan={code}"
+        if line == "smart_card":
+            return f"/pricing/packages?service=smart_card&plan={code}"
         return f"/pricing/packages?service=core&plan={code}"
 
     @staticmethod
@@ -281,6 +299,16 @@ class ProductsHubService:
             return {
                 "dashboard": f"/account/packages?tab=feedback&product=feedback&plan={code}",
                 "website": f"https://voxbulk.com/pricing?plan={code}&product=feedback",
+            }
+        if line == "expo":
+            return {
+                "dashboard": f"/account/packages?tab=expo&product=expo&plan={code}",
+                "website": f"https://voxbulk.com/pricing?plan={code}&product=expo",
+            }
+        if line == "smart_card":
+            return {
+                "dashboard": f"/account/smart-card/packages?plan={code}",
+                "website": f"https://voxbulk.com/pricing?plan={code}&product=smart_card",
             }
         return {
             "dashboard": f"/account/packages?plan={code}",
@@ -302,13 +330,14 @@ class ProductsHubService:
             **base,
             **picker,
             "product_line": line,
-            "group_label": _GROUP_LABELS[line],
+            "group_label": _GROUP_LABELS.get(line, line),
             "tier_key": ProductsHubService.tier_key_for_plan(plan),
             "region": ProductsHubService.region_for_plan(plan, fb_pkg=fb_pkg),
             "currency": currency,
             "price_minor": price_minor,
             "price_display": money_display(price_minor, currency) if price_minor is not None else None,
             "price_gap": False,
+            "is_active": bool(getattr(plan, "is_active", False)),
             "limits_summary": ProductsHubService.limits_summary(plan, fb_pkg=fb_pkg),
             "features": features,
             "features_summary": ProductsHubService.features_summary(features),
@@ -333,6 +362,7 @@ class ProductsHubService:
             "price_minor": None,
             "price_display": None,
             "price_gap": False,
+            "is_active": bool(getattr(svc, "is_active", False)),
             "limits_summary": str(svc.description or "No limits set"),
             "pricing_url": "/pricing/services",
             "preview_dashboard_url": None,
@@ -372,7 +402,8 @@ class ProductsHubService:
         ProductsHubService._apply_price_gaps(rows)
         rows.sort(
             key=lambda x: (
-                {"voxbulk": 0, "customer_feedback": 1, "campaign": 2}.get(x.get("product_line") or "", 9),
+                _LINE_SORT.get(x.get("product_line") or "", 9),
+                0 if x.get("is_active") else 1,
                 int(x.get("sort_order") or 100),
                 x.get("region") or "",
                 x.get("name") or "",

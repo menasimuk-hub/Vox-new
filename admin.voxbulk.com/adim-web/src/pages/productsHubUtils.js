@@ -1,12 +1,20 @@
-export const LINE_HUE = { voxbulk: 212, customer_feedback: 164, campaign: 30 }
+export const LINE_HUE = {
+  voxbulk: 212,
+  customer_feedback: 164,
+  expo: 248,
+  smart_card: 188,
+  campaign: 30,
+}
 
 export const TIER_RANK = {
   voxbulk: { payg: 0, starter: 1, pro: 2, business: 3, enterprise: 4 },
   customer_feedback: { starter: 0, growth: 1, pro: 2, business: 3 },
+  expo: { expo_day1: 0, day1: 0, expo_day3: 1, day3: 1, expo_day7: 2, day7: 2 },
+  smart_card: { seat: 0, smart_card_seat: 0 },
   campaign: { survey: 0, interview: 1, ats: 2, appt: 3 },
 }
 
-export const TIER_MAX = { voxbulk: 4, customer_feedback: 3, campaign: 3 }
+export const TIER_MAX = { voxbulk: 4, customer_feedback: 3, expo: 2, smart_card: 0, campaign: 3 }
 
 export const REGION_COLORS = {
   US: { bg: '#E4EDF7', text: '#2F5C8A' },
@@ -17,12 +25,14 @@ export const REGION_COLORS = {
   Global: { bg: '#F1ECDD', text: '#776E5B' },
 }
 
-export const GROUP_ORDER = ['voxbulk', 'customer_feedback', 'campaign']
+export const GROUP_ORDER = ['voxbulk', 'customer_feedback', 'expo', 'smart_card', 'campaign']
 
 export const FILTER_OPTIONS = [
   { key: 'all', label: 'All' },
   { key: 'voxbulk', label: 'Core platform' },
   { key: 'customer_feedback', label: 'Customer Feedback' },
+  { key: 'expo', label: 'VoxBulk Expo' },
+  { key: 'smart_card', label: 'Smart Card QR' },
   { key: 'campaign', label: 'Campaign packs' },
 ]
 
@@ -56,7 +66,7 @@ export function formatPriceCell(row) {
   if (row.is_enterprise) {
     return { text: 'Custom', gap: false }
   }
-  const suffix = row.interval === 'yearly' ? '/yr' : '/mo'
+  const suffix = row.interval === 'yearly' ? '/yr' : row.interval === 'one_time' ? '' : '/mo'
   return {
     text: `${row.price_display}${suffix}`,
     gap: Boolean(row.price_gap),
@@ -71,16 +81,17 @@ export function tierSummaryRows(rows) {
     byTier.get(key).push(row)
   }
   return [...byTier.entries()].map(([tierKey, tierRows]) => {
-    const prices = tierRows.map((r) => r.price_display).filter(Boolean)
-    const active = tierRows.filter((r) => r.is_active).length
+    const sorted = [...tierRows].sort((a, b) => Number(Boolean(b.is_active)) - Number(Boolean(a.is_active)))
+    const prices = sorted.map((r) => r.price_display).filter(Boolean)
+    const active = sorted.filter((r) => r.is_active).length
     return {
       tierKey,
-      name: tierRows[0]?.name || tierKey,
-      rows: tierRows,
-      regionCount: tierRows.length,
+      name: sorted[0]?.name || tierKey,
+      rows: sorted,
+      regionCount: sorted.length,
       activeCount: active,
       priceRange: prices.length ? prices : ['—'],
-      anyGap: tierRows.some((r) => r.price_gap),
+      anyGap: sorted.some((r) => r.price_gap),
     }
   })
 }
@@ -98,7 +109,7 @@ export function filterRows(rows, { filter, query, gapsOnly }) {
     )
   }
   if (gapsOnly) out = out.filter((r) => r.price_gap)
-  return out
+  return [...out].sort((a, b) => Number(Boolean(b.is_active)) - Number(Boolean(a.is_active)))
 }
 
 export function computeStats(rows) {

@@ -156,11 +156,28 @@
 .onboarding-services-page .os-icon-chip.survey { background: #ede9fe; color: #7c3aed; }
 .onboarding-services-page .os-icon-chip.customer_feedback { background: #d1fae5; color: #059669; }
 .onboarding-services-page .os-icon-chip.expo { background: #e0e7ff; color: #4338ca; }
+.onboarding-services-page .os-icon-chip.smart_card { background: #ccfbf1; color: #0f766e; }
 .onboarding-services-page .os-icon-chip.feedback_campaigns { background: #fef3c7; color: #d97706; }
 .onboarding-services-page .os-icon-chip.appointments { background: #ffedd5; color: #ea580c; }
 .onboarding-services-page .os-icon-chip.recovery { background: #fce7f3; color: #db2777; }
 .onboarding-services-page .os-icon-chip.follow_up { background: #e0f2fe; color: #0284c7; }
 .onboarding-services-page .os-icon-chip.campaigns { background: #fee2e2; color: #dc2626; }
+
+.onboarding-services-page .os-icon-chip.enabled {
+  background: #e4ebde;
+  color: #4c6b4a;
+  box-shadow: inset 0 0 0 1.5px #4c6b4a;
+}
+
+.onboarding-services-page .os-enabled-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4c6b4a;
+  margin-right: 8px;
+  vertical-align: middle;
+}
 
 .onboarding-services-page .os-module-text {
   min-width: 0;

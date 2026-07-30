@@ -14,6 +14,20 @@ SMART_CARD_SERVICE_CODE = "smart_card"
 SMART_CARD_PREVIEW_TESTS_LIMIT = 15
 
 
+class SmartCardIndustry(Base):
+    """Admin industry catalogue for Smart Card QR (Expo-parity)."""
+
+    __tablename__ = "smart_card_industries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    addon_question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class SmartCardPackage(Base):
     """Admin-configured seat package linked to a Plan (service_kind=smart_card)."""
 

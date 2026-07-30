@@ -5,29 +5,46 @@ Independent VoxBulk service for representative digital cards (QR → WhatsApp / 
 ## Enable
 
 1. Admin → Onboarding → Services → allow **Smart Card QR** for the org  
-2. Dashboard → Settings → Services → turn **Smart Card QR** on  
-3. Create mailbox **`smartqr@voxbulk.com`** on aaPanel and configure Admin → Smart Card mailbox SMTP (API: `GET/PUT /admin/smart-card/mailbox`)
+   - Grant also **auto-enables** the module for the customer (sidebar visible after refresh).
+2. Dashboard → Settings → Services → toggle **Smart Card QR** (show/hide) if needed  
+3. Create mailbox **`smartqr@voxbulk.com`** on aaPanel and configure Admin → WA Templates → Smart Card QR (SMTP + optional IMAP)
 
-## Packages
+## Admin pricing & products
 
-- Default: **$5 / seat / month, billed yearly** ($60 / seat / year) — Admin editable via Pricing Packages (`service_kind=smart_card`)  
-- Checkout: Dashboard → Packages → choose seat quantity → Stripe/Airwallex (`POST /smart-card/billing/checkout` + `/complete`)  
-- Preview: **15** free QR tests, then stop until paid  
-- Expiry: Celery beat `smart-card-renewal-reminders-daily` (30d / 14d / 7d / 1d); public + dashboard expired page with Renew
+- Pricing → Packages: section **Smart Card QR** (`service_kind=smart_card`) — yearly seat unit price  
+- Products hub: lists Core, Feedback, Expo, Smart Card, Campaigns; green dot = active; active sorted first  
+- Deep link: `/pricing/packages?service=smart_card`
+
+## Packages (customer)
+
+- Default: **$5 / seat / month, billed yearly** ($60 / seat / year) — Admin-editable  
+- Checkout: seat quantity × yearly unit (`POST /smart-card/billing/checkout` + `/complete`)  
+- Preview: **15** free QR tests  
+- Expiry: Celery renewal reminders 30d / 14d / 7d / 1d  
+- Account → Packages tabs include Expo + Smart Card CTAs
 
 ## Channels
 
 - Web: `https://voxbulk.com/smart-card/{qr_token}`  
-- WhatsApp: Telnyx inbound routes Smart Card tokens/sessions (after Expo, before Feedback)  
-- SMTP From: `smartqr@voxbulk.com` (dedicated mailbox settings)
+- WhatsApp: Telnyx inbound (token/session); voice notes transcribed; hot-lead WA to rep mobile  
+- Mail: From `smartqr@voxbulk.com`; IMAP sync → support tickets (`category=smart_card`)
+
+## Catalogue
+
+- Categories / products / PDFs via URL **or file upload** (`POST /smart-card/catalogue/assets/upload`)
+
+## Admin content
+
+- Industries + questions CRUD (WA Templates → Smart Card QR)  
+- Mailbox: Test send / Test receive / Sync now  
 
 ## APIs
 
 | Prefix | Audience |
 |--------|----------|
-| `/smart-card` | Dashboard (company, catalogue, reps, leads, change-requests, seat billing) |
-| `/public/smart-card/{token}` | Visitor landing + web session + card OCR |
-| `/admin/smart-card` | Questions, mailbox, seed, overview |
+| `/smart-card` | Dashboard |
+| `/public/smart-card/{token}` | Visitor landing + web session |
+| `/admin/smart-card` | Questions, industries, mailbox, seed, overview |
 
 ## Deploy
 

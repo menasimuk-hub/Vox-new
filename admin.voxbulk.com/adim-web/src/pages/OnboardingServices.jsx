@@ -61,15 +61,18 @@ function ToggleSwitch({ checked, disabled, onChange, label }) {
 }
 
 function ServiceModuleRows({ services, onToggle, enabledCount, disabled }) {
+  const ordered = [...SERVICE_ROWS].sort(
+    (a, b) => Number(Boolean(services[b.key])) - Number(Boolean(services[a.key])),
+  )
   return (
     <div className='os-module-list'>
-      {SERVICE_ROWS.map((row) => {
+      {ordered.map((row) => {
         const on = Boolean(services[row.key])
         const lockOff = on && enabledCount <= 1
         return (
           <div key={row.key} className='os-module-row'>
             <div className='os-module-main'>
-              <span className={`os-icon-chip ${row.key}`} aria-hidden>
+              <span className={`os-icon-chip ${row.key}${on ? ' enabled' : ''}`} aria-hidden>
                 <i className={`ti ${row.icon}`} />
               </span>
               <div className='os-module-text'>
@@ -92,6 +95,10 @@ function ServiceModuleRows({ services, onToggle, enabledCount, disabled }) {
 
 function CustomerPreview({ breakdown, orgName }) {
   if (!breakdown?.length) return null
+  const ordered = [...breakdown].sort((a, b) => {
+    const score = (row) => (row.enabled ? 2 : 0) + (row.allowed ? 1 : 0)
+    return score(b) - score(a)
+  })
   return (
     <div className='os-preview'>
       <div className='os-preview-head'>What {orgName || 'this customer'} sees today</div>
@@ -105,9 +112,12 @@ function CustomerPreview({ breakdown, orgName }) {
           </tr>
         </thead>
         <tbody>
-          {breakdown.map((row) => (
+          {ordered.map((row) => (
             <tr key={row.key}>
-              <td>{row.label}</td>
+              <td>
+                {row.enabled ? <span className='os-enabled-dot' aria-hidden /> : null}
+                {row.label}
+              </td>
               <td>{row.allowed ? 'Yes' : 'No'}</td>
               <td>{row.allowed ? (row.enabled ? 'Yes' : 'No') : '—'}</td>
               <td className={row.allowed && !row.visible ? 'hint' : ''}>

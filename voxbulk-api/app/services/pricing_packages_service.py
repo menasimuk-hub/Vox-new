@@ -296,6 +296,50 @@ class PricingPackagesService:
                 PricingPackagesService.upsert_prices(db, plan.id, payload["prices"], commit=True)
             return PricingPackagesService.get_package(db, plan.id)  # type: ignore[return-value]
 
+        if kind == "smart_card":
+            try:
+                code = PlanAdminService.normalize_code(str(payload.get("code") or name))
+            except PlanAdminError as exc:
+                raise PricingPackagesError(str(exc)) from exc
+            if not (code.startswith("sc_") or code.startswith("smart_card_")):
+                code = f"sc_{code}"
+            existing = db.execute(select(Plan).where(Plan.code == code)).scalar_one_or_none()
+            if existing is not None:
+                raise PricingPackagesError(f"Plan code already exists: {code}")
+            tier = str(payload.get("tier") or "seat").strip()[:32] or "seat"
+            plan = Plan(
+                id=str(uuid.uuid4()),
+                code=code,
+                name=name,
+                price_gbp_pence=int(payload.get("price_gbp_pence") or 0),
+                interval=str(payload.get("interval") or "yearly"),
+                description=str(payload.get("description") or "").strip() or None,
+                features_json=json.dumps(payload["features"]) if isinstance(payload.get("features"), list) else None,
+                service_kind=SMART_CARD_SERVICE_CODE,
+                is_active=bool(payload.get("is_active", True)),
+                is_featured=bool(payload.get("is_featured", False)),
+                sort_order=int(payload.get("sort_order") or 100),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(plan)
+            db.flush()
+            sc_pkg = SmartCardPackage(
+                id=str(uuid.uuid4()),
+                plan_id=plan.id,
+                tier=tier,
+                monthly_unit_hint_usd_cents=int(payload.get("monthly_unit_hint_usd_cents") or 500),
+                display_order=int(payload.get("sort_order") or 100),
+                is_active=bool(payload.get("is_active", True)),
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(sc_pkg)
+            db.commit()
+            if payload.get("prices"):
+                PricingPackagesService.upsert_prices(db, plan.id, payload["prices"], commit=True)
+            return PricingPackagesService.get_package(db, plan.id)  # type: ignore[return-value]
+
         # customer_feedback — create GB package (+ optional prices); sibling zones get price sync on save
         zone = "gb"
         suffix = uuid.uuid4().hex[:6]
@@ -413,6 +457,22 @@ class PricingPackagesService:
             expo_pkg.market_zone = "all"
             expo_pkg.updated_at = now
             db.add(expo_pkg)
+            db.commit()
+
+        if kind == "smart_card":
+            sc_pkg = db.execute(select(SmartCardPackage).where(SmartCardPackage.plan_id == plan.id)).scalar_one_or_none()
+            if sc_pkg is None:
+                raise PricingPackagesError("Smart Card package metadata missing")
+            if "tier" in payload and payload["tier"] is not None:
+                sc_pkg.tier = str(payload["tier"]).strip()[:32] or sc_pkg.tier
+            if "monthly_unit_hint_usd_cents" in payload and payload["monthly_unit_hint_usd_cents"] is not None:
+                sc_pkg.monthly_unit_hint_usd_cents = int(payload["monthly_unit_hint_usd_cents"])
+            if "is_active" in payload:
+                sc_pkg.is_active = bool(payload["is_active"])
+            if "sort_order" in payload:
+                sc_pkg.display_order = int(payload["sort_order"] or 100)
+            sc_pkg.updated_at = now
+            db.add(sc_pkg)
             db.commit()
 
         if kind == "customer_feedback":

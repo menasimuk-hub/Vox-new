@@ -9,10 +9,13 @@ const SERVICES = [
   { key: 'voxbulk', label: 'Core platform' },
   { key: 'customer_feedback', label: 'Customer Feedback' },
   { key: 'expo', label: 'Expo' },
+  { key: 'smart_card', label: 'Smart Card QR' },
 ]
 
 function defaultInterval(serviceKey) {
-  return serviceKey === 'expo' ? 'one_time' : 'monthly'
+  if (serviceKey === 'expo') return 'one_time'
+  if (serviceKey === 'smart_card') return 'yearly'
+  return 'monthly'
 }
 
 function emptyMoneyMap() {
@@ -83,6 +86,8 @@ function packageToDraft(pkg) {
 
 function draftToPayload(draft) {
   const isExpo = draft.service_kind === 'expo'
+  const isSmartCard = draft.service_kind === 'smart_card'
+  const skipUnits = isExpo || isSmartCard
   const prices = {}
   const unit_rates = {}
   for (const c of CURRENCIES) {
@@ -91,10 +96,10 @@ function draftToPayload(draft) {
     prices[c] = {
       monthly_price_minor: p.monthly === '' ? null : poundsToPence(p.monthly),
       yearly_price_minor: p.yearly === '' ? null : poundsToPence(p.yearly),
-      per_min_minor: isExpo ? 0 : poundsToPence(p.perMin || 0),
-      extra_per_min_minor: isExpo ? 0 : poundsToPence(p.extraPerMin || 0),
+      per_min_minor: skipUnits ? 0 : poundsToPence(p.perMin || 0),
+      extra_per_min_minor: skipUnits ? 0 : poundsToPence(p.extraPerMin || 0),
     }
-    if (!isExpo) {
+    if (!skipUnits) {
       unit_rates[c] = {
         connection_fee_minor: u.connection === '' ? null : poundsToPence(u.connection),
         interview_per_min_minor: u.interview === '' ? null : poundsToPence(u.interview),
@@ -117,10 +122,12 @@ function draftToPayload(draft) {
     wa_units_included: Number(draft.wa_units_included || draft.whatsapp_included || 0),
     web_units_included: Number(draft.web_units_included || 100),
     duration_days: Number(draft.duration_days || 1),
+    tier: draft.tier || (isSmartCard ? 'seat' : undefined),
+    monthly_unit_hint_usd_cents: isSmartCard ? Number(draft.monthly_unit_hint_usd_cents ?? 500) : undefined,
     org_ids: Array.isArray(draft.org_ids) ? draft.org_ids : [],
     prices,
   }
-  if (!isExpo) payload.unit_rates = unit_rates
+  if (!skipUnits) payload.unit_rates = unit_rates
   return payload
 }
 
@@ -205,6 +212,8 @@ export default function PricingPrivatePackages() {
         wa_units_included: 100,
         web_units_included: 100,
         duration_days: 1,
+        tier: serviceKey === 'smart_card' ? 'seat' : undefined,
+        monthly_unit_hint_usd_cents: serviceKey === 'smart_card' ? 500 : undefined,
         org_ids: [],
         prices,
         unitRates,
@@ -282,7 +291,7 @@ export default function PricingPrivatePackages() {
   }
 
   const byService = useMemo(() => {
-    const map = { voxbulk: [], customer_feedback: [], expo: [] }
+    const map = { voxbulk: [], customer_feedback: [], expo: [], smart_card: [] }
     for (const item of items) {
       const k = item.service_kind || 'voxbulk'
       if (!map[k]) map[k] = []
@@ -292,10 +301,13 @@ export default function PricingPrivatePackages() {
   }, [items])
 
   const isExpo = drawer?.draft?.service_kind === 'expo'
+  const isSmartCard = drawer?.draft?.service_kind === 'smart_card'
   const isFeedback = drawer?.draft?.service_kind === 'customer_feedback'
   const pricePrimaryLabel = isExpo
     ? (drawer?.draft?.interval === 'yearly' ? 'Yearly' : 'Price')
-    : 'Monthly'
+    : isSmartCard
+      ? 'Yearly'
+      : 'Monthly'
 
   return (
     <PricingLoadGate
@@ -317,7 +329,11 @@ export default function PricingPrivatePackages() {
               <div className="pricingPkgTableHead">
                 <div>
                   <h3 className="pricingPkgTableTitle">{svc.label}</h3>
-                  <p className="muted pricingPkgTableBlurb">Private deals for this product — not shown on public pricing.</p>
+                  <p className="muted pricingPkgTableBlurb">
+                    {svc.key === 'smart_card'
+                      ? '$5/seat/month billed annually — edit yearly unit price. Private deals only.'
+                      : 'Private deals for this product — not shown on public pricing.'}
+                  </p>
                 </div>
                 <button className="btn soft" type="button" onClick={() => openCreate(svc.key)}>+ Create private package</button>
               </div>
@@ -353,8 +369,14 @@ export default function PricingPrivatePackages() {
                             <td className="muted">{pkg.code}</td>
                             <td className="muted" style={{ textTransform: 'capitalize' }}>{interval}</td>
                             <td>{orgNames.length ? orgNames.join(', ') : <span className="muted">None</span>}</td>
-                            <td>{formatMinor(gbp.monthly_price_minor)}</td>
-                            <td>{formatMinor(gbp.yearly_price_minor)}</td>
+                            <td>{svc.key === 'smart_card' ? '—' : formatMinor(gbp.monthly_price_minor)}</td>
+                            <td>
+                              {svc.key === 'smart_card' ? (
+                                <strong>{formatMinor(gbp.yearly_price_minor)}</strong>
+                              ) : (
+                                formatMinor(gbp.yearly_price_minor)
+                              )}
+                            </td>
                             <td className="pricingPkgActions">
                               <button className="btn soft pricingSaveBtn" type="button" onClick={() => openEdit(pkg)}>Edit</button>
                               <button className="btn ghost pricingSaveBtn" type="button" onClick={() => void deactivate(pkg)}>Off</button>
@@ -398,6 +420,10 @@ export default function PricingPrivatePackages() {
                       <option value="one_time">One-time</option>
                       <option value="yearly">Yearly</option>
                     </select>
+                  ) : isSmartCard ? (
+                    <select className="input" value={drawer.draft.interval || 'yearly'} onChange={(e) => setDraftField('interval', e.target.value)}>
+                      <option value="yearly">Yearly</option>
+                    </select>
                   ) : (
                     <select className="input" value={drawer.draft.interval || 'monthly'} onChange={(e) => setDraftField('interval', e.target.value)}>
                       <option value="monthly">Monthly</option>
@@ -430,6 +456,25 @@ export default function PricingPrivatePackages() {
                   </div>
                 ) : null}
 
+                {isSmartCard ? (
+                  <div className="pricingPkgFieldGrid">
+                    <div className="pricingPkgField">
+                      <label>Tier</label>
+                      <input className="input" value={drawer.draft.tier || 'seat'} onChange={(e) => setDraftField('tier', e.target.value)} />
+                    </div>
+                    <div className="pricingPkgField">
+                      <label>Monthly unit hint (USD cents)</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min="0"
+                        value={drawer.draft.monthly_unit_hint_usd_cents ?? 500}
+                        onChange={(e) => setDraftField('monthly_unit_hint_usd_cents', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
                 <h4 className="pricingPkgPricesTitle">Assign organisations</h4>
                 <input className="input" style={{ marginBottom: 8 }} placeholder="Search orgs…" value={orgQuery} onChange={(e) => setOrgQuery(e.target.value)} />
                 <div className="pricingPrivateOrgList">
@@ -445,14 +490,20 @@ export default function PricingPrivatePackages() {
                 </div>
                 <p className="muted" style={{ fontSize: 12 }}>{(drawer.draft.org_ids || []).length} org(s) selected</p>
 
-                <h4 className="pricingPkgPricesTitle">Package prices</h4>
+                <h4 className="pricingPkgPricesTitle">
+                  {isSmartCard ? 'Yearly seat prices (billed annually)' : 'Package prices'}
+                </h4>
                 <table className="pricingPlanPriceTable">
                   <thead>
                     <tr>
                       <th>Currency</th>
-                      <th>{isExpo ? (drawer.draft.interval === 'yearly' ? 'Yearly' : 'Price') : pricePrimaryLabel}</th>
-                      {!isExpo || drawer.draft.interval !== 'yearly' ? <th>Yearly{isExpo ? ' (optional)' : ''}</th> : null}
-                      {!isExpo ? (
+                      {isSmartCard ? null : (
+                        <th>{isExpo ? (drawer.draft.interval === 'yearly' ? 'Yearly' : 'Price') : pricePrimaryLabel}</th>
+                      )}
+                      {isSmartCard || (!isExpo || drawer.draft.interval !== 'yearly') ? (
+                        <th>Yearly{isExpo && !isSmartCard ? ' (optional)' : isSmartCard ? ' (per seat)' : ''}</th>
+                      ) : null}
+                      {!isExpo && !isSmartCard ? (
                         <>
                           <th>Per min</th>
                           <th>Extra / min</th>
@@ -463,20 +514,23 @@ export default function PricingPrivatePackages() {
                   <tbody>
                     {CURRENCIES.map((c) => {
                       const row = drawer.draft.prices?.[c] || {}
-                      const showYearlyCol = !isExpo || drawer.draft.interval !== 'yearly'
+                      const showYearlyCol = isSmartCard || !isExpo || drawer.draft.interval !== 'yearly'
+                      const yearlyOnly = isSmartCard || (isExpo && drawer.draft.interval === 'yearly')
                       return (
                         <tr key={c}>
                           <td><strong>{CURRENCY_SYMBOLS[c] || c} {c}</strong></td>
-                          <td>
-                            <MoneyInput
-                              value={isExpo && drawer.draft.interval === 'yearly' ? (row.yearly ?? '') : (row.monthly ?? '')}
-                              onChange={(v) => setPrice(c, isExpo && drawer.draft.interval === 'yearly' ? 'yearly' : 'monthly', v)}
-                            />
-                          </td>
+                          {isSmartCard ? null : (
+                            <td>
+                              <MoneyInput
+                                value={yearlyOnly ? (row.yearly ?? '') : (row.monthly ?? '')}
+                                onChange={(v) => setPrice(c, yearlyOnly ? 'yearly' : 'monthly', v)}
+                              />
+                            </td>
+                          )}
                           {showYearlyCol ? (
                             <td><MoneyInput value={row.yearly ?? ''} onChange={(v) => setPrice(c, 'yearly', v)} /></td>
                           ) : null}
-                          {!isExpo ? (
+                          {!isExpo && !isSmartCard ? (
                             <>
                               <td><MoneyInput value={row.perMin ?? ''} onChange={(v) => setPrice(c, 'perMin', v)} /></td>
                               <td><MoneyInput value={row.extraPerMin ?? ''} onChange={(v) => setPrice(c, 'extraPerMin', v)} /></td>
@@ -488,7 +542,7 @@ export default function PricingPrivatePackages() {
                   </tbody>
                 </table>
 
-                {!isExpo ? (
+                {!isExpo && !isSmartCard ? (
                   <>
                     <h4 className="pricingPkgPricesTitle">Unit rates (blank = platform default)</h4>
                     <table className="pricingPlanPriceTable">

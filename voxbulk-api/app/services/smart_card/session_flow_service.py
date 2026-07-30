@@ -308,6 +308,16 @@ class SmartCardSessionFlowService:
         except Exception:
             logger.exception("smart_card_lead_email_failed")
 
+        # Hot-lead alert to the rep's mobile — best-effort, never blocks completion.
+        score = str(lead.lead_score or "").lower()
+        if score in {"hot", "high"} and getattr(rep, "mobile", None):
+            try:
+                from app.services.smart_card.hot_lead_notify_service import notify_hot_lead
+
+                notify_hot_lead(db, rep=rep, lead=lead)
+            except Exception:
+                logger.exception("smart_card_hot_lead_notify_dispatch_failed lead=%s", lead.id)
+
         return {
             "ok": True,
             "done": True,
