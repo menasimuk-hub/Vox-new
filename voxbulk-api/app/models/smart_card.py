@@ -277,11 +277,13 @@ class SmartCardRenewalReminderSend(Base):
 
 
 class SmartCardVoiceNoteJob(Base):
+    """Lightweight voice STT job row (no DB FKs — MySQL deploy-safe; session_id is soft ref)."""
+
     __tablename__ = "smart_card_voice_note_jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
-    session_id: Mapped[str] = mapped_column(String(36), ForeignKey("smart_card_sessions.id"), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
