@@ -31,6 +31,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
 import { Route as SurveyPreviewThemeIdRouteImport } from './routes/survey.preview.$themeId'
 import { Route as ExpoTokenRouteImport } from './routes/expo.$token'
+import { Route as SmartCardTokenRouteImport } from './routes/smart-card.$token'
 import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as NewsSlugRouteImport } from './routes/news.$slug'
 import { Route as BlogIndexRouteImport } from './routes/blog.index'
@@ -175,6 +176,11 @@ const ExpoTokenRoute = ExpoTokenRouteImport.update({
   path: '/expo/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SmartCardTokenRoute = SmartCardTokenRouteImport.update({
+  id: '/smart-card/$token',
+  path: '/smart-card/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
   id: '/survey/preview/$themeId',
   path: '/survey/preview/$themeId',
@@ -245,6 +251,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/expo/$token': typeof ExpoTokenRoute
+  '/smart-card/$token': typeof SmartCardTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -273,6 +280,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/expo/$token': typeof ExpoTokenRoute
+  '/smart-card/$token': typeof SmartCardTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -302,6 +310,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/expo/$token': typeof ExpoTokenRoute
+  '/smart-card/$token': typeof SmartCardTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -332,6 +341,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/survey/$token'
     | '/expo/$token'
+    | '/smart-card/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -360,6 +370,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/survey/$token'
     | '/expo/$token'
+    | '/smart-card/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -388,6 +399,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/survey/$token'
     | '/expo/$token'
+    | '/smart-card/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -420,6 +432,7 @@ export interface RootRouteChildren {
   TermsRoute: typeof TermsRoute
   SurveyTokenRoute: typeof SurveyTokenRoute
   ExpoTokenRoute: typeof ExpoTokenRoute
+  SmartCardTokenRoute: typeof SmartCardTokenRoute
   SurveyPreviewThemeIdRoute: typeof SurveyPreviewThemeIdRoute
 }
 
@@ -685,6 +698,7 @@ const rootRouteChildren: RootRouteChildren = {
   TermsRoute: TermsRoute,
   SurveyTokenRoute: SurveyTokenRoute,
   ExpoTokenRoute: ExpoTokenRoute,
+  SmartCardTokenRoute: SmartCardTokenRoute,
   SurveyPreviewThemeIdRoute: SurveyPreviewThemeIdRoute,
 }
 export const routeTree = rootRouteImport

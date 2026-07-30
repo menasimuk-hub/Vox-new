@@ -97,6 +97,28 @@ def consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User)
             db.add(mobj)
     inv.consumed_at = datetime.utcnow()
     db.add(inv)
+    # Link Smart Card QR representative if invite matches email
+    try:
+        from app.models.smart_card import SmartCardRepresentative
+
+        em = str(inv.email or user.email or "").strip().lower()
+        if em:
+            reps = (
+                db.execute(
+                    select(SmartCardRepresentative).where(
+                        SmartCardRepresentative.org_id == inv.org_id,
+                        SmartCardRepresentative.email == em,
+                        SmartCardRepresentative.linked_user_id.is_(None),
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for rep in reps:
+                rep.linked_user_id = user.id
+                db.add(rep)
+    except Exception:
+        pass
 
 
 def attach_pending_invites(db: Session, *, user: User) -> list[str]:

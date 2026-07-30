@@ -13,13 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FEEDBACK_SERVICE_CODE, FeedbackPackage
 from app.models.expo import EXPO_SERVICE_CODE, ExpoPackage
+from app.models.smart_card import SMART_CARD_SERVICE_CODE, SmartCardPackage
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
 from app.services.billing_currency import SUPPORTED_CURRENCIES, normalize_currency
 from app.services.plan_admin_service import PlanAdminError, PlanAdminService
 from app.services.plan_price_service import PlanPriceError, PlanPriceService
 
-SERVICE_KINDS = ("voxbulk", "customer_feedback", "expo")
+SERVICE_KINDS = ("voxbulk", "customer_feedback", "expo", "smart_card")
 _ZONE_SUFFIX_RE = re.compile(r"_(gb|eu|us|ca|au)$", re.IGNORECASE)
 _ZONE_CURRENCY = {"gb": "GBP", "eu": "EUR", "us": "USD", "ca": "CAD", "au": "AUD"}
 _CURRENCY_ZONE = {v: k for k, v in _ZONE_CURRENCY.items()}
@@ -46,6 +47,8 @@ class PricingPackagesService:
                 out[kind] = PricingPackagesService._list_voxbulk(db, active_only=active_only)
             elif kind == "customer_feedback":
                 out[kind] = PricingPackagesService._list_feedback(db, active_only=active_only)
+            elif kind == "smart_card":
+                out[kind] = PricingPackagesService._list_smart_card(db, active_only=active_only)
             else:
                 out[kind] = PricingPackagesService._list_expo(db, active_only=active_only)
         return {
@@ -177,6 +180,31 @@ class PricingPackagesService:
                     "post_show_followup_enabled": bool(pkg.post_show_followup_enabled),
                     "post_event_survey_enabled": bool(pkg.post_event_survey_enabled),
                     "ai_summary_report_enabled": bool(pkg.ai_summary_report_enabled),
+                    "prices": PricingPackagesService._prices_map(db, plan.id),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _list_smart_card(db: Session, *, active_only: bool) -> list[dict[str, Any]]:
+        q = (
+            select(Plan, SmartCardPackage)
+            .join(SmartCardPackage, SmartCardPackage.plan_id == Plan.id)
+            .where(Plan.service_kind == SMART_CARD_SERVICE_CODE, Plan.is_private.is_(False))
+            .order_by(SmartCardPackage.display_order.asc(), Plan.name.asc())
+        )
+        if active_only:
+            q = q.where(Plan.is_active.is_(True), SmartCardPackage.is_active.is_(True))
+        rows = list(db.execute(q).all())
+        out = []
+        for plan, pkg in rows:
+            base = PlanAdminService.plan_to_dict(plan)
+            out.append(
+                {
+                    **base,
+                    "package_id": pkg.id,
+                    "tier": pkg.tier,
+                    "monthly_unit_hint_usd_cents": int(pkg.monthly_unit_hint_usd_cents or 500),
                     "prices": PricingPackagesService._prices_map(db, plan.id),
                 }
             )

@@ -110,6 +110,10 @@ celery_app.conf.update(
             "task": "expo.purge_expired_visitor_identities",
             "schedule": 86400.0,
         },
+        "smart-card-renewal-reminders-daily": {
+            "task": "smart_card.send_renewal_reminders",
+            "schedule": 86400.0,
+        },
     },
 )
 
@@ -130,6 +134,7 @@ from app.workers import survey_wa_dispatch_tasks  # noqa: E402, F401
 from app.workers import feedback_voice_note_tasks  # noqa: E402, F401
 from app.workers import expo_voice_note_tasks  # noqa: E402, F401
 from app.workers import expo_summary_tasks  # noqa: E402, F401
+from app.workers import smart_card_renewal_tasks  # noqa: E402, F401
 from app.workers import seo_tasks  # noqa: E402, F401
 
 """TODO: Configure queues/routing/retries in later phase."""

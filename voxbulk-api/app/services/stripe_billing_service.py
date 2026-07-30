@@ -54,6 +54,7 @@ class StripeBillingService:
         billing_interval: str,
         service_code: str,
         customer_email: str,
+        seat_quantity: int | None = None,
     ) -> dict[str, Any]:
         from app.services.billing_currency import resolve_org_currency
 
@@ -70,8 +71,11 @@ class StripeBillingService:
             "metadata[voxbulk_plan_id]": plan_id,
             "metadata[voxbulk_billing_interval]": billing_interval,
             "metadata[voxbulk_service_code]": service_code,
+            "metadata[voxbulk_amount_minor]": str(int(amount_minor)),
             "description": f"VoxBulk subscription — {org.name}"[:255],
         }
+        if seat_quantity is not None and int(seat_quantity) > 0:
+            data["metadata[voxbulk_seat_quantity]"] = str(int(seat_quantity))
         return data
 
     @staticmethod

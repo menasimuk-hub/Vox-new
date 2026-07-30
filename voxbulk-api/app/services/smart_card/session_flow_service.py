@@ -1,0 +1,319 @@
+"""Smart Card QR session flow — contact → questions → lead + email."""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models.smart_card import (
+    SMART_CARD_PREVIEW_TESTS_LIMIT,
+    SmartCardCompany,
+    SmartCardLead,
+    SmartCardQuestionTemplate,
+    SmartCardRepresentative,
+    SmartCardResponse,
+    SmartCardSession,
+)
+from app.services.smart_card.company_service import SmartCardCompanyService, SmartCardEntitlementService
+from app.services.smart_card.email_service import SmartCardEmailService
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_STEPS = ("contact", "interest", "role", "timeline", "follow_up", "consent_info", "open_feedback")
+
+
+def _score_lead(*, interest: str | None, timeline: str | None, consent: str | None) -> str:
+    c = (consent or "").lower()
+    if c in {"no", "n"}:
+        return "cold"
+    t = (timeline or "").lower()
+    if any(x in t for x in ("asap", "this week", "week", "soon", "immediate")):
+        return "hot"
+    if any(x in t for x in ("month", "this month")):
+        return "warm"
+    if interest and len(interest.strip()) > 40:
+        return "warm"
+    return "cold"
+
+
+def _ai_summary(lead: SmartCardLead, rep_name: str) -> str:
+    parts = [
+        f"{lead.name or 'A visitor'} from {lead.company or 'an unknown company'}",
+        f"spoke with {rep_name}",
+    ]
+    if lead.interest:
+        parts.append(f"Interest: {lead.interest[:200]}")
+    if lead.buying_timeline:
+        parts.append(f"Timeline: {lead.buying_timeline}")
+    parts.append(f"Score: {lead.lead_score or 'n/a'}")
+    return ". ".join(parts) + "."
+
+
+def _follow_up_draft(lead: SmartCardLead) -> str:
+    name = (lead.name or "there").split()[0]
+    return (
+        f"Hi {name}, thanks for scanning our Smart Card QR. "
+        f"Happy to share more on {lead.interest or 'our products'} — "
+        f"when works for a quick follow-up?"
+    )
+
+
+class SmartCardSessionError(ValueError):
+    pass
+
+
+class SmartCardSessionFlowService:
+    @staticmethod
+    def _prompts(db: Session) -> dict[str, str]:
+        rows = db.execute(select(SmartCardQuestionTemplate)).scalars().all()
+        return {r.question_key: r.prompt for r in rows}
+
+    @staticmethod
+    def _steps_for_company(company: SmartCardCompany) -> list[str]:
+        cfg = None
+        if company.question_config_json:
+            try:
+                cfg = json.loads(company.question_config_json)
+            except Exception:
+                cfg = None
+        if isinstance(cfg, dict) and isinstance(cfg.get("selected_keys"), list) and cfg["selected_keys"]:
+            keys = [str(k) for k in cfg["selected_keys"] if str(k).strip()]
+            # Always start with contact
+            if "contact" not in keys:
+                keys = ["contact", *keys]
+            return keys
+        return list(DEFAULT_STEPS)
+
+    @staticmethod
+    def start_session(
+        db: Session,
+        *,
+        rep: SmartCardRepresentative,
+        channel: str = "web",
+        visitor_phone: str | None = None,
+        visitor_email: str | None = None,
+        name: str | None = None,
+        company_name: str | None = None,
+    ) -> dict[str, Any]:
+        mode = SmartCardEntitlementService.access_mode(db, rep.org_id)
+        if mode == "expired":
+            raise SmartCardSessionError("expired")
+        if mode == "preview_exhausted":
+            raise SmartCardSessionError("preview_exhausted")
+
+        company = SmartCardCompanyService.get_or_create(db, rep.org_id)
+        is_preview = mode == "preview"
+        if is_preview:
+            company.preview_tests_used = int(company.preview_tests_used or 0) + 1
+            company.updated_at = datetime.utcnow()
+            db.add(company)
+            if company.preview_tests_used > SMART_CARD_PREVIEW_TESTS_LIMIT:
+                raise SmartCardSessionError("preview_exhausted")
+
+        steps = SmartCardSessionFlowService._steps_for_company(company)
+        state = {
+            "steps": steps,
+            "step_index": 0,
+            "name": name,
+            "company": company_name,
+            "visitor_email": visitor_email,
+            "visitor_phone": visitor_phone,
+            "answers": {},
+        }
+        session = SmartCardSession(
+            id=str(uuid.uuid4()),
+            org_id=rep.org_id,
+            representative_id=rep.id,
+            channel=channel[:16],
+            visitor_phone=visitor_phone,
+            status="active",
+            current_step=steps[0] if steps else "contact",
+            state_json=json.dumps(state),
+            is_preview=is_preview,
+        )
+        db.add(session)
+        rep.scan_count = int(rep.scan_count or 0) + 1
+        rep.updated_at = datetime.utcnow()
+        db.add(rep)
+        db.flush()
+
+        prompts = SmartCardSessionFlowService._prompts(db)
+        return {
+            "ok": True,
+            "session_id": session.id,
+            "is_preview": is_preview,
+            "step": session.current_step,
+            "prompt": prompts.get(session.current_step or "", "Please continue."),
+            "steps": steps,
+        }
+
+    @staticmethod
+    def _load_state(session: SmartCardSession) -> dict[str, Any]:
+        try:
+            return json.loads(session.state_json or "{}")
+        except Exception:
+            return {"steps": list(DEFAULT_STEPS), "step_index": 0, "answers": {}}
+
+    @staticmethod
+    def advance(
+        db: Session,
+        *,
+        session: SmartCardSession,
+        answer: str,
+        answer_source: str = "text",
+    ) -> dict[str, Any]:
+        if session.status != "active":
+            raise SmartCardSessionError("Session is not active")
+        state = SmartCardSessionFlowService._load_state(session)
+        steps: list[str] = list(state.get("steps") or DEFAULT_STEPS)
+        idx = int(state.get("step_index") or 0)
+        step = steps[idx] if 0 <= idx < len(steps) else None
+        text = str(answer or "").strip()
+
+        if step == "contact":
+            # Accept "Name | Company | email | phone" or plain name
+            parts = [p.strip() for p in text.replace("\n", "|").split("|") if p.strip()]
+            if parts:
+                state["name"] = parts[0]
+            if len(parts) > 1:
+                state["company"] = parts[1]
+            if len(parts) > 2 and "@" in parts[2]:
+                state["visitor_email"] = parts[2]
+            if len(parts) > 3:
+                state["visitor_phone"] = parts[3]
+            elif len(parts) > 2 and "@" not in parts[2]:
+                state["visitor_phone"] = parts[2]
+        else:
+            state.setdefault("answers", {})[step or "unknown"] = text
+            if step == "interest":
+                state["interest"] = text
+            if step == "timeline":
+                state["timeline"] = text
+            if step == "consent_info":
+                state["consent"] = text
+
+        db.add(
+            SmartCardResponse(
+                org_id=session.org_id,
+                session_id=session.id,
+                question_key=step or "unknown",
+                answer_text=text[:8000],
+            )
+        )
+
+        idx += 1
+        state["step_index"] = idx
+        if idx >= len(steps):
+            return SmartCardSessionFlowService._complete(db, session=session, state=state)
+
+        next_step = steps[idx]
+        session.current_step = next_step
+        session.state_json = json.dumps(state)
+        session.updated_at = datetime.utcnow()
+        db.add(session)
+        db.flush()
+        prompts = SmartCardSessionFlowService._prompts(db)
+        return {
+            "ok": True,
+            "session_id": session.id,
+            "done": False,
+            "step": next_step,
+            "prompt": prompts.get(next_step, "Please continue."),
+            "answer_source": answer_source,
+        }
+
+    @staticmethod
+    def apply_card_ocr(
+        db: Session,
+        *,
+        session: SmartCardSession,
+        name: str | None,
+        company: str | None,
+        email: str | None,
+        phone: str | None,
+    ) -> dict[str, Any]:
+        state = SmartCardSessionFlowService._load_state(session)
+        if name:
+            state["name"] = name
+        if company:
+            state["company"] = company
+        if email:
+            state["visitor_email"] = email
+        if phone:
+            state["visitor_phone"] = phone
+        session.state_json = json.dumps(state)
+        session.updated_at = datetime.utcnow()
+        db.add(session)
+        db.flush()
+        return {
+            "ok": True,
+            "extracted": {
+                "name": state.get("name"),
+                "company": state.get("company"),
+                "email": state.get("visitor_email"),
+                "phone": state.get("visitor_phone"),
+            },
+            "prompt": "Please confirm these details are correct (Yes), or type corrections as Name | Company | email | phone.",
+            "step": "contact",
+        }
+
+    @staticmethod
+    def _complete(db: Session, *, session: SmartCardSession, state: dict[str, Any]) -> dict[str, Any]:
+        rep = db.get(SmartCardRepresentative, session.representative_id)
+        if rep is None:
+            raise SmartCardSessionError("Representative missing")
+
+        answers = state.get("answers") or {}
+        lead = SmartCardLead(
+            id=str(uuid.uuid4()),
+            org_id=session.org_id,
+            representative_id=rep.id,
+            session_id=session.id,
+            visitor_phone=state.get("visitor_phone") or session.visitor_phone,
+            visitor_email=state.get("visitor_email"),
+            name=state.get("name"),
+            company=state.get("company"),
+            interest=state.get("interest") or answers.get("interest"),
+            buying_timeline=state.get("timeline") or answers.get("timeline"),
+            consent=state.get("consent") or answers.get("consent_info"),
+            channel=session.channel,
+            follow_up_status="open",
+        )
+        lead.lead_score = _score_lead(
+            interest=lead.interest,
+            timeline=lead.buying_timeline,
+            consent=lead.consent,
+        )
+        lead.ai_summary = _ai_summary(lead, rep.name)
+        lead.suggested_follow_up = _follow_up_draft(lead)
+        db.add(lead)
+        db.flush()
+
+        session.status = "completed"
+        session.lead_id = lead.id
+        session.completed_at = datetime.utcnow()
+        session.state_json = json.dumps(state)
+        session.updated_at = datetime.utcnow()
+        db.add(session)
+        db.flush()
+
+        try:
+            SmartCardEmailService.notify_rep_lead(db, rep=rep, lead=lead)
+        except Exception:
+            logger.exception("smart_card_lead_email_failed")
+
+        return {
+            "ok": True,
+            "done": True,
+            "session_id": session.id,
+            "lead_id": lead.id,
+            "lead_score": lead.lead_score,
+            "message": "Thank you — we have shared your details with the representative.",
+            "suggested_follow_up": lead.suggested_follow_up,
+        }

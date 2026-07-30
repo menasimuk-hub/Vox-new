@@ -101,6 +101,7 @@ class StripePaymentService:
         billing_interval: str,
         service_code: str = "voxbulk",
         customer_email: str = "",
+        seat_quantity: int | None = None,
     ) -> dict[str, Any]:
         from app.services.billing_currency import resolve_org_currency
         from app.services.stripe_billing_service import StripeBillingService
@@ -113,6 +114,7 @@ class StripePaymentService:
             billing_interval=billing_interval,
             service_code=service_code,
             customer_email=customer_email,
+            seat_quantity=seat_quantity,
         )
         intent = StripePaymentService._request(db, "POST", "/payment_intents", data=data)
         currency = resolve_org_currency(db, org, persist=True)

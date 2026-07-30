@@ -76,6 +76,16 @@ import { Route as AppFeedbackLocationIdEditRouteImport } from './routes/_app.fee
 import { Route as AppAccountSupportTicketsRouteImport } from './routes/_app.account.support.tickets'
 import { Route as AppAccountSupportFaqRouteImport } from './routes/_app.account.support.faq'
 import { Route as AppAccountFeedbackPackagesRouteImport } from './routes/_app.account.feedback.packages'
+import { Route as AppSmartCardRouteImport } from './routes/_app.smart-card'
+import { Route as AppSmartCardIndexRouteImport } from './routes/_app.smart-card.index'
+import { Route as AppSmartCardCompanyRouteImport } from './routes/_app.smart-card.company'
+import { Route as AppSmartCardCatalogueRouteImport } from './routes/_app.smart-card.catalogue'
+import { Route as AppSmartCardRepresentativesRouteImport } from './routes/_app.smart-card.representatives'
+import { Route as AppSmartCardLeadsRouteImport } from './routes/_app.smart-card.leads'
+import { Route as AppSmartCardDescriptionsRouteImport } from './routes/_app.smart-card.descriptions'
+import { Route as AppSmartCardQuestionsRouteImport } from './routes/_app.smart-card.questions'
+import { Route as AppSmartCardChangeRequestsRouteImport } from './routes/_app.smart-card.change-requests'
+import { Route as AppAccountSmartCardPackagesRouteImport } from './routes/_app.account.smart-card.packages'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -419,6 +429,58 @@ const AppAccountFeedbackPackagesRoute =
     getParentRoute: () => AppRoute,
   } as any)
 
+
+const AppSmartCardRoute = AppSmartCardRouteImport.update({
+  id: '/smart-card',
+  path: '/smart-card',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSmartCardIndexRoute = AppSmartCardIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardCompanyRoute = AppSmartCardCompanyRouteImport.update({
+  id: '/company',
+  path: '/company',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardCatalogueRoute = AppSmartCardCatalogueRouteImport.update({
+  id: '/catalogue',
+  path: '/catalogue',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardRepresentativesRoute = AppSmartCardRepresentativesRouteImport.update({
+  id: '/representatives',
+  path: '/representatives',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardLeadsRoute = AppSmartCardLeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardDescriptionsRoute = AppSmartCardDescriptionsRouteImport.update({
+  id: '/descriptions',
+  path: '/descriptions',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardQuestionsRoute = AppSmartCardQuestionsRouteImport.update({
+  id: '/questions',
+  path: '/questions',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardChangeRequestsRoute = AppSmartCardChangeRequestsRouteImport.update({
+  id: '/change-requests',
+  path: '/change-requests',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppAccountSmartCardPackagesRoute = AppAccountSmartCardPackagesRouteImport.update({
+  id: '/account/smart-card/packages',
+  path: '/account/smart-card/packages',
+  getParentRoute: () => AppRoute,
+} as any)
+
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
@@ -429,6 +491,7 @@ export interface FileRoutesByFullPath {
   '/packages': typeof AppPackagesRoute
   '/recovery': typeof AppRecoveryRouteWithChildren
   '/surveys': typeof AppSurveysRouteWithChildren
+  '/smart-card': typeof AppSmartCardRouteWithChildren
   '/book/$token': typeof BookTokenRoute
   '/meet/$token': typeof MeetTokenRoute
   '/account/billing': typeof AppAccountBillingRoute
@@ -477,6 +540,15 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof AppSettingsIndexRoute
   '/surveys/': typeof AppSurveysIndexRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
+  '/account/smart-card/packages': typeof AppAccountSmartCardPackagesRoute
+  '/smart-card/': typeof AppSmartCardIndexRoute
+  '/smart-card/catalogue': typeof AppSmartCardCatalogueRoute
+  '/smart-card/change-requests': typeof AppSmartCardChangeRequestsRoute
+  '/smart-card/company': typeof AppSmartCardCompanyRoute
+  '/smart-card/descriptions': typeof AppSmartCardDescriptionsRoute
+  '/smart-card/leads': typeof AppSmartCardLeadsRoute
+  '/smart-card/questions': typeof AppSmartCardQuestionsRoute
+  '/smart-card/representatives': typeof AppSmartCardRepresentativesRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
   '/account/support/tickets': typeof AppAccountSupportTicketsRoute
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
@@ -1428,9 +1500,37 @@ const AppAccountSupportRouteChildren: AppAccountSupportRouteChildren = {
 const AppAccountSupportRouteWithChildren =
   AppAccountSupportRoute._addFileChildren(AppAccountSupportRouteChildren)
 
+interface AppSmartCardRouteChildren {
+  AppSmartCardIndexRoute: typeof AppSmartCardIndexRoute
+  AppSmartCardCompanyRoute: typeof AppSmartCardCompanyRoute
+  AppSmartCardCatalogueRoute: typeof AppSmartCardCatalogueRoute
+  AppSmartCardRepresentativesRoute: typeof AppSmartCardRepresentativesRoute
+  AppSmartCardLeadsRoute: typeof AppSmartCardLeadsRoute
+  AppSmartCardDescriptionsRoute: typeof AppSmartCardDescriptionsRoute
+  AppSmartCardQuestionsRoute: typeof AppSmartCardQuestionsRoute
+  AppSmartCardChangeRequestsRoute: typeof AppSmartCardChangeRequestsRoute
+}
+
+const AppSmartCardRouteChildren: AppSmartCardRouteChildren = {
+  AppSmartCardIndexRoute: AppSmartCardIndexRoute,
+  AppSmartCardCompanyRoute: AppSmartCardCompanyRoute,
+  AppSmartCardCatalogueRoute: AppSmartCardCatalogueRoute,
+  AppSmartCardRepresentativesRoute: AppSmartCardRepresentativesRoute,
+  AppSmartCardLeadsRoute: AppSmartCardLeadsRoute,
+  AppSmartCardDescriptionsRoute: AppSmartCardDescriptionsRoute,
+  AppSmartCardQuestionsRoute: AppSmartCardQuestionsRoute,
+  AppSmartCardChangeRequestsRoute: AppSmartCardChangeRequestsRoute,
+}
+
+const AppSmartCardRouteWithChildren = AppSmartCardRoute._addFileChildren(
+  AppSmartCardRouteChildren,
+)
+
 interface AppRouteChildren {
   AppAppointmentsRoute: typeof AppAppointmentsRouteWithChildren
   AppFeedbackRoute: typeof AppFeedbackRouteWithChildren
+  AppSmartCardRoute: typeof AppSmartCardRouteWithChildren
+  AppAccountSmartCardPackagesRoute: typeof AppAccountSmartCardPackagesRoute
   AppFollowUpRoute: typeof AppFollowUpRoute
   AppInterviewsRoute: typeof AppInterviewsRouteWithChildren
   AppPackagesRoute: typeof AppPackagesRoute
@@ -1467,6 +1567,8 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppAppointmentsRoute: AppAppointmentsRouteWithChildren,
   AppFeedbackRoute: AppFeedbackRouteWithChildren,
+  AppSmartCardRoute: AppSmartCardRouteWithChildren,
+  AppAccountSmartCardPackagesRoute: AppAccountSmartCardPackagesRoute,
   AppFollowUpRoute: AppFollowUpRoute,
   AppInterviewsRoute: AppInterviewsRouteWithChildren,
   AppPackagesRoute: AppPackagesRoute,

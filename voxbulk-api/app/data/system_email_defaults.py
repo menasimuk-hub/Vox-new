@@ -550,4 +550,111 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             badge="Expo summary",
         ),
     },
+    "smart_card_lead_notify": {
+        "title": "Smart Card QR lead notify",
+        "subject": "New Smart Card QR lead — {{lead_name}} ({{lead_score}})",
+        "body": wrap_brand_email(
+            title="New Smart Card QR lead",
+            inner_html="""<p>Hi <strong>{{rep_name}}</strong>,</p>
+  <p>{{ai_summary}}</p>
+  <p><strong>Name:</strong> {{lead_name}}<br />
+  <strong>Company:</strong> {{company}}<br />
+  <strong>Mobile:</strong> {{mobile}}<br />
+  <strong>Email:</strong> {{email}}<br />
+  <strong>Interest:</strong> {{interest}}<br />
+  <strong>Timeline:</strong> {{timeline}}<br />
+  <strong>Score:</strong> {{lead_score}}</p>
+  <p><strong>Suggested follow-up:</strong><br />{{suggested_follow_up}}</p>
+  """
+            + cta_button(href="{{leads_url}}", label="Open leads")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
+    "smart_card_rep_invite": {
+        "title": "Smart Card QR representative invite",
+        "subject": "You're invited to Smart Card QR — {{org_name}}",
+        "body": wrap_brand_email(
+            title="Join Smart Card QR",
+            inner_html="""<p>Hi <strong>{{rep_name}}</strong>,</p>
+  <p><strong>{{org_name}}</strong> invited you to view your Smart Card QR leads.</p>
+  <p>Create your account to see only your own leads and assigned products.</p>
+  """
+            + cta_button(href="{{signup_url}}", label="Accept invite")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
+    "smart_card_renewal_reminder_30d": {
+        "title": "Smart Card QR renewal — 30 days",
+        "subject": "Smart Card QR renews in 1 month — {{org_name}}",
+        "body": wrap_brand_email(
+            title="Renewal reminder (1 month)",
+            inner_html="""<p>Hi,</p>
+  <p>Your Smart Card QR package for <strong>{{org_name}}</strong> ends on <strong>{{period_end}}</strong> ({{seats}} seats).</p>
+  """
+            + cta_button(href="{{renew_url}}", label="Renew package")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
+    "smart_card_renewal_reminder_14d": {
+        "title": "Smart Card QR renewal — 14 days",
+        "subject": "Smart Card QR renews in 2 weeks — {{org_name}}",
+        "body": wrap_brand_email(
+            title="Renewal reminder (2 weeks)",
+            inner_html="""<p>Hi,</p>
+  <p>Your Smart Card QR package for <strong>{{org_name}}</strong> ends on <strong>{{period_end}}</strong>.</p>
+  """
+            + cta_button(href="{{renew_url}}", label="Renew package")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
+    "smart_card_renewal_reminder_7d": {
+        "title": "Smart Card QR renewal — 7 days",
+        "subject": "Smart Card QR renews in 1 week — {{org_name}}",
+        "body": wrap_brand_email(
+            title="Renewal reminder (1 week)",
+            inner_html="""<p>Hi,</p>
+  <p>Your Smart Card QR package for <strong>{{org_name}}</strong> ends on <strong>{{period_end}}</strong>.</p>
+  """
+            + cta_button(href="{{renew_url}}", label="Renew package")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
+    "smart_card_renewal_reminder_1d": {
+        "title": "Smart Card QR renewal — 1 day",
+        "subject": "Smart Card QR renews tomorrow — {{org_name}}",
+        "body": wrap_brand_email(
+            title="Renewal reminder (1 day)",
+            inner_html="""<p>Hi,</p>
+  <p>Your Smart Card QR package for <strong>{{org_name}}</strong> ends tomorrow (<strong>{{period_end}}</strong>).</p>
+  """
+            + cta_button(href="{{renew_url}}", label="Renew now")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
+    "smart_card_expired": {
+        "title": "Smart Card QR expired",
+        "subject": "Smart Card QR expired — renew to go live again",
+        "body": wrap_brand_email(
+            title="We're sorry — your package expired",
+            inner_html="""<p>Hi,</p>
+  <p>The Smart Card QR package for <strong>{{org_name}}</strong> has expired. Scans are paused until you renew.</p>
+  """
+            + cta_button(href="{{renew_url}}", label="Renew package")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
 }

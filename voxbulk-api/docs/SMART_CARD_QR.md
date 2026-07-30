@@ -11,15 +11,22 @@ Independent VoxBulk service for representative digital cards (QR → WhatsApp / 
 ## Packages
 
 - Default: **$5 / seat / month, billed yearly** ($60 / seat / year) — Admin editable via Pricing Packages (`service_kind=smart_card`)  
+- Checkout: Dashboard → Packages → choose seat quantity → Stripe/Airwallex (`POST /smart-card/billing/checkout` + `/complete`)  
 - Preview: **15** free QR tests, then stop until paid  
-- Expiry: renewal reminders 30d / 14d / 7d / 1d (worker TBD); public + dashboard expired page with Renew
+- Expiry: Celery beat `smart-card-renewal-reminders-daily` (30d / 14d / 7d / 1d); public + dashboard expired page with Renew
+
+## Channels
+
+- Web: `https://voxbulk.com/smart-card/{qr_token}`  
+- WhatsApp: Telnyx inbound routes Smart Card tokens/sessions (after Expo, before Feedback)  
+- SMTP From: `smartqr@voxbulk.com` (dedicated mailbox settings)
 
 ## APIs
 
 | Prefix | Audience |
 |--------|----------|
-| `/smart-card` | Dashboard |
-| `/public/smart-card/{token}` | Visitor landing status |
+| `/smart-card` | Dashboard (company, catalogue, reps, leads, change-requests, seat billing) |
+| `/public/smart-card/{token}` | Visitor landing + web session + card OCR |
 | `/admin/smart-card` | Questions, mailbox, seed, overview |
 
 ## Deploy

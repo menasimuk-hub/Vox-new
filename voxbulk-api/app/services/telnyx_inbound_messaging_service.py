@@ -624,12 +624,50 @@ class TelnyxInboundMessagingService:
                         from_norm or from_number,
                     )
 
+            handled_smart_card = False
+            smart_card_result: dict[str, Any] | None = None
+            if not handled_expo:
+                try:
+                    from app.services.smart_card.whatsapp_service import (
+                        SmartCardWhatsappService,
+                        find_smart_card_token_in_text,
+                    )
+
+                    sc_token = find_smart_card_token_in_text(db, inbound_text)
+                    sc_active = SmartCardWhatsappService.find_active_session(
+                        db, visitor_phone=from_norm or from_number or ""
+                    )
+                    if sc_token or sc_active is not None:
+                        smart_card_result = SmartCardWhatsappService.try_handle_inbound(
+                            db,
+                            from_phone=from_norm or from_number or "",
+                            body=inbound_text,
+                            org_id=org_id,
+                            record=record if isinstance(record, dict) else None,
+                            business_number=to_norm or to_number or None,
+                        )
+                        handled_smart_card = bool((smart_card_result or {}).get("handled"))
+                        logger.info(
+                            "smart_card_wa_inbound_result handled=%s reason=%s sent=%s token=%s from=%r",
+                            handled_smart_card,
+                            (smart_card_result or {}).get("reason"),
+                            (smart_card_result or {}).get("sent"),
+                            sc_token,
+                            from_norm or from_number,
+                        )
+                except Exception:
+                    logger.exception(
+                        "smart_card_wa_inbound_handler_failed body=%r from=%r",
+                        inbound_text[:120],
+                        from_norm or from_number,
+                    )
+
             handled_feedback = False
             feedback_result: dict[str, Any] | None = None
             from app.services.customer_feedback.location_service import FeedbackLocationService
 
             feedback_trigger_token = FeedbackLocationService.parse_trigger_ref(inbound_text)
-            if not handled_expo and feedback_trigger_token:
+            if not handled_expo and not handled_smart_card and feedback_trigger_token:
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -657,7 +695,7 @@ class TelnyxInboundMessagingService:
                     )
 
             # Survey WA is isolated from interview booking: route survey first when applicable.
-            if not handled_expo and not handled_feedback:
+            if not handled_expo and not handled_smart_card and not handled_feedback:
                 try:
                     from app.services.survey_whatsapp_conversation_service import (
                         try_handle_survey_whatsapp_inbound,
@@ -715,7 +753,7 @@ class TelnyxInboundMessagingService:
                         len(body or ""),
                     )
 
-            if not handled_expo and not handled_feedback and not handled_survey:
+            if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
                 try:
                     from app.services.expo.whatsapp_service import ExpoWhatsappService
 
@@ -739,7 +777,30 @@ class TelnyxInboundMessagingService:
                 except Exception:
                     logger.exception("expo_wa_session_handler_failed from=%r", from_norm or from_number)
 
-            if not handled_expo and not handled_feedback and not handled_survey:
+            if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
+                try:
+                    from app.services.smart_card.whatsapp_service import SmartCardWhatsappService
+
+                    smart_card_result = SmartCardWhatsappService.try_handle_inbound(
+                        db,
+                        from_phone=from_norm or from_number or "",
+                        body=inbound_text,
+                        org_id=org_id,
+                        record=record if isinstance(record, dict) else None,
+                        business_number=to_norm or to_number or None,
+                    )
+                    handled_smart_card = bool((smart_card_result or {}).get("handled"))
+                    logger.info(
+                        "smart_card_wa_session_result handled=%s reason=%s sent=%s from=%r",
+                        handled_smart_card,
+                        (smart_card_result or {}).get("reason"),
+                        (smart_card_result or {}).get("sent"),
+                        from_norm or from_number,
+                    )
+                except Exception:
+                    logger.exception("smart_card_wa_session_handler_failed from=%r", from_norm or from_number)
+
+            if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
                 try:
                     from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -763,7 +824,7 @@ class TelnyxInboundMessagingService:
                     logger.exception("feedback_wa_session_handler_failed from=%r", from_norm or from_number)
 
             handled_appointment = False
-            if not handled_expo and not handled_feedback and not handled_survey:
+            if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
                 try:
                     from app.services.appointment_wa_inbound_service import try_handle_inbound as try_handle_appointment_inbound
 

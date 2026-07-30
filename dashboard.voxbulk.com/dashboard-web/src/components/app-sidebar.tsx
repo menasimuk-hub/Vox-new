@@ -148,7 +148,12 @@ const groups: Group[] = [
   { key: "smartCard", label: "Smart Card QR", visibleKey: "smartCard", items: [
     { title: "Dashboard", url: "/smart-card", icon: LayoutDashboard },
     { title: "Company", url: "/smart-card/company", icon: Briefcase },
+    { title: "Descriptions", url: "/smart-card/descriptions", icon: FilePlus2 },
+    { title: "Catalogue", url: "/smart-card/catalogue", icon: Package },
     { title: "Representatives", url: "/smart-card/representatives", icon: Users },
+    { title: "Questions", url: "/smart-card/questions", icon: ListChecks },
+    { title: "Leads", url: "/smart-card/leads", icon: BarChart3 },
+    { title: "Change requests", url: "/smart-card/change-requests", icon: Megaphone },
     { title: "Packages & pricing", url: "/account/smart-card/packages", icon: Package },
   ]},
   { key: "campaigns", label: "Campaigns", items: [

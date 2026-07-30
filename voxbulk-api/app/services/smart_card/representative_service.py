@@ -115,6 +115,38 @@ class SmartCardRepresentativeService:
             SmartCardRepresentativeService.set_products(
                 db, org_id=org_id, representative_id=rep.id, product_ids=[str(x) for x in product_ids]
             )
+        # Invite as member via Smart Card QR mailbox when email present
+        if rep.email:
+            try:
+                from app.models.user import User
+                from app.services.org_team_service import OrgTeamService
+                from app.services.smart_card.email_service import SmartCardEmailService
+
+                inviter = db.get(User, user_id)
+                if inviter is not None:
+                    invite = OrgTeamService.create_invite(
+                        db,
+                        org_id=org_id,
+                        email=rep.email,
+                        role="member",
+                        invited_by=inviter,
+                        send_email=False,
+                    )
+                    rep.invite_id = invite.get("invite_id")
+                    db.add(rep)
+                    from app.models.organisation import Organisation
+
+                    org = db.get(Organisation, org_id)
+                    SmartCardEmailService.send_rep_invite(
+                        db,
+                        to_email=rep.email,
+                        rep_name=rep.name,
+                        org_name=(org.name if org else "your organisation"),
+                        signup_url=str(invite.get("signup_url") or ""),
+                    )
+                    db.flush()
+            except Exception:
+                pass
         return rep
 
     @staticmethod

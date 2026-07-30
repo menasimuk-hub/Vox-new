@@ -58,25 +58,30 @@ class AirwallexBillingService:
         billing_interval: str,
         service_code: str,
         customer_email: str,
+        seat_quantity: int | None = None,
     ) -> dict[str, Any]:
         customer_id = AirwallexBillingService.ensure_customer(db, org, email=customer_email)
         currency = org.billing_currency or "GBP"
         from app.services.billing_currency import resolve_org_currency
 
         currency = resolve_org_currency(db, org, persist=True)
+        meta = {
+            "voxbulk_org_id": org.id,
+            "voxbulk_kind": "subscription_checkout",
+            "voxbulk_plan_id": plan_id,
+            "voxbulk_billing_interval": billing_interval,
+            "voxbulk_service_code": service_code,
+            "voxbulk_amount_minor": str(int(amount_minor)),
+        }
+        if seat_quantity is not None and int(seat_quantity) > 0:
+            meta["voxbulk_seat_quantity"] = str(int(seat_quantity))
         return {
             "request_id": str(uuid.uuid4()),
             "amount": round(int(amount_minor) / 100.0, 2),
             "currency": currency,
             "customer_id": customer_id,
             "merchant_order_id": f"voxbulk-sub-{org.id[:8]}-{int(time.time())}",
-            "metadata": {
-                "voxbulk_org_id": org.id,
-                "voxbulk_kind": "subscription_checkout",
-                "voxbulk_plan_id": plan_id,
-                "voxbulk_billing_interval": billing_interval,
-                "voxbulk_service_code": service_code,
-            },
+            "metadata": meta,
             "descriptor": "VoxBulk subscription",
             "payment_consent": {
                 "next_triggered_by": "merchant",

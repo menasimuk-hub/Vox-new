@@ -66,6 +66,8 @@ class CardSubscriptionActivationService:
         payment_intent_id: str,
         billing_interval: str | None = None,
         service_code: str | None = None,
+        seat_quantity: int | None = None,
+        amount_override_minor: int | None = None,
     ) -> Subscription:
         """Idempotent: upsert subscription, issue activation invoice, confirm first payment."""
         from app.services.invoice_service import InvoiceService
@@ -84,6 +86,11 @@ class CardSubscriptionActivationService:
             db, org, plan, interval
         )
         interval = resolved_interval or interval
+        seats = int(seat_quantity or 0) if seat_quantity is not None else None
+        if seats is not None and seats > 0 and amount_override_minor is None and svc == "smart_card":
+            amount_minor = int(amount_minor or 0) * seats
+        if amount_override_minor is not None and int(amount_override_minor) > 0:
+            amount_minor = int(amount_override_minor)
         now = datetime.utcnow()
         period_days = 365 if interval == "yearly" else 30
 
@@ -93,6 +100,11 @@ class CardSubscriptionActivationService:
             and str(sub.external_subscription_id or "") == pid
             and str(sub.status or "").lower() in {"active", "trial"}
         ):
+            if seats is not None and seats > 0:
+                sub.seat_quantity = seats
+                db.add(sub)
+                db.commit()
+                db.refresh(sub)
             return sub
 
         if sub is None:
@@ -106,6 +118,8 @@ class CardSubscriptionActivationService:
         sub.amount_next_payment_minor = int(amount_minor or 0)
         sub.external_subscription_id = pid[:255]
         sub.current_period_end = now + timedelta(days=period_days)
+        if seats is not None and seats > 0:
+            sub.seat_quantity = seats
         if sub.first_payment_at is None:
             sub.first_payment_at = now
         sub.updated_at = now
@@ -117,6 +131,8 @@ class CardSubscriptionActivationService:
         ext_inv = CardSubscriptionActivationService.external_invoice_id(prov, pid)
         if email and amount_minor > 0:
             interval_label = "yearly" if interval == "yearly" else "monthly"
+            qty = seats if seats and seats > 0 else 1
+            unit = int(amount_minor // qty) if qty > 1 else int(amount_minor)
             try:
                 InvoiceService.issue_from_payment(
                     db,
@@ -132,9 +148,10 @@ class CardSubscriptionActivationService:
                     status="paid",
                     line_items=[
                         {
-                            "description": f"{plan.name} — {interval_label} subscription",
-                            "quantity": 1,
-                            "unit_pence": amount_minor,
+                            "description": f"{plan.name} — {interval_label} subscription"
+                            + (f" × {qty} seats" if qty > 1 else ""),
+                            "quantity": qty,
+                            "unit_pence": unit,
                             "total_pence": amount_minor,
                         }
                     ],
@@ -153,6 +170,9 @@ class CardSubscriptionActivationService:
 
             FeedbackBillingService.on_subscription_activated(db, org_id=org.id, subscription=sub, plan=plan)
             FeedbackBillingService._tag_activation_invoice(db, org_id=org.id)
+        elif svc == "smart_card":
+            # Seat entitlement only — no usage wallet bootstrap
+            pass
         else:
             UsageWalletService.bootstrap_from_plan(db, org_id=org.id, subscription=sub)
         db.refresh(sub)
@@ -172,6 +192,20 @@ class CardSubscriptionActivationService:
         if plan is None:
             return {"ok": True, "ignored": True, "reason": "plan_not_found"}
         pid = str(intent.get("id") or "")
+        seats = None
+        try:
+            raw_seats = meta.get("voxbulk_seat_quantity")
+            if raw_seats is not None and str(raw_seats).strip():
+                seats = int(raw_seats)
+        except Exception:
+            seats = None
+        amount_override = None
+        try:
+            raw_amt = meta.get("voxbulk_amount_minor")
+            if raw_amt is not None and str(raw_amt).strip():
+                amount_override = int(raw_amt)
+        except Exception:
+            amount_override = None
         sub = CardSubscriptionActivationService.activate_from_payment(
             db,
             org=org,
@@ -180,5 +214,7 @@ class CardSubscriptionActivationService:
             payment_intent_id=pid,
             billing_interval=parsed["billing_interval"],
             service_code=parsed["service_code"],
+            seat_quantity=seats,
+            amount_override_minor=amount_override,
         )
         return {"ok": True, "subscription_activated": True, "subscription_id": sub.id}
