@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.admin_rbac import CAP_INTEGRATION, require_cap
 from app.core.database import get_db
-from app.core.dependencies import require_admin
 from app.models.smart_card import (
     SmartCardCompany,
     SmartCardLead,
@@ -24,13 +24,13 @@ router = APIRouter(prefix="/admin/smart-card", tags=["admin-smart-card"])
 
 
 @router.post("/seed")
-def seed(db: Session = Depends(get_db), _admin=Depends(require_admin)):
+def seed(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     SmartCardSeedService.ensure_seeded(db)
     return {"ok": True}
 
 
 @router.get("/overview")
-def overview(db: Session = Depends(get_db), _admin=Depends(require_admin)):
+def overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     companies = int(db.execute(select(func.count()).select_from(SmartCardCompany)).scalar() or 0)
     reps = int(db.execute(select(func.count()).select_from(SmartCardRepresentative)).scalar() or 0)
     leads = int(db.execute(select(func.count()).select_from(SmartCardLead)).scalar() or 0)
@@ -45,7 +45,7 @@ def overview(db: Session = Depends(get_db), _admin=Depends(require_admin)):
 
 
 @router.get("/questions")
-def list_questions(db: Session = Depends(get_db), _admin=Depends(require_admin)):
+def list_questions(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     rows = (
         db.execute(select(SmartCardQuestionTemplate).order_by(SmartCardQuestionTemplate.sort_order.asc()))
         .scalars()
@@ -74,7 +74,7 @@ def patch_question(
     question_key: str,
     payload: dict,
     db: Session = Depends(get_db),
-    _admin=Depends(require_admin),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
 ):
     row = db.execute(
         select(SmartCardQuestionTemplate).where(SmartCardQuestionTemplate.question_key == question_key)
@@ -101,12 +101,12 @@ def patch_question(
 
 
 @router.get("/mailbox")
-def get_mailbox(db: Session = Depends(get_db), _admin=Depends(require_admin)):
+def get_mailbox(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     return {"ok": True, **SmartCardMailboxSettingsService.to_public_dict(db)}
 
 
 @router.put("/mailbox")
-def put_mailbox(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_admin)):
+def put_mailbox(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
     SmartCardMailboxSettingsService.upsert(
         db,
         mailbox_email=str(payload.get("mailbox_email") or "smartqr@voxbulk.com"),
