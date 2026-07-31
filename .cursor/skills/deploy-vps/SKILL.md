@@ -49,6 +49,22 @@ git pull origin main
 ```
 Newer `deploy-vps.sh` clears these automatically before pulling.
 
+## Git pull blocked by `routeTree.gen.ts`
+Vite/TanStack **regenerates** `routeTree.gen.ts` during dashboard build on the VPS. That dirties a tracked file, so the **next** `git pull` fails with “local changes would be overwritten”.
+
+**Fix now (on VPS):**
+```bash
+cd /www/voxbulk
+git checkout -- dashboard.voxbulk.com/dashboard-web/src/routeTree.gen.ts
+./deploy-vps.sh
+```
+Or discard everything local and match GitHub:
+```bash
+cd /www/voxbulk
+VOX_HARD_RESET=1 ./deploy-vps.sh
+```
+Newer `scripts/lib/vps-git-sync.sh` discards dirty `routeTree.gen.ts` automatically before pull.
+
 ## Skip / force flags
 ```bash
 VOX_SKIP_GIT=1 ./deploy-vps.sh

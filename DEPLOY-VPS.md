@@ -283,7 +283,10 @@ VOX_SKIP_GIT=1 ./deploy-vps.sh      # rebuild current tree only
 VOX_SKIP_BUILD=1 ./deploy-vps.sh    # API + migrate only
 VOX_SKIP_MIGRATE=1 ./deploy-vps.sh  # skip DB migrations
 VOX_FORCE_PULL=1 ./deploy-vps.sh    # stash + retry pull
+VOX_HARD_RESET=1 ./deploy-vps.sh    # discard local edits (incl. routeTree.gen.ts) + match origin
 ```
+
+**Why pull often fails after a successful deploy:** dashboard `npm run build` regenerates tracked `routeTree.gen.ts` on the VPS. The next pull then refuses to overwrite those local edits. Fix: `git checkout -- dashboard.voxbulk.com/dashboard-web/src/routeTree.gen.ts` then `./deploy-vps.sh`, or `VOX_HARD_RESET=1 ./deploy-vps.sh`. Deploy git sync now discards dirty `routeTree.gen.ts` automatically before pull.
 
 ---
 
@@ -314,6 +317,7 @@ VOX_FORCE_PULL=1 ./deploy-vps.sh    # stash + retry pull
 |---------|-----|
 | Old UI after deploy | Re-run **One command** + hard refresh (`Ctrl+Shift+R`) |
 | `git pull` / untracked files | `VOX_FORCE_PULL=1` or `VOX_HARD_RESET=1` (see above) |
+| `routeTree.gen.ts` would be overwritten | `git checkout -- '**/routeTree.gen.ts'` then `./deploy-vps.sh`, or `VOX_HARD_RESET=1` |
 | `git_sha` stuck | `VOX_HARD_RESET=1 VOX_GIT_BRANCH=fix/admin-finance-hardening ./deploy-vps.sh` |
 | New API route 404 | `./vox.sh restart` after deploy |
 | Deletion queue 404 | Migration `0118` not applied — run `alembic upgrade head` |

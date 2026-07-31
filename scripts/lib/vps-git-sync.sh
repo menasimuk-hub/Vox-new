@@ -57,6 +57,23 @@ vox_git_sync() {
     git checkout -- deploy-vps.sh vox.sh scripts/vps-sync-dashboard.sh scripts/vps-update-ui.sh scripts/vps-sync-all-ui.sh 2>/dev/null || true
   fi
 
+  # Generated / build-touched tracked files — Vite/TanStack regenerates these on VPS build,
+  # leaving dirty trees that block the next `git pull --ff-only`. Always take GitHub's copy.
+  local gen_paths=(
+    dashboard.voxbulk.com/dashboard-web/src/routeTree.gen.ts
+    dashboard.voxbulk.com/dashboard-web/Interview-reports/src/routeTree.gen.ts
+    voxbulk.com/frontend/src/routeTree.gen.ts
+  )
+  local gen_path
+  for gen_path in "${gen_paths[@]}"; do
+    if [[ -f "$gen_path" ]] && git ls-files --error-unmatch "$gen_path" >/dev/null 2>&1; then
+      if ! git diff --quiet -- "$gen_path" 2>/dev/null; then
+        echo "[git] Discarding local build edits to $gen_path (regenerated on deploy)"
+        git checkout -- "$gen_path" 2>/dev/null || git restore "$gen_path" 2>/dev/null || true
+      fi
+    fi
+  done
+
   # Removed legacy portal trees — discard local npm lockfile edits so ff-only pull can delete them.
   for legacy_path in \
     abuu.voxbulk.com/abuu-web/package-lock.json \
@@ -79,7 +96,10 @@ vox_git_sync() {
         return 1
       }
     else
-      echo "[git] FAIL: pull failed — run: VOX_FORCE_PULL=1 VOX_GIT_BRANCH=$branch bash scripts/vps-sync-all-ui.sh" >&2
+      echo "[git] FAIL: pull failed — often dirty routeTree.gen.ts from last npm build." >&2
+      echo "[git]       Fix now:  git checkout -- '**/routeTree.gen.ts' && ./deploy-vps.sh" >&2
+      echo "[git]       Or:       VOX_HARD_RESET=1 VOX_GIT_BRANCH=$branch ./deploy-vps.sh" >&2
+      echo "[git]       Or:       VOX_FORCE_PULL=1 VOX_GIT_BRANCH=$branch bash scripts/vps-sync-all-ui.sh" >&2
       return 1
     fi
   fi

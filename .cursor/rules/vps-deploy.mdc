@@ -65,8 +65,8 @@ Common after brand assets were synced manually on VPS then added to git:
 
 ```
 error: The following untracked working tree files would be overwritten by merge:
-  admin.voxbulk.com/adim-web/public/brand/*.png
-  dashboard.voxbulk.com/dashboard-web/public/brand/*.png
+ admin.voxbulk.com/adim-web/public/brand/*.png
+ dashboard.voxbulk.com/dashboard-web/public/brand/*.png
 ```
 
 **Fix on VPS (safe — only removes untracked copies):**
@@ -74,18 +74,31 @@ error: The following untracked working tree files would be overwritten by merge:
 ```bash
 cd /path/to/Vox
 rm -f admin.voxbulk.com/adim-web/public/brand/icon-black.png \
-      admin.voxbulk.com/adim-web/public/brand/icon-white.png \
-      admin.voxbulk.com/adim-web/public/brand/logo-black.png \
-      admin.voxbulk.com/adim-web/public/brand/logo-white.png \
-      dashboard.voxbulk.com/dashboard-web/public/brand/icon-black.png \
-      dashboard.voxbulk.com/dashboard-web/public/brand/icon-white.png \
-      dashboard.voxbulk.com/dashboard-web/public/brand/logo-black.png \
-      dashboard.voxbulk.com/dashboard-web/public/brand/logo-white.png
+ admin.voxbulk.com/adim-web/public/brand/icon-white.png \
+ admin.voxbulk.com/adim-web/public/brand/logo-black.png \
+ admin.voxbulk.com/adim-web/public/brand/logo-white.png \
+ dashboard.voxbulk.com/dashboard-web/public/brand/icon-black.png \
+ dashboard.voxbulk.com/dashboard-web/public/brand/icon-white.png \
+ dashboard.voxbulk.com/dashboard-web/public/brand/logo-black.png \
+ dashboard.voxbulk.com/dashboard-web/public/brand/logo-white.png
 git pull origin main
 ./deploy-vps.sh
 ```
 
 Newer `deploy-vps.sh` runs `_clear_untracked_pull_conflicts` before pull automatically.
+
+## Git pull blocked by `routeTree.gen.ts`
+
+Dashboard build on the VPS regenerates tracked `routeTree.gen.ts`, so the **next** pull fails with “local changes would be overwritten”.
+
+```bash
+cd /www/voxbulk
+git checkout -- dashboard.voxbulk.com/dashboard-web/src/routeTree.gen.ts
+./deploy-vps.sh
+# or once: VOX_HARD_RESET=1 ./deploy-vps.sh
+```
+
+`scripts/lib/vps-git-sync.sh` discards dirty `routeTree.gen.ts` before pull automatically (after this fix is on the server).
 
 ## OAuth redirect URIs (production)
 
