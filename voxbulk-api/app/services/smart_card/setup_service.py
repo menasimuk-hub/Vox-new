@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -157,26 +158,47 @@ class SmartCardSetupService:
             "contact_phone": payload.get("contact_phone") or payload.get("notify_mobile"),
             "question_config": qcfg,
         }
+
+        existing_company = SmartCardCompanyService.get_or_create(db, org_id)
+        brand: dict[str, Any] = {}
+        if existing_company.brand_defaults_json:
+            try:
+                parsed = json.loads(existing_company.brand_defaults_json)
+                if isinstance(parsed, dict):
+                    brand = dict(parsed)
+            except Exception:
+                brand = {}
+
+        address = payload.get("address")
+        if address is None and isinstance(payload.get("brand_defaults"), dict):
+            address = payload["brand_defaults"].get("address")
+        if address is not None:
+            cleaned = str(address).strip()
+            if cleaned:
+                brand["address"] = cleaned
+            else:
+                brand.pop("address", None)
+
         if offer_enabled and (offer_title or offer_description):
             company_payload["pricing_notes"] = "\n".join(
                 x for x in [offer_title, offer_description] if x
             )[:4000]
-            brand = {
-                "offer": {
-                    "enabled": True,
-                    "title": offer_title,
-                    "description": offer_description,
-                    "claim_url": str((offer or {}).get("claim_url") or "").strip() or None,
-                    "code": str((offer or {}).get("code") or "").strip() or None,
-                }
+            brand["offer"] = {
+                "enabled": True,
+                "title": offer_title,
+                "description": offer_description,
+                "claim_url": str((offer or {}).get("claim_url") or "").strip() or None,
+                "code": str((offer or {}).get("code") or "").strip() or None,
             }
-            company_payload["brand_defaults"] = brand
             # Auto-include offer question when offer is on
             if "offer_interest" not in qcfg["selected_keys"]:
                 qcfg["selected_keys"] = [*qcfg["selected_keys"], "offer_interest"]
                 company_payload["question_config"] = qcfg
         elif "pricing_notes" in payload:
             company_payload["pricing_notes"] = payload.get("pricing_notes")
+
+        if brand or "brand_defaults" in payload or address is not None:
+            company_payload["brand_defaults"] = brand
 
         company = SmartCardCompanyService.update(db, org_id, company_payload)
         SmartCardSetupService.sync_org_profile(
@@ -210,16 +232,20 @@ class SmartCardSetupService:
             .all()
         )
 
-        body = {
+        body: dict[str, Any] = {
             "name": rep_name,
             "email": rep_payload.get("email"),
             "mobile": rep_payload.get("mobile") or payload.get("notify_mobile"),
+            "landline": rep_payload.get("landline"),
+            "extension": rep_payload.get("extension"),
             "website": rep_payload.get("website") or payload.get("website"),
             "product_ids": rep_payload.get("product_ids") if isinstance(rep_payload.get("product_ids"), list) else [],
             "qr_fg_color": rep_payload.get("qr_fg_color"),
             "qr_bg_color": rep_payload.get("qr_bg_color"),
             "qr_transparent": rep_payload.get("qr_transparent"),
         }
+        if "social_links" in rep_payload:
+            body["social_links"] = rep_payload.get("social_links") or {}
 
         try:
             if existing_reps:

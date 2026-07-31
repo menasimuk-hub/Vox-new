@@ -3,6 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { toast } from "sonner";
 
+import {
+  emptyRepresentativeForm,
+  RepresentativeFields,
+  socialLinksPayload,
+  type RepresentativeFormValue,
+} from "@/components/smart-card/representative-fields";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,9 +32,7 @@ function SmartCardAddQrPage() {
   const { session } = useSession();
   const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
 
-  const [name, setName] = React.useState("");
-  const [email, setEmail] = React.useState("");
-  const [mobile, setMobile] = React.useState("");
+  const [rep, setRep] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
   const [productIds, setProductIds] = React.useState<string[]>([]);
   const [fg, setFg] = React.useState("000000");
   const [bg, setBg] = React.useState("ffffff");
@@ -53,9 +57,13 @@ function SmartCardAddQrPage() {
       apiFetch<{ ok: boolean; item: { id: string } }>("/smart-card/representatives", {
         method: "POST",
         body: JSON.stringify({
-          name,
-          email: email || null,
-          mobile: mobile || null,
+          name: rep.name.trim(),
+          email: rep.email.trim() || null,
+          mobile: rep.mobile.trim() || null,
+          landline: rep.landline.trim() || null,
+          extension: rep.extension.trim() || null,
+          website: rep.website.trim() || null,
+          social_links: socialLinksPayload(rep.social_links),
           product_ids: productIds,
           qr_fg_color: fg,
           qr_bg_color: bg,
@@ -79,11 +87,11 @@ function SmartCardAddQrPage() {
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         eyebrow="Smart Card QR"
-        title="Add salesman QR"
-        description="Create another QR up to your seat package. Assign products to this salesman."
+        title="Add representative QR"
+        description="Create another QR up to your seat package. Assign products to this representative."
         actions={
           <Button asChild variant="outline" size="sm">
             <Link to="/smart-card">Back</Link>
@@ -94,23 +102,10 @@ function SmartCardAddQrPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Representative</CardTitle>
-          <CardDescription>One QR per salesman.</CardDescription>
+          <CardDescription>One QR per representative.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <div className="space-y-2">
-            <Label>
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Email</Label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Mobile</Label>
-            <Input value={mobile} onChange={(e) => setMobile(e.target.value)} />
-          </div>
+          <RepresentativeFields value={rep} onChange={setRep} />
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>QR colour</Label>
@@ -127,7 +122,7 @@ function SmartCardAddQrPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Assign products</CardTitle>
-          <CardDescription>Optional — which catalogue products this salesman represents.</CardDescription>
+          <CardDescription>Optional — which catalogue products this representative represents.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           {products.length === 0 ? (
@@ -151,10 +146,7 @@ function SmartCardAddQrPage() {
         </CardContent>
       </Card>
 
-      <Button
-        disabled={!name.trim() || createMut.isPending}
-        onClick={() => createMut.mutate()}
-      >
+      <Button disabled={!rep.name.trim() || createMut.isPending} onClick={() => createMut.mutate()}>
         {createMut.isPending ? "Creating…" : "Create QR"}
       </Button>
     </div>

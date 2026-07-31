@@ -1,9 +1,20 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, QrCode, Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,9 +49,11 @@ export const Route = createFileRoute("/_app/smart-card/")({
 });
 
 function SmartCardSavedQrsPage() {
+  const qc = useQueryClient();
   const { session } = useSession();
   const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
   const [q, setQ] = React.useState("");
+  const [archiveTarget, setArchiveTarget] = React.useState<Rep | null>(null);
 
   const listQ = useQuery({
     queryKey: ["smart-card", "reps", q],
@@ -55,9 +68,23 @@ function SmartCardSavedQrsPage() {
     queryFn: () => apiFetch<{ ok: boolean } & Entitlement>("/smart-card/entitlement"),
   });
 
-  const items = listQ.data?.items || [];
+  const archiveMut = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/smart-card/representatives/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "archived" }),
+      }),
+    onSuccess: async () => {
+      toast.success("QR archived");
+      setArchiveTarget(null);
+      await qc.invalidateQueries({ queryKey: ["smart-card"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not archive"),
+  });
+
+  const items = (listQ.data?.items || []).filter((r) => r.status !== "archived");
   const seats = entQ.data?.seat_quantity || 0;
-  const active = entQ.data?.active_reps || items.filter((r) => r.status !== "archived").length;
+  const active = entQ.data?.active_reps || items.length;
   const canAdd = canEdit && (seats === 0 || active < seats || seats > 0);
 
   return (
@@ -65,7 +92,7 @@ function SmartCardSavedQrsPage() {
       <PageHeader
         eyebrow="Smart Card QR"
         title="Saved QR codes"
-        description="Your salesman QR codes — edit products, colours, and download PNGs."
+        description="Your representative QR codes — edit details, products, colours, and download PNGs."
         actions={
           <div className="flex flex-wrap gap-2">
             {canEdit ? (
@@ -119,19 +146,23 @@ function SmartCardSavedQrsPage() {
         <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-8"
-          placeholder="Search by name, email, mobile…"
+          placeholder="Search representatives…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
 
       {listQ.isLoading ? (
-        <Skeleton className="h-40 rounded-2xl" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 rounded-2xl" />
+          ))}
+        </div>
       ) : items.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
             <QrCode className="size-10 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No Smart Card QR codes yet.</p>
+            <p className="text-sm text-muted-foreground">No representative QR codes yet.</p>
             {canEdit ? (
               <Button asChild>
                 <Link to="/smart-card/new">Create Smart Card QR</Link>
@@ -140,44 +171,46 @@ function SmartCardSavedQrsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {items.map((rep) => (
-            <Card key={rep.id} className="overflow-hidden">
-              <CardContent className="space-y-3 p-4">
-                <div className="flex items-start gap-3">
-                  {rep.qr_image_url ? (
-                    <img
-                      src={rep.qr_image_url}
-                      alt=""
-                      className="size-16 shrink-0 rounded-lg border bg-white p-1"
-                    />
-                  ) : (
-                    <div className="grid size-16 place-items-center rounded-lg border bg-muted/30">
-                      <QrCode className="size-6 text-muted-foreground" />
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{rep.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{rep.email || rep.mobile || "—"}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{rep.scan_count || 0} scans</p>
+            <Card key={rep.id} className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
+              <CardContent className="flex gap-3 p-3">
+                {rep.qr_image_url ? (
+                  <img
+                    src={rep.qr_image_url}
+                    alt=""
+                    className="size-14 shrink-0 rounded-lg border bg-white p-1"
+                  />
+                ) : (
+                  <div className="grid size-14 place-items-center rounded-lg border bg-muted/30">
+                    <QrCode className="size-5 text-muted-foreground" />
                   </div>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button asChild size="sm" variant="outline">
-                    <Link to="/smart-card/qrs/$repId" params={{ repId: rep.id }}>
-                      Edit
-                    </Link>
-                  </Button>
-                  {rep.web_url ? (
-                    <Button asChild size="sm" variant="ghost">
-                      <a href={rep.web_url} target="_blank" rel="noreferrer">
-                        Open
-                      </a>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{rep.name}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {rep.email || rep.mobile || "Representative"}
+                  </p>
+                  <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                    {rep.scan_count || 0} scans
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs">
+                      <Link to="/smart-card/qrs/$repId" params={{ repId: rep.id }}>
+                        <Pencil className="size-3" /> Edit
+                      </Link>
                     </Button>
-                  ) : null}
-                  <Button asChild size="sm" variant="ghost">
-                    <Link to="/smart-card/leads">Leads</Link>
-                  </Button>
+                    {canEdit ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                        onClick={() => setArchiveTarget(rep)}
+                      >
+                        <Trash2 className="size-3" /> Delete
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -194,6 +227,31 @@ function SmartCardSavedQrsPage() {
           to add QR codes.
         </p>
       ) : null}
+
+      <AlertDialog open={archiveTarget != null} onOpenChange={(open) => !open && setArchiveTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{archiveTarget?.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This archives the representative QR. It will disappear from Saved QR codes and free a seat.
+              Public scans for this QR will stop working.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={archiveMut.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={archiveMut.isPending || !archiveTarget}
+              onClick={(e) => {
+                e.preventDefault();
+                if (archiveTarget) archiveMut.mutate(archiveTarget.id);
+              }}
+            >
+              {archiveMut.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -17,13 +17,13 @@ import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
+import { CategoryProductsEditor, newCategory, type CategoryDraft } from "@/components/expo-booth-sections";
 import {
-  CategoryProductsEditor,
-  emptyRepresentative,
-  newCategory,
-  type CategoryDraft,
-  type RepresentativeDraft,
-} from "@/components/expo-booth-sections";
+  emptyRepresentativeForm,
+  RepresentativeFields,
+  socialLinksPayload,
+  type RepresentativeFormValue,
+} from "@/components/smart-card/representative-fields";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -97,8 +97,9 @@ function SmartCardNewWizard() {
   const [website, setWebsite] = React.useState("");
   const [contactEmail, setContactEmail] = React.useState("");
   const [contactPhone, setContactPhone] = React.useState("");
+  const [address, setAddress] = React.useState("");
   const [description, setDescription] = React.useState("");
-  const [rep, setRep] = React.useState<RepresentativeDraft>(() => emptyRepresentative());
+  const [rep, setRep] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
   const [notifyMobile, setNotifyMobile] = React.useState("");
 
   const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
@@ -137,6 +138,8 @@ function SmartCardNewWizard() {
     if (c.contact_email) setContactEmail(String(c.contact_email));
     if (c.contact_phone) setContactPhone(String(c.contact_phone));
     if (c.description) setDescription(String(c.description));
+    const brand = c.brand_defaults as { address?: string } | null;
+    if (brand?.address) setAddress(String(brand.address));
     const cfg = c.question_config as { selected_keys?: string[]; contact_capture?: string } | null;
     if (cfg?.selected_keys?.length) setSelectedQKeys(cfg.selected_keys.map(String));
     if (cfg?.contact_capture === "manual_only" || cfg?.contact_capture === "card_only" || cfg?.contact_capture === "offer_both") {
@@ -180,6 +183,8 @@ function SmartCardNewWizard() {
     contact_email: contactEmail.trim() || null,
     contact_phone: contactPhone.trim() || notifyMobile.trim() || null,
     description: description.trim() || null,
+    address: address.trim() || null,
+    brand_defaults: { address: address.trim() || null },
     notify_mobile: notifyMobile.trim() || rep.mobile || null,
     contact_capture: contactCapture,
     selected_keys: selectedQKeys,
@@ -198,7 +203,10 @@ function SmartCardNewWizard() {
       name: rep.name.trim(),
       email: rep.email.trim() || null,
       mobile: (rep.mobile || notifyMobile).trim() || null,
+      landline: rep.landline.trim() || null,
+      extension: rep.extension.trim() || null,
       website: (rep.website || website).trim() || null,
+      social_links: socialLinksPayload(rep.social_links),
     },
   });
 
@@ -289,7 +297,7 @@ function SmartCardNewWizard() {
       <PageHeader
         eyebrow="Smart Card QR"
         title="Create Smart Card QR"
-        description="Set up your company, qualifying questions, and first salesman QR — then choose seats."
+        description="Set up your company, qualifying questions, and first representative QR — then choose seats."
       />
 
       <Stepper steps={STEPS} current={step} onStepClick={(n) => n <= step && setStep(n as Step)} />
@@ -305,40 +313,52 @@ function SmartCardNewWizard() {
                   setup.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2 sm:col-span-2">
-                  <Label>
-                    Company name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    value={companyName}
-                    onChange={(e) => setCompanyName(e.target.value)}
-                    placeholder="Acme Supplies Ltd"
-                  />
+              <CardContent className="grid gap-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">
+                      Company name <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      placeholder="Acme Supplies Ltd"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Website</Label>
+                    <Input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Website</Label>
-                  <Input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Contact email</Label>
+                    <Input
+                      type="email"
+                      value={contactEmail}
+                      onChange={(e) => setContactEmail(e.target.value)}
+                      placeholder="hello@acme.com"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Contact phone</Label>
+                    <Input
+                      value={contactPhone}
+                      onChange={(e) => setContactPhone(e.target.value)}
+                      placeholder="+44…"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Address</Label>
+                    <Input
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="Street, city, postcode"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Contact email</Label>
-                  <Input
-                    type="email"
-                    value={contactEmail}
-                    onChange={(e) => setContactEmail(e.target.value)}
-                    placeholder="hello@acme.com"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Contact phone</Label>
-                  <Input
-                    value={contactPhone}
-                    onChange={(e) => setContactPhone(e.target.value)}
-                    placeholder="+44…"
-                  />
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label>Short description (optional)</Label>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Short description (optional)</Label>
                   <Textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -352,50 +372,21 @@ function SmartCardNewWizard() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <User className="size-4" /> First salesman
+                  <User className="size-4" /> First representative
                 </CardTitle>
                 <CardDescription>
                   Required for Preview — create one QR so you can test the scan → WhatsApp/web questionnaire.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>
-                    Name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    value={rep.name}
-                    onChange={(e) => setRep((r) => ({ ...r, name: e.target.value }))}
-                    placeholder="Alex Sales"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Email</Label>
-                  <Input
-                    type="email"
-                    value={rep.email}
-                    onChange={(e) => setRep((r) => ({ ...r, email: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Mobile (hot-lead WhatsApp)</Label>
-                  <Input
-                    value={rep.mobile || notifyMobile}
-                    onChange={(e) => {
-                      setRep((r) => ({ ...r, mobile: e.target.value }));
-                      setNotifyMobile(e.target.value);
-                    }}
-                    placeholder="+447…"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Rep website</Label>
-                  <Input
-                    value={rep.website}
-                    onChange={(e) => setRep((r) => ({ ...r, website: e.target.value }))}
-                    placeholder="Optional"
-                  />
-                </div>
+              <CardContent>
+                <RepresentativeFields
+                  value={{ ...rep, mobile: rep.mobile || notifyMobile }}
+                  onChange={(next) => {
+                    setRep(next);
+                    setNotifyMobile(next.mobile);
+                  }}
+                  mobileHint="Mobile (hot-lead WhatsApp)"
+                />
               </CardContent>
             </Card>
           </div>
@@ -581,7 +572,7 @@ function SmartCardNewWizard() {
                   </a>
                 ) : null}
                 <p className="text-muted-foreground">
-                  After activate you can add more salesman QRs up to your seat count.
+                  After activate you can add more representative QRs up to your seat count.
                 </p>
               </div>
             </CardContent>
@@ -631,7 +622,7 @@ function SmartCardNewWizard() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">How many seats?</CardTitle>
-                <CardDescription>Each seat = one salesman QR code.</CardDescription>
+                <CardDescription>Each seat = one representative QR code.</CardDescription>
               </CardHeader>
               <CardContent className="grid max-w-sm gap-4">
                 {(packagesQ.data?.items || []).map((pkg) => (

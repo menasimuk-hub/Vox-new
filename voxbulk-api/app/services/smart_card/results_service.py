@@ -155,6 +155,7 @@ class SmartCardResultsService:
                     "leads_this_week": 0,
                     "leads_this_month": 0,
                     "daily": [],
+                    "by_representative": [],
                     "seat_quantity": SmartCardEntitlementService.seat_quantity(db, org_id),
                     "active_reps": 0,
                     "mode": SmartCardEntitlementService.access_mode(db, org_id),
@@ -215,6 +216,31 @@ class SmartCardResultsService:
                 }
             )
 
+        lead_count_by_rep: dict[str, int] = {}
+        for L in leads:
+            rid = str(L.representative_id or "")
+            if not rid:
+                continue
+            lead_count_by_rep[rid] = lead_count_by_rep.get(rid, 0) + 1
+
+        reps_stmt = select(SmartCardRepresentative).where(
+            SmartCardRepresentative.org_id == org_id,
+            SmartCardRepresentative.status != "archived",
+        )
+        if scope is not None:
+            reps_stmt = reps_stmt.where(SmartCardRepresentative.id.in_(scope))
+        reps_stmt = reps_stmt.order_by(SmartCardRepresentative.name.asc())
+        reps = list(db.execute(reps_stmt).scalars().all())
+        by_representative = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "scan_count": int(r.scan_count or 0),
+                "lead_count": int(lead_count_by_rep.get(str(r.id), 0)),
+            }
+            for r in reps
+        ]
+
         return {
             "scans": scans_total,
             "scans_today": scans_today,
@@ -227,6 +253,7 @@ class SmartCardResultsService:
             "cold": cold,
             "need_follow_up": need,
             "daily": daily,
+            "by_representative": by_representative,
             "seat_quantity": SmartCardEntitlementService.seat_quantity(db, org_id),
             "active_reps": SmartCardEntitlementService.active_rep_count(db, org_id),
             "mode": SmartCardEntitlementService.access_mode(db, org_id),

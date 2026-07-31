@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -75,6 +77,13 @@ def get_card(token: str, db: Session = Depends(get_db)):
     trigger = f"Hi — scanned Smart Card QR for {rep.name}. Token {rep.qr_token}"
     wa_url = f"https://wa.me/{wa_digits}?text={trigger.replace(' ', '%20')}" if wa_digits else None
 
+    social = None
+    if rep.social_links_json:
+        try:
+            social = json.loads(rep.social_links_json)
+        except Exception:
+            social = None
+
     return {
         "ok": True,
         "status": mode,
@@ -89,6 +98,7 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "mobile": rep.mobile,
             "landline": rep.landline,
             "extension": rep.extension,
+            "social_links": social,
         },
         "company": {
             "name": company.name,
