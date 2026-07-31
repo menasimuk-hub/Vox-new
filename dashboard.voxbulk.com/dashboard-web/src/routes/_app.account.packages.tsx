@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
 import {
@@ -470,7 +470,6 @@ function PackagesPage() {
   const feedbackSub = feedbackSubQ.data;
   const orgCurrency = String(orgQ.data?.billing_currency || orgQ.data?.currency || "GBP").toUpperCase();
   const currentFeedbackPlanId = feedbackSub?.active ? feedbackSub.plan_id : null;
-  const hasActiveFeedbackSub = Boolean(feedbackSub?.active && currentFeedbackPlanId);
 
   React.useEffect(() => {
     setPackagesTab((prev) => resolveTab(tabFromUrl ?? prev));
@@ -550,36 +549,26 @@ function PackagesPage() {
       />
 
       <Tabs value={packagesTab} onValueChange={(v) => setPackagesTab(v as ServiceTab)} className="w-full">
-        <TabsList
-          className={`grid h-auto w-full gap-1 p-1 ${
-            visibleTabs.length >= 3 ? "grid-cols-3" : visibleTabs.length === 1 ? "grid-cols-1" : "grid-cols-2"
-          }`}
-        >
-          {visibleTabs.map((key) => {
-            const s = SERVICE_TABS[key];
-            const Icon = s.icon;
-            const productActive =
-              (key === "feedback" && hasActiveFeedbackSub) || (key === "core" && hasActiveCorePlan);
-            return (
-              <TabsTrigger key={key} value={key} className="relative flex flex-col items-center gap-1 py-2 data-[state=active]:shadow-sm">
-                <div className="flex h-[26px] flex-col items-center justify-end gap-1">
-                  <div className="flex h-[6px] w-9 items-center justify-center">
-                    {productActive ? (
-                      <span
-                        className="h-full w-full rounded-[3px] bg-success shadow-sm shadow-success/30"
-                        title="Active subscription"
-                      />
-                    ) : (
-                      <span className="h-full w-full" aria-hidden />
-                    )}
-                  </div>
-                  <Icon className={`size-4 ${s.tint}`} />
-                </div>
-                <span className="text-[11px] font-medium">{s.label}</span>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
+        {visibleTabs.includes("campaigns") ? (
+          <div className="mb-2 flex justify-center">
+            <div className="flex rounded-full border border-border bg-muted/40 p-1 text-xs shadow-sm">
+              <button
+                type="button"
+                className={`rounded-full px-4 py-2 transition-colors ${packagesTab === "core" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setPackagesTab("core")}
+              >
+                Subscription plans
+              </button>
+              <button
+                type="button"
+                className={`rounded-full px-4 py-2 transition-colors ${packagesTab === "campaigns" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setPackagesTab("campaigns")}
+              >
+                Campaigns
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {visibleTabs.map((key) => {
           const s = SERVICE_TABS[key];
@@ -593,7 +582,7 @@ function PackagesPage() {
               <ServicePackageShell
                 tint={key === "core" ? SERVICE_TINTS.core : key === "feedback" ? SERVICE_TINTS.feedback : SERVICE_TINTS.expo}
                 icon={Icon}
-                title={s.label}
+                title={key === "core" ? "Interview + WA Survey" : s.label}
                 blurb={s.blurb}
                 badge={s.billing}
               >
