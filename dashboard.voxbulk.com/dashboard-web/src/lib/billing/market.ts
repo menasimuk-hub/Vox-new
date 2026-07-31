@@ -63,6 +63,41 @@ export function marketCurrencySymbol(market: string): string {
   return symbols[String(market || "usd").toLowerCase()] || "$";
 }
 
+export function marketCurrencyCode(market: string): string {
+  const codes: Record<string, string> = {
+    gbp: "GBP",
+    eur: "EUR",
+    cad: "CAD",
+    aud: "AUD",
+    usd: "USD",
+  };
+  return codes[String(market || "usd").toLowerCase()] || "USD";
+}
+
+/** Org country / billing → ISO currency for package price pickers. */
+export function orgCountryToCurrencyCode(country?: string | null): string {
+  return marketCurrencyCode(countryToMarket(country));
+}
+
+export function pickPriceMinor(
+  prices: Array<{ currency: string; monthly_price_minor?: number | null; yearly_price_minor?: number | null }>,
+  currency: string,
+  opts?: { yearly?: boolean },
+): { currency: string; amountMinor: number | null } {
+  const yearly = opts?.yearly !== false;
+  const want = String(currency || "USD").toUpperCase();
+  const row =
+    prices.find((p) => String(p.currency || "").toUpperCase() === want) ||
+    prices.find((p) => String(p.currency || "").toUpperCase() === "USD") ||
+    prices[0];
+  if (!row) return { currency: want, amountMinor: null };
+  const amount = yearly ? row.yearly_price_minor : row.monthly_price_minor;
+  return {
+    currency: String(row.currency || want).toUpperCase(),
+    amountMinor: amount != null ? Number(amount) : null,
+  };
+}
+
 export function formatQuoteDisplay(pence: number | null | undefined, market: string): string {
   const base = Math.max(0, Number(pence || 0));
   const sym = marketCurrencySymbol(market);

@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireBillingAccess } from "@/lib/guards/billing-route";
 import { apiFetch } from "@/lib/api";
+import { countryToMarket } from "@/lib/billing/market";
+import { useOrganisation } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 type ExpoPackage = {
@@ -28,6 +30,14 @@ const BEST_FOR: Record<string, string> = {
   day7: "Long fairs and week-long exhibitions",
 };
 
+const MARKET_TO_ZONE: Record<string, string> = {
+  gbp: "gb",
+  eur: "eu",
+  usd: "us",
+  cad: "ca",
+  aud: "au",
+};
+
 export const Route = createFileRoute("/_app/account/expo/packages")({
   head: () => ({ meta: [{ title: "Expo packages — VoxBulk" }] }),
   beforeLoad: () => {
@@ -37,9 +47,14 @@ export const Route = createFileRoute("/_app/account/expo/packages")({
 });
 
 function ExpoPackagesPage() {
+  const orgQ = useOrganisation();
+  const market = countryToMarket(orgQ.data?.country);
+  const zone = MARKET_TO_ZONE[market] || "us";
+
   const packagesQ = useQuery({
-    queryKey: ["expo", "packages", "gb"],
-    queryFn: () => apiFetch<{ items: ExpoPackage[] }>("/expo/packages?zone=gb"),
+    queryKey: ["expo", "packages", zone],
+    queryFn: () => apiFetch<{ items: ExpoPackage[] }>(`/expo/packages?zone=${zone}`),
+    enabled: !orgQ.isLoading,
   });
   const items = (packagesQ.data?.items || []).slice().sort((a, b) => (a.duration_days || 0) - (b.duration_days || 0));
 
@@ -48,7 +63,7 @@ function ExpoPackagesPage() {
       <PageHeader
         eyebrow="Account"
         title="Expo packages & pricing"
-        description="One-off per exhibition — choose how many days your booth QR stays active. Checkout follows in a later release; packages are ready to assign now."
+        description="One-off per exhibition — choose how many days your booth QR stays active. Prices use your organisation country market. Checkout follows in a later release; packages are ready to assign now."
         actions={
           <Button asChild variant="outline">
             <Link to="/expo/new">Create booth</Link>
@@ -56,7 +71,7 @@ function ExpoPackagesPage() {
         }
       />
 
-      {packagesQ.isLoading ? (
+      {packagesQ.isLoading || orgQ.isLoading ? (
         <div className="grid gap-4 md:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-80 rounded-xl" />

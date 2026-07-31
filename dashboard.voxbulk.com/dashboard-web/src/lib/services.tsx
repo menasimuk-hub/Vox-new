@@ -33,11 +33,12 @@ const DEFAULT: Record<ServiceKey, boolean> = {
 /** Admin-granted modules — missing/null means available (interview + survey on). */
 function fromAllowedApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boolean> {
   if (!raw) return { ...DEFAULT };
+  const feedback = Boolean(raw.customer_feedback);
   const out = {
     interviews: raw.interview !== false,
     surveys: raw.survey !== false,
-    feedback: Boolean(raw.customer_feedback),
-    feedbackCampaigns: Boolean(raw.feedback_campaigns),
+    feedback,
+    feedbackCampaigns: feedback && Boolean(raw.feedback_campaigns),
     expo: Boolean(raw.expo),
     smartCard: Boolean(raw.smart_card),
     appointments: Boolean(raw.appointments),
@@ -59,7 +60,7 @@ function fromEnabledApi(raw?: ApiEnabledServices | null): Record<ServiceKey, boo
     interviews: "interview" in raw ? Boolean(raw.interview) : true,
     surveys: "survey" in raw ? Boolean(raw.survey) : true,
     feedback: Boolean(raw.customer_feedback),
-    feedbackCampaigns: Boolean(raw.feedback_campaigns),
+    feedbackCampaigns: Boolean(raw.customer_feedback) && Boolean(raw.feedback_campaigns),
     expo: Boolean(raw.expo),
     smartCard: Boolean(raw.smart_card),
     appointments: Boolean(raw.appointments),
@@ -90,11 +91,13 @@ function toApi(state: Record<ServiceKey, boolean>): ApiEnabledServices {
 }
 
 function visibleFrom(allowed: Record<ServiceKey, boolean>, enabled: Record<ServiceKey, boolean>) {
+  const feedbackAllowed = allowed.feedback;
+  const feedbackCampaignsAllowed = feedbackAllowed && allowed.feedbackCampaigns;
   return {
     interviews: allowed.interviews && enabled.interviews,
     surveys: allowed.surveys && enabled.surveys,
-    feedback: allowed.feedback && enabled.feedback,
-    feedbackCampaigns: allowed.feedbackCampaigns && enabled.feedbackCampaigns,
+    feedback: feedbackAllowed && enabled.feedback,
+    feedbackCampaigns: feedbackCampaignsAllowed && enabled.feedbackCampaigns,
     expo: allowed.expo && enabled.expo,
     smartCard: allowed.smartCard && enabled.smartCard,
     appointments: allowed.appointments && enabled.appointments,

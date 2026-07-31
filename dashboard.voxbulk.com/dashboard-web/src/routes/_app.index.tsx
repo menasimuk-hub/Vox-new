@@ -8,7 +8,9 @@ import {
   PoundSterling, PhoneOutgoing, UserCheck, MessageCircle, ListChecks, Timer, Wallet, Target,
   Radio, PhoneCall, CheckCircle2, Users, BarChart3, MessagesSquare, PauseCircle, type LucideIcon,
   Activity, TrendingUp, Smile, Frown, Meh, Star, QrCode, MessageSquareText, HeartPulse, AlertTriangle, Clock3,
+  Building2, IdCard,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 import { PageHeader } from "@/components/page-header";
 import { PendingInviteBanner } from "@/components/pending-invite-banner";
@@ -29,6 +31,7 @@ import { orderToCampaign } from "@/lib/mappers/orders";
 import { useBillingUsage, useHomeSummary, useServiceOrders } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import type { HomeSummary } from "@/lib/types/api";
+import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { requireBillingOnlyHome } from "@/lib/guards/settings-route";
 
@@ -141,21 +144,86 @@ function LiveStrip({ visible, summary }: { visible: VisibleMap; summary?: HomeSu
   const sentimentTotal = happyTotal + (fb?.sentiment?.poor ?? 0);
   const happyPct = sentimentTotal ? `${Math.round((happyTotal / sentimentTotal) * 100)}%` : "—";
 
+  const expoQ = useQuery({
+    queryKey: ["expo", "results", "summary", "home-kpi"],
+    queryFn: () => apiFetch<{ scans_today?: number; scans?: number }>("/expo/results/summary"),
+    enabled: visible.expo,
+  });
+  const smartCardQ = useQuery({
+    queryKey: ["smart-card", "results", "summary", "home-kpi"],
+    queryFn: () => apiFetch<{ scans?: number }>("/smart-card/results/summary"),
+    enabled: visible.smartCard,
+  });
+
   const all = [
-    { key: "interviews" as const, icon: PhoneCall, label: "AI interview calls live", value: String(int?.running ?? int?.live ?? 0), tone: "text-blue-500" },
-    { key: "surveys" as const, icon: Phone, label: "AI survey calls live", value: String(sur?.running ?? 0), tone: "text-violet-500" },
-    { key: "surveys" as const, icon: MessageCircle, label: "WA survey threads active", value: String(sur?.live ?? 0), tone: "text-emerald-500" },
-    { key: "feedback" as const, icon: QrCode, label: "QR scans today", value: String(fb?.qr_scans_today ?? 0), tone: "text-amber-500" },
-    { key: "feedback" as const, icon: Smile, label: "Happy customers", value: happyPct, tone: "text-emerald-500" },
+    {
+      key: "interviews" as const,
+      icon: PhoneCall,
+      label: "AI interview calls live",
+      value: String(int?.running ?? int?.live ?? 0),
+      tone: "text-blue-600 dark:text-blue-400",
+      iconBg: "bg-blue-500/15",
+    },
+    {
+      key: "surveys" as const,
+      icon: Phone,
+      label: "AI survey calls live",
+      value: String(sur?.running ?? 0),
+      tone: "text-violet-600 dark:text-violet-400",
+      iconBg: "bg-violet-500/15",
+    },
+    {
+      key: "surveys" as const,
+      icon: MessageCircle,
+      label: "WA survey threads active",
+      value: String(sur?.live ?? 0),
+      tone: "text-emerald-600 dark:text-emerald-400",
+      iconBg: "bg-emerald-500/15",
+    },
+    {
+      key: "feedback" as const,
+      icon: QrCode,
+      label: "Feedback QR scans today",
+      value: String(fb?.qr_scans_today ?? 0),
+      tone: "text-amber-600 dark:text-amber-400",
+      iconBg: "bg-amber-500/15",
+    },
+    {
+      key: "feedback" as const,
+      icon: Smile,
+      label: "Happy customers",
+      value: happyPct,
+      tone: "text-emerald-600 dark:text-emerald-400",
+      iconBg: "bg-emerald-500/15",
+    },
+    {
+      key: "expo" as const,
+      icon: Building2,
+      label: "Expo QR scans today",
+      value: String(expoQ.data?.scans_today ?? expoQ.data?.scans ?? 0),
+      tone: "text-sky-600 dark:text-sky-400",
+      iconBg: "bg-sky-500/15",
+    },
+    {
+      key: "smartCard" as const,
+      icon: IdCard,
+      label: "Smart Card QR scanned",
+      value: String(smartCardQ.data?.scans ?? 0),
+      tone: "text-violet-600 dark:text-violet-400",
+      iconBg: "bg-violet-500/15",
+    },
   ];
-  const items = all.filter((i) => visible[i.key]).slice(0, 4);
+  const items = all.filter((i) => visible[i.key]);
   if (items.length === 0) return null;
 
   return (
     <div className="flex flex-nowrap gap-2 overflow-x-auto rounded-2xl border border-border bg-card/60 p-2">
       {items.map((i) => (
-        <div key={i.label} className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-background/50 px-2.5 py-2 sm:gap-3 sm:px-3">
-          <span className="relative grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+        <div
+          key={i.label}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-background/50 px-2.5 py-2 transition-transform duration-200 hover:scale-[1.02] sm:gap-3 sm:px-3"
+        >
+          <span className={cn("relative grid size-9 shrink-0 place-items-center rounded-lg", i.iconBg)}>
             <i.icon className={cn("size-4", i.tone)} />
             <span className="absolute -right-0.5 -top-0.5 flex size-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
@@ -189,9 +257,9 @@ function HeroRow({
     (int?.calls_completed ?? int?.candidates ?? 0) + (sur?.responses ?? 0) + (fb?.total_scans ?? 0);
 
   const tiles = [
-    { show: visible.interviews, label: "Candidates screened", value: String(int?.candidates ?? 0), tone: "text-blue-500" },
-    { show: visible.surveys, label: "Survey responses", value: String(sur?.responses ?? 0), tone: "text-violet-500" },
-    { show: visible.feedback, label: "QR feedback", value: String(fb?.total_scans ?? 0), tone: "text-emerald-500" },
+    { show: visible.interviews, label: "Candidates screened", value: String(int?.candidates ?? 0), tone: "text-blue-600 dark:text-blue-400", icon: Users, iconBg: "bg-blue-500/15" },
+    { show: visible.surveys, label: "Survey responses", value: String(sur?.responses ?? 0), tone: "text-violet-600 dark:text-violet-400", icon: MessagesSquare, iconBg: "bg-violet-500/15" },
+    { show: visible.feedback, label: "QR feedback", value: String(fb?.total_scans ?? 0), tone: "text-emerald-600 dark:text-emerald-400", icon: QrCode, iconBg: "bg-emerald-500/15" },
   ].filter((t) => t.show);
 
   const unhappyCount = summary?.feedback?.unhappy?.length ?? 0;
@@ -211,7 +279,9 @@ function HeroRow({
         </p>
         {tiles.length > 0 && (
           <div className={cn("mt-5 grid gap-2", tiles.length <= 2 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3")}>
-            {tiles.map((t) => <HeroStat key={t.label} label={t.label} value={t.value} tone={t.tone} />)}
+            {tiles.map((t) => (
+              <HeroStat key={t.label} label={t.label} value={t.value} tone={t.tone} icon={t.icon} iconBg={t.iconBg} />
+            ))}
           </div>
         )}
       </div>
@@ -261,10 +331,29 @@ function HeroRow({
   );
 }
 
-function HeroStat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function HeroStat({
+  label,
+  value,
+  tone,
+  icon: Icon,
+  iconBg,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  icon?: LucideIcon;
+  iconBg?: string;
+}) {
   return (
-    <div className="rounded-xl border border-border bg-background/50 p-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+    <div className="rounded-xl border border-border bg-background/50 p-3 transition-transform duration-200 hover:scale-[1.02]">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+        {Icon ? (
+          <span className={cn("grid size-7 place-items-center rounded-md", iconBg || "bg-muted", tone)}>
+            <Icon className="size-3.5" />
+          </span>
+        ) : null}
+      </div>
       <p className={cn("mt-1 text-xl font-semibold tabular-nums", tone)}>{value}</p>
     </div>
   );

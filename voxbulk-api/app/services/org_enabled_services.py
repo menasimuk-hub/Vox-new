@@ -141,10 +141,22 @@ def clamp_enabled_to_allowed(
     for key in SERVICE_KEYS:
         if not allowed.get(key):
             out[key] = False
+    # Add-on cannot outlive parent Customer feedback
+    if not allowed.get("customer_feedback"):
+        out["feedback_campaigns"] = False
+    return out
+
+
+def normalize_allowed_services(allowed: dict[str, bool]) -> dict[str, bool]:
+    """Ensure dependent grants stay consistent (add-on requires customer_feedback)."""
+    out = {key: bool(allowed.get(key)) for key in SERVICE_KEYS}
+    if not out.get("customer_feedback"):
+        out["feedback_campaigns"] = False
     return out
 
 
 def effective_services(allowed: dict[str, bool], enabled: dict[str, bool]) -> dict[str, bool]:
+    allowed = normalize_allowed_services(allowed)
     return {key: bool(allowed.get(key)) and bool(enabled.get(key)) for key in SERVICE_KEYS}
 
 
@@ -177,7 +189,7 @@ def apply_admin_org_service_grants(
     grants: dict[str, Any],
 ) -> tuple[dict[str, bool], dict[str, bool]]:
     """Replace org allowed grants from admin UI (full matrix). Clamp user enabled to match."""
-    allowed = {key: bool(grants.get(key)) for key in SERVICE_KEYS}
+    allowed = normalize_allowed_services({key: bool(grants.get(key)) for key in SERVICE_KEYS})
     validate_at_least_one_enabled(allowed)
     enabled = clamp_enabled_to_allowed(allowed, current_enabled)
     # Admin grant for Smart Card → customer-visible without a separate Settings step
@@ -193,7 +205,7 @@ def merge_admin_allowed_services(
     current_enabled: dict[str, bool],
     patch: dict[str, Any] | None,
 ) -> tuple[dict[str, bool], dict[str, bool]]:
-    allowed = merge_enabled_services(current_allowed, patch)
+    allowed = normalize_allowed_services(merge_enabled_services(current_allowed, patch))
     enabled = clamp_enabled_to_allowed(allowed, current_enabled)
     if allowed.get("smart_card") and (
         (patch and bool(patch.get("smart_card"))) or not current_allowed.get("smart_card")
@@ -252,6 +264,7 @@ def org_service_maps(org, db=None) -> tuple[dict[str, bool], dict[str, bool], di
         None if uses_platform_default else raw_allowed,
         platform_default=platform_default,
     )
+    allowed = normalize_allowed_services(allowed)
     enabled = parse_enabled_services(getattr(org, "enabled_services_json", None))
     enabled = clamp_enabled_to_allowed(allowed, enabled)
     visible = effective_services(allowed, enabled)

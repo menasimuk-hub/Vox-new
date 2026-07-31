@@ -12,7 +12,14 @@ import {
   completeSmartCardSeatCheckout,
   startSmartCardSeatCheckout,
 } from "@/lib/billing/smart-card-subscription-payment";
+import {
+  countryToMarket,
+  marketCurrencySymbol,
+  orgCountryToCurrencyCode,
+  pickPriceMinor,
+} from "@/lib/billing/market";
 import { apiFetch } from "@/lib/api";
+import { useOrganisation } from "@/lib/queries";
 
 type PackageItem = {
   id: string;
@@ -23,6 +30,23 @@ type PackageItem = {
   interval?: string;
   prices: Array<{ currency: string; monthly_price_minor?: number | null; yearly_price_minor?: number | null }>;
 };
+
+const CURRENCY_TO_MARKET: Record<string, string> = {
+  GBP: "gbp",
+  EUR: "eur",
+  USD: "usd",
+  CAD: "cad",
+  AUD: "aud",
+};
+
+function symbolForCurrency(code: string) {
+  return marketCurrencySymbol(CURRENCY_TO_MARKET[String(code || "").toUpperCase()] || "usd");
+}
+
+function formatMinor(amountMinor: number | null, currency: string) {
+  if (amountMinor == null) return "—";
+  return `${symbolForCurrency(currency)}${(amountMinor / 100).toFixed(0)}`;
+}
 
 export const Route = createFileRoute("/_app/account/smart-card/packages")({
   component: SmartCardPackagesPage,
@@ -39,8 +63,13 @@ export const Route = createFileRoute("/_app/account/smart-card/packages")({
 function SmartCardPackagesPage() {
   const search = useSearch({ from: "/_app/account/smart-card/packages" });
   const qc = useQueryClient();
+  const orgQ = useOrganisation();
   const [seatsByPlan, setSeatsByPlan] = React.useState<Record<string, number>>({});
   const completingRef = React.useRef(false);
+
+  const orgCountry = orgQ.data?.country;
+  const currencyCode = orgCountryToCurrencyCode(orgCountry);
+  const currencySym = marketCurrencySymbol(countryToMarket(orgCountry));
 
   const packagesQ = useQuery({
     queryKey: ["smart-card", "packages"],
@@ -87,7 +116,7 @@ function SmartCardPackagesPage() {
       <PageHeader
         eyebrow="Smart Card QR"
         title="Packages & pricing"
-        description="$5 per seat per month, billed annually ($60/seat/year). Choose how many seats, then pay by card."
+        description={`Per-seat pricing in ${currencyCode}, based on your organisation country. Billed annually — choose how many seats, then pay by card.`}
         actions={
           <Button asChild variant="outline">
             <Link to="/smart-card">Back to hub</Link>
@@ -122,55 +151,43 @@ function SmartCardPackagesPage() {
               <thead className="border-b bg-muted/40">
                 <tr>
                   <th className="px-3 py-2 font-medium">Plan</th>
-                  <th className="px-3 py-2 font-medium">USD / seat / year</th>
-                  <th className="px-3 py-2 font-medium">USD / seat / month</th>
-                  <th className="px-3 py-2 font-medium">GBP / seat / year</th>
+                  <th className="px-3 py-2 font-medium">{currencyCode} / seat / year</th>
+                  <th className="px-3 py-2 font-medium">{currencyCode} / seat / month</th>
                 </tr>
               </thead>
               <tbody>
                 {(packagesQ.data?.items || []).map((pkg) => {
-                  const usd = pkg.prices.find((p) => p.currency === "USD");
-                  const gbp = pkg.prices.find((p) => p.currency === "GBP");
+                  const yearly = pickPriceMinor(pkg.prices, currencyCode, { yearly: true });
+                  const monthly = pickPriceMinor(pkg.prices, currencyCode, { yearly: false });
                   return (
                     <tr key={pkg.id} className="border-b last:border-0">
                       <td className="px-3 py-2">{pkg.name}</td>
-                      <td className="px-3 py-2">
-                        {usd?.yearly_price_minor != null
-                          ? `$${(usd.yearly_price_minor / 100).toFixed(0)}`
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        {usd?.monthly_price_minor != null
-                          ? `$${(usd.monthly_price_minor / 100).toFixed(0)}`
-                          : "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        {gbp?.yearly_price_minor != null
-                          ? `£${(gbp.yearly_price_minor / 100).toFixed(0)}`
-                          : "—"}
-                      </td>
+                      <td className="px-3 py-2">{formatMinor(yearly.amountMinor, yearly.currency)}</td>
+                      <td className="px-3 py-2">{formatMinor(monthly.amountMinor, monthly.currency)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Currency follows your organisation country
+            {orgCountry ? ` (${orgCountry})` : ""}. Change it in{" "}
+            <Link to="/settings/profile" className="text-primary underline-offset-4 hover:underline">
+              Settings → Profile
+            </Link>
+            .
+          </p>
         </CardContent>
       </Card>
 
       <div className="grid gap-3 md:grid-cols-2">
         {(packagesQ.data?.items || []).map((pkg) => {
-          const usd = pkg.prices.find((p) => p.currency === "USD");
-          const gbp = pkg.prices.find((p) => p.currency === "GBP");
+          const yearly = pickPriceMinor(pkg.prices, currencyCode, { yearly: true });
           const seats = seatsByPlan[pkg.plan_id] ?? 1;
-          const unit =
-            usd?.yearly_price_minor != null
-              ? usd.yearly_price_minor
-              : gbp?.yearly_price_minor != null
-                ? gbp.yearly_price_minor
-                : null;
+          const unit = yearly.amountMinor;
           const total = unit != null ? (unit * seats) / 100 : null;
-          const currency = usd?.yearly_price_minor != null ? "$" : "£";
+          const sym = unit != null ? symbolForCurrency(yearly.currency) : currencySym;
           return (
             <Card key={pkg.id}>
               <CardHeader className="pb-2">
@@ -179,9 +196,7 @@ function SmartCardPackagesPage() {
               <CardContent className="space-y-3 text-sm text-muted-foreground">
                 <p>{pkg.description}</p>
                 <p className="font-medium text-foreground">
-                  {unit != null
-                    ? `${currency}${(unit / 100).toFixed(0)} / seat / year`
-                    : "See Admin pricing"}
+                  {unit != null ? `${sym}${(unit / 100).toFixed(0)} / seat / year` : "See Admin pricing"}
                 </p>
                 <div className="space-y-1.5">
                   <Label>Seats</Label>
@@ -200,7 +215,7 @@ function SmartCardPackagesPage() {
                 </div>
                 {total != null ? (
                   <p className="text-foreground">
-                    Total due today: {currency}
+                    Total due today: {sym}
                     {total.toFixed(0)}
                   </p>
                 ) : null}

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
 import { Check, Clock, FileText, MessageCircle, Phone, Wallet, Smile, Megaphone, Sparkles, Briefcase, ClipboardList, Loader2, Building2, QrCode } from "lucide-react";
 import { toast } from "sonner";
@@ -213,6 +213,7 @@ function corePlanFeatures(p: PlanRow): string[] {
 
 function PackagesPage() {
   const { tab: tabFromUrl, plan: highlightPlan, product: highlightProduct } = Route.useSearch();
+  const navigate = useNavigate();
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
   const { session, refetch: refetchSession } = useSession();
   const qc = useQueryClient();
@@ -227,12 +228,10 @@ function PackagesPage() {
   const createTicketM = useCreateSupportTicket();
   const [topupOpen, setTopupOpen] = React.useState(false);
   const visibleTabs = React.useMemo((): ServiceTab[] => {
-    const tabs: ServiceTab[] = ["core", "feedback"];
+    const tabs: ServiceTab[] = ["core"];
     if (visible.campaigns) tabs.push("campaigns");
-    if (visible.expo) tabs.push("expo");
-    if (visible.smartCard) tabs.push("smartCard");
     return tabs;
-  }, [visible.campaigns, visible.expo, visible.smartCard]);
+  }, [visible.campaigns]);
   const resolveTab = React.useCallback(
     (tab: ServiceTab | undefined): ServiceTab => {
       if (tab && visibleTabs.includes(tab)) return tab;
@@ -241,6 +240,20 @@ function PackagesPage() {
     [visibleTabs],
   );
   const [packagesTab, setPackagesTab] = React.useState<ServiceTab>(() => resolveTab(tabFromUrl));
+
+  React.useEffect(() => {
+    if (tabFromUrl === "feedback") {
+      void navigate({ to: "/account/feedback/packages" });
+      return;
+    }
+    if (tabFromUrl === "expo") {
+      void navigate({ to: "/account/expo/packages" });
+      return;
+    }
+    if (tabFromUrl === "smartCard") {
+      void navigate({ to: "/account/smart-card/packages" });
+    }
+  }, [tabFromUrl, navigate]);
   const [busyFeedbackPlanId, setBusyFeedbackPlanId] = React.useState<string | null>(null);
   const [coreBillingInterval, setCoreBillingInterval] = React.useState<BillingInterval>("monthly");
   const [feedbackBillingInterval, setFeedbackBillingInterval] = React.useState<BillingInterval>("monthly");
@@ -457,9 +470,9 @@ function PackagesPage() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 pb-16">
       <PageHeader
-        eyebrow="Account"
-        title="Packages & pricing"
-        description="Each service is billed separately — pick a tab to see its plans."
+        eyebrow="Core platform packages"
+        title="Interview + WA Survey"
+        description="Core platform plans for AI interviews and outbound WhatsApp surveys. Feedback, Expo, and Smart Card have their own package pages."
         actions={
           walletQ.data ? (
             <button
@@ -478,11 +491,7 @@ function PackagesPage() {
       <Tabs value={packagesTab} onValueChange={(v) => setPackagesTab(v as ServiceTab)} className="w-full">
         <TabsList
           className={`grid h-auto w-full gap-1 p-1 ${
-            visibleTabs.length >= 5
-              ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
-              : visibleTabs.length >= 3
-                ? "grid-cols-3"
-                : "grid-cols-2"
+            visibleTabs.length >= 3 ? "grid-cols-3" : visibleTabs.length === 1 ? "grid-cols-1" : "grid-cols-2"
           }`}
         >
           {visibleTabs.map((key) => {
@@ -591,13 +600,9 @@ function PackagesPage() {
           <p className="font-medium text-foreground">Your Customer Feedback subscription is active</p>
           <p className="mt-1 text-muted-foreground">
             Core platform is a separate product (AI interviews + outbound surveys). You do not need to pick a Core plan unless you want those features —{" "}
-            <button
-              type="button"
-              className="text-primary underline-offset-4 hover:underline"
-              onClick={() => setPackagesTab("feedback")}
-            >
+            <Link to="/account/feedback/packages" className="text-primary underline-offset-4 hover:underline">
               manage your Feedback plan
-            </button>
+            </Link>
             .
           </p>
         </div>

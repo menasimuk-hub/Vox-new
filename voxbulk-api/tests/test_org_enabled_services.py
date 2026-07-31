@@ -69,3 +69,36 @@ def test_admin_clamp_disables_user_survey_when_removed_from_allowed():
     assert allowed["survey"] is False
     assert enabled["survey"] is False
     assert effective_services(allowed, enabled)["interview"] is True
+
+
+def test_admin_off_feedback_campaigns_hides_from_visible():
+    from app.services.org_enabled_services import apply_admin_org_service_grants
+
+    enabled = parse_enabled_services(None)
+    enabled["customer_feedback"] = True
+    enabled["feedback_campaigns"] = True
+    grants = parse_enabled_services(None)
+    grants["interview"] = True
+    grants["survey"] = True
+    grants["customer_feedback"] = True
+    grants["feedback_campaigns"] = False
+    allowed, next_enabled = apply_admin_org_service_grants(enabled, grants)
+    assert allowed["feedback_campaigns"] is False
+    assert next_enabled["feedback_campaigns"] is False
+    assert effective_services(allowed, next_enabled)["feedback_campaigns"] is False
+    assert effective_services(allowed, next_enabled)["customer_feedback"] is True
+
+
+def test_feedback_campaigns_off_when_customer_feedback_not_allowed():
+    from app.services.org_enabled_services import apply_admin_org_service_grants
+
+    enabled = parse_enabled_services(None)
+    enabled["feedback_campaigns"] = True
+    grants = parse_enabled_services(None)
+    grants["interview"] = True
+    grants["customer_feedback"] = False
+    grants["feedback_campaigns"] = True  # invalid without parent
+    allowed, next_enabled = apply_admin_org_service_grants(enabled, grants)
+    assert allowed["feedback_campaigns"] is False
+    assert next_enabled["feedback_campaigns"] is False
+    assert effective_services(allowed, next_enabled)["feedback_campaigns"] is False

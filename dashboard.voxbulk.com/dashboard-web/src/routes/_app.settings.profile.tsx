@@ -62,6 +62,9 @@ function ProfileSettings() {
   const [contactEmail, setContactEmail] = React.useState("");
   const [contactPhone, setContactPhone] = React.useState("");
   const [website, setWebsite] = React.useState("");
+  const [addressLine1, setAddressLine1] = React.useState("");
+  const [city, setCity] = React.useState("");
+  const [postcode, setPostcode] = React.useState("");
   const [country, setCountry] = React.useState("United Kingdom");
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
@@ -81,6 +84,9 @@ function ProfileSettings() {
     setContactEmail(String(org.contact_email || ""));
     setContactPhone(String(org.contact_phone || ""));
     setWebsite(String(org.website || ""));
+    setAddressLine1(String(org.address_line1 || ""));
+    setCity(String(org.city || ""));
+    setPostcode(String(org.postcode || ""));
     setCountry(String(org.country || "United Kingdom"));
   }, [orgQ.data]);
 
@@ -116,6 +122,9 @@ function ProfileSettings() {
         contact_email: contactEmail || null,
         contact_phone: contactPhone || null,
         website: website || null,
+        address_line1: addressLine1 || null,
+        city: city || null,
+        postcode: postcode || null,
         country: nextCountry || "United Kingdom",
       });
       const locked = Boolean(orgQ.data?.billing_currency_locked);
@@ -201,6 +210,9 @@ function ProfileSettings() {
               <Field label="Contact email" value={contactEmail} onChange={setContactEmail} type="email" readOnly={!canEdit} />
               <Field label="Phone" value={contactPhone} onChange={setContactPhone} readOnly={!canEdit} />
               <Field label="Website" value={website} onChange={setWebsite} readOnly={!canEdit} />
+              <Field label="Address" value={addressLine1} onChange={setAddressLine1} readOnly={!canEdit} />
+              <Field label="City" value={city} onChange={setCity} readOnly={!canEdit} />
+              <Field label="Postcode" value={postcode} onChange={setPostcode} readOnly={!canEdit} />
               <div className="space-y-1.5">
                 <Label className="text-xs">Country</Label>
                 <Select value={country} onValueChange={onCountryChange} disabled={saveM.isPending || !canEdit}>

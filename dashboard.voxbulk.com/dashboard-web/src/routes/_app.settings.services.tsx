@@ -67,7 +67,13 @@ function ServicesSettings() {
     }
   };
 
-  const available = items.filter((it) => allowed[it.key] && (showRecoveryModules || !isRecoveryServiceKey(it.key)));
+  const available = items.filter((it) => {
+    if (!allowed[it.key]) return false;
+    if (!showRecoveryModules && isRecoveryServiceKey(it.key)) return false;
+    // Add-on · Send campaign only when Customer feedback is granted
+    if (it.key === "feedbackCampaigns" && !allowed.feedback) return false;
+    return true;
+  });
 
   return (
     <div className="flex w-full flex-col gap-6">

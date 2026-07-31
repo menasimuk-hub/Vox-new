@@ -11,7 +11,7 @@ import {
   Ticket,
   IdCard,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
-  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus,
+  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus, Smile,
 } from "lucide-react";
 
 import {
@@ -176,9 +176,10 @@ const groups: Group[] = [
     { title: "Opt-out list", url: "/settings/opt-out", icon: Ban },
   ]},
   { key: "account", label: "Account", items: [
-    { title: "Packages & pricing", url: "/account/packages", icon: Package },
-    { title: "Expo packages", url: "/account/expo/packages", icon: Package },
-    { title: "Smart Card packages", url: "/account/smart-card/packages", icon: IdCard },
+    { title: "Core platform packages", url: "/account/packages", icon: Package },
+    { title: "Customer feedback packages", url: "/account/feedback/packages", icon: Smile, requiresService: "feedback" },
+    { title: "Expo packages", url: "/account/expo/packages", icon: Ticket, requiresService: "expo" },
+    { title: "Smart Card packages", url: "/account/smart-card/packages", icon: IdCard, requiresService: "smartCard" },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
     { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },
