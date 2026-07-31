@@ -1,9 +1,20 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -22,6 +33,7 @@ type Product = { id: string; name: string; short_description?: string | null; as
 type Category = { id: string; name: string; products: Product[]; assets: Asset[] };
 
 export const Route = createFileRoute("/_app/smart-card/catalogue")({
+  head: () => ({ meta: [{ title: "Manage products — Smart Card QR" }] }),
   component: SmartCardCataloguePage,
 });
 
@@ -39,6 +51,11 @@ function SmartCardCataloguePage() {
   const [uploadKind, setUploadKind] = React.useState("pdf");
   const [uploadName, setUploadName] = React.useState("");
   const [uploading, setUploading] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState<
+    | { kind: "category"; id: string; name: string }
+    | { kind: "product"; id: string; name: string }
+    | null
+  >(null);
 
   const treeQ = useQuery({
     queryKey: ["smart-card", "catalogue"],
@@ -95,6 +112,23 @@ function SmartCardCataloguePage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: async () => {
+      if (!deleteTarget) return;
+      if (deleteTarget.kind === "category") {
+        await apiFetch(`/smart-card/catalogue/categories/${deleteTarget.id}`, { method: "DELETE" });
+      } else {
+        await apiFetch(`/smart-card/catalogue/products/${deleteTarget.id}`, { method: "DELETE" });
+      }
+    },
+    onSuccess: async () => {
+      toast.success(deleteTarget?.kind === "category" ? "Category removed" : "Product removed");
+      setDeleteTarget(null);
+      await qc.invalidateQueries({ queryKey: ["smart-card", "catalogue"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not remove"),
+  });
+
   const onFileSelected = async (file: File | null) => {
     if (!file) return;
     setUploading(true);
@@ -123,8 +157,13 @@ function SmartCardCataloguePage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Smart Card QR"
-        title="Catalogue"
-        description="Categories, products, and PDF links or uploads. Assign products to representatives from the reps page (product_ids)."
+        title="Manage products"
+        description="Add or remove categories and products. Assign them to each representative when you edit a QR code."
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link to="/smart-card">Saved QR codes</Link>
+          </Button>
+        }
       />
 
       {canEdit ? (
@@ -224,31 +263,53 @@ function SmartCardCataloguePage() {
       <div className="space-y-4">
         {cats.map((c) => (
           <Card key={c.id}>
-            <CardHeader className="pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-base">{c.name}</CardTitle>
+              {canEdit ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-destructive hover:text-destructive"
+                  onClick={() => setDeleteTarget({ kind: "category", id: c.id, name: c.name })}
+                >
+                  <Trash2 className="size-3.5" /> Remove category
+                </Button>
+              ) : null}
             </CardHeader>
             <CardContent className="space-y-3">
               {c.products.map((p) => (
-                <div key={p.id} className="rounded-md border p-3">
-                  <p className="font-medium">{p.name}</p>
-                  {p.short_description ? <p className="text-sm text-muted-foreground">{p.short_description}</p> : null}
-                  <ul className="mt-2 space-y-1 text-sm">
-                    {p.assets.map((a) => (
-                      <li key={a.id}>
-                        {a.external_url ? (
-                          <a className="text-sky-600 hover:underline" href={a.external_url} target="_blank" rel="noreferrer">
-                            {a.title}
-                          </a>
-                        ) : a.storage_path ? (
-                          <span>
-                            {a.title} <span className="text-muted-foreground">(uploaded)</span>
-                          </span>
-                        ) : (
-                          a.title
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                <div key={p.id} className="flex items-start justify-between gap-2 rounded-md border p-3">
+                  <div className="min-w-0">
+                    <p className="font-medium">{p.name}</p>
+                    {p.short_description ? <p className="text-sm text-muted-foreground">{p.short_description}</p> : null}
+                    <ul className="mt-2 space-y-1 text-sm">
+                      {p.assets.map((a) => (
+                        <li key={a.id}>
+                          {a.external_url ? (
+                            <a className="text-sky-600 hover:underline" href={a.external_url} target="_blank" rel="noreferrer">
+                              {a.title}
+                            </a>
+                          ) : a.storage_path ? (
+                            <span>
+                              {a.title} <span className="text-muted-foreground">(uploaded)</span>
+                            </span>
+                          ) : (
+                            a.title
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  {canEdit ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 shrink-0 px-2 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTarget({ kind: "product", id: p.id, name: p.name })}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  ) : null}
                 </div>
               ))}
               {!c.products.length ? <p className="text-sm text-muted-foreground">No products</p> : null}
@@ -256,6 +317,34 @@ function SmartCardCataloguePage() {
           </Card>
         ))}
       </div>
+
+      <AlertDialog open={deleteTarget != null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {deleteTarget?.kind === "category" ? "category" : "product"} “{deleteTarget?.name}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.kind === "category"
+                ? "This removes the category and its products from the catalogue."
+                : "This product will no longer be available to assign on QR codes."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMut.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMut.isPending || !deleteTarget}
+              onClick={(e) => {
+                e.preventDefault();
+                deleteMut.mutate();
+              }}
+            >
+              {deleteMut.isPending ? "Removing…" : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

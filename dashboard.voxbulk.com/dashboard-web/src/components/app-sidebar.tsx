@@ -148,6 +148,7 @@ const groups: Group[] = [
   { key: "smartCard", label: "Smart Card QR", visibleKey: "smartCard", items: [
     { title: "Create Smart Card QR", url: "/smart-card/new", icon: IdCard },
     { title: "Saved QR codes", url: "/smart-card", icon: ListChecks },
+    { title: "Manage products", url: "/smart-card/catalogue", icon: Package },
     { title: "Lead results", url: "/smart-card/leads", icon: BarChart3 },
     { title: "Packages & pricing", url: "/account/smart-card/packages", icon: Package },
   ]},

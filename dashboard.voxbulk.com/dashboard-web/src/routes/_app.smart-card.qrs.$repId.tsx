@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Package, Plus } from "lucide-react";
+import { Download, Package } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -60,9 +60,6 @@ function SmartCardEditQrPage() {
   const [fg, setFg] = React.useState("000000");
   const [bg, setBg] = React.useState("ffffff");
   const [transparent, setTransparent] = React.useState(false);
-  const [newCatName, setNewCatName] = React.useState("");
-  const [newProductName, setNewProductName] = React.useState("");
-  const [newProductCat, setNewProductCat] = React.useState("");
 
   const repQ = useQuery({
     queryKey: ["smart-card", "rep", repId],
@@ -108,10 +105,6 @@ function SmartCardEditQrPage() {
     return out;
   }, [categories]);
 
-  React.useEffect(() => {
-    if (!newProductCat && categories[0]?.id) setNewProductCat(categories[0].id);
-  }, [categories, newProductCat]);
-
   const saveMut = useMutation({
     mutationFn: () =>
       apiFetch(`/smart-card/representatives/${repId}`, {
@@ -135,38 +128,6 @@ function SmartCardEditQrPage() {
       await qc.invalidateQueries({ queryKey: ["smart-card"] });
     },
     onError: (e: Error) => toast.error(e.message || "Save failed"),
-  });
-
-  const addCatMut = useMutation({
-    mutationFn: () =>
-      apiFetch<{ ok: boolean; item?: { id: string } }>("/smart-card/catalogue/categories", {
-        method: "POST",
-        body: JSON.stringify({ name: newCatName.trim() }),
-      }),
-    onSuccess: async (res) => {
-      setNewCatName("");
-      const id = res?.item?.id;
-      if (id) setNewProductCat(id);
-      toast.success("Category added");
-      await qc.invalidateQueries({ queryKey: ["smart-card", "catalogue"] });
-    },
-    onError: (e: Error) => toast.error(e.message || "Could not add category"),
-  });
-
-  const addProductMut = useMutation({
-    mutationFn: () =>
-      apiFetch<{ ok: boolean; item?: { id: string } }>("/smart-card/catalogue/products", {
-        method: "POST",
-        body: JSON.stringify({ name: newProductName.trim(), category_id: newProductCat }),
-      }),
-    onSuccess: async (res) => {
-      setNewProductName("");
-      const id = res?.item?.id;
-      if (id) setProductIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-      toast.success("Product added");
-      await qc.invalidateQueries({ queryKey: ["smart-card", "catalogue"] });
-    },
-    onError: (e: Error) => toast.error(e.message || "Could not add product"),
   });
 
   const rep = repQ.data?.item;
@@ -270,64 +231,26 @@ function SmartCardEditQrPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Package className="size-4" /> Catalogue & assign products
+                <Package className="size-4" /> Assign products
               </CardTitle>
-              <CardDescription>Add a category or product, then tick products for this representative.</CardDescription>
+              <CardDescription>
+                Tick products for this representative. Add or remove catalogue items under{" "}
+                <Link to="/smart-card/catalogue" className="text-primary underline">
+                  Manage products
+                </Link>{" "}
+                or reopen Create setup.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {canEdit ? (
-                <div className="grid gap-3 rounded-xl border bg-muted/20 p-3 sm:grid-cols-2">
-                  <div className="flex gap-2">
-                    <Input
-                      value={newCatName}
-                      onChange={(e) => setNewCatName(e.target.value)}
-                      placeholder="New category"
-                    />
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={!newCatName.trim() || addCatMut.isPending}
-                      onClick={() => addCatMut.mutate()}
-                    >
-                      <Plus className="size-4" /> Add
-                    </Button>
-                  </div>
-                  <div className="space-y-2">
-                    <select
-                      className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                      value={newProductCat}
-                      onChange={(e) => setNewProductCat(e.target.value)}
-                    >
-                      <option value="">Category…</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="flex gap-2">
-                      <Input
-                        value={newProductName}
-                        onChange={(e) => setNewProductName(e.target.value)}
-                        placeholder="New product"
-                      />
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={!newProductName.trim() || !newProductCat || addProductMut.isPending}
-                        onClick={() => addProductMut.mutate()}
-                      >
-                        <Plus className="size-4" /> Add
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
               {products.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No catalogue products yet.</p>
+                <p className="text-sm text-muted-foreground">
+                  No catalogue products yet.{" "}
+                  {canEdit ? (
+                    <Link to="/smart-card/catalogue" className="text-primary underline">
+                      Manage products
+                    </Link>
+                  ) : null}
+                </p>
               ) : (
                 <div className="space-y-2">
                   {categories.map((cat) =>

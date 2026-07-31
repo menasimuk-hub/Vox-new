@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
+import { Download, ExternalLink, Package, Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -92,27 +92,27 @@ function SmartCardSavedQrsPage() {
       <PageHeader
         eyebrow="Smart Card QR"
         title="Saved QR codes"
-        description="Your representative QR codes — edit details, products, colours, and download PNGs."
+        description="Your representative QR codes — download, open, edit, or manage the product catalogue."
         actions={
-          <div className="flex flex-wrap gap-2">
-            {canEdit ? (
-              <>
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/smart-card/new">
-                    <Plus className="size-4" /> Create setup
-                  </Link>
-                </Button>
-                <Button asChild size="sm" disabled={seats > 0 && active >= seats}>
-                  <Link to="/smart-card/qrs/new">
-                    <QrCode className="size-4" /> Add QR
-                  </Link>
-                </Button>
-              </>
-            ) : null}
-            <Button asChild variant="outline" size="sm">
-              <Link to="/smart-card/leads">Lead results</Link>
-            </Button>
-          </div>
+          canEdit ? (
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link to="/smart-card/catalogue">
+                  <Package className="size-4" /> Manage products
+                </Link>
+              </Button>
+              <Button asChild size="sm" disabled={seats > 0 && active >= seats}>
+                <Link to="/smart-card/qrs/new">
+                  <QrCode className="size-4" /> Add QR
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/smart-card/new">
+                  <Plus className="size-4" /> Create setup
+                </Link>
+              </Button>
+            </div>
+          ) : null
         }
       />
 
@@ -195,6 +195,23 @@ function SmartCardSavedQrsPage() {
                     {rep.scan_count || 0} scans
                   </p>
                   <div className="mt-2 flex flex-wrap gap-1">
+                    {rep.qr_image_url ? (
+                      <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs">
+                        <a
+                          href={rep.qr_image_url}
+                          download={`smart-card-${(rep.name || "qr").replace(/\s+/g, "-").toLowerCase()}.png`}
+                        >
+                          <Download className="size-3" /> Download
+                        </a>
+                      </Button>
+                    ) : null}
+                    {rep.web_url ? (
+                      <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs">
+                        <a href={rep.web_url} target="_blank" rel="noreferrer">
+                          <ExternalLink className="size-3" /> Open
+                        </a>
+                      </Button>
+                    ) : null}
                     <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs">
                       <Link to="/smart-card/qrs/$repId" params={{ repId: rep.id }}>
                         <Pencil className="size-3" /> Edit
