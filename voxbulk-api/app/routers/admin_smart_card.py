@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.admin_rbac import CAP_INTEGRATION, require_cap
 from app.core.database import get_db
 from app.models.smart_card import (
+    SMART_CARD_SERVICE_CODE,
     SmartCardCompany,
     SmartCardIndustry,
     SmartCardLead,
@@ -40,16 +41,67 @@ def seed(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATI
 
 @router.get("/overview")
 def overview(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    from app.models.subscription import Subscription
+
     companies = int(db.execute(select(func.count()).select_from(SmartCardCompany)).scalar() or 0)
     reps = int(db.execute(select(func.count()).select_from(SmartCardRepresentative)).scalar() or 0)
     leads = int(db.execute(select(func.count()).select_from(SmartCardLead)).scalar() or 0)
     sessions = int(db.execute(select(func.count()).select_from(SmartCardSession)).scalar() or 0)
+    scans = int(
+        db.execute(select(func.coalesce(func.sum(SmartCardRepresentative.scan_count), 0))).scalar() or 0
+    )
+    hot = int(
+        db.execute(
+            select(func.count())
+            .select_from(SmartCardLead)
+            .where(SmartCardLead.lead_score == "hot")
+        ).scalar()
+        or 0
+    )
+    completed = int(
+        db.execute(
+            select(func.count())
+            .select_from(SmartCardSession)
+            .where(SmartCardSession.status == "completed")
+        ).scalar()
+        or 0
+    )
+    now = datetime.utcnow()
+    subs = (
+        db.execute(
+            select(Subscription)
+            .where(Subscription.service_code == SMART_CARD_SERVICE_CODE)
+            .order_by(Subscription.created_at.desc())
+            .limit(100)
+        )
+        .scalars()
+        .all()
+    )
+    subscription_items = []
+    for sub in subs:
+        end = sub.current_period_end
+        expired = bool(end and end < now and str(sub.status or "").lower() not in {"past_due"})
+        subscription_items.append(
+            {
+                "id": sub.id,
+                "org_id": sub.org_id,
+                "status": sub.status,
+                "seat_quantity": int(sub.seat_quantity or 0),
+                "period_end": end.isoformat() if end else None,
+                "expired": expired,
+                "created_at": sub.created_at.isoformat() if sub.created_at else None,
+            }
+        )
     return {
         "ok": True,
         "companies": companies,
         "representatives": reps,
         "leads": leads,
         "sessions": sessions,
+        "scans": scans,
+        "hot_leads": hot,
+        "sessions_completed": completed,
+        "subscriptions": subscription_items,
     }
 
 

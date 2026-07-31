@@ -22,7 +22,10 @@ const GROUP_ACTIONS = {
     { label: 'Feedback hub', to: '/customer-feedback/overview' },
   ],
   expo: [{ label: 'Edit Expo pricing', to: '/pricing/packages?service=expo' }],
-  smart_card: [{ label: 'Edit Smart Card pricing', to: '/pricing/packages?service=smart_card' }],
+  smart_card: [
+    { label: 'Edit Smart Card pricing', to: '/pricing/packages?service=smart_card' },
+    { label: 'Smart Card insights', to: '/operations/smart-card-insights' },
+  ],
   campaign: [{ label: 'Campaign pricing', to: '/pricing/services' }],
 }
 

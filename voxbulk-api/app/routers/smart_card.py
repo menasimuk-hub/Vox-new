@@ -89,6 +89,7 @@ def list_questions(db: Session = Depends(get_db), principal=Depends(get_current_
         "items": [
             {
                 "question_key": r.question_key,
+                "key": r.question_key,
                 "label": r.label,
                 "prompt": r.prompt,
                 "description": r.description,
@@ -98,6 +99,89 @@ def list_questions(db: Session = Depends(get_db), principal=Depends(get_current_
             for r in rows
         ],
     }
+
+
+@router.get("/catalog/questions")
+def catalog_questions(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Selectable question bank for the setup wizard (Expo-style)."""
+    _require_smart_card_enabled(db, principal.org_id)
+    from app.services.smart_card.seed_service import SmartCardSeedService
+
+    SmartCardSeedService._ensure_question_templates(db)
+    db.commit()
+    rows = (
+        db.execute(
+            select(SmartCardQuestionTemplate)
+            .where(
+                SmartCardQuestionTemplate.is_active.is_(True),
+                SmartCardQuestionTemplate.kind == "selectable",
+            )
+            .order_by(SmartCardQuestionTemplate.sort_order.asc())
+        )
+        .scalars()
+        .all()
+    )
+    return {
+        "ok": True,
+        "items": [
+            {
+                "key": r.question_key,
+                "question_key": r.question_key,
+                "label": r.label,
+                "prompt": r.prompt,
+                "description": r.description or "",
+                "matches_products": r.question_key
+                in {"interest", "products_wanted", "need_price_list", "need_catalogue"},
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/setup/preview-draft")
+def setup_preview_draft(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Wizard Preview — persist company, questions, optional catalogue, first rep + QR."""
+    _require_smart_card_enabled(db, principal.org_id)
+    _require_manage(db, principal)
+    from app.services.smart_card.setup_service import SmartCardSetupError, SmartCardSetupService
+
+    try:
+        result = SmartCardSetupService.preview_draft(
+            db, org_id=principal.org_id, user_id=principal.user_id, payload=payload or {}
+        )
+        db.commit()
+        return {"ok": True, **result}
+    except SmartCardSetupError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/setup/activate")
+def setup_activate(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Start seat checkout after wizard (plan_id + seat_quantity). Reuses billing checkout."""
+    _require_smart_card_enabled(db, principal.org_id)
+    _require_manage(db, principal)
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    try:
+        from app.models.user import User
+
+        user = db.get(User, principal.user_id)
+        checkout = SmartCardBillingService.start_seat_checkout(
+            db,
+            org=org,
+            plan_id=str((payload or {}).get("plan_id") or "").strip(),
+            seat_quantity=int((payload or {}).get("seat_quantity") or 0),
+            user_email=str(getattr(user, "email", "") or ""),
+        )
+        db.commit()
+        return {"ok": True, **checkout}
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="Invalid seat_quantity or plan_id") from e
 
 
 @router.get("/packages")

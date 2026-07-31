@@ -85,6 +85,9 @@ import { Route as AppSmartCardLeadsRouteImport } from './routes/_app.smart-card.
 import { Route as AppSmartCardDescriptionsRouteImport } from './routes/_app.smart-card.descriptions'
 import { Route as AppSmartCardQuestionsRouteImport } from './routes/_app.smart-card.questions'
 import { Route as AppSmartCardChangeRequestsRouteImport } from './routes/_app.smart-card.change-requests'
+import { Route as AppSmartCardNewRouteImport } from './routes/_app.smart-card.new'
+import { Route as AppSmartCardQrsNewRouteImport } from './routes/_app.smart-card.qrs.new'
+import { Route as AppSmartCardQrsRepIdRouteImport } from './routes/_app.smart-card.qrs.$repId'
 import { Route as AppAccountSmartCardPackagesRouteImport } from './routes/_app.account.smart-card.packages'
 
 const LoginRoute = LoginRouteImport.update({
@@ -475,6 +478,21 @@ const AppSmartCardChangeRequestsRoute = AppSmartCardChangeRequestsRouteImport.up
   path: '/change-requests',
   getParentRoute: () => AppSmartCardRoute,
 } as any)
+const AppSmartCardNewRoute = AppSmartCardNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardQrsNewRoute = AppSmartCardQrsNewRouteImport.update({
+  id: '/qrs/new',
+  path: '/qrs/new',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardQrsRepIdRoute = AppSmartCardQrsRepIdRouteImport.update({
+  id: '/qrs/$repId',
+  path: '/qrs/$repId',
+  getParentRoute: () => AppSmartCardRoute,
+} as any)
 const AppAccountSmartCardPackagesRoute = AppAccountSmartCardPackagesRouteImport.update({
   id: '/account/smart-card/packages',
   path: '/account/smart-card/packages',
@@ -549,6 +567,9 @@ export interface FileRoutesByFullPath {
   '/smart-card/leads': typeof AppSmartCardLeadsRoute
   '/smart-card/questions': typeof AppSmartCardQuestionsRoute
   '/smart-card/representatives': typeof AppSmartCardRepresentativesRoute
+  '/smart-card/new': typeof AppSmartCardNewRoute
+  '/smart-card/qrs/new': typeof AppSmartCardQrsNewRoute
+  '/smart-card/qrs/$repId': typeof AppSmartCardQrsRepIdRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
   '/account/support/tickets': typeof AppAccountSupportTicketsRoute
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
@@ -1509,6 +1530,9 @@ interface AppSmartCardRouteChildren {
   AppSmartCardDescriptionsRoute: typeof AppSmartCardDescriptionsRoute
   AppSmartCardQuestionsRoute: typeof AppSmartCardQuestionsRoute
   AppSmartCardChangeRequestsRoute: typeof AppSmartCardChangeRequestsRoute
+  AppSmartCardNewRoute: typeof AppSmartCardNewRoute
+  AppSmartCardQrsNewRoute: typeof AppSmartCardQrsNewRoute
+  AppSmartCardQrsRepIdRoute: typeof AppSmartCardQrsRepIdRoute
 }
 
 const AppSmartCardRouteChildren: AppSmartCardRouteChildren = {
@@ -1520,6 +1544,9 @@ const AppSmartCardRouteChildren: AppSmartCardRouteChildren = {
   AppSmartCardDescriptionsRoute: AppSmartCardDescriptionsRoute,
   AppSmartCardQuestionsRoute: AppSmartCardQuestionsRoute,
   AppSmartCardChangeRequestsRoute: AppSmartCardChangeRequestsRoute,
+  AppSmartCardNewRoute: AppSmartCardNewRoute,
+  AppSmartCardQrsNewRoute: AppSmartCardQrsNewRoute,
+  AppSmartCardQrsRepIdRoute: AppSmartCardQrsRepIdRoute,
 }
 
 const AppSmartCardRouteWithChildren = AppSmartCardRoute._addFileChildren(

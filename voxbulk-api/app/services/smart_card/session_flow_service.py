@@ -75,6 +75,29 @@ class SmartCardSessionFlowService:
         return {r.question_key: r.prompt for r in rows}
 
     @staticmethod
+    def _contact_capture(company: SmartCardCompany) -> str:
+        cfg = None
+        if company.question_config_json:
+            try:
+                cfg = json.loads(company.question_config_json)
+            except Exception:
+                cfg = None
+        if isinstance(cfg, dict):
+            mode = str(cfg.get("contact_capture") or "offer_both").strip().lower()
+            if mode in {"offer_both", "manual_only", "card_only"}:
+                return mode
+        return "offer_both"
+
+    @staticmethod
+    def _contact_step_key(company: SmartCardCompany) -> str:
+        mode = SmartCardSessionFlowService._contact_capture(company)
+        if mode == "card_only":
+            return "contact_card_only"
+        if mode == "manual_only":
+            return "contact_manual"
+        return "contact"
+
+    @staticmethod
     def _steps_for_company(company: SmartCardCompany) -> list[str]:
         cfg = None
         if company.question_config_json:
@@ -82,13 +105,28 @@ class SmartCardSessionFlowService:
                 cfg = json.loads(company.question_config_json)
             except Exception:
                 cfg = None
+        contact_key = SmartCardSessionFlowService._contact_step_key(company)
+        system_skip = {
+            "contact",
+            "contact_web",
+            "contact_card_only",
+            "contact_manual",
+            "contact_company",
+            "contact_mobile",
+            "contact_confirm",
+            "thank_you",
+            "company_card",
+            "post_complete_handoff",
+        }
         if isinstance(cfg, dict) and isinstance(cfg.get("selected_keys"), list) and cfg["selected_keys"]:
-            keys = [str(k) for k in cfg["selected_keys"] if str(k).strip()]
-            # Always start with contact
-            if "contact" not in keys:
-                keys = ["contact", *keys]
-            return keys
-        return list(DEFAULT_STEPS)
+            keys = [
+                str(k)
+                for k in cfg["selected_keys"]
+                if str(k).strip() and str(k).strip() not in system_skip
+            ]
+            # Always start with contact (mode-aware)
+            return [contact_key, *keys]
+        return [contact_key, *[k for k in DEFAULT_STEPS if k != "contact"]]
 
     @staticmethod
     def start_session(
@@ -144,12 +182,15 @@ class SmartCardSessionFlowService:
         db.flush()
 
         prompts = SmartCardSessionFlowService._prompts(db)
+        first = steps[0] if steps else "contact"
+        prompt = prompts.get(first) or prompts.get("contact") or "Please continue."
         return {
             "ok": True,
             "session_id": session.id,
             "is_preview": is_preview,
+            "contact_capture": SmartCardSessionFlowService._contact_capture(company),
             "step": session.current_step,
-            "prompt": prompts.get(session.current_step or "", "Please continue."),
+            "prompt": prompt,
             "steps": steps,
         }
 
@@ -176,7 +217,7 @@ class SmartCardSessionFlowService:
         step = steps[idx] if 0 <= idx < len(steps) else None
         text = str(answer or "").strip()
 
-        if step == "contact":
+        if step in {"contact", "contact_card_only", "contact_manual", "contact_web"}:
             # Accept "Name | Company | email | phone" or plain name
             parts = [p.strip() for p in text.replace("\n", "|").split("|") if p.strip()]
             if parts:

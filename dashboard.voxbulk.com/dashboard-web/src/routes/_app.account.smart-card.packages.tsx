@@ -102,10 +102,61 @@ function SmartCardPackagesPage() {
               Status: <span className="font-medium capitalize">{entQ.data.mode.replace(/_/g, " ")}</span>
             </p>
             <p>Seats purchased: {entQ.data.seat_quantity}</p>
-            <p>Period end: {entQ.data.period_end ? new Date(entQ.data.period_end).toLocaleDateString() : "—"}</p>
+            <p>
+              Expires:{" "}
+              <span className="font-medium">
+                {entQ.data.period_end ? new Date(entQ.data.period_end).toLocaleDateString() : "—"}
+              </span>
+            </p>
           </CardContent>
         </Card>
       ) : null}
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Pricing table</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b bg-muted/40">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Plan</th>
+                  <th className="px-3 py-2 font-medium">USD / seat / year</th>
+                  <th className="px-3 py-2 font-medium">USD / seat / month</th>
+                  <th className="px-3 py-2 font-medium">GBP / seat / year</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(packagesQ.data?.items || []).map((pkg) => {
+                  const usd = pkg.prices.find((p) => p.currency === "USD");
+                  const gbp = pkg.prices.find((p) => p.currency === "GBP");
+                  return (
+                    <tr key={pkg.id} className="border-b last:border-0">
+                      <td className="px-3 py-2">{pkg.name}</td>
+                      <td className="px-3 py-2">
+                        {usd?.yearly_price_minor != null
+                          ? `$${(usd.yearly_price_minor / 100).toFixed(0)}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {usd?.monthly_price_minor != null
+                          ? `$${(usd.monthly_price_minor / 100).toFixed(0)}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {gbp?.yearly_price_minor != null
+                          ? `£${(gbp.yearly_price_minor / 100).toFixed(0)}`
+                          : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-3 md:grid-cols-2">
         {(packagesQ.data?.items || []).map((pkg) => {

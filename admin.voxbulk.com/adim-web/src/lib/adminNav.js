@@ -92,6 +92,10 @@ export const NAV = [
     ],
   ],
   [
+    'Smart Card QR',
+    [['Smart Card insights', '/operations/smart-card-insights']],
+  ],
+  [
     'Appointment Manager',
     [['Running appointments', '/operations/running-appointments']],
   ],

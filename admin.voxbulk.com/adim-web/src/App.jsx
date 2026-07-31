@@ -64,6 +64,7 @@ export default function App() {
         <Route path='/operations/custom-org' element={<P.CustomOrg />} />
         <Route path='/operations/running-surveys' element={<P.RunningSurveys />} />
         <Route path='/operations/wa-survey-insights' element={<P.WaSurveyInsights />} />
+        <Route path='/operations/smart-card-insights' element={<P.SmartCardInsights />} />
         <Route path='/operations/running-interviews' element={<P.RunningInterviews />} />
         <Route path='/operations/running-appointments' element={<P.RunningAppointments />} />
         <Route path='/operations/orders/:orderId' element={<P.ServiceOrderDetail />} />

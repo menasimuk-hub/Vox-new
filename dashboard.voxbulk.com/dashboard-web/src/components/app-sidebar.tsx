@@ -146,14 +146,9 @@ const groups: Group[] = [
     { title: "Packages & pricing", url: "/account/expo/packages", icon: Package },
   ]},
   { key: "smartCard", label: "Smart Card QR", visibleKey: "smartCard", items: [
-    { title: "Dashboard", url: "/smart-card", icon: LayoutDashboard },
-    { title: "Company", url: "/smart-card/company", icon: Briefcase },
-    { title: "Descriptions", url: "/smart-card/descriptions", icon: FilePlus2 },
-    { title: "Catalogue", url: "/smart-card/catalogue", icon: Package },
-    { title: "Representatives", url: "/smart-card/representatives", icon: Users },
-    { title: "Questions", url: "/smart-card/questions", icon: ListChecks },
-    { title: "Leads", url: "/smart-card/leads", icon: BarChart3 },
-    { title: "Change requests", url: "/smart-card/change-requests", icon: Megaphone },
+    { title: "Create Smart Card QR", url: "/smart-card/new", icon: IdCard },
+    { title: "Saved QR codes", url: "/smart-card", icon: ListChecks },
+    { title: "Lead results", url: "/smart-card/leads", icon: BarChart3 },
     { title: "Packages & pricing", url: "/account/smart-card/packages", icon: Package },
   ]},
   { key: "campaigns", label: "Campaigns", items: [

@@ -29,6 +29,15 @@ Independent VoxBulk service for representative digital cards (QR → WhatsApp / 
 - WhatsApp: Telnyx inbound (token/session); voice notes transcribed; hot-lead WA to rep mobile  
 - Mail: From `smartqr@voxbulk.com`; IMAP sync → support tickets (`category=smart_card`)
 
+## Customer wizard
+
+- Sidebar: **Create Smart Card QR** · **Saved QR codes** · **Lead results** · **Packages & pricing**
+- Setup wizard (`/smart-card/new`): company profile (editable) + first salesman → optional products → required questions (scan/fill + bank) → optional offer → preview QR → seat pricing table + quantity → activate
+- Add QR (`/smart-card/qrs/new`): representative-only wizard with product assign
+- Edit QR: colours, PNG download, product assign
+- Seed: Admin seed copies full Expo question bank into Smart Card templates (insert-missing)
+- Ops: `/operations/smart-card-insights` — scans, leads, seat `period_end`
+
 ## Catalogue
 
 - Categories / products / PDFs via URL **or file upload** (`POST /smart-card/catalogue/assets/upload`)

@@ -45,6 +45,7 @@ export const WaSurveyIndustryEdit = lazy(() => import('../pages/WaSurveyIndustry
 export const WaSurveyFlowSimulator = lazy(() => import('../pages/WaSurveyFlowSimulator'))
 export const WaSurveyFlows = lazy(() => import('../pages/WaSurveyFlows'))
 export const WaSurveyInsights = lazy(() => import('../pages/WaSurveyInsights'))
+export const SmartCardInsights = lazy(() => import('../pages/SmartCardInsights'))
 export const EmailTemplateEdit = lazy(() => import('../pages/EmailTemplateEdit'))
 export const WhatsAppTemplateEdit = lazy(() => import('../pages/WhatsAppTemplateEdit'))
 export const SmsTemplateEdit = lazy(() => import('../pages/SmsTemplateEdit'))
