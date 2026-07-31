@@ -4,7 +4,7 @@ import { Check, Clock, FileText, MessageCircle, Phone, Wallet, Smile, Megaphone,
 import { toast } from "sonner";
 
 import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
-import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
+import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
 import { SERVICE_TINTS, ServicePackageShell } from "@/components/billing/service-package-shell";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -263,6 +263,11 @@ function PackagesPage() {
   const [enterpriseScreenings, setEnterpriseScreenings] = React.useState("");
   const [enterpriseWaSurveys, setEnterpriseWaSurveys] = React.useState("");
   const [enterpriseNotes, setEnterpriseNotes] = React.useState("");
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
+  const [checkoutPlan, setCheckoutPlan] = React.useState<PlanRow | null>(null);
+  const [checkoutKind, setCheckoutKind] = React.useState<"core" | "feedback">("core");
+  const [checkoutFeedbackPkg, setCheckoutFeedbackPkg] = React.useState<FeedbackPackage | null>(null);
 
   const data = pricingQ.data;
   const market = String(data?.org_market || data?.market || "gbp");
@@ -280,17 +285,36 @@ function PackagesPage() {
   const corePaymentProvider = String(subscription?.subscription?.payment_provider || "").toLowerCase();
   const hasActiveCoreGcSub =
     (coreSubStatus === "active" || coreSubStatus === "trial") && corePaymentProvider === "gocardless";
-  const hasActiveCorePlan =
-    Boolean(currentCorePlanId) &&
-    (coreSubStatus === "active" ||
-      coreSubStatus === "trial" ||
-      coreSubStatus === "pending_first_payment" ||
-      (currentPlan ? isPaygPlan(currentPlan as PlanRow) : false));
-  const effectiveCorePlanId = hasActiveCorePlan ? currentCorePlanId : null;
-  const effectiveCurrentPlan = hasActiveCorePlan ? currentPlan : null;
-  const staleCorePlanOnSession = Boolean(currentCorePlanId && !hasActiveCorePlan);
-  const settings = (data?.settings || {}) as Record<string, unknown>;
   const plans = sortedPlans((data?.plans || []) as PlanRow[]);
+  const coreFinanceSummary = (subsSummaryQ.data?.core || null) as {
+    plan_name?: string | null;
+    plan_code?: string | null;
+    status?: string | null;
+    is_payg?: boolean;
+  } | null;
+  const summaryCorePlan =
+    coreFinanceSummary?.plan_code || coreFinanceSummary?.plan_name
+      ? plans.find(
+          (p) =>
+            String(p.code || "").toLowerCase() === String(coreFinanceSummary.plan_code || "").toLowerCase() ||
+            String(p.name || "").toLowerCase() === String(coreFinanceSummary.plan_name || "").toLowerCase(),
+        ) || null
+      : null;
+  const hasActiveCorePlan = Boolean(
+    coreFinanceSummary?.is_payg ||
+      ((coreFinanceSummary?.plan_name || coreFinanceSummary?.plan_code) &&
+        !["cancelled", "canceled", "inactive", "expired"].includes(
+          String(coreFinanceSummary?.status || "").toLowerCase(),
+        )),
+  );
+  const effectiveCorePlanId = hasActiveCorePlan
+    ? String(summaryCorePlan?.id || currentCorePlanId || "") || null
+    : null;
+  const effectiveCurrentPlan = hasActiveCorePlan
+    ? ((summaryCorePlan as PlanLike | null) || (coreFinanceSummary?.is_payg ? currentPlan : null))
+    : null;
+  const staleCorePlanOnSession = Boolean(currentCorePlanId && !hasActiveCorePlan && !coreFinanceSummary);
+  const settings = (data?.settings || {}) as Record<string, unknown>;
   const services = (data?.services || {}) as Record<string, unknown>;
   const tiers = (data?.topup_tiers || []) as Array<Record<string, unknown>>;
   const estimatorDefaults = (data?.estimator_defaults || {}) as Record<string, number>;
@@ -330,8 +354,23 @@ function PackagesPage() {
       qc.invalidateQueries({ queryKey: queryKeys.billingWallet }),
       qc.invalidateQueries({ queryKey: queryKeys.billingAccess }),
       qc.invalidateQueries({ queryKey: queryKeys.billingUsage }),
+      qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
     ]);
   }, [qc, refetchSession]);
+
+  const runCoreCheckout = async (plan: PlanRow) => {
+    setBusyPlanId(String(plan.id));
+    try {
+      if (primaryProvider === "gocardless") {
+        await startGoCardlessSubscription(String(plan.id), coreBillingInterval);
+      } else {
+        await startCardSubscription(String(plan.id), coreBillingInterval);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start checkout");
+      setBusyPlanId(null);
+    }
+  };
 
   const onSubscribe = async (plan: PlanRow) => {
     if (plan.is_enterprise) return;
@@ -358,9 +397,9 @@ function PackagesPage() {
       );
       return;
     }
-    setBusyPlanId(String(plan.id));
-    try {
-      if (hasActiveCoreGcSub) {
+    if (hasActiveCoreGcSub) {
+      setBusyPlanId(String(plan.id));
+      try {
         const result = await changeCorePlan(String(plan.id), coreBillingInterval);
         const planName = String(result.plan?.name || plan.name || "plan");
         toast.success(
@@ -368,17 +407,26 @@ function PackagesPage() {
         );
         setBusyPlanId(null);
         await invalidateBilling();
-        return;
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not change plan");
+        setBusyPlanId(null);
       }
-      if (primaryProvider === "gocardless") {
-        await startGoCardlessSubscription(String(plan.id), coreBillingInterval);
-      } else {
-        await startCardSubscription(String(plan.id), coreBillingInterval);
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not start checkout");
-      setBusyPlanId(null);
+      return;
     }
+    setCheckoutPlan(plan);
+    setCheckoutKind("core");
+    setCheckoutFeedbackPkg(null);
+    setCheckoutDetails({
+      planName: String(plan.name || "Core plan"),
+      intervalLabel: coreBillingInterval === "yearly" ? "Yearly billing" : "Monthly billing",
+      amountDisplay: formatCorePlanPrice(plan, sym(data), coreBillingInterval === "yearly"),
+      amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+      providerHint:
+        primaryProvider === "gocardless"
+          ? "You will continue to GoCardless Direct Debit."
+          : "You will continue to secure card payment.",
+    });
+    setCheckoutOpen(true);
   };
 
   const openEnterpriseContact = () => {
@@ -443,9 +491,9 @@ function PackagesPage() {
 
   const onFeedbackSubscribe = async (pkg: FeedbackPackage) => {
     if (!pkg.plan_id || currentFeedbackPlanId === pkg.plan_id) return;
-    setBusyFeedbackPlanId(pkg.plan_id);
-    try {
-      if (feedbackSub?.active) {
+    if (feedbackSub?.active) {
+      setBusyFeedbackPlanId(pkg.plan_id);
+      try {
         const result = await changeFeedbackPlan(pkg.plan_id, feedbackBillingInterval);
         const planName = pkg.plan_name || pkg.plan_code || "plan";
         toast.success(planChangeToast(result.direction, planName));
@@ -453,14 +501,25 @@ function PackagesPage() {
         await Promise.all([
           qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
           qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+          qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
         ]);
-        return;
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not update feedback plan");
+        setBusyFeedbackPlanId(null);
       }
-      await startFeedbackGoCardlessSubscription(pkg.plan_id, feedbackBillingInterval);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update feedback plan");
-      setBusyFeedbackPlanId(null);
+      return;
     }
+    setCheckoutKind("feedback");
+    setCheckoutPlan(null);
+    setCheckoutFeedbackPkg(pkg);
+    setCheckoutDetails({
+      planName: pkg.plan_name || pkg.plan_code || "Customer feedback",
+      intervalLabel: feedbackBillingInterval === "yearly" ? "Yearly billing" : "Monthly billing",
+      amountDisplay: formatFeedbackPrice(pkg),
+      amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+      providerHint: "You will continue to GoCardless Direct Debit.",
+    });
+    setCheckoutOpen(true);
   };
 
   const campaignPackPrice = (sends: number) => {
@@ -624,9 +683,6 @@ function PackagesPage() {
         <div className="mb-6 flex justify-center">
           <BillingIntervalToggle value={coreBillingInterval} onChange={setCoreBillingInterval} centered />
         </div>
-        <div className="mb-4 max-w-md">
-          <PromoCodeRedeem serviceHint="Core platform" />
-        </div>
         <div className="mb-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
         </div>
@@ -672,9 +728,8 @@ function PackagesPage() {
                   >
                     <CardHeader className="pb-2 pt-5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline" className="w-fit border-primary/40 text-primary">Core platform</Badge>
                         {isCurrent ? (
-                          <Badge className="bg-primary text-primary-foreground hover:bg-primary">Current plan</Badge>
+                          <Badge className="bg-sky-600 text-white hover:bg-sky-600">Current plan</Badge>
                         ) : null}
                         {isCurrent && hasPendingPlanChange ? (
                           <Badge variant="secondary">
@@ -847,8 +902,8 @@ function PackagesPage() {
                         </p>
                       ) : (
                         <>
-                          <div className="mb-3 flex justify-end">
-                            <BillingIntervalToggle value={feedbackBillingInterval} onChange={setFeedbackBillingInterval} />
+                          <div className="mb-3 flex justify-center">
+                            <BillingIntervalToggle value={feedbackBillingInterval} onChange={setFeedbackBillingInterval} centered />
                           </div>
                           <div className="grid gap-3 md:grid-cols-3">
                           {feedbackPackages.map((pkg) => {
@@ -869,8 +924,10 @@ function PackagesPage() {
                                 className={`${featured ? "border-success shadow-md" : ""} ${fbHighlighted ? "ring-2 ring-amber-400 shadow-md" : ""}`}
                               >
                                 <CardHeader className="pb-2">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <Badge variant="outline" className="border-success/40 text-success">Customer Feedback</Badge>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {isCurrent ? (
+                                      <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Current plan</Badge>
+                                    ) : null}
                                     {featured ? <Badge className="bg-success text-success-foreground hover:bg-success">Best value</Badge> : null}
                                   </div>
                                   <CardTitle className="text-base pt-1">{pkg.plan_name || pkg.plan_code || "Feedback plan"}</CardTitle>
@@ -973,6 +1030,44 @@ function PackagesPage() {
           );
         })}
       </Tabs>
+
+      <CheckoutConfirmDialog
+        open={checkoutOpen}
+        onOpenChange={(open) => {
+          setCheckoutOpen(open);
+          if (!open) {
+            setCheckoutPlan(null);
+            setCheckoutFeedbackPkg(null);
+            setCheckoutDetails(null);
+          }
+        }}
+        details={checkoutDetails}
+        serviceHint={checkoutKind === "feedback" ? "Customer Feedback" : "Core platform"}
+        tintClass={checkoutKind === "feedback" ? SERVICE_TINTS.feedback.soft : SERVICE_TINTS.core.soft}
+        confirmLabel={
+          checkoutKind === "feedback" || primaryProvider === "gocardless"
+            ? "Continue to Direct Debit"
+            : "Pay with card"
+        }
+        loading={Boolean(busyPlanId) || Boolean(busyFeedbackPlanId)}
+        onConfirm={async () => {
+          if (checkoutKind === "feedback") {
+            if (!checkoutFeedbackPkg?.plan_id) return;
+            setCheckoutOpen(false);
+            setBusyFeedbackPlanId(checkoutFeedbackPkg.plan_id);
+            try {
+              await startFeedbackGoCardlessSubscription(checkoutFeedbackPkg.plan_id, feedbackBillingInterval);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Could not update feedback plan");
+              setBusyFeedbackPlanId(null);
+            }
+            return;
+          }
+          if (!checkoutPlan) return;
+          setCheckoutOpen(false);
+          await runCoreCheckout(checkoutPlan);
+        }}
+      />
 
       <Dialog open={enterpriseOpen} onOpenChange={setEnterpriseOpen}>
         <DialogContent className="sm:max-w-md">

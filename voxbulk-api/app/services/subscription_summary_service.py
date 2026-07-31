@@ -35,6 +35,31 @@ class SubscriptionSummaryService:
         if org is None:
             return None
         sub = BillingAccessService.get_valid_core_subscription(db, org_id)
+        if sub is not None:
+            status = str(sub.status or "").lower()
+            if status in {"cancelled", "canceled", "inactive", "expired"}:
+                sub = None
+            else:
+                plan = db.get(Plan, sub.plan_id) if sub.plan_id else None
+                code = str(getattr(plan, "code", "") or "").lower()
+                is_payg = code == "payg" or bool(getattr(plan, "is_payg", False))
+                if is_payg:
+                    return {
+                        "plan_name": (plan.name if plan else None) or "Pay as you go",
+                        "plan_code": plan.code if plan else "payg",
+                        "status": status or "active",
+                        "billing_interval": None,
+                        "next_billing_date": None,
+                        "amount_next_payment_display": "Pay as you go",
+                        "amount_next_payment_minor": 0,
+                        "current_period_end": None,
+                        "cancel_at_period_end": False,
+                        "is_payg": True,
+                        "service_code": "voxbulk",
+                    }
+                if status not in {"active", "trial", "past_due", "pending_first_payment"}:
+                    sub = None
+
         finance = SubscriptionSummaryService._finance_for_sub(db, sub, org=org)
         if finance is None:
             # PAYG / linked plan without a paid subscription row — still surface plan name.

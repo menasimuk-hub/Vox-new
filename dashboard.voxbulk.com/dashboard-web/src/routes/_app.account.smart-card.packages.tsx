@@ -5,7 +5,7 @@ import * as React from "react";
 import { toast } from "sonner";
 
 import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
-import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
+import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
 import { SERVICE_TINTS, ServicePackageShell } from "@/components/billing/service-package-shell";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -59,11 +59,6 @@ function symbolForCurrency(code: string) {
   return marketCurrencySymbol(CURRENCY_TO_MARKET[String(code || "").toUpperCase()] || "usd");
 }
 
-function formatMinor(amountMinor: number | null, currency: string) {
-  if (amountMinor == null) return "—";
-  return `${symbolForCurrency(currency)}${(amountMinor / 100).toFixed(0)}`;
-}
-
 export const Route = createFileRoute("/_app/account/smart-card/packages")({
   component: SmartCardPackagesPage,
   validateSearch: (search: Record<string, unknown>) => ({
@@ -85,6 +80,11 @@ function SmartCardPackagesPage() {
   const subsSummaryQ = useBillingSubscriptionsSummary();
   const [seatsByPlan, setSeatsByPlan] = React.useState<Record<string, number>>({});
   const [billingInterval, setBillingInterval] = React.useState<BillingInterval>("monthly");
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
+  const [pendingCheckout, setPendingCheckout] = React.useState<{ planId: string; seats: number; name: string } | null>(
+    null,
+  );
   const completingRef = React.useRef(false);
 
   const orgCountry = orgQ.data?.country;
@@ -178,7 +178,7 @@ function SmartCardPackagesPage() {
   const tint = SERVICE_TINTS.smartCard;
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 pb-16">
       <PageHeader
         eyebrow="Smart Card QR"
         title="Packages & pricing"
@@ -205,7 +205,8 @@ function SmartCardPackagesPage() {
           tintClass={tint.soft}
         />
 
-        <div className="flex justify-center">
+        <div className="mb-2 flex flex-col items-center gap-2">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Billing period</p>
           <div className="flex rounded-full border border-violet-300/60 bg-background p-1 text-xs shadow-sm">
             <button
               type="button"
@@ -227,47 +228,7 @@ function SmartCardPackagesPage() {
           </div>
         </div>
 
-        <Card className="border-violet-200/60 bg-background/70">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Pricing table</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto rounded-xl border">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b bg-muted/40">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Plan</th>
-                    <th className="px-3 py-2 font-medium">{currencyCode} / seat / month</th>
-                    <th className="px-3 py-2 font-medium">{currencyCode} / seat / year</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(packagesQ.data?.items || []).map((pkg) => {
-                    const yearly = pickPriceMinor(pkg.prices, currencyCode, { yearly: true });
-                    const monthly = pickPriceMinor(pkg.prices, currencyCode, { yearly: false });
-                    return (
-                      <tr key={pkg.id} className="border-b last:border-0">
-                        <td className="px-3 py-2">{pkg.name}</td>
-                        <td className="px-3 py-2">{formatMinor(monthly.amountMinor, monthly.currency)}</td>
-                        <td className="px-3 py-2">{formatMinor(yearly.amountMinor, yearly.currency)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Currency follows your organisation country
-              {orgCountry ? ` (${orgCountry})` : ""}. Change it in{" "}
-              <Link to="/settings/profile" className="text-primary underline-offset-4 hover:underline">
-                Settings → Profile
-              </Link>
-              .
-            </p>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(packagesQ.data?.items || []).map((pkg) => {
             const price = pickPriceMinor(pkg.prices, currencyCode, { yearly: billingInterval === "yearly" });
             const seats = seatsByPlan[pkg.plan_id] ?? 1;
@@ -275,17 +236,17 @@ function SmartCardPackagesPage() {
             const total = unit != null ? (unit * seats) / 100 : null;
             const sym = unit != null ? symbolForCurrency(price.currency) : currencySym;
             return (
-              <Card key={pkg.id} className="border-violet-200/50 bg-background/80">
+              <Card key={pkg.id} className="flex flex-col border-violet-200/50 bg-background/80">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">{pkg.name}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm text-muted-foreground">
-                  <p>{pkg.description}</p>
                   <p className="font-medium text-foreground">
                     {unit != null
                       ? `${sym}${(unit / 100).toFixed(0)} / seat / ${billingInterval === "yearly" ? "year" : "month"}`
                       : "See Admin pricing"}
                   </p>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col space-y-3 text-sm text-muted-foreground">
+                  <p>{pkg.description}</p>
                   <div className="space-y-1.5">
                     <Label>Seats</Label>
                     <Input
@@ -307,18 +268,31 @@ function SmartCardPackagesPage() {
                       {total.toFixed(0)}
                     </p>
                   ) : null}
-                  <PromoCodeRedeem serviceHint="Smart Card" compact />
                   <Button
+                    className="mt-auto w-full"
                     disabled={checkoutMut.isPending || !pkg.plan_id}
-                    onClick={() => checkoutMut.mutate({ planId: pkg.plan_id, seats })}
+                    onClick={() => {
+                      if (unit == null || total == null) {
+                        toast.error("Price not available for your currency");
+                        return;
+                      }
+                      setPendingCheckout({ planId: pkg.plan_id, seats, name: pkg.name });
+                      setCheckoutDetails({
+                        planName: pkg.name,
+                        intervalLabel:
+                          billingInterval === "yearly" ? "Yearly billing (20% off)" : "Monthly billing",
+                        amountDisplay: `${sym}${total.toFixed(0)}`,
+                        seats,
+                        unitDisplay: `${sym}${(unit / 100).toFixed(0)}`,
+                        amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+                        providerHint: useGcMonthly
+                          ? "You will continue to GoCardless Direct Debit."
+                          : "You will continue to secure card payment.",
+                      });
+                      setCheckoutOpen(true);
+                    }}
                   >
-                    {checkoutMut.isPending
-                      ? "Starting…"
-                      : useGcMonthly
-                        ? "Subscribe with Direct Debit"
-                        : billingInterval === "yearly"
-                          ? "Buy seats (yearly)"
-                          : "Buy seats (card)"}
+                    {checkoutMut.isPending ? "Starting…" : "Subscribe"}
                   </Button>
                 </CardContent>
               </Card>
@@ -326,6 +300,27 @@ function SmartCardPackagesPage() {
           })}
         </div>
       </ServicePackageShell>
+
+      <CheckoutConfirmDialog
+        open={checkoutOpen}
+        onOpenChange={(open) => {
+          setCheckoutOpen(open);
+          if (!open) {
+            setPendingCheckout(null);
+            setCheckoutDetails(null);
+          }
+        }}
+        details={checkoutDetails}
+        serviceHint="Smart Card"
+        tintClass={tint.soft}
+        confirmLabel={useGcMonthly ? "Continue to Direct Debit" : "Pay with card"}
+        loading={checkoutMut.isPending}
+        onConfirm={async () => {
+          if (!pendingCheckout) return;
+          setCheckoutOpen(false);
+          await checkoutMut.mutateAsync({ planId: pendingCheckout.planId, seats: pendingCheckout.seats });
+        }}
+      />
     </div>
   );
 }

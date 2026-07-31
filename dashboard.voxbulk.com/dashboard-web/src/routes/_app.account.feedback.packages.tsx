@@ -4,7 +4,7 @@ import { Loader2, MessageCircle, QrCode, Smile } from "lucide-react";
 import { toast } from "sonner";
 
 import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
-import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
+import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
 import { SERVICE_TINTS, ServicePackageShell } from "@/components/billing/service-package-shell";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -83,6 +83,9 @@ function buildPackageFeatures(pkg: FeedbackPackage): string[] {
 function FeedbackPackagesPage() {
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
   const [billingInterval, setBillingInterval] = React.useState<"monthly" | "yearly">("monthly");
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
+  const [checkoutPkg, setCheckoutPkg] = React.useState<FeedbackPackage | null>(null);
   const qc = useQueryClient();
   const orgQ = useOrganisation();
   const packagesQ = useFeedbackPackages();
@@ -103,22 +106,10 @@ function FeedbackPackagesPage() {
   const orgCurrency = String(orgQ.data?.billing_currency || orgQ.data?.currency || "GBP").toUpperCase();
   const currentPlanId = subscription?.active ? subscription.plan_id : null;
 
-  const onSubscribe = async (pkg: FeedbackPackage) => {
+  const runFeedbackCheckout = async (pkg: FeedbackPackage) => {
     if (!pkg.plan_id) return;
-    if (currentPlanId === pkg.plan_id) return;
     setBusyPlanId(pkg.plan_id);
     try {
-      if (subscription?.active) {
-        const result = await changeFeedbackPlan(pkg.plan_id, billingInterval);
-        const planName = pkg.plan_name || pkg.plan_code || "plan";
-        toast.success(planChangeToast(result.direction, planName));
-        setBusyPlanId(null);
-        await Promise.all([
-          qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
-          qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
-        ]);
-        return;
-      }
       if (usesCardCheckout) {
         await startFeedbackCardSubscription(pkg.plan_id, billingInterval);
       } else {
@@ -128,6 +119,40 @@ function FeedbackPackagesPage() {
       toast.error(e instanceof Error ? e.message : "Could not update subscription");
       setBusyPlanId(null);
     }
+  };
+
+  const onSubscribe = async (pkg: FeedbackPackage) => {
+    if (!pkg.plan_id) return;
+    if (currentPlanId === pkg.plan_id) return;
+    if (subscription?.active) {
+      setBusyPlanId(pkg.plan_id);
+      try {
+        const result = await changeFeedbackPlan(pkg.plan_id, billingInterval);
+        const planName = pkg.plan_name || pkg.plan_code || "plan";
+        toast.success(planChangeToast(result.direction, planName));
+        setBusyPlanId(null);
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
+          qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+          qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
+        ]);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not update subscription");
+        setBusyPlanId(null);
+      }
+      return;
+    }
+    setCheckoutPkg(pkg);
+    setCheckoutDetails({
+      planName: pkg.plan_name || pkg.plan_code || "Customer feedback",
+      intervalLabel: billingInterval === "yearly" ? "Yearly billing" : "Monthly billing",
+      amountDisplay: formatPackagePrice(pkg, orgCurrency, billingInterval === "yearly"),
+      amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+      providerHint: usesCardCheckout
+        ? "You will continue to secure card payment."
+        : "You will continue to GoCardless Direct Debit.",
+    });
+    setCheckoutOpen(true);
   };
 
   const usagePct =
@@ -231,28 +256,29 @@ function FeedbackPackagesPage() {
       ) : null}
 
       <section>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Packages</h2>
-          <div className="flex rounded-lg border border-border p-0.5 text-xs">
+        <div className="mb-6 flex flex-col items-center gap-2">
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Billing period</p>
+          <div className="flex rounded-full border border-emerald-300/60 bg-background p-1 text-xs shadow-sm">
             <button
               type="button"
-              className={`rounded-md px-3 py-1.5 ${billingInterval === "monthly" ? "bg-emerald-600 text-white" : "text-muted-foreground"}`}
+              className={`rounded-full px-4 py-2 transition-colors ${billingInterval === "monthly" ? "bg-emerald-600 text-white shadow" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setBillingInterval("monthly")}
             >
               Monthly
             </button>
             <button
               type="button"
-              className={`rounded-md px-3 py-1.5 ${billingInterval === "yearly" ? "bg-emerald-600 text-white" : "text-muted-foreground"}`}
+              className={`rounded-full px-4 py-2 transition-colors ${billingInterval === "yearly" ? "bg-emerald-600 text-white shadow" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setBillingInterval("yearly")}
             >
-              Yearly (2 months free)
+              Yearly
+              <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                2 months free
+              </span>
             </button>
           </div>
         </div>
-        <div className="mb-3 max-w-md">
-          <PromoCodeRedeem serviceHint="Customer Feedback" />
-        </div>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Packages</h2>
         <p className="mb-3 text-xs text-muted-foreground">Prices shown ex-VAT. VAT is added at checkout when applicable.</p>
         {packagesQ.isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -279,16 +305,18 @@ function FeedbackPackagesPage() {
               return (
                 <Card
                   key={pkg.id}
-                  className={isCurrent ? "ring-2 ring-primary/30" : pkg.is_featured ? "ring-2 ring-primary/20" : ""}
+                  className={`flex flex-col border-emerald-200/50 bg-background/80 ${isCurrent ? "ring-2 ring-emerald-400/40" : pkg.is_featured ? "ring-2 ring-emerald-300/30" : ""}`}
                 >
                   <CardHeader className="pb-2">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <Badge variant="outline" className="mb-2 border-success/40 text-success">Customer Feedback</Badge>
+                        {isCurrent ? (
+                          <Badge className="mb-2 bg-emerald-600 text-white hover:bg-emerald-600">Current plan</Badge>
+                        ) : null}
                         <CardTitle className="text-base">{pkg.plan_name || "Customer feedback"}</CardTitle>
                       </div>
                       {pkg.is_featured ? (
-                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                        <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                           Most popular
                         </span>
                       ) : null}
@@ -301,7 +329,7 @@ function FeedbackPackagesPage() {
                     <ul className="space-y-1.5 text-muted-foreground">
                       {features.map((feature) => (
                         <li key={feature} className="flex items-start gap-2">
-                          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-primary" />
+                          <span className="mt-1.5 size-1 shrink-0 rounded-full bg-emerald-600" />
                           <span>{feature}</span>
                         </li>
                       ))}
@@ -315,7 +343,7 @@ function FeedbackPackagesPage() {
                     >
                       {busy ? (
                         <>
-                          <Loader2 className="mr-2 size-4 animate-spin" /> Redirecting…
+                          <Loader2 className="mr-2 size-4 animate-spin" /> Starting…
                         </>
                       ) : (
                         btnLabel
@@ -333,6 +361,27 @@ function FeedbackPackagesPage() {
         <SubscriptionCancellationBar planName={subscription.plan_name} service="feedback" />
       ) : null}
       </ServicePackageShell>
+
+      <CheckoutConfirmDialog
+        open={checkoutOpen}
+        onOpenChange={(open) => {
+          setCheckoutOpen(open);
+          if (!open) {
+            setCheckoutPkg(null);
+            setCheckoutDetails(null);
+          }
+        }}
+        details={checkoutDetails}
+        serviceHint="Customer Feedback"
+        tintClass={SERVICE_TINTS.feedback.soft}
+        confirmLabel={usesCardCheckout ? "Pay with card" : "Continue to Direct Debit"}
+        loading={Boolean(busyPlanId)}
+        onConfirm={async () => {
+          if (!checkoutPkg) return;
+          setCheckoutOpen(false);
+          await runFeedbackCheckout(checkoutPkg);
+        }}
+      />
     </div>
   );
 }

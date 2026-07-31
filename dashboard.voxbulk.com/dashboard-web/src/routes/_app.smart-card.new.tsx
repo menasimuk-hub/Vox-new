@@ -31,7 +31,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
+import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
+import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
 import { startSmartCardSeatCheckout } from "@/lib/billing/smart-card-subscription-payment";
 import { apiFetch } from "@/lib/api";
 import { useOrganisation } from "@/lib/queries";
@@ -116,6 +117,8 @@ function SmartCardNewWizard() {
   const [draftRep, setDraftRep] = React.useState<DraftRep | null>(null);
   const [planId, setPlanId] = React.useState("");
   const [seatQty, setSeatQty] = React.useState(1);
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
 
   React.useEffect(() => {
     const org = orgQ.data;
@@ -261,7 +264,6 @@ function SmartCardNewWizard() {
     }
     setSaving(true);
     try {
-      // Ensure draft saved
       await apiFetch("/smart-card/setup/preview-draft", {
         method: "POST",
         body: JSON.stringify(buildPayload()),
@@ -271,6 +273,27 @@ function SmartCardNewWizard() {
       toast.error(e instanceof Error ? e.message : "Checkout failed");
       setSaving(false);
     }
+  };
+
+  const openActivateCheckout = () => {
+    if (!planId || seatQty < 1) {
+      toast.error("Choose a plan and seat quantity");
+      return;
+    }
+    const selected = (packagesQ.data?.items || []).find((p) => p.plan_id === planId);
+    const usd = selected?.prices.find((p) => p.currency === "USD");
+    const unit = usd?.yearly_price_minor;
+    const total = unit != null ? (unit * seatQty) / 100 : null;
+    setCheckoutDetails({
+      planName: selected?.name || "Smart Card seats",
+      intervalLabel: "Yearly billing (20% off)",
+      amountDisplay: total != null ? `$${total.toFixed(0)}` : "See checkout",
+      seats: seatQty,
+      unitDisplay: unit != null ? `$${(unit / 100).toFixed(0)}` : null,
+      amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+      providerHint: "You will continue to secure card payment.",
+    });
+    setCheckoutOpen(true);
   };
 
   const skipPay = () => {
@@ -677,9 +700,8 @@ function SmartCardNewWizard() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              <PromoCodeRedeem serviceHint="Smart Card" compact />
               <div className="flex flex-wrap gap-3">
-              <Button disabled={saving} onClick={() => void activate()}>
+              <Button disabled={saving} onClick={openActivateCheckout}>
                 {saving ? "Starting checkout…" : "Buy seats & activate"}
               </Button>
               <Button variant="outline" disabled={saving} onClick={skipPay}>
@@ -693,6 +715,23 @@ function SmartCardNewWizard() {
           </Card>
         )}
       </div>
+
+      <CheckoutConfirmDialog
+        open={checkoutOpen}
+        onOpenChange={(open) => {
+          setCheckoutOpen(open);
+          if (!open) setCheckoutDetails(null);
+        }}
+        details={checkoutDetails}
+        serviceHint="Smart Card"
+        tintClass={SERVICE_TINTS.smartCard.soft}
+        confirmLabel="Pay with card"
+        loading={saving}
+        onConfirm={async () => {
+          setCheckoutOpen(false);
+          await activate();
+        }}
+      />
 
       {step < 7 ? (
         <div className="flex items-center justify-between gap-3 border-t pt-4">

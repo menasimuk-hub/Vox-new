@@ -158,7 +158,13 @@ function BillingPage() {
   const formatSubAmount = (fin: SubscriptionFinanceSummary | null) =>
     String(fin?.amount_next_payment_display || fin?.amount_next_payment_minor || "");
 
-  const hasCoreSub = allowancesState.hasCoreSub || Boolean(coreFinance?.plan_name || plan);
+  const coreIsPayg = Boolean((coreFinance as { is_payg?: boolean } | null)?.is_payg);
+  const hasCoreSub = Boolean(
+    coreFinance?.plan_name ||
+      coreFinance?.plan_code ||
+      coreIsPayg ||
+      allowancesState.snapshot.has_core_subscription,
+  );
   const hasFeedbackSubFinance = allowancesState.hasFeedbackSub || Boolean(feedbackFinance?.plan_name || hasActiveFeedbackSub);
   const sharedPool = allowancesState.sharedPool;
   const cancelStatus = String(cancelQ.data?.status || "none").toLowerCase();
@@ -436,8 +442,12 @@ function BillingPage() {
                 meta={PRODUCT_PANEL_META.core}
                 finance={coreFinance}
                 allowanceRows={allowancesState.coreRows}
-                planLabel={plan?.name || coreFinance?.plan_name || undefined}
-                isPayg={allowancesState.isPayg && !allowancesState.snapshot.has_core_subscription}
+                planLabel={
+                  coreIsPayg
+                    ? "Pay as you go"
+                    : coreFinance?.plan_name || undefined
+                }
+                isPayg={coreIsPayg}
                 walletDisplay={allowancesState.walletDisplay}
                 sharedPool={sharedPool}
                 badges={coreBadges}
