@@ -70,7 +70,7 @@ export function pickAllowances(rows: AllowanceRow[], keys: readonly string[]) {
 }
 
 export type ProductPanelMeta = {
-  product: "core" | "feedback";
+  product: "core" | "feedback" | "smart_card";
   title: string;
   tintClass: string;
   ringClass: string;
@@ -80,13 +80,13 @@ export type ProductPanelMeta = {
   packagesSearch?: Record<string, string>;
 };
 
-export const PRODUCT_PANEL_META: Record<"core" | "feedback", ProductPanelMeta> = {
+export const PRODUCT_PANEL_META: Record<"core" | "feedback" | "smart_card", ProductPanelMeta> = {
   core: {
     product: "core",
     title: "Core platform",
-    tintClass: "border-primary/20 bg-primary/5",
-    ringClass: "ring-primary/20",
-    badgeClass: "bg-primary/15 text-primary border-primary/30",
+    tintClass: "border-sky-200 bg-sky-50/80 dark:border-sky-900/40 dark:bg-sky-950/30",
+    ringClass: "ring-sky-200/70 dark:ring-sky-800/40",
+    badgeClass: "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200",
     usageLink: "/account/usage",
     packagesLink: "/account/packages",
     packagesSearch: { tab: "core" },
@@ -94,12 +94,20 @@ export const PRODUCT_PANEL_META: Record<"core" | "feedback", ProductPanelMeta> =
   feedback: {
     product: "feedback",
     title: "Customer Feedback",
-    tintClass: "border-success/20 bg-success/5",
-    ringClass: "ring-success/20",
-    badgeClass: "bg-success/15 text-success border-success/30",
+    tintClass: "border-emerald-200 bg-emerald-50/80 dark:border-emerald-900/40 dark:bg-emerald-950/30",
+    ringClass: "ring-emerald-200/70 dark:ring-emerald-800/40",
+    badgeClass: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200",
     usageLink: "/account/usage",
-    packagesLink: "/account/packages",
-    packagesSearch: { tab: "feedback" },
+    packagesLink: "/account/feedback/packages",
+  },
+  smart_card: {
+    product: "smart_card",
+    title: "Smart Card QR",
+    tintClass: "border-violet-200 bg-violet-50/80 dark:border-violet-900/40 dark:bg-violet-950/30",
+    ringClass: "ring-violet-200/70 dark:ring-violet-800/40",
+    badgeClass: "bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200",
+    usageLink: "/account/usage",
+    packagesLink: "/account/smart-card/packages",
   },
 };
 

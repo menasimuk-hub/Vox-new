@@ -20,6 +20,8 @@ SERVICE_KIND_ALIASES = {
     "customer_feedback": "customer_feedback",
     "feedback": "customer_feedback",
     "expo": "expo",
+    "smart_card": "smart_card",
+    "smartcard": "smart_card",
 }
 
 

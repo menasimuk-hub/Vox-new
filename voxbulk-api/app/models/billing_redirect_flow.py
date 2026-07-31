@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -24,6 +24,7 @@ class BillingRedirectFlow(Base):
     authorization_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     flow_purpose: Mapped[str | None] = mapped_column(String(40), nullable=True)
     billing_interval: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    seat_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     previous_mandate_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

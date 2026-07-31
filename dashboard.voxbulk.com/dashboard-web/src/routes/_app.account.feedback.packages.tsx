@@ -1,8 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Loader2, MessageCircle, QrCode } from "lucide-react";
+import { Loader2, MessageCircle, QrCode, Smile } from "lucide-react";
 import { toast } from "sonner";
 
+import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
+import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
+import { SERVICE_TINTS, ServicePackageShell } from "@/components/billing/service-package-shell";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -147,7 +150,29 @@ function FeedbackPackagesPage() {
         }
       />
 
-      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+      <ServicePackageShell
+        tint={SERVICE_TINTS.feedback}
+        icon={Smile}
+        title="Customer Feedback"
+        blurb="QR-driven inbound WhatsApp feedback — separate from Core platform."
+        badge="Subscription only"
+      >
+
+      <ActiveSubscriptionHeader
+        title="Customer Feedback subscription"
+        finance={(subscription?.finance as any) || (subscription?.active ? {
+          plan_name: subscription.plan_name,
+          status: subscription.status,
+          billing_interval: subscription.billing_interval,
+          current_period_end: subscription.current_period_end,
+          amount_next_payment_display: undefined,
+        } : null)}
+        loading={subscriptionQ.isLoading}
+        emptyMessage="No active Customer feedback subscription. Choose a package below."
+        tintClass={SERVICE_TINTS.feedback.soft}
+      />
+
+      <div className="rounded-lg border border-border bg-background/60 px-4 py-3 text-sm">
         <p className="font-medium">Customer feedback billing</p>
         <p className="text-xs text-muted-foreground">
           Separate from Core platform (AI interviews &amp; outbound surveys).
@@ -155,7 +180,6 @@ function FeedbackPackagesPage() {
             ? " Card checkout (Airwallex/Stripe) for your region."
             : " Direct Debit (GoCardless) for your region."}
           {" "}No wallet top-ups.
-          Plan renames in Admin persist after deploy.
         </p>
         <p className="mt-2 text-xs text-muted-foreground">
           Profile country: <span className="font-medium text-foreground">{orgCountry}</span>
@@ -166,45 +190,33 @@ function FeedbackPackagesPage() {
         </p>
       </div>
 
-      {subscriptionQ.isLoading ? (
-        <Skeleton className="h-32 rounded-xl" />
-      ) : subscription?.active ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Current subscription</CardTitle>
-            <CardDescription>
-              {subscription.plan_name || "Customer feedback"} · {subscription.status}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-lg border border-border bg-background/40 p-3">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Locations allowed</p>
-                <p className="mt-1 text-xl font-semibold">{subscription.max_locations ?? 0}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-background/40 p-3">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">WA units remaining</p>
-                <p className="mt-1 text-xl font-semibold tabular-nums">{subscription.wa_units_remaining ?? 0}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-background/40 p-3">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Web surveys remaining</p>
-                <p className="mt-1 text-xl font-semibold tabular-nums">
-                  {(subscription.web_units_included ?? 0) < 0
-                    ? "Unlimited"
-                    : (subscription.web_units_remaining ?? 0)}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border bg-background/40 p-3">
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Period ends</p>
-                <p className="mt-1 text-sm font-medium">
-                  {subscription.current_period_end
-                    ? new Date(subscription.current_period_end).toLocaleDateString("en-GB")
-                    : "—"}
-                </p>
-              </div>
+      {subscription?.active ? (
+        <Card className="border-emerald-200/60 bg-background/70">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Locations</p>
+              <p className="mt-1 text-xl font-semibold">{subscription.max_locations ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">WA remaining</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums">{subscription.wa_units_remaining ?? 0}</p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Web remaining</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums">
+                {(subscription.web_units_included ?? 0) < 0 ? "Unlimited" : (subscription.web_units_remaining ?? 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground">Period ends</p>
+              <p className="mt-1 text-sm font-medium">
+                {subscription.current_period_end
+                  ? new Date(subscription.current_period_end).toLocaleDateString("en-GB")
+                  : "—"}
+              </p>
             </div>
             {subscription.wa_units_included ? (
-              <div className="space-y-2">
+              <div className="space-y-2 sm:col-span-2 lg:col-span-4">
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>Monthly allowance</span>
                   <span>
@@ -216,18 +228,7 @@ function FeedbackPackagesPage() {
             ) : null}
           </CardContent>
         </Card>
-      ) : (
-        <Card className="border-dashed">
-          <CardContent className="flex flex-col items-center gap-2 py-8 text-center">
-            <MessageCircle className="size-8 text-muted-foreground" />
-            <p className="font-medium">No active Customer feedback subscription</p>
-            <p className="max-w-md text-sm text-muted-foreground">
-              Choose a package below to activate QR surveys.
-              {usesCardCheckout ? " Pay by card at checkout." : " Billing is by Direct Debit (GoCardless)."}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      ) : null}
 
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -235,19 +236,22 @@ function FeedbackPackagesPage() {
           <div className="flex rounded-lg border border-border p-0.5 text-xs">
             <button
               type="button"
-              className={`rounded-md px-3 py-1.5 ${billingInterval === "monthly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+              className={`rounded-md px-3 py-1.5 ${billingInterval === "monthly" ? "bg-emerald-600 text-white" : "text-muted-foreground"}`}
               onClick={() => setBillingInterval("monthly")}
             >
               Monthly
             </button>
             <button
               type="button"
-              className={`rounded-md px-3 py-1.5 ${billingInterval === "yearly" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+              className={`rounded-md px-3 py-1.5 ${billingInterval === "yearly" ? "bg-emerald-600 text-white" : "text-muted-foreground"}`}
               onClick={() => setBillingInterval("yearly")}
             >
               Yearly (2 months free)
             </button>
           </div>
+        </div>
+        <div className="mb-3 max-w-md">
+          <PromoCodeRedeem serviceHint="Customer Feedback" />
         </div>
         <p className="mb-3 text-xs text-muted-foreground">Prices shown ex-VAT. VAT is added at checkout when applicable.</p>
         {packagesQ.isLoading ? (
@@ -328,6 +332,7 @@ function FeedbackPackagesPage() {
       {subscription?.active ? (
         <SubscriptionCancellationBar planName={subscription.plan_name} service="feedback" />
       ) : null}
+      </ServicePackageShell>
     </div>
   );
 }

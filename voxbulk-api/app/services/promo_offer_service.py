@@ -33,7 +33,7 @@ REDEEM_ANYONE = "anyone"
 REDEEM_SIGNUP = "signup_only"
 REDEEM_ADMIN = "admin_only"
 VALID_REDEEM_MODES = {REDEEM_ANYONE, REDEEM_SIGNUP, REDEEM_ADMIN}
-VALID_SERVICES = {"voxbulk", "survey", "interview", "customer_feedback", "expo"}
+VALID_SERVICES = {"voxbulk", "survey", "interview", "customer_feedback", "expo", "smart_card"}
 VALID_DISCOUNT_TYPES = {"percent", "fixed_minor"}
 
 

@@ -3,6 +3,9 @@ import * as React from "react";
 import { Check, Clock, FileText, MessageCircle, Phone, Wallet, Smile, Megaphone, Sparkles, Briefcase, ClipboardList, Loader2, Building2, QrCode } from "lucide-react";
 import { toast } from "sonner";
 
+import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
+import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
+import { SERVICE_TINTS, ServicePackageShell } from "@/components/billing/service-package-shell";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,11 +45,10 @@ import {
   useOrganisation,
   queryKeys,
 } from "@/lib/queries";
+import type { FeedbackPackage } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { useServices } from "@/lib/services";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
-import { SubscriptionSummaryBar } from "@/components/billing/subscription-summary-bar";
-import type { FeedbackPackage } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { requireBillingAccess } from "@/lib/guards/billing-route";
@@ -527,54 +529,39 @@ function PackagesPage() {
             <TabsContent
               key={key}
               value={key}
-              className={`mt-4 space-y-6 ${key === "core" ? "rounded-2xl border border-[#EFE2C6] bg-[#FBF3E4] p-4 ring-1 ring-primary/10 sm:p-6 dark:border-border dark:bg-card dark:ring-0" : ""}`}
+              className={`mt-4 space-y-6`}
             >
-              <div className={`rounded-2xl border border-border bg-gradient-to-br ${s.bg} to-transparent p-4 ring-1 ${s.ring}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className={`grid size-10 place-items-center rounded-xl bg-background shadow-sm ${s.tint}`}>
-                      <Icon className="size-5" />
-                    </div>
-                    <div>
-                      <p className="text-base font-semibold">{s.label}</p>
-                      <p className="text-xs text-muted-foreground">{s.blurb}</p>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className={`${s.chip} border-transparent`}>{s.billing}</Badge>
-                  {key === "feedback" && feedbackSub?.active ? (
-                    <Badge className="bg-success text-success-foreground hover:bg-success">
-                      Active · {feedbackSub.plan_name || "Customer feedback"}
-                    </Badge>
-                  ) : null}
-                  {key === "feedback" && !feedbackSub?.active && !feedbackSubQ.isLoading ? (
-                    <Badge variant="outline">No subscription</Badge>
-                  ) : null}
-                </div>
-
+              <ServicePackageShell
+                tint={key === "core" ? SERVICE_TINTS.core : key === "feedback" ? SERVICE_TINTS.feedback : SERVICE_TINTS.expo}
+                icon={Icon}
+                title={s.label}
+                blurb={s.blurb}
+                badge={s.billing}
+              >
                 {key === "core" ? (
-                  <SubscriptionSummaryBar
+                  <ActiveSubscriptionHeader
                     title="Core subscription"
-                    finance={(subsSummaryQ.data?.core || null) as Parameters<typeof SubscriptionSummaryBar>[0]["finance"]}
+                    finance={(subsSummaryQ.data?.core || null) as Parameters<typeof ActiveSubscriptionHeader>[0]["finance"]}
                     loading={subsSummaryQ.isLoading}
                     emptyMessage="No active Core platform subscription."
-                    tintClass="mt-4 border-primary/20 bg-primary/5"
+                    tintClass={SERVICE_TINTS.core.soft}
                   />
                 ) : null}
                 {key === "feedback" ? (
-                  <SubscriptionSummaryBar
+                  <ActiveSubscriptionHeader
                     title="Customer Feedback subscription"
                     finance={
                       (feedbackSubQ.data?.finance ||
                         subsSummaryQ.data?.feedback ||
-                        null) as Parameters<typeof SubscriptionSummaryBar>[0]["finance"]
+                        null) as Parameters<typeof ActiveSubscriptionHeader>[0]["finance"]
                     }
                     loading={feedbackSubQ.isLoading || subsSummaryQ.isLoading}
                     emptyMessage="No active Customer Feedback subscription."
-                    tintClass="mt-4 border-success/20 bg-success/5"
+                    tintClass={SERVICE_TINTS.feedback.soft}
                   />
                 ) : null}
                 {key === "campaigns" ? (
-                  <SubscriptionSummaryBar
+                  <ActiveSubscriptionHeader
                     title="Campaign credits"
                     finance={
                       walletQ.data?.balance_display
@@ -583,36 +570,24 @@ function PackagesPage() {
                             status: "active",
                             amount_next_payment_display: String(walletQ.data.balance_display),
                             next_billing_date: null,
+                            is_payg: true,
                           }
                         : null
                     }
                     loading={walletQ.isLoading}
                     emptyMessage="Top up campaign credits when you need WhatsApp broadcast sends."
-                    tintClass="mt-4 border-amber-500/20 bg-amber-500/5"
+                    tintClass="border-amber-200/80 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40"
                   />
                 ) : null}
 
                 <div className="mt-5 space-y-6">
                   {key === "core" ? (
                     <>
-      {hasActiveFeedbackSub && !hasActiveCorePlan ? (
-        <div className="rounded-lg border border-success/30 bg-success/5 px-4 py-3 text-sm">
-          <p className="font-medium text-foreground">Your Customer Feedback subscription is active</p>
-          <p className="mt-1 text-muted-foreground">
-            Core platform is a separate product (AI interviews + outbound surveys). You do not need to pick a Core plan unless you want those features —{" "}
-            <Link to="/account/feedback/packages" className="text-primary underline-offset-4 hover:underline">
-              manage your Feedback plan
-            </Link>
-            .
-          </p>
-        </div>
-      ) : null}
-
-      {staleCorePlanOnSession ? (
+      {staleCorePlanOnSession && !(subsSummaryQ.data?.core as { plan_name?: string } | null)?.plan_name ? (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
-          <p className="font-medium text-foreground">No active Core platform subscription</p>
+          <p className="font-medium text-foreground">Previous Core subscription ended</p>
           <p className="mt-1 text-muted-foreground">
-            Your previous Core subscription is not active. Choose a plan below to subscribe or switch to Pay as you go.
+            Choose a plan below to subscribe or switch to Pay as you go.
           </p>
         </div>
       ) : null}
@@ -648,6 +623,9 @@ function PackagesPage() {
       <section>
         <div className="mb-6 flex justify-center">
           <BillingIntervalToggle value={coreBillingInterval} onChange={setCoreBillingInterval} centered />
+        </div>
+        <div className="mb-4 max-w-md">
+          <PromoCodeRedeem serviceHint="Core platform" />
         </div>
         <div className="mb-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Subscription plans</h2>
@@ -990,7 +968,7 @@ function PackagesPage() {
                     </Card>
                   ) : null}
                 </div>
-              </div>
+              </ServicePackageShell>
             </TabsContent>
           );
         })}

@@ -48,6 +48,9 @@ class StripeSubscriptionService:
         service_kind = "customer_feedback" if str(service_code or "").lower() in {
             "customer_feedback",
             "feedback",
+        } else "smart_card" if str(service_code or "").lower() in {
+            "smart_card",
+            "smartcard",
         } else "voxbulk"
         discounted = PromoDiscountService.apply_and_consume(
             db, org_id=org.id, service_kind=service_kind, amount_minor=amount_minor
@@ -150,6 +153,9 @@ class StripeSubscriptionService:
         currency, amount_minor, _interval = PlanPriceService.billing_amount_for_org(
             db, org, plan, sub.billing_interval
         )
+        if str(getattr(sub, "service_code", "") or "").lower() == "smart_card":
+            seats = max(1, int(getattr(sub, "seat_quantity", None) or 1))
+            amount_minor = int(amount_minor or 0) * seats
         if amount_minor <= 0:
             stats["renewal_skipped"] = "1"
             return stats

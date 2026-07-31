@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { AlertTriangle, CreditCard, Download, Eye, Loader2 } from "lucide-react";
+import { AlertTriangle, CreditCard, Download, Eye } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -10,9 +10,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
-import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab, apiFetch } from "@/lib/api";
-import { Input } from "@/components/ui/input";
+import { downloadAuthenticatedFile, openAuthenticatedHtmlInTab } from "@/lib/api";
 import { startGoCardlessMandateUpdate, readBillingReturnParams } from "@/lib/billing/gocardless";
+import { PRODUCT_PANEL_META } from "@/lib/billing/allowances";
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
@@ -129,8 +129,6 @@ function BillingPage() {
   const [mandateBusy, setMandateBusy] = React.useState(false);
   const [topupOpen, setTopupOpen] = React.useState(false);
   const [estimatesOpen, setEstimatesOpen] = React.useState(false);
-  const [promoCodeInput, setPromoCodeInput] = React.useState("");
-  const [promoRedeeming, setPromoRedeeming] = React.useState(false);
 
   const billingRequests = (requestsQ.data?.items || []) as Array<Record<string, unknown>>;
   const pendingRequestsCount = billingRequests.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
@@ -146,6 +144,9 @@ function BillingPage() {
   const nextInvoice = status.next_invoice || {};
   const coreFinance = (subsSummaryQ.data?.core || null) as SubscriptionFinanceSummary | null;
   const feedbackFinance = (subsSummaryQ.data?.feedback || null) as SubscriptionFinanceSummary | null;
+  const smartCardFinance = (subsSummaryQ.data?.smart_card || null) as
+    | (SubscriptionFinanceSummary & { seat_quantity?: number | null })
+    | null;
   const pendingCorePlanName = subQ.data?.pending_plan?.name || coreFinance?.pending_plan_name;
 
   const formatSubDate = (raw: unknown) => {
@@ -384,8 +385,9 @@ function BillingPage() {
     allowancesState.isPayg,
   ]);
 
-  const showCoreColumn = hasCoreSub || allowancesState.isPayg || allowancesState.coreRows.length > 0;
-  const showFeedbackColumn = hasFeedbackSubFinance || allowancesState.feedbackRows.length > 0;
+  const showCoreColumn = true;
+  const showFeedbackColumn = true;
+  const showSmartCardColumn = true;
 
   return (
     <div className="flex w-full flex-col gap-6 pb-12">
@@ -405,44 +407,6 @@ function BillingPage() {
         }
       />
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Enter promo code</CardTitle>
-          <CardDescription>Apply a VoxBulk promo for free usage or a discount on your next checkout.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
-          <Input
-            className="max-w-xs"
-            placeholder="PROMOCODE"
-            value={promoCodeInput}
-            onChange={(e) => setPromoCodeInput(e.target.value.toUpperCase())}
-          />
-          <Button
-            size="sm"
-            disabled={promoRedeeming || !promoCodeInput.trim()}
-            onClick={() => {
-              void (async () => {
-                setPromoRedeeming(true);
-                try {
-                  const res = await apiFetch<{ benefit_summary?: string; promo?: { benefit_summary?: string } }>(
-                    "/promo/redeem",
-                    { method: "POST", body: JSON.stringify({ promo_code: promoCodeInput.trim() }) },
-                  );
-                  toast.success(res.benefit_summary || res.promo?.benefit_summary || "Promo applied");
-                  setPromoCodeInput("");
-                } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Could not apply promo");
-                } finally {
-                  setPromoRedeeming(false);
-                }
-              })();
-            }}
-          >
-            {promoRedeeming ? <Loader2 className="size-4 animate-spin" /> : "Apply"}
-          </Button>
-        </CardContent>
-      </Card>
-
       {billingLoadError ? (
         <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -455,30 +419,21 @@ function BillingPage() {
 
       {!billingLoadError ? <BillingSmartAlerts alerts={smartAlerts} /> : null}
 
-      {!billingLoadError && !allowancesState.loading && !hasCoreSub && !hasFeedbackSubFinance && !allowancesState.isPayg ? (
-        <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          No active plan is linked to this organisation yet. Choose a package on{" "}
-          <Link to="/account/packages" className="text-primary underline-offset-4 hover:underline">
-            Packages & pricing
-          </Link>
-          .
-        </div>
-      ) : null}
-
       <WalletTopupDialog open={topupOpen} onOpenChange={setTopupOpen} />
 
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Your products</h2>
         {allowancesState.loading || usageQ.isLoading ? (
-          <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-3">
+            <Skeleton className="h-56" />
             <Skeleton className="h-56" />
             <Skeleton className="h-56" />
           </div>
         ) : (
-          <div className={cn("grid gap-3", showCoreColumn && showFeedbackColumn ? "lg:grid-cols-2" : "grid-cols-1")}>
+          <div className="grid gap-3 lg:grid-cols-3">
             {showCoreColumn ? (
               <BillingProductColumn
-                meta={allowancesState.coreMeta}
+                meta={PRODUCT_PANEL_META.core}
                 finance={coreFinance}
                 allowanceRows={allowancesState.coreRows}
                 planLabel={plan?.name || coreFinance?.plan_name || undefined}
@@ -493,12 +448,27 @@ function BillingPage() {
             ) : null}
             {showFeedbackColumn ? (
               <BillingProductColumn
-                meta={allowancesState.feedbackMeta}
+                meta={PRODUCT_PANEL_META.feedback}
                 finance={feedbackFinance}
                 allowanceRows={allowancesState.feedbackRows}
                 planLabel={feedbackSub?.plan_name || feedbackFinance?.plan_name || undefined}
                 billingInterval={feedbackSub?.billing_interval}
-                badges={[{ label: "Current plan", variant: "default" }]}
+                badges={
+                  hasFeedbackSubFinance || feedbackFinance?.plan_name
+                    ? [{ label: "Current plan", variant: "default" }]
+                    : []
+                }
+              />
+            ) : null}
+            {showSmartCardColumn ? (
+              <BillingProductColumn
+                meta={PRODUCT_PANEL_META.smart_card}
+                finance={smartCardFinance}
+                allowanceRows={[]}
+                planLabel={smartCardFinance?.plan_name || undefined}
+                badges={
+                  smartCardFinance?.plan_name ? [{ label: "Current plan", variant: "default" }] : []
+                }
               />
             ) : null}
           </div>

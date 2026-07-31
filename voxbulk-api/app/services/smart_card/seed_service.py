@@ -21,20 +21,21 @@ from app.models.smart_card_mailbox_settings import SMART_CARD_MAILBOX_ROW_ID, Sm
 from app.services.connection.constants import SERVICE_SMART_CARD
 from app.services.smart_card.mailbox_settings_service import DEFAULT_FROM_NAME, DEFAULT_MAILBOX
 
-# $5/seat/month billed yearly → $60/seat/year. PlanPrice yearly_price_minor is per seat.
+# $5/seat/month. Yearly = monthly × 12 × 0.8 (20% off). PlanPrice amounts are per seat.
 # Admin can edit amounts later without overwrite when plan.is_frozen.
 PACKAGE_SEED = {
     "code": "smart_card_seat",
     "name": "Smart Card QR — Seat",
     "order": 10,
     "featured": True,
-    # yearly per-seat minor units
-    "yearly_prices": {"USD": 6000, "GBP": 4800, "EUR": 5500, "CAD": 8000, "AUD": 9000},
-    # monthly display hint (Admin UI)
+    # yearly per-seat minor units (20% off annual)
+    "yearly_prices": {"USD": 4800, "GBP": 3840, "EUR": 4320, "CAD": 6240, "AUD": 7200},
+    # monthly per-seat minor units
     "monthly_prices": {"USD": 500, "GBP": 400, "EUR": 450, "CAD": 650, "AUD": 750},
     "features": [
         "1 representative seat (1 QR code)",
-        "$5 per seat per month, billed annually",
+        "$5 per seat per month (or local equivalent)",
+        "Pay yearly and save 20%",
         "WhatsApp + web questionnaire",
         "Business card OCR + AI lead scoring",
         "Catalogue / product PDF matching",
@@ -334,9 +335,9 @@ class SmartCardSeedService:
         pkg = PACKAGE_SEED
         code = str(pkg["code"])
         features_json = json.dumps(pkg["features"])
-        gbp_yearly = int(pkg["yearly_prices"]["GBP"])
+        gbp_monthly = int(pkg["monthly_prices"]["GBP"])
         description = (
-            "Smart Card QR — yearly seat subscription ($5/seat/month billed annually). "
+            "Smart Card QR — seat subscription ($5/seat/month, or pay yearly with 20% off). "
             "Quantity = number of representative seats."
         )
         plan = db.execute(select(Plan).where(Plan.code == code)).scalar_one_or_none()
@@ -345,8 +346,8 @@ class SmartCardSeedService:
                 id=str(uuid.uuid4()),
                 code=code,
                 name=pkg["name"],
-                price_gbp_pence=gbp_yearly,
-                interval="yearly",
+                price_gbp_pence=gbp_monthly,
+                interval="monthly",
                 description=description,
                 features_json=features_json,
                 calls_included=0,
@@ -365,7 +366,8 @@ class SmartCardSeedService:
             plan.service_kind = SMART_CARD_SERVICE_CODE
             plan.description = description
             plan.features_json = features_json
-            plan.interval = "yearly"
+            plan.interval = "monthly"
+            plan.price_gbp_pence = gbp_monthly
             plan.is_active = True
             plan.is_featured = bool(pkg.get("featured"))
             plan.sort_order = int(pkg["order"])
@@ -392,10 +394,9 @@ class SmartCardSeedService:
                     )
                 )
             elif not bool(getattr(plan, "is_frozen", False)):
-                if price_row.yearly_price_minor is None:
-                    price_row.yearly_price_minor = int(yearly_amount)
-                if price_row.monthly_price_minor is None:
-                    price_row.monthly_price_minor = int(monthly.get(currency) or 0)
+                # Upsert catalog list prices (20% yearly discount) unless Admin froze the plan.
+                price_row.yearly_price_minor = int(yearly_amount)
+                price_row.monthly_price_minor = int(monthly.get(currency) or 0)
                 price_row.updated_at = now
                 db.add(price_row)
 

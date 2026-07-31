@@ -11,14 +11,16 @@ Independent VoxBulk service for representative digital cards (QR → WhatsApp / 
 
 ## Admin pricing & products
 
-- Pricing → Packages: section **Smart Card QR** (`service_kind=smart_card`) — yearly seat unit price  
+- Pricing → Packages: section **Smart Card QR** (`service_kind=smart_card`) — monthly + yearly seat unit prices  
 - Products hub: lists Core, Feedback, Expo, Smart Card, Campaigns; green dot = active; active sorted first  
 - Deep link: `/pricing/packages?service=smart_card`
 
 ## Packages (customer)
 
-- Default: **$5 / seat / month, billed yearly** ($60 / seat / year) — Admin-editable  
-- Checkout: seat quantity × yearly unit (`POST /smart-card/billing/checkout` + `/complete`)  
+- Default: **$5 / seat / month** (local equivalents); **yearly = 20% off** annual  
+- Monthly: GoCardless when available; otherwise Stripe/Airwallex card  
+- Yearly: Stripe/Airwallex card only  
+- Checkout: seat quantity × unit (`POST /smart-card/billing/checkout` + `/complete`, or `/billing/gocardless/*`)  
 - Preview: **15** free QR tests  
 - Expiry: Celery renewal reminders 30d / 14d / 7d / 1d  
 - Account → Packages tabs include Expo + Smart Card CTAs

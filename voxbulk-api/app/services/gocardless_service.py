@@ -807,6 +807,8 @@ class BillingService:
         mandate_id: str,
         client_email: str,
         billing_interval: str | None = None,
+        amount_minor_override: int | None = None,
+        seat_quantity: int | None = None,
     ) -> str | None:
         from app.models.organisation import Organisation
         from app.services.plan_price_service import PlanPriceService
@@ -815,10 +817,24 @@ class BillingService:
         currency, amount_minor, interval = PlanPriceService.billing_amount_for_org(
             db, org, plan, billing_interval
         )
+        if amount_minor_override is not None and int(amount_minor_override) > 0:
+            amount_minor = int(amount_minor_override)
+        elif seat_quantity is not None and int(seat_quantity) > 1:
+            amount_minor = int(amount_minor or 0) * int(seat_quantity)
         if amount_minor <= 0:
             return None
         gc_interval = "yearly" if interval == "yearly" else "monthly"
         config = BillingService._get_gocardless_config(db)
+        meta_kwargs: dict[str, str] = {
+            "org_id": org_id,
+            "plan_id": plan.id,
+            "client_email": client_email,
+        }
+        # GoCardless allows at most 3 metadata keys — prefer seats over interval when set.
+        if seat_quantity is not None and int(seat_quantity) > 0:
+            meta_kwargs["seats"] = str(int(seat_quantity))
+        else:
+            meta_kwargs["billing_interval"] = interval
         subscription_payload = {
             "subscriptions": {
                 "amount": amount_minor,
@@ -826,12 +842,7 @@ class BillingService:
                 "name": f"VOXBULK.COM {plan.name}",
                 "interval_unit": gc_interval,
                 "links": {"mandate": mandate_id},
-                "metadata": BillingService._gocardless_metadata(
-                    org_id=org_id,
-                    plan_id=plan.id,
-                    client_email=client_email,
-                    billing_interval=interval,
-                ),
+                "metadata": BillingService._gocardless_metadata(**meta_kwargs),
             }
         }
         with httpx.Client(timeout=20) as client:
@@ -910,11 +921,15 @@ class BillingService:
         kind = str(getattr(plan, "service_kind", None) or "").strip().lower()
         if kind == "customer_feedback":
             return "customer_feedback"
+        if kind == "smart_card":
+            return "smart_card"
         if kind == "voxbulk":
             return "voxbulk"
         purpose = str(flow_purpose or "").strip().lower()
         if purpose == "customer_feedback":
             return "customer_feedback"
+        if purpose == "smart_card":
+            return "smart_card"
         return "voxbulk"
 
     @staticmethod
@@ -927,6 +942,7 @@ class BillingService:
         plan_code: str | None = None,
         flow_purpose: str | None = None,
         billing_interval: str | None = None,
+        seat_quantity: int | None = None,
     ) -> dict[str, Any]:
         from app.services.plan_price_service import PlanPriceService
 
@@ -985,6 +1001,14 @@ class BillingService:
             raise GoCardlessProviderError("GoCardless did not return a redirect flow URL")
 
         BillingService.mark_pending_provider_checkout(db, org_id=org_id, plan_id=plan.id, provider="gocardless")
+        seats = None
+        if seat_quantity is not None:
+            try:
+                seats = int(seat_quantity)
+            except Exception:
+                seats = None
+            if seats is not None and seats < 1:
+                seats = None
         row = BillingRedirectFlow(
             org_id=org_id,
             user_id=user_id,
@@ -996,6 +1020,7 @@ class BillingService:
             authorization_url=authorization_url,
             flow_purpose=str(flow_purpose or "").strip() or None,
             billing_interval=interval,
+            seat_quantity=seats,
         )
         db.add(row)
         db.commit()
@@ -1134,6 +1159,24 @@ class BillingService:
         org = db.get(Organisation, org_id)
         flow_interval = PlanPriceService.normalize_billing_interval(getattr(row, "billing_interval", None))
         currency, charge_minor, interval = PlanPriceService.billing_amount_for_org(db, org, plan, flow_interval)
+        seats = None
+        try:
+            raw_seats = getattr(row, "seat_quantity", None)
+            if raw_seats is not None:
+                seats = int(raw_seats)
+        except Exception:
+            seats = None
+        if seats is not None and seats > 0:
+            charge_minor = int(charge_minor or 0) * seats
+        # Apply pending Smart Card / product promo to first GC amount when present.
+        service_code_preview = BillingService._subscription_service_code(plan=plan, flow_purpose=row.flow_purpose)
+        if service_code_preview in {"smart_card", "customer_feedback", "voxbulk"} and charge_minor > 0:
+            from app.services.promo_discount_service import PromoDiscountService
+
+            discounted = PromoDiscountService.apply_and_consume(
+                db, org_id=org_id, service_kind=service_code_preview, amount_minor=charge_minor
+            )
+            charge_minor = int(discounted["amount_minor"])
         external_subscription_id = BillingService._create_gocardless_subscription_on_mandate(
             db,
             org_id=org_id,
@@ -1141,6 +1184,8 @@ class BillingService:
             mandate_id=mandate_id,
             client_email=client_email,
             billing_interval=flow_interval,
+            amount_minor_override=charge_minor if charge_minor > 0 else None,
+            seat_quantity=seats,
         )
         if not external_subscription_id:
             raise GoCardlessProviderError("GoCardless did not return a subscription id")
@@ -1177,6 +1222,8 @@ class BillingService:
         sub.billing_interval = interval
         sub.billing_currency = currency
         sub.amount_next_payment_minor = charge_minor
+        if seats is not None and seats > 0:
+            sub.seat_quantity = seats
         sub.payment_provider = "gocardless"
         sub.payment_mode = str(config["environment"])
         sub.external_customer_id = customer_id or None
@@ -1226,10 +1273,11 @@ class BillingService:
             )
         else:
             try:
-                act_currency, act_minor, act_interval = PlanPriceService.billing_amount_for_org(
-                    db, org, plan, flow_interval
-                )
-                interval_label = "yearly" if act_interval == "yearly" else "monthly"
+                act_currency = currency
+                act_minor = int(charge_minor or 0)
+                interval_label = "yearly" if interval == "yearly" else "monthly"
+                qty = seats if seats and seats > 0 else 1
+                unit = int(act_minor // qty) if qty > 1 and act_minor else act_minor
                 invoice, created, emailed = InvoiceService.issue_from_payment(
                     db,
                     org_id=org_id,
@@ -1244,9 +1292,10 @@ class BillingService:
                     status="paid",
                     line_items=[
                         {
-                            "description": f"{plan.name} — {interval_label} subscription",
-                            "quantity": 1,
-                            "unit_pence": act_minor,
+                            "description": f"{plan.name} — {interval_label} subscription"
+                            + (f" × {qty} seats" if qty > 1 else ""),
+                            "quantity": qty,
+                            "unit_pence": unit,
                             "total_pence": act_minor,
                         }
                     ],
@@ -1280,6 +1329,22 @@ class BillingService:
 
             FeedbackBillingService.on_subscription_activated(db, org_id=org_id, subscription=sub, plan=plan)
             FeedbackBillingService._tag_activation_invoice(db, org_id=org_id)
+        elif service_code == "smart_card":
+            from app.services.org_enabled_services import (
+                parse_enabled_services,
+                serialize_enabled_services,
+            )
+
+            org_row = db.get(Organisation, org_id)
+            if org_row is not None:
+                allowed = parse_enabled_services(getattr(org_row, "allowed_services_json", None))
+                enabled = parse_enabled_services(getattr(org_row, "enabled_services_json", None))
+                allowed["smart_card"] = True
+                enabled["smart_card"] = True
+                org_row.allowed_services_json = serialize_enabled_services(allowed)
+                org_row.enabled_services_json = serialize_enabled_services(enabled)
+                db.add(org_row)
+                db.commit()
         else:
             from app.services.usage_wallet_service import UsageWalletService
 

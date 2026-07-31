@@ -1,4 +1,4 @@
-"""Customer-facing subscription finance summaries for Core and Customer Feedback."""
+"""Customer-facing subscription finance summaries for Core, Feedback, and Smart Card."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from app.models.subscription import Subscription
 from app.services.billing_access_service import BillingAccessService
 from app.services.billing_finance_service import BillingFinanceService
 from app.services.customer_feedback.billing_service import FEEDBACK_SERVICE_CODE, FeedbackBillingService
+from app.models.smart_card import SMART_CARD_SERVICE_CODE
 
 
 class SubscriptionSummaryService:
@@ -34,7 +35,31 @@ class SubscriptionSummaryService:
         if org is None:
             return None
         sub = BillingAccessService.get_valid_core_subscription(db, org_id)
-        return SubscriptionSummaryService._finance_for_sub(db, sub, org=org)
+        finance = SubscriptionSummaryService._finance_for_sub(db, sub, org=org)
+        if finance is None:
+            # PAYG / linked plan without a paid subscription row — still surface plan name.
+            from app.services.billing_access_service import BillingAccessService as BAS
+
+            payg_sub = BAS.get_subscription(db, org_id, service_code="voxbulk")
+            if payg_sub is not None:
+                plan = db.get(Plan, payg_sub.plan_id) if payg_sub.plan_id else None
+                code = str(getattr(plan, "code", "") or "").lower()
+                if plan and (code == "payg" or bool(getattr(plan, "is_payg", False))):
+                    return {
+                        "plan_name": plan.name or "Pay as you go",
+                        "plan_code": plan.code,
+                        "status": str(payg_sub.status or "active"),
+                        "billing_interval": None,
+                        "next_billing_date": None,
+                        "amount_next_payment_display": "Pay as you go",
+                        "amount_next_payment_minor": 0,
+                        "current_period_end": None,
+                        "cancel_at_period_end": False,
+                        "is_payg": True,
+                        "service_code": "voxbulk",
+                    }
+            return None
+        return finance
 
     @staticmethod
     def feedback_summary(db: Session, org_id: str) -> dict[str, Any] | None:
@@ -57,10 +82,30 @@ class SubscriptionSummaryService:
         }
 
     @staticmethod
+    def smart_card_summary(db: Session, org_id: str) -> dict[str, Any] | None:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            return None
+        sub = BillingAccessService.get_subscription(db, org_id, service_code=SMART_CARD_SERVICE_CODE)
+        if sub is None:
+            return None
+        status = str(sub.status or "").lower()
+        if status in {"cancelled", "inactive", "expired"}:
+            return None
+        finance = SubscriptionSummaryService._finance_for_sub(db, sub, org=org)
+        if finance is None:
+            return None
+        return {
+            **finance,
+            "service_code": SMART_CARD_SERVICE_CODE,
+            "seat_quantity": int(sub.seat_quantity or 0),
+        }
+
+    @staticmethod
     def build_org_summary(db: Session, org_id: str) -> dict[str, Any]:
         org = db.get(Organisation, org_id)
         if org is None:
-            return {"ok": False, "core": None, "feedback": None}
+            return {"ok": False, "core": None, "feedback": None, "smart_card": None}
         from app.services.billing_currency import resolve_org_currency
 
         return {
@@ -68,4 +113,5 @@ class SubscriptionSummaryService:
             "currency": resolve_org_currency(db, org),
             "core": SubscriptionSummaryService.core_summary(db, org_id),
             "feedback": SubscriptionSummaryService.feedback_summary(db, org_id),
+            "smart_card": SubscriptionSummaryService.smart_card_summary(db, org_id),
         }

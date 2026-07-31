@@ -31,6 +31,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
 import { startSmartCardSeatCheckout } from "@/lib/billing/smart-card-subscription-payment";
 import { apiFetch } from "@/lib/api";
 import { useOrganisation } from "@/lib/queries";
@@ -265,7 +266,7 @@ function SmartCardNewWizard() {
         method: "POST",
         body: JSON.stringify(buildPayload()),
       });
-      await startSmartCardSeatCheckout(planId, seatQty);
+      await startSmartCardSeatCheckout(planId, seatQty, "yearly");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Checkout failed");
       setSaving(false);
@@ -675,7 +676,9 @@ function SmartCardNewWizard() {
                 Pay for {seatQty} seat{seatQty === 1 ? "" : "s"} to go live, or continue in preview with your first QR.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-wrap gap-3">
+            <CardContent className="flex flex-col gap-3">
+              <PromoCodeRedeem serviceHint="Smart Card" compact />
+              <div className="flex flex-wrap gap-3">
               <Button disabled={saving} onClick={() => void activate()}>
                 {saving ? "Starting checkout…" : "Buy seats & activate"}
               </Button>
@@ -685,6 +688,7 @@ function SmartCardNewWizard() {
               <Button asChild variant="ghost">
                 <Link to="/smart-card">Open Saved QR codes</Link>
               </Button>
+              </div>
             </CardContent>
           </Card>
         )}

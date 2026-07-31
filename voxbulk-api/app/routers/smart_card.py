@@ -175,6 +175,8 @@ def setup_activate(payload: dict, db: Session = Depends(get_db), principal=Depen
             plan_id=str((payload or {}).get("plan_id") or "").strip(),
             seat_quantity=int((payload or {}).get("seat_quantity") or 0),
             user_email=str(getattr(user, "email", "") or ""),
+            provider=(str((payload or {}).get("provider") or "").strip() or None),
+            billing_interval=str((payload or {}).get("billing_interval") or "yearly").strip() or "yearly",
         )
         db.commit()
         return {"ok": True, **checkout}
@@ -543,6 +545,7 @@ def start_seat_checkout(payload: dict, db: Session = Depends(get_db), principal=
             seat_quantity=int((payload or {}).get("seat_quantity") or 0),
             user_email=str(getattr(principal, "email", "") or ""),
             provider=(str((payload or {}).get("provider") or "").strip() or None),
+            billing_interval=str((payload or {}).get("billing_interval") or "yearly").strip() or "yearly",
         )
         db.commit()
         return {"ok": True, **checkout}
@@ -573,6 +576,7 @@ def complete_seat_checkout(payload: dict, db: Session = Depends(get_db), princip
             provider=str((payload or {}).get("provider") or ""),
             payment_intent_id=str((payload or {}).get("payment_intent_id") or ""),
             seat_quantity=int(seats) if seats is not None else None,
+            billing_interval=str((payload or {}).get("billing_interval") or "").strip() or None,
         )
         db.commit()
         return {
@@ -580,7 +584,58 @@ def complete_seat_checkout(payload: dict, db: Session = Depends(get_db), princip
             "subscription_id": sub.id,
             "seat_quantity": int(sub.seat_quantity or 0),
             "status": sub.status,
+            "billing_interval": getattr(sub, "billing_interval", None),
             "period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
         }
     except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/billing/gocardless/start")
+def start_smart_card_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        res = SmartCardBillingService.start_gocardless_signup(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            plan_id=str((payload or {}).get("plan_id") or ""),
+            seat_quantity=int((payload or {}).get("seat_quantity") or 0),
+            billing_interval=str((payload or {}).get("billing_interval") or "monthly").strip() or "monthly",
+        )
+        db.commit()
+        return {"ok": True, **res}
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="Invalid seat_quantity or plan_id") from e
+
+
+@router.post("/billing/gocardless/complete")
+def complete_smart_card_gocardless(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
+
+    redirect_flow_id = str((payload or {}).get("redirect_flow_id") or "").strip()
+    if not redirect_flow_id:
+        raise HTTPException(status_code=400, detail="redirect_flow_id required")
+    try:
+        res = BillingService.complete_gocardless_redirect_flow(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            redirect_flow_id=redirect_flow_id,
+        )
+        return {"ok": True, **{k: v for k, v in res.items() if k != "subscription"}}
+    except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

@@ -36,6 +36,9 @@ export function useUsageAllowances() {
 
   const coreFinance = (subsSummaryQ.data?.core || null) as SubscriptionFinanceSummary | null;
   const feedbackFinance = (subsSummaryQ.data?.feedback || null) as SubscriptionFinanceSummary | null;
+  const smartCardFinance = (subsSummaryQ.data?.smart_card || null) as
+    | (SubscriptionFinanceSummary & { seat_quantity?: number | null })
+    | null;
   const feedbackSub = feedbackSubQ.data;
 
   const hasCoreSub = Boolean(
@@ -48,6 +51,7 @@ export function useUsageAllowances() {
       feedbackFinance?.plan_name ||
       feedbackRows.length > 0,
   );
+  const hasSmartCardSub = Boolean(smartCardFinance?.plan_name || smartCardFinance?.plan_code);
   const isPayg = Boolean(snapshot.is_payg && !snapshot.has_core_subscription);
 
   const periodLabel = React.useMemo(() => {
@@ -77,13 +81,16 @@ export function useUsageAllowances() {
     feedbackRows,
     coreFinance,
     feedbackFinance,
+    smartCardFinance,
     feedbackSub,
     hasCoreSub,
     hasFeedbackSub,
+    hasSmartCardSub,
     isPayg,
     periodLabel,
     coreMeta: PRODUCT_PANEL_META.core,
     feedbackMeta: PRODUCT_PANEL_META.feedback,
+    smartCardMeta: PRODUCT_PANEL_META.smart_card,
     walletDisplay: snapshot.wallet_balance_display || data?.wallet_balance_gbp,
     valuePool: snapshot.value_pool_active
       ? {

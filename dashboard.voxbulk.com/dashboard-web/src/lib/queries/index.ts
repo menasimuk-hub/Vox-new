@@ -537,6 +537,7 @@ export type SubscriptionsSummaryResponse = {
   currency?: string;
   core?: Record<string, unknown> | null;
   feedback?: Record<string, unknown> | null;
+  smart_card?: Record<string, unknown> | null;
 };
 
 export function useBillingSubscriptionsSummary() {

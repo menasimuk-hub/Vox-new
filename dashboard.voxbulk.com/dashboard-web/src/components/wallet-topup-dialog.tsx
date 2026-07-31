@@ -2,6 +2,7 @@ import * as React from "react";
 import { CreditCard, Loader2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 
+import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -200,6 +201,7 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
                 onChange={(e) => setAmount(e.target.value)}
               />
             </div>
+            <PromoCodeRedeem serviceHint="wallet / Core" compact />
             <div className="flex flex-wrap gap-2">
               {(options?.suggested_amounts || []).slice(0, 4).map((t) => {
                 const minor = Number(t.total_credit_pence || t.credit_pence || 0);

@@ -1,4 +1,4 @@
-"""Smart Card QR seat billing — quantity × yearly unit price."""
+"""Smart Card QR seat billing — quantity × unit price (monthly GoCardless or yearly card)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,10 @@ from app.services.card_subscription_activation_service import (
     CardSubscriptionActivationError,
     CardSubscriptionActivationService,
 )
+from app.services.gocardless_service import BillingService, GoCardlessConfigError, GoCardlessProviderError
+from app.services.payment_provider_router import PaymentProviderRouter
 from app.services.plan_price_service import PlanPriceService
+from app.services.promo_discount_service import PromoDiscountService
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +44,94 @@ class SmartCardBillingService:
         return plan, pkg
 
     @staticmethod
+    def _normalize_seats(seat_quantity: int) -> int:
+        seats = int(seat_quantity or 0)
+        if seats < 1:
+            raise SmartCardBillingError("seat_quantity must be at least 1")
+        if seats > 500:
+            raise SmartCardBillingError("seat_quantity is too large")
+        return seats
+
+    @staticmethod
+    def _resolve_card_provider(db: Session, *, org: Organisation, preferred: str | None = None) -> str:
+        from app.services.airwallex_payment_service import AirwallexPaymentService
+        from app.services.stripe_payment_service import StripePaymentService
+
+        prov = str(preferred or "").strip().lower()
+        if prov == "stripe" and StripePaymentService.is_available(db):
+            return "stripe"
+        if prov == "airwallex" and AirwallexPaymentService.is_available(db):
+            return "airwallex"
+        primary = PaymentProviderRouter.primary_subscription_provider(db, org)
+        if primary == "airwallex" and AirwallexPaymentService.is_available(db):
+            return "airwallex"
+        if primary == "stripe" and StripePaymentService.is_available(db):
+            return "stripe"
+        if AirwallexPaymentService.is_available(db):
+            return "airwallex"
+        if StripePaymentService.is_available(db):
+            return "stripe"
+        raise SmartCardBillingError(
+            "Smart Card seat checkout needs Stripe or Airwallex (card). Configure a card provider."
+        )
+
+    @staticmethod
+    def _priced_amount(
+        db: Session,
+        *,
+        org: Organisation,
+        plan: Plan,
+        seats: int,
+        billing_interval: str,
+        apply_promo: bool,
+    ) -> tuple[str, int, int, str, bool]:
+        currency, unit_minor, interval = PlanPriceService.billing_amount_for_org(
+            db, org, plan, billing_interval
+        )
+        if unit_minor <= 0:
+            raise SmartCardBillingError("Plan price is not configured for your billing currency.")
+        amount_minor = int(unit_minor) * seats
+        promo_applied = False
+        if apply_promo:
+            discounted = PromoDiscountService.apply_and_consume(
+                db, org_id=org.id, service_kind=SMART_CARD_SERVICE_CODE, amount_minor=amount_minor
+            )
+            amount_minor = int(discounted["amount_minor"])
+            promo_applied = bool(discounted.get("discount_applied"))
+        return currency, unit_minor, amount_minor, interval or "monthly", promo_applied
+
+    @staticmethod
+    def start_gocardless_signup(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+        plan_id: str,
+        seat_quantity: int,
+        billing_interval: str | None = None,
+    ) -> dict[str, Any]:
+        plan, _pkg = SmartCardBillingService._validate_plan(db, plan_id)
+        seats = SmartCardBillingService._normalize_seats(seat_quantity)
+        interval = PlanPriceService.normalize_billing_interval(billing_interval)
+        if interval != "monthly":
+            raise SmartCardBillingError(
+                "GoCardless Direct Debit is for monthly Smart Card seats. Choose yearly card checkout for annual billing."
+            )
+        try:
+            res = BillingService.start_gocardless_redirect_flow(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                plan_id=plan.id,
+                flow_purpose=SMART_CARD_SERVICE_CODE,
+                billing_interval="monthly",
+                seat_quantity=seats,
+            )
+        except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as exc:
+            raise SmartCardBillingError(str(exc)) from exc
+        return res
+
+    @staticmethod
     def start_seat_checkout(
         db: Session,
         *,
@@ -49,42 +140,77 @@ class SmartCardBillingService:
         seat_quantity: int,
         user_email: str = "",
         provider: str | None = None,
+        billing_interval: str | None = None,
     ) -> dict[str, Any]:
-        seats = int(seat_quantity or 0)
-        if seats < 1:
-            raise SmartCardBillingError("seat_quantity must be at least 1")
-        if seats > 500:
-            raise SmartCardBillingError("seat_quantity is too large")
-
+        seats = SmartCardBillingService._normalize_seats(seat_quantity)
         plan, _pkg = SmartCardBillingService._validate_plan(db, plan_id)
-        # Smart Card is billed annually per seat
-        currency, unit_minor, interval = PlanPriceService.billing_amount_for_org(
-            db, org, plan, "yearly"
+        interval = PlanPriceService.normalize_billing_interval(billing_interval or "yearly")
+
+        from app.services.gocardless_service import BillingService as GcBilling
+
+        preferred = str(provider or "").strip().lower() or None
+        primary = preferred or PaymentProviderRouter.primary_subscription_provider(db, org)
+
+        gc_opts = GcBilling.payment_options(db)
+        # Monthly + GoCardless available → use Direct Debit (caller should hit GC endpoints).
+        if (
+            interval == "monthly"
+            and primary == "gocardless"
+            and bool(gc_opts.get("gocardless_available"))
+        ):
+            raise SmartCardBillingError(
+                "Direct Debit (GoCardless) is the monthly subscription method for your region. Use the GoCardless checkout."
+            )
+
+        # Yearly always card; monthly without GC falls through to card.
+        if interval == "yearly" and preferred == "gocardless":
+            preferred = None
+
+        currency, unit_minor, amount_minor, resolved_interval, promo_applied = SmartCardBillingService._priced_amount(
+            db,
+            org=org,
+            plan=plan,
+            seats=seats,
+            billing_interval=interval,
+            apply_promo=True,
         )
-        if unit_minor <= 0:
-            raise SmartCardBillingError("Plan price is not configured for your billing currency.")
-        amount_minor = int(unit_minor) * seats
 
-        from app.services.payment_provider_router import PaymentProviderRouter
+        if amount_minor <= 0:
+            try:
+                stub_prov = SmartCardBillingService._resolve_card_provider(db, org=org, preferred=preferred)
+            except SmartCardBillingError:
+                stub_prov = "stripe"
+            sub = CardSubscriptionActivationService.activate_from_payment(
+                db,
+                org=org,
+                plan=plan,
+                provider=stub_prov,
+                payment_intent_id=f"promo-discount-sc-{org.id[:8]}-{seats}",
+                billing_interval=resolved_interval,
+                service_code=SMART_CARD_SERVICE_CODE,
+                seat_quantity=seats,
+                amount_override_minor=0,
+            )
+            return {
+                "provider": "promo_discount",
+                "paid": True,
+                "currency": currency,
+                "amount_minor": 0,
+                "unit_minor": unit_minor,
+                "seat_quantity": seats,
+                "billing_interval": resolved_interval,
+                "plan_id": plan.id,
+                "service_code": SMART_CARD_SERVICE_CODE,
+                "subscription_id": sub.id,
+                "promo_discount_applied": True,
+            }
 
-        prov = str(provider or "").strip().lower() or PaymentProviderRouter.primary_subscription_provider(
-            db, org
-        )
-        if prov == "gocardless":
-            # Seat qty uses card checkout; fall back to stripe/airwallex when GC is regional default
-            from app.services.stripe_payment_service import StripePaymentService
-            from app.services.airwallex_payment_service import AirwallexPaymentService
-
-            if StripePaymentService.is_available(db):
-                prov = "stripe"
-            elif AirwallexPaymentService.is_available(db):
-                prov = "airwallex"
-            else:
-                raise SmartCardBillingError(
-                    "Smart Card seat checkout needs Stripe or Airwallex (card). Configure a card provider."
-                )
-        if prov not in {"stripe", "airwallex"}:
-            raise SmartCardBillingError("provider must be stripe or airwallex")
+        try:
+            prov = SmartCardBillingService._resolve_card_provider(db, org=org, preferred=preferred)
+        except SmartCardBillingError:
+            raise
+        except Exception as exc:
+            raise SmartCardBillingError(str(exc)) from exc
 
         try:
             if prov == "airwallex":
@@ -97,7 +223,7 @@ class SmartCardBillingService:
                     org,
                     amount_minor=amount_minor,
                     plan_id=plan.id,
-                    billing_interval=interval or "yearly",
+                    billing_interval=resolved_interval,
                     service_code=SMART_CARD_SERVICE_CODE,
                     customer_email=user_email,
                     seat_quantity=seats,
@@ -112,7 +238,7 @@ class SmartCardBillingService:
                     org,
                     amount_minor=amount_minor,
                     plan_id=plan.id,
-                    billing_interval=interval or "yearly",
+                    billing_interval=resolved_interval,
                     service_code=SMART_CARD_SERVICE_CODE,
                     customer_email=user_email,
                     seat_quantity=seats,
@@ -128,13 +254,14 @@ class SmartCardBillingService:
             "amount_minor": amount_minor,
             "unit_minor": unit_minor,
             "seat_quantity": seats,
-            "billing_interval": interval or "yearly",
+            "billing_interval": resolved_interval,
             "client_secret": intent.get("client_secret"),
             "intent_id": intent.get("payment_intent_id") or intent.get("intent_id"),
             "checkout": intent,
             "plan_id": plan.id,
             "service_code": SMART_CARD_SERVICE_CODE,
             "publishable_key": intent.get("publishable_key"),
+            "promo_discount_applied": promo_applied,
         }
 
     @staticmethod
@@ -146,6 +273,7 @@ class SmartCardBillingService:
         provider: str,
         payment_intent_id: str,
         seat_quantity: int | None = None,
+        billing_interval: str | None = None,
     ) -> Subscription:
         plan, _pkg = SmartCardBillingService._validate_plan(db, plan_id)
         pid = str(payment_intent_id or "").strip()
@@ -157,11 +285,11 @@ class SmartCardBillingService:
 
         try:
             if prov == "stripe":
-                from app.services.stripe_payment_service import StripePaymentService, StripeProviderError
+                from app.services.stripe_payment_service import StripePaymentService
 
                 intent = StripePaymentService.retrieve_intent(db, pid)
             else:
-                from app.services.airwallex_payment_service import AirwallexPaymentService, AirwallexProviderError
+                from app.services.airwallex_payment_service import AirwallexPaymentService
 
                 intent = AirwallexPaymentService.retrieve_intent(db, pid)
         except Exception as exc:
@@ -195,13 +323,19 @@ class SmartCardBillingService:
         if seats < 1:
             raise SmartCardBillingError("seat_quantity missing from payment")
 
+        interval = PlanPriceService.normalize_billing_interval(
+            billing_interval
+            or meta.get("voxbulk_billing_interval")
+            or "yearly"
+        )
+
         sub = CardSubscriptionActivationService.activate_from_payment(
             db,
             org=org,
             plan=plan,
             provider=prov,
             payment_intent_id=pid,
-            billing_interval="yearly",
+            billing_interval=interval,
             service_code=SMART_CARD_SERVICE_CODE,
             seat_quantity=seats,
             amount_override_minor=int(meta.get("voxbulk_amount_minor") or 0) or None,

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Sparkles, Smile } from "lucide-react";
+import { Sparkles, Smile, QrCode } from "lucide-react";
 import * as React from "react";
 
 import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   meta: ProductPanelMeta;
-  finance?: SubscriptionFinanceSummary | null;
+  finance?: (SubscriptionFinanceSummary & { seat_quantity?: number | null; is_payg?: boolean }) | null;
   allowanceRows: AllowanceRow[];
   planLabel?: string;
   billingInterval?: string | null;
@@ -37,7 +37,9 @@ type Props = {
 function formatSubDate(raw: unknown) {
   if (!raw) return "";
   const d = new Date(String(raw));
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
 export function BillingProductColumn({
@@ -56,26 +58,50 @@ export function BillingProductColumn({
   usedOnlyKpis,
   valuePool,
 }: Props) {
-  const Icon = meta.product === "feedback" ? Smile : Sparkles;
-  const planName = planLabel || finance?.plan_name || finance?.plan_code || (isPayg ? "Pay as you go" : "—");
+  const Icon = meta.product === "feedback" ? Smile : meta.product === "smart_card" ? QrCode : Sparkles;
+  const iconTint =
+    meta.product === "feedback"
+      ? "text-emerald-600"
+      : meta.product === "smart_card"
+        ? "text-violet-600"
+        : "text-sky-600";
+  const planName =
+    planLabel ||
+    finance?.plan_name ||
+    finance?.plan_code ||
+    (isPayg || finance?.is_payg ? "Pay as you go" : "—");
   const interval =
-    billingInterval === "yearly" ? "Yearly" : billingInterval === "monthly" ? "Monthly" : finance?.billing_interval === "yearly" ? "Yearly" : finance?.billing_interval === "monthly" ? "Monthly" : null;
+    billingInterval === "yearly"
+      ? "Yearly"
+      : billingInterval === "monthly"
+        ? "Monthly"
+        : finance?.billing_interval === "yearly"
+          ? "Yearly"
+          : finance?.billing_interval === "monthly"
+            ? "Monthly"
+            : null;
   const nextDate = finance?.cancel_at_period_end
     ? formatSubDate(finance.current_period_end || finance.next_billing_date)
     : formatSubDate(finance?.next_billing_date || finance?.current_period_end);
-  const nextAmount = finance?.amount_next_payment_display || "—";
+  const nextAmount =
+    finance?.amount_next_payment_display || (isPayg || finance?.is_payg ? "Pay as you go" : "—");
+  const seats = finance?.seat_quantity != null && finance.seat_quantity > 0 ? finance.seat_quantity : null;
+  const hasPlan = Boolean(finance?.plan_name || finance?.plan_code || isPayg || finance?.is_payg || planLabel);
 
   return (
     <Card className={cn("overflow-hidden ring-1", meta.tintClass, meta.ringClass)}>
       <CardHeader className="space-y-3 pb-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className={cn("grid size-10 place-items-center rounded-xl bg-background shadow-sm", meta.product === "feedback" ? "text-success" : "text-primary")}>
-              <Icon className="size-5" />
+          <div className="flex items-center gap-3">
+            <div className={cn("grid size-14 place-items-center rounded-2xl bg-background shadow-sm", iconTint)}>
+              <Icon className="size-7" strokeWidth={1.75} />
             </div>
             <div>
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{meta.title}</p>
-              <p className="text-lg font-semibold">{planName}{interval ? ` · ${interval}` : ""}</p>
+              <p className="text-lg font-semibold">
+                {planName}
+                {interval ? ` · ${interval}` : ""}
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -84,9 +110,14 @@ export function BillingProductColumn({
                 {b.label}
               </Badge>
             ))}
+            {seats != null ? (
+              <Badge variant="outline" className="text-[10px]">
+                {seats} seat{seats === 1 ? "" : "s"}
+              </Badge>
+            ) : null}
           </div>
         </div>
-        {isPayg ? (
+        {isPayg || finance?.is_payg ? (
           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="text-muted-foreground">
               Wallet: <strong className="text-foreground">{walletDisplay || "—"}</strong>
@@ -101,12 +132,12 @@ export function BillingProductColumn({
               </Button>
             )}
           </div>
-        ) : finance?.plan_name || finance?.plan_code ? (
+        ) : hasPlan ? (
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>
               Next payment: <strong className="text-foreground">{nextAmount}</strong>
               {nextDate ? <> · {nextDate}</> : null}
-              {finance.cancel_at_period_end ? " · Cancels at period end" : null}
+              {finance?.cancel_at_period_end ? " · Cancels at period end" : null}
             </p>
             <Button asChild size="sm" variant="link" className="h-auto p-0">
               <Link to={meta.packagesLink} search={meta.packagesSearch}>
@@ -114,7 +145,16 @@ export function BillingProductColumn({
               </Link>
             </Button>
           </div>
-        ) : null}
+        ) : (
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <p>No active subscription</p>
+            <Button asChild size="sm" variant="link" className="h-auto p-0">
+              <Link to={meta.packagesLink} search={meta.packagesSearch}>
+                View packages →
+              </Link>
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="pt-0">
         {valuePool?.active && valuePool.usedDisplay && valuePool.includedDisplay ? (
@@ -126,14 +166,16 @@ export function BillingProductColumn({
             className="mb-3"
           />
         ) : null}
-        <AllowanceProductPanel
-          meta={meta}
-          rows={allowanceRows}
-          sharedPool={sharedPool}
-          compact={compact}
-          hideFooter
-          usedOnlyKpis={usedOnlyKpis}
-        />
+        {allowanceRows.length > 0 ? (
+          <AllowanceProductPanel
+            meta={meta}
+            rows={allowanceRows}
+            sharedPool={sharedPool}
+            compact={compact}
+            hideFooter
+            usedOnlyKpis={usedOnlyKpis}
+          />
+        ) : null}
         {footerNote ? <div className="mt-3 border-t border-border/60 pt-3">{footerNote}</div> : null}
       </CardContent>
     </Card>

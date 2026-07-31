@@ -89,7 +89,9 @@ class BillingFinanceService:
             if sub.cancel_at_period_end:
                 sub.amount_next_payment_minor = 0
             elif sub.next_billing_date:
-                _currency, sub.amount_next_payment_minor = PlanPriceService.monthly_minor_for_org(db, org, plan)
+                _currency, sub.amount_next_payment_minor = PlanPriceService.subscription_charge_amount_for_org(
+                    db, org, plan, sub
+                )
         db.add(sub)
         if commit:
             db.commit()
@@ -110,7 +112,7 @@ class BillingFinanceService:
         currency = resolve_org_currency(db, org) if org else "GBP"
         amount_minor = int(sub.amount_next_payment_minor or 0)
         if not amount_minor and plan and org and not sub.cancel_at_period_end:
-            _currency, amount_minor = PlanPriceService.monthly_minor_for_org(db, org, plan)
+            _currency, amount_minor = PlanPriceService.subscription_charge_amount_for_org(db, org, plan, sub)
         next_billing = sub.next_billing_date
         if not next_billing and sub.cancel_at_period_end and sub.cancellation_effective_at:
             next_billing = sub.cancellation_effective_at
@@ -140,6 +142,7 @@ class BillingFinanceService:
             "cancellation_status": sub.cancellation_status,
             "mandate_status": sub.mandate_status,
             "payment_provider": sub.payment_provider,
+            "seat_quantity": int(sub.seat_quantity or 0) if getattr(sub, "seat_quantity", None) is not None else None,
         }
 
     @staticmethod

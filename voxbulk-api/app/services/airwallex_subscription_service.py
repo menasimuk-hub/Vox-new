@@ -118,6 +118,9 @@ class AirwallexSubscriptionService:
         currency, amount_minor, _interval = PlanPriceService.billing_amount_for_org(
             db, org, plan, sub.billing_interval
         )
+        if str(getattr(sub, "service_code", "") or "").lower() == "smart_card":
+            seats = max(1, int(getattr(sub, "seat_quantity", None) or 1))
+            amount_minor = int(amount_minor or 0) * seats
         if amount_minor <= 0:
             stats["renewal_skipped"] = "1"
             return stats

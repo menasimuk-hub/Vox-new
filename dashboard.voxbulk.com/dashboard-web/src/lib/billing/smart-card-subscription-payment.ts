@@ -5,6 +5,8 @@ import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
 export const CARD_SMART_CARD_PLAN_KEY = "voxbulk_card_smart_card_plan_id";
 export const CARD_SMART_CARD_SEATS_KEY = "voxbulk_card_smart_card_seats";
 export const CARD_SMART_CARD_PROVIDER_KEY = "voxbulk_card_smart_card_provider";
+export const CARD_SMART_CARD_INTERVAL_KEY = "voxbulk_card_smart_card_interval";
+export const GC_SMART_CARD_FLOW_KEY = "voxbulk_gc_smart_card_redirect_flow_id";
 
 type SeatCheckoutResponse = {
   ok?: boolean;
@@ -18,20 +20,36 @@ type SeatCheckoutResponse = {
   payment_intent_id?: string;
   publishable_key?: string;
   plan_id: string;
+  paid?: boolean;
+  subscription_id?: string;
   checkout?: Record<string, unknown> & { environment?: string };
 };
 
-export async function startSmartCardSeatCheckout(planId: string, seatQuantity: number) {
+export async function startSmartCardSeatCheckout(
+  planId: string,
+  seatQuantity: number,
+  billingInterval: "monthly" | "yearly" = "yearly",
+) {
   const result = await apiFetch<SeatCheckoutResponse>("/smart-card/billing/checkout", {
     method: "POST",
-    body: JSON.stringify({ plan_id: planId, seat_quantity: seatQuantity }),
+    body: JSON.stringify({
+      plan_id: planId,
+      seat_quantity: seatQuantity,
+      billing_interval: billingInterval,
+    }),
   });
+
+  if (result.provider === "promo_discount" && result.paid) {
+    return result;
+  }
+
   const intentId = result.intent_id || result.payment_intent_id || "";
   if (!intentId) throw new Error("Checkout did not return a payment intent");
 
   sessionStorage.setItem(CARD_SMART_CARD_PLAN_KEY, planId);
   sessionStorage.setItem(CARD_SMART_CARD_SEATS_KEY, String(seatQuantity));
   sessionStorage.setItem(CARD_SMART_CARD_PROVIDER_KEY, result.provider);
+  sessionStorage.setItem(CARD_SMART_CARD_INTERVAL_KEY, billingInterval);
 
   if (result.provider === "airwallex") {
     if (!result.client_secret) throw new Error("Airwallex checkout is not configured");
@@ -66,6 +84,7 @@ export async function completeSmartCardSeatCheckout(paymentIntentId: string) {
   const planId = sessionStorage.getItem(CARD_SMART_CARD_PLAN_KEY) || "";
   const seats = Number(sessionStorage.getItem(CARD_SMART_CARD_SEATS_KEY) || "0");
   const provider = (sessionStorage.getItem(CARD_SMART_CARD_PROVIDER_KEY) || "stripe").toLowerCase();
+  const interval = (sessionStorage.getItem(CARD_SMART_CARD_INTERVAL_KEY) || "yearly").toLowerCase();
   return apiFetch("/smart-card/billing/complete", {
     method: "POST",
     body: JSON.stringify({
@@ -73,6 +92,40 @@ export async function completeSmartCardSeatCheckout(paymentIntentId: string) {
       provider: provider === "airwallex" ? "airwallex" : "stripe",
       payment_intent_id: paymentIntentId,
       seat_quantity: seats > 0 ? seats : undefined,
+      billing_interval: interval === "monthly" ? "monthly" : "yearly",
     }),
+  });
+}
+
+export async function startSmartCardGoCardless(
+  planId: string,
+  seatQuantity: number,
+  billingInterval: "monthly" | "yearly" = "monthly",
+) {
+  const result = await apiFetch<{
+    redirect_flow_id?: string;
+    authorization_url?: string;
+  }>("/smart-card/billing/gocardless/start", {
+    method: "POST",
+    body: JSON.stringify({
+      plan_id: planId,
+      seat_quantity: seatQuantity,
+      billing_interval: billingInterval,
+    }),
+  });
+  const redirectFlowId = result?.redirect_flow_id;
+  const authorizationUrl = result?.authorization_url;
+  if (!redirectFlowId || !authorizationUrl) {
+    throw new Error("GoCardless did not return a redirect URL");
+  }
+  sessionStorage.setItem(GC_SMART_CARD_FLOW_KEY, redirectFlowId);
+  window.location.assign(authorizationUrl);
+  return result;
+}
+
+export async function completeSmartCardGoCardless(redirectFlowId: string) {
+  return apiFetch("/smart-card/billing/gocardless/complete", {
+    method: "POST",
+    body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
   });
 }

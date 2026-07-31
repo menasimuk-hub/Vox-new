@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice, PricingCurrencySettings
+from app.models.subscription import Subscription
 from app.services.billing_currency import (
     SUPPORTED_CURRENCIES,
     money_display,
@@ -247,6 +248,27 @@ class PlanPriceService:
         if monthly_minor is not None and int(monthly_minor) > 0:
             return int(monthly_minor) * 10
         return None
+
+    @staticmethod
+    def subscription_charge_amount_for_org(
+        db: Session,
+        org: Organisation | None,
+        plan: Plan,
+        sub: Subscription | None = None,
+        *,
+        billing_interval: str | None = None,
+    ) -> tuple[str, int]:
+        """Return (currency, amount_minor) for renewal / next payment, including Smart Card seats."""
+        interval = PlanPriceService.normalize_billing_interval(
+            billing_interval or (getattr(sub, "billing_interval", None) if sub else None)
+        )
+        currency, unit_minor, _ = PlanPriceService.billing_amount_for_org(db, org, plan, interval)
+        amount = int(unit_minor or 0)
+        svc = str(getattr(sub, "service_code", None) or getattr(plan, "service_kind", None) or "").strip().lower()
+        if svc == "smart_card" and sub is not None:
+            seats = max(1, int(getattr(sub, "seat_quantity", None) or 1))
+            amount = amount * seats
+        return currency, amount
 
     @staticmethod
     def billing_amount_for_org(
