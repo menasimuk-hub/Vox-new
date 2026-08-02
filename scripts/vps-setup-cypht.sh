@@ -131,84 +131,44 @@ link_compose() {
   # compose file uses ./data/... which is correct when cwd is DATA_DIR.
 }
 
-find_ssl_paths() {
-  local cert="" key=""
-  # Prefer existing aaPanel / Let's Encrypt certs for this domain or wildcard.
-  local candidates=(
-    "/www/server/panel/vhost/cert/${DOMAIN}/fullchain.pem"
-    "/www/server/panel/vhost/ssl/${DOMAIN}/fullchain.pem"
-    "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
-    "/www/server/panel/vhost/cert/voxbulk.com/fullchain.pem"
-    "/etc/letsencrypt/live/voxbulk.com/fullchain.pem"
-  )
-  local key_candidates=(
-    "/www/server/panel/vhost/cert/${DOMAIN}/privkey.pem"
-    "/www/server/panel/vhost/ssl/${DOMAIN}/privkey.pem"
-    "/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
-    "/www/server/panel/vhost/cert/voxbulk.com/privkey.pem"
-    "/etc/letsencrypt/live/voxbulk.com/privkey.pem"
-  )
-  local i
-  for i in "${!candidates[@]}"; do
-    if [[ -f "${candidates[$i]}" && -f "${key_candidates[$i]}" ]]; then
-      cert="${candidates[$i]}"
-      key="${key_candidates[$i]}"
-      break
-    fi
-  done
+install_domain_cert() {
+  # Always use a cert whose CN/SAN is this domain — never borrow voxbulk.com/admin certs
+  # (wrong SNI fallthrough previously served Admin UI for allmail).
+  local ssldir="/www/server/panel/vhost/cert/${DOMAIN}"
+  local webroot="/www/wwwroot/${DOMAIN}"
+  mkdir -p "$ssldir" "$webroot/.well-known/acme-challenge"
 
-  # Broader search under aaPanel cert dirs
-  if [[ -z "$cert" ]]; then
-    cert="$(find /www/server/panel/vhost/cert /www/server/panel/vhost/ssl /etc/letsencrypt/live \
-      -type f \( -name 'fullchain.pem' -o -name 'fullchain.cer' \) 2>/dev/null \
-      | head -1 || true)"
-    if [[ -n "$cert" ]]; then
-      local dir
-      dir="$(dirname "$cert")"
-      if [[ -f "$dir/privkey.pem" ]]; then
-        key="$dir/privkey.pem"
-      elif [[ -f "$dir/privkey.key" ]]; then
-        key="$dir/privkey.key"
+  if [[ -f "$ssldir/fullchain.pem" && -f "$ssldir/privkey.pem" && ! -L "$ssldir/fullchain.pem" ]]; then
+    if openssl x509 -in "$ssldir/fullchain.pem" -noout -checkend 86400 >/dev/null 2>&1; then
+      local san
+      san="$(openssl x509 -in "$ssldir/fullchain.pem" -noout -text 2>/dev/null | tr -d '\n' || true)"
+      if [[ "$san" == *"$DOMAIN"* ]]; then
+        SSL_CERT="$ssldir/fullchain.pem"
+        SSL_KEY="$ssldir/privkey.pem"
+        info "Using existing SSL cert: $SSL_CERT"
+        return 0
       fi
     fi
   fi
 
-  if [[ -z "$cert" || -z "$key" || ! -f "$cert" || ! -f "$key" ]]; then
-    return 1
-  fi
-  SSL_CERT="$cert"
-  SSL_KEY="$key"
-  return 0
-}
-
-issue_ssl_if_needed() {
-  if [[ "${CYPHT_SKIP_SSL:-0}" == "1" ]]; then
-    warn "CYPHT_SKIP_SSL=1 — skipping SSL discovery/issue"
-    return 1
-  fi
-  if find_ssl_paths; then
-    info "Using SSL cert: $SSL_CERT"
-    return 0
-  fi
   if command -v certbot >/dev/null 2>&1; then
     info "Requesting Let's Encrypt cert for ${DOMAIN}…"
-    # Prefer webroot if aaPanel wwwroot exists; else nginx plugin / standalone briefly.
-    local webroot="/www/wwwroot/${DOMAIN}"
-    mkdir -p "$webroot"
     if certbot certonly --webroot -w "$webroot" -d "$DOMAIN" --non-interactive --agree-tos \
         --register-unsafely-without-email --keep-until-expiring 2>/tmp/cypht-certbot.log; then
-      find_ssl_paths && return 0
+      # Remove dangling relative symlinks certbot may drop under aaPanel cert dir
+      rm -f "$ssldir/fullchain.pem" "$ssldir/privkey.pem"
+      cp -L "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" "$ssldir/fullchain.pem"
+      cp -L "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" "$ssldir/privkey.pem"
+      SSL_CERT="$ssldir/fullchain.pem"
+      SSL_KEY="$ssldir/privkey.pem"
+      info "Installed Let's Encrypt cert into $ssldir"
+      return 0
     fi
-    warn "certbot webroot failed — see /tmp/cypht-certbot.log; trying nginx plugin"
-    if certbot certonly --nginx -d "$DOMAIN" --non-interactive --agree-tos \
-        --register-unsafely-without-email --keep-until-expiring 2>>/tmp/cypht-certbot.log; then
-      find_ssl_paths && return 0
-    fi
+    warn "certbot failed — see /tmp/cypht-certbot.log"
   fi
-  # aaPanel often issues via panel API — fall back to self-signed so nginx can start.
-  warn "No SSL cert found — creating short-term self-signed cert (replace via aaPanel SSL)"
-  local ssldir="/www/server/panel/vhost/cert/${DOMAIN}"
-  mkdir -p "$ssldir"
+
+  warn "Creating short-term self-signed cert (replace via aaPanel → SSL)"
+  rm -f "$ssldir/fullchain.pem" "$ssldir/privkey.pem"
   openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
     -keyout "$ssldir/privkey.pem" \
     -out "$ssldir/fullchain.pem" \
@@ -218,6 +178,47 @@ issue_ssl_if_needed() {
   return 0
 }
 
+register_aapanel_site() {
+  local db="/www/server/panel/data/default.db"
+  local wwwroot="/www/wwwroot/${DOMAIN}"
+  [[ -f "$db" ]] || { warn "aaPanel DB missing — skip panel registration"; return 0; }
+  command -v sqlite3 >/dev/null 2>&1 || { warn "sqlite3 missing — skip panel registration"; return 0; }
+
+  mkdir -p "$wwwroot" \
+    "/www/server/panel/vhost/nginx/extension/${DOMAIN}" \
+    /www/server/panel/vhost/nginx/well-known \
+    /www/server/panel/vhost/rewrite
+  echo "Cypht multi-account webmail" > "$wwwroot/index.html"
+  cat > "/www/server/panel/vhost/nginx/well-known/${DOMAIN}.conf" <<EOF
+location ^~ /.well-known/acme-challenge/ {
+    root ${wwwroot};
+    default_type text/plain;
+    allow all;
+}
+EOF
+  touch "/www/server/panel/vhost/rewrite/${DOMAIN}.conf"
+
+  local site_id now
+  now="$(date '+%Y-%m-%d %H:%M:%S')"
+  site_id="$(sqlite3 "$db" "SELECT id FROM sites WHERE name='${DOMAIN}' LIMIT 1;")"
+  if [[ -z "$site_id" ]]; then
+    sqlite3 "$db" "INSERT INTO sites(name,path,status,\"index\",ps,addtime,type_id,edate,project_type) VALUES('${DOMAIN}','${wwwroot}','1','index.html','Cypht multi-account webmail','${now}',0,'0000-00-00','PHP');"
+    site_id="$(sqlite3 "$db" "SELECT id FROM sites WHERE name='${DOMAIN}' LIMIT 1;")"
+    info "Registered aaPanel site id=${site_id}"
+  else
+    sqlite3 "$db" "UPDATE sites SET status='1', path='${wwwroot}', ps='Cypht multi-account webmail' WHERE id=${site_id};"
+    info "Updated aaPanel site id=${site_id}"
+  fi
+
+  local dom_id
+  dom_id="$(sqlite3 "$db" "SELECT id FROM domain WHERE name='${DOMAIN}' LIMIT 1;")"
+  if [[ -z "$dom_id" ]]; then
+    sqlite3 "$db" "INSERT INTO domain(pid,name,port,addtime) VALUES(${site_id},'${DOMAIN}',80,'${now}');"
+  else
+    sqlite3 "$db" "UPDATE domain SET pid=${site_id} WHERE id=${dom_id};"
+  fi
+}
+
 write_nginx() {
   if [[ "${CYPHT_SKIP_NGINX:-0}" == "1" ]]; then
     warn "CYPHT_SKIP_NGINX=1 — skip nginx vhost"
@@ -225,10 +226,18 @@ write_nginx() {
   fi
   command -v nginx >/dev/null 2>&1 || fail "nginx not found (aaPanel nginx expected)"
 
-  SSL_CERT=""
-  SSL_KEY=""
-  issue_ssl_if_needed || true
-  [[ -n "${SSL_CERT:-}" && -n "${SSL_KEY:-}" ]] || fail "Could not resolve SSL paths for ${DOMAIN}"
+  register_aapanel_site
+
+  # Write HTTP+ACME vhost first so certbot webroot can succeed, then SSL paths.
+  SSL_CERT="/www/server/panel/vhost/cert/${DOMAIN}/fullchain.pem"
+  SSL_KEY="/www/server/panel/vhost/cert/${DOMAIN}/privkey.pem"
+  mkdir -p "$(dirname "$SSL_CERT")" /www/wwwlogs
+  if [[ ! -f "$SSL_CERT" || -L "$SSL_CERT" ]]; then
+    rm -f "$SSL_CERT" "$SSL_KEY"
+    openssl req -x509 -nodes -newkey rsa:2048 -days 2 \
+      -keyout "$SSL_KEY" -out "$SSL_CERT" \
+      -subj "/CN=${DOMAIN}" >/dev/null 2>&1
+  fi
 
   local tmp
   tmp="$(mktemp)"
@@ -238,12 +247,10 @@ write_nginx() {
     -e "s|__CYPHT_HOST_PORT__|${HOST_PORT}|g" \
     "$NGINX_TMPL" > "$tmp"
 
-  mkdir -p "$(dirname "$NGINX_VHOST")" /www/wwwlogs
-  # Ensure site is not left in aaPanel "stopped" state: write live vhost.
+  mkdir -p "$(dirname "$NGINX_VHOST")"
   cp -a "$tmp" "$NGINX_VHOST"
   rm -f "$tmp"
 
-  # Remove aaPanel "website stopped" placeholder if present for this domain.
   local stopped
   for stopped in \
     "/www/server/stop/${DOMAIN}.conf" \
@@ -252,11 +259,24 @@ write_nginx() {
     [[ -e "$stopped" ]] && rm -f "$stopped" && info "Removed stopped-site marker $stopped"
   done
 
-  # Soft-enable: if panel stores a .bak stop pattern, ensure our conf is the active name.
   nginx -t 2>&1 | tee /tmp/cypht-nginx-test.log >/dev/null || {
     cat /tmp/cypht-nginx-test.log >&2
     fail "nginx -t failed after writing $NGINX_VHOST"
   }
+  nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true
+
+  if [[ "${CYPHT_SKIP_SSL:-0}" != "1" ]]; then
+    install_domain_cert
+    sed -i \
+      -e "s|ssl_certificate    .*|ssl_certificate    ${SSL_CERT};|" \
+      -e "s|ssl_certificate_key    .*|ssl_certificate_key    ${SSL_KEY};|" \
+      "$NGINX_VHOST" || true
+    nginx -t 2>&1 | tee /tmp/cypht-nginx-test.log >/dev/null || {
+      cat /tmp/cypht-nginx-test.log >&2
+      fail "nginx -t failed after SSL install"
+    }
+  fi
+
   if systemctl reload nginx 2>/dev/null || nginx -s reload 2>/dev/null; then
     info "nginx reloaded with $NGINX_VHOST"
   else

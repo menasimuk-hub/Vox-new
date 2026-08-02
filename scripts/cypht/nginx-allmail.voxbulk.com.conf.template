@@ -1,37 +1,47 @@
-# aaPanel / nginx vhost for Cypht multi-account webmail
+# aaPanel-style nginx vhost for Cypht multi-account webmail
 # Domain: allmail.voxbulk.com → 127.0.0.1:CYPHT_HOST_PORT (default 8090)
-#
-# Installed by scripts/vps-setup-cypht.sh — do not hand-edit the live copy
-# under /www/server/panel/vhost/nginx/ unless you know aaPanel will keep it.
+# Installed by scripts/vps-setup-cypht.sh
 
-server {
+server
+{
     listen 80;
     listen [::]:80;
     server_name allmail.voxbulk.com;
-    return 301 https://$host$request_uri;
+    index index.html index.htm;
+    root /www/wwwroot/allmail.voxbulk.com;
+    include /www/server/panel/vhost/nginx/extension/allmail.voxbulk.com/*.conf;
+    include /www/server/panel/vhost/nginx/well-known/allmail.voxbulk.com.conf;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+    access_log  /www/wwwlogs/allmail.voxbulk.com.log;
+    error_log  /www/wwwlogs/allmail.voxbulk.com.error.log;
 }
 
-server {
+server
+{
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
     server_name allmail.voxbulk.com;
+    index index.html index.htm;
+    root /www/wwwroot/allmail.voxbulk.com;
+    include /www/server/panel/vhost/nginx/extension/allmail.voxbulk.com/*.conf;
+    include /www/server/panel/vhost/nginx/well-known/allmail.voxbulk.com.conf;
 
-    # Paths filled by the setup script (Let's Encrypt / aaPanel SSL).
-    ssl_certificate __SSL_CERT__;
-    ssl_certificate_key __SSL_KEY__;
+    #SSL-START
+    ssl_certificate    __SSL_CERT__;
+    ssl_certificate_key    __SSL_KEY__;
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-
-    # Hardening
-    add_header Strict-Transport-Security "max-age=31536000" always;
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    ssl_ciphers EECDH+CHACHA20:EECDH+AES128:RSA+AES128:EECDH+AES256:RSA+AES256:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    add_header Strict-Transport-Security "max-age=31536000";
+    error_page 497  https://$host$request_uri;
+    #SSL-END
 
     client_max_body_size 60m;
-
-    access_log /www/wwwlogs/allmail.voxbulk.com.log;
-    error_log /www/wwwlogs/allmail.voxbulk.com.error.log;
 
     location / {
         proxy_pass http://127.0.0.1:__CYPHT_HOST_PORT__;
@@ -45,4 +55,7 @@ server {
         proxy_send_timeout 120s;
         proxy_buffering off;
     }
+
+    access_log  /www/wwwlogs/allmail.voxbulk.com.log;
+    error_log  /www/wwwlogs/allmail.voxbulk.com.error.log;
 }
