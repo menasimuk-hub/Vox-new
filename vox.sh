@@ -517,6 +517,40 @@ case "${1:-}" in
   install-service|install_service)
     install_service
     ;;
+  install-cypht|install_cypht)
+    CYPHT_SETUP="$ROOT/scripts/vps-setup-cypht.sh"
+    if [[ ! -f "$CYPHT_SETUP" ]]; then
+      echo "Missing $CYPHT_SETUP"
+      exit 1
+    fi
+    if [[ "$(id -u)" -eq 0 ]]; then
+      bash "$CYPHT_SETUP"
+    else
+      sudo bash "$CYPHT_SETUP"
+    fi
+    ;;
+  cypht-status|cypht_status)
+    if [[ -f /etc/systemd/system/voxbulk-cypht.service ]]; then
+      systemctl status voxbulk-cypht.service --no-pager -l || true
+      echo ""
+      docker ps --filter name=voxbulk-cypht --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || true
+    else
+      echo "voxbulk-cypht: not installed — run: ./vox.sh install-cypht"
+    fi
+    ;;
+  cypht-restart|cypht_restart)
+    if [[ -f /etc/systemd/system/voxbulk-cypht.service ]]; then
+      if [[ "$(id -u)" -eq 0 ]]; then
+        systemctl restart voxbulk-cypht.service
+      else
+        sudo systemctl restart voxbulk-cypht.service
+      fi
+      systemctl status voxbulk-cypht.service --no-pager -l || true
+    else
+      echo "voxbulk-cypht: not installed — run: ./vox.sh install-cypht"
+      exit 1
+    fi
+    ;;
   update|deploy)
     DEPLOY_SCRIPT="$ROOT/deploy-vps.sh"
     if [[ ! -f "$DEPLOY_SCRIPT" ]]; then
@@ -534,7 +568,7 @@ case "${1:-}" in
     bash "$SYNC_SCRIPT"
     ;;
   *)
-    echo "Usage: $0 {start|stop|restart|reload|status|install-service|update|deploy|sync-dashboard|dashboard}"
+    echo "Usage: $0 {start|stop|restart|reload|status|install-service|install-cypht|cypht-status|cypht-restart|update|deploy|sync-dashboard|dashboard}"
     exit 1
     ;;
 esac
