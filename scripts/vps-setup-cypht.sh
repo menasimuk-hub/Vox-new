@@ -129,6 +129,22 @@ link_compose() {
   cp -a "$COMPOSE_SRC" "$COMPOSE_LINK"
   # Relative volume paths in compose → DATA_DIR/data/*
   # compose file uses ./data/... which is correct when cwd is DATA_DIR.
+
+  # VoxBulk logos for Cypht login / header (mounted read-only into the container).
+  local brand_src="$ROOT/scripts/cypht/brand"
+  local brand_dst="$DATA_DIR/brand"
+  mkdir -p "$brand_dst"
+  if [[ -d "$brand_src" ]]; then
+    cp -a "$brand_src/." "$brand_dst/"
+    info "Synced VoxBulk brand assets → $brand_dst"
+  else
+    warn "Missing $brand_src — Cypht will keep default logos"
+  fi
+
+  # Ensure APP_NAME is set for UI branding text
+  if [[ -f "$ENV_FILE" ]] && ! grep -q '^APP_NAME=' "$ENV_FILE" 2>/dev/null; then
+    echo "APP_NAME=VoxBulk Mail" >> "$ENV_FILE"
+  fi
 }
 
 install_domain_cert() {

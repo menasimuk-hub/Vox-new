@@ -50,6 +50,7 @@ services:
       USER_SETTINGS_DIR: /var/lib/hm3/users
       ATTACHMENT_DIR: /var/lib/hm3/attachments
       # Behind aaPanel nginx TLS termination
+      APP_NAME: ${APP_NAME:-VoxBulk Mail}
       DISABLE_ORIGIN_CHECK: ${CYPHT_DISABLE_ORIGIN_CHECK:-true}
       COOKIE_DOMAIN: ${CYPHT_COOKIE_DOMAIN:-allmail.voxbulk.com}
       DEFAULT_LANGUAGE: en
@@ -60,3 +61,7 @@ services:
       - ./data/app_data:/var/lib/hm3/app_data
       - ./data/log/nginx:/var/log/nginx
       - ./data/log/php:/var/log/php
+      # VoxBulk branding (login + in-app logo)
+      - ./brand/logo-black.svg:/usr/local/share/cypht/modules/core/assets/images/logo_dark.svg:ro
+      - ./brand/logo-black.svg:/usr/local/share/cypht/modules/core/assets/images/logo.svg:ro
+      - ./brand/favicon.ico:/usr/local/share/cypht/modules/core/assets/images/favicon.ico:ro
