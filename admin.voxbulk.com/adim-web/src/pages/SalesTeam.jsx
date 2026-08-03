@@ -787,171 +787,146 @@ export default function SalesTeam() {
         </div>
       </header>
       {renderKpiStrip()}
-      <section className='accounts-layout'>
-        <div className='accounts-main'>
-          <div className='tabs-toolbar'>
-            <div className='tabs-list'>
-              <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>
-                Salesmen ({allReps.filter((r) => r.kind !== 'partner_channel').length})
-              </button>
-              <button type='button' className={tab === 'partners' ? 'active' : ''} onClick={() => switchTab('partners')}>
-                Partners ({allReps.filter((r) => r.kind === 'partner_channel').length})
-              </button>
-            </div>
-            <div className='search-box'>
-              <IconSearch />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder='Search ID, name, email or code'
-              />
-            </div>
+      <section className='accounts-main'>
+        <div className='tabs-toolbar'>
+          <div className='tabs-list'>
+            <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>
+              Salesmen ({allReps.filter((r) => r.kind !== 'partner_channel').length})
+            </button>
+            <button type='button' className={tab === 'partners' ? 'active' : ''} onClick={() => switchTab('partners')}>
+              Partners ({allReps.filter((r) => r.kind === 'partner_channel').length})
+            </button>
           </div>
-          {loading ? (
-            <div className='empty-state' style={{ marginTop: 16 }}>Loading…</div>
-          ) : filtered.length === 0 ? (
-            <div className='empty-state' style={{ marginTop: 16 }}>
-              <IconEmptyPeople />
-              <div>No accounts yet.</div>
-            </div>
-          ) : (
-            <div className='table-wrap'>
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: 80 }}>ID</th>
-                    <th>Name</th>
-                    <th>Location</th>
-                    <th>Currency</th>
-                    <th>Contact</th>
-                    <th>Promo code</th>
-                    <th>Commission</th>
-                    <th className='tabular'>Revenue</th>
-                    <th>Status</th>
-                    <th style={{ width: 48 }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((rep, idx) => {
-                    const cur = rep.currency || currencyForCountry(rep.country)
-                    const refId = String(1000 + idx + 1).slice(-4)
-                    return (
-                      <tr key={rep.id} className={rep.is_active ? '' : 'frozen'}>
-                        <td className='mono'>#{String(rep.ref_id || refId)}</td>
-                        <td>
-                          <button type='button' className='person-name link-btn' onClick={() => openProfile(rep)} style={{ fontWeight: 500 }}>
-                            {rep.name}
-                          </button>
-                          {rep.company_name ? <div className='muted'>{rep.company_name}</div> : null}
-                        </td>
-                        <td>
-                          <span className='mono'>{rep.country || '—'}</span>
-                          {rep.country ? <span className='muted' style={{ marginLeft: 6 }}>{COUNTRY_NAMES[rep.country] || ''}</span> : null}
-                        </td>
-                        <td>{cur}</td>
-                        <td>
-                          <div>{rep.email}</div>
-                          <div className='muted'>{rep.mobile || '—'}</div>
-                        </td>
-                        <td>
-                          {rep.promo_code ? (
-                            <>
-                              <span className='badge badge-mono'>{rep.promo_code}</span>
-                              <div className='benefit-lines'>
-                                {(rep.promo_benefit_summaries || []).slice(0, 4).map((line) => (
-                                  <div key={line}>{line}</div>
-                                ))}
-                              </div>
-                            </>
-                          ) : (
-                            <span className='muted'>None</span>
-                          )}
-                        </td>
-                        <td>
-                          {rep.commission_summary ? (
-                            <>
-                              <div>{rep.commission_summary}</div>
-                              <div className='muted'>{isPartner ? 'next payment only' : 'monthly tiers'}</div>
-                            </>
-                          ) : (
-                            <span className='muted'>—</span>
-                          )}
-                        </td>
-                        <td className='tabular'>{money(rep.revenue_minor || 0, cur)}</td>
-                        <td>
-                          <span className={`badge ${rep.is_active ? 'badge-active' : 'badge-frozen'}`}>
-                            {rep.is_active ? 'active' : 'frozen'}
-                          </span>
-                        </td>
-                        <td>
-                          <div
-                            className={`row-menu${menuRepId === rep.id ? ' open' : ''}`}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              type='button'
-                              className='row-menu-trigger'
-                              aria-label='Actions'
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setMenuRepId(menuRepId === rep.id ? null : rep.id)
-                              }}
-                            >
-                              <IconMore />
-                            </button>
-                            {menuRepId === rep.id ? (
-                              <div className='row-menu-panel' role='menu'>
-                                <button type='button' onClick={() => { setMenuRepId(null); openProfile(rep) }}>
-                                  <IconProfile /> View profile
-                                </button>
-                                <button type='button' onClick={() => { setMenuRepId(null); openEdit(rep) }}>
-                                  <IconEdit /> Edit
-                                </button>
-                                <button type='button' onClick={() => { setMenuRepId(null); toggleFreeze(rep) }}>
-                                  {rep.is_active ? <><IconFreeze /> Freeze</> : <><IconUnfreeze /> Unfreeze</>}
-                                </button>
-                                <button type='button' onClick={() => { setMenuRepId(null); setPwRep(rep); setPwValue(genPassword()) }}>
-                                  <IconReset /> Reset password
-                                </button>
-                                <div className='row-menu-sep' />
-                                <button type='button' className='danger' onClick={() => { setMenuRepId(null); deleteRep(rep) }}>
-                                  <IconDelete /> Delete
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div className='search-box'>
+            <IconSearch />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder='Search ID, name, email or code'
+            />
+          </div>
         </div>
-        <aside className='aside-card'>
-          <div className='aside-card-head'>
-            <h2>Latest invoices</h2>
-            <button type='button' className='link-all' onClick={() => setView('invoices')}>View all</button>
+        {loading ? (
+          <div className='empty-state' style={{ marginTop: 16 }}>Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div className='empty-state' style={{ marginTop: 16 }}>
+            <IconEmptyPeople />
+            <div>No accounts yet.</div>
           </div>
-          <ul className='aside-list'>
-            {hubInvoices.slice(0, 6).map((inv) => (
-              <li key={inv.id}>
-                <div className='aside-invoice' onClick={() => openInvoiceDetail(inv.id)} role='presentation'>
-                  <div className='aside-invoice-row'>
-                    <span className='inv-num'>{inv.number}</span>
-                    {statusBadge(inv.status)}
-                  </div>
-                  <div className='inv-meta'>
-                    <span className='trunc'>{inv.rep_name || inv.customer || '—'}</span>
-                    <span className='tabular'>{inv.total_display || money(inv.total_minor, inv.currency)}</span>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-          {hubInvoices.length === 0 ? <p className='muted' style={{ marginTop: 12 }}>No hub invoices yet.</p> : null}
-        </aside>
+        ) : (
+          <div className='table-wrap'>
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 80 }}>ID</th>
+                  <th>Name</th>
+                  <th>Location</th>
+                  <th>Currency</th>
+                  <th>Contact</th>
+                  <th>Promo code</th>
+                  <th>Commission</th>
+                  <th className='tabular'>Revenue</th>
+                  <th>Status</th>
+                  <th style={{ width: 48 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((rep, idx) => {
+                  const cur = rep.currency || currencyForCountry(rep.country)
+                  const refId = String(1000 + idx + 1).slice(-4)
+                  return (
+                    <tr key={rep.id} className={rep.is_active ? '' : 'frozen'}>
+                      <td className='mono'>#{String(rep.ref_id || refId)}</td>
+                      <td>
+                        <button type='button' className='person-name link-btn' onClick={() => openProfile(rep)} style={{ fontWeight: 500 }}>
+                          {rep.name}
+                        </button>
+                        {rep.company_name ? <div className='muted'>{rep.company_name}</div> : null}
+                      </td>
+                      <td>
+                        <span className='mono'>{rep.country || '—'}</span>
+                        {rep.country ? <span className='muted' style={{ marginLeft: 6 }}>{COUNTRY_NAMES[rep.country] || ''}</span> : null}
+                      </td>
+                      <td>{cur}</td>
+                      <td>
+                        <div>{rep.email}</div>
+                        <div className='muted'>{rep.mobile || '—'}</div>
+                      </td>
+                      <td>
+                        {rep.promo_code ? (
+                          <>
+                            <span className='badge badge-mono'>{rep.promo_code}</span>
+                            <div className='benefit-lines'>
+                              {(rep.promo_benefit_summaries || []).slice(0, 4).map((line) => (
+                                <div key={line}>{line}</div>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <span className='muted'>None</span>
+                        )}
+                      </td>
+                      <td>
+                        {rep.commission_summary ? (
+                          <>
+                            <div>{rep.commission_summary}</div>
+                            <div className='muted'>{isPartner ? 'next payment only' : 'monthly tiers'}</div>
+                          </>
+                        ) : (
+                          <span className='muted'>—</span>
+                        )}
+                      </td>
+                      <td className='tabular'>{money(rep.revenue_minor || 0, cur)}</td>
+                      <td>
+                        <span className={`badge ${rep.is_active ? 'badge-active' : 'badge-frozen'}`}>
+                          {rep.is_active ? 'active' : 'frozen'}
+                        </span>
+                      </td>
+                      <td>
+                        <div
+                          className={`row-menu${menuRepId === rep.id ? ' open' : ''}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type='button'
+                            className='row-menu-trigger'
+                            aria-label='Actions'
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setMenuRepId(menuRepId === rep.id ? null : rep.id)
+                            }}
+                          >
+                            <IconMore />
+                          </button>
+                          {menuRepId === rep.id ? (
+                            <div className='row-menu-panel' role='menu'>
+                              <button type='button' onClick={() => { setMenuRepId(null); openProfile(rep) }}>
+                                <IconProfile /> View profile
+                              </button>
+                              <button type='button' onClick={() => { setMenuRepId(null); openEdit(rep) }}>
+                                <IconEdit /> Edit
+                              </button>
+                              <button type='button' onClick={() => { setMenuRepId(null); toggleFreeze(rep) }}>
+                                {rep.is_active ? <><IconFreeze /> Freeze</> : <><IconUnfreeze /> Unfreeze</>}
+                              </button>
+                              <button type='button' onClick={() => { setMenuRepId(null); setPwRep(rep); setPwValue(genPassword()) }}>
+                                <IconReset /> Reset password
+                              </button>
+                              <div className='row-menu-sep' />
+                              <button type='button' className='danger' onClick={() => { setMenuRepId(null); deleteRep(rep) }}>
+                                <IconDelete /> Delete
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </>
   )

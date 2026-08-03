@@ -201,21 +201,9 @@
   color: var(--muted-foreground);
 }
 
-/* —— Accounts main + aside (3fr / 1fr) —— */
-.sales-hub .accounts-layout {
-  margin-top: 24px;
-  display: grid;
-  gap: 24px;
-  width: 100%;
-}
-
-@media (min-width: 1280px) {
-  .sales-hub .accounts-layout {
-    grid-template-columns: 3fr 1fr;
-  }
-}
-
+/* —— Accounts table (full width) —— */
 .sales-hub .accounts-main {
+  margin-top: 24px;
   min-width: 0;
   width: 100%;
 }
@@ -384,92 +372,6 @@
   height: 40px;
   margin-bottom: 8px;
   opacity: 0.5;
-}
-
-/* Aside latest invoices */
-.sales-hub .aside-card {
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  padding: 16px;
-  height: fit-content;
-}
-
-.sales-hub .aside-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.sales-hub .aside-card-head h2 {
-  margin: 0;
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-
-.sales-hub .aside-card-head button,
-.sales-hub .aside-card-head .link-all {
-  appearance: none;
-  border: none;
-  background: none;
-  font-size: 0.75rem;
-  color: var(--primary);
-  cursor: pointer;
-  padding: 0;
-}
-
-.sales-hub .aside-card-head .link-all:hover {
-  text-decoration: underline;
-}
-
-.sales-hub .aside-list {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.sales-hub .aside-invoice {
-  display: block;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  padding: 12px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.sales-hub .aside-invoice:hover {
-  background: var(--accent);
-}
-
-.sales-hub .aside-invoice-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sales-hub .aside-invoice .inv-num {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.75rem;
-}
-
-.sales-hub .aside-invoice .inv-meta {
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 0.875rem;
-}
-
-.sales-hub .aside-invoice .inv-meta .trunc {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
 }
 
 /* Badges */
