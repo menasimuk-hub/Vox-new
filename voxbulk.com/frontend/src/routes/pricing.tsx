@@ -58,45 +58,42 @@ type ExpoPlanView = {
 const FALLBACK_EXPO: ExpoPlanView[] = [
   {
     code: "expo_day1",
-    name: "1 Day",
+    name: "Expo 1 Day",
     durationDays: 1,
     price: 49,
     features: [
-      "Booth active for 1 day",
-      "Unique QR code per exhibitor",
-      "WhatsApp qualifying questions",
-      "Optional product / brochure delivery",
-      "Hot / Warm / Cold lead scoring",
-      "Full structured lead export (CSV)",
+      "Booth active 1 day",
+      "1 product category",
+      "Up to 20 files",
+      "Hot / Warm / Cold scoring",
+      "CSV & Excel export",
     ],
   },
   {
     code: "expo_day3",
-    name: "3 Days",
+    name: "Expo 3 Days",
     durationDays: 3,
     price: 99,
     featured: true,
     features: [
-      "Booth active for 3 days",
-      "Unique QR code per exhibitor",
-      "WhatsApp qualifying questions",
-      "Optional product / brochure delivery",
-      "Hot / Warm / Cold lead scoring",
-      "Full structured lead export (CSV)",
+      "Booth active 3 days",
+      "Up to 3 categories",
+      "Up to 40 files",
+      "Hot / Warm / Cold scoring",
+      "CSV & Excel export",
     ],
   },
   {
     code: "expo_day7",
-    name: "7 Days",
+    name: "Expo 7 Days",
     durationDays: 7,
     price: 149,
     features: [
-      "Booth active for 7 days",
-      "Unique QR code per exhibitor",
-      "WhatsApp qualifying questions",
-      "Optional product / brochure delivery",
-      "Hot / Warm / Cold lead scoring",
-      "Full structured lead export (CSV)",
+      "Booth active 7 days",
+      "Unlimited categories",
+      "Up to 100 files",
+      "Post-show follow-up ready",
+      "AI summary report ready",
     ],
   },
 ];
@@ -108,7 +105,7 @@ function mapExpoPlan(p: PublicExpoPlan): ExpoPlanView {
       : Number.parseFloat(String(p.price_display || "").replace(/[^\d.]/g, "")) || 0;
   const days = Math.max(1, Number(p.duration_days) || 1);
   const shortName =
-    /1\s*day/i.test(p.name) ? "1 Day" : /3\s*day/i.test(p.name) ? "3 Days" : /7\s*day/i.test(p.name) ? "7 Days" : p.name;
+    /1\s*day/i.test(p.name) ? "Expo 1 Day" : /3\s*day/i.test(p.name) ? "Expo 3 Days" : /7\s*day/i.test(p.name) ? "Expo 7 Days" : p.name;
   return {
     code: p.code,
     name: shortName,
@@ -238,7 +235,7 @@ function feedbackPlanFeatures(p: FeedbackPlan, apiPlan?: PublicFeedbackPlan | nu
 function corePlanFeatureLines(p: CorePlanView, apiPlan?: PublicPlan | null): string[] {
   if (apiPlan?.features?.length) return apiPlan.features;
   if (p.enterprise) {
-    return ["Custom minutes & allowances", "Volume rates ┬╖ SLA", "Dedicated support"];
+    return ["Custom minutes & allowances", "Volume rates · SLA", "Dedicated support"];
   }
   if (p.payg) {
     return [
@@ -246,7 +243,7 @@ function corePlanFeatureLines(p: CorePlanView, apiPlan?: PublicPlan | null): str
       "Pay per minute for interview calls",
       "Pay per WhatsApp survey sent",
       "Pay per CV scan",
-      "Wallet top-up credits ΓÇö no expiry",
+      "Wallet top-up credits — no expiry",
     ];
   }
   const waV = typeof p.wa === "number" ? p.wa.toLocaleString() : String(p.wa);
@@ -258,6 +255,10 @@ function corePlanFeatureLines(p: CorePlanView, apiPlan?: PublicPlan | null): str
     `${cvV} CV scans/mo`,
   ];
 }
+
+// $5 USD per seat / month, converted from the GBP base used across the site.
+const SMART_SEAT_GBP = 5 / FX.usd;
+const smartSeat = (fx: number) => Math.max(4, Math.round(SMART_SEAT_GBP * fx));
 
 function SimplePlanCard({
   p,
@@ -273,7 +274,7 @@ function SimplePlanCard({
   apiPlan?: PublicFeedbackPlan | null;
 }) {
   const minor = feedbackPriceMinor(p, billing, apiPlan);
-  const displayPrice = minor != null ? (minor / 100).toFixed(0) : "ΓÇö";
+  const displayPrice = minor != null ? (minor / 100).toFixed(0) : "—";
   const period = billing === "yearly" ? "/yr" : "/mo";
   const features = feedbackPlanFeatures(p, apiPlan);
   return (
@@ -354,6 +355,8 @@ function PricingPage() {
     ? Number.parseFloat(String(services.ats_cv_scan_display).replace(/[^\d.]/g, "")) || CV_GBP * fx
     : CV_GBP * fx;
 
+  const seatMonthly = smartSeat(fx);
+
   return (
     <div className="bg-background text-body antialiased">
       <SiteHeader />
@@ -365,7 +368,7 @@ function PricingPage() {
               Simple pricing across <span className="serif-italic text-primary">every product</span>.
             </h1>
             <p className="mt-5 text-[17px] text-body max-w-[620px] mx-auto">
-              Pick the plan that fits. Use one product or all four.
+              Pick the plan that fits. Use one service or all five.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2" role="group" aria-label="Currency">
               {MARKETS.map((m) => (
@@ -391,11 +394,12 @@ function PricingPage() {
           </div>
         </section>
 
-        {/* Group 1 ΓÇö AI Interview Screening + WhatsApp Surveys (shared package) */}
+        {/* Group 1 — AI Interview Screening + WhatsApp Surveys (shared package) */}
         <section className="py-16 bg-beige">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">AI Interview Screening &amp; WhatsApp Surveys</div>
-            <p className="mb-6 text-[14px] text-body max-w-[680px]">One shared plan ΓÇö use minutes for AI interviews or calling surveys, plus WhatsApp surveys, all from the same bucket. Subscribe monthly or pay as you go.</p>
+            <p className="mb-2 text-[14px] text-body max-w-[720px]">One shared plan — use minutes for AI interviews or calling surveys, plus WhatsApp surveys, all from the same bucket. Subscribe monthly or pay as you go.</p>
+            <p className="mb-6 text-[13px] text-muted-text max-w-[720px] italic">Supports English (GB, Irish, Australian, American, Scottish, Canadian dialects) and Arabic (Egyptian &amp; Saudi dialects).</p>
             <div className="mb-6 flex justify-center">
               <BillingToggle value={coreBilling} onChange={setCoreBilling} />
             </div>
@@ -432,7 +436,7 @@ function PricingPage() {
                     {p.enterprise ? (
                       <>
                         <div className="mt-3 text-[24px] font-bold tracking-[-0.02em] text-heading">Let's talk</div>
-                        <div className="mt-1 text-[12px] text-muted-text">Volume rates ┬╖ SLA ┬╖ dedicated support</div>
+                        <div className="mt-1 text-[12px] text-muted-text">Volume rates · SLA · dedicated support</div>
                       </>
                     ) : p.payg ? (
                       <>
@@ -471,7 +475,7 @@ function PricingPage() {
                 <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><Clock size={18} /></div>
                 <div>
                   <div className="text-[15px] font-semibold text-heading">Interview call cost estimator</div>
-                  <div className="text-[12.5px] text-muted-text">Typical interview: 10ΓÇô15 minutes.</div>
+                  <div className="text-[12.5px] text-muted-text">Typical interview: 10–15 minutes.</div>
                 </div>
               </div>
               <div className="space-y-4 mb-5">
@@ -505,15 +509,15 @@ function PricingPage() {
           </div>
         </section>
 
-
-        {/* Group 3 ΓÇö Feedback */}
+        {/* Group 3 — Feedback */}
         <section className="py-16 bg-beige">
-          <div className="max-w-[1080px] mx-auto px-5 md:px-10">
-            <div className="mb-6 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">Customer Feedback</div>
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">Customer Feedback</div>
+            <p className="mb-6 text-[14px] text-body max-w-[720px]">Collect feedback via WhatsApp and web surveys, with voice-note transcription in any language.</p>
             <div className="mb-6 flex justify-center">
               <BillingToggle value={feedbackBilling} onChange={setFeedbackBilling} />
             </div>
-            <div className="grid md:grid-cols-3 gap-5">
+            <div className={`grid gap-4 ${feedbackPlans.length >= 4 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1 md:grid-cols-3"}`}>
               {feedbackPlans.map((p) => {
                 const apiPlan = feedbackApiPlans.find((row) => row.code === p.code) ?? null;
                 const highlighted = highlightProduct === "feedback" && highlightPlan === p.code;
@@ -530,23 +534,22 @@ function PricingPage() {
               })}
             </div>
             <p className="mt-10 text-center text-[13px] text-muted-text">
-              All plans ┬╖ GDPR compliant ┬╖ UK and EU data centres ┬╖ Cancel with 30 days notice
+              All plans · GDPR compliant · UK and EU data centres · Cancel with 30 days notice
             </p>
           </div>
         </section>
 
-        {/* Group 4 — VoxBulk Expo (per exhibition, duration packages) */}
+        {/* Group 4 — Expo (one-off) */}
         <section className="py-16 bg-white">
-          <div className="max-w-[1080px] mx-auto px-5 md:px-10">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">VoxBulk Expo</div>
-            <p className="mb-8 text-[14px] text-body max-w-[680px]">
-              Exhibition lead capture on WhatsApp. Pay once per show — your booth stays active for 1, 3, or 7 days.
-            </p>
-            <div className="grid md:grid-cols-3 gap-5">
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">VoxBulk Expo · one-off per exhibition</div>
+            <p className="mb-6 text-[14px] text-body max-w-[720px]">One package = one booth QR. No monthly Expo subscription — buy again for another booth or another show.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {expoPlans.map((p) => {
                 const featured = Boolean(p.featured);
                 const highlighted = highlightProduct === "expo" && highlightPlan === p.code;
-                const displayPrice = Math.round(p.price * fx);
+                // API returns market currency already; fallback GBP amounts need FX.
+                const displayPrice = Math.round(expoApiPlans.length ? p.price : p.price * fx);
                 return (
                   <div
                     key={p.code}
@@ -563,38 +566,123 @@ function PricingPage() {
                       </span>
                     )}
                     <div className={`text-[14px] font-semibold ${featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
-                    <div className={`mt-1 text-[12.5px] ${featured ? "text-white/65" : "text-muted-text"}`}>
-                      Booth active for {p.durationDays} day{p.durationDays === 1 ? "" : "s"}
-                    </div>
                     <div className="mt-3 flex items-baseline gap-1">
                       <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>
                         {s}{displayPrice}
                       </span>
-                      <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/exhibition</span>
+                      <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/ exhibition</span>
                     </div>
                     <ul className={`mt-5 space-y-2.5 text-[13.5px] flex-1 ${featured ? "text-white/80" : "text-body"}`}>
                       {p.features.map((f) => (
-                        <li key={f} className="flex items-start gap-2">
-                          <Check size={13} className={`mt-0.5 shrink-0 ${featured ? "text-gold" : "text-primary"}`} />
-                          <span>{f}</span>
+                        <li key={f} className="flex items-center gap-2">
+                          <Check size={13} className={featured ? "text-gold" : "text-primary"} /> {f}
                         </li>
                       ))}
                     </ul>
                     <Link
-                      to="/contact"
+                      to="/expo"
                       className={`mt-6 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] transition-all ${
                         featured ? "bg-gold text-navy hover:brightness-105" : "bg-navy text-white hover:bg-navy/90"
                       }`}
                     >
-                      Get started <ArrowRight size={13} />
+                      View Expo <ArrowRight size={13} />
                     </Link>
                   </div>
                 );
               })}
             </div>
-            <p className="mt-10 text-center text-[13px] text-muted-text">
-              One-off per exhibition · No monthly subscription · Leads exportable after the show
-            </p>
+          </div>
+        </section>
+
+        {/* Group 5 — Smart Card QR (subscription per seat) */}
+        <section className="py-16 bg-beige">
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">Smart Card QR · per seat</div>
+            <p className="mb-6 text-[14px] text-body max-w-[720px]">One seat = one rep = one QR. Unlimited scans and leads while your subscription is active. 15 free preview tests before you buy seats.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-[760px]">
+              <div className="rounded-2xl p-6 bg-white border border-border shadow-elegant flex flex-col">
+                <div className="text-[14px] font-semibold text-heading">Monthly</div>
+                <div className="mt-3 flex items-baseline gap-1">
+                  <span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{s}{seatMonthly}</span>
+                  <span className="text-[13px] text-muted-text">/ seat / month</span>
+                </div>
+                <ul className="mt-5 space-y-2.5 text-[13.5px] text-body flex-1">
+                  {["One QR per rep", "WhatsApp or web questionnaire", "Business-card photo OCR", "Hot / Warm / Cold scoring", "Rep login — sees own leads only", "Card payment or Direct Debit"].map((f) => (
+                    <li key={f} className="flex items-center gap-2"><Check size={13} className="text-primary" /> {f}</li>
+                  ))}
+                </ul>
+                <Link to="/smart-card" className="mt-6 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] bg-navy text-white hover:bg-navy/90 transition-all">
+                  View Smart Card <ArrowRight size={13} />
+                </Link>
+              </div>
+              <div className="relative rounded-2xl p-6 bg-navy text-white border-2 border-gold shadow-elevated flex flex-col">
+                <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Save 20%</span>
+                <div className="text-[14px] font-semibold text-white/90">Yearly</div>
+                <div className="mt-3 flex items-baseline gap-1">
+                  <span className="text-[30px] font-bold tracking-[-0.02em] text-gold">{s}{Math.round(seatMonthly * 12 * 0.8)}</span>
+                  <span className="text-[13px] text-white/60">/ seat / year</span>
+                </div>
+                <ul className="mt-5 space-y-2.5 text-[13.5px] text-white/80 flex-1">
+                  {["Everything in Monthly", "20% off the annual price", "Unlimited scans and leads", "Owner/manager view of all leads", "Catalogue & PDF matching", "QR download as PNG"].map((f) => (
+                    <li key={f} className="flex items-center gap-2"><Check size={13} className="text-gold" /> {f}</li>
+                  ))}
+                </ul>
+                <Link to="/smart-card" className="mt-6 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] bg-gold text-navy hover:brightness-105 transition-all">
+                  View Smart Card <ArrowRight size={13} />
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Security / trust */}
+        <section className="py-16 bg-white">
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <div className="rounded-2xl border border-border bg-gradient-to-br from-navy to-[#0E1A2E] text-white p-8 md:p-12 shadow-elevated">
+              <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-10 items-start">
+                <div>
+                  <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-gold">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Security &amp; compliance
+                  </span>
+                  <h2 className="mt-3 text-[28px] md:text-[38px] font-bold tracking-[-0.02em] leading-[1.1] text-white">
+                    Your data, <span className="serif-italic text-gold">protected by design</span>.
+                  </h2>
+                  <p className="mt-4 text-[15px] text-white/75 leading-[1.7] max-w-[460px]">
+                    VoxBulk is built as a multi-tenant business platform. Organisation data is isolated, access is controlled, and sensitive credentials are handled with industry-standard safeguards — meeting UK and international requirements.
+                  </p>
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    {["GDPR compliant", "UK & EU data centres", "Encrypted at rest", "Role-based access", "Multi-tenant isolation"].map((t) => (
+                      <span key={t} className="px-3 h-8 inline-flex items-center rounded-full border border-white/15 bg-white/[0.04] text-[12px] text-white/85">
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <ul className="space-y-3.5 text-[14.5px]">
+                  {[
+                    ["Tenant isolation", "Each organisation's data is kept separate — your workspace stays yours."],
+                    ["Secure sign-in", "Encrypted password storage and modern authentication flows."],
+                    ["Encrypted secrets", "Integration secrets encrypted at rest in our systems."],
+                    ["Role-based access", "Only authorised team members see what they need."],
+                    ["Hardened infrastructure", "Production systems run on secured infrastructure with controlled deployments."],
+                  ].map(([t, d]) => (
+                    <li key={t} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4">
+                      <span className="mt-0.5 shrink-0 w-8 h-8 rounded-lg bg-gold/20 text-gold flex items-center justify-center">
+                        <Check size={16} />
+                      </span>
+                      <div>
+                        <div className="font-semibold text-white">{t}</div>
+                        <div className="mt-0.5 text-white/70 leading-[1.55]">{d}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="mt-8 pt-6 border-t border-white/10 text-[13px] text-white/60 italic">
+                Built for businesses that need WhatsApp, voice, and customer data handled with care.
+              </div>
+            </div>
           </div>
         </section>
 
@@ -604,11 +692,11 @@ function PricingPage() {
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text mb-4">What each service costs</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <ServiceCard tone="blue" icon={<PhoneCall size={16} />} title="Interview & survey call"
-                price={`${s}${fmt(0.25 * fx)} ΓÇô ${s}${fmt(0.35 * fx)}/min`} unit="per minute ┬╖ depends on your plan"
-                desc={`Starter: ${s}${fmt(0.35 * fx)}/min ┬╖ Pro: ${s}${fmt(0.30 * fx)}/min ┬╖ Business: ${s}${fmt(0.25 * fx)}/min.`} />
+                price={`${s}${fmt(0.25 * fx)} – ${s}${fmt(0.35 * fx)}/min`} unit="per minute · depends on your plan"
+                desc={`Starter: ${s}${fmt(0.35 * fx)}/min · Pro: ${s}${fmt(0.30 * fx)}/min · Business: ${s}${fmt(0.25 * fx)}/min.`} />
               <ServiceCard tone="teal" icon={<MessageCircle size={16} />} title="WhatsApp survey"
                 price={`${s}${fmt(waRate)}`} unit="per user sent"
-                desc="One flat charge every time a survey is sent. No per-reply charge ΓÇö just the send." />
+                desc="One flat charge every time a survey is sent. No per-reply charge — just the send." />
               <ServiceCard tone="gold" icon={<FileText size={16} />} title="ATS CV scan"
                 price={`${s}${fmt(cvRate)}`} unit="per CV scanned"
                 desc="Each CV uploaded and processed by the ATS costs a flat fee." />
@@ -620,7 +708,7 @@ function PricingPage() {
                 <div className="w-10 h-10 rounded-xl bg-success/10 text-success flex items-center justify-center"><Wallet size={18} /></div>
                 <div>
                   <div className="text-[15px] font-semibold text-heading">Pay-as-you-go credit top-up</div>
-                  <div className="text-[12.5px] text-muted-text">No expiry ΓÇö use across calls, surveys and CV scans</div>
+                  <div className="text-[12.5px] text-muted-text">No expiry — use across calls, surveys and CV scans</div>
                 </div>
               </div>
               <div className="flex items-center gap-4 mb-5">

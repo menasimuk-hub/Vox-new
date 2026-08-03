@@ -4,11 +4,12 @@ import {
   FileText, Sparkles, CalendarCheck, PhoneCall, BarChart3, CheckCircle2, MessageCircle,
   ArrowRight, ArrowUpRight, ShieldCheck, Zap, Layers, Users, Bot, Star,
   Upload, Mail, Inbox, Headphones, Clock, Wallet, Gauge,
-  X, Check, Plug, Quote, Play, Calendar, FlaskConical, Building2,
+  X, Check, Plug, Quote, Play, Calendar, FlaskConical, Building2, QrCode, IdCard,
 } from "lucide-react";
 
 
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
+import { HeroSlider } from "@/components/HeroSlider";
 import { useTalkModal } from "@/components/TalkModal";
 import { useCurrency, FX, SYM } from "@/components/CurrencyContext";
 import { usePublicPricing, type PublicPlan } from "@/hooks/usePricing";
@@ -101,7 +102,7 @@ export function HeroDashboard() {
               {[
                 { name: "Amelia Carter", role: "Product Manager", ats: 92, iv: 89, status: "Booked", tone: "teal" },
                 { name: "Joshua Reid", role: "Senior Engineer", ats: 88, iv: 84, status: "Shortlist", tone: "gold" },
-                { name: "Priya Shah", role: "Backend Eng", ats: 81, iv: 79, status: "Review", tone: "blue" },
+                { name: "Ruby Lawson", role: "Backend Eng", ats: 81, iv: 79, status: "Review", tone: "blue" },
                 { name: "Marcus Lee", role: "Full-stack", ats: 76, iv: 72, status: "Review", tone: "blue" },
                 { name: "Hannah Wood", role: "Senior Engineer", ats: 68, iv: 65, status: "Hold", tone: "muted" },
               ].map((c) => (
@@ -137,9 +138,9 @@ export function HeroDashboard() {
               </span>
             </div>
             <div className="rounded-xl bg-white/[0.04] border border-white/10 p-2.5 flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gold to-blue-400 flex items-center justify-center text-navy font-bold text-[10px]">EM</div>
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-gold to-blue-400 flex items-center justify-center text-navy font-bold text-[10px]">CH</div>
               <div className="flex-1 min-w-0">
-                <div className="text-white text-[12px] font-semibold truncate leading-tight">Elena Martín</div>
+                <div className="text-white text-[12px] font-semibold truncate leading-tight">Charlotte Hale</div>
                 <div className="text-[10px] text-white/50 leading-tight">Q4 · skills · 08:42</div>
               </div>
               <Equaliser />
@@ -351,7 +352,7 @@ export function Capabilities() {
         <div className="max-w-[720px]">
           <span className="eyebrow">Capabilities</span>
           <h2 className="mt-4 text-[36px] md:text-[48px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
-            Three engines. <span className="serif-italic text-primary">One platform</span>.
+            Five services. <span className="serif-italic text-primary">One platform</span>.
           </h2>
         </div>
 
@@ -1111,9 +1112,12 @@ export function FAQ({ items }: { items?: HomeFaqItem[] }) {
             );
           })}
         </div>
-        <div className="mt-10 text-center">
-          <Link to="/contact" className="btn-outline text-[14px]">
-            Still have questions? Talk to us <ArrowRight size={14} />
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+          <Link to="/help" className="btn-outline text-[14px]">
+            See all FAQs <ArrowRight size={14} />
+          </Link>
+          <Link to="/contact" className="text-[14px] font-semibold text-primary hover:underline">
+            Still have questions? Talk to us
           </Link>
         </div>
       </div>
@@ -1362,12 +1366,12 @@ export function PlatformIntro() {
     <section id="what-we-do" className="py-24 md:py-28 bg-white scroll-mt-24">
 
       <div className="max-w-[1080px] mx-auto px-5 md:px-10 text-center">
-        <span className="eyebrow">One platform. Three products.</span>
+        <span className="eyebrow">One platform. Five services.</span>
         <h2 className="mt-4 text-[36px] md:text-[52px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
           Intelligent screening. <span className="serif-italic text-primary">Instant results.</span>
         </h2>
         <p className="mt-5 text-[17px] text-body max-w-[720px] mx-auto">
-          VoxBulk automates the conversations your team doesn't have time for — from hiring to customer feedback.
+          VoxBulk automates the conversations your team doesn't have time for — recruitment screening, WhatsApp surveys, customer feedback, exhibition lead capture and smart card QR for sales reps.
         </p>
       </div>
     </section>
@@ -1380,22 +1384,36 @@ export function ProductCards() {
       icon: Sparkles,
       tone: "blue",
       title: "Recruitment Automation",
-      body: "Post one job — wake up to a shortlist. CV intake, ATS scoring, WhatsApp booking and 10–12 minute AI voice interviews with ranked recommendations.",
+      body: "AI interviews every candidate automatically — scoring skills, communication and fit before your team gets involved.",
       href: "/recruitment",
     },
     {
       icon: MessageCircle,
       tone: "teal",
       title: "WhatsApp Surveys",
-      body: "WhatsApp and AI Calling collect far more answers than email. Customers respond in their language; your dashboard translates, charts and recommends what to fix.",
+      body: "Send smart surveys straight to WhatsApp. 98% open rates, instant responses, all feeding into your dashboard.",
       href: "/surveys",
     },
     {
       icon: Inbox,
       tone: "gold",
       title: "Customer Feedback",
-      body: "One QR. Scan → WhatsApp → ~30s. Voice notes in 50+ languages, English dashboard, multi-location compare and red-flag recovery.",
+      body: "One QR code on your counter or table. Customers scan, chat on WhatsApp, you get a weekly report.",
       href: "/feedback",
+    },
+    {
+      icon: QrCode,
+      tone: "blue",
+      title: "VoxBulk Expo",
+      body: "Visitors scan your booth QR and leave their details. Scored, exportable leads in your dashboard — pay once per show.",
+      href: "/expo",
+    },
+    {
+      icon: IdCard,
+      tone: "teal",
+      title: "Smart Card QR",
+      body: "One personal QR per sales rep. Prospects scan, chat, get your catalogue — every lead scored and attributed.",
+      href: "/smart-card",
     },
   ];
   return (
@@ -1482,7 +1500,7 @@ export default function VOXBULKHome({ faqItems }: { faqItems?: HomeFaqItem[] } =
     <div className="bg-background text-body antialiased">
       <SiteHeader />
       <main>
-        <Hero />
+        <HeroSlider platformVisual={<HeroDashboard />} />
         <TalkToUs />
         <PlatformIntro />
         <ProductCards />

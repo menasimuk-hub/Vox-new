@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ArrowRight, Globe, Check, ChevronDown, Sparkles, MessageCircle, Inbox, LayoutGrid } from "lucide-react";
+import { ArrowRight, Globe, Check, ChevronDown, Sparkles, MessageCircle, Inbox, LayoutGrid, QrCode, IdCard, ShieldCheck, Server, BadgeCheck, Lock, Scale, CreditCard } from "lucide-react";
 import logoDark from "@/assets/voxbulk-logo-dark.svg";
 import logoLight from "@/assets/voxbulk-logo-light.svg";
 import { useAuthModal } from "@/components/AuthModal";
@@ -9,10 +9,11 @@ import { CookieConsentBanner, openCookiePreferences } from "@/components/CookieC
 import { ConsentTrackingScripts } from "@/components/ConsentTrackingScripts";
 
 const productLinks = [
-  { label: "Recruitment Automation", to: "/recruitment" as const, desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
-  { label: "WhatsApp Surveys", to: "/surveys" as const, desc: "WhatsApp & AI calling surveys — live dashboard", Icon: MessageCircle, tone: "teal" as const },
-  { label: "Customer Feedback", to: "/feedback" as const, desc: "QR feedback, voice notes, 50+ languages", Icon: Inbox, tone: "gold" as const },
-  { label: "VoxBulk Expo", to: "/pricing" as const, desc: "Exhibition WhatsApp lead capture packages", Icon: LayoutGrid, tone: "blue" as const },
+  { label: "Recruitment Automation", to: "/recruitment", desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
+  { label: "WhatsApp Surveys", to: "/surveys", desc: "Smart surveys with 98% open rates", Icon: MessageCircle, tone: "teal" as const },
+  { label: "Customer Feedback", to: "/feedback", desc: "QR-code WhatsApp feedback in 50+ languages", Icon: Inbox, tone: "gold" as const },
+  { label: "VoxBulk Expo", to: "/expo", desc: "Booth QR lead capture — pay once per show", Icon: QrCode, tone: "blue" as const },
+  { label: "Smart Card QR", to: "/smart-card", desc: "One personal lead-capture QR per sales rep", Icon: IdCard, tone: "teal" as const },
 ];
 
 
@@ -178,7 +179,7 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
         <ChevronDown size={14} className={`transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div className={`absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[360px]`}>
+        <div className={`absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[380px]`}>
           <div className={`rounded-xl border ${scrolled ? "border-white/10 bg-[#0E1A2E]" : "border-navy/10 bg-white"} shadow-[0_20px_50px_-15px_rgba(10,22,40,0.35)] overflow-hidden`}>
             {productLinks.map((p) => {
               const toneBg =
@@ -187,9 +188,8 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
                 "bg-gold/20 text-[#8a6a1a]";
               return (
                 <Link
-                  key={p.label}
+                  key={p.to}
                   to={p.to}
-                  search={p.to === "/pricing" ? { product: "expo" } : undefined}
                   onClick={() => setOpen(false)}
                   className={`flex items-start gap-3 px-4 py-3 transition-colors ${scrolled ? "hover:bg-white/[0.06]" : "hover:bg-navy/[0.04]"}`}
                 >
@@ -218,9 +218,18 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
 }
 
 
+const trustBadges = [
+  { label: "GDPR Compliant", Icon: ShieldCheck },
+  { label: "UK & EU Data Centres", Icon: Server },
+  { label: "ICO Registered", Icon: BadgeCheck },
+  { label: "256-bit Encryption", Icon: Lock },
+  { label: "PECR & Ofcom Compliant", Icon: Scale },
+  { label: "PCI-DSS Payments", Icon: CreditCard },
+];
+
 const footerCols: Array<{ title: string; links: Array<[string, string | null]> }> = [
-  { title: "Product", links: [["Recruitment Automation", "/recruitment"], ["WhatsApp Surveys", "/surveys"], ["Customer Feedback", "/feedback"], ["Pricing", "/pricing"]] },
-  { title: "Resources", links: [["Help", "/help"], ["Blog", "/blog"], ["News", "/news"], ["FAQ", "/faq"]] },
+  { title: "Product", links: [["Recruitment Automation", "/recruitment"], ["WhatsApp Surveys", "/surveys"], ["Customer Feedback", "/feedback"], ["VoxBulk Expo", "/expo"], ["Smart Card QR", "/smart-card"], ["Pricing", "/pricing"]] },
+  { title: "Resources", links: [["Blog", "/blog"], ["News", "/news"], ["Help", "/help"]] },
   { title: "Company", links: [["Legal & policies", "/legal-policies"], ["Contact us", "/contact"], ["Sign in", "/signin"]] },
 ];
 
@@ -291,6 +300,26 @@ export function SiteFooter() {
               </ul>
             </div>
           ))}
+        </div>
+
+        {/* Trust & compliance */}
+        <div className="mt-14">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/40">
+            Trust &amp; compliance
+          </div>
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            {trustBadges.map((b) => (
+              <div
+                key={b.label}
+                className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2.5"
+              >
+                <span className="shrink-0 w-8 h-8 rounded-lg bg-teal/15 border border-teal/25 flex items-center justify-center">
+                  <b.Icon size={15} className="text-teal" />
+                </span>
+                <span className="min-w-0 text-[12.5px] font-semibold leading-tight text-white/85">{b.label}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="my-10 h-px bg-white/10" />

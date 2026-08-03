@@ -24,6 +24,8 @@ import { Route as LegalPoliciesRouteImport } from './routes/legal-policies'
 import { Route as LegalRouteImport } from './routes/legal'
 import { Route as GdprRouteImport } from './routes/gdpr'
 import { Route as FeedbackRouteImport } from './routes/feedback'
+import { Route as ExpoRouteImport } from './routes/expo'
+import { Route as SmartCardRouteImport } from './routes/smart-card'
 import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as BlogRouteImport } from './routes/blog'
@@ -146,6 +148,16 @@ const FeedbackRoute = FeedbackRouteImport.update({
   path: '/feedback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ExpoRoute = ExpoRouteImport.update({
+  id: '/expo',
+  path: '/expo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SmartCardRoute = SmartCardRouteImport.update({
+  id: '/smart-card',
+  path: '/smart-card',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CookiesRoute = CookiesRouteImport.update({
   id: '/cookies',
   path: '/cookies',
@@ -234,6 +246,8 @@ export interface FileRoutesByFullPath {
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
+  '/expo': typeof ExpoRoute
+  '/smart-card': typeof SmartCardRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
@@ -263,6 +277,8 @@ export interface FileRoutesByTo {
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
+  '/expo': typeof ExpoRoute
+  '/smart-card': typeof SmartCardRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
@@ -293,6 +309,8 @@ export interface FileRoutesById {
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
   '/feedback': typeof FeedbackRoute
+  '/expo': typeof ExpoRoute
+  '/smart-card': typeof SmartCardRoute
   '/gdpr': typeof GdprRoute
   '/legal': typeof LegalRoute
   '/legal-policies': typeof LegalPoliciesRoute
@@ -324,6 +342,8 @@ export interface FileRouteTypes {
     | '/contact'
     | '/cookies'
     | '/feedback'
+    | '/expo'
+    | '/smart-card'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
@@ -353,6 +373,8 @@ export interface FileRouteTypes {
     | '/contact'
     | '/cookies'
     | '/feedback'
+    | '/expo'
+    | '/smart-card'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
@@ -382,6 +404,8 @@ export interface FileRouteTypes {
     | '/contact'
     | '/cookies'
     | '/feedback'
+    | '/expo'
+    | '/smart-card'
     | '/gdpr'
     | '/legal'
     | '/legal-policies'
@@ -411,6 +435,8 @@ export interface RootRouteChildren {
   ContactRoute: typeof ContactRoute
   CookiesRoute: typeof CookiesRoute
   FeedbackRoute: typeof FeedbackRoute
+  ExpoRoute: typeof ExpoRoute
+  SmartCardRoute: typeof SmartCardRoute
   GdprRoute: typeof GdprRoute
   LegalRoute: typeof LegalRoute
   LegalPoliciesRoute: typeof LegalPoliciesRoute
@@ -541,6 +567,20 @@ declare module '@tanstack/react-router' {
       path: '/feedback'
       fullPath: '/feedback'
       preLoaderRoute: typeof FeedbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/expo': {
+      id: '/expo'
+      path: '/expo'
+      fullPath: '/expo'
+      preLoaderRoute: typeof ExpoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/smart-card': {
+      id: '/smart-card'
+      path: '/smart-card'
+      fullPath: '/smart-card'
+      preLoaderRoute: typeof SmartCardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/cookies': {
@@ -677,6 +717,8 @@ const rootRouteChildren: RootRouteChildren = {
   ContactRoute: ContactRoute,
   CookiesRoute: CookiesRoute,
   FeedbackRoute: FeedbackRoute,
+  ExpoRoute: ExpoRoute,
+  SmartCardRoute: SmartCardRoute,
   GdprRoute: GdprRoute,
   LegalRoute: LegalRoute,
   LegalPoliciesRoute: LegalPoliciesRoute,
