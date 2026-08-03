@@ -1,6 +1,7 @@
-"""Frontpage contact form validation (no SMTP send)."""
+"""Frontpage contact form — ticket + optional email."""
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 from app.services.frontpage_contact_service import FrontpageContactError, send_frontpage_contact
 
@@ -37,7 +38,11 @@ def test_frontpage_contact_honeypot_skips_send(monkeypatch):
         "app.services.frontpage_contact_service.SmtpMailerService.send_plain",
         boom,
     )
-    send_frontpage_contact(
+    monkeypatch.setattr(
+        "app.services.frontpage_contact_service._create_contact_ticket",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("ticket should not run for honeypot")),
+    )
+    result = send_frontpage_contact(
         SimpleNamespace(),
         name="Jane Smith",
         email="jane@example.com",
@@ -45,3 +50,30 @@ def test_frontpage_contact_honeypot_skips_send(monkeypatch):
         website="http://spam.example",
     )
     assert called["n"] == 0
+    assert result.get("skipped") is True
+
+
+def test_frontpage_contact_creates_ticket_then_emails(monkeypatch):
+    sends = {"html": 0}
+
+    monkeypatch.setattr(
+        "app.services.frontpage_contact_service._create_contact_ticket",
+        lambda *_a, **_k: "TKT-000042",
+    )
+
+    def fake_html(*_a, **_k):
+        sends["html"] += 1
+
+    monkeypatch.setattr(
+        "app.services.frontpage_contact_service.SmtpMailerService.send_html",
+        fake_html,
+    )
+    result = send_frontpage_contact(
+        MagicMock(),
+        name="Jane Smith",
+        email="jane@example.com",
+        message="I would like a demo of VoxBulk please.",
+    )
+    assert result["ok"] is True
+    assert result["ticket_ref"] == "TKT-000042"
+    assert sends["html"] == 1

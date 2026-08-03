@@ -329,7 +329,7 @@ def submit_frontpage_contact(payload: FrontpageContactIn, db: Session = Depends(
     from app.services.frontpage_contact_service import FrontpageContactError, send_frontpage_contact
 
     try:
-        send_frontpage_contact(
+        result = send_frontpage_contact(
             db,
             name=payload.name,
             email=payload.email,
@@ -339,7 +339,7 @@ def submit_frontpage_contact(payload: FrontpageContactIn, db: Session = Depends(
         )
     except FrontpageContactError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return {"ok": True}
+    return result if isinstance(result, dict) else {"ok": True}
 
 
 @router.get("/talk-to-us/config")
