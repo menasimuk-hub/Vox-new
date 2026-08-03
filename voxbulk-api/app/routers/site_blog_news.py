@@ -85,7 +85,12 @@ def public_media(filename: str):
     path = media_abs_path(filename)
     if not path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media not found")
-    return FileResponse(path, media_type="image/webp", filename=path.name)
+    return FileResponse(
+        path,
+        media_type="image/webp",
+        filename=path.name,
+        content_disposition_type="inline",
+    )
 
 
 # ---- Admin ----

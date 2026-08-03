@@ -57,8 +57,25 @@ let settingsCache: PublicSeoSettings | null = null;
 export function absoluteSeoUrl(url: string | null | undefined): string | undefined {
   const raw = (url || "").trim();
   if (!raw) return undefined;
-  if (raw.startsWith("https://") || raw.startsWith("http://")) return raw;
+  if (raw.startsWith("https://") || raw.startsWith("http://")) {
+    try {
+      const u = new URL(raw);
+      if (
+        (u.hostname === "127.0.0.1" || u.hostname === "localhost") &&
+        u.pathname.includes("/frontpage/blog-news/media/")
+      ) {
+        return `https://api.voxbulk.com${u.pathname}`;
+      }
+    } catch {
+      /* keep raw */
+    }
+    return raw;
+  }
   if (raw.startsWith("//")) return `https:${raw}`;
+  // Blog/news uploads live on the API host — do not prefix the marketing origin.
+  if (raw.startsWith("/frontpage/blog-news/media/")) {
+    return `https://api.voxbulk.com${raw}`;
+  }
   if (raw.startsWith("/")) return `${SITE_ORIGIN}${raw}`;
   return `${SITE_ORIGIN}/${raw}`;
 }

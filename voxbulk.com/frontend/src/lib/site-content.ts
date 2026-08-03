@@ -1,4 +1,4 @@
-import { frontpageApiFetch, getFrontpageApiBaseUrl } from "@/lib/api";
+import { frontpageApiFetch } from "@/lib/api";
 import { newsItems, posts, type BlogPost } from "@/lib/blog-data";
 
 export type BodyMode = "text" | "html";
@@ -19,11 +19,72 @@ export interface PublicBlogPost {
 
 export type PublicNewsItem = PublicBlogPost;
 
+/** Absolute API origin for blog/news media — never bake 127.0.0.1 into HTML. */
+function publicMediaApiOrigin(): string {
+  if (typeof window !== "undefined") {
+    const h = window.location.hostname.toLowerCase();
+    if (h === "voxbulk.com" || h === "www.voxbulk.com") return "https://api.voxbulk.com";
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1") {
+      // Local Vite: same-origin /frontpage proxy
+      return "";
+    }
+  }
+  const configured = (
+    import.meta.env.VITE_PUBLIC_API_ORIGIN ||
+    import.meta.env.VITE_SSR_API_BASE_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    ""
+  )
+    .trim()
+    .replace(/\/+$/, "");
+  if (configured) {
+    try {
+      const u = new URL(configured.includes("://") ? configured : `https://${configured}`);
+      if (u.hostname === "127.0.0.1" || u.hostname === "localhost") {
+        return "https://api.voxbulk.com";
+      }
+      if (u.hostname === "voxbulk.com" || u.hostname === "www.voxbulk.com") {
+        return "https://api.voxbulk.com";
+      }
+      return u.origin;
+    } catch {
+      /* fall through */
+    }
+  }
+  // SSR / production default — public visitors must hit the API host, not loopback.
+  return "https://api.voxbulk.com";
+}
+
 function resolveMediaUrl(url: string | null | undefined): string | null {
   if (!url) return null;
-  if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:")) return url;
-  const base = getFrontpageApiBaseUrl().replace(/\/+$/, "");
-  return `${base}${url.startsWith("/") ? url : `/${url}`}`;
+  let pathOrUrl = String(url).trim();
+  if (!pathOrUrl) return null;
+
+  if (pathOrUrl.startsWith("data:")) return pathOrUrl;
+
+  if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) {
+    try {
+      const u = new URL(pathOrUrl);
+      // Rewrite SSR/dev absolute loopback media URLs to a browser-reachable origin.
+      if (
+        (u.hostname === "127.0.0.1" || u.hostname === "localhost") &&
+        u.pathname.includes("/frontpage/blog-news/media/")
+      ) {
+        pathOrUrl = u.pathname;
+      } else {
+        return pathOrUrl;
+      }
+    } catch {
+      return pathOrUrl;
+    }
+  }
+
+  const base = publicMediaApiOrigin().replace(/\/+$/, "");
+  // Local Vite: relative /frontpage/... is proxied. Production: always absolute API URL.
+  if (!base) {
+    return pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+  }
+  return `${base}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`;
 }
 
 function mapItem(raw: Record<string, unknown>): PublicBlogPost {
