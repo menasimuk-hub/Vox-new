@@ -1,17 +1,33 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export type Currency = "gbp" | "aud" | "cad" | "usd";
+export type Currency = "gbp" | "eur" | "aud" | "cad" | "usd";
 
-export const FX: Record<Currency, number> = { gbp: 1, aud: 1.95, cad: 1.71, usd: 1.26 };
-export const SYM: Record<Currency, string> = { gbp: "£", aud: "A$", cad: "CA$", usd: "$" };
+export const FX: Record<Currency, number> = { gbp: 1, eur: 1.17, aud: 1.95, cad: 1.71, usd: 1.26 };
+export const SYM: Record<Currency, string> = { gbp: "£", eur: "€", aud: "A$", cad: "CA$", usd: "$" };
 export const MARKETS: { code: Currency; label: string; flag: string; country: string }[] = [
   { code: "gbp", label: "GBP", flag: "🇬🇧", country: "United Kingdom" },
+  { code: "eur", label: "EUR", flag: "🇪🇺", country: "European Union" },
   { code: "aud", label: "AUD", flag: "🇦🇺", country: "Australia" },
   { code: "cad", label: "CAD", flag: "🇨🇦", country: "Canada" },
   { code: "usd", label: "USD", flag: "🇺🇸", country: "United States" },
 ];
 
-const COUNTRY_TO_CUR: Record<string, Currency> = { GB: "gbp", AU: "aud", CA: "cad", US: "usd" };
+const COUNTRY_TO_CUR: Record<string, Currency> = {
+  GB: "gbp",
+  IE: "eur",
+  DE: "eur",
+  FR: "eur",
+  ES: "eur",
+  IT: "eur",
+  NL: "eur",
+  BE: "eur",
+  AT: "eur",
+  PT: "eur",
+  FI: "eur",
+  AU: "aud",
+  CA: "cad",
+  US: "usd",
+};
 
 type Ctx = { currency: Currency; setCurrency: (c: Currency) => void; auto: boolean };
 const CurrencyCtx = createContext<Ctx>({ currency: "gbp", setCurrency: () => {}, auto: true });
