@@ -1,368 +1,745 @@
-/* Sales Hub — scoped under .sales-hub so admin chrome is unaffected */
+/* Partner Sales Hub layout — match partner-sales-hub-main AdminShell (full width, no max-width). */
+
+/* Cancel admin .content padding so hub is edge-to-edge like the template main */
+.content:has(.sales-hub) {
+  padding: 0 !important;
+  max-width: none;
+  background: #faf8f3;
+}
+
 .sales-hub {
-  --bg: #f7f4ec;
-  --panel: #ffffff;
-  --panel-soft: #faf7f0;
-  --border: #e4dcc9;
-  --ink: #33302a;
-  --ink-soft: #6f6a5e;
-  --primary: #2a3550;
-  --primary-hover: #1f283d;
-  --primary-soft: #e8ebf2;
-  --green: #4c7a4a;
-  --green-soft: #e4eee2;
-  --red: #b24a3c;
-  --red-soft: #f4e2de;
-  --blue: #3f6c86;
-  --blue-soft: #e1ebf0;
-  --amber: #a9822c;
-  --amber-soft: #f2e9d2;
-  --gray-soft: #e9e6dd;
-  --shadow: 0 1px 2px rgba(42, 53, 80, 0.06), 0 4px 16px rgba(42, 53, 80, 0.05);
+  /* Template :root tokens (approx hex from oklch beige + navy) */
+  --background: #faf8f3;
+  --foreground: #1e293b;
+  --card: #fcfbf8;
+  --card-foreground: #1e293b;
+  --primary: #2a3558;
+  --primary-foreground: #faf8f3;
+  --secondary: #f3f0e8;
+  --secondary-foreground: #2a3558;
+  --muted: #f3f0e8;
+  --muted-foreground: #64748b;
+  --accent: #efece3;
+  --accent-foreground: #2a3558;
+  --destructive: #b91c1c;
+  --border: #e8e4d8;
+  --input: #e8e4d8;
+  --ring: #2a3558;
+  --chart-2: #0d9488;
+  --radius: 0.5rem;
+
   box-sizing: border-box;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Helvetica, Arial, sans-serif;
-  background: var(--bg);
-  color: var(--ink);
-  min-height: 100%;
-  margin: -24px;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  margin: 0;
+  width: 100%;
+  max-width: none;
+  min-height: calc(100vh - 56px);
   padding: 0;
 }
-.sales-hub *, .sales-hub *::before, .sales-hub *::after { box-sizing: border-box; }
 
-.sales-hub .wrap { max-width: 1320px; margin: 0 auto; padding: 32px 28px 80px; }
-.sales-hub .wrap.narrow { max-width: 960px; }
-
-/* Sub-nav pills (Accounts | Invoices) */
-.sales-hub .hub-subnav {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  margin-bottom: 24px;
+.sales-hub *,
+.sales-hub *::before,
+.sales-hub *::after {
+  box-sizing: border-box;
 }
-.sales-hub .hub-subnav button {
+
+/* —— AdminShell top nav (full bleed) —— */
+.sales-hub .hub-topnav {
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  padding: 12px 24px;
+}
+
+.sales-hub .hub-topnav-inner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.sales-hub .hub-topnav button {
   appearance: none;
   border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted-foreground);
   background: transparent;
-  padding: 8px 18px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--ink-soft);
-  border-radius: 999px;
   cursor: pointer;
-  transition: background .15s, color .15s;
+  transition: background 0.15s, color 0.15s;
 }
-.sales-hub .hub-subnav button:hover { color: var(--ink); }
-.sales-hub .hub-subnav button.active {
+
+.sales-hub .hub-topnav button:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.sales-hub .hub-topnav button.active {
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-foreground);
 }
 
-.sales-hub header.page-head { margin-bottom: 20px; }
-.sales-hub header.page-head h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
-.sales-hub header.page-head p { margin: 0; color: var(--ink-soft); font-size: 14px; }
+.sales-hub .hub-topnav button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
 
-/* KPI strip */
+/* —— Shell body: full width, px-6 py-6 only —— */
+.sales-hub .hub-body {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 24px;
+}
+
+.sales-hub .hub-header {
+  margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sales-hub .hub-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  color: var(--foreground);
+}
+
+.sales-hub .hub-header .subtitle {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .hub-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* —— KpiCard —— */
 .sales-hub .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
-  margin-bottom: 22px;
+  width: 100%;
 }
+
+@media (min-width: 1024px) {
+  .sales-hub .kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .sales-hub .kpi-grid.kpi-7 {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
 .sales-hub .kpi-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 14px 16px;
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 16px;
 }
+
+.sales-hub .kpi-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .sales-hub .kpi-card .label {
-  font-size: 10.5px;
+  font-size: 0.75rem;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: .04em;
-  color: var(--ink-soft);
-  font-weight: 700;
-  line-height: 1.3;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
 }
+
+.sales-hub .kpi-card .kpi-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--muted-foreground);
+}
+
 .sales-hub .kpi-card .value {
-  font-size: 20px;
-  font-weight: 700;
-  margin-top: 6px;
+  margin-top: 8px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
   letter-spacing: -0.02em;
 }
 
-/* Account tabs */
-.sales-hub .acct-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 18px;
+.sales-hub .kpi-card .value.tone-positive {
+  color: var(--chart-2);
 }
-.sales-hub .acct-tabs button {
+
+.sales-hub .kpi-card .value.tone-warning {
+  color: var(--destructive);
+}
+
+.sales-hub .kpi-card .hint {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+/* —— Accounts main + aside (3fr / 1fr) —— */
+.sales-hub .accounts-layout {
+  margin-top: 24px;
+  display: grid;
+  gap: 24px;
+  width: 100%;
+}
+
+@media (min-width: 1280px) {
+  .sales-hub .accounts-layout {
+    grid-template-columns: 3fr 1fr;
+  }
+}
+
+.sales-hub .accounts-main {
+  min-width: 0;
+  width: 100%;
+}
+
+.sales-hub .tabs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* TabsList style */
+.sales-hub .tabs-list {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--secondary);
+  padding: 4px;
+}
+
+.sales-hub .tabs-list button {
   appearance: none;
   border: none;
   background: transparent;
-  padding: 10px 18px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--ink-soft);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.sales-hub .acct-tabs button.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
+  white-space: nowrap;
 }
 
-/* Layout: main + aside */
-.sales-hub .accounts-layout {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 20px;
-  align-items: start;
+.sales-hub .tabs-list button.active {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
-.sales-hub .aside-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 18px;
-  box-shadow: var(--shadow);
-  position: sticky;
-  top: 16px;
-}
-.sales-hub .aside-card h3 {
-  margin: 0 0 12px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  color: var(--ink-soft);
-}
-.sales-hub .aside-invoice {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
-.sales-hub .aside-invoice:last-child { border-bottom: none; }
-.sales-hub .aside-invoice:hover .inv-num { color: var(--primary); }
-.sales-hub .aside-invoice .inv-num { font-weight: 600; font-size: 13px; }
-.sales-hub .aside-invoice .inv-meta { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
 
-/* Toolbar */
-.sales-hub .toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
+.sales-hub .search-box {
+  position: relative;
+  width: 18rem;
+  max-width: 100%;
 }
-.sales-hub .search-box { flex: 1; min-width: 200px; max-width: 320px; position: relative; }
-.sales-hub .search-box input {
-  width: 100%;
-  padding: 9px 12px 9px 34px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel);
-  font-size: 13.5px;
-  color: var(--ink);
-  outline: none;
-}
-.sales-hub .search-box input:focus { border-color: var(--primary); }
+
 .sales-hub .search-box svg {
   position: absolute;
   left: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 15px;
-  height: 15px;
-  color: var(--ink-soft);
+  top: 10px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+
+.sales-hub .search-box input {
+  width: 100%;
+  border: 1px solid var(--input);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 8px 12px 8px 32px;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  outline: none;
+}
+
+.sales-hub .search-box input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent);
+}
+
+/* —— Table (AccountsTable) —— */
+.sales-hub .table-wrap {
+  margin-top: 16px;
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+}
+
+.sales-hub table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.sales-hub thead th {
+  text-align: left;
+  padding: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--secondary) 60%, transparent);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.sales-hub tbody td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  color: var(--foreground);
+}
+
+.sales-hub tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.sales-hub tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.sales-hub tbody tr.frozen {
+  opacity: 0.65;
+}
+
+.sales-hub .mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .person-name {
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.sales-hub .person-name:hover {
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.sales-hub .muted {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .benefit-lines {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  line-height: 1.4;
+}
+
+.sales-hub .tabular {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.sales-hub .empty-state {
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: var(--card);
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .empty-state svg {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+/* Aside latest invoices */
+.sales-hub .aside-card {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 16px;
+  height: fit-content;
+}
+
+.sales-hub .aside-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sales-hub .aside-card-head h2 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.sales-hub .aside-card-head button,
+.sales-hub .aside-card-head .link-all {
+  appearance: none;
+  border: none;
+  background: none;
+  font-size: 0.75rem;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.sales-hub .aside-card-head .link-all:hover {
+  text-decoration: underline;
+}
+
+.sales-hub .aside-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sales-hub .aside-invoice {
+  display: block;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.sales-hub .aside-invoice:hover {
+  background: var(--accent);
+}
+
+.sales-hub .aside-invoice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sales-hub .aside-invoice .inv-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.sales-hub .aside-invoice .inv-meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.875rem;
+}
+
+.sales-hub .aside-invoice .inv-meta .trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+
+/* Badges */
+.sales-hub .badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.sales-hub .badge-active,
+.sales-hub .badge-default {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.sales-hub .badge-frozen,
+.sales-hub .badge-secondary {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+.sales-hub .badge-mono {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.sales-hub .badge-paid {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.sales-hub .badge-requested,
+.sales-hub .badge-sent {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.sales-hub .badge-new {
+  background: color-mix(in srgb, var(--primary) 12%, white);
+  color: var(--primary);
+}
+
+.sales-hub .badge-rejected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.sales-hub .badge-pending,
+.sales-hub .badge-comm {
+  background: var(--secondary);
+  color: var(--muted-foreground);
 }
 
 /* Buttons */
 .sales-hub .btn {
   appearance: none;
   border: none;
-  cursor: pointer;
-  font-size: 13.5px;
-  font-weight: 600;
-  padding: 10px 16px;
-  border-radius: 8px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  transition: background .15s, box-shadow .15s, transform .05s;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
 }
-.sales-hub .btn:active { transform: scale(0.98); }
-.sales-hub .btn:disabled { opacity: .55; cursor: not-allowed; }
-.sales-hub .btn-primary { background: var(--primary); color: #fff; }
-.sales-hub .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
+
+.sales-hub .btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sales-hub .btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.sales-hub .btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 90%, black);
+}
+
+.sales-hub .btn-outline,
 .sales-hub .btn-ghost {
-  background: var(--panel);
-  color: var(--ink);
+  background: var(--card);
+  color: var(--foreground);
   border: 1px solid var(--border);
 }
-.sales-hub .btn-ghost:hover:not(:disabled) { background: var(--panel-soft); }
-.sales-hub .btn-sm { padding: 7px 12px; font-size: 12.5px; }
-.sales-hub .btn-danger { background: var(--red-soft); color: var(--red); border: 1px solid var(--red-soft); }
 
-/* Cards & tables */
-.sales-hub .card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-.sales-hub table { width: 100%; border-collapse: collapse; }
-.sales-hub thead th {
-  text-align: left;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .04em;
-  color: var(--ink-soft);
-  background: var(--panel-soft);
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 700;
-  white-space: nowrap;
-}
-.sales-hub tbody td {
-  padding: 12px 14px;
-  font-size: 13.5px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-.sales-hub tbody tr:last-child td { border-bottom: none; }
-.sales-hub tbody tr:hover { background: var(--panel-soft); }
-.sales-hub tbody tr.frozen { opacity: .55; }
-
-.sales-hub .person-name { font-weight: 600; }
-.sales-hub .person-email { font-size: 12px; color: var(--ink-soft); }
-.sales-hub .benefit-lines { font-size: 12px; color: var(--ink-soft); line-height: 1.45; }
-.sales-hub .benefit-lines div + div { margin-top: 2px; }
-
-.sales-hub .badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 9px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.sales-hub .badge-active { background: var(--green-soft); color: var(--green); }
-.sales-hub .badge-frozen { background: var(--gray-soft); color: var(--ink-soft); }
-.sales-hub .badge-comm { background: var(--blue-soft); color: var(--blue); }
-.sales-hub .badge-paid { background: var(--green-soft); color: var(--green); }
-.sales-hub .badge-pending { background: var(--gray-soft); color: var(--ink-soft); }
-.sales-hub .badge-requested { background: var(--amber-soft); color: var(--amber); }
-.sales-hub .badge-rejected { background: var(--red-soft); color: var(--red); }
-.sales-hub .badge-new { background: var(--primary-soft); color: var(--primary); }
-.sales-hub .badge-sent { background: var(--blue-soft); color: var(--blue); }
-
-.sales-hub .promo-tag {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 12px;
-  background: var(--panel-soft);
-  border: 1px dashed var(--border);
-  padding: 2px 7px;
-  border-radius: 6px;
-}
-.sales-hub .currency-badge {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  margin-left: 8px;
+.sales-hub .btn-outline:hover:not(:disabled),
+.sales-hub .btn-ghost:hover:not(:disabled) {
+  background: var(--accent);
 }
 
-.sales-hub .actions { display: flex; gap: 5px; flex-wrap: wrap; }
-.sales-hub .icon-btn {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
-  background: var(--panel);
+.sales-hub .btn-sm {
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+}
+
+.sales-hub .btn-danger {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.sales-hub .btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sales-hub .actions {
   display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sales-hub .icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: var(--ink-soft);
   padding: 0;
-  transition: background .12s, color .12s, border-color .12s;
 }
-.sales-hub .icon-btn svg { width: 15px; height: 15px; }
-.sales-hub .icon-btn:hover { background: var(--panel-soft); color: var(--ink); }
-.sales-hub .icon-btn.edit:hover { color: var(--blue); border-color: var(--blue); }
-.sales-hub .icon-btn.reset:hover { color: var(--primary); border-color: var(--primary); }
-.sales-hub .icon-btn.delete:hover { color: var(--red); border-color: var(--red); }
-.sales-hub .icon-btn.profile:hover { color: var(--green); border-color: var(--green); }
 
-.sales-hub .empty-state { padding: 48px 20px; text-align: center; color: var(--ink-soft); }
-.sales-hub .empty-state svg { width: 40px; height: 40px; margin-bottom: 10px; opacity: .5; }
+.sales-hub .icon-btn:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
 
-/* Editor */
-.sales-hub .editor-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 18px;
+.sales-hub .icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sales-hub .icon-btn.delete:hover {
+  color: var(--destructive);
+}
+
+.sales-hub .link-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+
+.sales-hub .link-btn:hover {
+  text-decoration: underline;
+}
+
+/* Editor / profile shell */
+.sales-hub .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.sales-hub .back-link:hover {
+  color: var(--foreground);
+}
+
+.sales-hub .back-link svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sales-hub .editor-tabs,
+.sales-hub .acct-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--secondary);
+  padding: 4px;
+  margin: 16px 0 0;
   flex-wrap: wrap;
 }
-.sales-hub .editor-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-.sales-hub .editor-tabs button {
+
+.sales-hub .editor-tabs button,
+.sales-hub .acct-tabs button {
   appearance: none;
   border: none;
   background: transparent;
-  padding: 10px 16px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--ink-soft);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.sales-hub .editor-tabs button.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
-}
-.sales-hub .editor-panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 22px 24px;
-  box-shadow: var(--shadow);
-}
-.sales-hub .editor-foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
 }
 
-.sales-hub .field { margin-bottom: 16px; }
+.sales-hub .editor-tabs button.active,
+.sales-hub .acct-tabs button.active {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.sales-hub .editor-panel,
+.sales-hub .section-card {
+  margin-top: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 20px;
+}
+
+.sales-hub .section-card h3 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.sales-hub .section-card .section-hint {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .editor-foot {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sales-hub .field {
+  margin-bottom: 16px;
+}
+
 .sales-hub .field > label {
   display: block;
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: 0.875rem;
+  font-weight: 500;
   margin-bottom: 6px;
 }
-.sales-hub .field .hint { font-weight: 400; color: var(--ink-soft); font-size: 11.5px; margin-left: 4px; }
+
+.sales-hub .field .hint {
+  font-weight: 400;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  margin-left: 4px;
+}
+
 .sales-hub .field input[type="text"],
 .sales-hub .field input[type="email"],
 .sales-hub .field input[type="tel"],
@@ -372,215 +749,431 @@
 .sales-hub .field select,
 .sales-hub .field textarea {
   width: 100%;
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--panel-soft);
-  font-size: 13.5px;
-  color: var(--ink);
+  border: 1px solid var(--input);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  color: var(--foreground);
   outline: none;
-  font-family: inherit;
 }
+
 .sales-hub .field input:focus,
 .sales-hub .field select:focus,
 .sales-hub .field textarea:focus {
-  border-color: var(--primary);
-  background: #fff;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent);
 }
-.sales-hub .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.sales-hub .pw-row { display: flex; gap: 8px; }
-.sales-hub .pw-row input { flex: 1; }
+
+.sales-hub .field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.sales-hub .pw-row {
+  display: flex;
+  gap: 8px;
+}
+
+.sales-hub .pw-row input {
+  flex: 1;
+}
+
+.sales-hub .currency-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
 
 .sales-hub .service-row {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 14px 16px;
-  margin-bottom: 12px;
-  background: var(--panel-soft);
+  margin-bottom: 10px;
+  background: var(--card);
 }
+
 .sales-hub .service-row-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
-.sales-hub .service-row-head label { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; margin: 0; }
-.sales-hub .service-price { font-size: 12px; color: var(--ink-soft); }
-.sales-hub .service-fields { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
+
+.sales-hub .service-row-head label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.sales-hub .service-price {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .service-fields {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 10px;
+}
 
 .sales-hub .tier-row {
   display: grid;
   grid-template-columns: auto 1fr 100px 120px;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
 }
-.sales-hub .tier-row:last-child { border-bottom: none; }
 
-.sales-hub .comm-options { display: flex; flex-direction: column; gap: 10px; }
+.sales-hub .tier-row:last-child {
+  border-bottom: none;
+}
+
+.sales-hub .comm-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .sales-hub .comm-option {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px 14px;
-  cursor: pointer;
   display: flex;
   gap: 10px;
   align-items: flex-start;
-}
-.sales-hub .comm-option.selected { border-color: var(--primary); background: var(--primary-soft); }
-.sales-hub .comm-option input[type="radio"] { margin-top: 3px; accent-color: var(--primary); }
-
-/* Profile */
-.sales-hub .back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
   cursor: pointer;
-  color: var(--ink-soft);
-  font-size: 13.5px;
-  font-weight: 600;
-  padding: 6px 0;
-  margin-bottom: 16px;
 }
-.sales-hub .back-link:hover { color: var(--ink); }
-.sales-hub .back-link svg { width: 16px; height: 16px; }
+
+.sales-hub .comm-option.selected {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, white);
+}
 
 .sales-hub .profile-top {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px 22px;
-  box-shadow: var(--shadow);
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 18px;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 20px;
+  margin-bottom: 16px;
 }
-.sales-hub .profile-top h2 { margin: 0 0 4px; font-size: 19px; }
-.sales-hub .profile-meta { font-size: 13px; color: var(--ink-soft); }
-.sales-hub .profile-meta span { margin-right: 12px; }
+
+.sales-hub .profile-top h2 {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+}
+
+.sales-hub .profile-meta {
+  font-size: 0.875rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .profile-meta span {
+  margin-right: 12px;
+}
 
 .sales-hub .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
-.sales-hub .stat-box {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  box-shadow: var(--shadow);
-}
-.sales-hub .stat-box .label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-soft); font-weight: 700; }
-.sales-hub .stat-box .value { font-size: 20px; font-weight: 700; margin-top: 6px; }
-.sales-hub .stat-box.paid .value { color: var(--green); }
-.sales-hub .stat-box.requested .value { color: var(--amber); }
-.sales-hub .stat-box.pending .value { color: var(--ink-soft); }
 
-.sales-hub .profile-grid { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; }
-.sales-hub .profile-card {
-  background: var(--panel);
-  border: 1px solid var(--border);
+.sales-hub .stat-box {
   border-radius: 12px;
-  padding: 18px 20px;
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 14px 16px;
 }
+
+.sales-hub .stat-box .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.sales-hub .stat-box .value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sales-hub .profile-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 300px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.sales-hub .profile-card {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 18px 20px;
+}
+
 .sales-hub .profile-card h3 {
   margin: 0 0 12px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: .03em;
-  color: var(--ink-soft);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
+
 .sales-hub .profile-row {
   display: flex;
   justify-content: space-between;
+  gap: 12px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
-  font-size: 13.5px;
-  gap: 10px;
+  font-size: 0.875rem;
 }
-.sales-hub .profile-row:last-child { border-bottom: none; }
-.sales-hub .profile-row .k { color: var(--ink-soft); }
-.sales-hub .profile-row .v { font-weight: 600; text-align: right; }
+
+.sales-hub .profile-row:last-child {
+  border-bottom: none;
+}
+
+.sales-hub .profile-row .k {
+  color: var(--muted-foreground);
+}
+
+.sales-hub .profile-row .v {
+  font-weight: 600;
+  text-align: right;
+}
 
 .sales-hub .mark-btn {
-  font-size: 11.5px;
-  padding: 6px 11px;
-  border-radius: 7px;
+  appearance: none;
   border: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
   cursor: pointer;
-  font-weight: 700;
-  white-space: nowrap;
 }
-.sales-hub .mark-btn:disabled { opacity: .55; cursor: not-allowed; }
-.sales-hub .mark-btn.to-paid { color: var(--green); }
-.sales-hub .mark-btn.to-reject { color: var(--red); }
-.sales-hub .mark-btn.to-invoice { color: var(--blue); }
-.sales-hub .action-stack { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 
-/* Invoice detail */
-.sales-hub .inv-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
-.sales-hub .inv-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.sales-hub .mark-btn.to-paid {
+  color: #166534;
+}
 
-/* Modal */
-.sales-hub .modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(42, 53, 80, 0.35);
-  display: none;
+.sales-hub .mark-btn.to-reject {
+  color: #991b1b;
+}
+
+.sales-hub .mark-btn.to-invoice {
+  color: var(--primary);
+}
+
+.sales-hub .action-stack {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.sales-hub .inv-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.sales-hub .inv-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.sales-hub .toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 24px 0 16px;
+  width: 100%;
+}
+
+/* Row actions dropdown (AccountsTable MoreHorizontal) */
+.sales-hub .row-menu {
+  position: relative;
+  display: inline-flex;
+  justify-content: flex-end;
+}
+
+.sales-hub .row-menu-trigger {
+  appearance: none;
+  border: none;
+  background: transparent;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.sales-hub .row-menu-trigger:hover,
+.sales-hub .row-menu.open .row-menu-trigger {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.sales-hub .row-menu-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sales-hub .row-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  min-width: 180px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.sales-hub .row-menu-panel button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  cursor: pointer;
+  text-align: left;
+}
+
+.sales-hub .row-menu-panel button:hover {
+  background: var(--accent);
+}
+
+.sales-hub .row-menu-panel button.danger {
+  color: var(--destructive);
+}
+
+.sales-hub .row-menu-panel button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.sales-hub .row-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.sales-hub .card {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.sales-hub .modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 80;
+  align-items: center;
+  justify-content: center;
   padding: 20px;
 }
-.sales-hub .modal-overlay.active { display: flex; }
+
+.sales-hub .modal-overlay.active {
+  display: flex;
+}
+
 .sales-hub .modal {
-  background: var(--panel);
-  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
   width: 100%;
   max-width: 520px;
-  max-height: 88vh;
-  overflow-y: auto;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.18);
+  max-height: 90vh;
+  overflow: auto;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
 }
-.sales-hub .modal.wide { max-width: 640px; }
+
+.sales-hub .modal.wide {
+  max-width: 640px;
+}
+
 .sales-hub .modal-head {
   padding: 18px 22px 12px;
-  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
-  top: 0;
-  background: var(--panel);
-  z-index: 1;
+  border-bottom: 1px solid var(--border);
 }
-.sales-hub .modal-head h2 { margin: 0; font-size: 17px; }
+
+.sales-hub .modal-head h2 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
 .sales-hub .modal-close {
-  background: none;
+  appearance: none;
   border: none;
-  cursor: pointer;
+  background: transparent;
   width: 28px;
   height: 28px;
-  border-radius: 7px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink-soft);
+  cursor: pointer;
+  color: var(--muted-foreground);
+  border-radius: 6px;
   padding: 0;
 }
-.sales-hub .modal-body { padding: 18px 22px; }
-.sales-hub .modal-foot { padding: 14px 22px 20px; display: flex; justify-content: flex-end; gap: 10px; }
+
+.sales-hub .modal-close:hover {
+  background: var(--accent);
+}
+
+.sales-hub .modal-body {
+  padding: 18px 22px;
+}
+
+.sales-hub .modal-foot {
+  padding: 14px 22px 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
 
 .sales-hub .line-item-row {
   display: grid;
@@ -589,64 +1182,64 @@
   align-items: end;
   margin-bottom: 10px;
 }
-.sales-hub .line-item-row .field { margin-bottom: 0; }
 
-.sales-hub .form-error { color: var(--red); font-size: 13px; margin: 0 0 12px; }
+.sales-hub .line-item-row .field {
+  margin-bottom: 0;
+}
+
+.sales-hub .form-error {
+  color: var(--destructive);
+  font-size: 0.8125rem;
+  margin: 0 0 12px;
+}
 
 .sales-hub .toast {
   position: fixed;
-  bottom: 24px;
   left: 50%;
-  transform: translateX(-50%) translateY(20px);
+  bottom: 28px;
+  transform: translateX(-50%) translateY(12px);
   background: var(--primary);
-  color: #fff;
+  color: var(--primary-foreground);
   padding: 11px 18px;
   border-radius: 8px;
-  font-size: 13.5px;
+  font-size: 0.875rem;
+  font-weight: 500;
   opacity: 0;
   pointer-events: none;
-  transition: opacity .2s, transform .2s;
-  z-index: 1200;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 90;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.2);
 }
-.sales-hub .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
 
-.sales-hub .link-btn {
-  background: none;
-  border: none;
-  color: var(--primary);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  padding: 0;
-  text-decoration: underline;
+.sales-hub .toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
 }
-.sales-hub .link-btn:hover { color: var(--primary-hover); }
 
-@media (max-width: 1100px) {
-  .sales-hub .kpi-grid { grid-template-columns: repeat(4, 1fr); }
-  .sales-hub .accounts-layout { grid-template-columns: 1fr; }
-  .sales-hub .aside-card { position: static; }
-}
 @media (max-width: 900px) {
-  .sales-hub .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .sales-hub .profile-grid { grid-template-columns: 1fr; }
-  .sales-hub .inv-detail-grid { grid-template-columns: 1fr; }
-  .sales-hub .field-row { grid-template-columns: 1fr; }
-  .sales-hub .line-item-row { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 640px) {
-  .sales-hub .wrap { padding: 20px 14px 60px; }
-  .sales-hub thead { display: none; }
-  .sales-hub table, .sales-hub tbody, .sales-hub tr, .sales-hub td { display: block; width: 100%; }
-  .sales-hub tbody tr { border-bottom: 1px solid var(--border); padding: 10px 4px; }
-  .sales-hub tbody td { border: none; padding: 4px 12px; display: flex; justify-content: space-between; gap: 10px; }
-  .sales-hub tbody td::before {
-    content: attr(data-label);
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--ink-soft);
-    text-transform: uppercase;
+  .sales-hub {
+    margin: -12px;
+    width: calc(100% + 24px);
   }
-  .sales-hub .tier-row { grid-template-columns: 1fr; }
+
+  .sales-hub .hub-body {
+    padding: 16px;
+  }
+
+  .sales-hub .field-row,
+  .sales-hub .profile-grid,
+  .sales-hub .inv-detail-grid,
+  .sales-hub .service-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-hub .tier-row,
+  .sales-hub .line-item-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-hub .search-box {
+    width: 100%;
+  }
 }

@@ -80,6 +80,35 @@ const IconBack = () => (
 const IconEmptyPeople = () => (
   <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.5'><path d='M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2' /><circle cx='10' cy='7' r='4' /></svg>
 )
+const IconAccounts = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><rect x='3' y='3' width='7' height='7' rx='1' /><rect x='14' y='3' width='7' height='7' rx='1' /><rect x='3' y='14' width='7' height='7' rx='1' /><rect x='14' y='14' width='7' height='7' rx='1' /></svg>
+)
+const IconInvoices = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z' /><path d='M14 2v6h6' /><path d='M8 13h8M8 17h8' /></svg>
+)
+const IconUsers = () => (
+  <svg className='kpi-icon' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' /><circle cx='9' cy='7' r='4' /><path d='M22 21v-2a4 4 0 0 0-3-3.87' /><path d='M16 3.13a4 4 0 0 1 0 7.75' /></svg>
+)
+const IconTarget = () => (
+  <svg className='kpi-icon' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><circle cx='12' cy='12' r='10' /><circle cx='12' cy='12' r='6' /><circle cx='12' cy='12' r='2' /></svg>
+)
+const IconTrend = () => (
+  <svg className='kpi-icon' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='m22 7-8.5 8.5-5-5L2 17' /><path d='M16 7h6v6' /></svg>
+)
+const IconWallet = () => (
+  <svg className='kpi-icon' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M19 7V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1' /><path d='M3 10h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' /><path d='M17 14h.01' /></svg>
+)
+const IconCoins = () => (
+  <svg className='kpi-icon' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><circle cx='8' cy='8' r='6' /><path d='M18.09 10.37A6 6 0 1 1 10.34 18' /><path d='M7 6h1v4' /><path d='m16.71 13.88.7.71-2.82 2.82' /></svg>
+)
+const IconReceipt = () => (
+  <svg className='kpi-icon' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z' /><path d='M8 10h8M8 14h6' /></svg>
+)
+const IconMore = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><circle cx='12' cy='5' r='1' /><circle cx='12' cy='12' r='1' /><circle cx='12' cy='19' r='1' /></svg>
+)
+
+const COUNTRY_NAMES = Object.fromEntries(COUNTRIES.map((c) => [c.code, c.label]))
 
 function currencyForCountry(country) {
   const code = String(country || '').trim().toUpperCase().slice(0, 2)
@@ -284,9 +313,12 @@ export default function SalesTeam() {
   const [kpis, setKpis] = useState(null)
   const [hubInvoices, setHubInvoices] = useState([])
   const [hubKpis, setHubKpis] = useState({})
+  const [invoiceFilter, setInvoiceFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [menuRepId, setMenuRepId] = useState(null)
   const [toast, setToast] = useState('')
 
   const [editId, setEditId] = useState(null)
@@ -684,211 +716,358 @@ export default function SalesTeam() {
 
   const packageForService = (serviceId) => catalog.packages.find((p) => p.service_id === serviceId)
 
-  const renderSubNav = () => (
-    <nav className='hub-subnav'>
-      <button type='button' className={view === 'accounts' || view === 'editor' || view === 'profile' ? 'active' : ''} onClick={() => { setView('accounts'); setProfileRep(null); setProfile(null) }}>
-        Accounts
-      </button>
-      <button type='button' className={view === 'invoices' || view === 'invoiceDetail' ? 'active' : ''} onClick={() => { setView('invoices'); setInvoiceDetail(null) }}>
-        Invoices
-      </button>
-    </nav>
-  )
+  const renderSubNav = () => {
+    const accountsActive = view === 'accounts' || view === 'editor' || view === 'profile'
+    const invoicesActive = view === 'invoices' || view === 'invoiceDetail'
+    return (
+      <div className='hub-topnav'>
+        <div className='hub-topnav-inner'>
+          <button
+            type='button'
+            className={accountsActive ? 'active' : ''}
+            onClick={() => { setView('accounts'); setProfileRep(null); setProfile(null) }}
+          >
+            <IconAccounts /> Accounts
+          </button>
+          <button
+            type='button'
+            className={invoicesActive ? 'active' : ''}
+            onClick={() => { setView('invoices'); setInvoiceDetail(null) }}
+          >
+            <IconInvoices /> Invoices
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   const renderKpiStrip = () => {
     const k = kpis || {}
     const cur = 'GBP'
+    const salesmen = k.salesmen ?? allReps.filter((r) => r.kind !== 'partner_channel').length
+    const partners = k.partners ?? allReps.filter((r) => r.kind === 'partner_channel').length
+    const pending = Math.max(0, Number(k.commission_earned_minor || 0) - Number(k.commission_paid_minor || 0))
     const cards = [
-      { label: 'Accounts', value: k.accounts ?? allReps.length },
-      { label: 'Leads', value: k.leads ?? 0 },
-      { label: 'Paying customers', value: k.paying_customers ?? 0 },
-      { label: 'Revenue', value: money(k.revenue_minor, cur) },
-      { label: 'Commission earned', value: money(k.commission_earned_minor, cur) },
-      { label: 'Commission paid', value: money(k.commission_paid_minor, cur) },
-      { label: 'Invoices outstanding', value: money(k.invoices_outstanding_minor, cur) },
+      { label: 'Accounts', value: k.accounts ?? allReps.length, hint: `${salesmen} salesmen · ${partners} partners`, icon: <IconUsers /> },
+      { label: 'Leads', value: k.leads ?? 0, hint: 'all sources', icon: <IconTarget /> },
+      { label: 'Paying customers', value: k.paying_customers ?? 0, hint: 'active companies', icon: <IconTrend />, tone: 'positive' },
+      { label: 'Revenue', value: money(k.revenue_minor, cur), hint: 'base currency', icon: <IconWallet /> },
+      { label: 'Commission earned', value: money(k.commission_earned_minor, cur), icon: <IconCoins /> },
+      { label: 'Commission paid', value: money(k.commission_paid_minor, cur), hint: `${money(pending, cur)} pending`, icon: <IconCoins /> },
+      { label: 'Invoices outstanding', value: money(k.invoices_outstanding_minor, cur), hint: `${hubInvoices.filter((i) => i.status === 'new' || i.status === 'sent').length} open`, icon: <IconReceipt />, tone: 'warning' },
     ]
     return (
-      <div className='kpi-grid'>
+      <section className='kpi-grid kpi-7'>
         {cards.map((c) => (
           <div key={c.label} className='kpi-card'>
-            <div className='label'>{c.label}</div>
-            <div className='value'>{c.value}</div>
+            <div className='kpi-card-top'>
+              <span className='label'>{c.label}</span>
+              {c.icon}
+            </div>
+            <div className={`value${c.tone ? ` tone-${c.tone}` : ''}`}>{c.value}</div>
+            {c.hint ? <p className='hint'>{c.hint}</p> : null}
           </div>
         ))}
-      </div>
+      </section>
     )
   }
 
   const renderAccountsView = () => (
     <>
-      <header className='page-head'>
-        <h1>Salesmen &amp; Partners</h1>
-        <p>Manage sales accounts, promo benefits, commissions, and hub invoices.</p>
+      <header className='hub-header'>
+        <div>
+          <h1>Salesmen &amp; Partners</h1>
+          <p className='subtitle'>Accounts, promo codes, commission terms and invoicing — all in one place.</p>
+        </div>
+        <div className='hub-header-actions'>
+          <button type='button' className='btn btn-primary' onClick={openAdd}>
+            <IconPlus />
+            New {isPartner ? 'partner' : 'salesman'}
+          </button>
+        </div>
       </header>
       {renderKpiStrip()}
-      <div className='acct-tabs'>
-        <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>Salesmen</button>
-        <button type='button' className={tab === 'partners' ? 'active' : ''} onClick={() => switchTab('partners')}>Partners</button>
-      </div>
-      <div className='accounts-layout'>
-        <div>
-          <div className='toolbar'>
+      <section className='accounts-layout'>
+        <div className='accounts-main'>
+          <div className='tabs-toolbar'>
+            <div className='tabs-list'>
+              <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>
+                Salesmen ({allReps.filter((r) => r.kind !== 'partner_channel').length})
+              </button>
+              <button type='button' className={tab === 'partners' ? 'active' : ''} onClick={() => switchTab('partners')}>
+                Partners ({allReps.filter((r) => r.kind === 'partner_channel').length})
+              </button>
+            </div>
             <div className='search-box'>
               <IconSearch />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder={isPartner ? 'Search partners…' : 'Search salesmen…'}
+                placeholder='Search ID, name, email or code'
               />
             </div>
-            <button type='button' className='btn btn-primary' onClick={openAdd}>
-              <IconPlus />
-              {isPartner ? 'New partner' : 'New salesman'}
-            </button>
           </div>
-          <div className='card'>
-            {loading ? (
-              <div className='empty-state'>Loading…</div>
-            ) : filtered.length === 0 ? (
-              <div className='empty-state'>
-                <IconEmptyPeople />
-                <div>{isPartner ? 'No partners yet.' : 'No salesmen yet.'}</div>
-              </div>
-            ) : (
+          {loading ? (
+            <div className='empty-state' style={{ marginTop: 16 }}>Loading…</div>
+          ) : filtered.length === 0 ? (
+            <div className='empty-state' style={{ marginTop: 16 }}>
+              <IconEmptyPeople />
+              <div>No accounts yet.</div>
+            </div>
+          ) : (
+            <div className='table-wrap'>
               <table>
                 <thead>
                   <tr>
-                    <th>Name / contact</th>
-                    <th>Promo &amp; benefits</th>
+                    <th style={{ width: 80 }}>ID</th>
+                    <th>Name</th>
+                    <th>Location</th>
+                    <th>Currency</th>
+                    <th>Contact</th>
+                    <th>Promo code</th>
                     <th>Commission</th>
+                    <th className='tabular'>Revenue</th>
                     <th>Status</th>
-                    <th style={{ textAlign: 'right' }}>Actions</th>
+                    <th style={{ width: 48 }} />
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((rep) => (
-                    <tr key={rep.id} className={rep.is_active ? '' : 'frozen'}>
-                      <td data-label='Name'>
-                        <div className='person-name'>{rep.name}</div>
-                        <div className='person-email'>{rep.email}</div>
-                        <div className='person-email'>{rep.mobile || '—'}</div>
-                      </td>
-                      <td data-label='Promo'>
-                        <span className='promo-tag'>{rep.promo_code || '—'}</span>
-                        <div className='benefit-lines' style={{ marginTop: 6 }}>
-                          {(rep.promo_benefit_summaries || []).slice(0, 3).map((line) => (
-                            <div key={line}>{line}</div>
-                          ))}
-                        </div>
-                      </td>
-                      <td data-label='Commission'>
-                        <span className='badge badge-comm'>{rep.commission_summary || '—'}</span>
-                      </td>
-                      <td data-label='Status'>
-                        {rep.is_active
-                          ? <span className='badge badge-active'>Active</span>
-                          : <span className='badge badge-frozen'>Frozen</span>}
-                      </td>
-                      <td data-label='Actions'>
-                        <div className='actions' style={{ justifyContent: 'flex-end' }}>
-                          <button type='button' className='icon-btn profile' title='Profile' onClick={() => openProfile(rep)}><IconProfile /></button>
-                          <button type='button' className='icon-btn edit' title='Edit' onClick={() => openEdit(rep)}><IconEdit /></button>
-                          <button type='button' className='icon-btn freeze' title={rep.is_active ? 'Freeze' : 'Unfreeze'} onClick={() => toggleFreeze(rep)}>
-                            {rep.is_active ? <IconFreeze /> : <IconUnfreeze />}
+                  {filtered.map((rep, idx) => {
+                    const cur = rep.currency || currencyForCountry(rep.country)
+                    const refId = String(1000 + idx + 1).slice(-4)
+                    return (
+                      <tr key={rep.id} className={rep.is_active ? '' : 'frozen'}>
+                        <td className='mono'>#{String(rep.ref_id || refId)}</td>
+                        <td>
+                          <button type='button' className='person-name link-btn' onClick={() => openProfile(rep)} style={{ fontWeight: 500 }}>
+                            {rep.name}
                           </button>
-                          <button type='button' className='icon-btn reset' title='Reset password' onClick={() => { setPwRep(rep); setPwValue(genPassword()) }}><IconReset /></button>
-                          <button type='button' className='icon-btn delete' title='Delete' onClick={() => deleteRep(rep)}><IconDelete /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          {rep.company_name ? <div className='muted'>{rep.company_name}</div> : null}
+                        </td>
+                        <td>
+                          <span className='mono'>{rep.country || '—'}</span>
+                          {rep.country ? <span className='muted' style={{ marginLeft: 6 }}>{COUNTRY_NAMES[rep.country] || ''}</span> : null}
+                        </td>
+                        <td>{cur}</td>
+                        <td>
+                          <div>{rep.email}</div>
+                          <div className='muted'>{rep.mobile || '—'}</div>
+                        </td>
+                        <td>
+                          {rep.promo_code ? (
+                            <>
+                              <span className='badge badge-mono'>{rep.promo_code}</span>
+                              <div className='benefit-lines'>
+                                {(rep.promo_benefit_summaries || []).slice(0, 4).map((line) => (
+                                  <div key={line}>{line}</div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <span className='muted'>None</span>
+                          )}
+                        </td>
+                        <td>
+                          {rep.commission_summary ? (
+                            <>
+                              <div>{rep.commission_summary}</div>
+                              <div className='muted'>{isPartner ? 'next payment only' : 'monthly tiers'}</div>
+                            </>
+                          ) : (
+                            <span className='muted'>—</span>
+                          )}
+                        </td>
+                        <td className='tabular'>{money(rep.revenue_minor || 0, cur)}</td>
+                        <td>
+                          <span className={`badge ${rep.is_active ? 'badge-active' : 'badge-frozen'}`}>
+                            {rep.is_active ? 'active' : 'frozen'}
+                          </span>
+                        </td>
+                        <td>
+                          <div
+                            className={`row-menu${menuRepId === rep.id ? ' open' : ''}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type='button'
+                              className='row-menu-trigger'
+                              aria-label='Actions'
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setMenuRepId(menuRepId === rep.id ? null : rep.id)
+                              }}
+                            >
+                              <IconMore />
+                            </button>
+                            {menuRepId === rep.id ? (
+                              <div className='row-menu-panel' role='menu'>
+                                <button type='button' onClick={() => { setMenuRepId(null); openProfile(rep) }}>
+                                  <IconProfile /> View profile
+                                </button>
+                                <button type='button' onClick={() => { setMenuRepId(null); openEdit(rep) }}>
+                                  <IconEdit /> Edit
+                                </button>
+                                <button type='button' onClick={() => { setMenuRepId(null); toggleFreeze(rep) }}>
+                                  {rep.is_active ? <><IconFreeze /> Freeze</> : <><IconUnfreeze /> Unfreeze</>}
+                                </button>
+                                <button type='button' onClick={() => { setMenuRepId(null); setPwRep(rep); setPwValue(genPassword()) }}>
+                                  <IconReset /> Reset password
+                                </button>
+                                <div className='row-menu-sep' />
+                                <button type='button' className='danger' onClick={() => { setMenuRepId(null); deleteRep(rep) }}>
+                                  <IconDelete /> Delete
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         <aside className='aside-card'>
-          <h3>Latest hub invoices</h3>
-          {hubInvoices.slice(0, 6).map((inv) => (
-            <div key={inv.id} className='aside-invoice' onClick={() => openInvoiceDetail(inv.id)} role='presentation'>
-              <div className='inv-num'>{inv.number}</div>
-              <div className='inv-meta'>
-                {inv.rep_name || '—'} · {inv.total_display || money(inv.total_minor, inv.currency)} · {inv.status}
-              </div>
-            </div>
-          ))}
-          {hubInvoices.length === 0 ? <div className='inv-meta'>No hub invoices yet.</div> : null}
+          <div className='aside-card-head'>
+            <h2>Latest invoices</h2>
+            <button type='button' className='link-all' onClick={() => setView('invoices')}>View all</button>
+          </div>
+          <ul className='aside-list'>
+            {hubInvoices.slice(0, 6).map((inv) => (
+              <li key={inv.id}>
+                <div className='aside-invoice' onClick={() => openInvoiceDetail(inv.id)} role='presentation'>
+                  <div className='aside-invoice-row'>
+                    <span className='inv-num'>{inv.number}</span>
+                    {statusBadge(inv.status)}
+                  </div>
+                  <div className='inv-meta'>
+                    <span className='trunc'>{inv.rep_name || inv.customer || '—'}</span>
+                    <span className='tabular'>{inv.total_display || money(inv.total_minor, inv.currency)}</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {hubInvoices.length === 0 ? <p className='muted' style={{ marginTop: 12 }}>No hub invoices yet.</p> : null}
         </aside>
-      </div>
+      </section>
     </>
   )
 
   const renderInvoicesView = () => {
     const statusKpis = [
       { key: 'new', label: 'New' },
-      { key: 'sent', label: 'Sent' },
+      { key: 'sent', label: 'Sent / awaiting payment' },
       { key: 'paid', label: 'Paid' },
       { key: 'rejected', label: 'Rejected' },
     ]
+    const q = invoiceSearch.trim().toLowerCase()
+    const filteredInv = hubInvoices.filter((i) => {
+      if (invoiceFilter !== 'all' && i.status !== invoiceFilter) return false
+      if (!q) return true
+      const hay = `${i.number || ''} ${i.customer || ''} ${i.rep_name || ''} ${i.kind || ''}`.toLowerCase()
+      return hay.includes(q)
+    })
     return (
       <>
-        <header className='page-head'>
-          <h1>Hub Invoices</h1>
-          <p>Commission and charge invoices across the sales hub.</p>
+        <header className='hub-header'>
+          <div>
+            <h1>Invoices</h1>
+            <p className='subtitle'>Everything we charge partners and everything we owe in commission.</p>
+          </div>
+          <div className='hub-header-actions'>
+            <button type='button' className='btn btn-primary' onClick={() => {
+              setCreateInvForm({
+                sales_rep_id: allReps[0]?.id || '',
+                kind: 'commission',
+                customer: '',
+                discount_percent: '0',
+                tax_percent: '0',
+                commission_amount_major: '0',
+                items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
+              })
+              setCreateInvErr('')
+              setShowCreateInvoice(true)
+            }}>
+              <IconPlus /> Create invoice
+            </button>
+          </div>
         </header>
-        <div className='kpi-grid' style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <div className='kpi-grid'>
           {statusKpis.map(({ key, label }) => (
             <div key={key} className='kpi-card'>
-              <div className='label'>{label}</div>
-              <div className='value'>{money(hubKpis[key], 'GBP')}</div>
+              <div className='kpi-card-top'>
+                <span className='label'>{label}</span>
+              </div>
+              <div className={`value${key === 'sent' ? ' tone-warning' : key === 'paid' ? ' tone-positive' : ''}`}>
+                {money(hubKpis[key], 'GBP')}
+              </div>
+              <p className='hint'>{hubInvoices.filter((i) => i.status === key).length} invoices</p>
             </div>
           ))}
         </div>
         <div className='toolbar'>
-          <div />
-          <button type='button' className='btn btn-primary' onClick={() => {
-            setCreateInvForm({
-              sales_rep_id: allReps[0]?.id || '',
-              kind: 'commission',
-              customer: '',
-              discount_percent: '0',
-              tax_percent: '0',
-              commission_amount_major: '0',
-              items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
-            })
-            setCreateInvErr('')
-            setShowCreateInvoice(true)
-          }}>
-            <IconPlus /> Create invoice
-          </button>
+          <div className='tabs-list'>
+            {['all', 'new', 'sent', 'paid', 'rejected'].map((f) => (
+              <button
+                key={f}
+                type='button'
+                className={invoiceFilter === f ? 'active' : ''}
+                onClick={() => setInvoiceFilter(f)}
+                style={{ textTransform: 'capitalize' }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+          <div className='search-box'>
+            <IconSearch />
+            <input
+              value={invoiceSearch}
+              onChange={(e) => setInvoiceSearch(e.target.value)}
+              placeholder='Search invoice, account or customer'
+            />
+          </div>
         </div>
-        <div className='card'>
+        <div className='table-wrap' style={{ marginTop: 0 }}>
           <table>
             <thead>
               <tr>
                 <th>Invoice</th>
-                <th>Rep</th>
-                <th>Customer</th>
-                <th>Kind</th>
-                <th>Total</th>
+                <th>Account</th>
+                <th>Bill to</th>
+                <th>Type</th>
+                <th>Issued</th>
+                <th>Due</th>
+                <th className='tabular'>Total</th>
+                <th className='tabular'>Commission</th>
                 <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Action</th>
               </tr>
             </thead>
             <tbody>
-              {hubInvoices.length === 0 ? (
-                <tr><td colSpan={7} className='empty-state'>No hub invoices yet.</td></tr>
-              ) : hubInvoices.map((inv) => (
-                <tr key={inv.id}>
-                  <td data-label='Invoice'>{inv.number}</td>
-                  <td data-label='Rep'>{inv.rep_name || '—'}</td>
-                  <td data-label='Customer'>{inv.customer || '—'}</td>
-                  <td data-label='Kind'>{inv.kind}</td>
-                  <td data-label='Total'>{inv.total_display || money(inv.total_minor, inv.currency)}</td>
-                  <td data-label='Status'>{statusBadge(inv.status)}</td>
-                  <td data-label='Action'>
-                    <button type='button' className='link-btn' onClick={() => openInvoiceDetail(inv.id)}>View</button>
+              {filteredInv.length === 0 ? (
+                <tr><td colSpan={9}><div className='empty-state' style={{ border: 'none' }}>No hub invoices yet.</div></td></tr>
+              ) : filteredInv.map((inv) => (
+                <tr key={inv.id} style={{ cursor: 'pointer' }} onClick={() => openInvoiceDetail(inv.id)}>
+                  <td className='mono'>
+                    <button type='button' className='link-btn' style={{ fontFamily: 'inherit' }} onClick={(e) => { e.stopPropagation(); openInvoiceDetail(inv.id) }}>
+                      {inv.number}
+                    </button>
                   </td>
+                  <td>{inv.rep_name || '—'}</td>
+                  <td>{inv.customer || '—'}</td>
+                  <td style={{ textTransform: 'capitalize' }}>{inv.kind}</td>
+                  <td>{(inv.issued_at || inv.created_at || '').slice(0, 10) || '—'}</td>
+                  <td>{(inv.due_at || '').slice(0, 10) || '—'}</td>
+                  <td className='tabular'>{inv.total_display || money(inv.total_minor, inv.currency)}</td>
+                  <td className='tabular'>
+                    {inv.kind === 'commission'
+                      ? (inv.commission_amount_display || money(inv.commission_amount_minor, inv.currency))
+                      : '—'}
+                  </td>
+                  <td>{statusBadge(inv.status)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1265,16 +1444,16 @@ export default function SalesTeam() {
   )
 
   const renderEditorView = () => (
-    <div className='wrap narrow'>
+    <div>
       <button type='button' className='back-link' onClick={() => setView('accounts')}>
         <IconBack /> Back to accounts
       </button>
-      <div className='editor-head'>
+      <header className='hub-header'>
         <div>
-          <h1 style={{ margin: 0, fontSize: 22 }}>{editId ? 'Edit account' : (isPartner ? 'New partner' : 'New salesman')}</h1>
-          <p style={{ margin: '4px 0 0', color: 'var(--ink-soft)', fontSize: 14 }}>{isPartner ? 'Partner channel sales' : 'Salesman account'}</p>
+          <h1>{editId ? 'Edit account' : (isPartner ? 'New partner' : 'New salesman')}</h1>
+          <p className='subtitle'>{isPartner ? 'Partner channel sales' : 'Salesman account'}</p>
         </div>
-      </div>
+      </header>
       <div className='editor-tabs'>
         {['profile', 'promo', 'commission', 'payout', 'invoices'].map((t) => (
           <button key={t} type='button' className={editorTab === t ? 'active' : ''} onClick={() => setEditorTab(t)}>
@@ -1310,7 +1489,7 @@ export default function SalesTeam() {
     const joined = (profileRep.created_at || '').slice(0, 10)
 
     return (
-      <div className='wrap'>
+      <div>
         <button type='button' className='back-link' onClick={() => { setView('accounts'); setProfileRep(null); setProfile(null) }}>
           <IconBack /> Back to accounts
         </button>
@@ -1419,13 +1598,15 @@ export default function SalesTeam() {
     const cur = inv.currency || 'GBP'
     const rep = invoiceDetailRep
     return (
-      <div className='wrap narrow'>
+      <div>
         <button type='button' className='back-link' onClick={() => { setView('invoices'); setInvoiceDetail(null) }}>
           <IconBack /> Back to invoices
         </button>
-        <header className='page-head'>
-          <h1>{inv.number}</h1>
-          <p>{rep?.name || '—'} · {inv.customer || '—'} · {statusBadge(inv.status)}</p>
+        <header className='hub-header'>
+          <div>
+            <h1>{inv.number}</h1>
+            <p className='subtitle'>{rep?.name || '—'} · {inv.customer || '—'} · {statusBadge(inv.status)}</p>
+          </div>
         </header>
         <div className='inv-detail-grid'>
           <div className='profile-card'>
@@ -1620,9 +1801,9 @@ export default function SalesTeam() {
   )
 
   return (
-    <div className='sales-hub'>
-      <div className='wrap'>
-        {view !== 'editor' && view !== 'profile' && view !== 'invoiceDetail' ? renderSubNav() : null}
+    <div className='sales-hub' onClick={() => menuRepId && setMenuRepId(null)}>
+      {renderSubNav()}
+      <div className='hub-body'>
         {view === 'accounts' ? renderAccountsView() : null}
         {view === 'invoices' ? renderInvoicesView() : null}
         {view === 'editor' ? renderEditorView() : null}
