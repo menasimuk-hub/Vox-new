@@ -40,6 +40,14 @@ class SalesRep(Base):
     bank_account_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
     bank_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     paypal_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # Denormalized billing currency from country (GBP/EUR/USD/CAD/AUD).
+    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    # Promo: wallet voucher + per-service benefits (JSON).
+    promo_benefits_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Salesman months 2/3/4 commission tiers (JSON).
+    commission_tiers_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Partner discount % + billing mode (JSON).
+    partner_terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

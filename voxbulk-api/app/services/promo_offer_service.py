@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 from datetime import datetime, timedelta
@@ -20,11 +21,13 @@ from app.services.promo_discount_service import normalize_service_kind
 from app.services.usage_wallet_service import UsageWalletService
 from app.services.wallet_service import WalletService
 
+logger = logging.getLogger(__name__)
+
 _CODE_RE = re.compile(r"[^A-Z0-9]+")
 
 SUBSCRIPTION_OFFER_TYPES = {"dental_trial", "subscription_trial"}
 SERVICE_CREDIT_OFFER_TYPES = {"survey_credits", "interview_credits"}
-WALLET_VOUCHER_OFFER_TYPES = {"sales_wallet_voucher"}
+WALLET_VOUCHER_OFFER_TYPES = {"sales_wallet_voucher", "sales_multi_benefit"}
 SALES_REP_WALLET_CREDIT_PENCE = 2000
 
 BENEFIT_FREE = "free_usage"
@@ -470,6 +473,13 @@ class PromoOfferService:
     @staticmethod
     def upsert_for_sales_rep(db: Session, rep) -> PromoOffer:
         from app.models.sales_rep import SalesRep
+        from app.services.billing_currency import money_display
+        from app.services.sales_hub_benefits import (
+            DEFAULT_VOUCHER_MINOR,
+            parse_expires_at,
+            parse_promo_benefits,
+            currency_of_rep,
+        )
 
         if not isinstance(rep, SalesRep):
             raise PromoOfferError("Invalid sales rep")
@@ -482,22 +492,69 @@ class PromoOfferService:
         elif existing.code != code:
             PromoOfferService._assert_code_available(db, code, exclude_promo_id=existing.id)
 
+        benefits = parse_promo_benefits(rep)
+        wv = benefits.get("wallet_voucher") or {}
+        voucher_on = bool(wv.get("enabled"))
+        credit = max(0, int(wv.get("amount_minor") or 0)) if voucher_on else 0
+        if voucher_on and credit <= 0:
+            credit = DEFAULT_VOUCHER_MINOR
+        currency = currency_of_rep(rep)
         now = datetime.utcnow()
-        credit = SALES_REP_WALLET_CREDIT_PENCE
-        display_name = f"{rep.name} · £{credit // 100} welcome credit"
+        if voucher_on:
+            display_name = f"{rep.name} · {money_display(credit, currency)} welcome credit"
+            offer_type = "sales_wallet_voucher"
+        else:
+            display_name = f"{rep.name} · sales promo"
+            offer_type = "sales_multi_benefit"
+
+        expires = parse_expires_at(benefits.get("expires_at")) or (now + timedelta(days=3650))
+        max_red = benefits.get("usage_limit")
+        max_redemptions = max(1, int(max_red)) if max_red else 999999
+
+        # Prefer first enabled service for legacy single-kind columns; redeem still reads full benefits from rep.
+        primary_kind = BENEFIT_FREE
+        primary_service = "voxbulk"
+        discount_type = None
+        discount_value = 0
+        usage_amount = 0
+        trial_days = 0
+        for sid, svc in (benefits.get("services") or {}).items():
+            if not isinstance(svc, dict) or not svc.get("enabled"):
+                continue
+            from app.services.sales_hub_benefits import SERVICE_KIND_BY_ID
+
+            primary_service = SERVICE_KIND_BY_ID.get(sid, "voxbulk")
+            sk = str(svc.get("kind") or "")
+            val = float(svc.get("value") or 0)
+            if sk == "percent_discount":
+                primary_kind = BENEFIT_DISCOUNT
+                discount_type = "percent"
+                discount_value = int(round(val))
+            elif sk == "fixed_topup":
+                primary_kind = BENEFIT_FREE
+                usage_amount = int(round(val))
+            elif sk in {"free_days", "free_package_days"}:
+                primary_kind = BENEFIT_FREE
+                usage_amount = int(round(val))
+                trial_days = int(round(val))
+            break
+
         if existing is not None:
             existing.code = code
             existing.name = display_name
-            existing.offer_type = "sales_wallet_voucher"
-            existing.benefit_kind = BENEFIT_FREE
-            existing.service_kind = "voxbulk"
+            existing.offer_type = offer_type
+            existing.benefit_kind = primary_kind if not voucher_on else BENEFIT_FREE
+            existing.service_kind = primary_service
+            existing.discount_type = discount_type
+            existing.discount_value = discount_value
+            existing.usage_amount = usage_amount
+            existing.trial_days = trial_days
             existing.redeem_mode = REDEEM_ANYONE
             existing.wallet_credit_pence = credit
             existing.sales_rep_id = rep.id
             existing.is_active = bool(rep.is_active)
-            existing.max_redemptions = max(int(existing.max_redemptions or 0), 999999)
-            if existing.expires_at is None:
-                existing.expires_at = now + timedelta(days=3650)
+            existing.max_redemptions = max_redemptions
+            existing.expires_at = expires
             existing.updated_at = now
             db.add(existing)
             db.commit()
@@ -507,15 +564,19 @@ class PromoOfferService:
         row = PromoOffer(
             code=code,
             name=display_name,
-            offer_type="sales_wallet_voucher",
-            benefit_kind=BENEFIT_FREE,
-            service_kind="voxbulk",
+            offer_type=offer_type,
+            benefit_kind=primary_kind if not voucher_on else BENEFIT_FREE,
+            service_kind=primary_service,
+            discount_type=discount_type,
+            discount_value=discount_value,
+            usage_amount=usage_amount,
+            trial_days=trial_days,
             redeem_mode=REDEEM_ANYONE,
             wallet_credit_pence=credit,
             sales_rep_id=rep.id,
-            max_redemptions=999999,
+            max_redemptions=max_redemptions,
             redemption_count=0,
-            expires_at=now + timedelta(days=3650),
+            expires_at=expires,
             is_active=bool(rep.is_active),
             created_at=now,
             updated_at=now,
@@ -524,6 +585,80 @@ class PromoOfferService:
         db.commit()
         db.refresh(row)
         return row
+
+    @staticmethod
+    def grant_sales_rep_multi_benefits(db: Session, *, org_id: str, promo: PromoOffer) -> None:
+        """Apply voucher + pending/service grants from the linked sales rep benefits config."""
+        from app.models.organisation import Organisation
+        from app.models.sales_rep import SalesRep
+        from app.services.sales_hub_benefits import SERVICE_KIND_BY_ID, parse_promo_benefits
+
+        if not promo.sales_rep_id:
+            return
+        rep = db.get(SalesRep, promo.sales_rep_id)
+        if rep is None:
+            return
+        benefits = parse_promo_benefits(rep)
+        org = db.get(Organisation, org_id)
+        if org is None:
+            return
+
+        for sid, svc in (benefits.get("services") or {}).items():
+            if not isinstance(svc, dict) or not svc.get("enabled"):
+                continue
+            service_kind = SERVICE_KIND_BY_ID.get(sid, "voxbulk")
+            kind = str(svc.get("kind") or "")
+            val = float(svc.get("value") or 0)
+            if kind == "percent_discount":
+                PromoOfferService._grant_discount(
+                    db,
+                    org_id=org_id,
+                    row=promo,
+                    benefit={
+                        "benefit_kind": BENEFIT_DISCOUNT,
+                        "service_kind": service_kind,
+                        "discount_type": "percent",
+                        "discount_value": int(round(val)),
+                        "usage_amount": 0,
+                    },
+                )
+            elif kind == "fixed_topup":
+                # Wallet credit scoped as promo top-up for the service.
+                try:
+                    amount = int(round(val))
+                    if amount > 0:
+                        WalletService.credit(
+                            db,
+                            org,
+                            amount_minor=amount,
+                            kind="promo_credit",
+                            provider="sales_rep_promo",
+                            provider_reference=f"{promo.id}:{sid}",
+                            description=f"Promo top-up ({sid}) — {promo.code}",
+                            metadata={
+                                "restricted_spend": True,
+                                "source": "sales_rep_promo",
+                                "service_id": sid,
+                                "promo_offer_id": promo.id,
+                            },
+                            commit=False,
+                        )
+                except Exception:
+                    logger.exception("fixed_topup grant failed for promo %s service %s", promo.code, sid)
+            elif kind in {"free_days", "free_package_days"}:
+                days = max(1, int(round(val)))
+                PromoOfferService._grant_free_usage(
+                    db,
+                    org=org,
+                    row=promo,
+                    benefit={
+                        "benefit_kind": BENEFIT_FREE,
+                        "service_kind": "voxbulk" if kind == "free_package_days" else service_kind,
+                        "usage_amount": days,
+                        "discount_type": None,
+                        "discount_value": 0,
+                    },
+                )
 
     @staticmethod
     def stamp_promo_attribution(
@@ -786,45 +921,50 @@ class PromoOfferService:
         if existing_org is not None:
             raise PromoOfferError("Promo already redeemed for this organisation")
 
-        if PromoOfferService.is_wallet_voucher_offer(row.offer_type):
-            credit = max(0, int(row.wallet_credit_pence or SALES_REP_WALLET_CREDIT_PENCE))
-            if credit <= 0:
+        if PromoOfferService.is_wallet_voucher_offer(row.offer_type) or row.sales_rep_id:
+            credit = max(0, int(row.wallet_credit_pence or 0))
+            if PromoOfferService.is_wallet_voucher_offer(row.offer_type) and credit <= 0 and row.offer_type == "sales_wallet_voucher":
                 credit = SALES_REP_WALLET_CREDIT_PENCE
             try:
                 sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
             except ValueError:
                 sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
-            WalletService.credit(
-                db,
-                org,
-                amount_minor=credit,
-                kind="promo_credit",
-                provider="sales_rep_promo",
-                provider_reference=row.id,
-                description=f"Welcome credit — promo {row.code}",
-                created_by_user_id=user_id,
-                metadata={
-                    "restricted_spend": True,
-                    "source": "sales_rep_promo",
-                    "promo_offer_id": row.id,
-                    "sales_rep_id": row.sales_rep_id,
-                    "promo_code": row.code,
-                },
-                commit=False,
-            )
+            if credit > 0:
+                WalletService.credit(
+                    db,
+                    org,
+                    amount_minor=credit,
+                    kind="promo_credit",
+                    provider="sales_rep_promo",
+                    provider_reference=row.id,
+                    description=f"Welcome credit — promo {row.code}",
+                    created_by_user_id=user_id,
+                    metadata={
+                        "restricted_spend": True,
+                        "source": "sales_rep_promo",
+                        "promo_offer_id": row.id,
+                        "sales_rep_id": row.sales_rep_id,
+                        "promo_code": row.code,
+                    },
+                    commit=False,
+                )
+                try:
+                    from app.services.billing_refund_email_service import BillingRefundEmailService
+
+                    BillingRefundEmailService.send_wallet_credit_issued(
+                        db,
+                        org=org,
+                        user_id=user_id,
+                        amount_pence=credit,
+                        wallet_balance_pence=int(org.wallet_balance_pence or 0),
+                    )
+                except Exception:
+                    pass
             PromoOfferService.stamp_promo_attribution(db, org_id=org_id, promo=row, subscription=sub)
             try:
-                from app.services.billing_refund_email_service import BillingRefundEmailService
-
-                BillingRefundEmailService.send_wallet_credit_issued(
-                    db,
-                    org=org,
-                    user_id=user_id,
-                    amount_pence=credit,
-                    wallet_balance_pence=int(org.wallet_balance_pence or 0),
-                )
+                PromoOfferService.grant_sales_rep_multi_benefits(db, org_id=org_id, promo=row)
             except Exception:
-                pass
+                logger.exception("multi-benefit grant failed for promo %s", row.code)
             try:
                 from app.services.sales_rep_service import SalesRepService
 

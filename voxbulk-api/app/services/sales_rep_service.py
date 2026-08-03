@@ -102,8 +102,21 @@ class SalesRepService:
 
     @staticmethod
     def rep_to_dict(rep: SalesRep, user: User | None = None) -> dict[str, Any]:
+        from app.services.sales_hub_benefits import (
+            benefit_summaries,
+            commission_summary,
+            currency_of_rep,
+            parse_commission_tiers,
+            parse_partner_terms,
+            parse_promo_benefits,
+        )
         from app.services.sales_payout_service import SalesPayoutService
 
+        currency = currency_of_rep(rep)
+        benefits = parse_promo_benefits(rep)
+        tiers = parse_commission_tiers(rep)
+        partner_terms = parse_partner_terms(rep)
+        partner = SalesRepService.is_partner_channel(rep)
         return {
             "id": rep.id,
             "user_id": rep.user_id,
@@ -114,10 +127,18 @@ class SalesRepService:
             "email": user.email if user else None,
             "promo_code": rep.promo_code,
             "country": rep.country,
+            "currency": currency,
             "caller_id": rep.caller_id,
             "commission_pct": SalesRepService.commission_pct_of(rep),
             "commission_type": SalesPayoutService.commission_type_of(rep),
             "commission_fixed_minor": SalesPayoutService.fixed_minor_of(rep),
+            "commission_tiers": tiers,
+            "commission_summary": commission_summary(
+                tiers, currency=currency, partner=partner, partner_terms=partner_terms
+            ),
+            "promo_benefits": benefits,
+            "promo_benefit_summaries": benefit_summaries(benefits, currency=currency),
+            "partner_terms": partner_terms,
             "payout": SalesPayoutService.payout_dict(rep),
             "is_active": bool(rep.is_active),
             "created_at": rep.created_at.isoformat() if rep.created_at else None,
@@ -221,7 +242,19 @@ class SalesRepService:
         commission_type: Any = None,
         commission_fixed_minor: Any = 0,
         payout: dict[str, Any] | None = None,
+        promo_benefits: Any = None,
+        commission_tiers: Any = None,
+        partner_terms: Any = None,
     ) -> SalesRep:
+        from app.services.sales_hub_benefits import (
+            default_commission_tiers,
+            default_partner_terms,
+            default_promo_benefits,
+            set_commission_tiers,
+            set_partner_terms,
+            set_promo_benefits,
+            sync_rep_currency,
+        )
         from app.services.sales_payout_service import (
             COMMISSION_TYPE_FIXED,
             COMMISSION_TYPE_MONTH2,
@@ -304,6 +337,38 @@ class SalesRepService:
         )
         if payout:
             SalesPayoutService.apply_payout_fields(rep, payout)
+        sync_rep_currency(rep)
+        if promo_benefits is not None:
+            set_promo_benefits(rep, promo_benefits)
+        else:
+            set_promo_benefits(rep, default_promo_benefits(voucher_enabled=True))
+        if commission_tiers is not None:
+            set_commission_tiers(rep, commission_tiers)
+        else:
+            if ctype == COMMISSION_TYPE_MONTH2:
+                set_commission_tiers(rep, default_commission_tiers(month2_pct=pct))
+            elif ctype == COMMISSION_TYPE_FIXED:
+                set_commission_tiers(
+                    rep,
+                    [
+                        {"month": 2, "enabled": True, "kind": "fixed", "value": fixed_minor},
+                        {"month": 3, "enabled": False, "kind": "percent", "value": pct},
+                        {"month": 4, "enabled": False, "kind": "percent", "value": pct},
+                    ],
+                )
+            else:
+                set_commission_tiers(
+                    rep,
+                    [
+                        {"month": 2, "enabled": True, "kind": "percent", "value": pct},
+                        {"month": 3, "enabled": False, "kind": "percent", "value": pct},
+                        {"month": 4, "enabled": False, "kind": "percent", "value": pct},
+                    ],
+                )
+                if kind_norm == KIND_PARTNER_CHANNEL:
+                    rep.commission_type = COMMISSION_TYPE_PERCENT
+        if partner_terms is not None or kind_norm == KIND_PARTNER_CHANNEL:
+            set_partner_terms(rep, partner_terms if partner_terms is not None else default_partner_terms())
         db.add(rep)
 
         if kind_norm == KIND_PARTNER_CHANNEL:
@@ -348,6 +413,21 @@ class SalesRepService:
             raise SalesRepError("Fixed commission amount (GBP pence) is required.")
         if "country" in patch:
             rep.country = (str(patch["country"] or "").strip().upper()[:2] or None)
+            from app.services.sales_hub_benefits import sync_rep_currency
+
+            sync_rep_currency(rep)
+        if "promo_benefits" in patch:
+            from app.services.sales_hub_benefits import set_promo_benefits
+
+            set_promo_benefits(rep, patch.get("promo_benefits"))
+        if "commission_tiers" in patch:
+            from app.services.sales_hub_benefits import set_commission_tiers
+
+            set_commission_tiers(rep, patch.get("commission_tiers"))
+        if "partner_terms" in patch:
+            from app.services.sales_hub_benefits import set_partner_terms
+
+            set_partner_terms(rep, patch.get("partner_terms"))
         if "caller_id" in patch:
             rep.caller_id = (str(patch["caller_id"] or "").strip() or None)
         if "is_active" in patch:
@@ -385,7 +465,7 @@ class SalesRepService:
         rep.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(rep)
-        if "promo_code" in patch and patch["promo_code"]:
+        if any(k in patch for k in ("promo_code", "promo_benefits", "is_active", "name")):
             try:
                 from app.services.promo_offer_service import PromoOfferService
 
@@ -1136,15 +1216,16 @@ class SalesRepService:
     ) -> SalesCommission | None:
         """Best-effort: accrue commission when a linked org pays a subscription invoice.
 
-        Driven by rep.commission_type (available to both salesman and partner_channel):
-          - month2: Monthly 2nd paid invoice × %; yearly (invoice/12) × %; one per (rep, org)
-          - percent: Every paid subscription invoice × %; idempotent per invoice_id
-          - fixed: Every paid subscription invoice × fixed GBP pence; idempotent per invoice_id
+        Driven by commission_tiers_json when present:
+          - Monthly: Nth paid subscription invoice → month N tier (2/3/4) if enabled
+          - Yearly: month-2 tier only once (base = invoice/12)
+        Legacy commission_type percent/fixed still accrues every paid invoice.
 
         Never raises. Pass force_subscription=True for known subscription payments whose
         invoice row is not tagged kind="subscription" (e.g. GoCardless DD webhook).
         """
         try:
+            from app.services.sales_hub_benefits import currency_of_rep, parse_commission_tiers
             from app.services.sales_payout_service import (
                 COMMISSION_TYPE_FIXED,
                 COMMISSION_TYPE_MONTH2,
@@ -1168,57 +1249,104 @@ class SalesRepService:
             invoice_id = getattr(invoice, "id", None)
             pct = SalesRepService.commission_pct_of(rep)
             ctype = SalesPayoutService.commission_type_of(rep)
+            tiers = parse_commission_tiers(rep)
+            has_tier_json = bool(getattr(rep, "commission_tiers_json", None))
 
-            if ctype in (COMMISSION_TYPE_PERCENT, COMMISSION_TYPE_FIXED):
-                if invoice_id:
-                    already = db.execute(
-                        select(SalesCommission).where(
-                            SalesCommission.sales_rep_id == rep.id,
-                            SalesCommission.invoice_id == invoice_id,
-                        )
-                    ).scalar_one_or_none()
-                    if already is not None:
-                        return None
-                if ctype == COMMISSION_TYPE_FIXED:
-                    kind = "fixed_invoice"
-                    commission_minor = SalesPayoutService.fixed_minor_of(rep)
-                    note = f"Fixed commission {SalesPayoutService.format_gbp(commission_minor)} on paid invoice."
+            if ctype in (COMMISSION_TYPE_PERCENT, COMMISSION_TYPE_FIXED) and not (
+                has_tier_json and ctype == COMMISSION_TYPE_MONTH2
+            ):
+                # Partner / on-payment styles
+                if ctype in (COMMISSION_TYPE_PERCENT, COMMISSION_TYPE_FIXED):
+                    if invoice_id:
+                        already = db.execute(
+                            select(SalesCommission).where(
+                                SalesCommission.sales_rep_id == rep.id,
+                                SalesCommission.invoice_id == invoice_id,
+                            )
+                        ).scalar_one_or_none()
+                        if already is not None:
+                            return None
+                    if ctype == COMMISSION_TYPE_FIXED:
+                        kind = "fixed_invoice"
+                        commission_minor = SalesPayoutService.fixed_minor_of(rep)
+                        note = f"Fixed commission {SalesPayoutService.format_gbp(commission_minor)} on paid invoice."
+                    else:
+                        kind = "percent_invoice" if not SalesRepService.is_partner_channel(rep) else "partner_invoice"
+                        commission_minor = SalesRepService.apply_commission_pct(amount, pct)
+                        note = f"{pct:g}% of paid subscription invoice."
                 else:
-                    kind = "percent_invoice" if not SalesRepService.is_partner_channel(rep) else "partner_invoice"
-                    commission_minor = SalesRepService.apply_commission_pct(amount, pct)
-                    note = f"{pct:g}% of paid subscription invoice."
-            else:
-                # month2 (default)
-                existing = db.execute(
-                    select(SalesCommission).where(
-                        SalesCommission.sales_rep_id == rep.id,
-                        SalesCommission.org_id == org_id,
-                        SalesCommission.kind.in_(["monthly_2nd", "yearly_1mo"]),
-                    )
-                ).scalar_one_or_none()
-                if existing is not None:
                     return None
-
+            else:
+                # month2 + multi-month tiers
                 interval = SalesRepService._org_plan_interval(db, org_id)
                 if interval == "yearly":
+                    existing = db.execute(
+                        select(SalesCommission).where(
+                            SalesCommission.sales_rep_id == rep.id,
+                            SalesCommission.org_id == org_id,
+                            SalesCommission.kind.in_(["yearly_1mo", "monthly_2nd", "monthly_3rd", "monthly_4th"]),
+                        )
+                    ).scalar_one_or_none()
+                    if existing is not None:
+                        return None
+                    tier = next((t for t in tiers if int(t["month"]) == 2 and t.get("enabled")), None)
+                    if tier is None:
+                        return None
                     kind = "yearly_1mo"
                     base_minor = max(0, round(amount / 12))
-                    note = f"{pct:g}% of one month of a yearly plan."
+                    if tier["kind"] == "fixed":
+                        rep_cur = currency_of_rep(rep)
+                        if currency.upper() != rep_cur.upper():
+                            return None
+                        commission_minor = int(round(float(tier["value"])))
+                        note = f"Fixed month-2 yearly commission on one month of yearly plan."
+                    else:
+                        commission_minor = SalesRepService.apply_commission_pct(base_minor, float(tier["value"]))
+                        note = f"{float(tier['value']):g}% of one month of a yearly plan."
                 else:
-                    paid_count = db.execute(
+                    paid_invoices = db.execute(
                         select(BillingInvoice).where(
                             BillingInvoice.org_id == org_id,
                             BillingInvoice.kind == "subscription",
                             BillingInvoice.status == "paid",
                         )
                     ).scalars().all()
-                    if len(paid_count) < 2:
+                    paid_n = len(paid_invoices)
+                    if paid_n not in (2, 3, 4):
                         return None
-                    kind = "monthly_2nd"
-                    base_minor = amount
-                    note = f"{pct:g}% of 2nd month subscription."
-                commission_minor = SalesRepService.apply_commission_pct(base_minor, pct)
-                _ = COMMISSION_TYPE_MONTH2  # documented default path
+                    tier = next((t for t in tiers if int(t["month"]) == paid_n and t.get("enabled")), None)
+                    if tier is None:
+                        return None
+                    kind_map = {2: "monthly_2nd", 3: "monthly_3rd", 4: "monthly_4th"}
+                    kind = kind_map[paid_n]
+                    existing = db.execute(
+                        select(SalesCommission).where(
+                            SalesCommission.sales_rep_id == rep.id,
+                            SalesCommission.org_id == org_id,
+                            SalesCommission.kind == kind,
+                        )
+                    ).scalar_one_or_none()
+                    if existing is not None:
+                        return None
+                    if invoice_id:
+                        already = db.execute(
+                            select(SalesCommission).where(
+                                SalesCommission.sales_rep_id == rep.id,
+                                SalesCommission.invoice_id == invoice_id,
+                            )
+                        ).scalar_one_or_none()
+                        if already is not None:
+                            return None
+                    if tier["kind"] == "fixed":
+                        rep_cur = currency_of_rep(rep)
+                        if currency.upper() != rep_cur.upper():
+                            return None
+                        commission_minor = int(round(float(tier["value"])))
+                        note = f"Fixed commission on month {paid_n} subscription."
+                    else:
+                        commission_minor = SalesRepService.apply_commission_pct(amount, float(tier["value"]))
+                        note = f"{float(tier['value']):g}% of month {paid_n} subscription."
+                _ = COMMISSION_TYPE_MONTH2
 
             if commission_minor <= 0:
                 return None
@@ -1302,21 +1430,96 @@ class SalesRepService:
             [c for c in customers if c.offer_sent_at]
         )
         org_names: dict[str, str] = {}
+        org_packages: dict[str, dict[str, Any]] = {}
         if org_ids:
             for org in db.execute(select(Organisation).where(Organisation.id.in_(list(org_ids)))).scalars().all():
                 org_names[str(org.id)] = str(org.name or org.id)
+            try:
+                from app.models.plan import Plan
+                from app.models.subscription import Subscription
+                from app.services.billing_currency import money_display
+                from app.services.plan_price_service import PlanPriceService
+
+                for oid in org_ids:
+                    sub = (
+                        db.execute(
+                            select(Subscription)
+                            .where(Subscription.org_id == oid)
+                            .order_by(Subscription.created_at.desc())
+                        )
+                        .scalars()
+                        .first()
+                    )
+                    if sub is None or not sub.plan_id:
+                        continue
+                    plan = db.get(Plan, sub.plan_id)
+                    if plan is None:
+                        continue
+                    cur = str(getattr(sub, "currency", None) or "GBP")
+                    price = PlanPriceService.get_price(db, plan.id, cur)
+                    interval = str(getattr(plan, "interval", "") or "monthly")
+                    amount = None
+                    if price is not None:
+                        if str(interval).lower().startswith(("year", "annual")):
+                            amount = getattr(price, "yearly_price_minor", None)
+                        else:
+                            amount = getattr(price, "monthly_price_minor", None)
+                    org_packages[str(oid)] = {
+                        "plan_name": getattr(plan, "name", None),
+                        "plan_code": getattr(plan, "code", None),
+                        "billing_interval": interval,
+                        "amount_minor": amount,
+                        "currency": cur,
+                        "amount_display": money_display(amount, cur) if amount is not None else None,
+                    }
+            except Exception:  # noqa: BLE001
+                pass
+
+        from app.services.sales_hub_benefits import (
+            benefit_summaries,
+            commission_summary,
+            currency_of_rep,
+            packages_for_currency,
+            parse_commission_tiers,
+            parse_partner_terms,
+            parse_promo_benefits,
+        )
+
+        currency = currency_of_rep(rep)
+        benefits = parse_promo_benefits(rep)
+        tiers = parse_commission_tiers(rep)
+        partner_terms = parse_partner_terms(rep)
 
         return {
             "kind": SalesRepService.rep_kind(rep),
             "commission_pct": SalesRepService.commission_pct_of(rep),
             "commission_type": SalesPayoutService.commission_type_of(rep),
             "commission_fixed_minor": SalesPayoutService.fixed_minor_of(rep),
+            "commission_tiers": tiers,
+            "commission_summary": commission_summary(
+                tiers,
+                currency=currency,
+                partner=SalesRepService.is_partner_channel(rep),
+                partner_terms=partner_terms,
+            ),
+            "promo_code": rep.promo_code,
+            "promo_benefits": benefits,
+            "promo_benefit_summaries": benefit_summaries(benefits, currency=currency),
+            "partner_terms": partner_terms,
+            "currency": currency,
+            "country": rep.country,
+            "packages": packages_for_currency(db, currency),
             "payout": SalesPayoutService.payout_dict(rep),
             "won_deals": {
                 "count": len(won),
                 "total_value_minor": total_paid_minor,
                 "companies": [
-                    {"name": c.company_name or c.full_name, "org_id": c.org_id}
+                    {
+                        "name": c.company_name or c.full_name,
+                        "org_id": c.org_id,
+                        "status": "Converted" if c.org_id else (c.status or "Pending"),
+                        **(org_packages.get(str(c.org_id), {}) if c.org_id else {}),
+                    }
                     for c in won
                 ],
             },

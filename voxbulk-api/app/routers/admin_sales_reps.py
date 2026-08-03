@@ -40,6 +40,229 @@ def list_payout_invoices(
     return {"ok": True, "items": SalesPayoutService.list_invoices(db, rep_id=rep_id, status=status)}
 
 
+@router.get("/hub-catalog")
+def sales_hub_catalog(
+    country: str | None = Query(default=None),
+    currency: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.services.billing_currency import currency_for_country_code, normalize_currency
+    from app.services.sales_hub_benefits import packages_for_currency, service_catalog
+
+    cur = normalize_currency(currency) if currency else currency_for_country_code(country)
+    return {
+        "ok": True,
+        "currency": cur,
+        "services": service_catalog(),
+        "packages": packages_for_currency(db, cur),
+    }
+
+
+@router.get("/hub-invoices")
+def list_hub_invoices(
+    rep_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    kind: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    return {
+        "ok": True,
+        "items": SalesHubInvoiceService.list_invoices(db, rep_id=rep_id, status=status, kind=kind),
+        "kpis": SalesHubInvoiceService.kpi_totals(db),
+    }
+
+
+@router.post("/hub-invoices")
+def create_hub_invoice(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    body = payload or {}
+    rep_id = str(body.get("sales_rep_id") or body.get("rep_id") or "").strip()
+    if not rep_id:
+        raise HTTPException(status_code=400, detail="sales_rep_id is required")
+    rep = _get_rep(db, rep_id)
+    try:
+        inv = SalesHubInvoiceService.create(db, rep=rep, payload=body)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.get("/hub-invoices/{invoice_id}")
+def get_hub_invoice(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    rep = db.get(SalesRep, inv.sales_rep_id)
+    return {
+        "ok": True,
+        "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items),
+        "rep": SalesRepService.rep_to_dict(rep) if rep else None,
+    }
+
+
+@router.patch("/hub-invoices/{invoice_id}")
+def update_hub_invoice(
+    invoice_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)
+):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        inv = SalesHubInvoiceService.update(db, inv=inv, payload=payload or {})
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.post("/hub-invoices/{invoice_id}/send")
+def send_hub_invoice(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_hub_invoice_service import STATUS_SENT, SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        inv = SalesHubInvoiceService.set_status(db, inv=inv, status=STATUS_SENT)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.post("/hub-invoices/{invoice_id}/remind")
+def remind_hub_invoice(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        inv = SalesHubInvoiceService.remind(db, inv=inv)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.post("/hub-invoices/{invoice_id}/mark-paid")
+def mark_hub_invoice_paid(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_hub_invoice_service import STATUS_PAID, SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        inv = SalesHubInvoiceService.set_status(db, inv=inv, status=STATUS_PAID)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.post("/hub-invoices/{invoice_id}/reject")
+def reject_hub_invoice(
+    invoice_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)
+):
+    from app.services.sales_hub_invoice_service import STATUS_REJECTED, SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        inv = SalesHubInvoiceService.set_status(
+            db, inv=inv, status=STATUS_REJECTED, reason=(payload or {}).get("reason")
+        )
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.post("/hub-invoices/{invoice_id}/approve-commission")
+def approve_hub_commission(
+    invoice_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)
+):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    approved = True if payload is None or "approved" not in payload else bool(payload.get("approved"))
+    try:
+        inv = SalesHubInvoiceService.approve_commission(db, inv=inv, approved=approved)
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    items = SalesHubInvoiceService.list_items(db, inv.id)
+    return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.post("/hub-invoices/{invoice_id}/collect")
+def collect_hub_invoice(
+    invoice_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)
+):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    rep = db.get(SalesRep, inv.sales_rep_id)
+    org = SalesRepService.partner_org_for_user(db, user_id=rep.user_id) if rep else None
+    try:
+        result = SalesHubInvoiceService.start_collect(
+            db, inv=inv, provider=(payload or {}).get("provider"), org=org
+        )
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return result
+
+
+@router.get("/team-kpis")
+def sales_team_kpis(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    reps = SalesRepService.list_reps(db)
+    leads = 0
+    paying = 0
+    revenue = 0
+    earned = 0
+    paid = 0
+    for r in reps:
+        # list_reps embeds light stats; pull dashboard for accurate wallet when needed is heavy —
+        # use embedded commission_minor + customers
+        paying += int(r.get("customers") or 0)
+        earned += int(r.get("commission_minor") or 0)
+    # Outstanding hub invoices
+    hub_kpis = SalesHubInvoiceService.kpi_totals(db)
+    outstanding = int(hub_kpis.get("new") or 0) + int(hub_kpis.get("sent") or 0)
+    salesmen = sum(1 for r in reps if r.get("kind") == "salesman")
+    partners = sum(1 for r in reps if r.get("kind") == "partner_channel")
+    return {
+        "ok": True,
+        "accounts": len(reps),
+        "salesmen": salesmen,
+        "partners": partners,
+        "leads": leads,
+        "paying_customers": paying,
+        "revenue_minor": revenue,
+        "commission_earned_minor": earned,
+        "commission_paid_minor": paid,
+        "invoices_outstanding_minor": outstanding,
+        "hub_invoice_kpis": hub_kpis,
+    }
+
+
 @router.get("/payout-invoices/{invoice_id}")
 def get_payout_invoice(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     from app.services.sales_payout_service import SalesPayoutService
@@ -129,6 +352,9 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
             commission_type=body.get("commission_type"),
             commission_fixed_minor=body.get("commission_fixed_minor"),
             payout=payout or None,
+            promo_benefits=body.get("promo_benefits"),
+            commission_tiers=body.get("commission_tiers"),
+            partner_terms=body.get("partner_terms"),
         )
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

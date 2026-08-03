@@ -83,10 +83,11 @@ class PaymentProviderRouter:
 
         if code in GOCARDLESS_COUNTRY_CODES and gc_available:
             return "gocardless"
-        if awx_available:
-            return "airwallex"
+        # Near-term: prefer Stripe for card before Airwallex when GC unavailable.
         if stripe_available:
             return "stripe"
+        if awx_available:
+            return "airwallex"
         if gc_available:
             return "gocardless"
         return "stripe"
@@ -109,10 +110,10 @@ class PaymentProviderRouter:
             reason = f"Admin override: {forced}"
         elif code in GOCARDLESS_COUNTRY_CODES and gc_available:
             reason = f"Country {code} supports GoCardless Direct Debit"
-        elif awx_available:
-            reason = f"Country {code} — card checkout via Airwallex (GoCardless unavailable or unsupported)"
         elif stripe_available:
-            reason = f"Country {code} — card checkout via Stripe"
+            reason = f"Country {code} — card checkout via Stripe (near-term default when GoCardless unavailable)"
+        elif awx_available:
+            reason = f"Country {code} — card checkout via Airwallex (Admin-enabled fallback)"
         elif gc_available:
             reason = "GoCardless fallback (only configured provider)"
         else:
@@ -126,7 +127,10 @@ class PaymentProviderRouter:
             "airwallex_available": awx_available,
             "stripe_available": stripe_available,
             "org_override": forced or None,
-            "policy": "GoCardless when org country supports it and GoCardless is enabled; otherwise Airwallex card checkout.",
+            "policy": (
+                "Near-term: GoCardless for subscriptions/Direct Debit when country supports it and GC is enabled; "
+                "Stripe for card payments. Airwallex remains Admin-enableable (Gulf / card fallback)."
+            ),
         }
 
     @staticmethod

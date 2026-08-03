@@ -12,19 +12,36 @@ export const Route = createFileRoute("/_app/sales/deals")({
   component: SalesDeals,
 });
 
-type Stats = {
-  won_deals: { count: number; total_value_minor: number; companies: { name: string; org_id?: string | null }[] };
-  wallet: { active_companies: number };
-  visited_count: number;
+type Company = {
+  name: string;
+  org_id?: string | null;
+  status?: string;
+  plan_name?: string | null;
+  plan_code?: string | null;
+  billing_interval?: string | null;
+  amount_minor?: number | null;
+  currency?: string | null;
+  amount_display?: string | null;
 };
 
-function money(minor?: number) {
+type Stats = {
+  won_deals: { count: number; total_value_minor: number; companies: Company[] };
+  wallet: { active_companies: number };
+  visited_count: number;
+  currency?: string;
+};
+
+const SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$", CAD: "CA$", AUD: "A$" };
+
+function money(minor?: number, currency = "GBP") {
   const n = Number(minor || 0) / 100;
-  return `£${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const sym = SYMBOLS[currency] || currency + " ";
+  return `${sym}${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function SalesDeals() {
   const [stats, setStats] = React.useState<Stats | null>(null);
+  const currency = stats?.currency || "GBP";
 
   React.useEffect(() => {
     void (async () => {
@@ -56,7 +73,7 @@ function SalesDeals() {
               <div className="label">
                 <DollarSign size={14} /> Total value
               </div>
-              <div className="value">{money(stats?.won_deals.total_value_minor)}</div>
+              <div className="value">{money(stats?.won_deals.total_value_minor, currency)}</div>
             </div>
             <div className="sp-kpi">
               <div className="label">
@@ -78,7 +95,15 @@ function SalesDeals() {
             (stats?.won_deals.companies || []).map((c, i) => (
               <div className="sp-company" key={i}>
                 <span className="name">{c.name}</span>
-                <span className="pkg">{c.org_id ? "Converted" : "Pending"}</span>
+                <span className="pkg">
+                  {c.plan_name || c.plan_code
+                    ? `${c.plan_name || c.plan_code}${c.billing_interval ? ` · ${c.billing_interval}` : ""}${
+                        c.amount_display ? ` · ${c.amount_display}` : ""
+                      }`
+                    : c.org_id
+                      ? c.status || "Converted"
+                      : "Pending"}
+                </span>
               </div>
             ))
           )}

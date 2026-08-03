@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CircleDollarSign, Wallet } from "lucide-react";
+import { CircleDollarSign, Gift, Percent } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,15 +38,37 @@ type InvoiceRow = {
   notes?: string | null;
 };
 
-function money(minor?: number) {
+type PackageRow = {
+  service_id?: string;
+  name?: string;
+  list_price_display?: string | null;
+  monthly_display?: string | null;
+};
+
+type RepInfo = {
+  payout?: Payout;
+  promo_code?: string;
+  currency?: string;
+  commission_summary?: string;
+  commission_tiers?: { month: number; enabled: boolean; kind: string; value: number }[];
+  promo_benefit_summaries?: string[];
+  partner_terms?: { discount_percent?: number; billing?: string };
+};
+
+const SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$", CAD: "CA$", AUD: "A$" };
+
+function money(minor?: number, currency = "GBP") {
   const n = Number(minor || 0) / 100;
-  return `£${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const sym = SYMBOLS[currency] || currency + " ";
+  return `${sym}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
   const [wallet, setWallet] = React.useState<WalletStats | null>(null);
   const [payout, setPayout] = React.useState<Payout>({ payout_method: "bank" });
   const [invoices, setInvoices] = React.useState<InvoiceRow[]>([]);
+  const [rep, setRep] = React.useState<RepInfo | null>(null);
+  const [packages, setPackages] = React.useState<PackageRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState("");
@@ -54,18 +76,32 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
   const [amountGbp, setAmountGbp] = React.useState("");
   const [notes, setNotes] = React.useState("");
 
+  const currency = rep?.currency || "GBP";
+
   const load = React.useCallback(async () => {
     setLoading(true);
     setErr("");
     try {
       const res = await apiFetch<{
-        wallet: WalletStats;
-        rep?: { payout?: Payout };
-        payout_invoices?: InvoiceRow[];
-      }>("/sales/wallet");
+          wallet: WalletStats;
+          rep?: RepInfo;
+          payout_invoices?: InvoiceRow[];
+          packages?: PackageRow[];
+          commission_summary?: string;
+          promo_benefit_summaries?: string[];
+          currency?: string;
+        }>("/sales/wallet");
       setWallet(res.wallet || null);
+      const merged: RepInfo = {
+        ...(res.rep || {}),
+        commission_summary: res.rep?.commission_summary || res.commission_summary,
+        promo_benefit_summaries: res.rep?.promo_benefit_summaries || res.promo_benefit_summaries,
+        currency: res.rep?.currency || res.currency || "GBP",
+      };
+      setRep(merged);
       setPayout(res.rep?.payout || { payout_method: "bank" });
       setInvoices(res.payout_invoices || []);
+      setPackages(res.packages || []);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Failed to load wallet");
     } finally {
@@ -123,17 +159,25 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
   return (
     <div className="flex w-full flex-col gap-6">
       {titleHint ? <p className="text-sm text-muted-foreground">{titleHint}</p> : null}
-      {err ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{err}</div> : null}
-      {msg ? <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800">{msg}</div> : null}
+      {err ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {err}
+        </div>
+      ) : null}
+      {msg ? (
+        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800">
+          {msg}
+        </div>
+      ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1.5">
               <CircleDollarSign className="size-3.5" />
               Available
             </CardDescription>
-            <CardTitle className="text-3xl tabular-nums">{loading ? "…" : money(available)}</CardTitle>
+            <CardTitle className="text-3xl tabular-nums">{loading ? "…" : money(available, currency)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-0 text-xs text-muted-foreground">Ready to invoice</CardContent>
         </Card>
@@ -141,7 +185,7 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
           <CardHeader className="pb-2">
             <CardDescription>Awaiting approval</CardDescription>
             <CardTitle className="text-3xl tabular-nums">
-              {loading ? "…" : money(wallet?.commission_requested_minor)}
+              {loading ? "…" : money(wallet?.commission_requested_minor, currency)}
             </CardTitle>
           </CardHeader>
         </Card>
@@ -149,20 +193,78 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
           <CardHeader className="pb-2">
             <CardDescription>Paid out</CardDescription>
             <CardTitle className="text-3xl tabular-nums">
-              {loading ? "…" : money(wallet?.commission_paid_minor)}
+              {loading ? "…" : money(wallet?.commission_paid_minor, currency)}
             </CardTitle>
           </CardHeader>
         </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <Wallet className="size-3.5" />
-              Lifetime
-            </CardDescription>
-            <CardTitle className="text-3xl tabular-nums">
-              {loading ? "…" : money(wallet?.commission_minor)}
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Percent className="size-4" /> Commission limits
             </CardTitle>
+            <CardDescription>As set by admin — your earning rules.</CardDescription>
           </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="font-medium">{rep?.commission_summary || (loading ? "…" : "—")}</p>
+            {(rep?.commission_tiers || [])
+              .filter((t) => t.enabled)
+              .map((t) => (
+                <div key={t.month} className="flex justify-between text-muted-foreground">
+                  <span>Month {t.month}</span>
+                  <span>
+                    {t.kind === "fixed" ? money(t.value, currency) : `${Number(t.value)}%`}
+                  </span>
+                </div>
+              ))}
+            {rep?.partner_terms?.discount_percent ? (
+              <p className="text-muted-foreground">
+                Partner discount {Number(rep.partner_terms.discount_percent)}% ·{" "}
+                {rep.partner_terms.billing === "invoice_partner" ? "Invoice partner" : "Customer pays"}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gift className="size-4" /> Your promo
+            </CardTitle>
+            <CardDescription>Code and what it can do for customers.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="font-mono text-sm">
+                {rep?.promo_code || "—"}
+              </Badge>
+              <span className="text-muted-foreground">{currency}</span>
+            </div>
+            {(rep?.promo_benefit_summaries || []).length === 0 ? (
+              <p className="text-muted-foreground">{loading ? "…" : "No benefits configured yet."}</p>
+            ) : (
+              <ul className="list-inside list-disc space-y-1 text-muted-foreground">
+                {rep?.promo_benefit_summaries?.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+            {packages.length > 0 ? (
+              <div className="mt-3 border-t pt-3">
+                <p className="mb-1 font-medium">Packages in your market</p>
+                <ul className="space-y-1 text-muted-foreground">
+                  {packages.map((p) => (
+                    <li key={p.service_id || p.name} className="flex justify-between gap-2">
+                      <span>{p.name}</span>
+                      <span>{p.list_price_display || p.monthly_display || "—"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </CardContent>
         </Card>
       </div>
 
@@ -221,7 +323,7 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
                   </div>
                 </div>
                 <div>
-                  <Label>Address</Label>
+                  <Label>Bank address</Label>
                   <Input
                     value={payout.bank_address || ""}
                     onChange={(e) => setPayout({ ...payout, bank_address: e.target.value })}
@@ -232,7 +334,6 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
               <div>
                 <Label>PayPal email</Label>
                 <Input
-                  type="email"
                   value={payout.paypal_email || ""}
                   onChange={(e) => setPayout({ ...payout, paypal_email: e.target.value })}
                 />
@@ -246,25 +347,16 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>Create invoice</CardTitle>
-            <CardDescription>
-              Amount cannot exceed available commission ({money(available)}).
-            </CardDescription>
+            <CardTitle>Request payout</CardTitle>
+            <CardDescription>Create a withdrawal invoice against available commission.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div>
-              <Label>Amount (GBP)</Label>
-              <Input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={amountGbp}
-                onChange={(e) => setAmountGbp(e.target.value)}
-                placeholder="e.g. 150.00"
-              />
+              <Label>Amount ({currency})</Label>
+              <Input value={amountGbp} onChange={(e) => setAmountGbp(e.target.value)} placeholder="0.00" />
             </div>
             <div>
-              <Label>Notes (optional)</Label>
+              <Label>Notes</Label>
               <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
             </div>
             <Button type="button" disabled={busy || available <= 0} onClick={() => void createInvoice()}>
@@ -276,13 +368,13 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Your payout invoices</CardTitle>
+          <CardTitle>Withdrawal invoices</CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Invoice</TableHead>
+                <TableHead>Number</TableHead>
                 <TableHead>Amount</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Submitted</TableHead>
@@ -298,12 +390,14 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
               ) : (
                 invoices.map((inv) => (
                   <TableRow key={inv.id}>
-                    <TableCell className="font-medium">{inv.invoice_number}</TableCell>
-                    <TableCell>{inv.amount_display || money(inv.amount_minor)}</TableCell>
+                    <TableCell className="font-mono text-xs">{inv.invoice_number}</TableCell>
+                    <TableCell>{inv.amount_display || money(inv.amount_minor, currency)}</TableCell>
                     <TableCell>
-                      <Badge variant={inv.status === "paid" ? "default" : "secondary"}>{inv.status}</Badge>
+                      <Badge variant="outline">{inv.status}</Badge>
                     </TableCell>
-                    <TableCell>{(inv.submitted_at || "").slice(0, 10)}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs">
+                      {(inv.submitted_at || "").slice(0, 10) || "—"}
+                    </TableCell>
                   </TableRow>
                 ))
               )}

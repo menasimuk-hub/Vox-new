@@ -1,9 +1,52 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import './salesTeam.css'
 
-/* Same SVG icons as sales-team-dashboard.html */
+const EU_COUNTRIES = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'])
+const COUNTRY_CURRENCY = { GB: 'GBP', US: 'USD', CA: 'CAD', AU: 'AUD' }
+const CURRENCY_SYMBOLS = { GBP: '£', EUR: '€', USD: '$', CAD: 'CA$', AUD: 'A$' }
+const COUNTRIES = [
+  { code: 'GB', label: 'United Kingdom' },
+  { code: 'US', label: 'United States' },
+  { code: 'CA', label: 'Canada' },
+  { code: 'AU', label: 'Australia' },
+  { code: 'IE', label: 'Ireland' },
+  { code: 'DE', label: 'Germany' },
+  { code: 'FR', label: 'France' },
+  { code: 'ES', label: 'Spain' },
+  { code: 'AE', label: 'United Arab Emirates' },
+  { code: 'SA', label: 'Saudi Arabia' },
+  { code: 'EG', label: 'Egypt' },
+  { code: 'IN', label: 'India' },
+]
+const SERVICE_IDS = ['ai_interview', 'wa_survey', 'customer_feedback', 'voxbulk_expo']
+const SERVICE_LABELS = {
+  ai_interview: 'AI Interview Screening',
+  wa_survey: 'WA Survey / AI Call Survey',
+  customer_feedback: 'Customer Feedback',
+  voxbulk_expo: 'Voxbulk Expo',
+}
+const SERVICE_OPTIONS = {
+  ai_interview: [
+    { kind: 'fixed_topup', label: 'Fixed top-up', unit: 'minor' },
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
+  ],
+  wa_survey: [
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
+    { kind: 'fixed_topup', label: 'Fixed top-up', unit: 'minor' },
+    { kind: 'free_days', label: 'Free trial days', unit: 'days' },
+  ],
+  customer_feedback: [
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
+    { kind: 'free_days', label: 'Free days from 1st scan', unit: 'days' },
+  ],
+  voxbulk_expo: [
+    { kind: 'free_package_days', label: 'Free package days', unit: 'days' },
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
+  ],
+}
+
 const IconEdit = () => (
   <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M12 20h9' /><path d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z' /></svg>
 )
@@ -38,9 +81,19 @@ const IconEmptyPeople = () => (
   <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='1.5'><path d='M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2' /><circle cx='10' cy='7' r='4' /></svg>
 )
 
-function money(minor) {
+function currencyForCountry(country) {
+  const code = String(country || '').trim().toUpperCase().slice(0, 2)
+  if (EU_COUNTRIES.has(code)) return 'EUR'
+  return COUNTRY_CURRENCY[code] || 'USD'
+}
+
+function currencySymbol(currency) {
+  return CURRENCY_SYMBOLS[String(currency || 'GBP').toUpperCase()] || '$'
+}
+
+function money(minor, currency = 'GBP') {
   const n = Number(minor || 0) / 100
-  return `£${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return `${currencySymbol(currency)}${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 function genPassword() {
@@ -56,181 +109,372 @@ function tabFromPath(pathname, search) {
   return 'salesman'
 }
 
-function commLabel(rep) {
-  const t = String(rep.commission_type || 'month2')
-  if (t === 'month2') return `2nd Month · ${Number(rep.commission_pct || 0)}%`
-  if (t === 'fixed') return `On Payment · ${money(rep.commission_fixed_minor)}`
-  return `On Payment · ${Number(rep.commission_pct || 0)}%`
+function defaultPromoBenefits() {
+  const services = {}
+  SERVICE_IDS.forEach((sid) => {
+    const opts = SERVICE_OPTIONS[sid]
+    services[sid] = { enabled: false, kind: opts[0].kind, value: opts[0].unit === '%' ? 20 : 0 }
+  })
+  return {
+    wallet_voucher: { enabled: true, amount_major: '20' },
+    services,
+    usage_limit: '',
+    expires_at: '',
+  }
 }
 
-function commBadgeClass(rep) {
-  const t = String(rep.commission_type || 'month2')
-  if (t === 'month2') return 'badge-comm'
-  if (t === 'fixed') return 'badge-comm2'
-  return 'badge-comm3'
+function defaultCommissionTiers(pct = 15) {
+  return [
+    { month: 2, enabled: true, kind: 'percent', value: String(pct) },
+    { month: 3, enabled: false, kind: 'percent', value: String(pct) },
+    { month: 4, enabled: false, kind: 'percent', value: String(pct) },
+  ]
 }
 
-function commTypeFullLabel(rep) {
-  const t = String(rep.commission_type || 'month2')
-  if (t === 'month2') return 'Paid on 2nd Month (%)'
-  if (t === 'fixed') return 'Paid When Customer Pays — Fixed'
-  return 'Paid When Customer Pays — Percentage'
+function defaultPartnerTerms() {
+  return { discount_percent: '0', billing: 'customer_pays' }
 }
 
-function commValueLabel(rep) {
-  if (String(rep.commission_type || '') === 'fixed') return money(rep.commission_fixed_minor)
-  return `${Number(rep.commission_pct || 0)}%`
+function defaultPayout() {
+  return {
+    payout_method: 'bank',
+    bank_holder_name: '',
+    bank_name: '',
+    bank_sort_code: '',
+    bank_account_number: '',
+    bank_address: '',
+    paypal_email: '',
+  }
 }
 
-const EMPTY_FORM = {
-  name: '',
-  email: '',
-  password: '',
-  mobile: '',
-  promo_code: '',
-  company_name: '',
-  commission_type: 'month2',
-  commission_pct: '',
-  commission_fixed_gbp: '',
-  payout_method: 'bank',
-  bank_holder_name: '',
-  bank_name: '',
-  bank_sort_code: '',
-  bank_account_number: '',
-  bank_address: '',
-  paypal_email: '',
+function emptyForm(isPartner) {
+  return {
+    name: '',
+    email: '',
+    password: genPassword(),
+    mobile: '',
+    country: 'GB',
+    company_name: '',
+    promo_code: '',
+    promo_benefits: defaultPromoBenefits(),
+    commission_tiers: defaultCommissionTiers(isPartner ? 15 : 15),
+    partner_terms: defaultPartnerTerms(),
+    payout: defaultPayout(),
+    partner_comm_kind: 'percent',
+    partner_comm_value: '15',
+  }
+}
+
+function repToForm(rep) {
+  const benefits = rep.promo_benefits || {}
+  const wv = benefits.wallet_voucher || {}
+  const services = {}
+  SERVICE_IDS.forEach((sid) => {
+    const src = (benefits.services || {})[sid] || {}
+    const opts = SERVICE_OPTIONS[sid]
+    const kind = src.kind || opts[0].kind
+    const opt = opts.find((o) => o.kind === kind) || opts[0]
+    let value = src.value ?? (opt.unit === '%' ? 20 : 0)
+    if (opt.unit === 'minor') value = Number(value || 0) / 100
+    services[sid] = {
+      enabled: Boolean(src.enabled),
+      kind,
+      value: String(value),
+    }
+  })
+  const tiers = (rep.commission_tiers || defaultCommissionTiers()).map((t) => ({
+    month: t.month,
+    enabled: Boolean(t.enabled),
+    kind: t.kind === 'fixed' ? 'fixed' : 'percent',
+    value: t.kind === 'fixed' ? String(Number(t.value || 0) / 100) : String(t.value ?? ''),
+  }))
+  const pt = rep.partner_terms || defaultPartnerTerms()
+  const enabledTier = tiers.find((t) => t.enabled) || tiers[0]
+  return {
+    name: rep.name || '',
+    email: rep.email || '',
+    password: '',
+    mobile: rep.mobile || '',
+    country: rep.country || 'GB',
+    company_name: rep.company_name || '',
+    promo_code: rep.promo_code || '',
+    promo_benefits: {
+      wallet_voucher: {
+        enabled: Boolean(wv.enabled),
+        amount_major: wv.amount_minor != null ? String(Number(wv.amount_minor) / 100) : '20',
+      },
+      services,
+      usage_limit: benefits.usage_limit != null ? String(benefits.usage_limit) : '',
+      expires_at: benefits.expires_at ? String(benefits.expires_at).slice(0, 10) : '',
+    },
+    commission_tiers: tiers,
+    partner_terms: {
+      discount_percent: String(pt.discount_percent ?? '0'),
+      billing: pt.billing || 'customer_pays',
+    },
+    payout: { ...defaultPayout(), ...(rep.payout || {}) },
+    partner_comm_kind: enabledTier?.kind || 'percent',
+    partner_comm_value: enabledTier?.value || '15',
+  }
+}
+
+function buildPromoBenefitsPayload(form, currency) {
+  const pb = form.promo_benefits
+  const services = {}
+  SERVICE_IDS.forEach((sid) => {
+    const src = pb.services[sid]
+    const opt = (SERVICE_OPTIONS[sid] || []).find((o) => o.kind === src.kind) || SERVICE_OPTIONS[sid][0]
+    let value = parseFloat(src.value || '0')
+    if (opt.unit === 'minor') value = Math.round(value * 100)
+    services[sid] = { enabled: Boolean(src.enabled), kind: src.kind, value }
+  })
+  return {
+    wallet_voucher: {
+      enabled: Boolean(pb.wallet_voucher.enabled),
+      amount_minor: Math.round(parseFloat(pb.wallet_voucher.amount_major || '0') * 100),
+    },
+    services,
+    usage_limit: pb.usage_limit ? parseInt(pb.usage_limit, 10) : null,
+    expires_at: pb.expires_at || null,
+  }
+}
+
+function buildCommissionTiersPayload(form, isPartner) {
+  if (isPartner) {
+    const kind = form.partner_comm_kind
+    const val = parseFloat(form.partner_comm_value || '0')
+    return [
+      {
+        month: 2,
+        enabled: true,
+        kind,
+        value: kind === 'fixed' ? Math.round(val * 100) : val,
+      },
+      { month: 3, enabled: false, kind: 'percent', value: 0 },
+      { month: 4, enabled: false, kind: 'percent', value: 0 },
+    ]
+  }
+  return form.commission_tiers.map((t) => ({
+    month: t.month,
+    enabled: Boolean(t.enabled),
+    kind: t.kind,
+    value: t.kind === 'fixed' ? Math.round(parseFloat(t.value || '0') * 100) : parseFloat(t.value || '0'),
+  }))
+}
+
+function statusBadge(status) {
+  const s = String(status || '').toLowerCase()
+  if (s === 'paid') return <span className='badge badge-paid'>Paid</span>
+  if (s === 'sent') return <span className='badge badge-sent'>Sent</span>
+  if (s === 'new') return <span className='badge badge-new'>New</span>
+  if (s === 'rejected') return <span className='badge badge-rejected'>Rejected</span>
+  if (s === 'submitted') return <span className='badge badge-requested'>Awaiting Approval</span>
+  return <span className='badge badge-pending'>{status || '—'}</span>
 }
 
 export default function SalesTeam() {
   const location = useLocation()
   const navigate = useNavigate()
+
+  const [view, setView] = useState('accounts')
   const [tab, setTab] = useState(() => tabFromPath(location.pathname, location.search))
+  const [editorTab, setEditorTab] = useState('profile')
   const [reps, setReps] = useState([])
+  const [allReps, setAllReps] = useState([])
+  const [kpis, setKpis] = useState(null)
+  const [hubInvoices, setHubInvoices] = useState([])
+  const [hubKpis, setHubKpis] = useState({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [toast, setToast] = useState('')
 
-  const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
-  const [form, setForm] = useState(EMPTY_FORM)
+  const [form, setForm] = useState(() => emptyForm(false))
   const [formErr, setFormErr] = useState('')
+  const [catalog, setCatalog] = useState({ packages: [], services: [] })
 
   const [pwRep, setPwRep] = useState(null)
   const [pwValue, setPwValue] = useState('')
 
   const [profileRep, setProfileRep] = useState(null)
   const [profile, setProfile] = useState(null)
-  const [invoiceOpen, setInvoiceOpen] = useState(null)
+
+  const [invoiceDetail, setInvoiceDetail] = useState(null)
+  const [invoiceDetailRep, setInvoiceDetailRep] = useState(null)
+
+  const [showCreateInvoice, setShowCreateInvoice] = useState(false)
+  const [createInvForm, setCreateInvForm] = useState({
+    sales_rep_id: '',
+    kind: 'commission',
+    customer: '',
+    discount_percent: '0',
+    tax_percent: '0',
+    commission_amount_major: '0',
+    items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
+  })
+  const [createInvErr, setCreateInvErr] = useState('')
+
+  const [editorInvoices, setEditorInvoices] = useState([])
+  const [editorPayoutInvoices, setEditorPayoutInvoices] = useState([])
 
   const kind = tab === 'partners' ? 'partner_channel' : 'salesman'
+  const isPartner = kind === 'partner_channel'
+  const formCurrency = currencyForCountry(form.country)
 
-  const showToast = (msg) => {
+  const showToast = useCallback((msg) => {
     setToast(msg)
     window.setTimeout(() => setToast(''), 2600)
-  }
+  }, [])
 
-  const load = async () => {
+  const computeKpisFromReps = useCallback((items, hubKpiData) => {
+    const outstanding = (Number(hubKpiData?.new || 0) + Number(hubKpiData?.sent || 0))
+    return {
+      accounts: items.length,
+      leads: 0,
+      paying_customers: items.reduce((s, r) => s + Number(r.customers || 0), 0),
+      revenue_minor: items.reduce((s, r) => s + Number(r.revenue_minor || 0), 0),
+      commission_earned_minor: items.reduce((s, r) => s + Number(r.commission_minor || 0), 0),
+      commission_paid_minor: 0,
+      invoices_outstanding_minor: outstanding,
+    }
+  }, [])
+
+  const loadKpis = useCallback(async (items, hubKpiData) => {
+    try {
+      const res = await apiFetch('/admin/sales-reps/team-kpis')
+      setKpis(res)
+    } catch {
+      setKpis(computeKpisFromReps(items, hubKpiData))
+    }
+  }, [computeKpisFromReps])
+
+  const loadHubInvoices = useCallback(async () => {
+    try {
+      const res = await apiFetch('/admin/sales-reps/hub-invoices')
+      setHubInvoices(res?.items || [])
+      setHubKpis(res?.kpis || {})
+      return res
+    } catch (e) {
+      showToast(e?.message || 'Failed to load invoices')
+      return { items: [], kpis: {} }
+    }
+  }, [showToast])
+
+  const loadReps = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiFetch(`/admin/sales-reps?kind=${kind}`)
+      const [res, allRes, hubRes] = await Promise.all([
+        apiFetch(`/admin/sales-reps?kind=${kind}`),
+        apiFetch('/admin/sales-reps'),
+        apiFetch('/admin/sales-reps/hub-invoices').catch(() => ({ items: [], kpis: {} })),
+      ])
       setReps(res?.items || [])
+      setAllReps(allRes?.items || [])
+      setHubInvoices(hubRes?.items || [])
+      setHubKpis(hubRes?.kpis || {})
+      await loadKpis(allRes?.items || [], hubRes?.kpis || {})
     } catch (e) {
       showToast(e?.message || 'Failed to load')
     } finally {
       setLoading(false)
     }
-  }
+  }, [kind, loadKpis, showToast])
+
+  const loadCatalog = useCallback(async (country) => {
+    try {
+      const res = await apiFetch(`/admin/sales-reps/hub-catalog?country=${encodeURIComponent(country || 'GB')}`)
+      setCatalog({ packages: res?.packages || [], services: res?.services || [] })
+    } catch {
+      setCatalog({ packages: [], services: [] })
+    }
+  }, [])
 
   useEffect(() => {
     setTab(tabFromPath(location.pathname, location.search))
   }, [location.pathname, location.search])
 
   useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
+    if (view === 'accounts' || view === 'invoices') loadReps()
+  }, [tab, view, loadReps])
+
+  useEffect(() => {
+    if (view === 'editor') loadCatalog(form.country)
+  }, [view, form.country, loadCatalog])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return reps
     return reps.filter((r) =>
-      [r.name, r.email, r.mobile, r.promo_code].some((v) => String(v || '').toLowerCase().includes(q))
+      [r.name, r.email, r.mobile, r.promo_code, r.company_name].some((v) => String(v || '').toLowerCase().includes(q))
     )
   }, [reps, search])
 
   const switchTab = (next) => {
     setTab(next)
-    setProfileRep(null)
-    setProfile(null)
-    setInvoiceOpen(null)
     setSearch('')
     navigate(next === 'partners' ? '/marketing/partner-channel-sales' : '/marketing/salesmen')
   }
 
   const openAdd = () => {
     setEditId(null)
-    setForm({
-      ...EMPTY_FORM,
-      commission_type: tab === 'partners' ? 'percent' : 'month2',
-      password: genPassword(),
-      payout_method: 'bank',
-    })
+    setForm(emptyForm(tab === 'partners'))
     setFormErr('')
-    setShowForm(true)
+    setEditorTab('profile')
+    setView('editor')
   }
 
-  const openEdit = (rep) => {
-    const p = rep.payout || {}
+  const openEdit = async (rep) => {
     setEditId(rep.id)
-    setForm({
-      name: rep.name || '',
-      email: rep.email || '',
-      password: '',
-      mobile: rep.mobile || '',
-      promo_code: rep.promo_code || '',
-      company_name: rep.company_name || '',
-      commission_type: rep.commission_type || 'month2',
-      commission_pct: String(rep.commission_pct ?? ''),
-      commission_fixed_gbp: rep.commission_fixed_minor != null ? String(Number(rep.commission_fixed_minor) / 100) : '',
-      payout_method: p.payout_method || 'bank',
-      bank_holder_name: p.bank_holder_name || '',
-      bank_name: p.bank_name || '',
-      bank_sort_code: p.bank_sort_code || '',
-      bank_account_number: p.bank_account_number || '',
-      bank_address: p.bank_address || '',
-      paypal_email: p.paypal_email || '',
-    })
+    setForm(repToForm(rep))
     setFormErr('')
-    setShowForm(true)
+    setEditorTab('profile')
+    setView('editor')
+    try {
+      const [hub, payout] = await Promise.all([
+        apiFetch(`/admin/sales-reps/hub-invoices?rep_id=${rep.id}`),
+        apiFetch(`/admin/sales-reps/payout-invoices?rep_id=${rep.id}`),
+      ])
+      setEditorInvoices(hub?.items || [])
+      setEditorPayoutInvoices(payout?.items || [])
+    } catch {
+      setEditorInvoices([])
+      setEditorPayoutInvoices([])
+    }
   }
 
   const saveForm = async () => {
     setBusy(true)
     setFormErr('')
-    const fixedMinor = form.commission_type === 'fixed'
-      ? Math.round(parseFloat(form.commission_fixed_gbp || '0') * 100)
-      : 0
+    if (!form.country) {
+      setFormErr('Country is required.')
+      setBusy(false)
+      return
+    }
+    const tiers = buildCommissionTiersPayload(form, isPartner)
+    const primary = tiers.find((t) => t.enabled) || tiers[0]
+    const commissionType = isPartner
+      ? (primary.kind === 'fixed' ? 'fixed' : 'percent')
+      : (primary.month === 2 && primary.enabled ? 'month2' : primary.kind === 'fixed' ? 'fixed' : 'percent')
     const payload = {
       name: form.name,
       email: form.email,
       password: form.password,
       mobile: form.mobile,
-      promo_code: form.promo_code,
+      country: form.country,
       company_name: form.company_name,
+      promo_code: form.promo_code,
       kind,
-      commission_type: form.commission_type,
-      commission_pct: form.commission_pct || '15',
-      commission_fixed_minor: fixedMinor,
-      payout: {
-        payout_method: form.payout_method,
-        bank_holder_name: form.bank_holder_name,
-        bank_name: form.bank_name,
-        bank_sort_code: form.bank_sort_code,
-        bank_account_number: form.bank_account_number,
-        bank_address: form.bank_address,
-        paypal_email: form.paypal_email,
+      commission_type: commissionType,
+      commission_pct: primary.kind === 'percent' ? String(primary.value) : '15',
+      commission_fixed_minor: primary.kind === 'fixed' ? primary.value : 0,
+      promo_benefits: buildPromoBenefitsPayload(form, formCurrency),
+      commission_tiers: tiers,
+      partner_terms: {
+        discount_percent: parseFloat(form.partner_terms.discount_percent || '0'),
+        billing: form.partner_terms.billing,
       },
+      payout: form.payout,
     }
     try {
       if (editId) {
@@ -241,22 +485,16 @@ export default function SalesTeam() {
         await apiFetch(`/admin/sales-reps/${editId}`, { method: 'PATCH', body: JSON.stringify(patch) })
         showToast('Saved')
       } else {
-        if (!form.commission_type) {
-          setFormErr('Please select a commission type.')
-          setBusy(false)
-          return
-        }
-        if (!form.payout_method) {
-          setFormErr('Please select a payout method.')
+        if (!form.email) {
+          setFormErr('Email is required.')
           setBusy(false)
           return
         }
         await apiFetch('/admin/sales-reps', { method: 'POST', body: JSON.stringify(payload) })
         showToast('Created')
       }
-      setShowForm(false)
-      await load()
-      if (profileRep && editId === profileRep.id) await openProfile(profileRep)
+      setView('accounts')
+      await loadReps()
     } catch (e) {
       setFormErr(e?.message || 'Save failed')
     } finally {
@@ -290,7 +528,7 @@ export default function SalesTeam() {
         body: JSON.stringify({ is_active: !rep.is_active }),
       })
       showToast(`${rep.name} ${rep.is_active ? 'has been frozen.' : 'has been reactivated.'}`)
-      await load()
+      await loadReps()
       if (profileRep?.id === rep.id) await openProfile({ ...rep, is_active: !rep.is_active })
     } catch (e) {
       showToast(e?.message || 'Update failed')
@@ -308,8 +546,9 @@ export default function SalesTeam() {
       if (profileRep?.id === rep.id) {
         setProfileRep(null)
         setProfile(null)
+        setView('accounts')
       }
-      await load()
+      await loadReps()
     } catch (e) {
       showToast(e?.message || 'Delete failed')
     } finally {
@@ -319,7 +558,7 @@ export default function SalesTeam() {
 
   const openProfile = async (rep) => {
     setProfileRep(rep)
-    setInvoiceOpen(null)
+    setView('profile')
     try {
       const res = await apiFetch(`/admin/sales-reps/${rep.id}/dashboard`)
       setProfile(res)
@@ -329,12 +568,32 @@ export default function SalesTeam() {
     }
   }
 
-  const openInvoice = async (invoiceId) => {
+  const openInvoiceDetail = async (invoiceId) => {
+    setView('invoiceDetail')
     try {
-      const res = await apiFetch(`/admin/sales-reps/payout-invoices/${invoiceId}`)
-      setInvoiceOpen(res?.invoice || null)
+      const res = await apiFetch(`/admin/sales-reps/hub-invoices/${invoiceId}`)
+      setInvoiceDetail(res?.invoice || null)
+      setInvoiceDetailRep(res?.rep || null)
     } catch (e) {
-      showToast(e?.message || 'Failed to open invoice')
+      showToast(e?.message || 'Failed to load invoice')
+      setView('invoices')
+    }
+  }
+
+  const hubInvoiceAction = async (invoiceId, action, body = {}) => {
+    setBusy(true)
+    try {
+      const res = await apiFetch(`/admin/sales-reps/hub-invoices/${invoiceId}/${action}`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      if (res?.invoice) setInvoiceDetail(res.invoice)
+      showToast(`Invoice ${action.replace('-', ' ')}`)
+      await loadHubInvoices()
+    } catch (e) {
+      showToast(e?.message || 'Action failed')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -344,7 +603,10 @@ export default function SalesTeam() {
     try {
       await apiFetch(`/admin/sales-reps/payout-invoices/${invoiceId}/approve-pay`, { method: 'POST', body: '{}' })
       showToast('Approved and marked as paid.')
-      setInvoiceOpen(null)
+      if (editId) {
+        const payout = await apiFetch(`/admin/sales-reps/payout-invoices?rep_id=${editId}`)
+        setEditorPayoutInvoices(payout?.items || [])
+      }
       if (profileRep) await openProfile(profileRep)
     } catch (e) {
       showToast(e?.message || 'Approve failed')
@@ -353,7 +615,7 @@ export default function SalesTeam() {
     }
   }
 
-  const rejectInvoice = async (invoiceId) => {
+  const rejectPayoutInvoice = async (invoiceId) => {
     if (!window.confirm('Reject this invoice? Commission returns to available.')) return
     setBusy(true)
     try {
@@ -362,7 +624,10 @@ export default function SalesTeam() {
         body: JSON.stringify({ reason: '' }),
       })
       showToast('Invoice rejected.')
-      setInvoiceOpen(null)
+      if (editId) {
+        const payout = await apiFetch(`/admin/sales-reps/payout-invoices?rep_id=${editId}`)
+        setEditorPayoutInvoices(payout?.items || [])
+      }
       if (profileRep) await openProfile(profileRep)
     } catch (e) {
       showToast(e?.message || 'Reject failed')
@@ -371,477 +636,1001 @@ export default function SalesTeam() {
     }
   }
 
-  const renderTable = (typeKey) => {
-    const emptyLabel = typeKey === 'salesman'
-      ? 'No salesmen yet. Click "Add Sales Man" to create one.'
-      : 'No sales partners yet. Click "Add Sales Partner" to create one.'
-    return (
-      <section className={`panel ${tab === typeKey ? 'active' : ''}`}>
-        <div className='toolbar'>
-          <div className='search-box'>
-            <IconSearch />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={typeKey === 'salesman' ? 'Search salesman...' : 'Search partners...'}
-            />
-          </div>
-          <button type='button' className='btn btn-primary' onClick={openAdd}>
-            <IconPlus />
-            {typeKey === 'salesman' ? 'Add Sales Man' : 'Add Sales Partner'}
-          </button>
-        </div>
-        <div className='table-card'>
-          {loading ? (
-            <div className='empty-state'>Loading…</div>
-          ) : filtered.length === 0 ? (
-            <div className='empty-state'>
-              <IconEmptyPeople />
-              <div>{emptyLabel}</div>
-            </div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Mobile</th>
-                  <th>Commission</th>
-                  <th>Promo Code</th>
-                  <th>Status</th>
-                  <th style={{ textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((rep) => (
-                  <tr key={rep.id} className={rep.is_active ? '' : 'frozen'}>
-                    <td data-label='Name'>
-                      <div className='person-cell'>
-                        <div>
-                          <div className='person-name'>{rep.name}</div>
-                          <div className='person-email'>{rep.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td data-label='Mobile'>{rep.mobile || '—'}</td>
-                    <td data-label='Commission'>
-                      <span className={`badge ${commBadgeClass(rep)}`}>{commLabel(rep)}</span>
-                    </td>
-                    <td data-label='Promo Code'><span className='promo-tag'>{rep.promo_code || '—'}</span></td>
-                    <td data-label='Status'>
-                      {rep.is_active
-                        ? <span className='badge badge-active'>Active</span>
-                        : <span className='badge badge-frozen'>Frozen</span>}
-                    </td>
-                    <td data-label='Actions'>
-                      <div className='actions' style={{ justifyContent: 'flex-end' }}>
-                        <button type='button' className='icon-btn profile' title='Profile & commission' onClick={() => openProfile(rep)}><IconProfile /></button>
-                        <button type='button' className='icon-btn edit' title='Edit' onClick={() => openEdit(rep)}><IconEdit /></button>
-                        <button type='button' className='icon-btn reset' title='Reset password' onClick={() => { setPwRep(rep); setPwValue(genPassword()) }}><IconReset /></button>
-                        <button type='button' className='icon-btn freeze' title={rep.is_active ? 'Freeze' : 'Unfreeze'} onClick={() => toggleFreeze(rep)}>
-                          {rep.is_active ? <IconFreeze /> : <IconUnfreeze />}
-                        </button>
-                        <button type='button' className='icon-btn delete' title='Delete' onClick={() => deleteRep(rep)}><IconDelete /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-    )
+  const createHubInvoice = async () => {
+    setBusy(true)
+    setCreateInvErr('')
+    const rep = allReps.find((r) => r.id === createInvForm.sales_rep_id)
+    const cur = rep?.currency || 'GBP'
+    const items = createInvForm.items.map((it) => ({
+      service_id: it.service_id || null,
+      description: it.description || 'Line item',
+      quantity: Math.max(1, parseInt(it.quantity || '1', 10)),
+      unit_price_minor: Math.round(parseFloat(it.unit_price_major || '0') * 100),
+    }))
+    if (!createInvForm.sales_rep_id) {
+      setCreateInvErr('Select a salesman/partner.')
+      setBusy(false)
+      return
+    }
+    if (!items.length || items.every((it) => !it.unit_price_minor && !it.description)) {
+      setCreateInvErr('Add at least one line item.')
+      setBusy(false)
+      return
+    }
+    try {
+      await apiFetch('/admin/sales-reps/hub-invoices', {
+        method: 'POST',
+        body: JSON.stringify({
+          sales_rep_id: createInvForm.sales_rep_id,
+          kind: createInvForm.kind,
+          customer: createInvForm.customer,
+          currency: cur,
+          discount_percent: parseFloat(createInvForm.discount_percent || '0'),
+          tax_percent: parseFloat(createInvForm.tax_percent || '0'),
+          commission_amount_minor: Math.round(parseFloat(createInvForm.commission_amount_major || '0') * 100),
+          items,
+        }),
+      })
+      showToast('Invoice created')
+      setShowCreateInvoice(false)
+      await loadHubInvoices()
+      await loadReps()
+    } catch (e) {
+      setCreateInvErr(e?.message || 'Create failed')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  if (profileRep && profile) {
-    const stats = profile.stats || {}
-    const wallet = stats.wallet || {}
-    const payout = stats.payout || profileRep.payout || {}
-    const invoices = stats.payout_invoices || []
-    const commissions = stats.commissions || []
-    const joined = (profileRep.created_at || '').slice(0, 10)
+  const packageForService = (serviceId) => catalog.packages.find((p) => p.service_id === serviceId)
 
+  const renderSubNav = () => (
+    <nav className='hub-subnav'>
+      <button type='button' className={view === 'accounts' || view === 'editor' || view === 'profile' ? 'active' : ''} onClick={() => { setView('accounts'); setProfileRep(null); setProfile(null) }}>
+        Accounts
+      </button>
+      <button type='button' className={view === 'invoices' || view === 'invoiceDetail' ? 'active' : ''} onClick={() => { setView('invoices'); setInvoiceDetail(null) }}>
+        Invoices
+      </button>
+    </nav>
+  )
+
+  const renderKpiStrip = () => {
+    const k = kpis || {}
+    const cur = 'GBP'
+    const cards = [
+      { label: 'Accounts', value: k.accounts ?? allReps.length },
+      { label: 'Leads', value: k.leads ?? 0 },
+      { label: 'Paying customers', value: k.paying_customers ?? 0 },
+      { label: 'Revenue', value: money(k.revenue_minor, cur) },
+      { label: 'Commission earned', value: money(k.commission_earned_minor, cur) },
+      { label: 'Commission paid', value: money(k.commission_paid_minor, cur) },
+      { label: 'Invoices outstanding', value: money(k.invoices_outstanding_minor, cur) },
+    ]
     return (
-      <div className='stm'>
-        <div className='wrap wide'>
-          <button type='button' className='back-link' onClick={() => { setProfileRep(null); setProfile(null); setInvoiceOpen(null) }}>
-            <IconBack /> Back to list
-          </button>
-
-          <div className='profile-top'>
-            <div className='profile-id'>
-              <div>
-                <h2>{profileRep.name}</h2>
-                <div className='meta'>
-                  <span>{profileRep.email}</span>
-                  <span>{profileRep.mobile || '—'}</span>
-                  <span>
-                    {profileRep.is_active
-                      ? <span className='badge badge-active'>Active</span>
-                      : <span className='badge badge-frozen'>Frozen</span>}
-                  </span>
-                </div>
-              </div>
-            </div>
-            <div className='profile-top-actions'>
-              <button type='button' className='icon-btn edit' title='Edit' onClick={() => openEdit(profileRep)}><IconEdit /></button>
-              <button type='button' className='icon-btn reset' title='Reset password' onClick={() => { setPwRep(profileRep); setPwValue(genPassword()) }}><IconReset /></button>
-              <button type='button' className='icon-btn freeze' title={profileRep.is_active ? 'Freeze' : 'Unfreeze'} onClick={() => toggleFreeze(profileRep)}>
-                {profileRep.is_active ? <IconFreeze /> : <IconUnfreeze />}
-              </button>
-              <button type='button' className='icon-btn delete' title='Delete' onClick={() => deleteRep(profileRep)}><IconDelete /></button>
-            </div>
+      <div className='kpi-grid'>
+        {cards.map((c) => (
+          <div key={c.label} className='kpi-card'>
+            <div className='label'>{c.label}</div>
+            <div className='value'>{c.value}</div>
           </div>
-
-          <div className='stat-grid'>
-            <div className='stat-box'>
-              <div className='label'>Total Sales</div>
-              <div className='value'>{money(wallet.revenue_minor)}</div>
-            </div>
-            <div className='stat-box'>
-              <div className='label'>Total Commission</div>
-              <div className='value'>{money(wallet.commission_minor)}</div>
-            </div>
-            <div className='stat-box paid'>
-              <div className='label'>Paid</div>
-              <div className='value'>{money(wallet.commission_paid_minor)}</div>
-            </div>
-            <div className='stat-box requested'>
-              <div className='label'>Awaiting Approval</div>
-              <div className='value'>{money(wallet.commission_requested_minor)}</div>
-            </div>
-            <div className='stat-box pending'>
-              <div className='label'>No Invoice Yet</div>
-              <div className='value'>{money(wallet.commission_available_minor)}</div>
-            </div>
-          </div>
-
-          <div className='profile-grid'>
-            <div>
-              <div className='profile-card'>
-                <h3>Payout Details</h3>
-                {payout.payout_method === 'paypal' ? (
-                  <>
-                    <div className='profile-row'><span className='k'>Method</span><span className='v'>PayPal</span></div>
-                    <div className='profile-row'><span className='k'>PayPal Email</span><span className='v'>{payout.paypal_email || '—'}</span></div>
-                  </>
-                ) : (
-                  <>
-                    <div className='profile-row'><span className='k'>Method</span><span className='v'>Bank Account</span></div>
-                    <div className='profile-row'><span className='k'>Account Holder</span><span className='v'>{payout.bank_holder_name || '—'}</span></div>
-                    <div className='profile-row'><span className='k'>Bank</span><span className='v'>{payout.bank_name || '—'}</span></div>
-                    <div className='profile-row'><span className='k'>Sort code</span><span className='v'>{payout.bank_sort_code || '—'}</span></div>
-                    <div className='profile-row'>
-                      <span className='k'>Account number</span>
-                      <span className='v' style={{ fontFamily: "'SF Mono',Menlo,monospace", fontSize: 12.5 }}>{payout.bank_account_number || '—'}</span>
-                    </div>
-                    {payout.bank_address ? (
-                      <div className='profile-row'><span className='k'>Address</span><span className='v'>{payout.bank_address}</span></div>
-                    ) : null}
-                  </>
-                )}
-                <h3 style={{ marginTop: 20 }}>Commission Setup</h3>
-                <div className='profile-row'><span className='k'>Type</span><span className='v'>{commTypeFullLabel(profileRep)}</span></div>
-                <div className='profile-row'><span className='k'>Value</span><span className='v'>{commValueLabel(profileRep)}</span></div>
-                <div className='profile-row'><span className='k'>Promo Code</span><span className='v'>{profileRep.promo_code || '—'}</span></div>
-                <h3 style={{ marginTop: 20 }}>Account</h3>
-                <div className='profile-row'><span className='k'>Status</span><span className='v'>{profileRep.is_active ? 'Active' : 'Frozen'}</span></div>
-                <div className='profile-row'><span className='k'>Joined</span><span className='v'>{joined || '—'}</span></div>
-              </div>
-            </div>
-
-            <div className='profile-card'>
-              <div className='comm-history-head'>
-                <h3>Commission &amp; Invoices</h3>
-              </div>
-              <div className='table-card' style={{ boxShadow: 'none' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Invoice</th>
-                      <th>Amount</th>
-                      <th>Status</th>
-                      <th style={{ textAlign: 'right' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invoices.length === 0 ? (
-                      <tr><td colSpan={4} className='empty-state' style={{ padding: '34px 20px' }}>No payout invoices yet.</td></tr>
-                    ) : invoices.map((inv) => (
-                      <tr key={inv.id}>
-                        <td data-label='Invoice'>
-                          {inv.invoice_number}
-                          <span className='invoice-no'>{(inv.submitted_at || '').slice(0, 10)}</span>
-                        </td>
-                        <td data-label='Amount'>{inv.amount_display || money(inv.amount_minor)}</td>
-                        <td data-label='Status'>
-                          {inv.status === 'paid' ? <span className='badge badge-paid'>Paid{(inv.resolved_at ? ` · ${String(inv.resolved_at).slice(0, 10)}` : '')}</span>
-                            : inv.status === 'submitted' ? <span className='badge badge-requested'>Awaiting Approval</span>
-                              : inv.status === 'rejected' ? <span className='badge badge-rejected'>Rejected</span>
-                                : <span className='badge badge-pending'>{inv.status}</span>}
-                        </td>
-                        <td data-label='Action'>
-                          <div className='action-stack'>
-                            <button type='button' className='mark-btn to-invoice' onClick={() => openInvoice(inv.id)}>Open</button>
-                            {inv.status === 'submitted' ? (
-                              <>
-                                <button type='button' className='mark-btn to-paid' disabled={busy} onClick={() => approvePay(inv.id)}>Approve &amp; Pay</button>
-                                <button type='button' className='mark-btn to-reject' disabled={busy} onClick={() => rejectInvoice(inv.id)}>Reject</button>
-                              </>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {invoiceOpen ? (
-                <div style={{ marginTop: 14, padding: 14, border: '1px solid var(--border)', borderRadius: 10, background: 'var(--panel-soft)' }}>
-                  <strong>{invoiceOpen.invoice_number}</strong>
-                  <div style={{ marginTop: 6, fontSize: 13.5 }}>{invoiceOpen.amount_display || money(invoiceOpen.amount_minor)}</div>
-                  <div style={{ marginTop: 6, fontSize: 13, color: 'var(--ink-soft)' }}>{invoiceOpen.payout_method_summary}</div>
-                  {invoiceOpen.notes ? <div style={{ marginTop: 8, fontSize: 13.5 }}>Notes: {invoiceOpen.notes}</div> : null}
-                  {invoiceOpen.payout_snapshot ? (
-                    <div style={{ marginTop: 10, fontSize: 12.5 }}>
-                      {Object.entries(invoiceOpen.payout_snapshot).filter(([, v]) => v).map(([k, v]) => (
-                        <div key={k} className='profile-row'><span className='k'>{k}</span><span className='v'>{String(v)}</span></div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <div className='comm-history-head' style={{ marginTop: 22 }}>
-                <h3>Commission ledger</h3>
-              </div>
-              <div className='table-card' style={{ boxShadow: 'none' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Customer</th>
-                      <th>Commission</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {commissions.length === 0 ? (
-                      <tr><td colSpan={4} className='empty-state' style={{ padding: '34px 20px' }}>No commission records yet.</td></tr>
-                    ) : commissions.map((c) => (
-                      <tr key={c.id}>
-                        <td data-label='Date'>{(c.created_at || '').slice(0, 10)}</td>
-                        <td data-label='Customer'>{c.org_name || c.org_id}</td>
-                        <td data-label='Commission'>{money(c.amount_minor)}</td>
-                        <td data-label='Status'>
-                          {c.status === 'paid' ? <span className='badge badge-paid'>Paid</span>
-                            : c.status === 'requested' ? <span className='badge badge-requested'>Awaiting Approval</span>
-                              : <span className='badge badge-pending'>No Invoice Yet</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {renderModals()}
-        <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
+        ))}
       </div>
     )
   }
 
-  function renderModals() {
-    return (
-      <>
-        <div className={`modal-overlay ${showForm ? 'active' : ''}`}>
-          <div className='modal'>
-            <div className='modal-head'>
-              <h2>{editId ? (tab === 'salesman' ? 'Edit Sales Man' : 'Edit Sales Partner') : (tab === 'salesman' ? 'Add Sales Man' : 'Add Sales Partner')}</h2>
-              <button type='button' className='modal-close' onClick={() => setShowForm(false)}><IconClose /></button>
+  const renderAccountsView = () => (
+    <>
+      <header className='page-head'>
+        <h1>Salesmen &amp; Partners</h1>
+        <p>Manage sales accounts, promo benefits, commissions, and hub invoices.</p>
+      </header>
+      {renderKpiStrip()}
+      <div className='acct-tabs'>
+        <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>Salesmen</button>
+        <button type='button' className={tab === 'partners' ? 'active' : ''} onClick={() => switchTab('partners')}>Partners</button>
+      </div>
+      <div className='accounts-layout'>
+        <div>
+          <div className='toolbar'>
+            <div className='search-box'>
+              <IconSearch />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={isPartner ? 'Search partners…' : 'Search salesmen…'}
+              />
             </div>
-            <div className='modal-body'>
-              {formErr ? <p className='form-error'>{formErr}</p> : null}
-              <div className='field'>
-                <label>Full Name</label>
-                <input type='text' value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder='e.g. Ahmed Khaled' />
+            <button type='button' className='btn btn-primary' onClick={openAdd}>
+              <IconPlus />
+              {isPartner ? 'New partner' : 'New salesman'}
+            </button>
+          </div>
+          <div className='card'>
+            {loading ? (
+              <div className='empty-state'>Loading…</div>
+            ) : filtered.length === 0 ? (
+              <div className='empty-state'>
+                <IconEmptyPeople />
+                <div>{isPartner ? 'No partners yet.' : 'No salesmen yet.'}</div>
               </div>
-              {!editId ? (
-                <>
-                  <div className='field'>
-                    <label>Email</label>
-                    <input type='email' value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder='name@company.com' />
-                  </div>
-                  <div className='field'>
-                    <label>Temporary Password <span className='hint'>shared with them at first login</span></label>
-                    <div className='pw-row'>
-                      <input type='text' value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                      <button type='button' className='btn btn-ghost pw-gen' onClick={() => setForm({ ...form, password: genPassword() })}>Generate</button>
-                    </div>
-                  </div>
-                </>
-              ) : null}
-              <div className='field'>
-                <label>Mobile Number</label>
-                <input type='tel' value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} placeholder='+44 7700 900123' />
-              </div>
-
-              <div className='field'>
-                <label>Commission Type</label>
-                <div className='comm-options'>
-                  {[
-                    { id: 'month2', title: 'Paid on 2nd Month (%)', desc: 'Held and paid out one month after the customer pays, as a percentage of the sale.', suffix: '%' },
-                    { id: 'fixed', title: 'Paid When Customer Pays — Fixed Amount', desc: 'Released as soon as the customer pays, as a flat amount per sale.', suffix: 'GBP' },
-                    { id: 'percent', title: 'Paid When Customer Pays — Percentage', desc: 'Released as soon as the customer pays, as a percentage of the sale.', suffix: '%' },
-                  ].map((opt) => (
-                    <label key={opt.id} className={`comm-option ${form.commission_type === opt.id ? 'selected' : ''}`} id={`opt-${opt.id}`}>
-                      <input
-                        type='radio'
-                        name='commtype'
-                        checked={form.commission_type === opt.id}
-                        onChange={() => setForm({ ...form, commission_type: opt.id })}
-                      />
-                      <div>
-                        <div className='co-title'>{opt.title}</div>
-                        <div className='co-desc'>{opt.desc}</div>
-                        <div className={`comm-value-row ${form.commission_type === opt.id ? 'active' : ''}`}>
-                          <div className='suffix-input'>
-                            {opt.id === 'fixed' ? (
-                              <input
-                                type='number'
-                                min='0'
-                                step='0.01'
-                                placeholder='e.g. 250'
-                                value={form.commission_fixed_gbp}
-                                onChange={(e) => setForm({ ...form, commission_fixed_gbp: e.target.value })}
-                              />
-                            ) : (
-                              <input
-                                type='number'
-                                min='0'
-                                max='100'
-                                step='0.1'
-                                placeholder='e.g. 10'
-                                value={form.commission_pct}
-                                onChange={(e) => setForm({ ...form, commission_pct: e.target.value })}
-                              />
-                            )}
-                            <span>{opt.suffix}</span>
-                          </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name / contact</th>
+                    <th>Promo &amp; benefits</th>
+                    <th>Commission</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((rep) => (
+                    <tr key={rep.id} className={rep.is_active ? '' : 'frozen'}>
+                      <td data-label='Name'>
+                        <div className='person-name'>{rep.name}</div>
+                        <div className='person-email'>{rep.email}</div>
+                        <div className='person-email'>{rep.mobile || '—'}</div>
+                      </td>
+                      <td data-label='Promo'>
+                        <span className='promo-tag'>{rep.promo_code || '—'}</span>
+                        <div className='benefit-lines' style={{ marginTop: 6 }}>
+                          {(rep.promo_benefit_summaries || []).slice(0, 3).map((line) => (
+                            <div key={line}>{line}</div>
+                          ))}
                         </div>
-                      </div>
-                    </label>
+                      </td>
+                      <td data-label='Commission'>
+                        <span className='badge badge-comm'>{rep.commission_summary || '—'}</span>
+                      </td>
+                      <td data-label='Status'>
+                        {rep.is_active
+                          ? <span className='badge badge-active'>Active</span>
+                          : <span className='badge badge-frozen'>Frozen</span>}
+                      </td>
+                      <td data-label='Actions'>
+                        <div className='actions' style={{ justifyContent: 'flex-end' }}>
+                          <button type='button' className='icon-btn profile' title='Profile' onClick={() => openProfile(rep)}><IconProfile /></button>
+                          <button type='button' className='icon-btn edit' title='Edit' onClick={() => openEdit(rep)}><IconEdit /></button>
+                          <button type='button' className='icon-btn freeze' title={rep.is_active ? 'Freeze' : 'Unfreeze'} onClick={() => toggleFreeze(rep)}>
+                            {rep.is_active ? <IconFreeze /> : <IconUnfreeze />}
+                          </button>
+                          <button type='button' className='icon-btn reset' title='Reset password' onClick={() => { setPwRep(rep); setPwValue(genPassword()) }}><IconReset /></button>
+                          <button type='button' className='icon-btn delete' title='Delete' onClick={() => deleteRep(rep)}><IconDelete /></button>
+                        </div>
+                      </td>
+                    </tr>
                   ))}
-                </div>
-              </div>
-
-              <div className='field'>
-                <label>Promo Code</label>
-                <input type='text' value={form.promo_code} onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })} placeholder='e.g. AHMED10' style={{ textTransform: 'uppercase' }} />
-              </div>
-
-              <div className='field'>
-                <label>Payout Method <span className='hint'>where you'll wire their money</span></label>
-                <div className='comm-options'>
-                  <label className={`comm-option ${form.payout_method === 'bank' ? 'selected' : ''}`}>
-                    <input type='radio' name='paytype' checked={form.payout_method === 'bank'} onChange={() => setForm({ ...form, payout_method: 'bank' })} />
-                    <div style={{ flex: 1 }}>
-                      <div className='co-title'>Bank Account</div>
-                      <div className={`comm-value-row ${form.payout_method === 'bank' ? 'active' : ''}`}>
-                        <div className='field' style={{ marginBottom: 10 }}>
-                          <label style={{ fontSize: 11.5 }}>Account Holder / Company Name</label>
-                          <input type='text' value={form.bank_holder_name} onChange={(e) => setForm({ ...form, bank_holder_name: e.target.value })} placeholder='Name on the account' />
-                        </div>
-                        <div className='field' style={{ marginBottom: 10 }}>
-                          <label style={{ fontSize: 11.5 }}>Bank Name</label>
-                          <input type='text' value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} placeholder='e.g. Barclays, HSBC' />
-                        </div>
-                        <div className='field' style={{ marginBottom: 10 }}>
-                          <label style={{ fontSize: 11.5 }}>Sort Code</label>
-                          <input type='text' value={form.bank_sort_code} onChange={(e) => setForm({ ...form, bank_sort_code: e.target.value })} placeholder='e.g. 20-00-00' />
-                        </div>
-                        <div className='field' style={{ marginBottom: 10 }}>
-                          <label style={{ fontSize: 11.5 }}>Account Number</label>
-                          <input type='text' value={form.bank_account_number} onChange={(e) => setForm({ ...form, bank_account_number: e.target.value })} placeholder='e.g. 12345678' />
-                        </div>
-                        <div className='field' style={{ marginBottom: 0 }}>
-                          <label style={{ fontSize: 11.5 }}>Address <span className='hint'>optional</span></label>
-                          <input type='text' value={form.bank_address} onChange={(e) => setForm({ ...form, bank_address: e.target.value })} placeholder='Bank / account address' />
-                        </div>
-                      </div>
-                    </div>
-                  </label>
-                  <label className={`comm-option ${form.payout_method === 'paypal' ? 'selected' : ''}`}>
-                    <input type='radio' name='paytype' checked={form.payout_method === 'paypal'} onChange={() => setForm({ ...form, payout_method: 'paypal' })} />
-                    <div style={{ flex: 1 }}>
-                      <div className='co-title'>PayPal</div>
-                      <div className={`comm-value-row ${form.payout_method === 'paypal' ? 'active' : ''}`}>
-                        <div className='field' style={{ marginBottom: 0 }}>
-                          <label style={{ fontSize: 11.5 }}>PayPal Email</label>
-                          <input type='email' value={form.paypal_email} onChange={(e) => setForm({ ...form, paypal_email: e.target.value })} placeholder='name@paypal.com' />
-                        </div>
-                      </div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </div>
-            <div className='modal-foot'>
-              <button type='button' className='btn btn-ghost' onClick={() => setShowForm(false)}>Cancel</button>
-              <button type='button' className='btn btn-primary' disabled={busy} onClick={saveForm}>Save</button>
-            </div>
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
-
-        <div className={`modal-overlay ${pwRep ? 'active' : ''}`}>
-          <div className='modal' style={{ maxWidth: 380 }}>
-            <div className='modal-head'>
-              <h2>Reset Password</h2>
-              <button type='button' className='modal-close' onClick={() => setPwRep(null)}><IconClose /></button>
-            </div>
-            <div className='modal-body'>
-              <p style={{ marginTop: 0, fontSize: 13.5, color: 'var(--ink-soft)' }}>
-                Set a new temporary password for <strong style={{ color: 'var(--ink)' }}>{pwRep?.name}</strong>.
-              </p>
-              <div className='field'>
-                <label>New Temporary Password</label>
-                <div className='pw-row'>
-                  <input type='text' value={pwValue} onChange={(e) => setPwValue(e.target.value)} />
-                  <button type='button' className='btn btn-ghost pw-gen' onClick={() => setPwValue(genPassword())}>Generate</button>
-                </div>
+        <aside className='aside-card'>
+          <h3>Latest hub invoices</h3>
+          {hubInvoices.slice(0, 6).map((inv) => (
+            <div key={inv.id} className='aside-invoice' onClick={() => openInvoiceDetail(inv.id)} role='presentation'>
+              <div className='inv-num'>{inv.number}</div>
+              <div className='inv-meta'>
+                {inv.rep_name || '—'} · {inv.total_display || money(inv.total_minor, inv.currency)} · {inv.status}
               </div>
             </div>
-            <div className='modal-foot'>
-              <button type='button' className='btn btn-ghost' onClick={() => setPwRep(null)}>Cancel</button>
-              <button type='button' className='btn btn-primary' disabled={busy || pwValue.length < 6} onClick={resetPassword}>Reset Password</button>
+          ))}
+          {hubInvoices.length === 0 ? <div className='inv-meta'>No hub invoices yet.</div> : null}
+        </aside>
+      </div>
+    </>
+  )
+
+  const renderInvoicesView = () => {
+    const statusKpis = [
+      { key: 'new', label: 'New' },
+      { key: 'sent', label: 'Sent' },
+      { key: 'paid', label: 'Paid' },
+      { key: 'rejected', label: 'Rejected' },
+    ]
+    return (
+      <>
+        <header className='page-head'>
+          <h1>Hub Invoices</h1>
+          <p>Commission and charge invoices across the sales hub.</p>
+        </header>
+        <div className='kpi-grid' style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          {statusKpis.map(({ key, label }) => (
+            <div key={key} className='kpi-card'>
+              <div className='label'>{label}</div>
+              <div className='value'>{money(hubKpis[key], 'GBP')}</div>
             </div>
-          </div>
+          ))}
+        </div>
+        <div className='toolbar'>
+          <div />
+          <button type='button' className='btn btn-primary' onClick={() => {
+            setCreateInvForm({
+              sales_rep_id: allReps[0]?.id || '',
+              kind: 'commission',
+              customer: '',
+              discount_percent: '0',
+              tax_percent: '0',
+              commission_amount_major: '0',
+              items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
+            })
+            setCreateInvErr('')
+            setShowCreateInvoice(true)
+          }}>
+            <IconPlus /> Create invoice
+          </button>
+        </div>
+        <div className='card'>
+          <table>
+            <thead>
+              <tr>
+                <th>Invoice</th>
+                <th>Rep</th>
+                <th>Customer</th>
+                <th>Kind</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th style={{ textAlign: 'right' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hubInvoices.length === 0 ? (
+                <tr><td colSpan={7} className='empty-state'>No hub invoices yet.</td></tr>
+              ) : hubInvoices.map((inv) => (
+                <tr key={inv.id}>
+                  <td data-label='Invoice'>{inv.number}</td>
+                  <td data-label='Rep'>{inv.rep_name || '—'}</td>
+                  <td data-label='Customer'>{inv.customer || '—'}</td>
+                  <td data-label='Kind'>{inv.kind}</td>
+                  <td data-label='Total'>{inv.total_display || money(inv.total_minor, inv.currency)}</td>
+                  <td data-label='Status'>{statusBadge(inv.status)}</td>
+                  <td data-label='Action'>
+                    <button type='button' className='link-btn' onClick={() => openInvoiceDetail(inv.id)}>View</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </>
     )
   }
 
-  return (
-    <div className='stm'>
-      <div className='wrap'>
-        <header className='page-head'>
-          <h1>Sales Team</h1>
-          <p>Manage salesmen and sales partners, their access, and commission setup.</p>
-        </header>
-
-        <div className='tabs'>
-          <button type='button' className={`tab-btn ${tab === 'salesman' ? 'active' : ''}`} onClick={() => switchTab('salesman')}>Sales Man</button>
-          <button type='button' className={`tab-btn ${tab === 'partners' ? 'active' : ''}`} onClick={() => switchTab('partners')}>Sales Partners</button>
+  const renderEditorProfileTab = () => (
+    <>
+      <div className='field-row'>
+        <div className='field'>
+          <label>Full name</label>
+          <input type='text' value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder='e.g. Ahmed Khaled' />
         </div>
-
-        {renderTable('salesman')}
-        {renderTable('partners')}
+        <div className='field'>
+          <label>Mobile</label>
+          <input type='tel' value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} placeholder='+44 7700 900123' />
+        </div>
       </div>
+      {!editId ? (
+        <>
+          <div className='field'>
+            <label>Email</label>
+            <input type='email' value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </div>
+          <div className='field'>
+            <label>Temporary password <span className='hint'>shared at first login</span></label>
+            <div className='pw-row'>
+              <input type='text' value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+              <button type='button' className='btn btn-ghost btn-sm pw-gen' onClick={() => setForm({ ...form, password: genPassword() })}>Generate</button>
+            </div>
+          </div>
+        </>
+      ) : null}
+      <div className='field-row'>
+        <div className='field'>
+          <label>Country <span className='hint'>required</span></label>
+          <select value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })}>
+            {COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+        {isPartner ? (
+          <div className='field'>
+            <label>Company</label>
+            <input type='text' value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
+          </div>
+        ) : (
+          <div className='field'>
+            <label>Currency</label>
+            <div style={{ paddingTop: 10 }}>
+              <span className='currency-badge'>{formCurrency} {currencySymbol(formCurrency)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+      {isPartner ? (
+        <div className='field'>
+          <label>Currency</label>
+          <span className='currency-badge'>{formCurrency} {currencySymbol(formCurrency)}</span>
+        </div>
+      ) : null}
+    </>
+  )
 
-      {renderModals()}
+  const renderEditorPromoTab = () => (
+    <>
+      <div className='field'>
+        <label>Promo code</label>
+        <input type='text' value={form.promo_code} onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })} style={{ textTransform: 'uppercase' }} />
+      </div>
+      <div className='field'>
+        <label>
+          <input
+            type='checkbox'
+            checked={form.promo_benefits.wallet_voucher.enabled}
+            onChange={(e) => setForm({
+              ...form,
+              promo_benefits: {
+                ...form.promo_benefits,
+                wallet_voucher: { ...form.promo_benefits.wallet_voucher, enabled: e.target.checked },
+              },
+            })}
+            style={{ marginRight: 8 }}
+          />
+          Wallet voucher ({formCurrency})
+        </label>
+        <input
+          type='number'
+          min='0'
+          step='0.01'
+          value={form.promo_benefits.wallet_voucher.amount_major}
+          disabled={!form.promo_benefits.wallet_voucher.enabled}
+          onChange={(e) => setForm({
+            ...form,
+            promo_benefits: {
+              ...form.promo_benefits,
+              wallet_voucher: { ...form.promo_benefits.wallet_voucher, amount_major: e.target.value },
+            },
+          })}
+        />
+      </div>
+      {SERVICE_IDS.map((sid) => {
+        const svc = form.promo_benefits.services[sid]
+        const pkg = packageForService(sid)
+        const opts = SERVICE_OPTIONS[sid]
+        const selectedOpt = opts.find((o) => o.kind === svc.kind) || opts[0]
+        return (
+          <div key={sid} className='service-row'>
+            <div className='service-row-head'>
+              <label>
+                <input
+                  type='checkbox'
+                  checked={svc.enabled}
+                  onChange={(e) => setForm({
+                    ...form,
+                    promo_benefits: {
+                      ...form.promo_benefits,
+                      services: {
+                        ...form.promo_benefits.services,
+                        [sid]: { ...svc, enabled: e.target.checked },
+                      },
+                    },
+                  })}
+                />
+                {SERVICE_LABELS[sid]}
+              </label>
+              {pkg?.list_price_display ? (
+                <span className='service-price'>List: {pkg.list_price_display}{pkg.yearly_display ? ` / yr ${pkg.yearly_display}` : ''}</span>
+              ) : null}
+            </div>
+            {svc.enabled ? (
+              <div className='service-fields'>
+                <select
+                  value={svc.kind}
+                  onChange={(e) => setForm({
+                    ...form,
+                    promo_benefits: {
+                      ...form.promo_benefits,
+                      services: {
+                        ...form.promo_benefits.services,
+                        [sid]: { ...svc, kind: e.target.value },
+                      },
+                    },
+                  })}
+                >
+                  {opts.map((o) => (
+                    <option key={o.kind} value={o.kind}>{o.label}</option>
+                  ))}
+                </select>
+                <input
+                  type='number'
+                  min='0'
+                  step={selectedOpt.unit === 'minor' ? '0.01' : '1'}
+                  value={svc.value}
+                  onChange={(e) => setForm({
+                    ...form,
+                    promo_benefits: {
+                      ...form.promo_benefits,
+                      services: {
+                        ...form.promo_benefits.services,
+                        [sid]: { ...svc, value: e.target.value },
+                      },
+                    },
+                  })}
+                  placeholder={selectedOpt.unit === '%' ? '%' : selectedOpt.unit === 'minor' ? formCurrency : 'days'}
+                />
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+      <div className='field-row'>
+        <div className='field'>
+          <label>Usage limit <span className='hint'>optional</span></label>
+          <input type='number' min='1' value={form.promo_benefits.usage_limit} onChange={(e) => setForm({
+            ...form,
+            promo_benefits: { ...form.promo_benefits, usage_limit: e.target.value },
+          })} />
+        </div>
+        <div className='field'>
+          <label>Expires at <span className='hint'>optional</span></label>
+          <input type='date' value={form.promo_benefits.expires_at} onChange={(e) => setForm({
+            ...form,
+            promo_benefits: { ...form.promo_benefits, expires_at: e.target.value },
+          })} />
+        </div>
+      </div>
+    </>
+  )
+
+  const renderEditorCommissionTab = () => {
+    if (isPartner) {
+      return (
+        <>
+          <div className='field'>
+            <label>Next payment commission</label>
+            <div className='field-row'>
+              <select value={form.partner_comm_kind} onChange={(e) => setForm({ ...form, partner_comm_kind: e.target.value })}>
+                <option value='percent'>Percentage</option>
+                <option value='fixed'>Fixed amount</option>
+              </select>
+              <input
+                type='number'
+                min='0'
+                step={form.partner_comm_kind === 'fixed' ? '0.01' : '0.1'}
+                value={form.partner_comm_value}
+                onChange={(e) => setForm({ ...form, partner_comm_value: e.target.value })}
+                placeholder={form.partner_comm_kind === 'fixed' ? formCurrency : '%'}
+              />
+            </div>
+          </div>
+          <div className='field-row'>
+            <div className='field'>
+              <label>Partner discount %</label>
+              <input type='number' min='0' max='100' value={form.partner_terms.discount_percent} onChange={(e) => setForm({
+                ...form,
+                partner_terms: { ...form.partner_terms, discount_percent: e.target.value },
+              })} />
+            </div>
+            <div className='field'>
+              <label>Billing</label>
+              <select value={form.partner_terms.billing} onChange={(e) => setForm({
+                ...form,
+                partner_terms: { ...form.partner_terms, billing: e.target.value },
+              })}>
+                <option value='customer_pays'>Customer pays</option>
+                <option value='invoice_partner'>Invoice partner</option>
+              </select>
+            </div>
+          </div>
+        </>
+      )
+    }
+    return (
+      <>
+        <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: '0 0 14px' }}>
+          Enable commission for months 2, 3, and 4. Yearly plans use month 2 only.
+        </p>
+        {form.commission_tiers.map((tier, idx) => (
+          <div key={tier.month} className='tier-row'>
+            <label>
+              <input
+                type='checkbox'
+                checked={tier.enabled}
+                onChange={(e) => {
+                  const tiers = [...form.commission_tiers]
+                  tiers[idx] = { ...tier, enabled: e.target.checked }
+                  setForm({ ...form, commission_tiers: tiers })
+                }}
+              />
+              {' '}Month {tier.month}
+            </label>
+            <select
+              value={tier.kind}
+              disabled={!tier.enabled}
+              onChange={(e) => {
+                const tiers = [...form.commission_tiers]
+                tiers[idx] = { ...tier, kind: e.target.value }
+                setForm({ ...form, commission_tiers: tiers })
+              }}
+            >
+              <option value='percent'>Percent</option>
+              <option value='fixed'>Fixed</option>
+            </select>
+            <input
+              type='number'
+              min='0'
+              disabled={!tier.enabled}
+              step={tier.kind === 'fixed' ? '0.01' : '0.1'}
+              value={tier.value}
+              onChange={(e) => {
+                const tiers = [...form.commission_tiers]
+                tiers[idx] = { ...tier, value: e.target.value }
+                setForm({ ...form, commission_tiers: tiers })
+              }}
+              placeholder={tier.kind === 'fixed' ? formCurrency : '%'}
+            />
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{tier.kind === 'fixed' ? formCurrency : '%'}</span>
+          </div>
+        ))}
+      </>
+    )
+  }
+
+  const renderEditorPayoutTab = () => (
+    <>
+      <div className='comm-options'>
+        <label className={`comm-option ${form.payout.payout_method === 'bank' ? 'selected' : ''}`}>
+          <input type='radio' name='paytype' checked={form.payout.payout_method === 'bank'} onChange={() => setForm({ ...form, payout: { ...form.payout, payout_method: 'bank' } })} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>Bank account</div>
+            {form.payout.payout_method === 'bank' ? (
+              <div style={{ marginTop: 10 }}>
+                {['bank_holder_name', 'bank_name', 'bank_sort_code', 'bank_account_number', 'bank_address'].map((key) => (
+                  <div key={key} className='field'>
+                    <label style={{ fontSize: 11.5 }}>{key.replace(/_/g, ' ')}</label>
+                    <input type='text' value={form.payout[key] || ''} onChange={(e) => setForm({ ...form, payout: { ...form.payout, [key]: e.target.value } })} />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </label>
+        <label className={`comm-option ${form.payout.payout_method === 'paypal' ? 'selected' : ''}`}>
+          <input type='radio' name='paytype' checked={form.payout.payout_method === 'paypal'} onChange={() => setForm({ ...form, payout: { ...form.payout, payout_method: 'paypal' } })} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>PayPal</div>
+            {form.payout.payout_method === 'paypal' ? (
+              <div className='field' style={{ marginTop: 10 }}>
+                <label style={{ fontSize: 11.5 }}>PayPal email</label>
+                <input type='email' value={form.payout.paypal_email || ''} onChange={(e) => setForm({ ...form, payout: { ...form.payout, paypal_email: e.target.value } })} />
+              </div>
+            ) : null}
+          </div>
+        </label>
+      </div>
+    </>
+  )
+
+  const renderEditorInvoicesTab = () => (
+    <>
+      <h3 style={{ margin: '0 0 12px', fontSize: 13, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Hub invoices</h3>
+      <div className='card' style={{ marginBottom: 20 }}>
+        <table>
+          <thead>
+            <tr><th>Number</th><th>Total</th><th>Status</th><th /></tr>
+          </thead>
+          <tbody>
+            {editorInvoices.length === 0 ? (
+              <tr><td colSpan={4} className='empty-state'>No hub invoices.</td></tr>
+            ) : editorInvoices.map((inv) => (
+              <tr key={inv.id}>
+                <td>{inv.number}</td>
+                <td>{inv.total_display || money(inv.total_minor, inv.currency)}</td>
+                <td>{statusBadge(inv.status)}</td>
+                <td><button type='button' className='link-btn' onClick={() => openInvoiceDetail(inv.id)}>Open</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <h3 style={{ margin: '0 0 12px', fontSize: 13, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Payout invoices</h3>
+      <div className='card'>
+        <table>
+          <thead>
+            <tr><th>Number</th><th>Amount</th><th>Status</th><th>Actions</th></tr>
+          </thead>
+          <tbody>
+            {editorPayoutInvoices.length === 0 ? (
+              <tr><td colSpan={4} className='empty-state'>No payout invoices.</td></tr>
+            ) : editorPayoutInvoices.map((inv) => (
+              <tr key={inv.id}>
+                <td>{inv.invoice_number}</td>
+                <td>{inv.amount_display || money(inv.amount_minor, inv.currency || 'GBP')}</td>
+                <td>{statusBadge(inv.status)}</td>
+                <td>
+                  {inv.status === 'submitted' ? (
+                    <div className='action-stack'>
+                      <button type='button' className='mark-btn to-paid' disabled={busy} onClick={() => approvePay(inv.id)}>Approve</button>
+                      <button type='button' className='mark-btn to-reject' disabled={busy} onClick={() => rejectPayoutInvoice(inv.id)}>Reject</button>
+                    </div>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+
+  const renderEditorView = () => (
+    <div className='wrap narrow'>
+      <button type='button' className='back-link' onClick={() => setView('accounts')}>
+        <IconBack /> Back to accounts
+      </button>
+      <div className='editor-head'>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 22 }}>{editId ? 'Edit account' : (isPartner ? 'New partner' : 'New salesman')}</h1>
+          <p style={{ margin: '4px 0 0', color: 'var(--ink-soft)', fontSize: 14 }}>{isPartner ? 'Partner channel sales' : 'Salesman account'}</p>
+        </div>
+      </div>
+      <div className='editor-tabs'>
+        {['profile', 'promo', 'commission', 'payout', 'invoices'].map((t) => (
+          <button key={t} type='button' className={editorTab === t ? 'active' : ''} onClick={() => setEditorTab(t)}>
+            {t === 'promo' ? 'Promo & services' : t === 'payout' ? 'Bank/payout' : t.charAt(0).toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div className='editor-panel'>
+        {formErr ? <p className='form-error'>{formErr}</p> : null}
+        {editorTab === 'profile' ? renderEditorProfileTab() : null}
+        {editorTab === 'promo' ? renderEditorPromoTab() : null}
+        {editorTab === 'commission' ? renderEditorCommissionTab() : null}
+        {editorTab === 'payout' ? renderEditorPayoutTab() : null}
+        {editorTab === 'invoices' ? renderEditorInvoicesTab() : null}
+        {editorTab !== 'invoices' ? (
+          <div className='editor-foot'>
+            <button type='button' className='btn btn-ghost' onClick={() => setView('accounts')}>Cancel</button>
+            <button type='button' className='btn btn-primary' disabled={busy} onClick={saveForm}>Save</button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+
+  const renderProfileView = () => {
+    if (!profileRep || !profile) return <div className='empty-state'>Loading profile…</div>
+    const stats = profile.stats || profile
+    const wallet = stats.wallet || {}
+    const payout = stats.payout || profileRep.payout || {}
+    const invoices = stats.payout_invoices || []
+    const commissions = stats.commissions || []
+    const cur = profileRep.currency || stats.currency || 'GBP'
+    const joined = (profileRep.created_at || '').slice(0, 10)
+
+    return (
+      <div className='wrap'>
+        <button type='button' className='back-link' onClick={() => { setView('accounts'); setProfileRep(null); setProfile(null) }}>
+          <IconBack /> Back to accounts
+        </button>
+        <div className='profile-top'>
+          <div>
+            <h2>{profileRep.name}</h2>
+            <div className='profile-meta'>
+              <span>{profileRep.email}</span>
+              <span>{profileRep.mobile || '—'}</span>
+              <span className='currency-badge'>{cur}</span>
+              {profileRep.is_active
+                ? <span className='badge badge-active'>Active</span>
+                : <span className='badge badge-frozen'>Frozen</span>}
+            </div>
+          </div>
+          <div className='actions'>
+            <button type='button' className='icon-btn edit' onClick={() => openEdit(profileRep)}><IconEdit /></button>
+            <button type='button' className='icon-btn reset' onClick={() => { setPwRep(profileRep); setPwValue(genPassword()) }}><IconReset /></button>
+            <button type='button' className='icon-btn freeze' onClick={() => toggleFreeze(profileRep)}>
+              {profileRep.is_active ? <IconFreeze /> : <IconUnfreeze />}
+            </button>
+            <button type='button' className='icon-btn delete' onClick={() => deleteRep(profileRep)}><IconDelete /></button>
+          </div>
+        </div>
+        <div className='stat-grid'>
+          <div className='stat-box'><div className='label'>Revenue</div><div className='value'>{money(wallet.revenue_minor, cur)}</div></div>
+          <div className='stat-box'><div className='label'>Commission</div><div className='value'>{money(wallet.commission_minor, cur)}</div></div>
+          <div className='stat-box paid'><div className='label'>Paid</div><div className='value'>{money(wallet.commission_paid_minor, cur)}</div></div>
+          <div className='stat-box requested'><div className='label'>Awaiting approval</div><div className='value'>{money(wallet.commission_requested_minor, cur)}</div></div>
+          <div className='stat-box pending'><div className='label'>Available</div><div className='value'>{money(wallet.commission_available_minor, cur)}</div></div>
+        </div>
+        <div className='profile-grid'>
+          <div className='profile-card'>
+            <h3>Payout details</h3>
+            {payout.payout_method === 'paypal' ? (
+              <>
+                <div className='profile-row'><span className='k'>Method</span><span className='v'>PayPal</span></div>
+                <div className='profile-row'><span className='k'>Email</span><span className='v'>{payout.paypal_email || '—'}</span></div>
+              </>
+            ) : (
+              <>
+                <div className='profile-row'><span className='k'>Holder</span><span className='v'>{payout.bank_holder_name || '—'}</span></div>
+                <div className='profile-row'><span className='k'>Bank</span><span className='v'>{payout.bank_name || '—'}</span></div>
+                <div className='profile-row'><span className='k'>Sort code</span><span className='v'>{payout.bank_sort_code || '—'}</span></div>
+                <div className='profile-row'><span className='k'>Account</span><span className='v'>{payout.bank_account_number || '—'}</span></div>
+              </>
+            )}
+            <h3 style={{ marginTop: 18 }}>Commission</h3>
+            <div className='profile-row'><span className='k'>Summary</span><span className='v'>{profileRep.commission_summary || stats.commission_summary || '—'}</span></div>
+            <div className='profile-row'><span className='k'>Promo</span><span className='v'>{profileRep.promo_code || '—'}</span></div>
+            <div className='profile-row'><span className='k'>Joined</span><span className='v'>{joined || '—'}</span></div>
+          </div>
+          <div className='profile-card'>
+            <h3>Payout invoices</h3>
+            <div className='card' style={{ boxShadow: 'none', border: 'none' }}>
+              <table>
+                <thead><tr><th>Invoice</th><th>Amount</th><th>Status</th><th /></tr></thead>
+                <tbody>
+                  {invoices.length === 0 ? (
+                    <tr><td colSpan={4} className='empty-state'>No payout invoices.</td></tr>
+                  ) : invoices.map((inv) => (
+                    <tr key={inv.id}>
+                      <td>{inv.invoice_number}</td>
+                      <td>{inv.amount_display || money(inv.amount_minor, cur)}</td>
+                      <td>{statusBadge(inv.status)}</td>
+                      <td>
+                        {inv.status === 'submitted' ? (
+                          <div className='action-stack'>
+                            <button type='button' className='mark-btn to-paid' disabled={busy} onClick={() => approvePay(inv.id)}>Approve</button>
+                            <button type='button' className='mark-btn to-reject' disabled={busy} onClick={() => rejectPayoutInvoice(inv.id)}>Reject</button>
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <h3 style={{ marginTop: 18 }}>Commission ledger</h3>
+            <div className='card' style={{ boxShadow: 'none', border: 'none' }}>
+              <table>
+                <thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead>
+                <tbody>
+                  {commissions.length === 0 ? (
+                    <tr><td colSpan={4} className='empty-state'>No commission records.</td></tr>
+                  ) : commissions.map((c) => (
+                    <tr key={c.id}>
+                      <td>{(c.created_at || '').slice(0, 10)}</td>
+                      <td>{c.org_name || c.org_id}</td>
+                      <td>{money(c.amount_minor, c.currency || cur)}</td>
+                      <td>{statusBadge(c.status)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const renderInvoiceDetailView = () => {
+    if (!invoiceDetail) return <div className='empty-state'>Loading…</div>
+    const inv = invoiceDetail
+    const cur = inv.currency || 'GBP'
+    const rep = invoiceDetailRep
+    return (
+      <div className='wrap narrow'>
+        <button type='button' className='back-link' onClick={() => { setView('invoices'); setInvoiceDetail(null) }}>
+          <IconBack /> Back to invoices
+        </button>
+        <header className='page-head'>
+          <h1>{inv.number}</h1>
+          <p>{rep?.name || '—'} · {inv.customer || '—'} · {statusBadge(inv.status)}</p>
+        </header>
+        <div className='inv-detail-grid'>
+          <div className='profile-card'>
+            <h3>Summary</h3>
+            <div className='profile-row'><span className='k'>Kind</span><span className='v'>{inv.kind}</span></div>
+            <div className='profile-row'><span className='k'>Subtotal</span><span className='v'>{money(inv.subtotal_minor, cur)}</span></div>
+            <div className='profile-row'><span className='k'>Discount</span><span className='v'>{inv.discount_percent}%</span></div>
+            <div className='profile-row'><span className='k'>Tax</span><span className='v'>{inv.tax_percent}%</span></div>
+            <div className='profile-row'><span className='k'>Total</span><span className='v'>{inv.total_display || money(inv.total_minor, cur)}</span></div>
+            {inv.kind === 'commission' ? (
+              <div className='profile-row'>
+                <span className='k'>Commission</span>
+                <span className='v'>{inv.commission_amount_display || money(inv.commission_amount_minor, cur)}</span>
+              </div>
+            ) : null}
+          </div>
+          <div className='profile-card'>
+            <h3>Line items</h3>
+            {(inv.items || []).map((it) => (
+              <div key={it.id || it.description} className='profile-row'>
+                <span className='k'>{it.description}</span>
+                <span className='v'>{it.quantity} × {it.unit_price_display || money(it.unit_price_minor, cur)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className='inv-actions'>
+          {inv.status !== 'paid' && inv.status !== 'rejected' ? (
+            <>
+              <button type='button' className='btn btn-primary btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'send')}>Send</button>
+              <button type='button' className='btn btn-ghost btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'remind')}>Remind</button>
+              <button type='button' className='btn btn-ghost btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'mark-paid')}>Mark paid</button>
+              <button type='button' className='btn btn-danger btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'reject', { reason: '' })}>Reject</button>
+            </>
+          ) : null}
+          {inv.kind === 'commission' && !inv.commission_approved ? (
+            <button type='button' className='btn btn-primary btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'approve-commission', { approved: true })}>Approve commission</button>
+          ) : null}
+          {inv.kind === 'charge' && inv.status !== 'paid' ? (
+            <>
+              {['stripe', 'gocardless', 'airwallex', 'manual'].map((provider) => (
+                <button
+                  key={provider}
+                  type='button'
+                  className='btn btn-ghost btn-sm'
+                  disabled={busy}
+                  onClick={() => hubInvoiceAction(inv.id, 'collect', { provider })}
+                >
+                  Collect ({provider})
+                </button>
+              ))}
+            </>
+          ) : null}
+        </div>
+        {inv.payment_link ? (
+          <p style={{ marginTop: 12, fontSize: 13 }}>
+            Payment link: <a href={inv.payment_link} target='_blank' rel='noreferrer'>{inv.payment_link}</a>
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
+  const renderCreateInvoiceModal = () => (
+    <div className={`modal-overlay ${showCreateInvoice ? 'active' : ''}`}>
+      <div className='modal wide'>
+        <div className='modal-head'>
+          <h2>Create hub invoice</h2>
+          <button type='button' className='modal-close' onClick={() => setShowCreateInvoice(false)}><IconClose /></button>
+        </div>
+        <div className='modal-body'>
+          {createInvErr ? <p className='form-error'>{createInvErr}</p> : null}
+          <div className='field-row'>
+            <div className='field'>
+              <label>Sales rep</label>
+              <select value={createInvForm.sales_rep_id} onChange={(e) => setCreateInvForm({ ...createInvForm, sales_rep_id: e.target.value })}>
+                <option value=''>Select…</option>
+                {allReps.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name} ({r.kind})</option>
+                ))}
+              </select>
+            </div>
+            <div className='field'>
+              <label>Kind</label>
+              <select value={createInvForm.kind} onChange={(e) => setCreateInvForm({ ...createInvForm, kind: e.target.value })}>
+                <option value='commission'>Commission</option>
+                <option value='charge'>Charge</option>
+              </select>
+            </div>
+          </div>
+          <div className='field'>
+            <label>Customer</label>
+            <input type='text' value={createInvForm.customer} onChange={(e) => setCreateInvForm({ ...createInvForm, customer: e.target.value })} />
+          </div>
+          <div className='field'>
+            <label>Line items</label>
+            {createInvForm.items.map((it, idx) => (
+              <div key={idx} className='line-item-row'>
+                <div className='field'>
+                  <select value={it.service_id} onChange={(e) => {
+                    const items = [...createInvForm.items]
+                    items[idx] = { ...it, service_id: e.target.value }
+                    setCreateInvForm({ ...createInvForm, items })
+                  }}>
+                    {SERVICE_IDS.map((sid) => (
+                      <option key={sid} value={sid}>{SERVICE_LABELS[sid]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className='field'>
+                  <input type='text' placeholder='Description' value={it.description} onChange={(e) => {
+                    const items = [...createInvForm.items]
+                    items[idx] = { ...it, description: e.target.value }
+                    setCreateInvForm({ ...createInvForm, items })
+                  }} />
+                </div>
+                <div className='field'>
+                  <input type='number' min='1' placeholder='Qty' value={it.quantity} onChange={(e) => {
+                    const items = [...createInvForm.items]
+                    items[idx] = { ...it, quantity: e.target.value }
+                    setCreateInvForm({ ...createInvForm, items })
+                  }} />
+                </div>
+                <div className='field'>
+                  <input type='number' min='0' step='0.01' placeholder='Unit price' value={it.unit_price_major} onChange={(e) => {
+                    const items = [...createInvForm.items]
+                    items[idx] = { ...it, unit_price_major: e.target.value }
+                    setCreateInvForm({ ...createInvForm, items })
+                  }} />
+                </div>
+                <button type='button' className='btn btn-ghost btn-sm' onClick={() => {
+                  const items = createInvForm.items.filter((_, i) => i !== idx)
+                  setCreateInvForm({ ...createInvForm, items: items.length ? items : createInvForm.items })
+                }}>×</button>
+              </div>
+            ))}
+            <button type='button' className='btn btn-ghost btn-sm' onClick={() => setCreateInvForm({
+              ...createInvForm,
+              items: [...createInvForm.items, { service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
+            })}>Add line</button>
+          </div>
+          <div className='field-row'>
+            <div className='field'>
+              <label>Discount %</label>
+              <input type='number' min='0' value={createInvForm.discount_percent} onChange={(e) => setCreateInvForm({ ...createInvForm, discount_percent: e.target.value })} />
+            </div>
+            <div className='field'>
+              <label>Tax %</label>
+              <input type='number' min='0' value={createInvForm.tax_percent} onChange={(e) => setCreateInvForm({ ...createInvForm, tax_percent: e.target.value })} />
+            </div>
+            {createInvForm.kind === 'commission' ? (
+              <div className='field'>
+                <label>Commission amount</label>
+                <input type='number' min='0' step='0.01' value={createInvForm.commission_amount_major} onChange={(e) => setCreateInvForm({ ...createInvForm, commission_amount_major: e.target.value })} />
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className='modal-foot'>
+          <button type='button' className='btn btn-ghost' onClick={() => setShowCreateInvoice(false)}>Cancel</button>
+          <button type='button' className='btn btn-primary' disabled={busy} onClick={createHubInvoice}>Create</button>
+        </div>
+      </div>
+    </div>
+  )
+
+  const renderPasswordModal = () => (
+    <div className={`modal-overlay ${pwRep ? 'active' : ''}`}>
+      <div className='modal' style={{ maxWidth: 380 }}>
+        <div className='modal-head'>
+          <h2>Reset password</h2>
+          <button type='button' className='modal-close' onClick={() => setPwRep(null)}><IconClose /></button>
+        </div>
+        <div className='modal-body'>
+          <p style={{ marginTop: 0, fontSize: 13.5, color: 'var(--ink-soft)' }}>
+            Set a new temporary password for <strong>{pwRep?.name}</strong>.
+          </p>
+          <div className='field'>
+            <label>New temporary password</label>
+            <div className='pw-row'>
+              <input type='text' value={pwValue} onChange={(e) => setPwValue(e.target.value)} />
+              <button type='button' className='btn btn-ghost btn-sm' onClick={() => setPwValue(genPassword())}>Generate</button>
+            </div>
+          </div>
+        </div>
+        <div className='modal-foot'>
+          <button type='button' className='btn btn-ghost' onClick={() => setPwRep(null)}>Cancel</button>
+          <button type='button' className='btn btn-primary' disabled={busy || pwValue.length < 6} onClick={resetPassword}>Reset</button>
+        </div>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className='sales-hub'>
+      <div className='wrap'>
+        {view !== 'editor' && view !== 'profile' && view !== 'invoiceDetail' ? renderSubNav() : null}
+        {view === 'accounts' ? renderAccountsView() : null}
+        {view === 'invoices' ? renderInvoicesView() : null}
+        {view === 'editor' ? renderEditorView() : null}
+        {view === 'profile' ? renderProfileView() : null}
+        {view === 'invoiceDetail' ? renderInvoiceDetailView() : null}
+      </div>
+      {renderPasswordModal()}
+      {renderCreateInvoiceModal()}
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>
   )

@@ -33,6 +33,7 @@ from app.models.lead_sales_task import LeadSalesTask  # noqa: F401
 from app.models.sales_offer_template import SalesOfferTemplate  # noqa: F401
 from app.models.sales_conversation_state import SalesConversationState  # noqa: F401
 from app.models.sales_rep import SalesRep, SalesCustomer, SalesCommission, SalesPayoutInvoice  # noqa: F401
+from app.models.sales_hub_invoice import SalesHubInvoice, SalesHubInvoiceItem  # noqa: F401
 from app.models.recovery_job import RecoveryJob  # noqa: F401
 from app.models.provider_config import ProviderConfig  # noqa: F401
 from app.models.onboarding_request import OnboardingRequest  # noqa: F401

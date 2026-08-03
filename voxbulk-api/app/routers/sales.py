@@ -71,6 +71,10 @@ def sales_wallet(db: Session = Depends(get_db), principal=Depends(get_current_pr
         "rep": SalesRepService.rep_to_dict(rep),
         "wallet": stats.get("wallet") or {},
         "commissions": stats.get("commissions") or [],
+        "commission_summary": stats.get("commission_summary"),
+        "promo_benefit_summaries": stats.get("promo_benefit_summaries"),
+        "packages": stats.get("packages") or [],
+        "currency": stats.get("currency"),
         "payout_invoices": SalesPayoutService.list_invoices(db, rep_id=rep.id),
     }
 
