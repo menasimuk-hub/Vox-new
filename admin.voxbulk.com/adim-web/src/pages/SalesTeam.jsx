@@ -1,7 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import './salesTeam.css'
+
+/** Source: partner-sales-hub-main/src/lib/accounts.ts COMPANY */
+const COMPANY = {
+  name: 'Voxbulk Ltd',
+  addressLines: ['Unit 12, Kingsway House', '103 Kingsway', 'London WC2B 6QX'],
+  country: 'United Kingdom',
+  companyNumber: '12345678',
+  vatNumber: 'GB 123 4567 89',
+  bank: {
+    bankName: 'Barclays Bank UK PLC',
+    beneficiary: 'Voxbulk Ltd',
+    sortCode: '20-00-00',
+    accountNumber: '12345678',
+    iban: 'GB29 BARC 2000 0012 3456 78',
+    country: 'United Kingdom',
+  },
+}
 
 const EU_COUNTRIES = new Set(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'])
 const COUNTRY_CURRENCY = { GB: 'GBP', US: 'USD', CA: 'CAD', AU: 'AUD' }
@@ -106,6 +124,24 @@ const IconReceipt = () => (
 )
 const IconMore = () => (
   <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><circle cx='12' cy='5' r='1' /><circle cx='12' cy='12' r='1' /><circle cx='12' cy='19' r='1' /></svg>
+)
+const IconSave = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z' /><path d='M17 21v-8H7v8' /><path d='M7 3v5h8' /></svg>
+)
+const IconSend = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='m22 2-7 20-4-9-9-4Z' /><path d='M22 2 11 13' /></svg>
+)
+const IconBell = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9' /><path d='M10.3 21a1.94 1.94 0 0 0 3.4 0' /></svg>
+)
+const IconCheck = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M20 6 9 17l-5-5' /></svg>
+)
+const IconX = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M18 6 6 18M6 6l12 12' /></svg>
+)
+const IconBadgeCheck = () => (
+  <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z' /><path d='m9 12 2 2 4-4' /></svg>
 )
 
 const COUNTRY_NAMES = Object.fromEntries(COUNTRIES.map((c) => [c.code, c.label]))
@@ -293,12 +329,14 @@ function buildCommissionTiersPayload(form, isPartner) {
 
 function statusBadge(status) {
   const s = String(status || '').toLowerCase()
-  if (s === 'paid') return <span className='badge badge-paid'>Paid</span>
-  if (s === 'sent') return <span className='badge badge-sent'>Sent</span>
-  if (s === 'new') return <span className='badge badge-new'>New</span>
-  if (s === 'rejected') return <span className='badge badge-rejected'>Rejected</span>
-  if (s === 'submitted') return <span className='badge badge-requested'>Awaiting Approval</span>
-  return <span className='badge badge-pending'>{status || '—'}</span>
+  if (s === 'paid') return <span className='badge badge-paid'>paid</span>
+  if (s === 'sent') return <span className='badge badge-sent'>sent</span>
+  if (s === 'new') return <span className='badge badge-new'>new</span>
+  if (s === 'rejected') return <span className='badge badge-rejected'>rejected</span>
+  if (s === 'submitted') return <span className='badge badge-requested'>submitted</span>
+  if (s === 'active') return <span className='badge badge-active'>active</span>
+  if (s === 'frozen') return <span className='badge badge-frozen'>frozen</span>
+  return <span className='badge badge-pending'>{s || '—'}</span>
 }
 
 export default function SalesTeam() {
@@ -318,7 +356,7 @@ export default function SalesTeam() {
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [invoiceSearch, setInvoiceSearch] = useState('')
-  const [menuRepId, setMenuRepId] = useState(null)
+  const [rowMenu, setRowMenu] = useState(null) // { id, top, left } — portaled like Radix
   const [toast, setToast] = useState('')
 
   const [editId, setEditId] = useState(null)
@@ -330,7 +368,6 @@ export default function SalesTeam() {
   const [pwValue, setPwValue] = useState('')
 
   const [profileRep, setProfileRep] = useState(null)
-  const [profile, setProfile] = useState(null)
 
   const [invoiceDetail, setInvoiceDetail] = useState(null)
   const [invoiceDetailRep, setInvoiceDetailRep] = useState(null)
@@ -349,6 +386,8 @@ export default function SalesTeam() {
 
   const [editorInvoices, setEditorInvoices] = useState([])
   const [editorPayoutInvoices, setEditorPayoutInvoices] = useState([])
+  const [editStats, setEditStats] = useState(null)
+  const [editRepMeta, setEditRepMeta] = useState(null) // { is_active, ref_id, ... }
 
   const kind = tab === 'partners' ? 'partner_channel' : 'salesman'
   const isPartner = kind === 'partner_channel'
@@ -453,6 +492,8 @@ export default function SalesTeam() {
     setForm(emptyForm(tab === 'partners'))
     setFormErr('')
     setEditorTab('profile')
+    setEditStats(null)
+    setEditRepMeta({ is_active: true, ref_id: '' })
     setView('editor')
   }
 
@@ -461,19 +502,28 @@ export default function SalesTeam() {
     setForm(repToForm(rep))
     setFormErr('')
     setEditorTab('profile')
+    setEditRepMeta(rep)
+    setProfileRep(rep)
     setView('editor')
     try {
-      const [hub, payout] = await Promise.all([
+      const [hub, payout, dash] = await Promise.all([
         apiFetch(`/admin/sales-reps/hub-invoices?rep_id=${rep.id}`),
         apiFetch(`/admin/sales-reps/payout-invoices?rep_id=${rep.id}`),
+        apiFetch(`/admin/sales-reps/${rep.id}/dashboard`).catch(() => null),
       ])
       setEditorInvoices(hub?.items || [])
       setEditorPayoutInvoices(payout?.items || [])
+      setEditStats(dash)
+      if (dash?.rep) setEditRepMeta(dash.rep)
     } catch {
       setEditorInvoices([])
       setEditorPayoutInvoices([])
+      setEditStats(null)
     }
   }
+
+  /** Source: View profile → same account page as Edit (accounts.$id) */
+  const openProfile = (rep) => openEdit(rep)
 
   const saveForm = async () => {
     setBusy(true)
@@ -577,7 +627,6 @@ export default function SalesTeam() {
       showToast(`${rep.name} was deleted.`)
       if (profileRep?.id === rep.id) {
         setProfileRep(null)
-        setProfile(null)
         setView('accounts')
       }
       await loadReps()
@@ -585,18 +634,6 @@ export default function SalesTeam() {
       showToast(e?.message || 'Delete failed')
     } finally {
       setBusy(false)
-    }
-  }
-
-  const openProfile = async (rep) => {
-    setProfileRep(rep)
-    setView('profile')
-    try {
-      const res = await apiFetch(`/admin/sales-reps/${rep.id}/dashboard`)
-      setProfile(res)
-      if (res?.rep) setProfileRep(res.rep)
-    } catch (e) {
-      showToast(e?.message || 'Failed to load profile')
     }
   }
 
@@ -717,7 +754,7 @@ export default function SalesTeam() {
   const packageForService = (serviceId) => catalog.packages.find((p) => p.service_id === serviceId)
 
   const renderSubNav = () => {
-    const accountsActive = view === 'accounts' || view === 'editor' || view === 'profile'
+    const accountsActive = view === 'accounts' || view === 'editor'
     const invoicesActive = view === 'invoices' || view === 'invoiceDetail'
     return (
       <div className='hub-topnav'>
@@ -725,7 +762,7 @@ export default function SalesTeam() {
           <button
             type='button'
             className={accountsActive ? 'active' : ''}
-            onClick={() => { setView('accounts'); setProfileRep(null); setProfile(null) }}
+            onClick={() => { setView('accounts'); setProfileRep(null) }}
           >
             <IconAccounts /> Accounts
           </button>
@@ -747,11 +784,14 @@ export default function SalesTeam() {
     const salesmen = k.salesmen ?? allReps.filter((r) => r.kind !== 'partner_channel').length
     const partners = k.partners ?? allReps.filter((r) => r.kind === 'partner_channel').length
     const pending = Math.max(0, Number(k.commission_earned_minor || 0) - Number(k.commission_paid_minor || 0))
+    const leads = Number(k.leads ?? 0)
+    const paying = Number(k.paying_customers ?? 0)
+    const conversion = leads ? Math.round((paying / leads) * 100) : 0
     const cards = [
       { label: 'Accounts', value: k.accounts ?? allReps.length, hint: `${salesmen} salesmen · ${partners} partners`, icon: <IconUsers /> },
-      { label: 'Leads', value: k.leads ?? 0, hint: 'all sources', icon: <IconTarget /> },
-      { label: 'Paying customers', value: k.paying_customers ?? 0, hint: 'active companies', icon: <IconTrend />, tone: 'positive' },
-      { label: 'Revenue', value: money(k.revenue_minor, cur), hint: 'base currency', icon: <IconWallet /> },
+      { label: 'Leads', value: leads, hint: 'all sources', icon: <IconTarget /> },
+      { label: 'Paying customers', value: paying, hint: `${conversion}% conversion`, icon: <IconTrend />, tone: 'positive' },
+      { label: 'Revenue', value: money(k.revenue_minor, cur), hint: 'lifetime, base currency', icon: <IconWallet /> },
       { label: 'Commission earned', value: money(k.commission_earned_minor, cur), icon: <IconCoins /> },
       { label: 'Commission paid', value: money(k.commission_paid_minor, cur), hint: `${money(pending, cur)} pending`, icon: <IconCoins /> },
       { label: 'Invoices outstanding', value: money(k.invoices_outstanding_minor, cur), hint: `${hubInvoices.filter((i) => i.status === 'new' || i.status === 'sent').length} open`, icon: <IconReceipt />, tone: 'warning' },
@@ -772,6 +812,56 @@ export default function SalesTeam() {
     )
   }
 
+  const closeRowMenu = () => setRowMenu(null)
+
+  const openRowMenu = (e, rep) => {
+    e.stopPropagation()
+    if (rowMenu?.id === rep.id) {
+      setRowMenu(null)
+      return
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    const panelH = 220
+    const spaceBelow = window.innerHeight - rect.bottom
+    const top = spaceBelow < panelH ? Math.max(8, rect.top - panelH) : rect.bottom + 4
+    const left = Math.min(window.innerWidth - 196, Math.max(8, rect.right - 180))
+    setRowMenu({ id: rep.id, top, left, rep })
+  }
+
+  const renderRowMenuPortal = () => {
+    if (!rowMenu) return null
+    const rep = rowMenu.rep
+    return createPortal(
+      <>
+        <div className='row-menu-backdrop' onClick={closeRowMenu} aria-hidden='true' />
+        <div
+          className='row-menu-panel row-menu-portal'
+          role='menu'
+          style={{ top: rowMenu.top, left: rowMenu.left }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button type='button' onClick={() => { closeRowMenu(); openProfile(rep) }}>
+            <IconProfile /> View profile
+          </button>
+          <button type='button' onClick={() => { closeRowMenu(); openEdit(rep) }}>
+            <IconEdit /> Edit
+          </button>
+          <button type='button' onClick={() => { closeRowMenu(); toggleFreeze(rep) }}>
+            {rep.is_active ? <><IconFreeze /> Freeze</> : <><IconUnfreeze /> Unfreeze</>}
+          </button>
+          <button type='button' onClick={() => { closeRowMenu(); setPwRep(rep); setPwValue(genPassword()) }}>
+            <IconReset /> Reset password
+          </button>
+          <div className='row-menu-sep' />
+          <button type='button' className='danger' onClick={() => { closeRowMenu(); deleteRep(rep) }}>
+            <IconDelete /> Delete
+          </button>
+        </div>
+      </>,
+      document.body,
+    )
+  }
+
   const renderAccountsView = () => (
     <>
       <header className='hub-header'>
@@ -787,146 +877,138 @@ export default function SalesTeam() {
         </div>
       </header>
       {renderKpiStrip()}
-      <section className='accounts-main'>
-        <div className='tabs-toolbar'>
-          <div className='tabs-list'>
-            <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>
-              Salesmen ({allReps.filter((r) => r.kind !== 'partner_channel').length})
-            </button>
-            <button type='button' className={tab === 'partners' ? 'active' : ''} onClick={() => switchTab('partners')}>
-              Partners ({allReps.filter((r) => r.kind === 'partner_channel').length})
-            </button>
+      <section className='accounts-layout'>
+        <div className='accounts-main'>
+          <div className='tabs-toolbar'>
+            <div className='tabs-list'>
+              <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>
+                Salesmen ({allReps.filter((r) => r.kind !== 'partner_channel').length})
+              </button>
+              <button type='button' className={tab === 'partners' ? 'active' : ''} onClick={() => switchTab('partners')}>
+                Partners ({allReps.filter((r) => r.kind === 'partner_channel').length})
+              </button>
+            </div>
+            <div className='search-box'>
+              <IconSearch />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder='Search ID, name, email or code'
+              />
+            </div>
           </div>
-          <div className='search-box'>
-            <IconSearch />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder='Search ID, name, email or code'
-            />
-          </div>
-        </div>
-        {loading ? (
-          <div className='empty-state' style={{ marginTop: 16 }}>Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div className='empty-state' style={{ marginTop: 16 }}>
-            <IconEmptyPeople />
-            <div>No accounts yet.</div>
-          </div>
-        ) : (
-          <div className='table-wrap'>
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: 80 }}>ID</th>
-                  <th>Name</th>
-                  <th>Location</th>
-                  <th>Currency</th>
-                  <th>Contact</th>
-                  <th>Promo code</th>
-                  <th>Commission</th>
-                  <th className='tabular'>Revenue</th>
-                  <th>Status</th>
-                  <th style={{ width: 48 }} />
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((rep, idx) => {
-                  const cur = rep.currency || currencyForCountry(rep.country)
-                  const refId = String(1000 + idx + 1).slice(-4)
-                  return (
-                    <tr key={rep.id} className={rep.is_active ? '' : 'frozen'}>
-                      <td className='mono'>#{String(rep.ref_id || refId)}</td>
-                      <td>
-                        <button type='button' className='person-name link-btn' onClick={() => openProfile(rep)} style={{ fontWeight: 500 }}>
-                          {rep.name}
-                        </button>
-                        {rep.company_name ? <div className='muted'>{rep.company_name}</div> : null}
-                      </td>
-                      <td>
-                        <span className='mono'>{rep.country || '—'}</span>
-                        {rep.country ? <span className='muted' style={{ marginLeft: 6 }}>{COUNTRY_NAMES[rep.country] || ''}</span> : null}
-                      </td>
-                      <td>{cur}</td>
-                      <td>
-                        <div>{rep.email}</div>
-                        <div className='muted'>{rep.mobile || '—'}</div>
-                      </td>
-                      <td>
-                        {rep.promo_code ? (
-                          <>
-                            <span className='badge badge-mono'>{rep.promo_code}</span>
-                            <div className='benefit-lines'>
-                              {(rep.promo_benefit_summaries || []).slice(0, 4).map((line) => (
-                                <div key={line}>{line}</div>
-                              ))}
-                            </div>
-                          </>
-                        ) : (
-                          <span className='muted'>None</span>
-                        )}
-                      </td>
-                      <td>
-                        {rep.commission_summary ? (
-                          <>
-                            <div>{rep.commission_summary}</div>
-                            <div className='muted'>{isPartner ? 'next payment only' : 'monthly tiers'}</div>
-                          </>
-                        ) : (
-                          <span className='muted'>—</span>
-                        )}
-                      </td>
-                      <td className='tabular'>{money(rep.revenue_minor || 0, cur)}</td>
-                      <td>
-                        <span className={`badge ${rep.is_active ? 'badge-active' : 'badge-frozen'}`}>
-                          {rep.is_active ? 'active' : 'frozen'}
-                        </span>
-                      </td>
-                      <td>
-                        <div
-                          className={`row-menu${menuRepId === rep.id ? ' open' : ''}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            type='button'
-                            className='row-menu-trigger'
-                            aria-label='Actions'
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setMenuRepId(menuRepId === rep.id ? null : rep.id)
-                            }}
-                          >
-                            <IconMore />
+          {loading ? (
+            <div className='empty-state' style={{ marginTop: 16 }}>Loading…</div>
+          ) : filtered.length === 0 ? (
+            <div className='empty-state' style={{ marginTop: 16 }}>No accounts yet.</div>
+          ) : (
+            <div className='table-wrap'>
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: 80 }}>ID</th>
+                    <th>Name</th>
+                    <th>Location</th>
+                    <th>Currency</th>
+                    <th>Contact</th>
+                    <th>Promo code</th>
+                    <th>Commission</th>
+                    <th className='tabular'>Revenue</th>
+                    <th>Status</th>
+                    <th style={{ width: 48 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((rep, idx) => {
+                    const cur = rep.currency || currencyForCountry(rep.country)
+                    const refId = String(1000 + idx + 1).slice(-4)
+                    return (
+                      <tr key={rep.id}>
+                        <td className='mono'>#{String(rep.ref_id || refId)}</td>
+                        <td>
+                          <button type='button' className='person-name link-btn' onClick={() => openProfile(rep)} style={{ fontWeight: 500 }}>
+                            {rep.name}
                           </button>
-                          {menuRepId === rep.id ? (
-                            <div className='row-menu-panel' role='menu'>
-                              <button type='button' onClick={() => { setMenuRepId(null); openProfile(rep) }}>
-                                <IconProfile /> View profile
-                              </button>
-                              <button type='button' onClick={() => { setMenuRepId(null); openEdit(rep) }}>
-                                <IconEdit /> Edit
-                              </button>
-                              <button type='button' onClick={() => { setMenuRepId(null); toggleFreeze(rep) }}>
-                                {rep.is_active ? <><IconFreeze /> Freeze</> : <><IconUnfreeze /> Unfreeze</>}
-                              </button>
-                              <button type='button' onClick={() => { setMenuRepId(null); setPwRep(rep); setPwValue(genPassword()) }}>
-                                <IconReset /> Reset password
-                              </button>
-                              <div className='row-menu-sep' />
-                              <button type='button' className='danger' onClick={() => { setMenuRepId(null); deleteRep(rep) }}>
-                                <IconDelete /> Delete
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                          {rep.company_name ? <div className='muted'>{rep.company_name}</div> : null}
+                        </td>
+                        <td>
+                          <span className='mono'>{rep.country || '—'}</span>
+                          {rep.country ? <span className='muted' style={{ marginLeft: 6 }}>{COUNTRY_NAMES[rep.country] || ''}</span> : null}
+                        </td>
+                        <td>{cur}</td>
+                        <td>
+                          <div>{rep.email}</div>
+                          <div className='muted'>{rep.mobile || '—'}</div>
+                        </td>
+                        <td>
+                          {rep.promo_code ? (
+                            <>
+                              <span className='badge badge-mono'>{rep.promo_code}</span>
+                              <div className='benefit-lines'>
+                                {(rep.promo_benefit_summaries || []).slice(0, 4).map((line) => (
+                                  <div key={line}>{line}</div>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <span className='muted'>None</span>
+                          )}
+                        </td>
+                        <td>
+                          {rep.commission_summary ? (
+                            <>
+                              <div>{rep.commission_summary}</div>
+                              <div className='muted'>{isPartner ? 'next payment only' : 'monthly tiers'}</div>
+                            </>
+                          ) : (
+                            <span className='muted'>—</span>
+                          )}
+                        </td>
+                        <td className='tabular'>{money(rep.revenue_minor || 0, cur)}</td>
+                        <td>{statusBadge(rep.is_active ? 'active' : 'frozen')}</td>
+                        <td>
+                          <div className='row-menu'>
+                            <button
+                              type='button'
+                              className={`row-menu-trigger${rowMenu?.id === rep.id ? ' open' : ''}`}
+                              aria-label='Actions'
+                              onClick={(e) => openRowMenu(e, rep)}
+                            >
+                              <IconMore />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <aside className='aside-card'>
+          <div className='aside-card-head'>
+            <h2>Latest invoices</h2>
+            <button type='button' className='link-all' onClick={() => setView('invoices')}>View all</button>
           </div>
-        )}
+          <ul className='aside-list'>
+            {hubInvoices.slice(0, 6).map((inv) => (
+              <li key={inv.id}>
+                <button type='button' className='aside-invoice' onClick={() => openInvoiceDetail(inv.id)}>
+                  <div className='aside-invoice-row'>
+                    <span className='inv-num'>{inv.number}</span>
+                    {statusBadge(inv.status)}
+                  </div>
+                  <div className='inv-meta'>
+                    <span className='trunc'>{inv.rep_name || inv.customer || '—'}</span>
+                    <span className='tabular'>{inv.total_display || money(inv.total_minor, inv.currency)}</span>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {hubInvoices.length === 0 ? <p className='muted' style={{ marginTop: 12 }}>No invoices yet.</p> : null}
+        </aside>
       </section>
     </>
   )
@@ -979,7 +1061,9 @@ export default function SalesTeam() {
               <div className={`value${key === 'sent' ? ' tone-warning' : key === 'paid' ? ' tone-positive' : ''}`}>
                 {money(hubKpis[key], 'GBP')}
               </div>
-              <p className='hint'>{hubInvoices.filter((i) => i.status === key).length} invoices</p>
+              {(key === 'new' || key === 'sent') ? (
+                <p className='hint'>{hubInvoices.filter((i) => i.status === key).length} invoices</p>
+              ) : null}
             </div>
           ))}
         </div>
@@ -1023,28 +1107,35 @@ export default function SalesTeam() {
             </thead>
             <tbody>
               {filteredInv.length === 0 ? (
-                <tr><td colSpan={9}><div className='empty-state' style={{ border: 'none' }}>No hub invoices yet.</div></td></tr>
-              ) : filteredInv.map((inv) => (
-                <tr key={inv.id} style={{ cursor: 'pointer' }} onClick={() => openInvoiceDetail(inv.id)}>
+                <tr><td colSpan={9} className='empty-cell'>No invoices match this filter.</td></tr>
+              ) : filteredInv.map((inv) => {
+                const owner = allReps.find((r) => r.id === inv.sales_rep_id) || null
+                return (
+                <tr key={inv.id}>
                   <td className='mono'>
-                    <button type='button' className='link-btn' style={{ fontFamily: 'inherit' }} onClick={(e) => { e.stopPropagation(); openInvoiceDetail(inv.id) }}>
+                    <button type='button' className='link-btn' style={{ fontFamily: 'inherit' }} onClick={() => openInvoiceDetail(inv.id)}>
                       {inv.number}
                     </button>
                   </td>
-                  <td>{inv.rep_name || '—'}</td>
+                  <td>
+                    {owner ? (
+                      <button type='button' className='link-btn' onClick={() => openProfile(owner)}>
+                        <span className='mono'>#{owner.ref_id || '—'}</span>{' '}
+                        {owner.company_name || owner.name}
+                      </button>
+                    ) : (inv.rep_name || '—')}
+                  </td>
                   <td>{inv.customer || '—'}</td>
                   <td style={{ textTransform: 'capitalize' }}>{inv.kind}</td>
                   <td>{(inv.issued_at || inv.created_at || '').slice(0, 10) || '—'}</td>
                   <td>{(inv.due_at || '').slice(0, 10) || '—'}</td>
                   <td className='tabular'>{inv.total_display || money(inv.total_minor, inv.currency)}</td>
                   <td className='tabular'>
-                    {inv.kind === 'commission'
-                      ? (inv.commission_amount_display || money(inv.commission_amount_minor, inv.currency))
-                      : '—'}
+                    {inv.commission_amount_display || money(inv.commission_amount_minor, inv.currency) || '—'}
                   </td>
                   <td>{statusBadge(inv.status)}</td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -1064,21 +1155,10 @@ export default function SalesTeam() {
           <input type='tel' value={form.mobile} onChange={(e) => setForm({ ...form, mobile: e.target.value })} placeholder='+44 7700 900123' />
         </div>
       </div>
-      {!editId ? (
-        <>
-          <div className='field'>
-            <label>Email</label>
-            <input type='email' value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          </div>
-          <div className='field'>
-            <label>Temporary password <span className='hint'>shared at first login</span></label>
-            <div className='pw-row'>
-              <input type='text' value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-              <button type='button' className='btn btn-ghost btn-sm pw-gen' onClick={() => setForm({ ...form, password: genPassword() })}>Generate</button>
-            </div>
-          </div>
-        </>
-      ) : null}
+      <div className='field'>
+        <label>Email</label>
+        <input type='email' value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={Boolean(editId)} />
+      </div>
       <div className='field-row'>
         <div className='field'>
           <label>Country <span className='hint'>required</span></label>
@@ -1367,203 +1447,178 @@ export default function SalesTeam() {
   )
 
   const renderEditorInvoicesTab = () => (
-    <>
-      <h3 style={{ margin: '0 0 12px', fontSize: 13, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Hub invoices</h3>
-      <div className='card' style={{ marginBottom: 20 }}>
+    <section className='hub-card'>
+      <div className='hub-card-head-row'>
+        <div>
+          <h3>Invoices</h3>
+          <p className='muted'>Commission and charge invoices for this account.</p>
+        </div>
+        <button
+          type='button'
+          className='btn btn-primary btn-sm'
+          onClick={() => {
+            setCreateInvForm({
+              sales_rep_id: editId || '',
+              kind: 'commission',
+              customer: form.name || '',
+              discount_percent: '0',
+              tax_percent: '0',
+              commission_amount_major: '0',
+              items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
+            })
+            setCreateInvErr('')
+            setShowCreateInvoice(true)
+          }}
+        >
+          <IconPlus /> Create invoice
+        </button>
+      </div>
+      <div className='table-wrap' style={{ marginTop: 12 }}>
         <table>
           <thead>
-            <tr><th>Number</th><th>Total</th><th>Status</th><th /></tr>
+            <tr>
+              <th>Number</th>
+              <th>Type</th>
+              <th>Bill to</th>
+              <th>Issued</th>
+              <th className='tabular'>Total</th>
+              <th>Status</th>
+            </tr>
           </thead>
           <tbody>
             {editorInvoices.length === 0 ? (
-              <tr><td colSpan={4} className='empty-state'>No hub invoices.</td></tr>
+              <tr><td colSpan={6} className='empty-cell'>No invoices yet.</td></tr>
             ) : editorInvoices.map((inv) => (
               <tr key={inv.id}>
-                <td>{inv.number}</td>
-                <td>{inv.total_display || money(inv.total_minor, inv.currency)}</td>
-                <td>{statusBadge(inv.status)}</td>
-                <td><button type='button' className='link-btn' onClick={() => openInvoiceDetail(inv.id)}>Open</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <h3 style={{ margin: '0 0 12px', fontSize: 13, textTransform: 'uppercase', color: 'var(--ink-soft)' }}>Payout invoices</h3>
-      <div className='card'>
-        <table>
-          <thead>
-            <tr><th>Number</th><th>Amount</th><th>Status</th><th>Actions</th></tr>
-          </thead>
-          <tbody>
-            {editorPayoutInvoices.length === 0 ? (
-              <tr><td colSpan={4} className='empty-state'>No payout invoices.</td></tr>
-            ) : editorPayoutInvoices.map((inv) => (
-              <tr key={inv.id}>
-                <td>{inv.invoice_number}</td>
-                <td>{inv.amount_display || money(inv.amount_minor, inv.currency || 'GBP')}</td>
-                <td>{statusBadge(inv.status)}</td>
-                <td>
-                  {inv.status === 'submitted' ? (
-                    <div className='action-stack'>
-                      <button type='button' className='mark-btn to-paid' disabled={busy} onClick={() => approvePay(inv.id)}>Approve</button>
-                      <button type='button' className='mark-btn to-reject' disabled={busy} onClick={() => rejectPayoutInvoice(inv.id)}>Reject</button>
-                    </div>
-                  ) : null}
+                <td className='mono'>
+                  <button type='button' className='link-btn' onClick={() => openInvoiceDetail(inv.id)}>{inv.number}</button>
                 </td>
+                <td style={{ textTransform: 'capitalize' }}>{inv.kind}</td>
+                <td>{inv.customer || '—'}</td>
+                <td>{(inv.issued_at || inv.created_at || '').slice(0, 10) || '—'}</td>
+                <td className='tabular'>{inv.total_display || money(inv.total_minor, inv.currency)}</td>
+                <td>{statusBadge(inv.status)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </>
+      {editorPayoutInvoices.length > 0 ? (
+        <div style={{ marginTop: 20 }}>
+          <h3 style={{ margin: '0 0 8px', fontSize: 13 }}>Payout requests</h3>
+          <div className='table-wrap'>
+            <table>
+              <thead>
+                <tr><th>Number</th><th>Amount</th><th>Status</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                {editorPayoutInvoices.map((inv) => (
+                  <tr key={inv.id}>
+                    <td>{inv.invoice_number}</td>
+                    <td>{inv.amount_display || money(inv.amount_minor, inv.currency || 'GBP')}</td>
+                    <td>{statusBadge(inv.status)}</td>
+                    <td>
+                      {inv.status === 'submitted' ? (
+                        <div className='action-stack'>
+                          <button type='button' className='mark-btn to-paid' disabled={busy} onClick={() => approvePay(inv.id)}>Approve</button>
+                          <button type='button' className='mark-btn to-reject' disabled={busy} onClick={() => rejectPayoutInvoice(inv.id)}>Reject</button>
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+    </section>
   )
 
-  const renderEditorView = () => (
-    <div>
-      <button type='button' className='back-link' onClick={() => setView('accounts')}>
-        <IconBack /> Back to accounts
-      </button>
-      <header className='hub-header'>
-        <div>
-          <h1>{editId ? 'Edit account' : (isPartner ? 'New partner' : 'New salesman')}</h1>
-          <p className='subtitle'>{isPartner ? 'Partner channel sales' : 'Salesman account'}</p>
-        </div>
-      </header>
-      <div className='editor-tabs'>
-        {['profile', 'promo', 'commission', 'payout', 'invoices'].map((t) => (
-          <button key={t} type='button' className={editorTab === t ? 'active' : ''} onClick={() => setEditorTab(t)}>
-            {t === 'promo' ? 'Promo & services' : t === 'payout' ? 'Bank/payout' : t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
-      </div>
-      <div className='editor-panel'>
-        {formErr ? <p className='form-error'>{formErr}</p> : null}
-        {editorTab === 'profile' ? renderEditorProfileTab() : null}
-        {editorTab === 'promo' ? renderEditorPromoTab() : null}
-        {editorTab === 'commission' ? renderEditorCommissionTab() : null}
-        {editorTab === 'payout' ? renderEditorPayoutTab() : null}
-        {editorTab === 'invoices' ? renderEditorInvoicesTab() : null}
-        {editorTab !== 'invoices' ? (
-          <div className='editor-foot'>
-            <button type='button' className='btn btn-ghost' onClick={() => setView('accounts')}>Cancel</button>
-            <button type='button' className='btn btn-primary' disabled={busy} onClick={saveForm}>Save</button>
+  const renderEditorView = () => {
+    const label = isPartner ? 'Partner' : 'Salesman'
+    const status = editRepMeta?.is_active === false ? 'frozen' : 'active'
+    const refId = editRepMeta?.ref_id || (editId ? String(editId).slice(0, 4) : '—')
+    const wallet = editStats?.stats?.wallet || editStats?.wallet || {}
+    const cur = formCurrency
+    const earned = Number(wallet.commission_minor || 0)
+    const paid = Number(wallet.commission_paid_minor || 0)
+    const outstanding = Math.max(0, earned - paid)
+    return (
+      <>
+        <header className='hub-header'>
+          <div>
+            <h1 className='title-row'>
+              <span className='mono title-ref'>#{refId}</span>
+              <span>{form.name || `New ${label.toLowerCase()}`}</span>
+              <span className='badge badge-mono'>{label}</span>
+              {statusBadge(status)}
+            </h1>
+            <p className='subtitle'>{form.company_name || form.email || '—'}</p>
+          </div>
+          <div className='hub-header-actions'>
+            <button type='button' className='btn btn-ghost' onClick={() => setView('accounts')}>
+              <IconBack /> Back
+            </button>
+            {editorTab !== 'invoices' ? (
+              <button type='button' className='btn btn-primary' disabled={busy} onClick={saveForm}>
+                <IconSave /> Save changes
+              </button>
+            ) : null}
+          </div>
+        </header>
+        {editId ? (
+          <div className='kpi-grid kpi-5'>
+            <div className='kpi-card'><div className='kpi-card-top'><span className='label'>Leads</span></div><div className='value'>{editStats?.stats?.leads ?? 0}</div></div>
+            <div className='kpi-card'><div className='kpi-card-top'><span className='label'>Paying customers</span></div><div className='value tone-positive'>{editStats?.stats?.paying_customers ?? editRepMeta?.customers ?? 0}</div></div>
+            <div className='kpi-card'><div className='kpi-card-top'><span className='label'>Revenue</span></div><div className='value'>{money(wallet.revenue_minor || editRepMeta?.revenue_minor, cur)}</div></div>
+            <div className='kpi-card'><div className='kpi-card-top'><span className='label'>Commission earned</span></div><div className='value'>{money(earned, cur)}</div></div>
+            <div className='kpi-card'><div className='kpi-card-top'><span className='label'>Commission outstanding</span></div><div className='value tone-warning'>{money(outstanding, cur)}</div></div>
           </div>
         ) : null}
-      </div>
-    </div>
-  )
-
-  const renderProfileView = () => {
-    if (!profileRep || !profile) return <div className='empty-state'>Loading profile…</div>
-    const stats = profile.stats || profile
-    const wallet = stats.wallet || {}
-    const payout = stats.payout || profileRep.payout || {}
-    const invoices = stats.payout_invoices || []
-    const commissions = stats.commissions || []
-    const cur = profileRep.currency || stats.currency || 'GBP'
-    const joined = (profileRep.created_at || '').slice(0, 10)
-
-    return (
-      <div>
-        <button type='button' className='back-link' onClick={() => { setView('accounts'); setProfileRep(null); setProfile(null) }}>
-          <IconBack /> Back to accounts
-        </button>
-        <div className='profile-top'>
-          <div>
-            <h2>{profileRep.name}</h2>
-            <div className='profile-meta'>
-              <span>{profileRep.email}</span>
-              <span>{profileRep.mobile || '—'}</span>
-              <span className='currency-badge'>{cur}</span>
-              {profileRep.is_active
-                ? <span className='badge badge-active'>Active</span>
-                : <span className='badge badge-frozen'>Frozen</span>}
-            </div>
-          </div>
-          <div className='actions'>
-            <button type='button' className='icon-btn edit' onClick={() => openEdit(profileRep)}><IconEdit /></button>
-            <button type='button' className='icon-btn reset' onClick={() => { setPwRep(profileRep); setPwValue(genPassword()) }}><IconReset /></button>
-            <button type='button' className='icon-btn freeze' onClick={() => toggleFreeze(profileRep)}>
-              {profileRep.is_active ? <IconFreeze /> : <IconUnfreeze />}
+        <div className='editor-tabs' style={{ marginTop: 24 }}>
+          {[
+            ['profile', 'Profile'],
+            ['promo', 'Promo & services'],
+            ['commission', 'Commission'],
+            ['payout', 'Bank / payout'],
+            ['invoices', `Invoices (${editorInvoices.length})`],
+          ].map(([t, labelText]) => (
+            <button key={t} type='button' className={editorTab === t ? 'active' : ''} onClick={() => setEditorTab(t)}>
+              {labelText}
             </button>
-            <button type='button' className='icon-btn delete' onClick={() => deleteRep(profileRep)}><IconDelete /></button>
-          </div>
+          ))}
         </div>
-        <div className='stat-grid'>
-          <div className='stat-box'><div className='label'>Revenue</div><div className='value'>{money(wallet.revenue_minor, cur)}</div></div>
-          <div className='stat-box'><div className='label'>Commission</div><div className='value'>{money(wallet.commission_minor, cur)}</div></div>
-          <div className='stat-box paid'><div className='label'>Paid</div><div className='value'>{money(wallet.commission_paid_minor, cur)}</div></div>
-          <div className='stat-box requested'><div className='label'>Awaiting approval</div><div className='value'>{money(wallet.commission_requested_minor, cur)}</div></div>
-          <div className='stat-box pending'><div className='label'>Available</div><div className='value'>{money(wallet.commission_available_minor, cur)}</div></div>
+        <div className={editorTab === 'profile' ? 'editor-grid' : undefined} style={{ marginTop: 16 }}>
+          {formErr ? <p className='form-error'>{formErr}</p> : null}
+          {editorTab === 'profile' ? (
+            <>
+              <section className='hub-card'>
+                <h3>Account details</h3>
+                {renderEditorProfileTab()}
+              </section>
+              <section className='hub-card'>
+                <h3>Access</h3>
+                {!editId ? (
+                  <div className='field'>
+                    <label>Temporary password <span className='hint'>shared at first login</span></label>
+                    <div className='pw-row'>
+                      <input type='text' value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                      <button type='button' className='btn btn-ghost btn-sm' onClick={() => setForm({ ...form, password: genPassword() })}>Generate</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className='muted'>Use the ⋯ menu on the accounts table to reset password.</p>
+                )}
+              </section>
+            </>
+          ) : null}
+          {editorTab === 'promo' ? <section className='hub-card'><h3>Promo &amp; services</h3>{renderEditorPromoTab()}</section> : null}
+          {editorTab === 'commission' ? <section className='hub-card'><h3>Commission</h3>{renderEditorCommissionTab()}</section> : null}
+          {editorTab === 'payout' ? <section className='hub-card'><h3>Bank / payout</h3>{renderEditorPayoutTab()}</section> : null}
+          {editorTab === 'invoices' ? renderEditorInvoicesTab() : null}
         </div>
-        <div className='profile-grid'>
-          <div className='profile-card'>
-            <h3>Payout details</h3>
-            {payout.payout_method === 'paypal' ? (
-              <>
-                <div className='profile-row'><span className='k'>Method</span><span className='v'>PayPal</span></div>
-                <div className='profile-row'><span className='k'>Email</span><span className='v'>{payout.paypal_email || '—'}</span></div>
-              </>
-            ) : (
-              <>
-                <div className='profile-row'><span className='k'>Holder</span><span className='v'>{payout.bank_holder_name || '—'}</span></div>
-                <div className='profile-row'><span className='k'>Bank</span><span className='v'>{payout.bank_name || '—'}</span></div>
-                <div className='profile-row'><span className='k'>Sort code</span><span className='v'>{payout.bank_sort_code || '—'}</span></div>
-                <div className='profile-row'><span className='k'>Account</span><span className='v'>{payout.bank_account_number || '—'}</span></div>
-              </>
-            )}
-            <h3 style={{ marginTop: 18 }}>Commission</h3>
-            <div className='profile-row'><span className='k'>Summary</span><span className='v'>{profileRep.commission_summary || stats.commission_summary || '—'}</span></div>
-            <div className='profile-row'><span className='k'>Promo</span><span className='v'>{profileRep.promo_code || '—'}</span></div>
-            <div className='profile-row'><span className='k'>Joined</span><span className='v'>{joined || '—'}</span></div>
-          </div>
-          <div className='profile-card'>
-            <h3>Payout invoices</h3>
-            <div className='card' style={{ boxShadow: 'none', border: 'none' }}>
-              <table>
-                <thead><tr><th>Invoice</th><th>Amount</th><th>Status</th><th /></tr></thead>
-                <tbody>
-                  {invoices.length === 0 ? (
-                    <tr><td colSpan={4} className='empty-state'>No payout invoices.</td></tr>
-                  ) : invoices.map((inv) => (
-                    <tr key={inv.id}>
-                      <td>{inv.invoice_number}</td>
-                      <td>{inv.amount_display || money(inv.amount_minor, cur)}</td>
-                      <td>{statusBadge(inv.status)}</td>
-                      <td>
-                        {inv.status === 'submitted' ? (
-                          <div className='action-stack'>
-                            <button type='button' className='mark-btn to-paid' disabled={busy} onClick={() => approvePay(inv.id)}>Approve</button>
-                            <button type='button' className='mark-btn to-reject' disabled={busy} onClick={() => rejectPayoutInvoice(inv.id)}>Reject</button>
-                          </div>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <h3 style={{ marginTop: 18 }}>Commission ledger</h3>
-            <div className='card' style={{ boxShadow: 'none', border: 'none' }}>
-              <table>
-                <thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Status</th></tr></thead>
-                <tbody>
-                  {commissions.length === 0 ? (
-                    <tr><td colSpan={4} className='empty-state'>No commission records.</td></tr>
-                  ) : commissions.map((c) => (
-                    <tr key={c.id}>
-                      <td>{(c.created_at || '').slice(0, 10)}</td>
-                      <td>{c.org_name || c.org_id}</td>
-                      <td>{money(c.amount_minor, c.currency || cur)}</td>
-                      <td>{statusBadge(c.status)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
+      </>
     )
   }
 
@@ -1572,76 +1627,158 @@ export default function SalesTeam() {
     const inv = invoiceDetail
     const cur = inv.currency || 'GBP'
     const rep = invoiceDetailRep
+    const payout = rep?.payout || {}
+    const items = inv.items || []
+    const subtotal = Number(inv.subtotal_minor || 0)
+    const discountPct = Number(inv.discount_percent || 0)
+    const taxPct = Number(inv.tax_percent || 0)
+    const total = Number(inv.total_minor || 0)
+    const discountMinor = Math.round(subtotal * discountPct / 100)
+    const taxMinor = Math.round((subtotal - discountMinor) * taxPct / 100)
+    const gross = subtotal
     return (
-      <div>
-        <button type='button' className='back-link' onClick={() => { setView('invoices'); setInvoiceDetail(null) }}>
-          <IconBack /> Back to invoices
-        </button>
+      <>
         <header className='hub-header'>
           <div>
-            <h1>{inv.number}</h1>
-            <p className='subtitle'>{rep?.name || '—'} · {inv.customer || '—'} · {statusBadge(inv.status)}</p>
+            <h1 className='title-row'>
+              {inv.number}
+              {statusBadge(inv.status)}
+            </h1>
+            <p className='subtitle'>
+              {inv.kind === 'charge' ? 'Charged to' : 'Payout to'}{' '}
+              {rep ? (
+                <button type='button' className='link-btn' onClick={() => openProfile(rep)}>
+                  #{rep.ref_id || '—'} {rep.company_name || rep.name}
+                </button>
+              ) : '—'}
+            </p>
           </div>
-        </header>
-        <div className='inv-detail-grid'>
-          <div className='profile-card'>
-            <h3>Summary</h3>
-            <div className='profile-row'><span className='k'>Kind</span><span className='v'>{inv.kind}</span></div>
-            <div className='profile-row'><span className='k'>Subtotal</span><span className='v'>{money(inv.subtotal_minor, cur)}</span></div>
-            <div className='profile-row'><span className='k'>Discount</span><span className='v'>{inv.discount_percent}%</span></div>
-            <div className='profile-row'><span className='k'>Tax</span><span className='v'>{inv.tax_percent}%</span></div>
-            <div className='profile-row'><span className='k'>Total</span><span className='v'>{inv.total_display || money(inv.total_minor, cur)}</span></div>
-            {inv.kind === 'commission' ? (
-              <div className='profile-row'>
-                <span className='k'>Commission</span>
-                <span className='v'>{inv.commission_amount_display || money(inv.commission_amount_minor, cur)}</span>
-              </div>
+          <div className='hub-header-actions'>
+            <button type='button' className='btn btn-ghost' onClick={() => { setView('invoices'); setInvoiceDetail(null) }}>
+              <IconBack /> Back
+            </button>
+            {inv.status === 'new' ? (
+              <button type='button' className='btn btn-primary' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'send')}>
+                <IconSend /> Send
+              </button>
+            ) : null}
+            {inv.status === 'sent' ? (
+              <button type='button' className='btn btn-ghost' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'remind')}>
+                <IconBell /> Send reminder
+              </button>
+            ) : null}
+            {inv.status !== 'paid' ? (
+              <button type='button' className='btn btn-primary' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'mark-paid')}>
+                <IconCheck /> Mark paid
+              </button>
+            ) : null}
+            {inv.status !== 'rejected' ? (
+              <button type='button' className='btn btn-ghost' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'reject', { reason: '' })}>
+                <IconX /> Reject
+              </button>
             ) : null}
           </div>
-          <div className='profile-card'>
-            <h3>Line items</h3>
-            {(inv.items || []).map((it) => (
-              <div key={it.id || it.description} className='profile-row'>
-                <span className='k'>{it.description}</span>
-                <span className='v'>{it.quantity} × {it.unit_price_display || money(it.unit_price_minor, cur)}</span>
-              </div>
-            ))}
+        </header>
+
+        <div className='hub-card commission-banner'>
+          <div>
+            <p className='banner-label'>Commission for {rep?.company_name || rep?.name || 'account'}</p>
+            <p className='banner-amount'>{inv.commission_amount_display || money(inv.commission_amount_minor, cur)}</p>
+            <p className='muted'>
+              {inv.commission_approved ? 'Approved' : 'Awaiting your approval'} · {inv.reminders_sent || 0} reminder(s) sent
+            </p>
           </div>
+          <button
+            type='button'
+            className={inv.commission_approved ? 'btn btn-ghost' : 'btn btn-primary'}
+            disabled={busy}
+            onClick={() => hubInvoiceAction(inv.id, 'approve-commission', { approved: !inv.commission_approved })}
+          >
+            <IconBadgeCheck /> {inv.commission_approved ? 'Revoke approval' : 'Approve commission'}
+          </button>
         </div>
-        <div className='inv-actions'>
-          {inv.status !== 'paid' && inv.status !== 'rejected' ? (
-            <>
-              <button type='button' className='btn btn-primary btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'send')}>Send</button>
-              <button type='button' className='btn btn-ghost btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'remind')}>Remind</button>
-              <button type='button' className='btn btn-ghost btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'mark-paid')}>Mark paid</button>
-              <button type='button' className='btn btn-danger btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'reject', { reason: '' })}>Reject</button>
-            </>
-          ) : null}
-          {inv.kind === 'commission' && !inv.commission_approved ? (
-            <button type='button' className='btn btn-primary btn-sm' disabled={busy} onClick={() => hubInvoiceAction(inv.id, 'approve-commission', { approved: true })}>Approve commission</button>
-          ) : null}
-          {inv.kind === 'charge' && inv.status !== 'paid' ? (
-            <>
-              {['stripe', 'gocardless', 'airwallex', 'manual'].map((provider) => (
-                <button
-                  key={provider}
-                  type='button'
-                  className='btn btn-ghost btn-sm'
-                  disabled={busy}
-                  onClick={() => hubInvoiceAction(inv.id, 'collect', { provider })}
-                >
-                  Collect ({provider})
+
+        <div className='inv-doc-layout'>
+          <section className='hub-card inv-document'>
+            <div className='inv-doc-top'>
+              <div className='inv-from'>
+                <p className='strong'>{COMPANY.name}</p>
+                {COMPANY.addressLines.map((l) => <p key={l} className='muted'>{l}</p>)}
+                <p className='muted'>{COMPANY.country}</p>
+                <p className='muted' style={{ marginTop: 4 }}>VAT {COMPANY.vatNumber}</p>
+                <p className='muted'>Company no. {COMPANY.companyNumber}</p>
+              </div>
+              <div className='inv-billto'>
+                <p className='banner-label'>Bill to</p>
+                <p className='strong'>{inv.customer || '—'}</p>
+                {inv.customer_tax_number ? <p className='muted'>Tax no. {inv.customer_tax_number}</p> : null}
+                <p className='muted' style={{ marginTop: 8 }}>Issued {(inv.issued_at || inv.created_at || '').slice(0, 10) || '—'}</p>
+                <p className='muted'>Due {(inv.due_at || '').slice(0, 10) || '—'}</p>
+              </div>
+            </div>
+            <table className='inv-lines'>
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Description</th>
+                  <th className='tabular'>Qty</th>
+                  <th className='tabular'>Unit</th>
+                  <th className='tabular'>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.id || it.description}>
+                    <td>{SERVICE_LABELS[it.service_id] || it.service_id || '—'}</td>
+                    <td className='muted'>{it.description}</td>
+                    <td className='tabular'>{it.quantity}</td>
+                    <td className='tabular'>{it.unit_price_display || money(it.unit_price_minor, cur)}</td>
+                    <td className='tabular'>{money(Number(it.unit_price_minor || 0) * Number(it.quantity || 0), cur)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className='inv-totals'>
+              <div className='profile-row'><span className='k'>Gross</span><span className='v'>{money(gross, cur)}</span></div>
+              <div className='profile-row'><span className='k'>Discount ({discountPct}%)</span><span className='v'>− {money(discountMinor, cur)}</span></div>
+              <div className='profile-row'><span className='k'>Subtotal</span><span className='v'>{money(subtotal - discountMinor, cur)}</span></div>
+              <div className='profile-row'><span className='k'>VAT ({taxPct}%)</span><span className='v'>{money(taxMinor, cur)}</span></div>
+              <div className='profile-row total-row'><span className='k'>Total due</span><span className='v'>{inv.total_display || money(total, cur)}</span></div>
+            </div>
+            {inv.note ? <p className='muted' style={{ marginTop: 24 }}>Note: {inv.note}</p> : null}
+          </section>
+          <aside className='inv-aside'>
+            <div className='hub-card'>
+              <h3>Our payment details</h3>
+              <div className='profile-row'><span className='k'>Bank</span><span className='v'>{COMPANY.bank.bankName}</span></div>
+              <div className='profile-row'><span className='k'>Beneficiary</span><span className='v'>{COMPANY.bank.beneficiary}</span></div>
+              <div className='profile-row'><span className='k'>Sort code</span><span className='v'>{COMPANY.bank.sortCode}</span></div>
+              <div className='profile-row'><span className='k'>Account no.</span><span className='v'>{COMPANY.bank.accountNumber}</span></div>
+              <div className='profile-row'><span className='k'>IBAN</span><span className='v'>{COMPANY.bank.iban}</span></div>
+              <div className='profile-row'><span className='k'>Country</span><span className='v'>{COMPANY.bank.country}</span></div>
+            </div>
+            {rep ? (
+              <div className='hub-card'>
+                <h3>Account payout details</h3>
+                <div className='profile-row'><span className='k'>Method</span><span className='v'>{payout.payout_method === 'paypal' ? 'PayPal' : 'Bank transfer'}</span></div>
+                {payout.payout_method === 'paypal' ? (
+                  <div className='profile-row'><span className='k'>PayPal</span><span className='v'>{payout.paypal_email || '—'}</span></div>
+                ) : (
+                  <>
+                    <div className='profile-row'><span className='k'>Bank</span><span className='v'>{payout.bank_name || '—'}</span></div>
+                    <div className='profile-row'><span className='k'>Sort code</span><span className='v'>{payout.bank_sort_code || '—'}</span></div>
+                    <div className='profile-row'><span className='k'>Account no.</span><span className='v'>{payout.bank_account_number || '—'}</span></div>
+                  </>
+                )}
+                <div className='profile-row'><span className='k'>Currency</span><span className='v'>{rep.currency || currencyForCountry(rep.country)}</span></div>
+                <button type='button' className='btn btn-ghost' style={{ width: '100%', marginTop: 12 }} onClick={() => openProfile(rep)}>
+                  View full profile
                 </button>
-              ))}
-            </>
-          ) : null}
+              </div>
+            ) : null}
+          </aside>
         </div>
-        {inv.payment_link ? (
-          <p style={{ marginTop: 12, fontSize: 13 }}>
-            Payment link: <a href={inv.payment_link} target='_blank' rel='noreferrer'>{inv.payment_link}</a>
-          </p>
-        ) : null}
-      </div>
+      </>
     )
   }
 
@@ -1776,15 +1913,15 @@ export default function SalesTeam() {
   )
 
   return (
-    <div className='sales-hub' onClick={() => menuRepId && setMenuRepId(null)}>
+    <div className='sales-hub'>
       {renderSubNav()}
       <div className='hub-body'>
         {view === 'accounts' ? renderAccountsView() : null}
         {view === 'invoices' ? renderInvoicesView() : null}
         {view === 'editor' ? renderEditorView() : null}
-        {view === 'profile' ? renderProfileView() : null}
         {view === 'invoiceDetail' ? renderInvoiceDetailView() : null}
       </div>
+      {renderRowMenuPortal()}
       {renderPasswordModal()}
       {renderCreateInvoiceModal()}
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>

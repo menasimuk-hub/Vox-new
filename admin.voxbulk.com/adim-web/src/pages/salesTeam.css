@@ -201,9 +201,21 @@
   color: var(--muted-foreground);
 }
 
-/* —— Accounts table (full width) —— */
-.sales-hub .accounts-main {
+/* —— Accounts main + aside (3fr / 1fr) — source index.tsx —— */
+.sales-hub .accounts-layout {
   margin-top: 24px;
+  display: grid;
+  gap: 24px;
+  width: 100%;
+}
+
+@media (min-width: 1280px) {
+  .sales-hub .accounts-layout {
+    grid-template-columns: 3fr 1fr;
+  }
+}
+
+.sales-hub .accounts-main {
   min-width: 0;
   width: 100%;
 }
@@ -320,10 +332,6 @@
   background: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
-.sales-hub tbody tr.frozen {
-  opacity: 0.65;
-}
-
 .sales-hub .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
@@ -378,12 +386,13 @@
 .sales-hub .badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  border-radius: 6px;
   padding: 2px 8px;
   font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.4;
   border: 1px solid transparent;
+  text-transform: capitalize;
 }
 
 .sales-hub .badge-active,
@@ -914,7 +923,7 @@
   width: 100%;
 }
 
-/* Row actions dropdown (AccountsTable MoreHorizontal) */
+/* Row actions dropdown — portaled to document.body like Radix */
 .sales-hub .row-menu {
   position: relative;
   display: inline-flex;
@@ -936,7 +945,7 @@
 }
 
 .sales-hub .row-menu-trigger:hover,
-.sales-hub .row-menu.open .row-menu-trigger {
+.sales-hub .row-menu-trigger.open {
   background: var(--accent);
   color: var(--foreground);
 }
@@ -946,20 +955,24 @@
   height: 16px;
 }
 
-.sales-hub .row-menu-panel {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 20;
+.row-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+
+.row-menu-panel.row-menu-portal {
+  position: fixed;
+  z-index: 91;
   min-width: 180px;
   padding: 4px;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--card);
+  border: 1px solid #e8e4d8;
+  background: #fcfbf8;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
 }
 
-.sales-hub .row-menu-panel button {
+.row-menu-panel.row-menu-portal button {
   appearance: none;
   border: none;
   background: transparent;
@@ -970,29 +983,268 @@
   padding: 8px 10px;
   border-radius: 6px;
   font-size: 0.875rem;
-  color: var(--foreground);
+  color: #1e293b;
   cursor: pointer;
   text-align: left;
 }
 
-.sales-hub .row-menu-panel button:hover {
-  background: var(--accent);
+.row-menu-panel.row-menu-portal button:hover {
+  background: #efece3;
 }
 
-.sales-hub .row-menu-panel button.danger {
-  color: var(--destructive);
+.row-menu-panel.row-menu-portal button.danger {
+  color: #b91c1c;
 }
 
-.sales-hub .row-menu-panel button svg {
+.row-menu-panel.row-menu-portal button svg {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
 }
 
-.sales-hub .row-menu-sep {
+.row-menu-panel.row-menu-portal .row-menu-sep {
   height: 1px;
   margin: 4px 0;
-  background: var(--border);
+  background: #e8e4d8;
+}
+
+/* Aside latest invoices */
+.sales-hub .aside-card {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 16px;
+  height: fit-content;
+}
+
+.sales-hub .aside-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sales-hub .aside-card-head h2 {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.sales-hub .aside-card-head .link-all {
+  appearance: none;
+  border: none;
+  background: none;
+  font-size: 0.75rem;
+  color: var(--primary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.sales-hub .aside-card-head .link-all:hover {
+  text-decoration: underline;
+}
+
+.sales-hub .aside-list {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sales-hub .aside-invoice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  padding: 12px;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  transition: background 0.15s;
+}
+
+.sales-hub .aside-invoice:hover {
+  background: var(--accent);
+}
+
+.sales-hub .aside-invoice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sales-hub .aside-invoice .inv-num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.sales-hub .aside-invoice .inv-meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.875rem;
+}
+
+.sales-hub .aside-invoice .inv-meta .trunc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.sales-hub .title-ref {
+  font-size: 1rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .kpi-grid.kpi-5 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1024px) {
+  .sales-hub .kpi-grid.kpi-5 {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.sales-hub .hub-card {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  padding: 20px;
+}
+
+.sales-hub .hub-card h3 {
+  margin: 0 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.sales-hub .hub-card-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sales-hub .editor-grid {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 1024px) {
+  .sales-hub .editor-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.sales-hub .commission-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.sales-hub .banner-label {
+  margin: 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .banner-amount {
+  margin: 4px 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sales-hub .inv-doc-layout {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 1024px) {
+  .sales-hub .inv-doc-layout {
+    grid-template-columns: 2fr 1fr;
+  }
+}
+
+.sales-hub .inv-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sales-hub .inv-doc-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 24px;
+  font-size: 0.875rem;
+}
+
+.sales-hub .inv-billto {
+  text-align: right;
+}
+
+.sales-hub .strong {
+  margin: 0;
+  font-weight: 600;
+}
+
+.sales-hub .inv-lines {
+  margin-top: 24px;
+  width: 100%;
+}
+
+.sales-hub .inv-lines thead {
+  border-bottom: 1px solid var(--border);
+}
+
+.sales-hub .inv-lines th,
+.sales-hub .inv-lines td {
+  padding: 8px 0;
+  font-size: 0.875rem;
+}
+
+.sales-hub .inv-totals {
+  margin-top: 16px;
+  margin-left: auto;
+  width: 100%;
+  max-width: 20rem;
+  font-size: 0.875rem;
+}
+
+.sales-hub .inv-totals .total-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.sales-hub .empty-cell {
+  padding: 32px 12px !important;
+  text-align: center;
+  color: var(--muted-foreground);
 }
 
 .sales-hub .card {
