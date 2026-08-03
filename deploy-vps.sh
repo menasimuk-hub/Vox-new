@@ -13,6 +13,7 @@
 #   VOX_SKIP_GIT=1                 skip git pull (deploy current tree only)
 #   VOX_SKIP_BUILD=1               skip npm build (API + migrate only — UI will stay stale!)
 #   VOX_SKIP_MIGRATE=1             skip alembic upgrade
+#   VOX_WWWROOT_BACKUP=1           keep a full wwwroot copy before rsync (off by default)
 #   VOX_ADMIN_DIST=/var/www/admin  copy admin build here (if set)
 #   VOX_DASH_DIST=/var/www/dashboard
 #   VOX_PUBLIC_DIST=/var/www/voxbulk
@@ -196,14 +197,29 @@ copy_dist() {
   asset_count=$(find "$src" -maxdepth 2 -type f \( -name '*.js' -o -name '*.css' \) 2>/dev/null | wc -l | tr -d ' ')
   [[ "${asset_count:-0}" -gt 0 ]] || fail "$label build invalid: no JS/CSS assets under $src"
 
-  if [[ -d "$dest" && -f "$dest/index.html" ]]; then
-    local backup="${dest}.backup-$(date +%Y%m%d-%H%M%S)"
-    info "Backing up $label wwwroot → $backup"
-    sudo cp -a "$dest" "$backup" || warn "Could not backup $dest"
-    local safe_label
-    safe_label=$(printf '%s' "$label" | tr -c 'a-zA-Z0-9._-' '-')
-    # Best-effort only — never abort deploy if /tmp marker is not writable
-    echo "$backup" > "/tmp/voxbulk-backup-${safe_label}.path" 2>/dev/null || true
+  # Full wwwroot copies used to pile up as dest.backup-YYYYMMDD-* on every deploy.
+  # Default: no backup. Opt in: VOX_WWWROOT_BACKUP=1 ./deploy-vps.sh
+  local keep_backup=""
+  if [[ "${VOX_WWWROOT_BACKUP:-0}" == "1" && -d "$dest" && -f "$dest/index.html" ]]; then
+    keep_backup="${dest}.backup-$(date +%Y%m%d-%H%M%S)"
+    info "Backing up $label wwwroot → $keep_backup (VOX_WWWROOT_BACKUP=1)"
+    sudo cp -a "$dest" "$keep_backup" || { warn "Could not backup $dest"; keep_backup=""; }
+    if [[ -n "$keep_backup" ]]; then
+      local safe_label
+      safe_label=$(printf '%s' "$label" | tr -c 'a-zA-Z0-9._-' '-')
+      echo "$keep_backup" > "/tmp/voxbulk-backup-${safe_label}.path" 2>/dev/null || true
+    fi
+  fi
+
+  # Remove leftover *.backup-* dirs from older deploys (keep the one just made, if any).
+  if [[ -d "$(dirname "$dest")" ]]; then
+    local stale
+    while IFS= read -r stale; do
+      [[ -n "$stale" ]] || continue
+      [[ -n "$keep_backup" && "$stale" == "$keep_backup" ]] && continue
+      info "Removing stale wwwroot backup: $stale"
+      sudo rm -rf "$stale" || warn "Could not remove $stale"
+    done < <(find "$(dirname "$dest")" -maxdepth 1 -type d -name "$(basename "$dest").backup-*" 2>/dev/null | sort)
   fi
 
   info "Copying $label → $dest"
