@@ -45,24 +45,35 @@ const SERVICE_LABELS = {
   customer_feedback: 'Customer Feedback',
   voxbulk_expo: 'Voxbulk Expo',
 }
+/** Match partner-sales-hub SERVICES.options + fixed_topup on every service. */
 const SERVICE_OPTIONS = {
   ai_interview: [
-    { kind: 'fixed_topup', label: 'Fixed top-up', unit: 'minor' },
-    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
+    { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
   ],
   wa_survey: [
-    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
-    { kind: 'fixed_topup', label: 'Fixed top-up', unit: 'minor' },
-    { kind: 'free_days', label: 'Free trial days', unit: 'days' },
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
+    { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
+    { kind: 'free_days', label: 'Free trial days', unit: 'days', defaultValue: 14 },
   ],
   customer_feedback: [
-    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
-    { kind: 'free_days', label: 'Free days from 1st scan', unit: 'days' },
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
+    { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
+    { kind: 'free_days', label: 'Free days from 1st scan', unit: 'days', defaultValue: 15 },
   ],
   voxbulk_expo: [
-    { kind: 'free_package_days', label: 'Free package days', unit: 'days' },
-    { kind: 'percent_discount', label: 'Percentage discount', unit: '%' },
+    { kind: 'free_package_days', label: 'Free package days', unit: 'days', defaultValue: 3 },
+    { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
   ],
+}
+
+function defaultBenefitValue(opt) {
+  if (opt.defaultValue != null) return opt.defaultValue
+  if (opt.unit === '%') return 20
+  if (opt.unit === 'days') return 14
+  if (opt.unit === 'minor') return 20
+  return 0
 }
 
 const IconEdit = () => (
@@ -178,7 +189,7 @@ function defaultPromoBenefits() {
   const services = {}
   SERVICE_IDS.forEach((sid) => {
     const opts = SERVICE_OPTIONS[sid]
-    services[sid] = { enabled: false, kind: opts[0].kind, value: opts[0].unit === '%' ? 20 : 0 }
+    services[sid] = { enabled: false, kind: opts[0].kind, value: String(defaultBenefitValue(opts[0])) }
   })
   return {
     wallet_voucher: { enabled: true, amount_major: '20' },
@@ -1192,129 +1203,161 @@ export default function SalesTeam() {
   )
 
   const renderEditorPromoTab = () => (
-    <>
-      <div className='field'>
-        <label>Promo code</label>
-        <input type='text' value={form.promo_code} onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })} style={{ textTransform: 'uppercase' }} />
-      </div>
-      <div className='field'>
-        <label>
+    <div className='card-body'>
+      <div className='promo-meta-grid'>
+        <div className='field'>
+          <label>Code</label>
           <input
-            type='checkbox'
-            checked={form.promo_benefits.wallet_voucher.enabled}
+            type='text'
+            value={form.promo_code}
+            placeholder='e.g. UK4F2A'
+            onChange={(e) => setForm({ ...form, promo_code: e.target.value.toUpperCase() })}
+            style={{ textTransform: 'uppercase' }}
+          />
+        </div>
+        <div className='field'>
+          <label>Usage limit (blank = unlimited)</label>
+          <input
+            type='number'
+            min='1'
+            value={form.promo_benefits.usage_limit}
             onChange={(e) => setForm({
               ...form,
-              promo_benefits: {
-                ...form.promo_benefits,
-                wallet_voucher: { ...form.promo_benefits.wallet_voucher, enabled: e.target.checked },
-              },
+              promo_benefits: { ...form.promo_benefits, usage_limit: e.target.value },
             })}
-            style={{ marginRight: 8 }}
           />
-          Wallet voucher ({formCurrency})
-        </label>
-        <input
-          type='number'
-          min='0'
-          step='0.01'
-          value={form.promo_benefits.wallet_voucher.amount_major}
-          disabled={!form.promo_benefits.wallet_voucher.enabled}
-          onChange={(e) => setForm({
-            ...form,
-            promo_benefits: {
-              ...form.promo_benefits,
-              wallet_voucher: { ...form.promo_benefits.wallet_voucher, amount_major: e.target.value },
-            },
-          })}
-        />
+        </div>
+        <div className='field'>
+          <label>Expires</label>
+          <input
+            type='date'
+            value={form.promo_benefits.expires_at}
+            onChange={(e) => setForm({
+              ...form,
+              promo_benefits: { ...form.promo_benefits, expires_at: e.target.value },
+            })}
+          />
+        </div>
       </div>
-      {SERVICE_IDS.map((sid) => {
-        const svc = form.promo_benefits.services[sid]
-        const pkg = packageForService(sid)
-        const opts = SERVICE_OPTIONS[sid]
-        const selectedOpt = opts.find((o) => o.kind === svc.kind) || opts[0]
-        return (
-          <div key={sid} className='service-row'>
-            <div className='service-row-head'>
-              <label>
-                <input
-                  type='checkbox'
-                  checked={svc.enabled}
-                  onChange={(e) => setForm({
-                    ...form,
-                    promo_benefits: {
-                      ...form.promo_benefits,
-                      services: {
-                        ...form.promo_benefits.services,
-                        [sid]: { ...svc, enabled: e.target.checked },
+
+      <div className='promo-services-grid'>
+        <div className='service-row'>
+          <div className='service-row-head'>
+            <label>
+              <input
+                type='checkbox'
+                checked={form.promo_benefits.wallet_voucher.enabled}
+                onChange={(e) => setForm({
+                  ...form,
+                  promo_benefits: {
+                    ...form.promo_benefits,
+                    wallet_voucher: { ...form.promo_benefits.wallet_voucher, enabled: e.target.checked },
+                  },
+                })}
+              />
+              Wallet top-up
+            </label>
+            <span className='service-price'>credits wallet on redeem</span>
+          </div>
+          {form.promo_benefits.wallet_voucher.enabled ? (
+            <div className='service-fields has-unit wallet-amount'>
+              <input
+                type='number'
+                min='0'
+                step='0.01'
+                value={form.promo_benefits.wallet_voucher.amount_major}
+                onChange={(e) => setForm({
+                  ...form,
+                  promo_benefits: {
+                    ...form.promo_benefits,
+                    wallet_voucher: { ...form.promo_benefits.wallet_voucher, amount_major: e.target.value },
+                  },
+                })}
+              />
+              <span className='service-unit'>{formCurrency}</span>
+            </div>
+          ) : null}
+        </div>
+
+        {SERVICE_IDS.map((sid) => {
+          const svc = form.promo_benefits.services[sid]
+          const pkg = packageForService(sid)
+          const opts = SERVICE_OPTIONS[sid]
+          const selectedOpt = opts.find((o) => o.kind === svc.kind) || opts[0]
+          const unitLabel = selectedOpt.unit === '%' ? '%' : selectedOpt.unit === 'minor' ? formCurrency : selectedOpt.unit === 'days' ? 'days' : ''
+          return (
+            <div key={sid} className='service-row'>
+              <div className='service-row-head'>
+                <label>
+                  <input
+                    type='checkbox'
+                    checked={svc.enabled}
+                    onChange={(e) => setForm({
+                      ...form,
+                      promo_benefits: {
+                        ...form.promo_benefits,
+                        services: {
+                          ...form.promo_benefits.services,
+                          [sid]: { ...svc, enabled: e.target.checked },
+                        },
                       },
-                    },
-                  })}
-                />
-                {SERVICE_LABELS[sid]}
-              </label>
-              {pkg?.list_price_display ? (
-                <span className='service-price'>List: {pkg.list_price_display}{pkg.yearly_display ? ` / yr ${pkg.yearly_display}` : ''}</span>
+                    })}
+                  />
+                  {SERVICE_LABELS[sid]}
+                </label>
+                <span className='service-price'>
+                  {pkg?.list_price_display
+                    ? `list ${pkg.list_price_display}${pkg.yearly_display ? ` / yr ${pkg.yearly_display}` : ''}`
+                    : 'list —'}
+                </span>
+              </div>
+              {svc.enabled ? (
+                <div className={`service-fields${unitLabel ? ' has-unit' : ''}`}>
+                  <select
+                    value={svc.kind}
+                    onChange={(e) => {
+                      const nextKind = e.target.value
+                      const nextOpt = opts.find((o) => o.kind === nextKind) || opts[0]
+                      setForm({
+                        ...form,
+                        promo_benefits: {
+                          ...form.promo_benefits,
+                          services: {
+                            ...form.promo_benefits.services,
+                            [sid]: { ...svc, kind: nextKind, value: String(defaultBenefitValue(nextOpt)) },
+                          },
+                        },
+                      })
+                    }}
+                  >
+                    {opts.map((o) => (
+                      <option key={o.kind} value={o.kind}>{o.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type='number'
+                    min='0'
+                    step={selectedOpt.unit === 'minor' ? '0.01' : '1'}
+                    value={svc.value}
+                    onChange={(e) => setForm({
+                      ...form,
+                      promo_benefits: {
+                        ...form.promo_benefits,
+                        services: {
+                          ...form.promo_benefits.services,
+                          [sid]: { ...svc, value: e.target.value },
+                        },
+                      },
+                    })}
+                  />
+                  {unitLabel ? <span className='service-unit'>{unitLabel}</span> : null}
+                </div>
               ) : null}
             </div>
-            {svc.enabled ? (
-              <div className='service-fields'>
-                <select
-                  value={svc.kind}
-                  onChange={(e) => setForm({
-                    ...form,
-                    promo_benefits: {
-                      ...form.promo_benefits,
-                      services: {
-                        ...form.promo_benefits.services,
-                        [sid]: { ...svc, kind: e.target.value },
-                      },
-                    },
-                  })}
-                >
-                  {opts.map((o) => (
-                    <option key={o.kind} value={o.kind}>{o.label}</option>
-                  ))}
-                </select>
-                <input
-                  type='number'
-                  min='0'
-                  step={selectedOpt.unit === 'minor' ? '0.01' : '1'}
-                  value={svc.value}
-                  onChange={(e) => setForm({
-                    ...form,
-                    promo_benefits: {
-                      ...form.promo_benefits,
-                      services: {
-                        ...form.promo_benefits.services,
-                        [sid]: { ...svc, value: e.target.value },
-                      },
-                    },
-                  })}
-                  placeholder={selectedOpt.unit === '%' ? '%' : selectedOpt.unit === 'minor' ? formCurrency : 'days'}
-                />
-              </div>
-            ) : null}
-          </div>
-        )
-      })}
-      <div className='field-row'>
-        <div className='field'>
-          <label>Usage limit <span className='hint'>optional</span></label>
-          <input type='number' min='1' value={form.promo_benefits.usage_limit} onChange={(e) => setForm({
-            ...form,
-            promo_benefits: { ...form.promo_benefits, usage_limit: e.target.value },
-          })} />
-        </div>
-        <div className='field'>
-          <label>Expires at <span className='hint'>optional</span></label>
-          <input type='date' value={form.promo_benefits.expires_at} onChange={(e) => setForm({
-            ...form,
-            promo_benefits: { ...form.promo_benefits, expires_at: e.target.value },
-          })} />
-        </div>
+          )
+        })}
       </div>
-    </>
+    </div>
   )
 
   const renderEditorCommissionTab = () => {
@@ -1613,7 +1656,13 @@ export default function SalesTeam() {
               </section>
             </>
           ) : null}
-          {editorTab === 'promo' ? <section className='hub-card'><h3>Promo &amp; services</h3>{renderEditorPromoTab()}</section> : null}
+          {editorTab === 'promo' ? (
+            <section className='hub-card'>
+              <h3>Promo code</h3>
+              <p className='card-hint'>One code, valid on every service enabled below. Enable Wallet top-up or Fixed top-up amount per service.</p>
+              {renderEditorPromoTab()}
+            </section>
+          ) : null}
           {editorTab === 'commission' ? <section className='hub-card'><h3>Commission</h3>{renderEditorCommissionTab()}</section> : null}
           {editorTab === 'payout' ? <section className='hub-card'><h3>Bank / payout</h3>{renderEditorPayoutTab()}</section> : null}
           {editorTab === 'invoices' ? renderEditorInvoicesTab() : null}

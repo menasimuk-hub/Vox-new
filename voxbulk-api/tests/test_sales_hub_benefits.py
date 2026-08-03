@@ -43,16 +43,20 @@ def test_normalize_promo_benefits_services():
         "wallet_voucher": {"enabled": True, "amount_minor": 2500},
         "services": {
             "ai_interview": {"enabled": True, "kind": "percent_discount", "value": 20},
+            "customer_feedback": {"enabled": True, "kind": "fixed_topup", "value": 1500},
             "voxbulk_expo": {"enabled": True, "kind": "free_package_days", "value": 3},
         },
     }
     b = normalize_promo_benefits(raw)
     assert b["wallet_voucher"]["amount_minor"] == 2500
     assert b["services"]["ai_interview"]["enabled"] is True
+    assert b["services"]["customer_feedback"]["kind"] == "fixed_topup"
+    assert b["services"]["customer_feedback"]["value"] == 1500
     assert b["services"]["voxbulk_expo"]["kind"] == "free_package_days"
     lines = benefit_summaries(b, currency="EUR")
     assert any("Wallet voucher" in x for x in lines)
     assert any("20%" in x for x in lines)
+    assert any("top-up" in x for x in lines)
 
 
 def test_commission_tiers_normalize():

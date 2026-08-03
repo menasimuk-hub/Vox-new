@@ -1,33 +1,44 @@
-/* Partner Sales Hub layout — match partner-sales-hub-main AdminShell (full width, no max-width). */
+/* Partner Sales Hub — 100% tokens/layout from partner-sales-hub-main (ignore admin theme). */
 
-/* Cancel admin .content padding so hub is edge-to-edge like the template main */
-.content:has(.sales-hub) {
+/* Cancel admin .content padding — full bleed like AdminShell main */
+.content:has(.sales-hub),
+body.dark .content:has(.sales-hub) {
   padding: 0 !important;
-  max-width: none;
-  background: #faf8f3;
+  max-width: none !important;
+  width: 100% !important;
+  background: oklch(0.982 0.009 88) !important;
 }
 
 .sales-hub {
-  /* Template :root tokens (approx hex from oklch beige + navy) */
-  --background: #faf8f3;
-  --foreground: #1e293b;
-  --card: #fcfbf8;
-  --card-foreground: #1e293b;
-  --primary: #2a3558;
-  --primary-foreground: #faf8f3;
-  --secondary: #f3f0e8;
-  --secondary-foreground: #2a3558;
-  --muted: #f3f0e8;
-  --muted-foreground: #64748b;
-  --accent: #efece3;
-  --accent-foreground: #2a3558;
-  --destructive: #b91c1c;
-  --border: #e8e4d8;
-  --input: #e8e4d8;
-  --ring: #2a3558;
-  --chart-2: #0d9488;
+  /* Exact :root from partner-sales-hub-main/src/styles.css */
   --radius: 0.5rem;
+  --background: oklch(0.982 0.009 88);
+  --foreground: oklch(0.26 0.045 258);
+  --card: oklch(0.99 0.008 90);
+  --card-foreground: oklch(0.26 0.045 258);
+  --popover: oklch(0.99 0.008 90);
+  --popover-foreground: oklch(0.26 0.045 258);
+  --primary: oklch(0.31 0.075 264);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --secondary: oklch(0.955 0.014 88);
+  --secondary-foreground: oklch(0.31 0.075 264);
+  --muted: oklch(0.955 0.014 88);
+  --muted-foreground: oklch(0.5 0.03 262);
+  --accent: oklch(0.94 0.02 86);
+  --accent-foreground: oklch(0.31 0.075 264);
+  --destructive: oklch(0.55 0.2 27);
+  --destructive-foreground: oklch(0.98 0.01 90);
+  --border: oklch(0.915 0.018 86);
+  --input: oklch(0.915 0.018 86);
+  --ring: oklch(0.31 0.075 264);
+  --chart-1: oklch(0.31 0.075 264);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --ink-soft: oklch(0.5 0.03 262);
 
+  color-scheme: light;
   box-sizing: border-box;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--background);
@@ -37,6 +48,58 @@
   max-width: none;
   min-height: calc(100vh - 56px);
   padding: 0;
+}
+
+/* Never inherit admin dark theme inside the hub */
+body.dark .sales-hub {
+  --background: oklch(0.982 0.009 88);
+  --foreground: oklch(0.26 0.045 258);
+  --card: oklch(0.99 0.008 90);
+  --card-foreground: oklch(0.26 0.045 258);
+  --primary: oklch(0.31 0.075 264);
+  --primary-foreground: oklch(0.98 0.01 90);
+  --secondary: oklch(0.955 0.014 88);
+  --secondary-foreground: oklch(0.31 0.075 264);
+  --muted: oklch(0.955 0.014 88);
+  --muted-foreground: oklch(0.5 0.03 262);
+  --accent: oklch(0.94 0.02 86);
+  --accent-foreground: oklch(0.31 0.075 264);
+  --destructive: oklch(0.55 0.2 27);
+  --border: oklch(0.915 0.018 86);
+  --input: oklch(0.915 0.018 86);
+  --ring: oklch(0.31 0.075 264);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+}
+
+body.dark .sales-hub input,
+body.dark .sales-hub select,
+body.dark .sales-hub textarea {
+  background: var(--card) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+body.dark .sales-hub table,
+body.dark .sales-hub th,
+body.dark .sales-hub td,
+body.dark .sales-hub label,
+body.dark .sales-hub .hub-card,
+body.dark .sales-hub .kpi-card,
+body.dark .sales-hub .table-wrap,
+body.dark .sales-hub .aside-card,
+body.dark .sales-hub .modal,
+body.dark .sales-hub .service-row {
+  background: var(--card) !important;
+  color: var(--foreground) !important;
+  border-color: var(--border) !important;
+}
+
+body.dark .sales-hub thead th {
+  background: color-mix(in srgb, var(--secondary) 60%, transparent) !important;
+  color: var(--muted-foreground) !important;
 }
 
 .sales-hub *,
@@ -414,24 +477,24 @@
 }
 
 .sales-hub .badge-paid {
-  background: #dcfce7;
-  color: #166534;
+  background: color-mix(in srgb, var(--chart-2) 20%, transparent);
+  color: var(--chart-2);
 }
 
 .sales-hub .badge-requested,
 .sales-hub .badge-sent {
-  background: #ffedd5;
-  color: #9a3412;
+  background: color-mix(in srgb, var(--chart-3) 15%, transparent);
+  color: var(--chart-3);
 }
 
 .sales-hub .badge-new {
-  background: color-mix(in srgb, var(--primary) 12%, white);
-  color: var(--primary);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
 .sales-hub .badge-rejected {
-  background: #fee2e2;
-  color: #991b1b;
+  background: color-mix(in srgb, var(--destructive) 15%, transparent);
+  color: var(--destructive);
 }
 
 .sales-hub .badge-pending,
@@ -736,6 +799,28 @@
   display: grid;
   grid-template-columns: 1fr 120px;
   gap: 10px;
+}
+
+.sales-hub .service-fields input,
+.sales-hub .service-fields select,
+.sales-hub .tier-row input,
+.sales-hub .tier-row select {
+  width: 100%;
+  border: 1px solid var(--input);
+  background: var(--card);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  color: var(--foreground);
+  outline: none;
+}
+
+.sales-hub .service-fields input:focus,
+.sales-hub .service-fields select:focus,
+.sales-hub .tier-row input:focus,
+.sales-hub .tier-row select:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 25%, transparent);
 }
 
 .sales-hub .tier-row {
@@ -1131,6 +1216,67 @@
   margin: 0 0 4px;
   font-size: 0.875rem;
   font-weight: 600;
+}
+
+.sales-hub .hub-card .card-hint {
+  margin: 2px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.sales-hub .hub-card .card-body {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Promo tab — match accounts.$id.tsx Promo code Card */
+.sales-hub .promo-meta-grid {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .sales-hub .promo-meta-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.sales-hub .promo-services-grid {
+  display: grid;
+  gap: 12px;
+}
+
+@media (min-width: 1024px) {
+  .sales-hub .promo-services-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.sales-hub .service-row {
+  margin-bottom: 0;
+}
+
+.sales-hub .service-fields {
+  margin-top: 12px;
+  grid-template-columns: 2fr 1fr;
+}
+
+.sales-hub .service-unit {
+  align-self: center;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.sales-hub .service-fields.has-unit {
+  grid-template-columns: 2fr 1fr auto;
+}
+
+.sales-hub .service-fields.wallet-amount {
+  grid-template-columns: 1fr auto;
+  max-width: 16rem;
 }
 
 .sales-hub .hub-card-head-row {

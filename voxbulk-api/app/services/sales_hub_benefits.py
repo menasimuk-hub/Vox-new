@@ -23,7 +23,7 @@ SERVICE_META: dict[str, dict[str, Any]] = {
         "name": "AI Interview Screening",
         "service_kind": "interview",
         "options": [
-            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor"},
+            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor", "default": 2000},
             {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
         ],
     },
@@ -32,7 +32,7 @@ SERVICE_META: dict[str, dict[str, Any]] = {
         "service_kind": "survey",
         "options": [
             {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
-            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor"},
+            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor", "default": 2000},
             {"kind": "free_days", "label": "Free trial days", "unit": "days", "default": 14},
         ],
     },
@@ -41,6 +41,7 @@ SERVICE_META: dict[str, dict[str, Any]] = {
         "service_kind": "feedback",
         "options": [
             {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
+            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor", "default": 2000},
             {"kind": "free_days", "label": "Free days from 1st scan", "unit": "days", "default": 15},
         ],
     },
@@ -49,6 +50,7 @@ SERVICE_META: dict[str, dict[str, Any]] = {
         "service_kind": "expo",
         "options": [
             {"kind": "free_package_days", "label": "Free package days", "unit": "days", "default": 3},
+            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor", "default": 2000},
             {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
         ],
     },
