@@ -29,7 +29,7 @@ export function ResetPassword() {
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const passwordSchema = z.string().min(6, "Password must be at least 6 characters").max(128);
+    const passwordSchema = z.string().min(8, "Password must be at least 8 characters").max(128);
     const pwd = passwordSchema.safeParse(password);
     if (!pwd.success) {
       toast.error(pwd.error.issues[0].message);
@@ -109,7 +109,7 @@ export function ResetPassword() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="New password"
-                minLength={6}
+                minLength={8}
                 className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/40 text-[14.5px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>
@@ -124,7 +124,7 @@ export function ResetPassword() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm password"
-                minLength={6}
+                minLength={8}
                 className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/40 text-[14.5px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
               />
             </div>

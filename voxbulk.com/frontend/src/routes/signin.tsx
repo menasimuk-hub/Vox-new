@@ -27,7 +27,7 @@ export const Route = createFileRoute("/signin")({
 
 const credSchema = z.object({
   email: z.string().trim().email("Enter a valid email").max(255),
-  password: z.string().min(6, "Password must be at least 6 characters").max(128),
+  password: z.string().min(8, "Password must be at least 8 characters").max(128),
 });
 
 type PromoPreview = {
@@ -43,7 +43,7 @@ type PromoPreview = {
 function SignInPage() {
   const navigate = useNavigate();
   const auth = useAuth();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [orgName, setOrgName] = useState("");
@@ -127,6 +127,28 @@ function SignInPage() {
 
   const handleEmail = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (mode === "forgot") {
+      const emailSchema = z.string().trim().email("Enter a valid email").max(255);
+      const parsedEmail = emailSchema.safeParse(email);
+      if (!parsedEmail.success) {
+        toast.error(parsedEmail.error.message);
+        return;
+      }
+      setLoading(true);
+      try {
+        await apiFetch("/auth/forgot-password", {
+          method: "POST",
+          body: JSON.stringify({ email }),
+        });
+        toast.success("Check your email for a password reset link!");
+        setMode("signin");
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Something went wrong");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     const parsed = credSchema.safeParse({ email, password });
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
     if (!inviteToken && mode === "signup" && !orgName.trim()) {
@@ -207,14 +229,22 @@ function SignInPage() {
           <div className="text-center">
             <BrandLogo surface="light" className="h-13 mx-auto w-auto" />
             <h1 className="mt-5 text-[30px] md:text-[36px] font-bold tracking-[-0.03em] text-heading leading-[1.1]">
-              {inviteActive ? "Accept invitation" : mode === "signin" ? "Welcome back" : "Create your account"}
+              {inviteActive
+                ? "Accept invitation"
+                : mode === "forgot"
+                  ? "Reset password"
+                  : mode === "signin"
+                    ? "Welcome back"
+                    : "Create your account"}
             </h1>
             <p className="mt-2 text-body text-[15px]">
               {inviteActive
                 ? `Join ${invitePreview?.organisation_name || "an organisation"} as ${invitePreview?.role || "team member"}.`
-                : mode === "signin"
-                  ? "Sign in to access your dashboard."
-                  : "Get started with VOXBULK in 30 seconds."}
+                : mode === "forgot"
+                  ? "Enter your email to receive a password reset link."
+                  : mode === "signin"
+                    ? "Sign in to access your dashboard."
+                    : "Get started with VOXBULK in 30 seconds."}
             </p>
           </div>
 
@@ -257,13 +287,17 @@ function SignInPage() {
               </div>
             ) : (
               <>
-                <SocialAuthButtons onOAuth={oauth} oauthLoading={oauthLoading} />
+                {mode !== "forgot" ? <SocialAuthButtons onOAuth={oauth} oauthLoading={oauthLoading} /> : null}
 
-                <div className="my-6 flex items-center gap-3">
-                  <div className="flex-1 h-px bg-border" />
-                  <span className="text-[12px] uppercase tracking-wider text-muted-text">or</span>
-                  <div className="flex-1 h-px bg-border" />
-                </div>
+                {mode !== "forgot" ? (
+                  <div className="my-6 flex items-center gap-3">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-[12px] uppercase tracking-wider text-muted-text">or</span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+                ) : (
+                  <div className="mt-6" />
+                )}
 
                 <form onSubmit={handleEmail} className="space-y-3">
                   {!inviteActive && mode === "signup" ? (
@@ -294,23 +328,25 @@ function SignInPage() {
                       />
                     </div>
                   </label>
-                  <label className="block">
-                    <span className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-text">
-                      {inviteActive ? "Create password" : "Password"}
-                    </span>
-                    <div className="mt-1.5 relative">
-                      <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-text" />
-                      <input
-                        type="password"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        minLength={6}
-                        className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/30 text-[15px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                      />
-                    </div>
-                  </label>
+                  {mode !== "forgot" ? (
+                    <label className="block">
+                      <span className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-text">
+                        {inviteActive ? "Create password" : "Password"}
+                      </span>
+                      <div className="mt-1.5 relative">
+                        <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-text" />
+                        <input
+                          type="password"
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••"
+                          minLength={8}
+                          className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/30 text-[15px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                        />
+                      </div>
+                    </label>
+                  ) : null}
                   {needsLegalAccept ? (
                     <label className="mt-1 flex items-start gap-2.5 text-[13px] text-muted-text leading-snug cursor-pointer">
                       <input
@@ -346,7 +382,13 @@ function SignInPage() {
                       <Loader2 size={16} className="animate-spin" />
                     ) : (
                       <>
-                        {inviteActive ? "Join organisation" : mode === "signin" ? "Sign in" : "Create account"}{" "}
+                        {inviteActive
+                          ? "Join organisation"
+                          : mode === "forgot"
+                            ? "Send reset link"
+                            : mode === "signin"
+                              ? "Sign in"
+                              : "Create account"}{" "}
                         <ArrowRight size={15} />
                       </>
                     )}
@@ -354,12 +396,36 @@ function SignInPage() {
                 </form>
 
                 {!inviteActive ? (
-                  <p className="mt-5 text-center text-[13.5px] text-muted-text">
-                    {mode === "signin" ? "Don't have an account?" : "Already have an account?"}{" "}
-                    <button onClick={() => setMode(mode === "signin" ? "signup" : "signin")} className="text-primary font-semibold hover:underline">
-                      {mode === "signin" ? "Sign up" : "Sign in"}
-                    </button>
-                  </p>
+                  <div className="mt-5 text-center text-[13.5px] text-muted-text space-y-2">
+                    {mode === "forgot" ? (
+                      <p>
+                        Remember your password?{" "}
+                        <button type="button" onClick={() => setMode("signin")} className="text-primary font-semibold hover:underline">
+                          Sign in
+                        </button>
+                      </p>
+                    ) : (
+                      <>
+                        <p>
+                          {mode === "signin" ? "Don't have an account?" : "Already have an account?"}{" "}
+                          <button
+                            type="button"
+                            onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+                            className="text-primary font-semibold hover:underline"
+                          >
+                            {mode === "signin" ? "Sign up" : "Sign in"}
+                          </button>
+                        </p>
+                        {mode === "signin" ? (
+                          <p>
+                            <button type="button" onClick={() => setMode("forgot")} className="text-[12px] text-primary hover:underline font-medium">
+                              Forgot password?
+                            </button>
+                          </p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
                 ) : (
                   <p className="mt-5 text-center text-[13px] text-muted-text">
                     Already have a password? Enter it above and click Join — we will add you to this company.

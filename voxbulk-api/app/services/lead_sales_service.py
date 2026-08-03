@@ -179,6 +179,8 @@ def build_sales_runtime_instructions(
     transcript_excerpt: str = "",
 ) -> str:
     """Instructions pushed to Telnyx for this outbound call."""
+    from app.services.voice_emotion_prompt import ensure_voice_emotion_instructions
+
     settings = settings or get_lead_sales_settings(db)
     refresh_lead_sales_kb(settings, db)
     db.add(settings)
@@ -186,7 +188,7 @@ def build_sales_runtime_instructions(
     base = str(task.sales_prompt or "").strip()
     if not base:
         return ""
-    return refresh_sales_prompt_kb_tail(base, settings.kb_context)
+    return ensure_voice_emotion_instructions(refresh_sales_prompt_kb_tail(base, settings.kb_context))
 
 
 def sales_call_opening_greeting_for_instructions(

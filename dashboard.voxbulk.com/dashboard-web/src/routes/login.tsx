@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { brandAssets } from "@/lib/brand";
-import { getAccessToken, oauthStartUrl } from "@/lib/api";
+import { apiFetch, getAccessToken, oauthStartUrl } from "@/lib/api";
 import { clearAllSessionStorage, writeSessionToStorage } from "@/lib/session-storage";
 
 export const Route = createFileRoute("/login")({
@@ -19,6 +19,7 @@ type OrgLoginOption = { org_id: string; org_name?: string | null; role?: string 
 
 function DashboardLoginPage() {
   const navigate = useNavigate();
+  const [mode, setMode] = React.useState<"signin" | "forgot">("signin");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
@@ -82,6 +83,15 @@ function DashboardLoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
+      if (mode === "forgot") {
+        await apiFetch("/auth/forgot-password", {
+          method: "POST",
+          body: JSON.stringify({ email: email.trim() }),
+        });
+        toast.success("Check your email for a password reset link!");
+        setMode("signin");
+        return;
+      }
       const body = new URLSearchParams({ username: email.trim(), password });
       if (selectedOrgId) body.set("org_id", selectedOrgId);
       await completeLogin(body);
@@ -102,23 +112,29 @@ function DashboardLoginPage() {
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <img src={brandAssets.iconBlack} alt="VoxBulk" className="mx-auto size-14" />
-          <h1 className="mt-4 text-xl font-semibold tracking-tight">Sign in to VoxBulk</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Customer dashboard</p>
-          {loggedOut ? (
+          <h1 className="mt-4 text-xl font-semibold tracking-tight">
+            {mode === "forgot" ? "Reset password" : "Sign in to VoxBulk"}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {mode === "forgot" ? "We will email you a reset link." : "Customer dashboard"}
+          </p>
+          {loggedOut && mode === "signin" ? (
             <p className="mt-2 text-sm text-muted-foreground">You have been signed out.</p>
           ) : null}
         </div>
 
-        <SocialAuthButtons onOAuth={onOAuth} oauthLoading={oauthLoading} compact />
+        {mode === "signin" ? <SocialAuthButtons onOAuth={onOAuth} oauthLoading={oauthLoading} compact /> : null}
 
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
+        {mode === "signin" ? (
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-background px-2 text-muted-foreground">or continue with email</span>
+            </div>
           </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">or continue with email</span>
-          </div>
-        </div>
+        ) : null}
 
         <form onSubmit={(e) => void onSubmit(e)} className="space-y-4 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="space-y-1.5">
@@ -137,23 +153,35 @@ function DashboardLoginPage() {
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="login-password">Password</Label>
-            <div className="relative">
-              <Lock className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="login-password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="pl-9"
-              />
+          {mode === "signin" ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="login-password">Password</Label>
+                <button
+                  type="button"
+                  className="text-xs text-primary underline-offset-2 hover:underline"
+                  onClick={() => setMode("forgot")}
+                >
+                  Forgot password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="login-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  minLength={8}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
             </div>
-          </div>
+          ) : null}
 
-          {orgChoices && orgChoices.length > 1 ? (
+          {mode === "signin" && orgChoices && orgChoices.length > 1 ? (
             <div className="space-y-1.5">
               <Label htmlFor="login-org">Organisation</Label>
               <select
@@ -172,15 +200,26 @@ function DashboardLoginPage() {
           ) : null}
 
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? <Loader2 className="size-4 animate-spin" /> : "Sign in"}
+            {loading ? <Loader2 className="size-4 animate-spin" /> : mode === "forgot" ? "Send reset link" : "Sign in"}
           </Button>
         </form>
 
         <p className="text-center text-xs text-muted-foreground">
-          Need an account?{" "}
-          <a href="https://voxbulk.com/signin" className="text-primary underline-offset-2 hover:underline">
-            Register on voxbulk.com
-          </a>
+          {mode === "forgot" ? (
+            <>
+              Remember your password?{" "}
+              <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => setMode("signin")}>
+                Sign in
+              </button>
+            </>
+          ) : (
+            <>
+              Need an account?{" "}
+              <a href="https://voxbulk.com/signin" className="text-primary underline-offset-2 hover:underline">
+                Register on voxbulk.com
+              </a>
+            </>
+          )}
         </p>
       </div>
     </div>

@@ -81,7 +81,9 @@ class AgentManager:
             parts.append(f"Patient context id: {context.patient_id}.")
         if extra_context and str(extra_context).strip():
             parts.append(str(extra_context).strip())
-        return "\n\n".join(parts)
+        from app.services.voice_emotion_prompt import ensure_voice_emotion_instructions
+
+        return ensure_voice_emotion_instructions("\n\n".join(parts))
 
     @staticmethod
     def format_lead_context(

@@ -1,6 +1,6 @@
 # VOXBULK voice KB upload pack
 
-Upload these files to test the fixed voice prompt behaviour (no script repetition, human interrupt handling).
+Upload these files to test the fixed voice prompt behaviour (no script repetition, human interrupt handling, emotion tags).
 
 ## Lead (Jode — website Talk to us)
 
@@ -8,6 +8,8 @@ Upload these files to test the fixed voice prompt behaviour (no script repetitio
 |------|----------------|
 | `lead/jode-system-prompt.md` | Admin → **Talk to us / Lead agent prompt** → paste into **System prompt** textarea (do NOT use "Use KB as prompt" for this file) |
 | `lead/services-facts-no-pricing.md` | Upload to KB with scope **lead** → tick ONLY this file in the KB table |
+
+**Active services covered in the lead KB:** AI Interview Screening, WhatsApp Surveys, AI Calling Surveys, Customer Feedback (QR), VoxBulk Expo, and platform/account basics. No prices.
 
 **Suggested Telnyx greeting (Greeting field):**
 
@@ -28,7 +30,7 @@ Then **Save settings** → **Resync Telnyx**.
 
 | File | Purpose |
 |------|---------|
-| `interview/interview-conduct-base.md` | Shared interview rules |
+| `interview/interview-conduct-base.md` | Shared interview rules + human emotion tags |
 | `interview/interview-region-accent-{GB,SC,IE,US,CA,AU}.md` | Regional accent notes |
 
 **Optional `.env` voice mapping** (ElevenLabs composite IDs from Telnyx):
@@ -60,3 +62,4 @@ Then **Save settings**. On each sales lead click **Regenerate prompt** once afte
 2. Clear old system prompt text before pasting new templates.
 3. Save settings and confirm Telnyx preview char counts look reasonable (~1–3k for master, not a 6-line script).
 4. Test interrupt: ask a random question mid-call — agent should answer it, not restart the opening.
+5. Confirm spoken turns include varied `<emotion value="…" />` tags (stripped from stored transcripts).

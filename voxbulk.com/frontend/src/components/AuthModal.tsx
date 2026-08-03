@@ -40,7 +40,7 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 
 const credSchema = z.object({
   email: z.string().trim().email("Enter a valid email").max(255),
-  password: z.string().min(6, "Password must be at least 6 characters").max(128),
+  password: z.string().min(8, "Password must be at least 8 characters").max(128),
 });
 
 function AuthModal({ onClose }: { onClose: () => void }) {
@@ -193,7 +193,7 @@ function AuthModal({ onClose }: { onClose: () => void }) {
                 <input
                   id="auth-password"
                   type="password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password" minLength={6}
+                  placeholder="Password" minLength={8}
                   className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/40 text-[14.5px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                 />
               </div>

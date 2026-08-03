@@ -9,9 +9,10 @@ import { CookieConsentBanner, openCookiePreferences } from "@/components/CookieC
 import { ConsentTrackingScripts } from "@/components/ConsentTrackingScripts";
 
 const productLinks = [
-  { label: "Recruitment Automation", to: "/recruitment", desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
-  { label: "WhatsApp Surveys", to: "/surveys", desc: "WhatsApp & AI calling surveys — live dashboard", Icon: MessageCircle, tone: "teal" as const },
-  { label: "Customer Feedback", to: "/feedback", desc: "QR feedback, voice notes, 50+ languages", Icon: Inbox, tone: "gold" as const },
+  { label: "Recruitment Automation", to: "/recruitment" as const, desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
+  { label: "WhatsApp Surveys", to: "/surveys" as const, desc: "WhatsApp & AI calling surveys — live dashboard", Icon: MessageCircle, tone: "teal" as const },
+  { label: "Customer Feedback", to: "/feedback" as const, desc: "QR feedback, voice notes, 50+ languages", Icon: Inbox, tone: "gold" as const },
+  { label: "VoxBulk Expo", to: "/pricing" as const, desc: "Exhibition WhatsApp lead capture packages", Icon: LayoutGrid, tone: "blue" as const },
 ];
 
 
@@ -186,8 +187,9 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
                 "bg-gold/20 text-[#8a6a1a]";
               return (
                 <Link
-                  key={p.to}
+                  key={p.label}
                   to={p.to}
+                  search={p.to === "/pricing" ? { product: "expo" } : undefined}
                   onClick={() => setOpen(false)}
                   className={`flex items-start gap-3 px-4 py-3 transition-colors ${scrolled ? "hover:bg-white/[0.06]" : "hover:bg-navy/[0.04]"}`}
                 >
@@ -218,8 +220,8 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
 
 const footerCols: Array<{ title: string; links: Array<[string, string | null]> }> = [
   { title: "Product", links: [["Recruitment Automation", "/recruitment"], ["WhatsApp Surveys", "/surveys"], ["Customer Feedback", "/feedback"], ["Pricing", "/pricing"]] },
-  { title: "Resources", links: [["Help", "/help"], ["Blog", "/blog"], ["News", "/news"]] },
-  { title: "Company", links: [["Legal & policies", "/legal-policies"], ["Contact us", "/contact"]] },
+  { title: "Resources", links: [["Help", "/help"], ["Blog", "/blog"], ["News", "/news"], ["FAQ", "/faq"]] },
+  { title: "Company", links: [["Legal & policies", "/legal-policies"], ["Contact us", "/contact"], ["Sign in", "/signin"]] },
 ];
 
 

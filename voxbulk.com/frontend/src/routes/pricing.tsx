@@ -6,7 +6,7 @@ import {
   BottomCTA, PLANS, WA_GBP, CV_GBP, fmt, SliderRow, ServiceCard, TopupCell,
   BillingToggle, type Billing,
 } from "@/components/VOXBULKHome";
-import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
+import { useCurrency, SYM, FX, MARKETS } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, usePublicPricing, usePublicExpoPricing, type PublicFeedbackPlan, type PublicPlan, type PublicExpoPlan } from "@/hooks/usePricing";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
@@ -32,6 +32,7 @@ export const Route = createFileRoute("/pricing")({
 type FeedbackPlan = {
   code: string;
   name: string;
+  description?: string | null;
   price: number;
   featured?: boolean;
   waSurveys: number | "Unlimited";
@@ -129,6 +130,7 @@ const FALLBACK_NAME_TO_CODE: Record<string, string> = {
 type CorePlanView = {
   code: string;
   name: string;
+  description?: string | null;
   priceGBP: number | null;
   ratePerMinGBP: number | null;
   mins: number | null;
@@ -146,6 +148,7 @@ function mapCorePlan(p: PublicPlan): CorePlanView {
   return {
     code: p.code,
     name: p.name,
+    description: p.description || null,
     priceGBP: p.is_enterprise ? null : p.is_payg ? 0 : monthlyMajor,
     ratePerMinGBP: p.is_enterprise ? null : perMinMajor,
     mins: p.is_enterprise ? null : p.is_payg ? null : p.minutes_included,
@@ -174,6 +177,7 @@ function mapFeedbackPlan(p: PublicFeedbackPlan): FeedbackPlan {
   return {
     code: p.code,
     name: p.name,
+    description: p.description || null,
     price,
     featured: p.is_featured,
     waSurveys: wa < 0 ? "Unlimited" : wa,
@@ -279,6 +283,11 @@ function SimplePlanCard({
     >
       {p.featured && <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Most popular</span>}
       <div className={`text-[14px] font-semibold ${p.featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
+      {(apiPlan?.description || p.description) ? (
+        <p className={`mt-1.5 text-[12.5px] leading-snug ${p.featured ? "text-white/65" : "text-muted-text"}`}>
+          {apiPlan?.description || p.description}
+        </p>
+      ) : null}
       <div className="mt-3 flex items-baseline gap-1">
         <span className={`text-[30px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{s}{displayPrice}</span>
         <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>{period}</span>
@@ -294,7 +303,7 @@ function SimplePlanCard({
 }
 
 function PricingPage() {
-  const { currency: cur } = useCurrency();
+  const { currency: cur, setCurrency } = useCurrency();
   const { plan: highlightPlan, product: highlightProduct } = Route.useSearch();
   const corePricing = usePublicPricing();
   const feedbackPricing = usePublicFeedbackPricing();
@@ -358,8 +367,26 @@ function PricingPage() {
             <p className="mt-5 text-[17px] text-body max-w-[620px] mx-auto">
               Pick the plan that fits. Use one product or all four.
             </p>
-            <div className="mt-4 text-[12.5px] text-muted-text">
-              Prices shown in <span className="font-semibold text-heading">{s} {cur.toUpperCase()}</span> ┬╖ change country in footer
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2" role="group" aria-label="Currency">
+              {MARKETS.map((m) => (
+                <button
+                  key={m.code}
+                  type="button"
+                  onClick={() => setCurrency(m.code)}
+                  className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-[12.5px] font-semibold border transition-colors ${
+                    m.code === cur
+                      ? "bg-navy text-white border-navy"
+                      : "bg-white text-heading border-border hover:border-navy/30"
+                  }`}
+                >
+                  <span aria-hidden>{m.flag}</span>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 text-[12.5px] text-muted-text">
+              Prices shown in <span className="font-semibold text-heading">{s} {cur.toUpperCase()}</span>
+              {(corePricing.loading || feedbackPricing.loading || expoPricing.loading) ? " · loading live prices…" : " · live from billing"}
             </div>
           </div>
         </section>
@@ -397,6 +424,11 @@ function PricingPage() {
                       <span className={`absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full ${featured ? "bg-gold text-navy" : p.payg ? "bg-primary text-white" : "bg-navy text-white"}`}>{p.badge}</span>
                     )}
                     <div className={`text-[14px] font-semibold ${featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
+                    {(apiPlan?.description || p.description) ? (
+                      <p className={`mt-1.5 text-[12.5px] leading-snug ${featured ? "text-white/65" : "text-muted-text"}`}>
+                        {apiPlan?.description || p.description}
+                      </p>
+                    ) : null}
                     {p.enterprise ? (
                       <>
                         <div className="mt-3 text-[24px] font-bold tracking-[-0.02em] text-heading">Let's talk</div>

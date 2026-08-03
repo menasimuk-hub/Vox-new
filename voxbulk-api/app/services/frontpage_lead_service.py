@@ -127,6 +127,8 @@ def build_runtime_system_prompt(
     include_kb: bool = True,
 ) -> str:
     """Assemble live voice prompt: saved script + optional cached KB + per-call visitor context."""
+    from app.services.voice_emotion_prompt import ensure_voice_emotion_instructions
+
     parts: list[str] = []
     base = str(settings_prompt or "").strip()
     if base:
@@ -141,7 +143,10 @@ def build_runtime_system_prompt(
     lead = str(lead_context or "").strip()
     if lead:
         parts.append(lead)
-    return "\n\n".join(parts).strip() or AgentManager.format_lead_context(contact_name="there", company_name="their company", email="", phone=None)
+    assembled = "\n\n".join(parts).strip() or AgentManager.format_lead_context(
+        contact_name="there", company_name="their company", email="", phone=None
+    )
+    return ensure_voice_emotion_instructions(assembled)
 
 
 def build_lead_runtime_prompt(
