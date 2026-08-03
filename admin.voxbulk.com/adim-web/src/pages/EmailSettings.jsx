@@ -145,6 +145,16 @@ export default function EmailSettings() {
   const [surveyCodesSaving, setSurveyCodesSaving] = useState(false)
   const [surveyCodesActionMsg, setSurveyCodesActionMsg] = useState('')
 
+  const [supportMailbox, setSupportMailbox] = useState(null)
+  const [supportPasswordDraft, setSupportPasswordDraft] = useState('')
+  const [supportSecureMode, setSupportSecureMode] = useState('ssl')
+  const [supportSaving, setSupportSaving] = useState(false)
+  const [supportTestBusy, setSupportTestBusy] = useState(false)
+  const [supportSmtpTestBusy, setSupportSmtpTestBusy] = useState(false)
+  const [supportSyncBusy, setSupportSyncBusy] = useState(false)
+  const [supportActionMsg, setSupportActionMsg] = useState('')
+  const [supportTestTo, setSupportTestTo] = useState('')
+
   const [emailTemplates, setEmailTemplates] = useState([])
   const [waTemplates, setWaTemplates] = useState([])
   const [smsTemplates, setSmsTemplates] = useState([])
@@ -174,6 +184,12 @@ export default function EmailSettings() {
     setSurveyCodesMailbox(data)
   }, [])
 
+  const loadSupportMailbox = useCallback(async () => {
+    const data = await apiFetch('/admin/email/support-mailbox')
+    setSupportMailbox(data)
+    setSupportSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
+  }, [])
+
   const loadLists = useCallback(async () => {
     setListError('')
     try {
@@ -200,7 +216,10 @@ export default function EmailSettings() {
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem('voxbulk_admin_test_email_to') || ''
-      if (stored.trim()) setTestTo(stored.trim())
+      if (stored.trim()) {
+        setTestTo(stored.trim())
+        setSupportTestTo(stored.trim())
+      }
     } catch {
       /* ignore */
     }
@@ -217,6 +236,7 @@ export default function EmailSettings() {
         await loadCareerMailbox()
         await loadBillingMailbox()
         await loadSurveyCodesMailbox()
+        await loadSupportMailbox()
       } catch (e) {
         if (!cancelled) setLoadError(e?.message || 'Failed to load SMTP')
       }
@@ -232,7 +252,7 @@ export default function EmailSettings() {
     return () => {
       cancelled = true
     }
-  }, [loadSmtp, loadLists, loadCareerMailbox, loadBillingMailbox, loadSurveyCodesMailbox])
+  }, [loadSmtp, loadLists, loadCareerMailbox, loadBillingMailbox, loadSurveyCodesMailbox, loadSupportMailbox])
 
   const saveSmtp = async () => {
     setSaving(true)
@@ -426,6 +446,114 @@ export default function EmailSettings() {
     }
   }
 
+  const saveSupportMailbox = async () => {
+    setSupportSaving(true)
+    setSaveError('')
+    setSupportActionMsg('')
+    try {
+      const enc = imapDefaultsForSecureMode(supportSecureMode)
+      const payload = {
+        mailbox_email: String(supportMailbox?.mailbox_email || 'support@voxbulk.com'),
+        from_name: String(supportMailbox?.from_name || 'VOXBULK Support'),
+        smtp_username: String(supportMailbox?.smtp_username || ''),
+        smtp_host: String(supportMailbox?.smtp_host || ''),
+        smtp_port: supportMailbox?.smtp_port === '' || supportMailbox?.smtp_port == null ? null : Number(supportMailbox.smtp_port),
+        imap_host: String(supportMailbox?.imap_host || ''),
+        imap_port: Number(supportMailbox?.imap_port || enc.imap_port),
+        imap_use_ssl: enc.imap_use_ssl,
+        imap_use_tls: enc.imap_use_tls,
+        imap_username: String(supportMailbox?.imap_username || ''),
+        sync_interval_minutes: Number(supportMailbox?.sync_interval_minutes || 5),
+        is_enabled: Boolean(supportMailbox?.is_enabled),
+      }
+      if (supportPasswordDraft.trim()) payload.password = supportPasswordDraft.trim()
+      const data = await apiFetch('/admin/email/support-mailbox', { method: 'PUT', body: JSON.stringify(payload) })
+      setSupportMailbox(data)
+      setSupportPasswordDraft('')
+      setSupportSecureMode(secureModeFromFlags(Boolean(data?.imap_use_tls), Boolean(data?.imap_use_ssl)))
+      setSupportActionMsg('Support mailbox saved')
+    } catch (e) {
+      setSaveError(e?.message || 'Failed to save support mailbox')
+    } finally {
+      setSupportSaving(false)
+    }
+  }
+
+  const copySupportFromSmtp = () => {
+    if (!smtp) return
+    const smtpMode = secureModeFromFlags(Boolean(smtp.use_tls), Boolean(smtp.use_ssl))
+    const imapMode = smtpMode === 'ssl' ? 'ssl' : smtpMode === 'starttls' ? 'starttls' : 'none'
+    const enc = imapDefaultsForSecureMode(imapMode)
+    setSupportSecureMode(imapMode)
+    setSupportMailbox((s) => ({
+      ...(s || {}),
+      mailbox_email: 'support@voxbulk.com',
+      from_name: String(s?.from_name || 'VOXBULK Support'),
+      smtp_host: String(smtp.host || ''),
+      smtp_port: Number(smtp.port || (smtpMode === 'ssl' ? 465 : 587)),
+      smtp_username: String(smtp.username || smtp.from_email || ''),
+      imap_host: smtpHostToImapHost(smtp.host) || String(smtp.host || ''),
+      imap_username: String(smtp.username || smtp.from_email || ''),
+      imap_port: enc.imap_port,
+      imap_use_ssl: enc.imap_use_ssl,
+      imap_use_tls: enc.imap_use_tls,
+    }))
+    setSupportActionMsg(
+      'Copied host/username from platform SMTP — set support@ password, enable sync, then Test SMTP / Test IMAP.',
+    )
+  }
+
+  const testSupportSmtp = async () => {
+    setSupportSmtpTestBusy(true)
+    setSupportActionMsg('')
+    const to = supportTestTo.trim()
+    if (to) {
+      try {
+        window.localStorage.setItem('voxbulk_admin_test_email_to', to)
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      const res = await apiFetch('/admin/email/support-mailbox/test-smtp', {
+        method: 'POST',
+        body: JSON.stringify({ to }),
+      })
+      setSupportActionMsg(smtpTestResultMessage(res))
+    } catch (e) {
+      setSupportActionMsg(e?.message || 'SMTP test failed')
+    } finally {
+      setSupportSmtpTestBusy(false)
+    }
+  }
+
+  const testSupportImap = async () => {
+    setSupportTestBusy(true)
+    setSupportActionMsg('')
+    try {
+      const res = await apiFetch('/admin/email/support-mailbox/test', { method: 'POST', body: '{}' })
+      setSupportActionMsg(res?.detail || 'IMAP connection OK')
+    } catch (e) {
+      setSupportActionMsg(e?.message || 'Connection failed')
+    } finally {
+      setSupportTestBusy(false)
+    }
+  }
+
+  const syncSupportMailboxNow = async () => {
+    setSupportSyncBusy(true)
+    setSupportActionMsg('')
+    try {
+      const res = await apiFetch('/admin/email/support-mailbox/sync-now', { method: 'POST', body: '{}' })
+      setSupportActionMsg(res?.message || 'Sync completed')
+      await loadSupportMailbox()
+    } catch (e) {
+      setSupportActionMsg(e?.message || 'Sync failed')
+    } finally {
+      setSupportSyncBusy(false)
+    }
+  }
+
   const sendSmtpTest = async () => {
     setTestBusy(true)
     setTestMsg('')
@@ -513,6 +641,7 @@ export default function EmailSettings() {
   const careerPill = careerStatusPill(careerMailbox)
   const billingPill = careerStatusPill(billingMailbox)
   const surveyCodesPill = careerStatusPill(surveyCodesMailbox)
+  const supportPill = careerStatusPill(supportMailbox)
 
   return (
     <>
@@ -551,6 +680,239 @@ export default function EmailSettings() {
               </button>
             ))}
           </div>
+
+          {activeTab === 'support' && (
+            <div className="emailTabPanel" role="tabpanel">
+              <div className="emailSectionTitle">
+                <i className="ti ti-headset" />
+                Support mailbox (SMTP + IMAP → tickets)
+                <span className={`pill ${supportPill.cls}`} style={{ marginLeft: 8 }}>
+                  {supportPill.text}
+                </span>
+              </div>
+              {loading ? (
+                <div className="note">Loading…</div>
+              ) : (
+                <div className="grid-12" style={{ gap: 16 }}>
+                  <div className="span-8 stack" style={{ gap: 14 }}>
+                    <div className="note">
+                      Emails to <strong>support@voxbulk.com</strong> are fetched via <strong>IMAP</strong> and opened as
+                      Support tickets (category Technical). Use <strong>Test SMTP</strong> to verify outbound From this
+                      mailbox. Blank SMTP host uses platform SMTP with a From override.
+                    </div>
+                    <div className="miniGrid">
+                      <div className="mini">
+                        <label>Password on file</label>
+                        <strong>{supportMailbox?.password_set ? 'Set' : 'Not set'}</strong>
+                      </div>
+                      <div className="mini">
+                        <label>Missing fields</label>
+                        <strong>{(supportMailbox?.incomplete_fields || []).join(', ') || '—'}</strong>
+                      </div>
+                      <div className="mini">
+                        <label>Last sync</label>
+                        <strong>{supportMailbox?.last_sync_at ? new Date(supportMailbox.last_sync_at).toLocaleString() : '—'}</strong>
+                      </div>
+                      <div className="mini">
+                        <label>Last sync result</label>
+                        <strong>{supportMailbox?.last_sync_ok ? 'OK' : supportMailbox?.last_sync_at ? 'Failed' : '—'}</strong>
+                      </div>
+                    </div>
+                    {supportMailbox?.last_sync_message ? (
+                      <div className="note" style={{ marginBottom: 0 }}>{supportMailbox.last_sync_message}</div>
+                    ) : null}
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(supportMailbox?.is_enabled)}
+                        onChange={(e) => setSupportMailbox((s) => ({ ...s, is_enabled: e.target.checked }))}
+                      />
+                      <span className="label" style={{ margin: 0 }}>
+                        Support mailbox sync enabled (inbound → tickets)
+                      </span>
+                    </label>
+                    <div className="actions" style={{ marginTop: 4 }}>
+                      <button type="button" className="btn soft" onClick={copySupportFromSmtp} disabled={!smtp?.host}>
+                        <i className="ti ti-copy" /> Copy from SMTP settings
+                      </button>
+                    </div>
+                    <div className="emailFormGrid">
+                      <div className="span-2">
+                        <label className="label">Mailbox address</label>
+                        <input
+                          className="input"
+                          value={String(supportMailbox?.mailbox_email || '')}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, mailbox_email: e.target.value }))}
+                          placeholder="support@voxbulk.com"
+                        />
+                      </div>
+                      <div className="span-2">
+                        <label className="label">From name</label>
+                        <input
+                          className="input"
+                          value={String(supportMailbox?.from_name || '')}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, from_name: e.target.value }))}
+                          placeholder="VOXBULK Support"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">SMTP host (optional)</label>
+                        <input
+                          className="input"
+                          value={String(supportMailbox?.smtp_host || '')}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, smtp_host: e.target.value }))}
+                          placeholder="Blank = platform SMTP"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">SMTP port</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          value={supportMailbox?.smtp_port ?? ''}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, smtp_port: e.target.value }))}
+                          placeholder="587 or 465"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">SMTP username</label>
+                        <input
+                          className="input"
+                          value={String(supportMailbox?.smtp_username || '')}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, smtp_username: e.target.value }))}
+                          placeholder="Defaults to mailbox address"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Password</label>
+                        <input
+                          className="input"
+                          type="password"
+                          value={supportPasswordDraft}
+                          onChange={(e) => setSupportPasswordDraft(e.target.value)}
+                          placeholder={supportMailbox?.password_set ? 'Leave blank to keep' : 'Mailbox / app password'}
+                          autoComplete="new-password"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">IMAP host</label>
+                        <input
+                          className="input"
+                          value={String(supportMailbox?.imap_host || '')}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, imap_host: e.target.value }))}
+                          placeholder="imap.yourprovider.com"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">IMAP port</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min={1}
+                          max={65535}
+                          value={supportMailbox?.imap_port ?? imapDefaultsForSecureMode(supportSecureMode).imap_port}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, imap_port: Number(e.target.value) }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="label">IMAP encryption</label>
+                        <select
+                          className="input"
+                          value={supportSecureMode}
+                          onChange={(e) => {
+                            const mode = e.target.value
+                            const enc = imapDefaultsForSecureMode(mode)
+                            setSupportSecureMode(mode)
+                            setSupportMailbox((s) => ({
+                              ...s,
+                              imap_port: enc.imap_port,
+                              imap_use_ssl: enc.imap_use_ssl,
+                              imap_use_tls: enc.imap_use_tls,
+                            }))
+                          }}
+                        >
+                          <option value="starttls">STARTTLS (143)</option>
+                          <option value="ssl">SSL / TLS (993)</option>
+                          <option value="none">None</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">IMAP username</label>
+                        <input
+                          className="input"
+                          value={String(supportMailbox?.imap_username || '')}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, imap_username: e.target.value }))}
+                          placeholder="Usually same as mailbox email"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Sync every (minutes)</label>
+                        <input
+                          className="input"
+                          type="number"
+                          min={1}
+                          max={240}
+                          value={supportMailbox?.sync_interval_minutes ?? 5}
+                          onChange={(e) => setSupportMailbox((s) => ({ ...s, sync_interval_minutes: Number(e.target.value) }))}
+                        />
+                      </div>
+                    </div>
+                    <div className="actions">
+                      <button type="button" className="btn primary" onClick={saveSupportMailbox} disabled={supportSaving}>
+                        <i className="ti ti-device-floppy" /> {supportSaving ? 'Saving…' : 'Save support mailbox'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="span-4">
+                    <div className="card" style={{ margin: 0 }}>
+                      <div className="cardHead"><h3>Test &amp; sync</h3></div>
+                      <div className="cardBody">
+                        <label className="label">Test SMTP to</label>
+                        <input
+                          className="input"
+                          type="email"
+                          value={supportTestTo}
+                          onChange={(e) => setSupportTestTo(e.target.value)}
+                          placeholder="you@example.com"
+                          style={{ marginBottom: 10 }}
+                        />
+                        <button
+                          type="button"
+                          className="btn soft"
+                          onClick={testSupportSmtp}
+                          disabled={supportSmtpTestBusy || !supportTestTo.trim()}
+                          style={{ width: '100%', marginBottom: 10 }}
+                        >
+                          <i className="ti ti-mail-forward" /> {supportSmtpTestBusy ? 'Sending…' : 'Test SMTP send'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn soft"
+                          onClick={testSupportImap}
+                          disabled={supportTestBusy}
+                          style={{ width: '100%', marginBottom: 10 }}
+                        >
+                          <i className="ti ti-plug-connected" /> {supportTestBusy ? 'Testing…' : 'Test IMAP connection'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn soft"
+                          onClick={syncSupportMailboxNow}
+                          disabled={supportSyncBusy}
+                          style={{ width: '100%' }}
+                        >
+                          <i className="ti ti-refresh" /> {supportSyncBusy ? 'Syncing…' : 'Sync now → tickets'}
+                        </button>
+                        {supportActionMsg ? <div className="note" style={{ marginTop: 12, marginBottom: 0 }}>{supportActionMsg}</div> : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {activeTab === 'careers' && (
             <div className="emailTabPanel" role="tabpanel">

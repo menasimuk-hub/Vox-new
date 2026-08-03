@@ -113,6 +113,7 @@ from app.models.interview_booking_token import InterviewBookingToken  # noqa: F4
 from app.models.career_mailbox_settings import CareerMailboxSettings  # noqa: F401
 from app.models.billing_mailbox_settings import BillingMailboxSettings  # noqa: F401
 from app.models.survey_codes_mailbox_settings import SurveyCodesMailboxSettings  # noqa: F401
+from app.models.support_mailbox_settings import SupportMailboxSettings  # noqa: F401
 from app.models.ai_team_settings import AiTeamSettings  # noqa: F401
 from app.models.ai_team_prospect import AiTeamProspect  # noqa: F401
 from app.models.ai_team_message import AiTeamMessage  # noqa: F401

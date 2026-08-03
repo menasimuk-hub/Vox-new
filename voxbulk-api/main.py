@@ -95,6 +95,7 @@ from app.services.lead_sales_scheduler import lead_sales_scheduler_loop
 from app.services.interview_call_dispatch_service import interview_call_scheduler_loop
 from app.services.survey_call_dispatch_service import survey_call_scheduler_loop
 from app.services.career_mailbox_scheduler import career_mailbox_scheduler_loop
+from app.services.support_mailbox_scheduler import support_mailbox_scheduler_loop
 from app.services.interview_ats_scheduler import interview_ats_scheduler_loop
 from app.services.uk_compliance_retention_service import uk_compliance_retention_scheduler_loop
 from app.services.weekly_digest_scheduler import weekly_digest_scheduler_loop
@@ -383,6 +384,7 @@ async def lifespan(app: FastAPI):
     survey_scheduler_task = asyncio.create_task(survey_call_scheduler_loop(stop_event))
     interview_scheduler_task = asyncio.create_task(interview_call_scheduler_loop(stop_event))
     career_mailbox_task = asyncio.create_task(career_mailbox_scheduler_loop(stop_event))
+    support_mailbox_task = asyncio.create_task(support_mailbox_scheduler_loop(stop_event))
     ats_scheduler_task = asyncio.create_task(interview_ats_scheduler_loop(stop_event))
     uk_retention_task = asyncio.create_task(uk_compliance_retention_scheduler_loop())
     weekly_digest_task = asyncio.create_task(weekly_digest_scheduler_loop(stop_event))
@@ -392,6 +394,7 @@ async def lifespan(app: FastAPI):
     survey_scheduler_task.cancel()
     interview_scheduler_task.cancel()
     career_mailbox_task.cancel()
+    support_mailbox_task.cancel()
     ats_scheduler_task.cancel()
     uk_retention_task.cancel()
     weekly_digest_task.cancel()
@@ -409,6 +412,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await career_mailbox_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await support_mailbox_task
     except asyncio.CancelledError:
         pass
     try:

@@ -1,0 +1,36 @@
+"""Poll support mailbox on configured interval → open tickets."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from app.core.database import get_sessionmaker
+from app.services.support_mailbox_settings_service import SupportMailboxSettingsService
+from app.services.support_mailbox_sync_service import sync_support_mailbox
+
+logger = logging.getLogger(__name__)
+
+
+async def support_mailbox_scheduler_loop(stop_event: asyncio.Event) -> None:
+    from app.services.scheduler_lock import is_scheduler_leader
+
+    tick = 0
+    while not stop_event.is_set():
+        try:
+            await asyncio.sleep(60)
+            tick += 1
+            if not is_scheduler_leader():
+                continue
+            with get_sessionmaker()() as db:
+                row = SupportMailboxSettingsService.get_row(db)
+                interval = max(1, int(row.sync_interval_minutes or 5))
+                if not row.is_enabled:
+                    continue
+                if tick % interval != 0:
+                    continue
+                sync_support_mailbox(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("support_mailbox_scheduler_tick_failed")

@@ -13,6 +13,7 @@ from app.schemas.email_admin import (
     EmailTemplateUpdate,
     SmtpSettingsUpdate,
     SmtpTestSendRequest,
+    SupportMailboxSettingsUpdate,
     SurveyCodesMailboxSettingsUpdate,
     TemplatedNotifySendRequest,
 )
@@ -208,6 +209,77 @@ def put_survey_codes_mailbox_settings(
     )
     row = SurveyCodesMailboxSettingsService.get_row(db)
     return SurveyCodesMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.get("/support-mailbox")
+def get_support_mailbox_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.support_mailbox_settings_service import SupportMailboxSettingsService
+
+    row = SupportMailboxSettingsService.get_row(db)
+    return SupportMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.put("/support-mailbox")
+def put_support_mailbox_settings(
+    payload: SupportMailboxSettingsUpdate,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    from app.services.support_mailbox_settings_service import SupportMailboxSettingsService
+
+    password = str(payload.password).strip() if payload.password else None
+    SupportMailboxSettingsService.upsert(
+        db,
+        mailbox_email=payload.mailbox_email,
+        from_name=payload.from_name,
+        smtp_username=payload.smtp_username,
+        smtp_host=payload.smtp_host,
+        smtp_port=payload.smtp_port,
+        imap_host=payload.imap_host,
+        imap_port=payload.imap_port,
+        imap_use_ssl=payload.imap_use_ssl,
+        imap_use_tls=payload.imap_use_tls,
+        imap_username=payload.imap_username,
+        sync_interval_minutes=payload.sync_interval_minutes,
+        is_enabled=payload.is_enabled,
+        password=password,
+    )
+    row = SupportMailboxSettingsService.get_row(db)
+    return SupportMailboxSettingsService.to_public_dict(db, row)
+
+
+@router.post("/support-mailbox/test-smtp")
+def post_support_mailbox_test_smtp(
+    payload: SmtpTestSendRequest,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_EMAIL)),
+):
+    from app.services.support_mailbox_sync_service import send_support_smtp_test
+
+    try:
+        return send_support_smtp_test(db, to_email=str(payload.to))
+    except SmtpMailerError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/support-mailbox/test")
+def post_support_mailbox_test(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.support_mailbox_sync_service import verify_support_imap_connection
+
+    ok, message = verify_support_imap_connection(db)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    return {"ok": True, "detail": message}
+
+
+@router.post("/support-mailbox/sync-now")
+def post_support_mailbox_sync_now(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.support_mailbox_sync_service import sync_support_mailbox
+
+    result = sync_support_mailbox(db)
+    if not result.get("ok"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result.get("message") or "Sync failed")
+    return result
 
 
 @router.post("/notify/send-templated")
