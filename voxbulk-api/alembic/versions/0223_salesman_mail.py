@@ -1,4 +1,9 @@
-"""Add salesman mail fields and tables (labels, contacts, messages)."""
+"""Add salesman mail fields and tables (labels, contacts, messages).
+
+MySQL notes:
+- TEXT columns cannot use DEFAULT '' (error 1101).
+- FK to sales_reps.id / sales_customers.id must match charset/collation (error 3780).
+"""
 
 from __future__ import annotations
 
@@ -30,8 +35,34 @@ def _add_column_if_missing(table: str, column: sa.Column) -> None:
         op.add_column(table, column)
 
 
+def _column_collation(table: str, column: str) -> str | None:
+    bind = op.get_bind()
+    try:
+        return bind.execute(
+            sa.text(
+                "SELECT COLLATION_NAME FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() "
+                "AND TABLE_NAME = :table AND COLUMN_NAME = :column "
+                "LIMIT 1"
+            ),
+            {"table": table, "column": column},
+        ).scalar()
+    except Exception:
+        return None
+
+
+def _id_type(collation: str | None) -> sa.String:
+    return sa.String(36, collation=collation) if collation else sa.String(36)
+
+
+def _table_kwargs(collation: str | None) -> dict:
+    if not collation:
+        return {}
+    return {"mysql_charset": "utf8mb4", "mysql_collate": collation}
+
+
 def upgrade() -> None:
-    # Mailbox fields on sales_reps (idempotent — 0223 may have failed mid-run on TEXT default)
+    # Mailbox fields on sales_reps (idempotent — may have failed mid-run earlier)
     _add_column_if_missing("sales_reps", sa.Column("smtp_host", sa.String(length=255), nullable=False, server_default=""))
     _add_column_if_missing("sales_reps", sa.Column("smtp_port", sa.Integer(), nullable=False, server_default="587"))
     _add_column_if_missing("sales_reps", sa.Column("smtp_use_tls", sa.Boolean(), nullable=False, server_default="1"))
@@ -48,51 +79,52 @@ def upgrade() -> None:
     # MySQL rejects DEFAULT on TEXT — add nullable, backfill, then NOT NULL
     if not _has_column("sales_reps", "email_signature"):
         op.add_column("sales_reps", sa.Column("email_signature", sa.Text(), nullable=True))
-        op.execute(sa.text("UPDATE sales_reps SET email_signature = '' WHERE email_signature IS NULL"))
-        op.alter_column(
-            "sales_reps",
-            "email_signature",
-            existing_type=sa.Text(),
-            nullable=False,
-        )
-    else:
-        op.execute(sa.text("UPDATE sales_reps SET email_signature = '' WHERE email_signature IS NULL"))
-        # Ensure NOT NULL if a prior partial attempt left it nullable
-        op.alter_column(
-            "sales_reps",
-            "email_signature",
-            existing_type=sa.Text(),
-            nullable=False,
-        )
+    op.execute(sa.text("UPDATE sales_reps SET email_signature = '' WHERE email_signature IS NULL"))
+    op.alter_column(
+        "sales_reps",
+        "email_signature",
+        existing_type=sa.Text(),
+        nullable=False,
+    )
+
+    rep_collation = _column_collation("sales_reps", "id")
+    cust_collation = _column_collation("sales_customers", "id") or rep_collation
+    rep_id = _id_type(rep_collation)
+    cust_id = _id_type(cust_collation)
+    table_kwargs = _table_kwargs(rep_collation)
 
     if not _has_table("sales_mail_labels"):
         op.create_table(
             "sales_mail_labels",
-            sa.Column("id", sa.String(length=36), nullable=False),
-            sa.Column("sales_rep_id", sa.String(length=36), nullable=False),
+            sa.Column("id", rep_id, nullable=False),
+            sa.Column("sales_rep_id", rep_id, nullable=False),
             sa.Column("name", sa.String(length=120), nullable=False, server_default=""),
             sa.Column("color", sa.String(length=32), nullable=False, server_default="#3b82f6"),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["sales_rep_id"], ["sales_reps.id"]),
+            sa.ForeignKeyConstraint(["sales_rep_id"], ["sales_reps.id"], name="fk_sales_mail_labels_sales_rep_id"),
             sa.PrimaryKeyConstraint("id"),
+            **table_kwargs,
         )
         op.create_index("ix_sales_mail_labels_sales_rep_id", "sales_mail_labels", ["sales_rep_id"])
 
     if not _has_table("sales_mail_contacts"):
         op.create_table(
             "sales_mail_contacts",
-            sa.Column("id", sa.String(length=36), nullable=False),
-            sa.Column("sales_rep_id", sa.String(length=36), nullable=False),
-            sa.Column("sales_customer_id", sa.String(length=36), nullable=True),
+            sa.Column("id", rep_id, nullable=False),
+            sa.Column("sales_rep_id", rep_id, nullable=False),
+            sa.Column("sales_customer_id", cust_id, nullable=True),
             sa.Column("email", sa.String(length=320), nullable=False, server_default=""),
             sa.Column("name", sa.String(length=200), nullable=True),
             sa.Column("company", sa.String(length=200), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["sales_rep_id"], ["sales_reps.id"]),
-            sa.ForeignKeyConstraint(["sales_customer_id"], ["sales_customers.id"]),
+            sa.ForeignKeyConstraint(["sales_rep_id"], ["sales_reps.id"], name="fk_sales_mail_contacts_sales_rep_id"),
+            sa.ForeignKeyConstraint(
+                ["sales_customer_id"], ["sales_customers.id"], name="fk_sales_mail_contacts_sales_customer_id"
+            ),
             sa.PrimaryKeyConstraint("id"),
+            **table_kwargs,
         )
         op.create_index("ix_sales_mail_contacts_sales_rep_id", "sales_mail_contacts", ["sales_rep_id"])
         op.create_index("ix_sales_mail_contacts_sales_customer_id", "sales_mail_contacts", ["sales_customer_id"])
@@ -101,8 +133,8 @@ def upgrade() -> None:
     if not _has_table("sales_mail_messages"):
         op.create_table(
             "sales_mail_messages",
-            sa.Column("id", sa.String(length=36), nullable=False),
-            sa.Column("sales_rep_id", sa.String(length=36), nullable=False),
+            sa.Column("id", rep_id, nullable=False),
+            sa.Column("sales_rep_id", rep_id, nullable=False),
             sa.Column("folder", sa.String(length=120), nullable=False, server_default="INBOX"),
             sa.Column("uid", sa.String(length=40), nullable=True),
             sa.Column("message_id", sa.String(length=320), nullable=True),
@@ -122,8 +154,9 @@ def upgrade() -> None:
             sa.Column("date", sa.DateTime(), nullable=False),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
-            sa.ForeignKeyConstraint(["sales_rep_id"], ["sales_reps.id"]),
+            sa.ForeignKeyConstraint(["sales_rep_id"], ["sales_reps.id"], name="fk_sales_mail_messages_sales_rep_id"),
             sa.PrimaryKeyConstraint("id"),
+            **table_kwargs,
         )
         op.create_index("ix_sales_mail_messages_sales_rep_id", "sales_mail_messages", ["sales_rep_id"])
         op.create_index("ix_sales_mail_messages_folder", "sales_mail_messages", ["folder"])
