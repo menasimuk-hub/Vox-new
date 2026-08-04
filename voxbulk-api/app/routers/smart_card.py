@@ -310,7 +310,12 @@ def create_category(payload: dict, db: Session = Depends(get_db), principal=Depe
 
     try:
         row = SmartCardCatalogueService.create_category(
-            db, org_id=principal.org_id, name=str((payload or {}).get("name") or "")
+            db,
+            org_id=principal.org_id,
+            name=str((payload or {}).get("name") or ""),
+            sort_order=int((payload or {}).get("sort_order") or 100),
+            accent_color=(payload or {}).get("accent_color") or (payload or {}).get("color"),
+            is_frozen=(payload or {}).get("is_frozen") if "is_frozen" in (payload or {}) else (payload or {}).get("frozen"),
         )
         db.commit()
         return {"ok": True, "item": SmartCardCatalogueService.serialize_category(row)}

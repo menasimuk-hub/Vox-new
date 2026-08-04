@@ -329,3 +329,57 @@ class ExpoVoiceNoteJob(Base):
     detected_language: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoLibraryCategory(Base):
+    """Org-level catalogue library (Add catalogues page) — not tied to a booth."""
+
+    __tablename__ = "expo_library_categories"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    accent_color: Mapped[str] = mapped_column(String(32), nullable=False, default="sky")
+    is_frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoLibraryProduct(Base):
+    __tablename__ = "expo_library_products"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    category_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("expo_library_categories.id"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    short_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_frozen: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class ExpoLibraryAsset(Base):
+    __tablename__ = "expo_library_assets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    product_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("expo_library_products.id"), nullable=True, index=True
+    )
+    category_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("expo_library_categories.id"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="pdf")
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="catalogue")
+    storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    external_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

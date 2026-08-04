@@ -19,9 +19,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { apiFetch, apiUploadFiles } from "@/lib/api";
 import { toast } from "sonner";
-
-/* ------------------------------------------------------------------ palette */
 
 export const catalogueColors = [
   { id: "sky", label: "Sky", chip: "bg-sky-100 dark:bg-sky-500/20", text: "text-sky-700 dark:text-sky-300", ring: "ring-sky-400/50", dot: "bg-sky-400" },
@@ -35,9 +34,7 @@ export const catalogueColors = [
 ] as const;
 
 type ColorId = (typeof catalogueColors)[number]["id"];
-const colorOf = (id: ColorId) => catalogueColors.find((c) => c.id === id) ?? catalogueColors[0];
-
-/* -------------------------------------------------------------------- types */
+const colorOf = (id: string) => catalogueColors.find((c) => c.id === id) ?? catalogueColors[0];
 
 type FileKind = "excel" | "word" | "pdf" | "image" | "other";
 
@@ -50,9 +47,12 @@ type Product = {
   fileKind: FileKind;
   fileSize: string;
   frozen: boolean;
+  assetId?: string | null;
+  isNew?: boolean;
+  pendingFile?: File | null;
 };
 
-type Category = { id: string; name: string; color: ColorId; frozen: boolean };
+type Category = { id: string; name: string; color: ColorId; frozen: boolean; isNew?: boolean };
 
 const kindOf = (name: string): FileKind => {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -74,26 +74,74 @@ const kindMeta: Record<FileKind, { Icon: typeof FileText; tone: string; label: s
 const prettySize = (bytes: number) =>
   bytes > 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-const uid = () => Math.random().toString(36).slice(2, 9);
+const uid = () => `tmp-${Math.random().toString(36).slice(2, 9)}`;
 
-const seedCategories: Category[] = [
-  { id: "c1", name: "Core range", color: "sky", frozen: false },
-  { id: "c2", name: "Premium range", color: "lilac", frozen: false },
-  { id: "c3", name: "Spare parts", color: "sand", frozen: true },
-];
+type ApiCategory = {
+  id: string;
+  name: string;
+  accent_color?: string;
+  color?: string;
+  is_frozen?: boolean;
+  frozen?: boolean;
+  products?: Array<{
+    id: string;
+    category_id: string;
+    name: string;
+    short_description?: string | null;
+    description?: string | null;
+    is_frozen?: boolean;
+    frozen?: boolean;
+    assets?: Array<{
+      id: string;
+      title?: string;
+      kind?: string;
+      original_filename?: string | null;
+      file_size_bytes?: number | null;
+    }>;
+  }>;
+};
 
-const seedProducts: Product[] = [
-  { id: "p1", categoryId: "c1", name: "Master catalogue 2026", description: "Full product line with specs and pricing tiers.", fileName: "catalogue-2026.pdf", fileKind: "pdf", fileSize: "8.2 MB", frozen: false },
-  { id: "p2", categoryId: "c1", name: "Core range photo pack", description: "High-res product photography for retail partners.", fileName: "core-photos.png", fileKind: "image", fileSize: "12 MB", frozen: false },
-  { id: "p3", categoryId: "c2", name: "Premium price list", description: "Distributor pricing, valid until Q4.", fileName: "premium-prices.xlsx", fileKind: "excel", fileSize: "240 KB", frozen: false },
-  { id: "p4", categoryId: "c3", name: "Installation guide", description: "Step-by-step fitting instructions.", fileName: "install-guide.docx", fileKind: "word", fileSize: "1.4 MB", frozen: true },
-];
+function mapTree(categories: ApiCategory[]): { cats: Category[]; products: Product[] } {
+  const cats: Category[] = [];
+  const products: Product[] = [];
+  for (const c of categories) {
+    const color = (c.accent_color || c.color || "sky") as ColorId;
+    cats.push({
+      id: c.id,
+      name: c.name,
+      color: catalogueColors.some((x) => x.id === color) ? color : "sky",
+      frozen: Boolean(c.is_frozen ?? c.frozen),
+    });
+    for (const p of c.products || []) {
+      const asset = (p.assets || [])[0];
+      const fileName = asset?.original_filename || asset?.title || "";
+      products.push({
+        id: p.id,
+        categoryId: p.category_id || c.id,
+        name: p.name,
+        description: p.short_description || p.description || "",
+        fileName,
+        fileKind: kindOf(fileName || asset?.kind || ""),
+        fileSize: asset?.file_size_bytes != null ? prettySize(Number(asset.file_size_bytes)) : "",
+        frozen: Boolean(p.is_frozen ?? p.frozen),
+        assetId: asset?.id || null,
+      });
+    }
+  }
+  return { cats, products };
+}
 
-/* ---------------------------------------------------------------- component */
-
-export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
-  const [categories, setCategories] = React.useState<Category[]>(seedCategories);
-  const [products, setProducts] = React.useState<Product[]>(seedProducts);
+export function CatalogueManager({
+  eyebrow,
+  apiBase,
+}: {
+  eyebrow: string;
+  apiBase: "/smart-card/catalogue" | "/expo/catalogue";
+}) {
+  const [categories, setCategories] = React.useState<Category[]>([]);
+  const [products, setProducts] = React.useState<Product[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
   const [active, setActive] = React.useState<string | "all">("all");
   const [query, setQuery] = React.useState("");
 
@@ -102,6 +150,24 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
   const [prodOpen, setProdOpen] = React.useState(false);
   const [prodDraft, setProdDraft] = React.useState<Product | null>(null);
   const [confirm, setConfirm] = React.useState<{ kind: "category" | "product"; id: string; name: string } | null>(null);
+
+  const reload = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ categories?: ApiCategory[] }>(apiBase);
+      const mapped = mapTree(res.categories || []);
+      setCategories(mapped.cats);
+      setProducts(mapped.products);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load catalogues");
+    } finally {
+      setLoading(false);
+    }
+  }, [apiBase]);
+
+  React.useEffect(() => {
+    void reload();
+  }, [reload]);
 
   const visible = products.filter((p) => {
     if (active !== "all" && p.categoryId !== active) return false;
@@ -112,28 +178,127 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
 
   const countIn = (id: string) => products.filter((p) => p.categoryId === id).length;
 
-  /* actions */
-  const saveCategory = (c: Category) => {
-    setCategories((s) => (s.some((x) => x.id === c.id) ? s.map((x) => (x.id === c.id ? c : x)) : [...s, c]));
-    setCatOpen(false);
-    toast.success(`Category "${c.name}" saved`);
-  };
-  const saveProduct = (p: Product) => {
-    setProducts((s) => (s.some((x) => x.id === p.id) ? s.map((x) => (x.id === p.id ? p : x)) : [...s, p]));
-    setProdOpen(false);
-    toast.success(`Product "${p.name}" saved`);
-  };
-  const doDelete = () => {
-    if (!confirm) return;
-    if (confirm.kind === "category") {
-      setCategories((s) => s.filter((c) => c.id !== confirm.id));
-      setProducts((s) => s.filter((p) => p.categoryId !== confirm.id));
-      if (active === confirm.id) setActive("all");
-    } else {
-      setProducts((s) => s.filter((p) => p.id !== confirm.id));
+  const saveCategory = async (c: Category) => {
+    setBusy(true);
+    try {
+      if (c.isNew || c.id.startsWith("tmp-")) {
+        await apiFetch(`${apiBase}/categories`, {
+          method: "POST",
+          body: JSON.stringify({ name: c.name, accent_color: c.color, color: c.color, is_frozen: c.frozen, frozen: c.frozen }),
+        });
+      } else {
+        await apiFetch(`${apiBase}/categories/${c.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name: c.name, accent_color: c.color, color: c.color, is_frozen: c.frozen, frozen: c.frozen }),
+        });
+      }
+      setCatOpen(false);
+      toast.success(`Category "${c.name}" saved`);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save category");
+    } finally {
+      setBusy(false);
     }
-    toast.success(`"${confirm.name}" deleted`);
-    setConfirm(null);
+  };
+
+  const saveProduct = async (p: Product) => {
+    setBusy(true);
+    try {
+      let productId = p.id;
+      const body = {
+        name: p.name,
+        category_id: p.categoryId,
+        short_description: p.description,
+        description: p.description,
+        is_frozen: p.frozen,
+        frozen: p.frozen,
+      };
+      if (p.isNew || p.id.startsWith("tmp-")) {
+        const res = await apiFetch<{ item: { id: string } }>(`${apiBase}/products`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        productId = res.item.id;
+      } else {
+        await apiFetch(`${apiBase}/products/${p.id}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+      }
+
+      if (p.pendingFile) {
+        const uploaded = await apiUploadFiles(`${apiBase}/assets/upload`, [p.pendingFile], "file");
+        const item = (uploaded as { item?: Record<string, unknown> })?.item || {};
+        if (p.assetId) {
+          await apiFetch(`${apiBase}/assets/${p.assetId}`, { method: "DELETE" }).catch(() => undefined);
+        }
+        await apiFetch(`${apiBase}/assets`, {
+          method: "POST",
+          body: JSON.stringify({
+            product_id: productId,
+            title: p.name || p.pendingFile.name,
+            kind: kindOf(p.pendingFile.name) === "image" ? "image" : "pdf",
+            purpose: "catalogue",
+            storage_path: item.storage_path,
+            original_filename: p.pendingFile.name,
+            file_size_bytes: p.pendingFile.size,
+          }),
+        });
+      }
+
+      setProdOpen(false);
+      toast.success(`Product "${p.name}" saved`);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save product");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doDelete = async () => {
+    if (!confirm) return;
+    setBusy(true);
+    try {
+      if (confirm.kind === "category") {
+        await apiFetch(`${apiBase}/categories/${confirm.id}`, { method: "DELETE" });
+        if (active === confirm.id) setActive("all");
+      } else {
+        await apiFetch(`${apiBase}/products/${confirm.id}`, { method: "DELETE" });
+      }
+      toast.success(`"${confirm.name}" deleted`);
+      setConfirm(null);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not delete");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleCategoryFrozen = async (c: Category) => {
+    try {
+      await apiFetch(`${apiBase}/categories/${c.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_frozen: !c.frozen, frozen: !c.frozen }),
+      });
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update category");
+    }
+  };
+
+  const toggleProductFrozen = async (p: Product) => {
+    try {
+      await apiFetch(`${apiBase}/products/${p.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_frozen: !p.frozen, frozen: !p.frozen }),
+      });
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update product");
+    }
   };
 
   return (
@@ -141,22 +306,34 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
       <PageHeader
         eyebrow={eyebrow}
         title="Add catalogues"
-        description="Group everything you send to prospects into colour-coded categories, then drop in the files — Excel, Word, PDF or images."
+        description="Group everything you send to prospects into colour-coded categories, then drop in the files — Excel, Word, PDF or images. Changes are saved to your account."
         actions={
           <div className="flex gap-2">
             <Button
               variant="outline"
               className="group gap-1.5"
-              onClick={() => { setCatDraft({ id: uid(), name: "", color: "sky", frozen: false }); setCatOpen(true); }}
+              disabled={busy}
+              onClick={() => { setCatDraft({ id: uid(), name: "", color: "sky", frozen: false, isNew: true }); setCatOpen(true); }}
             >
               <Layers className="size-4 transition-transform duration-300 group-hover:-rotate-12" />
               New category
             </Button>
             <Button
               className="group gap-1.5"
-              disabled={categories.length === 0}
+              disabled={busy || categories.length === 0}
               onClick={() => {
-                setProdDraft({ id: uid(), categoryId: active !== "all" ? active : categories[0].id, name: "", description: "", fileName: "", fileKind: "other", fileSize: "", frozen: false });
+                setProdDraft({
+                  id: uid(),
+                  categoryId: active !== "all" ? active : categories[0].id,
+                  name: "",
+                  description: "",
+                  fileName: "",
+                  fileKind: "other",
+                  fileSize: "",
+                  frozen: false,
+                  isNew: true,
+                  pendingFile: null,
+                });
                 setProdOpen(true);
               }}
             >
@@ -167,14 +344,12 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
         }
       />
 
-      {/* stats */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatTile Icon={Layers} label="Categories" value={categories.length} />
-        <StatTile Icon={Package} label="Products" value={products.length} />
+        <StatTile Icon={Layers} label="Categories" value={loading ? 0 : categories.length} />
+        <StatTile Icon={Package} label="Products" value={loading ? 0 : products.length} />
         <StatTile Icon={Snowflake} label="Frozen items" value={categories.filter((c) => c.frozen).length + products.filter((p) => p.frozen).length} />
       </div>
 
-      {/* categories */}
       <Card className="relative overflow-hidden">
         <CardContent className="p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -185,53 +360,56 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setActive("all")}
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 ${active === "all" ? "border-primary bg-primary text-primary-foreground shadow-sm" : "border-border bg-background text-muted-foreground hover:text-foreground"}`}
-            >
-              All · {products.length}
-            </button>
+          {loading ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Loading catalogues…</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setActive("all")}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 ${active === "all" ? "border-primary bg-primary text-primary-foreground shadow-sm" : "border-border bg-background text-muted-foreground hover:text-foreground"}`}
+              >
+                All · {products.length}
+              </button>
 
-            {categories.map((c) => {
-              const col = colorOf(c.color);
-              const on = active === c.id;
-              return (
-                <div
-                  key={c.id}
-                  className={`group flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm ${col.chip} ${col.text} ${on ? `ring-2 ${col.ring} border-transparent` : "border-transparent"} ${c.frozen ? "opacity-60" : ""}`}
-                >
-                  <button type="button" onClick={() => setActive(c.id)} className="flex items-center gap-1.5">
-                    <span className={`size-2 rounded-full ${col.dot} ${on ? "animate-pulse" : ""}`} />
-                    {c.name}
-                    <span className="opacity-70">· {countIn(c.id)}</span>
-                    {c.frozen && <Snowflake className="size-3" />}
-                  </button>
-                  <span className="flex items-center gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                    <IconAction title={c.frozen ? "Unfreeze" : "Freeze"} onClick={() => setCategories((s) => s.map((x) => (x.id === c.id ? { ...x, frozen: !x.frozen } : x)))}>
-                      {c.frozen ? <Play className="size-3" /> : <Snowflake className="size-3" />}
-                    </IconAction>
-                    <IconAction title="Edit" onClick={() => { setCatDraft(c); setCatOpen(true); }}><Pencil className="size-3" /></IconAction>
-                    <IconAction title="Delete" onClick={() => setConfirm({ kind: "category", id: c.id, name: c.name })}><Trash2 className="size-3" /></IconAction>
-                  </span>
-                </div>
-              );
-            })}
+              {categories.map((c) => {
+                const col = colorOf(c.color);
+                const on = active === c.id;
+                return (
+                  <div
+                    key={c.id}
+                    className={`group flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm ${col.chip} ${col.text} ${on ? `ring-2 ${col.ring} border-transparent` : "border-transparent"} ${c.frozen ? "opacity-60" : ""}`}
+                  >
+                    <button type="button" onClick={() => setActive(c.id)} className="flex items-center gap-1.5">
+                      <span className={`size-2 rounded-full ${col.dot} ${on ? "animate-pulse" : ""}`} />
+                      {c.name}
+                      <span className="opacity-70">· {countIn(c.id)}</span>
+                      {c.frozen && <Snowflake className="size-3" />}
+                    </button>
+                    <span className="flex items-center gap-0.5 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                      <IconAction title={c.frozen ? "Unfreeze" : "Freeze"} onClick={() => void toggleCategoryFrozen(c)}>
+                        {c.frozen ? <Play className="size-3" /> : <Snowflake className="size-3" />}
+                      </IconAction>
+                      <IconAction title="Edit" onClick={() => { setCatDraft(c); setCatOpen(true); }}><Pencil className="size-3" /></IconAction>
+                      <IconAction title="Delete" onClick={() => setConfirm({ kind: "category", id: c.id, name: c.name })}><Trash2 className="size-3" /></IconAction>
+                    </span>
+                  </div>
+                );
+              })}
 
-            <button
-              type="button"
-              onClick={() => { setCatDraft({ id: uid(), name: "", color: "sky", frozen: false }); setCatOpen(true); }}
-              className="group flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary hover:text-primary"
-            >
-              <Plus className="size-3.5 transition-transform duration-300 group-hover:rotate-90" /> Add
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => { setCatDraft({ id: uid(), name: "", color: "sky", frozen: false, isNew: true }); setCatOpen(true); }}
+                className="group flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:border-primary hover:text-primary"
+              >
+                <Plus className="size-3.5 transition-transform duration-300 group-hover:rotate-90" /> Add
+              </button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* products */}
-      {visible.length === 0 ? (
+      {!loading && visible.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center gap-2 p-10 text-center">
             <UploadCloud className="size-8 animate-bounce text-muted-foreground/60" />
@@ -272,10 +450,10 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
                   <div className="flex items-center justify-between border-t border-border pt-2">
                     <span className="truncate text-[11px] text-muted-foreground">{p.fileName || "No file attached"}</span>
                     <span className="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                      <IconAction title={p.frozen ? "Unfreeze" : "Freeze"} onClick={() => setProducts((s) => s.map((x) => (x.id === p.id ? { ...x, frozen: !x.frozen } : x)))}>
+                      <IconAction title={p.frozen ? "Unfreeze" : "Freeze"} onClick={() => void toggleProductFrozen(p)}>
                         {p.frozen ? <Play className="size-3.5" /> : <Snowflake className="size-3.5" />}
                       </IconAction>
-                      <IconAction title="Edit" onClick={() => { setProdDraft(p); setProdOpen(true); }}><Pencil className="size-3.5" /></IconAction>
+                      <IconAction title="Edit" onClick={() => { setProdDraft({ ...p, pendingFile: null }); setProdOpen(true); }}><Pencil className="size-3.5" /></IconAction>
                       <IconAction title="Delete" onClick={() => setConfirm({ kind: "product", id: p.id, name: p.name })}><Trash2 className="size-3.5" /></IconAction>
                     </span>
                   </div>
@@ -286,8 +464,8 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
         </div>
       )}
 
-      <CategoryDialog open={catOpen} onOpenChange={setCatOpen} draft={catDraft} onSave={saveCategory} />
-      <ProductDialog open={prodOpen} onOpenChange={setProdOpen} draft={prodDraft} categories={categories} onSave={saveProduct} />
+      <CategoryDialog open={catOpen} onOpenChange={setCatOpen} draft={catDraft} busy={busy} onSave={(c) => void saveCategory(c)} />
+      <ProductDialog open={prodOpen} onOpenChange={setProdOpen} draft={prodDraft} categories={categories} busy={busy} onSave={(p) => void saveProduct(p)} />
 
       <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
         <AlertDialogContent>
@@ -300,16 +478,14 @@ export function CatalogueManager({ eyebrow }: { eyebrow: string }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={doDelete}>Delete</AlertDialogAction>
+            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={busy} onClick={() => void doDelete()}>Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   );
 }
-
-/* ------------------------------------------------------------------- pieces */
 
 function StatTile({ Icon, label, value }: { Icon: typeof Layers; label: string; value: number }) {
   return (
@@ -342,8 +518,8 @@ function IconAction({ title, onClick, children }: { title: string; onClick: () =
 }
 
 function CategoryDialog({
-  open, onOpenChange, draft, onSave,
-}: { open: boolean; onOpenChange: (v: boolean) => void; draft: Category | null; onSave: (c: Category) => void }) {
+  open, onOpenChange, draft, onSave, busy,
+}: { open: boolean; onOpenChange: (v: boolean) => void; draft: Category | null; onSave: (c: Category) => void; busy?: boolean }) {
   const [name, setName] = React.useState("");
   const [color, setColor] = React.useState<ColorId>("sky");
   const [frozen, setFrozen] = React.useState(false);
@@ -357,7 +533,7 @@ function CategoryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{draft?.name ? "Edit category" : "New category"}</DialogTitle>
+          <DialogTitle>{draft && !draft.isNew && draft.name ? "Edit category" : "New category"}</DialogTitle>
           <DialogDescription>Pick a light background colour so products are easy to scan.</DialogDescription>
         </DialogHeader>
 
@@ -394,7 +570,9 @@ function CategoryDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={!name.trim()} onClick={() => draft && onSave({ ...draft, name: name.trim(), color, frozen })}>Save category</Button>
+          <Button disabled={busy || !name.trim()} onClick={() => draft && onSave({ ...draft, name: name.trim(), color, frozen })}>
+            {busy ? "Saving…" : "Save category"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -402,16 +580,17 @@ function CategoryDialog({
 }
 
 function ProductDialog({
-  open, onOpenChange, draft, categories, onSave,
+  open, onOpenChange, draft, categories, onSave, busy,
 }: {
   open: boolean; onOpenChange: (v: boolean) => void; draft: Product | null;
-  categories: Category[]; onSave: (p: Product) => void;
+  categories: Category[]; onSave: (p: Product) => void; busy?: boolean;
 }) {
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [categoryId, setCategoryId] = React.useState("");
   const [fileName, setFileName] = React.useState("");
   const [fileSize, setFileSize] = React.useState("");
+  const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [frozen, setFrozen] = React.useState(false);
   const [drag, setDrag] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -420,10 +599,12 @@ function ProductDialog({
     if (!draft) return;
     setName(draft.name); setDescription(draft.description); setCategoryId(draft.categoryId);
     setFileName(draft.fileName); setFileSize(draft.fileSize); setFrozen(draft.frozen);
+    setPendingFile(null);
   }, [draft]);
 
   const take = (f: File | undefined) => {
     if (!f) return;
+    setPendingFile(f);
     setFileName(f.name);
     setFileSize(prettySize(f.size));
     if (!name.trim()) setName(f.name.replace(/\.[^.]+$/, ""));
@@ -436,7 +617,7 @@ function ProductDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{draft?.name ? "Edit product" : "Add product"}</DialogTitle>
+          <DialogTitle>{draft && !draft.isNew && draft.name ? "Edit product" : "Add product"}</DialogTitle>
           <DialogDescription>Attach an Excel, Word, PDF, PNG or JPEG file and describe it.</DialogDescription>
         </DialogHeader>
 
@@ -484,7 +665,7 @@ function ProductDialog({
               </div>
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{fileName || "Drop a file or click to browse"}</p>
-                <p className="text-xs text-muted-foreground">{fileName ? `${kindMeta[kind].label}${fileSize ? ` · ${fileSize}` : ""}` : "XLSX, DOCX, PDF, PNG, JPEG"}</p>
+                <p className="text-xs text-muted-foreground">{fileName ? `${kindMeta[kind].label}${fileSize ? ` · ${fileSize}` : ""}${pendingFile ? " · new upload" : ""}` : "XLSX, DOCX, PDF, PNG, JPEG"}</p>
               </div>
             </div>
             <input
@@ -508,10 +689,20 @@ function ProductDialog({
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
-            disabled={!name.trim() || !categoryId}
-            onClick={() => draft && onSave({ ...draft, name: name.trim(), description: description.trim(), categoryId, fileName, fileKind: kindOf(fileName), fileSize, frozen })}
+            disabled={busy || !name.trim() || !categoryId}
+            onClick={() => draft && onSave({
+              ...draft,
+              name: name.trim(),
+              description: description.trim(),
+              categoryId,
+              fileName,
+              fileKind: kindOf(fileName),
+              fileSize,
+              frozen,
+              pendingFile,
+            })}
           >
-            Save product
+            {busy ? "Saving…" : "Save product"}
           </Button>
         </DialogFooter>
       </DialogContent>

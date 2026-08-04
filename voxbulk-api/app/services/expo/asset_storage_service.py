@@ -13,7 +13,7 @@ EXPO_ASSETS_ROOT = _REPO_ROOT / "data" / "expo-assets"
 
 MAX_EXPO_ASSET_BYTES = 20 * 1024 * 1024  # 20 MB
 ALLOWED_EXTENSIONS = frozenset(
-    {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".xls", ".xlsx", ".csv"}
+    {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".xls", ".xlsx", ".csv", ".doc", ".docx"}
 )
 ALLOWED_CONTENT_TYPES = frozenset(
     {

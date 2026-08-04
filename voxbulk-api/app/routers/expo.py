@@ -153,6 +153,171 @@ async def upload_expo_asset(
     return {"ok": True, "item": saved}
 
 
+# --- Org catalogue library (Add catalogues page) ---
+
+
+@router.get("/catalogue")
+def get_expo_catalogue(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueService
+
+    return {"ok": True, "categories": ExpoLibraryCatalogueService.tree(db, principal.org_id)}
+
+
+@router.post("/catalogue/categories")
+def create_expo_catalogue_category(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueError, ExpoLibraryCatalogueService
+
+    try:
+        row = ExpoLibraryCatalogueService.create_category(db, org_id=principal.org_id, payload=payload or {})
+        db.commit()
+        return {"ok": True, "item": ExpoLibraryCatalogueService.serialize_category(row)}
+    except ExpoLibraryCatalogueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.patch("/catalogue/categories/{category_id}")
+def patch_expo_catalogue_category(
+    category_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueError, ExpoLibraryCatalogueService
+
+    try:
+        row = ExpoLibraryCatalogueService.update_category(
+            db, org_id=principal.org_id, category_id=category_id, payload=payload or {}
+        )
+        db.commit()
+        return {"ok": True, "item": ExpoLibraryCatalogueService.serialize_category(row)}
+    except ExpoLibraryCatalogueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/catalogue/categories/{category_id}")
+def delete_expo_catalogue_category(
+    category_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueService
+
+    ExpoLibraryCatalogueService.delete_category(db, org_id=principal.org_id, category_id=category_id)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/catalogue/products")
+def create_expo_catalogue_product(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueError, ExpoLibraryCatalogueService
+
+    try:
+        row = ExpoLibraryCatalogueService.create_product(db, org_id=principal.org_id, payload=payload or {})
+        db.commit()
+        return {"ok": True, "item": ExpoLibraryCatalogueService.serialize_product(row)}
+    except ExpoLibraryCatalogueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.patch("/catalogue/products/{product_id}")
+def patch_expo_catalogue_product(
+    product_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueError, ExpoLibraryCatalogueService
+
+    try:
+        row = ExpoLibraryCatalogueService.update_product(
+            db, org_id=principal.org_id, product_id=product_id, payload=payload or {}
+        )
+        db.commit()
+        return {"ok": True, "item": ExpoLibraryCatalogueService.serialize_product(row)}
+    except ExpoLibraryCatalogueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/catalogue/products/{product_id}")
+def delete_expo_catalogue_product(
+    product_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueService
+
+    ExpoLibraryCatalogueService.delete_product(db, org_id=principal.org_id, product_id=product_id)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/catalogue/assets/upload")
+async def upload_expo_catalogue_asset(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    saved = await save_expo_asset_upload(org_id=principal.org_id, upload=file)
+    return {"ok": True, "item": saved}
+
+
+@router.post("/catalogue/assets")
+def create_expo_catalogue_asset(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueError, ExpoLibraryCatalogueService
+
+    try:
+        row = ExpoLibraryCatalogueService.create_asset(db, org_id=principal.org_id, payload=payload or {})
+        db.commit()
+        return {"ok": True, "item": ExpoLibraryCatalogueService.serialize_asset(row)}
+    except ExpoLibraryCatalogueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.delete("/catalogue/assets/{asset_id}")
+def delete_expo_catalogue_asset(asset_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_expo_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_launch_campaigns(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.expo.library_catalogue_service import ExpoLibraryCatalogueService
+
+    ExpoLibraryCatalogueService.delete_asset(db, org_id=principal.org_id, asset_id=asset_id)
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/booths/{booth_id}")
 def get_booth(booth_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_expo_enabled(db, principal.org_id)

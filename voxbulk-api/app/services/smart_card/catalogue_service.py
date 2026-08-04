@@ -29,11 +29,17 @@ class SmartCardCatalogueService:
         )
 
     @staticmethod
-    def create_category(db: Session, *, org_id: str, name: str, sort_order: int = 100) -> SmartCardCategory:
+    def create_category(db: Session, *, org_id: str, name: str, sort_order: int = 100, **extra: Any) -> SmartCardCategory:
         name = str(name or "").strip()
         if not name:
             raise SmartCardCatalogueError("Category name is required")
-        row = SmartCardCategory(org_id=org_id, name=name[:128], sort_order=int(sort_order or 100))
+        row = SmartCardCategory(
+            org_id=org_id,
+            name=name[:128],
+            accent_color=str(extra.get("accent_color") or extra.get("color") or "sky")[:32],
+            is_frozen=bool(extra.get("is_frozen") or extra.get("frozen")),
+            sort_order=int(sort_order or 100),
+        )
         db.add(row)
         db.flush()
         return row
@@ -53,6 +59,10 @@ class SmartCardCatalogueService:
             if not name:
                 raise SmartCardCatalogueError("Category name is required")
             row.name = name[:128]
+        if "accent_color" in payload or "color" in payload:
+            row.accent_color = str(payload.get("accent_color") or payload.get("color") or row.accent_color or "sky")[:32]
+        if "is_frozen" in payload or "frozen" in payload:
+            row.is_frozen = bool(payload.get("is_frozen") if "is_frozen" in payload else payload.get("frozen"))
         if "sort_order" in payload:
             try:
                 row.sort_order = int(payload.get("sort_order"))
@@ -111,8 +121,9 @@ class SmartCardCatalogueService:
             org_id=org_id,
             category_id=cat_id,
             name=name[:255],
-            short_description=(str(payload.get("short_description") or "").strip() or None),
+            short_description=(str(payload.get("short_description") or payload.get("description") or "").strip() or None),
             match_keywords=(str(payload.get("match_keywords") or "").strip() or None),
+            is_frozen=bool(payload.get("is_frozen") or payload.get("frozen")),
             sort_order=int(payload.get("sort_order") or 100),
         )
         db.add(row)
@@ -134,9 +145,15 @@ class SmartCardCatalogueService:
             if not name:
                 raise SmartCardCatalogueError("Product name is required")
             row.name = name[:255]
-        for key in ("short_description", "match_keywords"):
+        if "short_description" in payload or "description" in payload:
+            row.short_description = (
+                str(payload.get("short_description") or payload.get("description") or "").strip() or None
+            )
+        for key in ("match_keywords",):
             if key in payload:
                 setattr(row, key, (str(payload.get(key) or "").strip() or None))
+        if "is_frozen" in payload or "frozen" in payload:
+            row.is_frozen = bool(payload.get("is_frozen") if "is_frozen" in payload else payload.get("frozen"))
         if "sort_order" in payload:
             try:
                 row.sort_order = int(payload.get("sort_order"))
@@ -207,6 +224,10 @@ class SmartCardCatalogueService:
         category_id = str(payload.get("category_id") or "").strip() or None
         if not product_id and not category_id:
             raise SmartCardCatalogueError("product_id or category_id is required")
+        try:
+            size_i = int(payload["file_size_bytes"]) if payload.get("file_size_bytes") is not None else None
+        except (TypeError, ValueError):
+            size_i = None
         row = SmartCardAsset(
             org_id=org_id,
             product_id=product_id,
@@ -217,6 +238,8 @@ class SmartCardCatalogueService:
             storage_path=(str(payload.get("storage_path") or "").strip() or None),
             external_url=(str(payload.get("external_url") or "").strip() or None),
             match_keywords=(str(payload.get("match_keywords") or "").strip() or None),
+            original_filename=(str(payload.get("original_filename") or "").strip() or None),
+            file_size_bytes=size_i,
             sort_order=int(payload.get("sort_order") or 100),
         )
         db.add(row)
@@ -238,6 +261,10 @@ class SmartCardCatalogueService:
         return {
             "id": c.id,
             "name": c.name,
+            "accent_color": getattr(c, "accent_color", None) or "sky",
+            "color": getattr(c, "accent_color", None) or "sky",
+            "is_frozen": bool(getattr(c, "is_frozen", False)),
+            "frozen": bool(getattr(c, "is_frozen", False)),
             "sort_order": c.sort_order,
         }
 
@@ -248,7 +275,10 @@ class SmartCardCatalogueService:
             "category_id": p.category_id,
             "name": p.name,
             "short_description": p.short_description,
+            "description": p.short_description,
             "match_keywords": p.match_keywords,
+            "is_frozen": bool(getattr(p, "is_frozen", False)),
+            "frozen": bool(getattr(p, "is_frozen", False)),
             "sort_order": p.sort_order,
         }
 
@@ -264,6 +294,8 @@ class SmartCardCatalogueService:
             "external_url": a.external_url,
             "storage_path": a.storage_path,
             "match_keywords": a.match_keywords,
+            "original_filename": getattr(a, "original_filename", None),
+            "file_size_bytes": getattr(a, "file_size_bytes", None),
             "sort_order": a.sort_order,
         }
 

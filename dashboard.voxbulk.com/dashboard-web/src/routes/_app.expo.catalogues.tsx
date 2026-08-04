@@ -8,5 +8,5 @@ export const Route = createFileRoute("/_app/expo/catalogues")({
 });
 
 function ExpoCataloguesPage() {
-  return <CatalogueManager eyebrow="VoxBulk Expo" />;
+  return <CatalogueManager eyebrow="VoxBulk Expo" apiBase="/expo/catalogue" />;
 }

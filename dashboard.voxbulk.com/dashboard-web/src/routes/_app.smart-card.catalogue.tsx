@@ -8,5 +8,5 @@ export const Route = createFileRoute("/_app/smart-card/catalogue")({
 });
 
 function SmartCardCataloguePage() {
-  return <CatalogueManager eyebrow="Smart Card QR" />;
+  return <CatalogueManager eyebrow="Smart Card QR" apiBase="/smart-card/catalogue" />;
 }

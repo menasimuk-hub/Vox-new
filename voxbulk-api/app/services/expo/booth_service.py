@@ -566,21 +566,48 @@ class ExpoBoothService:
             )
 
     @staticmethod
-    def assert_can_create_booth(db: Session, *, org_id: str) -> None:
-        unpaid = db.execute(
-            select(func.count())
-            .select_from(ExpoBooth)
-            .where(
-                ExpoBooth.org_id == org_id,
-                ExpoBooth.payment_status != "paid",
-                ExpoBooth.status == "active",
-                ExpoBooth.is_preview_draft.is_(False),
-            )
-        ).scalar() or 0
+    def archive_unpaid_active_booths(
+        db: Session, *, org_id: str, keep_booth_id: str | None = None
+    ) -> list[str]:
+        """Archive other unpaid active booths so a new draft/QR can be created."""
+        stmt = select(ExpoBooth).where(
+            ExpoBooth.org_id == org_id,
+            ExpoBooth.payment_status != "paid",
+            ExpoBooth.status == "active",
+            ExpoBooth.is_preview_draft.is_(False),
+        )
+        if keep_booth_id:
+            stmt = stmt.where(ExpoBooth.id != keep_booth_id)
+        rows = list(db.scalars(stmt).all())
+        now = datetime.utcnow()
+        archived: list[str] = []
+        for booth in rows:
+            booth.status = "archived"
+            booth.updated_at = now
+            db.add(booth)
+            archived.append(booth.id)
+        if archived:
+            db.flush()
+        return archived
+
+    @staticmethod
+    def assert_can_create_booth(db: Session, *, org_id: str, keep_booth_id: str | None = None) -> None:
+        conds = [
+            ExpoBooth.org_id == org_id,
+            ExpoBooth.payment_status != "paid",
+            ExpoBooth.status == "active",
+            ExpoBooth.is_preview_draft.is_(False),
+        ]
+        if keep_booth_id:
+            conds.append(ExpoBooth.id != keep_booth_id)
+        unpaid = db.execute(select(func.count()).select_from(ExpoBooth).where(*conds)).scalar() or 0
         if int(unpaid) >= 1:
+            blockers = list(db.scalars(select(ExpoBooth).where(*conds).limit(3)).all())
+            names = ", ".join(f"«{b.name or b.id}»" for b in blockers) or "an unpaid booth"
             raise ValueError(
-                "You can have many paid Expo QRs. Finish or delete your unpaid draft "
-                "before creating another — each QR code requires its own package purchase."
+                f"You already have an unpaid Expo QR ({names}). "
+                "Pay for it, archive it, or delete it from Saved QR codes before creating another — "
+                "each QR code requires its own package purchase."
             )
 
     @staticmethod
@@ -832,8 +859,20 @@ class ExpoBoothService:
             if candidate is not None and getattr(candidate, "is_preview_draft", False):
                 existing_draft = candidate
 
-        if existing_draft is None:
-            ExpoBoothService.assert_can_create_booth(db, org_id=org_id)
+        is_preview = bool(payload.get("is_preview_draft"))
+        # Preview drafts never block / are never blocked by the one-unpaid rule.
+        # Creating/promoting a real unpaid booth archives any previous unpaid active QR.
+        if not is_preview:
+            ExpoBoothService.archive_unpaid_active_booths(
+                db,
+                org_id=org_id,
+                keep_booth_id=existing_draft.id if existing_draft else None,
+            )
+            ExpoBoothService.assert_can_create_booth(
+                db,
+                org_id=org_id,
+                keep_booth_id=existing_draft.id if existing_draft else None,
+            )
 
         if existing_draft is not None:
             exhibition = db.get(ExpoExhibition, existing_draft.exhibition_id)
