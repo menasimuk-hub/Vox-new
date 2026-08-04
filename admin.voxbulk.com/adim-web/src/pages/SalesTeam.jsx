@@ -45,7 +45,7 @@ const SERVICE_LABELS = {
   customer_feedback: 'Customer Feedback',
   voxbulk_expo: 'Voxbulk Expo',
 }
-/** Match partner-sales-hub SERVICES.options + fixed_topup on every service. */
+/** Exact SERVICES.options from partner-sales-hub-main/src/lib/accounts.ts */
 const SERVICE_OPTIONS = {
   ai_interview: [
     { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
@@ -58,12 +58,10 @@ const SERVICE_OPTIONS = {
   ],
   customer_feedback: [
     { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
-    { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
     { kind: 'free_days', label: 'Free days from 1st scan', unit: 'days', defaultValue: 15 },
   ],
   voxbulk_expo: [
     { kind: 'free_package_days', label: 'Free package days', unit: 'days', defaultValue: 3 },
-    { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
     { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
   ],
 }
@@ -74,6 +72,42 @@ function defaultBenefitValue(opt) {
   if (opt.unit === 'days') return 14
   if (opt.unit === 'minor') return 20
   return 0
+}
+
+/** Hub Switch — visual clone of partner-sales-hub Switch (radix). */
+function HubSwitch({ checked, onCheckedChange, disabled }) {
+  return (
+    <button
+      type='button'
+      role='switch'
+      aria-checked={Boolean(checked)}
+      disabled={disabled}
+      className={`hub-switch${checked ? ' on' : ''}`}
+      onClick={() => onCheckedChange?.(!checked)}
+    >
+      <span className='hub-switch-thumb' />
+    </button>
+  )
+}
+
+/** Hub Checkbox — visual clone of partner-sales-hub Checkbox (radix). */
+function HubCheckbox({ checked, onCheckedChange, disabled }) {
+  return (
+    <button
+      type='button'
+      role='checkbox'
+      aria-checked={Boolean(checked)}
+      disabled={disabled}
+      className={`hub-checkbox${checked ? ' on' : ''}`}
+      onClick={() => onCheckedChange?.(!checked)}
+    >
+      {checked ? (
+        <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='3' className='hub-checkbox-check'>
+          <path d='M5 12l5 5L20 7' />
+        </svg>
+      ) : null}
+    </button>
+  )
 }
 
 const IconEdit = () => (
@@ -1241,78 +1275,34 @@ export default function SalesTeam() {
       </div>
 
       <div className='promo-services-grid'>
-        <div className='service-row'>
-          <div className='service-row-head'>
-            <label>
-              <input
-                type='checkbox'
-                checked={form.promo_benefits.wallet_voucher.enabled}
-                onChange={(e) => setForm({
-                  ...form,
-                  promo_benefits: {
-                    ...form.promo_benefits,
-                    wallet_voucher: { ...form.promo_benefits.wallet_voucher, enabled: e.target.checked },
-                  },
-                })}
-              />
-              Wallet top-up
-            </label>
-            <span className='service-price'>credits wallet on redeem</span>
-          </div>
-          {form.promo_benefits.wallet_voucher.enabled ? (
-            <div className='service-fields has-unit wallet-amount'>
-              <input
-                type='number'
-                min='0'
-                step='0.01'
-                value={form.promo_benefits.wallet_voucher.amount_major}
-                onChange={(e) => setForm({
-                  ...form,
-                  promo_benefits: {
-                    ...form.promo_benefits,
-                    wallet_voucher: { ...form.promo_benefits.wallet_voucher, amount_major: e.target.value },
-                  },
-                })}
-              />
-              <span className='service-unit'>{formCurrency}</span>
-            </div>
-          ) : null}
-        </div>
-
         {SERVICE_IDS.map((sid) => {
           const svc = form.promo_benefits.services[sid]
           const pkg = packageForService(sid)
           const opts = SERVICE_OPTIONS[sid]
           const selectedOpt = opts.find((o) => o.kind === svc.kind) || opts[0]
-          const unitLabel = selectedOpt.unit === '%' ? '%' : selectedOpt.unit === 'minor' ? formCurrency : selectedOpt.unit === 'days' ? 'days' : ''
           return (
             <div key={sid} className='service-row'>
-              <div className='service-row-head'>
-                <label>
-                  <input
-                    type='checkbox'
-                    checked={svc.enabled}
-                    onChange={(e) => setForm({
-                      ...form,
-                      promo_benefits: {
-                        ...form.promo_benefits,
-                        services: {
-                          ...form.promo_benefits.services,
-                          [sid]: { ...svc, enabled: e.target.checked },
-                        },
+              <label className='service-row-head'>
+                <HubCheckbox
+                  checked={svc.enabled}
+                  onCheckedChange={(v) => setForm({
+                    ...form,
+                    promo_benefits: {
+                      ...form.promo_benefits,
+                      services: {
+                        ...form.promo_benefits.services,
+                        [sid]: { ...svc, enabled: v },
                       },
-                    })}
-                  />
-                  {SERVICE_LABELS[sid]}
-                </label>
+                    },
+                  })}
+                />
+                <span className='service-name'>{SERVICE_LABELS[sid]}</span>
                 <span className='service-price'>
-                  {pkg?.list_price_display
-                    ? `list ${pkg.list_price_display}${pkg.yearly_display ? ` / yr ${pkg.yearly_display}` : ''}`
-                    : 'list —'}
+                  {pkg?.list_price_display ? `list ${pkg.list_price_display}` : 'list —'}
                 </span>
-              </div>
+              </label>
               {svc.enabled ? (
-                <div className={`service-fields${unitLabel ? ' has-unit' : ''}`}>
+                <div className='service-fields'>
                   <select
                     value={svc.kind}
                     onChange={(e) => {
@@ -1350,7 +1340,6 @@ export default function SalesTeam() {
                       },
                     })}
                   />
-                  {unitLabel ? <span className='service-unit'>{unitLabel}</span> : null}
                 </div>
               ) : null}
             </div>
@@ -1362,24 +1351,36 @@ export default function SalesTeam() {
 
   const renderEditorCommissionTab = () => {
     if (isPartner) {
+      const enabled = form.commission_tiers.some((t) => t.enabled)
       return (
-        <>
-          <div className='field'>
-            <label>Next payment commission</label>
-            <div className='field-row'>
-              <select value={form.partner_comm_kind} onChange={(e) => setForm({ ...form, partner_comm_kind: e.target.value })}>
-                <option value='percent'>Percentage</option>
-                <option value='fixed'>Fixed amount</option>
-              </select>
-              <input
-                type='number'
-                min='0'
-                step={form.partner_comm_kind === 'fixed' ? '0.01' : '0.1'}
-                value={form.partner_comm_value}
-                onChange={(e) => setForm({ ...form, partner_comm_value: e.target.value })}
-                placeholder={form.partner_comm_kind === 'fixed' ? formCurrency : '%'}
+        <div className='card-body'>
+          <div className='commission-partner-grid'>
+            <div className='switch-row'>
+              <HubSwitch
+                checked={enabled}
+                onCheckedChange={(v) => {
+                  const tiers = form.commission_tiers.map((t, i) => (
+                    i === 0 ? { ...t, enabled: v } : { ...t, enabled: false }
+                  ))
+                  setForm({ ...form, commission_tiers: tiers })
+                }}
               />
+              <span className='switch-label'>Next payment commission</span>
             </div>
+            <select
+              value={form.partner_comm_kind}
+              onChange={(e) => setForm({ ...form, partner_comm_kind: e.target.value })}
+            >
+              <option value='percent'>Percentage</option>
+              <option value='fixed'>Fixed amount</option>
+            </select>
+            <input
+              type='number'
+              min='0'
+              step={form.partner_comm_kind === 'fixed' ? '0.01' : '0.1'}
+              value={form.partner_comm_value}
+              onChange={(e) => setForm({ ...form, partner_comm_value: e.target.value })}
+            />
           </div>
           <div className='field-row'>
             <div className='field'>
@@ -1400,44 +1401,38 @@ export default function SalesTeam() {
               </select>
             </div>
           </div>
-        </>
+        </div>
       )
     }
     return (
-      <>
-        <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: '0 0 14px' }}>
-          Enable commission for months 2, 3, and 4. Yearly plans use month 2 only.
-        </p>
+      <div className='card-body'>
         {form.commission_tiers.map((tier, idx) => (
           <div key={tier.month} className='tier-row'>
-            <label>
-              <input
-                type='checkbox'
+            <div className='switch-row'>
+              <HubSwitch
                 checked={tier.enabled}
-                onChange={(e) => {
+                onCheckedChange={(v) => {
                   const tiers = [...form.commission_tiers]
-                  tiers[idx] = { ...tier, enabled: e.target.checked }
+                  tiers[idx] = { ...tier, enabled: v }
                   setForm({ ...form, commission_tiers: tiers })
                 }}
               />
-              {' '}Month {tier.month}
-            </label>
+              <span className='switch-label'>Month {tier.month}</span>
+            </div>
             <select
               value={tier.kind}
-              disabled={!tier.enabled}
               onChange={(e) => {
                 const tiers = [...form.commission_tiers]
                 tiers[idx] = { ...tier, kind: e.target.value }
                 setForm({ ...form, commission_tiers: tiers })
               }}
             >
-              <option value='percent'>Percent</option>
-              <option value='fixed'>Fixed</option>
+              <option value='percent'>Percentage</option>
+              <option value='fixed'>Fixed amount</option>
             </select>
             <input
               type='number'
               min='0'
-              disabled={!tier.enabled}
               step={tier.kind === 'fixed' ? '0.01' : '0.1'}
               value={tier.value}
               onChange={(e) => {
@@ -1445,12 +1440,10 @@ export default function SalesTeam() {
                 tiers[idx] = { ...tier, value: e.target.value }
                 setForm({ ...form, commission_tiers: tiers })
               }}
-              placeholder={tier.kind === 'fixed' ? formCurrency : '%'}
             />
-            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{tier.kind === 'fixed' ? formCurrency : '%'}</span>
           </div>
         ))}
-      </>
+      </div>
     )
   }
 
@@ -1659,11 +1652,21 @@ export default function SalesTeam() {
           {editorTab === 'promo' ? (
             <section className='hub-card'>
               <h3>Promo code</h3>
-              <p className='card-hint'>One code, valid on every service enabled below. Enable Wallet top-up or Fixed top-up amount per service.</p>
+              <p className='card-hint'>One code, valid on every service enabled below.</p>
               {renderEditorPromoTab()}
             </section>
           ) : null}
-          {editorTab === 'commission' ? <section className='hub-card'><h3>Commission</h3>{renderEditorCommissionTab()}</section> : null}
+          {editorTab === 'commission' ? (
+            <section className='hub-card'>
+              <h3>Commission terms</h3>
+              <p className='card-hint'>
+                {isPartner
+                  ? 'Partners earn commission on the next payment only.'
+                  : 'Salesmen earn commission on the 2nd, 3rd and 4th month subscriptions.'}
+              </p>
+              {renderEditorCommissionTab()}
+            </section>
+          ) : null}
           {editorTab === 'payout' ? <section className='hub-card'><h3>Bank / payout</h3>{renderEditorPayoutTab()}</section> : null}
           {editorTab === 'invoices' ? renderEditorInvoicesTab() : null}
         </div>
