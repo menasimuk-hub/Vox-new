@@ -8,8 +8,9 @@ Reference implementation: `telynx-settings-hub-main` (the approved dark Stripe-l
 ## Phase 1 status (Dashboard + shell)
 
 - **Done:** Sidebar/Topbar token density; Home Dashboard body matches reference `/dashboard` (KPIs, Panel, Tabs, tables); shared `components/ui` (Button, Table, Tabs, Card/Panel, Badge, KpiCard, Progress, Separator, Sparkline).
-- **Not yet:** remaining admin pages (Integrations, Email, AI Team, Sales Team, Support Disk, Org Control, etc.) — leave those theme islands alone until Phase 2.
-- **Cursor rule:** `.cursor/rules/admin-theme-phase1.mdc` — new admin UI must use design-system + `components/ui` only.
+- **Phase 2 Batch A (in progress):** Analytics KPIs/cost-revenue, Organisation detail/zones, Integration Test group, Campaigns hub — migrate to `components/ui` only.
+- **Phase 2 deferred islands:** Support Disk, AI Team, Sales Team, Telnyx/Meta, Partners, Email, WA Templates Hub, Products Hub — leave until their batch.
+- **Cursor rule:** `.cursor/rules/admin-theme-phase1.mdc`
 
 ## 1. How tokens were derived
 Cursor: before writing any code, open `telynx-settings-hub-main` and extract the actual values in use (Tailwind config, CSS variables, or inline classes) for colors, spacing, radius, fonts, shadows. Fill in section 2 below with the REAL values found — do not invent new ones.

@@ -1,5 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 export default function IntegrationTestGroup() {
   const [items, setItems] = useState([])
@@ -65,77 +79,99 @@ export default function IntegrationTestGroup() {
   }
 
   return (
-    <div className='pageShell'>
-      <div className='pageHead'>
-        <div>
-          <h1>Integration Test group</h1>
-          <p className='muted'>
-            Login emails that can see integrations set to <strong>Testing</strong> (dashboard tiles and linked FAQs).
-            Live integrations are visible to everyone.
-          </p>
-        </div>
+    <div className="ds-scope space-y-4">
+      <div className="min-w-0">
+        <h1 className="text-[15px] font-semibold leading-tight text-foreground">Integration Test group</h1>
+        <p className="text-[11px] leading-tight text-muted-foreground">
+          Login emails that can see integrations set to <strong>Testing</strong> (dashboard tiles and linked FAQs).
+          Live integrations are visible to everyone.
+        </p>
       </div>
 
-      {flash ? <div className='note'>{flash}</div> : null}
-      {error ? <div className='note' style={{ borderColor: 'rgba(220,38,38,0.35)' }}>{error}</div> : null}
-
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardBody'>
-          <form onSubmit={add} style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-            <input
-              className='input'
-              type='email'
-              placeholder='tester@example.com'
-              value={email}
-              onChange={(ev) => setEmail(ev.target.value)}
-              style={{ minWidth: 260, flex: 1 }}
-              disabled={busy}
-            />
-            <button type='submit' className='btn primary' disabled={busy || !email.trim()}>
-              {busy ? 'Saving…' : 'Add email'}
-            </button>
-          </form>
+      {flash ? (
+        <div className="rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success">
+          {flash}
         </div>
-      </div>
-
-      <div className='card'>
-        <div className='cardHead'>
-          <h3>Testers ({items.length})</h3>
-          <button type='button' className='btn soft' onClick={() => void load()} disabled={loading || busy}>
-            Refresh
-          </button>
+      ) : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
         </div>
-        <div className='cardBody' style={{ padding: 0 }}>
-          {loading ? (
-            <div className='muted' style={{ padding: 16 }}>Loading…</div>
-          ) : items.length === 0 ? (
-            <div className='muted' style={{ padding: 16 }}>No tester emails yet.</div>
-          ) : (
-            <table className='table'>
-              <thead>
-                <tr>
-                  <th>Email</th>
-                  <th>Added</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.email}</td>
-                    <td className='muted'>{row.created_at ? String(row.created_at).replace('T', ' ').slice(0, 19) : '—'}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button type='button' className='btn soft' disabled={busy} onClick={() => void remove(row.id)}>
+      ) : null}
+
+      <Panel title="Add tester" subtitle="Email must match a dashboard login.">
+        <form onSubmit={add} className="flex flex-wrap items-center gap-2">
+          <Input
+            type="email"
+            placeholder="tester@example.com"
+            value={email}
+            onChange={(ev) => setEmail(ev.target.value)}
+            className="h-8 min-w-[260px] flex-1"
+            disabled={busy}
+          />
+          <Button type="submit" size="sm" className="h-8" disabled={busy || !email.trim()}>
+            {busy ? 'Saving…' : 'Add email'}
+          </Button>
+        </form>
+      </Panel>
+
+      <Panel
+        title="Testers"
+        subtitle="Emails allowed to see Testing-mode integrations."
+        action={
+          <div className="flex items-center gap-2">
+            <Pill tone="info">{items.length}</Pill>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7"
+              onClick={() => void load()}
+              disabled={loading || busy}
+            >
+              Refresh
+            </Button>
+          </div>
+        }
+        bodyClassName="p-0"
+      >
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Email</TableHead>
+              <TableHead>Added</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && <TableLoading colSpan={3} />}
+            {!loading && items.length === 0 && <TableEmpty colSpan={3}>No tester emails yet.</TableEmpty>}
+            {!loading &&
+              items.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="font-medium">{row.email}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {row.created_at ? String(row.created_at).replace('T', ' ').slice(0, 19) : '—'}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        disabled={busy}
+                        onClick={() => void remove(row.id)}
+                      >
                         Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+          </TableBody>
+        </StripeTable>
+      </Panel>
     </div>
   )
 }

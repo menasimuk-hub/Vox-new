@@ -1,10 +1,10 @@
 ---
-description: Admin Phase-1 design system — new admin pages must use shared ui + tokens only
+description: Admin Phase-1/2 design system — migrate pages with shared ui + tokens only
 globs: admin.voxbulk.com/adim-web/**
 alwaysApply: false
 ---
 
-# Admin theme — Phase 1 guardrails
+# Admin theme — Phase 1 + Phase 2 guardrails
 
 ## Source of truth
 
@@ -13,21 +13,43 @@ alwaysApply: false
 - Shared components: `admin.voxbulk.com/adim-web/src/components/ui/`
 - Visual reference: `telynx-settings-hub-main` (OKLCH palette, density)
 
-## Phase 1 scope (done)
+## Phase 1 (done)
 
-- Shell chrome: Sidebar + Topbar restyled to reference tokens/density (existing shell kept).
-- Home Dashboard (`pages/Dashboard.jsx`) rebuilt to reference `/dashboard` patterns.
+- Shell chrome: Sidebar/Topbar tokens/density.
+- Home Dashboard rebuilt to reference `/dashboard`.
 - Foundation: Button, Table, Tabs, Card/Panel, Badge, KpiCard, Progress, Separator, Sparkline.
+
+## Phase 2 — Batch A (in progress): quick wins
+
+Migrate thin legacy / Dashboard-shaped pages to `components/ui` + design-system. Keep logic/API unchanged.
+
+| Batch A targets |
+|-----------------|
+| Analytics: `PlatformKpis`, `CostRevenue` |
+| Orgs: `OrganisationDetail`, `ZoneOrganisations`, `IntegrationTestGroup` |
+| Campaigns: `CampaignsHub`, `CampaignTemplates` |
+
+Already largely on ui (polish only if touched): `Organisations`, `Categories`, `OnboardingAddCustomer`, `Agents`.
+
+## Phase 2 — later batches (do not nibble)
+
+| Batch | Focus |
+|-------|--------|
+| B | Org Control Center, OrganisationProfile, OnboardingServices |
+| C | Operations (`ops-theme`, queues, running surveys/interviews) |
+| D | Feedback polish, Compliance, Team/settings thin pages |
+| E | Billing & Pricing tables |
+| F | Dedicated islands — Support Disk, AI Team, Sales Team, Telnyx/Meta hubs, Partners, Email, WA Templates Hub, Products Hub, Connection Profiles |
 
 ## Rules for new / touched admin UI
 
 1. **Use `components/ui` + design-system tokens only** — no new page-local palettes, hex colors, or one-off button/table CSS.
 2. **Do not invent tokens** — if something is missing, add it to `DESIGN_SYSTEM.md` + `design-system.css` first.
-3. **Do not create new theme islands** (page-scoped color systems that fight `--ds-*` / legacy aliases).
-4. **Phase 2 pages stay as-is until migrated** — do not “fix” AI Team, Sales Team, Support Disk, Integrations hubs, etc. unless the task is that migration.
-5. Keep existing **Sidebar + Topbar shell** (nav/RBAC/search). Do not replace with sticky-header-only chrome.
+3. **Do not create new theme islands.**
+4. **Do not “fix” Batch F islands** unless that batch is the task.
+5. Keep existing **Sidebar + Topbar shell** (nav/RBAC/search).
 6. Visual/structural changes only unless the task explicitly changes logic/API.
 
 ## Legacy CSS
 
-`styles.css` still powers non-migrated pages. Legacy vars (`--bg`, `--s1`, `--grn`, …) are aliased toward the reference OKLCH palette so shell + unmigrated pages stay coherent. Prefer Tailwind/`components/ui` on new work; do not expand legacy class islands.
+`styles.css` still powers non-migrated pages. Prefer Tailwind/`components/ui` on migrated work; do not expand legacy class islands.

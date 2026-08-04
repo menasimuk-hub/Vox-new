@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
-import { RefreshCw } from 'lucide-react'
+import { Activity, CreditCard, Phone, RefreshCw, Sparkles, Wallet } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { KpiCard } from '@/components/ui/KpiCard'
 
 const money = (amount, currency = 'USD') => {
   const value = Number(amount || 0)
@@ -12,6 +15,9 @@ const money = (amount, currency = 'USD') => {
     return `$${value.toFixed(2)}`
   }
 }
+
+const FILL_COST = 'oklch(0.62 0.13 65)'
+const FILL_REV = 'oklch(0.55 0.14 150)'
 
 export default function CostRevenue() {
   const [loading, setLoading] = useState(true)
@@ -56,67 +62,126 @@ export default function CostRevenue() {
     [telnyxSpend, activeSubs],
   )
 
+  const kpis = [
+    {
+      label: 'Telnyx spend (30d)',
+      value: loading ? '…' : money(telnyxSpend, currency),
+      hint: `${summary.total_calls ?? 0} calls`,
+      icon: Phone,
+      tone: 'warning',
+      href: '/billing/calls-cost',
+    },
+    {
+      label: 'Avg cost / call',
+      value: loading ? '…' : money(summary.avg_cost, currency),
+      hint: 'AI voice assistant',
+      icon: Activity,
+      href: '/billing/calls-cost',
+    },
+    {
+      label: 'Active subscriptions',
+      value: loading ? '…' : String(activeSubs),
+      hint: `${billing?.subscriptions_trial ?? 0} trial`,
+      icon: CreditCard,
+      tone: 'success',
+      href: '/billing/subscriptions',
+    },
+    {
+      label: 'Past due',
+      value: loading ? '…' : String(billing?.subscriptions_past_due ?? 0),
+      hint: 'needs billing action',
+      icon: Activity,
+      tone: 'warning',
+      href: '/billing/subscriptions',
+    },
+    {
+      label: 'Telnyx balance',
+      value: loading
+        ? '…'
+        : balances?.telnyx?.ok
+          ? money(balances.telnyx.amount, balances.telnyx.currency)
+          : 'Not configured',
+      hint: 'prepaid credit',
+      icon: Wallet,
+      href: '/integrations/telnyx',
+    },
+    {
+      label: 'ElevenLabs quota',
+      value: loading
+        ? '…'
+        : balances?.elevenlabs?.ok
+          ? `${balances.elevenlabs.characters_remaining?.toLocaleString()} chars`
+          : 'Not configured',
+      hint: balances?.elevenlabs?.tier || 'TTS',
+      icon: Sparkles,
+      tone: 'info',
+      href: '/integrations/elevenlabs',
+    },
+  ]
+
   return (
-    <div className='pageShell dashboardPage'>
-      <div className='pageTop'>
-        <div>
-          <h1>Cost vs revenue</h1>
-          <p>Telnyx call spend (last 30 days) compared with subscription volume. Full revenue lives in Billing → Reports.</p>
+    <div className="ds-scope space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-semibold leading-tight text-foreground">Cost vs revenue</h1>
+          <p className="text-[11px] leading-tight text-muted-foreground">
+            Telnyx call spend (last 30 days) compared with subscription volume. Full revenue lives in Billing → Reports.
+          </p>
         </div>
-        <div className='actions'>
-          <button type='button' className='btn soft' onClick={load} disabled={loading}>
-            <RefreshCw size={16} className='btnIconLeading' />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px]" onClick={load} disabled={loading}>
+            <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
             {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <Link to='/billing/calls-cost' className='btn soft'>
-            Call cost detail
-          </Link>
-          <Link to='/analytics/kpis' className='btn primary'>
-            Platform KPIs
-          </Link>
+          </Button>
+          <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+            <Link to="/billing/calls-cost">Call cost detail</Link>
+          </Button>
+          <Button asChild size="sm" className="h-7 text-[11px]">
+            <Link to="/analytics/kpis">Platform KPIs</Link>
+          </Button>
         </div>
       </div>
 
-      {error ? <div className='note dashboardErrorNote'>{error}</div> : null}
+      {error ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+          {error}
+        </div>
+      ) : null}
 
-      <div className='dashKpiGrid'>
-        {[
-          ['Telnyx spend (30d)', money(telnyxSpend, currency), `${summary.total_calls ?? 0} calls`, '/billing/calls-cost'],
-          ['Avg cost / call', money(summary.avg_cost, currency), 'AI voice assistant', '/billing/calls-cost'],
-          ['Active subscriptions', String(activeSubs), `${billing?.subscriptions_trial ?? 0} trial`, '/billing/subscriptions'],
-          ['Past due', String(billing?.subscriptions_past_due ?? 0), 'needs billing action', '/billing/subscriptions'],
-          ['Telnyx balance', balances?.telnyx?.ok ? money(balances.telnyx.amount, balances.telnyx.currency) : 'Not configured', 'prepaid credit', '/integrations/telnyx'],
-          ['ElevenLabs quota', balances?.elevenlabs?.ok ? `${balances.elevenlabs.characters_remaining?.toLocaleString()} chars` : 'Not configured', balances?.elevenlabs?.tier || 'TTS', '/integrations/elevenlabs'],
-        ].map(([label, value, sub, href]) => (
-          <Link key={label} to={href} className='dashKpiCard dashKpiCardLink'>
-            <span className='dashKpiLabel'>{label}</span>
-            <strong className='dashKpiValue'>{loading ? '…' : value}</strong>
-            <span className='dashKpiSub'>{sub}</span>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        {kpis.map((k, i) => (
+          <Link key={k.label} to={k.href} className="block no-underline">
+            <KpiCard
+              index={i}
+              icon={k.icon}
+              label={k.label}
+              value={k.value}
+              hint={k.hint}
+              tone={k.tone || 'primary'}
+              className="h-full"
+            />
           </Link>
         ))}
       </div>
 
-      <div className='card dashChartCard'>
-        <div className='cardHead'>
-          <h3>Cost vs subscription volume</h3>
-          <span className='muted' style={{ fontSize: 12 }}>
-            Revenue proxy = active paid subscriptions count (see Billing → Revenue reports for GBP totals).
-          </span>
-        </div>
-        <div className='cardBody dashboardChartBody dashboardChartBodyLg'>
-          <ResponsiveContainer width='100%' height='100%'>
+      <Panel
+        title="Cost vs subscription volume"
+        description="Revenue proxy = active paid subscriptions count (see Billing → Revenue reports for GBP totals)."
+      >
+        <div className="h-72 w-full">
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartRows}>
-              <CartesianGrid stroke='var(--line)' strokeDasharray='3 3' />
-              <XAxis dataKey='name' tick={{ fill: 'var(--muted)', fontSize: 11 }} />
-              <YAxis tick={{ fill: 'var(--muted)', fontSize: 11 }} />
+              <CartesianGrid stroke="oklch(0.9 0.012 85)" strokeDasharray="3 3" />
+              <XAxis dataKey="name" tick={{ fill: 'oklch(0.5 0.02 260)', fontSize: 11 }} />
+              <YAxis tick={{ fill: 'oklch(0.5 0.02 260)', fontSize: 11 }} />
               <Tooltip />
               <Legend />
-              <Bar dataKey='cost' name='Cost (USD)' fill='#f97316' radius={[8, 8, 0, 0]} />
-              <Bar dataKey='revenue' name='Active subs' fill='#0f766e' radius={[8, 8, 0, 0]} />
+              <Bar dataKey="cost" name="Cost (USD)" fill={FILL_COST} radius={[8, 8, 0, 0]} />
+              <Bar dataKey="revenue" name="Active subs" fill={FILL_REV} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </Panel>
     </div>
   )
 }

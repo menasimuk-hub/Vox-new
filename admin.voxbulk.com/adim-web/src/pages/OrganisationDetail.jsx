@@ -2,6 +2,22 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { orgStatusPill, subscriptionLabel } from '../lib/marketZone'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { Progress } from '@/components/ui/Progress'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 function fmtWhen(iso) {
   if (!iso) return '—'
@@ -13,18 +29,23 @@ function fmtWhen(iso) {
 function UsageMeter({ label, used, included, percent }) {
   const pct = Math.min(100, Number(percent || 0))
   return (
-    <div className='usageMeter'>
-      <div className='usageMeterHead'>
-        <span>{label}</span>
-        <span className='muted'>
+    <div className="space-y-1 rounded-lg border border-border bg-surface-muted/50 p-2.5">
+      <div className="flex items-center justify-between text-[12px]">
+        <span className="font-medium text-foreground">{label}</span>
+        <span className="tabular-nums text-muted-foreground">
           {used ?? 0} / {included ?? 0}
         </span>
       </div>
-      <div className='usageMeterTrack'>
-        <div className='usageMeterFill' style={{ width: `${pct}%` }} />
-      </div>
+      <Progress value={pct} className="h-1" />
     </div>
   )
+}
+
+const STATUS_PILL_TONE = {
+  'p-green': 'success',
+  'p-amber': 'warning',
+  'p-red': 'danger',
+  'p-cyan': 'info',
 }
 
 export default function OrganisationDetail() {
@@ -90,354 +111,319 @@ export default function OrganisationDetail() {
 
   if (!orgId) {
     return (
-      <div className='card'>
-        <div className='cardBody'>Missing organisation id.</div>
+      <div className="ds-scope rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+        Missing organisation id.
       </div>
     )
   }
 
   return (
-    <>
-      {loadError && (
-        <div className='card alertCard'>
-          <div className='cardBody alertText'>{loadError}</div>
+    <div className="ds-scope space-y-4">
+      {loadError ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {loadError}
         </div>
-      )}
+      ) : null}
 
-      <div className='pageTop'>
-        <div>
-          <div className='breadcrumb muted' style={{ marginBottom: 8, fontSize: 13 }}>
-            <Link to='/organisations'>Organisations</Link>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <div className="mb-1 text-[11px] text-muted-foreground">
+            <Link to="/organisations" className="hover:underline">
+              Organisations
+            </Link>
             {org?.market_zone ? (
               <>
                 {' '}
                 /{' '}
-                <Link to={`/organisations/zone/${org.market_zone}`}>{org.market_label || org.market_zone}</Link>
+                <Link to={`/organisations/zone/${org.market_zone}`} className="hover:underline">
+                  {org.market_label || org.market_zone}
+                </Link>
               </>
             ) : null}{' '}
             / {org?.name || '…'}
           </div>
-          <h1>{org?.name || 'Organisation'}</h1>
-          <p>
+          <h1 className="text-[15px] font-semibold leading-tight text-foreground">
+            {org?.name || 'Organisation'}
+          </h1>
+          <p className="text-[11px] leading-tight text-muted-foreground">
             {org?.market_label || '—'}
             {org?.city || org?.country ? ` · ${[org.city, org.country].filter(Boolean).join(', ')}` : ''}
           </p>
         </div>
-        <div className='actions'>
-          <button className='btn' type='button' disabled={busy} onClick={refresh}>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="h-8" disabled={busy} onClick={refresh}>
             {busy ? 'Loading…' : 'Refresh'}
-          </button>
-          <button className='btn soft' type='button' onClick={openProfile}>
+          </Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={openProfile}>
             Full profile
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div className='grid-4' style={{ marginBottom: 16 }}>
-        <div className='card stat'>
-          <div className='statValue'>{org?.user_count ?? '—'}</div>
-          <div className='muted'>Users</div>
-        </div>
-        <div className='card stat'>
-          <div className='statValue'>{org?.plan_name || org?.plan_code || '—'}</div>
-          <div className='muted'>{subscriptionLabel(org?.subscription_status)}</div>
-        </div>
-        <div className='card stat'>
-          <div className='statValue'>
-            <span className={`pill ${pill.cls}`}>{pill.text}</span>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <KpiCard label="Users" value={org?.user_count ?? '—'} index={0} />
+        <KpiCard
+          label={subscriptionLabel(org?.subscription_status)}
+          value={org?.plan_name || org?.plan_code || '—'}
+          tone="info"
+          index={1}
+        />
+        <div className="rounded-lg border border-border bg-card p-3.5 shadow-sm">
+          <div className="mt-1">
+            <Pill tone={STATUS_PILL_TONE[pill.cls] || 'neutral'}>{pill.text}</Pill>
           </div>
-          <div className='muted'>Account status</div>
+          <div className="mt-2 text-[11px] text-muted-foreground">Account status</div>
         </div>
-        <div className='card stat'>
-          <div className='statValue'>{org?.wallet_balance_display || '—'}</div>
-          <div className='muted'>Wallet balance</div>
-        </div>
+        <KpiCard label="Wallet balance" value={org?.wallet_balance_display || '—'} tone="success" index={3} />
       </div>
 
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardHead'>
-          <h3>Finance summary</h3>
-          {data?.subscription_finance?.cancel_at_period_end ? <span className='pill p-amber'>Cancel at period end</span> : null}
+      <Panel
+        title="Finance summary"
+        subtitle="Plan, next charge, and cancellation."
+        action={
+          data?.subscription_finance?.cancel_at_period_end ? (
+            <Pill tone="warning">Cancel at period end</Pill>
+          ) : null
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ['Plan', org?.plan_name || org?.plan_code || '—'],
+            [
+              'Next billing',
+              data?.subscription_finance?.next_billing_date
+                ? fmtWhen(data.subscription_finance.next_billing_date)
+                : '—',
+            ],
+            ['Next charge', data?.subscription_finance?.amount_next_payment_display || '—'],
+            [
+              'Cancellation',
+              data?.cancellation_preview?.status || data?.subscription_finance?.cancellation_status || 'none',
+            ],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-border bg-surface-muted/40 p-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+              <div className="mt-0.5 text-[13px] font-medium text-foreground">{value}</div>
+            </div>
+          ))}
         </div>
-        <div className='cardBody detailGrid'>
-          <div>
-            <span className='muted'>Plan</span>
-            <div>{org?.plan_name || org?.plan_code || '—'}</div>
-          </div>
-          <div>
-            <span className='muted'>Next billing</span>
-            <div>{data?.subscription_finance?.next_billing_date ? fmtWhen(data.subscription_finance.next_billing_date) : '—'}</div>
-          </div>
-          <div>
-            <span className='muted'>Next charge</span>
-            <div>{data?.subscription_finance?.amount_next_payment_display || '—'}</div>
-          </div>
-          <div>
-            <span className='muted'>Cancellation</span>
-            <div>{data?.cancellation_preview?.status || data?.subscription_finance?.cancellation_status || 'none'}</div>
-          </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={openProfile}>
+            Full profile (plan)
+          </Button>
+          <Button asChild size="sm" variant="outline" className="h-8">
+            <Link
+              to="/organisations/all-users"
+              onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}
+            >
+              Finance console
+            </Link>
+          </Button>
         </div>
-        <div className='cardBody' style={{ paddingTop: 0 }}>
-          <div className='actions' style={{ flexWrap: 'wrap' }}>
-            <button type='button' className='btn soft' onClick={openProfile}>Full profile (plan)</button>
-            <Link className='btn soft' to='/organisations/all-users' onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}>Finance console</Link>
-          </div>
-        </div>
-      </div>
+      </Panel>
 
-      <div className='grid-2' style={{ marginBottom: 16, alignItems: 'start' }}>
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>Contact & billing</h3>
-          </div>
-          <div className='cardBody detailGrid'>
-            <div>
-              <span className='muted'>Contact</span>
-              <div>{org?.contact_name || '—'}</div>
-            </div>
-            <div>
-              <span className='muted'>Email</span>
-              <div>{org?.contact_email || '—'}</div>
-            </div>
-            <div>
-              <span className='muted'>Phone</span>
-              <div>{org?.contact_phone || '—'}</div>
-            </div>
-            <div>
-              <span className='muted'>Created</span>
-              <div>{fmtWhen(org?.created_at)}</div>
-            </div>
-            <div>
-              <span className='muted'>Branches</span>
-              <div>{org?.branch_count ?? 0}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>Top up wallet</h3>
-          </div>
-          <div className='cardBody'>
-            <p className='muted' style={{ marginBottom: 12, fontSize: 14 }}>
-              Credit this organisation&apos;s prepaid wallet ({org?.currency_symbol || '£'} amounts stored as GBP pence
-              base).
-            </p>
-            <div className='filters' style={{ marginBottom: 12 }}>
-              <input
-                className='input'
-                type='number'
-                min='0'
-                step='0.01'
-                value={walletAmount}
-                onChange={(e) => setWalletAmount(e.target.value)}
-                placeholder='Amount'
-              />
-              <input
-                className='input'
-                value={walletNote}
-                onChange={(e) => setWalletNote(e.target.value)}
-                placeholder='Note (optional)'
-              />
-            </div>
-            <button className='btn primary' type='button' disabled={walletBusy} onClick={creditWallet}>
-              {walletBusy ? 'Crediting…' : 'Credit wallet'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardHead'>
-          <h3>Usage this period</h3>
-          {data?.usage?.period_start ? (
-            <span className='muted' style={{ fontSize: 13 }}>
-              {fmtWhen(data.usage.period_start)} → {fmtWhen(data.usage.period_end)}
-            </span>
-          ) : null}
-        </div>
-        <div className='cardBody'>
-          {!data?.usage && <p className='muted'>No usage record for the current billing period.</p>}
-          {data?.usage ? (
-            <div className='usageGrid'>
-              <UsageMeter label='Calls' {...data.usage.calls} />
-              <UsageMeter label='WhatsApp' {...data.usage.whatsapp} />
-              <UsageMeter label='SMS' {...data.usage.sms} />
-              <div className='usageMeter'>
-                <div className='usageMeterHead'>
-                  <span>Pack credits</span>
-                  <span className='muted'>
-                    {data.usage.pack_credits?.used ?? 0} / {data.usage.pack_credits?.included ?? 0}
-                  </span>
-                </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Panel title="Contact & billing" subtitle="Primary contact on the organisation.">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[
+              ['Contact', org?.contact_name || '—'],
+              ['Email', org?.contact_email || '—'],
+              ['Phone', org?.contact_phone || '—'],
+              ['Created', fmtWhen(org?.created_at)],
+              ['Branches', org?.branch_count ?? 0],
+            ].map(([label, value]) => (
+              <div key={label}>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+                <div className="text-[13px] text-foreground">{value}</div>
               </div>
-              {data.usage.estimated_overage_gbp != null ? (
-                <p className='muted' style={{ fontSize: 13 }}>
-                  Estimated overage: {org?.currency_symbol || '£'}
-                  {Number(data.usage.estimated_overage_gbp).toFixed(2)}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Top up wallet" subtitle={`Credit prepaid wallet (${org?.currency_symbol || '£'} as GBP pence).`}>
+          <div className="mb-3 flex flex-wrap gap-2">
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={walletAmount}
+              onChange={(e) => setWalletAmount(e.target.value)}
+              placeholder="Amount"
+              className="h-8 w-32"
+            />
+            <Input
+              value={walletNote}
+              onChange={(e) => setWalletNote(e.target.value)}
+              placeholder="Note (optional)"
+              className="h-8 min-w-[180px] flex-1"
+            />
+          </div>
+          <Button type="button" size="sm" className="h-8" disabled={walletBusy} onClick={creditWallet}>
+            {walletBusy ? 'Crediting…' : 'Credit wallet'}
+          </Button>
+        </Panel>
       </div>
 
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardHead'>
-          <h3>Running tasks</h3>
-          <span className='pill p-cyan'>{data?.running_orders?.length ?? 0}</span>
-        </div>
-        <div className='cardBody'>
-          <div className='tableWrap'>
-            <table className='table'>
-              <thead>
-                <tr>
-                  <th>Service</th>
-                  <th>Title</th>
-                  <th>Status</th>
-                  <th>Payment</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(data?.running_orders || []).map((o) => (
-                  <tr key={o.id}>
-                    <td>{o.service_code || '—'}</td>
-                    <td>{o.title || o.id}</td>
-                    <td>{o.status || '—'}</td>
-                    <td>{o.payment_status || '—'}</td>
-                    <td>{fmtWhen(o.updated_at || o.created_at)}</td>
-                  </tr>
+      <Panel
+        title="Usage this period"
+        subtitle={
+          data?.usage?.period_start
+            ? `${fmtWhen(data.usage.period_start)} → ${fmtWhen(data.usage.period_end)}`
+            : 'Current billing period meters.'
+        }
+      >
+        {!data?.usage ? (
+          <p className="text-[12px] text-muted-foreground">No usage record for the current billing period.</p>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <UsageMeter label="Calls" {...data.usage.calls} />
+            <UsageMeter label="WhatsApp" {...data.usage.whatsapp} />
+            <UsageMeter label="SMS" {...data.usage.sms} />
+            <div className="space-y-1 rounded-lg border border-border bg-surface-muted/50 p-2.5">
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="font-medium text-foreground">Pack credits</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {data.usage.pack_credits?.used ?? 0} / {data.usage.pack_credits?.included ?? 0}
+                </span>
+              </div>
+            </div>
+            {data.usage.estimated_overage_gbp != null ? (
+              <p className="col-span-full text-[12px] text-muted-foreground">
+                Estimated overage: {org?.currency_symbol || '£'}
+                {Number(data.usage.estimated_overage_gbp).toFixed(2)}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </Panel>
+
+      <Panel
+        title="Running tasks"
+        subtitle="Draft and in-progress service orders."
+        action={<Pill tone="info">{data?.running_orders?.length ?? 0}</Pill>}
+      >
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Service</TableHead>
+              <TableHead>Title</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Payment</TableHead>
+              <TableHead>Updated</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!data && <TableLoading colSpan={5} />}
+            {data &&
+              (data.running_orders || []).map((o) => (
+                <TableRow key={o.id}>
+                  <TableCell>{o.service_code || '—'}</TableCell>
+                  <TableCell>{o.title || o.id}</TableCell>
+                  <TableCell>{o.status || '—'}</TableCell>
+                  <TableCell>{o.payment_status || '—'}</TableCell>
+                  <TableCell className="text-muted-foreground">{fmtWhen(o.updated_at || o.created_at)}</TableCell>
+                </TableRow>
+              ))}
+            {data && (!data.running_orders || data.running_orders.length === 0) && (
+              <TableEmpty colSpan={5}>No running or draft tasks.</TableEmpty>
+            )}
+          </TableBody>
+        </StripeTable>
+      </Panel>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Panel title="Users" action={<Pill tone="info">{data?.users?.length ?? 0}</Pill>}>
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!data && <TableLoading colSpan={3} />}
+              {data &&
+                (data.users || []).map((u) => (
+                  <TableRow key={u.user_id}>
+                    <TableCell>{u.email}</TableCell>
+                    <TableCell>{u.role || '—'}</TableCell>
+                    <TableCell>{u.is_active ? 'Active' : 'Blocked'}</TableCell>
+                  </TableRow>
                 ))}
-                {data && (!data.running_orders || data.running_orders.length === 0) && (
-                  <tr>
-                    <td colSpan={5}>No running or draft tasks.</td>
-                  </tr>
-                )}
-                {!data && (
-                  <tr>
-                    <td colSpan={5}>Loading…</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+              {data && (!data.users || data.users.length === 0) && (
+                <TableEmpty colSpan={3}>No users linked.</TableEmpty>
+              )}
+            </TableBody>
+          </StripeTable>
+        </Panel>
 
-      <div className='grid-2' style={{ alignItems: 'start' }}>
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>Users</h3>
-            <span className='pill p-cyan'>{data?.users?.length ?? 0}</span>
-          </div>
-          <div className='cardBody'>
-            <div className='tableWrap'>
-              <table className='table'>
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data?.users || []).map((u) => (
-                    <tr key={u.user_id}>
-                      <td>{u.email}</td>
-                      <td>{u.role || '—'}</td>
-                      <td>{u.is_active ? 'Active' : 'Blocked'}</td>
-                    </tr>
-                  ))}
-                  {data && (!data.users || data.users.length === 0) && (
-                    <tr>
-                      <td colSpan={3}>No users linked.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>Invoices</h3>
-            <span className='pill p-cyan'>{data?.invoices?.length ?? 0}</span>
-          </div>
-          <div className='cardBody'>
-            <div className='tableWrap'>
-              <table className='table'>
-                <thead>
-                  <tr>
-                    <th>Number</th>
-                    <th>Status</th>
-                    <th>Total</th>
-                    <th>Date</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data?.invoices || []).map((inv) => (
-                    <tr key={inv.id}>
-                      <td>{inv.invoice_number || inv.id}</td>
-                      <td>{inv.status || '—'}</td>
-                      <td>{inv.total_display || inv.total_gbp || '—'}</td>
-                      <td>{fmtWhen(inv.created_at)}</td>
-                      <td>
-                        <Link
-                          className='btn soft xs'
-                          to='/organisations/all-users'
-                          onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}
-                        >
-                          In OCC
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                  {data && (!data.invoices || data.invoices.length === 0) && (
-                    <tr>
-                      <td colSpan={5}>No invoices yet.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <Panel title="Invoices" action={<Pill tone="info">{data?.invoices?.length ?? 0}</Pill>}>
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Number</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Total</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead className="text-right" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!data && <TableLoading colSpan={5} />}
+              {data &&
+                (data.invoices || []).map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell>{inv.invoice_number || inv.id}</TableCell>
+                    <TableCell>{inv.status || '—'}</TableCell>
+                    <TableCell>{inv.total_display || inv.total_gbp || '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{fmtWhen(inv.created_at)}</TableCell>
+                    <TableCell>
+                      <div className="flex justify-end">
+                        <Button asChild size="sm" variant="outline" className="h-7">
+                          <Link
+                            to="/organisations/all-users"
+                            onClick={() => localStorage.setItem('voxbulk_admin_selected_org_id', orgId)}
+                          >
+                            In OCC
+                          </Link>
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              {data && (!data.invoices || data.invoices.length === 0) && (
+                <TableEmpty colSpan={5}>No invoices yet.</TableEmpty>
+              )}
+            </TableBody>
+          </StripeTable>
+        </Panel>
       </div>
 
       {data?.recent_orders?.length > 0 ? (
-        <div className='card' style={{ marginTop: 16 }}>
-          <div className='cardHead'>
-            <h3>Recent service orders</h3>
-          </div>
-          <div className='cardBody'>
-            <div className='tableWrap'>
-              <table className='table'>
-                <thead>
-                  <tr>
-                    <th>Service</th>
-                    <th>Title</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recent_orders.map((o) => (
-                    <tr key={o.id}>
-                      <td>{o.service_code}</td>
-                      <td>{o.title || o.id}</td>
-                      <td>{o.status}</td>
-                      <td>{fmtWhen(o.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <Panel title="Recent service orders" subtitle="Latest orders for this organisation.">
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Service</TableHead>
+                <TableHead>Title</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.recent_orders.map((o) => (
+                <TableRow key={o.id}>
+                  <TableCell>{o.service_code}</TableCell>
+                  <TableCell>{o.title || o.id}</TableCell>
+                  <TableCell>{o.status}</TableCell>
+                  <TableCell className="text-muted-foreground">{fmtWhen(o.created_at)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </StripeTable>
+        </Panel>
       ) : null}
-    </>
+    </div>
   )
 }
