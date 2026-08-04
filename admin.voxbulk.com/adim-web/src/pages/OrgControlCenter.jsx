@@ -5,8 +5,26 @@ import { apiFetch } from '../lib/api'
 import { adminOrderViewPath, filterOrdersByWorkflow, interviewFormatLabel, nextColumnSort, orderMatchesSearch, sortRowsByColumn, ORDER_PAYMENT_HELP } from '../lib/serviceOrderAdmin'
 import { currencySymbol } from '../lib/billingAdminUtils'
 import { Button } from '@/components/ui/Button'
-import { Panel } from '@/components/ui/Card'
+import { Panel, Card } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
+import { Modal } from '@/components/ui/Modal'
+import { Progress } from '@/components/ui/Progress'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 import PlanPickerSelect from '@/components/billing/PlanPickerSelect'
 import './orgControlCenter.css'
 
@@ -74,23 +92,23 @@ function barClass(pct) {
 
 function statusBadge(status) {
   const s = String(status || '').toLowerCase()
-  const map = {
-    active: 'occ-badge-green',
-    frozen: 'occ-badge-red',
-    paused: 'occ-badge-amber',
-    running: 'occ-badge-blue',
-    scheduled: 'occ-badge-amber',
-    paid: 'occ-badge-green',
-    due: 'occ-badge-amber',
-    overdue: 'occ-badge-red',
-    completed: 'occ-badge-gray',
-    draft: 'occ-badge-gray',
-    cancelled: 'occ-badge-gray',
-    approved: 'occ-badge-green',
-    unpaid: 'occ-badge-amber',
-    rejected: 'occ-badge-red',
+  const toneMap = {
+    active: 'success',
+    frozen: 'danger',
+    paused: 'warning',
+    running: 'info',
+    scheduled: 'warning',
+    paid: 'success',
+    due: 'warning',
+    overdue: 'danger',
+    completed: 'neutral',
+    draft: 'neutral',
+    cancelled: 'neutral',
+    approved: 'success',
+    unpaid: 'warning',
+    rejected: 'danger',
   }
-  return <span className={`occ-badge ${map[s] || 'occ-badge-gray'}`}>{s || '—'}</span>
+  return <Pill tone={toneMap[s] || 'neutral'}>{s || '—'}</Pill>
 }
 
 function resolveInvoiceLifecycle(inv) {
@@ -140,9 +158,9 @@ function pctUsed(used, included) {
 
 function OccInfoBlock({ title, action, children }) {
   return (
-    <div className="occ-info-block">
-      <div className="occ-info-block-head">
-        <div className="occ-info-block-title">{title}</div>
+    <div className="rounded-lg border border-border bg-surface-muted/30 p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
         {action || null}
       </div>
       {children}
@@ -152,9 +170,9 @@ function OccInfoBlock({ title, action, children }) {
 
 function OccInfoRow({ label, value }) {
   return (
-    <div className="occ-info-row">
-      <span className="occ-info-row-label">{label}</span>
-      <span className="occ-info-row-value">{value}</span>
+    <div className="flex justify-between gap-3 border-b border-border/60 py-1.5 text-[12px] last:border-0">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="text-right font-mono text-[12px] text-foreground">{value}</span>
     </div>
   )
 }
@@ -175,7 +193,7 @@ function ToastStack({ toasts }) {
 function KpiCards({ org }) {
   if (!org) {
     return (
-      <div className="occ-kpi-placeholder">
+      <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-sm text-muted-foreground">
         <p>Select an organisation from the table below to view KPIs and details.</p>
       </div>
     )
@@ -192,112 +210,114 @@ function KpiCards({ org }) {
       : 0
   const walletLow = Number(org.wallet_pence || 0) < 5000
   const estimateLabel = org.estimate_label || (org.estimate_source === 'wallet' ? 'Estimated from wallet' : org.estimate_source === 'package' ? 'Estimated from plan' : '')
+  
+  const barTone = (pct) => {
+    const p = Number(pct || 0)
+    if (p >= 90) return 'danger'
+    if (p >= 70) return 'warning'
+    return 'success'
+  }
 
   return (
-    <div className="occ-kpi-grid">
-      <div className="occ-kpi-card" style={walletLow ? { borderColor: 'var(--occ-red-border)', background: 'var(--occ-red-bg)' } : undefined}>
-        <div className="occ-kpi-card-label">Wallet balance</div>
-        <div className="occ-kpi-card-value" style={walletLow ? { color: 'var(--occ-red)' } : undefined}>
-          {org.wallet_display || fmtMoneyPence(org.wallet_pence)}
-        </div>
-        <div className="occ-kpi-card-sub">{org.payment_method || '—'}</div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">C.P plan</div>
-        <div className="occ-kpi-card-value large">{org.core_plan || org.plan || '—'}</div>
-        <div className="occ-kpi-card-sub">{org.core_subscription_status || org.subscription_status || '—'}</div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">F.B plan</div>
-        <div className="occ-kpi-card-value large">{org.feedback_plan || '—'}</div>
-        <div className="occ-kpi-card-sub">{org.feedback_subscription_status || '—'}</div>
-      </div>
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(152px,1fr))] gap-2.5">
+      <KpiCard
+        label="Wallet balance"
+        value={org.wallet_display || fmtMoneyPence(org.wallet_pence)}
+        subtitle={org.payment_method || '—'}
+        tone={walletLow ? 'danger' : undefined}
+        mono
+      />
+      <KpiCard
+        label="C.P plan"
+        value={org.core_plan || org.plan || '—'}
+        subtitle={org.core_subscription_status || org.subscription_status || '—'}
+        large
+      />
+      <KpiCard
+        label="F.B plan"
+        value={org.feedback_plan || '—'}
+        subtitle={org.feedback_subscription_status || '—'}
+        large
+      />
       {sharedPool ? (
-        <div className="occ-kpi-card" style={{ borderColor: 'var(--occ-blue-border, #bfdbfe)', background: 'var(--occ-blue-bg, #eff6ff)' }}>
-          <div className="occ-kpi-card-label">Package remaining</div>
-          <div className="occ-kpi-card-value">{org.package_remaining_display || fmtMoneyPence(org.package_remaining_pence, org)}</div>
-          <div className="occ-kpi-card-sub">
-            {org.package_used_display || fmtMoneyPence(org.package_used_pence, org)} used of{' '}
-            {org.package_included_display || fmtMoneyPence(org.package_included_pence, org)}
-          </div>
-          <div className="occ-kpi-card-bar">
-            <div className={`occ-kpi-card-bar-fill ${barClass(pkgPct)}`} style={{ width: `${pkgPct}%` }} />
-          </div>
-        </div>
+        <KpiCard
+          label="Package remaining"
+          value={org.package_remaining_display || fmtMoneyPence(org.package_remaining_pence, org)}
+          subtitle={`${org.package_used_display || fmtMoneyPence(org.package_used_pence, org)} used of ${org.package_included_display || fmtMoneyPence(org.package_included_pence, org)}`}
+          progress={pkgPct}
+          progressTone={barTone(pkgPct)}
+          tone="info"
+          mono
+        />
       ) : (
         <>
-          <div className="occ-kpi-card">
-            <div className="occ-kpi-card-label">AI calls remaining</div>
-            <div className="occ-kpi-card-value">{fmtN(org.calls_remaining)}</div>
-            <div className="occ-kpi-card-sub">
-              {fmtN(org.calls_used)} of {fmtN(org.calls_included)} used
-            </div>
-            <div className="occ-kpi-card-bar">
-              <div className={`occ-kpi-card-bar-fill ${barClass(callPct)}`} style={{ width: `${callPct}%` }} />
-            </div>
-          </div>
-          <div className="occ-kpi-card">
-            <div className="occ-kpi-card-label">WhatsApp remaining</div>
-            <div className="occ-kpi-card-value">{fmtN(org.wa_remaining)}</div>
-            <div className="occ-kpi-card-sub">
-              {fmtN(org.wa_used)} of {fmtN(org.wa_included)} used
-            </div>
-            <div className="occ-kpi-card-bar">
-              <div className={`occ-kpi-card-bar-fill ${barClass(waPct)}`} style={{ width: `${waPct}%` }} />
-            </div>
-          </div>
+          <KpiCard
+            label="AI calls remaining"
+            value={fmtN(org.calls_remaining)}
+            subtitle={`${fmtN(org.calls_used)} of ${fmtN(org.calls_included)} used`}
+            progress={callPct}
+            progressTone={barTone(callPct)}
+            mono
+          />
+          <KpiCard
+            label="WhatsApp remaining"
+            value={fmtN(org.wa_remaining)}
+            subtitle={`${fmtN(org.wa_used)} of ${fmtN(org.wa_included)} used`}
+            progress={waPct}
+            progressTone={barTone(waPct)}
+            mono
+          />
         </>
       )}
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">Est. WA surveys left</div>
-        <div className="occ-kpi-card-value">{fmtN(org.estimated_wa_surveys)}</div>
-        <div className="occ-kpi-card-sub">{estimateLabel || 'Approximate capacity only'}</div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">Est. AI minutes left</div>
-        <div className="occ-kpi-card-value">{fmtN(org.estimated_ai_minutes)}</div>
-        <div className="occ-kpi-card-sub">{estimateLabel || 'Approximate capacity only'}</div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">SMS remaining</div>
-        <div className="occ-kpi-card-value">{fmtN(org.sms_remaining)}</div>
-        <div className="occ-kpi-card-sub">
-          {fmtN(org.sms_used)} of {fmtN(org.sms_included)} used
-        </div>
-        <div className="occ-kpi-card-bar">
-          <div className={`occ-kpi-card-bar-fill ${barClass(smsPct)}`} style={{ width: `${smsPct}%` }} />
-        </div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">Survey credits</div>
-        <div className="occ-kpi-card-value">{fmtN(org.survey_credits)}</div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">Interview credits</div>
-        <div className="occ-kpi-card-value">{fmtN(org.interview_credits)}</div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">Billing period</div>
-        <div className="occ-kpi-card-value large">{org.billing_start || '—'}</div>
-        <div className="occ-kpi-card-sub">ends {org.billing_end || '—'}</div>
-      </div>
-      <div
-        className="occ-kpi-card"
-        style={org.overage_risk ? { borderColor: 'var(--occ-amber-border)', background: 'var(--occ-amber-bg)' } : undefined}
-      >
-        <div className="occ-kpi-card-label">Overage risk</div>
-        <div className="occ-kpi-card-value large" style={{ color: org.overage_risk ? 'var(--occ-amber)' : 'var(--occ-green)' }}>
-          {org.overage_risk ? 'At risk' : 'Normal'}
-        </div>
-        <div className="occ-kpi-card-sub">{org.usage_pct ?? 0}% overall usage</div>
-      </div>
-      <div className="occ-kpi-card">
-        <div className="occ-kpi-card-label">Payment status</div>
-        <div className="occ-kpi-card-value large">{statusBadge(org.payment_status)}</div>
-        <div className="occ-kpi-card-sub">
-          {org.open_invoices ?? org.invoices ?? 0} open invoice(s)
-        </div>
-      </div>
+      <KpiCard
+        label="Est. WA surveys left"
+        value={fmtN(org.estimated_wa_surveys)}
+        subtitle={estimateLabel || 'Approximate capacity only'}
+        mono
+      />
+      <KpiCard
+        label="Est. AI minutes left"
+        value={fmtN(org.estimated_ai_minutes)}
+        subtitle={estimateLabel || 'Approximate capacity only'}
+        mono
+      />
+      <KpiCard
+        label="SMS remaining"
+        value={fmtN(org.sms_remaining)}
+        subtitle={`${fmtN(org.sms_used)} of ${fmtN(org.sms_included)} used`}
+        progress={smsPct}
+        progressTone={barTone(smsPct)}
+        mono
+      />
+      <KpiCard
+        label="Survey credits"
+        value={fmtN(org.survey_credits)}
+        mono
+      />
+      <KpiCard
+        label="Interview credits"
+        value={fmtN(org.interview_credits)}
+        mono
+      />
+      <KpiCard
+        label="Billing period"
+        value={org.billing_start || '—'}
+        subtitle={`ends ${org.billing_end || '—'}`}
+        large
+      />
+      <KpiCard
+        label="Overage risk"
+        value={org.overage_risk ? 'At risk' : 'Normal'}
+        subtitle={`${org.usage_pct ?? 0}% overall usage`}
+        tone={org.overage_risk ? 'warning' : 'success'}
+        large
+      />
+      <KpiCard
+        label="Payment status"
+        value={statusBadge(org.payment_status)}
+        subtitle={`${org.open_invoices ?? org.invoices ?? 0} open invoice(s)`}
+        large
+      />
     </div>
   )
 }
@@ -1323,7 +1343,7 @@ export default function OrgControlCenter() {
   }
 
   return (
-    <div className="occ ds-scope">
+    <div className="ds-scope mx-auto max-w-[1440px] space-y-4 px-1 pb-12 text-sm leading-relaxed">
       <ToastStack toasts={toasts} />
 
       {error ? (
@@ -1335,23 +1355,24 @@ export default function OrgControlCenter() {
         </Panel>
       ) : null}
 
-      <div className="occ-page-header">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4 pt-5">
         <div>
-          <div className="occ-page-title">Organisation Control Center</div>
-          <div className="occ-page-sub">Internal support console · billing, usage, orders &amp; campaigns</div>
+          <div className="text-[21px] font-semibold tracking-tight">Organisation Control Center</div>
+          <div className="mt-0.5 text-[13px] text-muted-foreground">Internal support console · billing, usage, orders &amp; campaigns</div>
         </div>
-        <button type="button" className="occ-btn" onClick={refreshAll} disabled={loading}>
+        <Button type="button" variant="outline" size="sm" onClick={refreshAll} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
-        </button>
+        </Button>
       </div>
 
       {!routeOrgId ? (
-      <div className="occ-search-bar">
-        <div className="occ-search-inner">
-          <div className="occ-search-input-wrap">
-            <i className="ti ti-search" aria-hidden="true" />
-            <input
+      <div className="rounded-lg border border-border bg-card p-3.5 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="relative min-w-[240px] flex-1">
+            <i className="ti ti-search pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input
               type="text"
+              className="h-9 pl-8 text-[13px]"
               placeholder="Search by org name, ID, email, invoice #…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1360,19 +1381,19 @@ export default function OrgControlCenter() {
               }}
             />
           </div>
-          <select className="occ-filter-sel" value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
+          <select className="h-9 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-muted-foreground shadow-sm" value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
             {COUNTRY_OPTIONS.map((c) => (
               <option key={c.value || 'all'} value={c.value}>
                 {c.label}
               </option>
             ))}
           </select>
-          <select className="occ-filter-sel" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <select className="h-9 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-muted-foreground shadow-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="">All statuses</option>
             <option value="active">Active</option>
             <option value="frozen">Frozen</option>
           </select>
-          <select className="occ-filter-sel" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
+          <select className="h-9 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-muted-foreground shadow-sm" value={planFilter} onChange={(e) => setPlanFilter(e.target.value)}>
             <option value="">All plans</option>
             {plans.map((p) => (
               <option key={p.code || p.id} value={p.code}>
@@ -1380,27 +1401,30 @@ export default function OrgControlCenter() {
               </option>
             ))}
           </select>
-          <select className="occ-filter-sel" value={payFilter} onChange={(e) => setPayFilter(e.target.value)}>
+          <select className="h-9 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-muted-foreground shadow-sm" value={payFilter} onChange={(e) => setPayFilter(e.target.value)}>
             <option value="">All payments</option>
             <option value="paid">Paid</option>
             <option value="due">Due</option>
             <option value="overdue">Overdue</option>
           </select>
-          <button type="button" className="occ-btn primary" onClick={loadList}>
+          <Button type="button" size="sm" onClick={loadList}>
             Apply
-          </button>
-          <div className="occ-chip-wrap">
+          </Button>
+          <div className="flex flex-wrap gap-1.5">
             {CHIP_KEYS.map(({ key, label }) => (
-              <span
+              <button
                 key={key}
-                className={`occ-chip ${chips.has(key) ? 'active' : ''}`}
+                type="button"
+                className={[
+                  'rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors select-none',
+                  chips.has(key)
+                    ? 'border-foreground bg-foreground text-background'
+                    : 'border-input bg-card text-muted-foreground hover:bg-secondary',
+                ].join(' ')}
                 onClick={() => toggleChip(key)}
-                onKeyDown={() => {}}
-                role="button"
-                tabIndex={0}
               >
                 {label}
-              </span>
+              </button>
             ))}
           </div>
         </div>
@@ -1408,9 +1432,9 @@ export default function OrgControlCenter() {
       ) : null}
 
       {!routeOrgId ? (
-        <div className="occ-kpi-section">
-          <div className="occ-section-eyebrow">KPI overview</div>
-          <div className="ds-scope grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="border-b border-border pb-4">
+          <div className="mb-3.5 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">KPI overview</div>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
             <KpiCard icon={Building2} label="Total organisations" value={aggregateKpis.total} tone="primary" index={0} />
             <KpiCard icon={CircleCheck} label="Active" value={aggregateKpis.active} tone="success" index={1} />
             <KpiCard icon={Snowflake} label="Frozen" value={aggregateKpis.frozen} tone="info" index={2} />
@@ -1422,209 +1446,200 @@ export default function OrgControlCenter() {
       ) : null}
 
       {!routeOrgId ? (
-      <div className="occ-table-section">
-        <div className="occ-section-header">
-          <div className="occ-section-title">
-            Organisations <span className="muted">({filteredItems.length})</span>
+      <div className="pt-5">
+        <div className="mb-3.5 flex items-center justify-between">
+          <div className="text-[13px] font-semibold">
+            Organisations <span className="text-muted-foreground">({filteredItems.length})</span>
           </div>
-          <button type="button" className="occ-btn" onClick={exportCsv}>
+          <Button type="button" variant="outline" size="sm" onClick={exportCsv}>
             Export CSV
-          </button>
+          </Button>
         </div>
-        <div className="occ-table-wrap">
-          <table className="occ-data-table">
-            <thead>
-              <tr>
-                <th onClick={() => sortTable('id')}>ID</th>
-                <th onClick={() => sortTable('name')}>Organisation</th>
-                <th>Country</th>
-                <th>Status</th>
-                <th onClick={() => sortTable('plan')}>Plan</th>
-                <th onClick={() => sortTable('wallet')}>Wallet</th>
-                <th>Package rem.</th>
-                <th>Est. WA</th>
-                <th>Est. AI</th>
-                <th onClick={() => sortTable('usage_pct')}>Usage</th>
-                <th>Payment</th>
-                <th>Campaigns</th>
-                <th>Invoices</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="overflow-auto rounded-xl border border-border bg-card shadow-sm">
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="cursor-pointer select-none" onClick={() => sortTable('id')}>ID</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => sortTable('name')}>Organisation</TableHead>
+                <TableHead>Country</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => sortTable('plan')}>Plan</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => sortTable('wallet')}>Wallet</TableHead>
+                <TableHead>Package rem.</TableHead>
+                <TableHead>Est. WA</TableHead>
+                <TableHead>Est. AI</TableHead>
+                <TableHead className="cursor-pointer select-none" onClick={() => sortTable('usage_pct')}>Usage</TableHead>
+                <TableHead>Payment</TableHead>
+                <TableHead>Campaigns</TableHead>
+                <TableHead>Invoices</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {!filteredItems.length ? (
-                <tr>
-                  <td colSpan={14}>
-                    <div className="occ-empty-state">No organisations match your filters.</div>
-                  </td>
-                </tr>
+                <TableEmpty colSpan={14}>No organisations match your filters.</TableEmpty>
               ) : (
                 filteredItems.map((o) => {
                   const selected = selectedId === o.id
                   const pkgRem = o.shared_package_pool
                     ? o.package_remaining_display || fmtMoneyPence(o.package_remaining_pence, o)
                     : '—'
+                  const usagePct = o.usage_pct ?? 0
+                  const progressTone = usagePct >= 90 ? 'danger' : usagePct >= 70 ? 'warning' : 'success'
                   return (
-                    <tr key={o.id} className={selected ? 'selected' : ''} onClick={() => selectOrg(o.id)}>
-                      <td className="occ-mono">{o.id.slice(0, 8)}…</td>
-                      <td>
-                        <div style={{ fontWeight: 500 }}>{o.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--occ-text3)' }}>{o.contact_email || o.market_label || '—'}</div>
-                      </td>
-                      <td>{o.market_label || o.country || '—'}</td>
-                      <td>{statusBadge(o.status)}</td>
-                      <td>
-                        <span className="occ-badge occ-badge-gray">{o.plan || '—'}</span>
-                      </td>
-                      <td className="occ-mono">{o.wallet_display || fmtMoneyPence(o.wallet_pence)}</td>
-                      <td className="occ-mono">{pkgRem}</td>
-                      <td className="occ-mono">{fmtN(o.estimated_wa_surveys)}</td>
-                      <td className="occ-mono">{fmtN(o.estimated_ai_minutes)}</td>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                          <div className="occ-usage-bar">
-                            <div className={`occ-usage-bar-fill ${barClass(o.usage_pct)}`} style={{ width: `${o.usage_pct || 0}%` }} />
-                          </div>
-                          <span className="occ-mono" style={{ fontSize: 11 }}>
-                            {o.usage_pct || 0}%
-                          </span>
+                    <TableRow key={o.id} data-selected={selected} className={selected ? 'bg-info-soft' : 'cursor-pointer'} onClick={() => selectOrg(o.id)}>
+                      <TableCell className="font-mono text-[12px]">{o.id.slice(0, 8)}…</TableCell>
+                      <TableCell>
+                        <div className="font-medium">{o.name}</div>
+                        <div className="text-[11px] text-muted-foreground">{o.contact_email || o.market_label || '—'}</div>
+                      </TableCell>
+                      <TableCell>{o.market_label || o.country || '—'}</TableCell>
+                      <TableCell>{statusBadge(o.status)}</TableCell>
+                      <TableCell>
+                        <Pill tone="neutral">{o.plan || '—'}</Pill>
+                      </TableCell>
+                      <TableCell className="font-mono text-[12px]">{o.wallet_display || fmtMoneyPence(o.wallet_pence)}</TableCell>
+                      <TableCell className="font-mono text-[12px]">{pkgRem}</TableCell>
+                      <TableCell className="font-mono text-[12px]">{fmtN(o.estimated_wa_surveys)}</TableCell>
+                      <TableCell className="font-mono text-[12px]">{fmtN(o.estimated_ai_minutes)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5">
+                          <Progress value={usagePct} tone={progressTone} className="h-1 w-16" />
+                          <span className="text-[11px]">{usagePct}%</span>
                         </div>
-                      </td>
-                      <td>{statusBadge(o.payment_status)}</td>
-                      <td className="occ-mono">{o.campaigns || 0}</td>
-                      <td className="occ-mono">{o.invoices || 0}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <div className="occ-row-actions">
-                          <button type="button" className="occ-btn-xs primary" onClick={() => selectOrg(o.id)}>
+                      </TableCell>
+                      <TableCell>{statusBadge(o.payment_status)}</TableCell>
+                      <TableCell className="font-mono text-[12px]">{o.campaigns || 0}</TableCell>
+                      <TableCell className="font-mono text-[12px]">{o.invoices || 0}</TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <div className="flex gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-[11px]"
+                            onClick={() => selectOrg(o.id)}
+                          >
                             View
-                          </button>
-                          <button
-                            type="button"
-                            className={`occ-btn-xs ${o.status === 'frozen' ? 'success' : 'danger'}`}
+                          </Button>
+                          <Button
+                            variant={o.status === 'frozen' ? 'outline' : 'destructive'}
+                            size="sm"
+                            className="h-7 px-2 text-[11px]"
                             disabled={actionBusy === o.id}
                             onClick={() => setSuspended(o.id, o.status !== 'frozen')}
                           >
                             {o.status === 'frozen' ? 'Unfreeze' : 'Freeze'}
-                          </button>
+                          </Button>
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )
                 })
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </StripeTable>
         </div>
       </div>
       ) : null}
 
       {routeOrgId ? (
-        <div className="occ-detail-panel" id="occ-detail-panel">
-          <div className="ds-scope" style={{ marginBottom: 12 }}>
-            <button
+        <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm" id="occ-detail-panel">
+          <div className="p-5 pb-3">
+            <Button
               type="button"
-              className="occ-btn"
+              variant="outline"
+              size="sm"
               onClick={() => navigate('/organisations/all-users')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              className="mb-3"
             >
-              <ArrowLeft size={15} /> Back to all users
-            </button>
+              <ArrowLeft size={15} className="mr-1.5" /> Back to all users
+            </Button>
           </div>
-          <div className="occ-detail-header">
-            <div className="occ-detail-org-row">
+          <div className="border-b border-border px-6 pb-4">
+            <div className="flex flex-wrap items-start justify-between gap-3.5">
               <div>
-                <div className="occ-detail-org-name">{org?.name || '…'}</div>
-                <div className="occ-detail-org-meta">
-                  <span className="occ-detail-org-id">{selectedId}</span>
+                <div className="text-[18px] font-semibold">{org?.name || '…'}</div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
+                  <span className="font-mono text-[12px] text-muted-foreground">{selectedId}</span>
                   {statusBadge(org?.status)}
-                  <span className="occ-badge occ-badge-gray">C.P {org?.core_plan || org?.plan || '—'}</span>
-                  <span className="occ-badge occ-badge-gray">F.B {org?.feedback_plan || '—'}</span>
-                  {org?.market_label ? <span className="muted">{org.market_label}</span> : null}
+                  <Pill tone="neutral">C.P {org?.core_plan || org?.plan || '—'}</Pill>
+                  <Pill tone="neutral">F.B {org?.feedback_plan || '—'}</Pill>
+                  {org?.market_label ? <span className="text-muted-foreground">{org.market_label}</span> : null}
                   {org?.billing_currency ? (
-                    <span className="occ-badge occ-badge-gray">{org.billing_currency}</span>
+                    <Pill tone="neutral">{org.billing_currency}</Pill>
                   ) : null}
                 </div>
               </div>
-              <div className="occ-detail-actions">
-                <button type="button" className="occ-btn" onClick={() => openModal('funds')}>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => openModal('funds')}>
                   Add funds
-                </button>
-                <button type="button" className="occ-btn" onClick={() => openModal('package')}>
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => openModal('package')}>
                   Change C.P plan
-                </button>
-                <button type="button" className="occ-btn" onClick={() => openModal('promo')}>
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => openModal('promo')}>
                   Apply promo
-                </button>
-                <button type="button" className="occ-btn" onClick={() => openModal('feedbackPackage')}>
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => openModal('feedbackPackage')}>
                   Change F.B plan
-                </button>
-                <button type="button" className="occ-btn" onClick={() => openModal('invoice')}>
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => openModal('invoice')}>
                   Invoice
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
-                  className={`occ-btn ${org?.status === 'frozen' ? 'success' : 'danger'}`}
+                  variant={org?.status === 'frozen' ? 'outline' : 'destructive'}
+                  size="sm"
                   onClick={() => (org?.status === 'frozen' ? setSuspended(selectedId, false) : openModal('freeze'))}
                 >
                   {org?.status === 'frozen' ? 'Unfreeze account' : 'Freeze account'}
-                </button>
-                <Link className="occ-btn" to={`/organisations/${encodeURIComponent(selectedId)}`}>
-                  Full profile
-                </Link>
-                <button
+                </Button>
+                <Button asChild variant="outline" size="sm">
+                  <Link to={`/organisations/${encodeURIComponent(selectedId)}`}>Full profile</Link>
+                </Button>
+                <Button
                   type="button"
-                  className="occ-btn danger"
+                  variant="destructive"
+                  size="sm"
                   disabled={actionBusy === 'hardDeleteUser'}
                   onClick={() => void hardDeleteAnyUser()}
                 >
                   {actionBusy === 'hardDeleteUser' ? 'Deleting…' : 'Hard delete user (TEST)'}
-                </button>
+                </Button>
                 {org?.deletion_status === 'pending' && deletionRequest ? (
-                  <button type="button" className="occ-btn danger" onClick={() => openModal('completeDeletion')}>
+                  <Button type="button" variant="destructive" size="sm" onClick={() => openModal('completeDeletion')}>
                     Complete account deletion
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             </div>
             {org?.deletion_status === 'pending' && deletionRequest ? (
-              <div
-                style={{
-                  margin: '0 0 12px',
-                  padding: '12px 16px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(220,38,38,0.35)',
-                  background: 'rgba(220,38,38,0.06)',
-                  fontSize: 13,
-                }}
-              >
-                <strong style={{ color: 'var(--occ-red)' }}>Pending account deletion</strong>
-                <div className="muted" style={{ marginTop: 4 }}>
+              <div className="mx-0 mb-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-[13px]">
+                <strong className="text-destructive">Pending account deletion</strong>
+                <div className="mt-1 text-muted-foreground">
                   Requested by {deletionRequest.requested_by_email || '—'}
                   {deletionRequest.requested_at ? ` · ${fmtWhen(deletionRequest.requested_at)}` : ''}
                 </div>
               </div>
             ) : null}
-            <div className="occ-tabs">
-              {TABS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={`occ-tab-btn ${activeTab === t.id ? 'active' : ''}`}
-                  onClick={() => setActiveTab(t.id)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
           </div>
 
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-6 border-t border-border">
+              {TABS.map((t) => (
+                <TabsTrigger key={t.id} value={t.id} className="text-[13px]">
+                  {t.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
           {detailLoading && !detail ? (
-            <div className="occ-tab-content active">
-              <div className="occ-empty-state">Loading organisation detail…</div>
+            <div className="p-6">
+              <div className="py-8 text-center text-sm text-muted-foreground">Loading organisation detail…</div>
             </div>
           ) : null}
 
-          <div className={`occ-tab-content ${activeTab === 'overview' ? 'active' : ''}`}>
+          <TabsContent value="overview" className="space-y-4 p-6">
             {org ? (
               <div className="occ-kpi-section occ-kpi-section-in-tab">
                 <div className="occ-section-eyebrow">Usage & wallet KPIs</div>
@@ -1822,9 +1837,9 @@ export default function OrgControlCenter() {
                 </div>
               ) : null}
             </div>
-          </div>
+          </TabsContent>
 
-          <div className={`occ-tab-content ${activeTab === 'orders' ? 'active' : ''}`}>
+          <TabsContent value="orders" className="space-y-4 p-6">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12 }}>
               <input
                 type="search"
@@ -1900,9 +1915,9 @@ export default function OrgControlCenter() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </TabsContent>
 
-          <div className={`occ-tab-content ${activeTab === 'campaigns' ? 'active' : ''}`}>
+          <TabsContent value="campaigns" className="space-y-4 p-6">
             <div className="occ-table-wrap">
               <table className="occ-data-table">
                 <thead>
@@ -1987,9 +2002,9 @@ export default function OrgControlCenter() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </TabsContent>
 
-          <div className={`occ-tab-content ${activeTab === 'billing' ? 'active' : ''}`}>
+          <TabsContent value="billing" className="space-y-4 p-6">
             {org?.next_billing_date || org?.amount_next_payment_display ? (
               <div className="occ-info-block" style={{ marginBottom: 12 }}>
                 <div className="occ-info-block-title">Subscription renewal</div>
@@ -2189,9 +2204,9 @@ export default function OrgControlCenter() {
               </div>
               </div>
             </div>
-          </div>
+          </TabsContent>
 
-          <div className={`occ-tab-content ${activeTab === 'invoices' ? 'active' : ''}`}>
+          <TabsContent value="invoices" className="space-y-4 p-6">
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <input
                 type="search"
@@ -2329,7 +2344,7 @@ export default function OrgControlCenter() {
             </div>
           </div>
 
-          <div className={`occ-tab-content ${activeTab === 'activity' ? 'active' : ''}`}>
+          <TabsContent value="activity" className="space-y-4 p-6">
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
               <button
                 type="button"
@@ -2356,7 +2371,8 @@ export default function OrgControlCenter() {
                 </div>
               ))
             )}
-          </div>
+          </TabsContent>
+          </Tabs>
         </div>
       ) : null}
 

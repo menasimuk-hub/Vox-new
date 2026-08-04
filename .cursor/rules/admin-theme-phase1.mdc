@@ -30,7 +30,26 @@ alwaysApply: false
 | E Billing / Pricing | Done (frame + pages; ProductsHub token map only) |
 | F Dedicated islands | Done (CSS `--ds-*` token map; JSX islands kept) |
 
-Heavy island JSX (Support Disk, AI Team, Sales Team, Telnyx hub, WA Templates Hub) stays structural — palette now follows design-system. Further full JSX rewrites are optional follow-ups, not Phase 2 blockers.
+## KEEP islands (do not rewrite — product owner)
+
+Leave layout/JSX structure as-is (palette already on `--ds-*`):
+
+- Sales Team (`salesTeam.css` + related sales/lead pages)
+- Support Disk (`supportDisk.css`)
+- Telnyx + Meta WhatsApp settings (`telnyx-settings-hub.css`)
+- WA Templates Hub (`wa-templates-hub.css` / editor / generator / disabled panel)
+
+## Completing the rest (in progress)
+
+Full `components/ui` chrome for remaining holdouts **except KEEP above**:
+
+| Area | Status |
+|------|--------|
+| PendingSignups | Done (`b5be351`) |
+| Ops RunningSurveys / Interviews / WaSurveyInsights | Done (Phase 2 + ui) |
+| OCC + ServiceOrderDetail | In progress |
+| AI Team + Apify | In progress |
+| Promo offers, NewsBlog, SeoControl, Email, Products/Partners/Connection Profiles/Custom Org, etc. | Remaining |
 
 ## Rules for new / touched admin UI
 

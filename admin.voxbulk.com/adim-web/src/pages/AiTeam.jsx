@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, apiFetchBlob, apiUpload } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Textarea } from '@/components/ui/Textarea'
+import { Select } from '@/components/ui/Select'
+import { Pill } from '@/components/ui/Badge'
 import './ai-team.css'
 
 const CSV_MAP_FIELDS = [
@@ -426,34 +433,34 @@ export default function AiTeam() {
           <div style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 4 }}>{p.source || '—'}</div>
         </div>
       </div>
-      {(p.draft_subject || p.draft_body) && (
+          {(p.draft_subject || p.draft_body) && (
         <div className="ait-pcard-body">
           <div style={{ fontWeight: 600, marginBottom: 4 }}>{p.draft_subject || '(no subject)'}</div>
           {p.draft_body && <div className="ait-email-snippet">{p.draft_body}</div>}
           {showActions && (
             <div className="ait-btn-row">
-              <button type="button" className="ait-btn sm" onClick={() => openProspectPreview(p)}>
+              <Button size="sm" variant="outline" onClick={() => openProspectPreview(p)}>
                 View email
-              </button>
-              <button type="button" className="ait-btn success sm" disabled={busy === p.id}
+              </Button>
+              <Button size="sm" variant="success" disabled={busy === p.id}
                 onClick={() => act(p.id, () => apiFetch(`/admin/ai-team/prospects/${p.id}/approve`, { method: 'POST' }))}>
                 Approve & send
-              </button>
-              <button type="button" className="ait-btn sm" onClick={() => setEditDraft({ id: p.id, subject: p.draft_subject, body: p.draft_body })}>Edit</button>
-              <button type="button" className="ait-btn sm" disabled={busy === `reg-${p.id}`}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setEditDraft({ id: p.id, subject: p.draft_subject, body: p.draft_body })}>Edit</Button>
+              <Button size="sm" variant="outline" disabled={busy === `reg-${p.id}`}
                 onClick={() => act(`reg-${p.id}`, () => apiFetch(`/admin/ai-team/prospects/${p.id}/regenerate`, { method: 'POST' }))}>
                 Regenerate
-              </button>
-              <button type="button" className="ait-btn sm" disabled={busy === `rej-${p.id}`}
+              </Button>
+              <Button size="sm" variant="outline" disabled={busy === `rej-${p.id}`}
                 onClick={() => act(`rej-${p.id}`, () => apiFetch(`/admin/ai-team/prospects/${p.id}/reject`, { method: 'POST' }))}>
                 Reject
-              </button>
-              <button type="button" className="ait-btn danger sm" disabled={busy === `del-${p.id}`}
+              </Button>
+              <Button size="sm" variant="destructive" disabled={busy === `del-${p.id}`}
                 onClick={() => deleteProspect(p.id)}>
                 Delete
-              </button>
+              </Button>
               <span style={{ fontSize: 11, color: 'var(--ait-text3)', marginLeft: 'auto' }}>
-                {timeAgo(p.drafted_at)} · <button type="button" className="ait-btn ghost xs" onClick={() => openDrawer(p)}>Profile →</button>
+                {timeAgo(p.drafted_at)} · <Button size="sm" variant="ghost" onClick={() => openDrawer(p)}>Profile →</Button>
               </span>
             </div>
           )}
@@ -486,17 +493,17 @@ export default function AiTeam() {
           </div>
         </div>
         <div className="ait-topbar-right">
-          <button type="button" className="ait-btn ghost sm" onClick={() => setHowtoOpen(true)}>
+          <Button variant="ghost" size="sm" onClick={() => setHowtoOpen(true)}>
             How to use
-          </button>
-          <button type="button" className="ait-btn ghost sm" disabled={!!busy}
+          </Button>
+          <Button variant="ghost" size="sm" disabled={!!busy}
             onClick={() => act('run', () => apiFetch('/admin/ai-team/agent/run', { method: 'POST' }))}>
             Run agent
-          </button>
-          <button type="button" className="ait-btn primary sm" disabled={!!busy}
+          </Button>
+          <Button size="sm" disabled={!!busy}
             onClick={() => act('search', () => apiFetch('/admin/ai-team/search', { method: 'POST', body: JSON.stringify({ preview: false }) }))}>
             New search
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -538,18 +545,18 @@ export default function AiTeam() {
                 </div>
               </div>
               <div className="ait-toolbar-right">
-                <button type="button" className="ait-btn sm" disabled={!queue.length || !!busy}
+                <Button size="sm" variant="outline" disabled={!queue.length || !!busy}
                   onClick={() => exportProspects('queue', 'ai-team-approval-queue.csv')}>
                   Export Excel
-                </button>
-                <button type="button" className="ait-btn danger sm" disabled={!queue.length || busy === 'purge-queue'}
+                </Button>
+                <Button size="sm" variant="destructive" disabled={!queue.length || busy === 'purge-queue'}
                   onClick={purgeQueue}>
                   Delete all
-                </button>
-                <button type="button" className="ait-btn primary sm" disabled={!queue.length || !!busy}
+                </Button>
+                <Button size="sm" disabled={!queue.length || !!busy}
                   onClick={() => act('approve-all', () => apiFetch('/admin/ai-team/prospects/approve-all', { method: 'POST' }))}>
                   Approve & send all ({queue.length})
-                </button>
+                </Button>
               </div>
             </div>
             {queue.length === 0 ? (
@@ -584,13 +591,13 @@ export default function AiTeam() {
                           <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(p.drafted_at)}</td>
                           <td>
                             <div className="ait-btn-row" style={{ marginTop: 0, justifyContent: 'flex-end' }}>
-                              <button type="button" className="ait-btn xs" onClick={() => openProspectPreview(p)}>View</button>
-                              <button type="button" className="ait-btn success xs" disabled={busy === p.id}
+                              <Button size="sm" variant="ghost" onClick={() => openProspectPreview(p)}>View</Button>
+                              <Button size="sm" variant="success" disabled={busy === p.id}
                                 onClick={() => act(p.id, () => apiFetch(`/admin/ai-team/prospects/${p.id}/approve`, { method: 'POST' }))}>
                                 Send
-                              </button>
-                              <button type="button" className="ait-btn danger xs" disabled={busy === `del-${p.id}`}
-                                onClick={() => deleteProspect(p.id)}>×</button>
+                              </Button>
+                              <Button size="sm" variant="destructive" disabled={busy === `del-${p.id}`}
+                                onClick={() => deleteProspect(p.id)}>×</Button>
                             </div>
                           </td>
                         </tr>
@@ -629,13 +636,13 @@ export default function AiTeam() {
                 </div>
               </div>
               <div className="ait-toolbar-right">
-                <button type="button" className="ait-btn sm" disabled={!trackingRows.length || !!busy}
+                <Button size="sm" variant="outline" disabled={!trackingRows.length || !!busy}
                   onClick={() => exportProspects(trackingFilter, `ai-team-${trackingFilter}.csv`)}>
                   Export Excel
-                </button>
-                <button type="button" className="ait-btn sm" onClick={() => loadTracking(trackingFilter)}>
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => loadTracking(trackingFilter)}>
                   Refresh
-                </button>
+                </Button>
               </div>
             </div>
             <div className="ait-card">
@@ -670,15 +677,15 @@ export default function AiTeam() {
                           {p.replied_at ? timeAgo(p.replied_at) : '—'}
                         </td>
                         <td className="ait-ellipsis" title={p.draft_subject || ''}>{p.draft_subject || '—'}</td>
-                        <td>
-                          <div className="ait-btn-row" style={{ marginTop: 0, justifyContent: 'flex-end' }}>
-                            <button type="button" className="ait-btn xs" onClick={() => openProspectPreview(p)}>Email</button>
-                            <button type="button" className="ait-btn xs" onClick={() => openDrawer(p)}>Profile</button>
-                            {(p.replied_at || p.status === 'replied') && (
-                              <button type="button" className="ait-btn xs" onClick={() => { setTab('replies'); selectThread(p) }}>Thread</button>
-                            )}
-                          </div>
-                        </td>
+                          <td>
+                            <div className="ait-btn-row" style={{ marginTop: 0, justifyContent: 'flex-end' }}>
+                              <Button size="sm" variant="ghost" onClick={() => openProspectPreview(p)}>Email</Button>
+                              <Button size="sm" variant="ghost" onClick={() => openDrawer(p)}>Profile</Button>
+                              {(p.replied_at || p.status === 'replied') && (
+                                <Button size="sm" variant="ghost" onClick={() => { setTab('replies'); selectThread(p) }}>Thread</Button>
+                              )}
+                            </div>
+                          </td>
                       </tr>
                     ))}
                     {!trackingRows.length && (
@@ -724,7 +731,7 @@ export default function AiTeam() {
                       <td><span className={`ait-badge ${statusBadge(p.status)}`}>{p.status}</span></td>
                       <td>{p.promo_code && <span className="ait-promo-pill">{p.promo_code}</span>}</td>
                       <td style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{timeAgo(p.updated_at)}</td>
-                      <td><button type="button" className="ait-btn xs" onClick={(e) => { e.stopPropagation(); openDrawer(p) }}>View</button></td>
+                      <td><Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); openDrawer(p) }}>View</Button></td>
                     </tr>
                   ))}
                   {!prospects.length && (
@@ -756,7 +763,7 @@ export default function AiTeam() {
                 <>
                   <div className="ait-card-hdr">
                     <div><strong>{selectedThread.full_name}</strong><div style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{selectedThread.email}</div></div>
-                    <button type="button" className="ait-btn xs success" onClick={() => act('convert', () => apiFetch(`/admin/ai-team/prospects/${selectedThread.id}/convert`, { method: 'POST' }))}>Mark converted</button>
+                    <Button size="sm" variant="success" onClick={() => act('convert', () => apiFetch(`/admin/ai-team/prospects/${selectedThread.id}/convert`, { method: 'POST' }))}>Mark converted</Button>
                   </div>
                   <div style={{ flex: 1, overflowY: 'auto', padding: 16 }}>
                     {(threadDetail.messages || []).map((m) => (

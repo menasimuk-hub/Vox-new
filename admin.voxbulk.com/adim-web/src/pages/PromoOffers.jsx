@@ -1,6 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import { Modal, ModalContent, ModalHeader, ModalTitle, ModalDescription, ModalFooter } from '@/components/ui/Modal'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 const TABS = [
   { key: 'all', label: 'All offers', icon: 'ti-ticket' },
@@ -39,10 +55,10 @@ function promoStatus(row) {
   return 'active'
 }
 
-function statusPillClass(status) {
-  if (status === 'active') return 'productStatusPill isActive'
-  if (status === 'inactive') return 'productStatusPill isStopped'
-  return 'leadPill leadPillHold'
+function statusPillTone(status) {
+  if (status === 'active') return 'success'
+  if (status === 'inactive') return 'neutral'
+  return 'warning'
 }
 
 function statusLabel(status) {
@@ -273,301 +289,247 @@ export default function PromoOffers() {
   }
 
   return (
-    <>
-      <div className='pageTop'>
+    <div className="ds-scope space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1>Promo offers</h1>
-          <p>
+          <h1 className="text-[15px] font-semibold leading-tight text-foreground">Promo offers</h1>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
             Create a code, then either share the signup link, let the customer enter it in Dashboard → Billing, or use{' '}
-            <strong>Apply to orgs</strong> / Org Control Center to assign it yourself to one or more organisations.
+            <strong className="text-foreground">Apply to orgs</strong> / Org Control Center to assign it yourself to one or more organisations.
           </p>
         </div>
-        <div className='actions'>
-          <button type='button' className='btn soft' onClick={() => load()} disabled={loading}>
-            <i className='ti ti-refresh' /> {loading ? 'Loading…' : 'Refresh'}
-          </button>
-          <Link className='btn soft' to='/marketing/lead-sales'>
-            <i className='ti ti-phone-call' /> Lead sales
-          </Link>
-          <Link className='btn soft' to='/billing/products?tab=subscription'>
-            <i className='ti ti-credit-card' /> Subscription plans
-          </Link>
-          <button type='button' className='btn primary' onClick={() => navigate('/marketing/promo-offers/new')}>
-            <i className='ti ti-plus' /> New promo offer
-          </button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="h-8" onClick={() => load()} disabled={loading}>
+            {loading ? 'Loading…' : 'Refresh'}
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/marketing/lead-sales">Lead sales</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/billing/products?tab=subscription">Subscription plans</Link>
+          </Button>
+          <Button size="sm" className="h-8" onClick={() => navigate('/marketing/promo-offers/new')}>
+            New promo offer
+          </Button>
         </div>
       </div>
 
-      <div className='pageShell productsPageShell promoOffersShell'>
-        {error ? (
-          <div className='note noteWarn' style={{ marginBottom: 14 }}>
-            {error}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+      {msg ? (
+        <div className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground">
+          {msg}
+        </div>
+      ) : null}
+
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          {TABS.map(({ key, label }) => (
+            <TabsTrigger key={key} value={key}>
+              {label} <span className="ml-1.5 text-muted-foreground">({tabCounts[key] ?? 0})</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="rounded-lg border border-border bg-card p-3.5 shadow-sm">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Total promos</div>
+          <div className="mt-1.5 text-[20px] font-semibold text-foreground">{stats.total}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Manual + lead sales offers</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3.5 shadow-sm">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Active now</div>
+          <div className="mt-1.5 text-[20px] font-semibold text-foreground">{stats.active}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Valid code, not expired or used up</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3.5 shadow-sm">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">From lead sales</div>
+          <div className="mt-1.5 text-[20px] font-semibold text-foreground">{stats.sales}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Auto-created on offer send</div>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3.5 shadow-sm">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Redeemed</div>
+          <div className="mt-1.5 text-[20px] font-semibold text-foreground">{stats.redeemed}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">At least one signup completed</div>
+        </div>
+      </div>
+
+      <Panel
+        title={
+          tab === 'active'
+            ? 'Active promo offers'
+            : tab === 'expired'
+              ? 'Expired or fully redeemed'
+              : tab === 'sales'
+                ? 'Lead sales promos'
+                : 'All promo offers'
+        }
+        subtitle="Search by code, name, or prospect contact."
+        action={
+          <div className="flex items-center gap-2">
+            <Input
+              type="search"
+              placeholder="Search code, name, prospect…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-8 w-64"
+            />
+            <Pill tone="info">{filtered.length} shown</Pill>
           </div>
-        ) : null}
-        {msg ? (
-          <div className='note' style={{ marginBottom: 14 }}>
-            {msg}
-          </div>
-        ) : null}
-
-        <div className='productsHub'>
-          <div className='productsTabBar' role='tablist'>
-            {TABS.map(({ key, label, icon }) => (
-              <button
-                key={key}
-                type='button'
-                role='tab'
-                aria-selected={tab === key}
-                className={`productsTabBtn ${tab === key ? 'active' : ''}`}
-                onClick={() => setTab(key)}
-              >
-                <i className={`ti ${icon}`} />
-                {label}
-                <span className='productsTabCount'>{tabCounts[key] ?? 0}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className='productsPanel' role='tabpanel'>
-            <div className='productsStats'>
-              <div className='productsStat'>
-                <label>Total promos</label>
-                <strong>{stats.total}</strong>
-                <span>Manual + lead sales offers</span>
-              </div>
-              <div className='productsStat'>
-                <label>Active now</label>
-                <strong>{stats.active}</strong>
-                <span>Valid code, not expired or used up</span>
-              </div>
-              <div className='productsStat'>
-                <label>From lead sales</label>
-                <strong>{stats.sales}</strong>
-                <span>Auto-created on offer send</span>
-              </div>
-              <div className='productsStat'>
-                <label>Redeemed</label>
-                <strong>{stats.redeemed}</strong>
-                <span>At least one signup completed</span>
-              </div>
-            </div>
-
-            <div className='productsToolbar'>
-              <h2 className='productsToolbarTitle'>
-                <i className='ti ti-list-details' />
-                {tab === 'active'
-                  ? 'Active promo offers'
-                  : tab === 'expired'
-                    ? 'Expired or fully redeemed'
-                    : tab === 'sales'
-                      ? 'Lead sales promos'
-                      : 'All promo offers'}
-              </h2>
-              <div className='promoToolbarSearch'>
-                <i className='ti ti-search' />
-                <input
-                  className='input promoSearchInput'
-                  type='search'
-                  placeholder='Search code, name, prospect…'
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-              <span className='pill p-cyan'>{filtered.length} shown</span>
-            </div>
-
-            {loading ? (
-              <div className='note'>Loading promo offers…</div>
-            ) : (
-              <div className='productsTableWrap'>
-                <table className='productsTable'>
-                  <thead>
-                    <tr>
-                      <th>Offer</th>
-                      <th>Benefit</th>
-                      <th>Uses</th>
-                      <th>Expires</th>
-                      <th>Status</th>
-                      <th style={{ textAlign: 'right' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((row) => {
-                      const status = promoStatus(row)
-                      const busy = busyId === row.id
-                      const prospectLine = [row.prospect_name, row.prospect_email || row.prospect_phone]
-                        .filter(Boolean)
-                        .join(' · ')
-                      return (
-                        <tr key={row.id} className={status === 'active' ? '' : 'isStopped'}>
-                          <td className='promoOfferCell'>
-                            <div className='productIdentity'>
-                              <span className='productAvatar'>
-                                <i className='ti ti-ticket' />
-                              </span>
-                              <div>
-                                <Link
-                                  to={`/marketing/promo-offers/${row.id}/edit`}
-                                  title={row.name || row.code}
-                                  style={{ color: 'inherit', textDecoration: 'none' }}
-                                >
-                                  <strong>{row.name || row.code}</strong>
-                                </Link>
-                                <button
-                                  type='button'
-                                  className='promoCodeChip'
-                                  onClick={() => copyCode(row.code)}
-                                  title='Copy code'
-                                >
-                                  <i className='ti ti-copy' />
-                                  <span>{row.code}</span>
-                                </button>
-                                <span className='productSub'>
-                                  {row.lead_sales_task_id ? 'Lead sales' : 'Manual'}
-                                  {row.created_at ? ` · ${formatShortDate(row.created_at)}` : ''}
-                                  {prospectLine ? ` · ${prospectLine}` : ''}
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-                          <td className='promoBenefitCell'>
-                            <strong style={{ color: 'var(--t1)', display: 'block', fontSize: 12.5 }}>
-                              {offerTypeLabel(row)}
-                            </strong>
-                            <span className='muted' title={limitsLine(row)}>
-                              {limitsLine(row)}
-                            </span>
-                          </td>
-                          <td>
-                            <strong>{row.redemption_count}</strong>
-                            <span className='muted'> / {row.max_redemptions}</span>
-                          </td>
-                          <td className='mutedCell' title={formatWhen(row.expires_at)}>
-                            {formatShortDate(row.expires_at)}
-                          </td>
-                          <td>
-                            <span className={statusPillClass(status)}>{statusLabel(status)}</span>
-                          </td>
-                          <td>
-                            <div className='promoIconActions'>
-                              <Link
-                                className='promoIconBtn'
-                                to={`/marketing/promo-offers/${row.id}/edit`}
-                                title='Edit promo'
-                                aria-label='Edit promo'
-                              >
-                                <i className='ti ti-pencil' />
-                              </Link>
-                              <button
-                                type='button'
-                                className='promoIconBtn'
-                                onClick={() => openApply(row)}
-                                disabled={!row.is_active}
-                                title='Apply to organisations'
-                                aria-label='Apply to organisations'
-                              >
-                                <i className='ti ti-building-community' />
-                              </button>
-                              <button
-                                type='button'
-                                className='promoIconBtn'
-                                onClick={() => copyLink(row)}
-                                disabled={!row.signup_url}
-                                title='Copy signup link'
-                                aria-label='Copy signup link'
-                              >
-                                <i className='ti ti-link' />
-                              </button>
-                              {row.lead_sales_task_id ? (
-                                <Link
-                                  className='promoIconBtn'
-                                  to={`/marketing/lead-sales/${row.lead_sales_task_id}`}
-                                  title='Open lead sales task'
-                                  aria-label='Open lead sales task'
-                                >
-                                  <i className='ti ti-phone-call' />
-                                </Link>
-                              ) : null}
-                              <button
-                                type='button'
-                                className={`promoIconBtn${row.is_active ? ' isDanger' : ''}`}
-                                disabled={busy}
-                                onClick={() => toggleActive(row)}
-                                title={row.is_active ? 'Deactivate' : 'Activate'}
-                                aria-label={row.is_active ? 'Deactivate' : 'Activate'}
-                              >
-                                <i className={`ti ${busy ? 'ti-loader-2' : row.is_active ? 'ti-player-pause' : 'ti-player-play'}`} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                    {!filtered.length ? (
-                      <tr>
-                        <td colSpan={6}>
-                          <div className='productsEmpty'>
-                            {query
-                              ? 'No promos match your search.'
-                              : tab === 'all'
-                                ? 'No promo offers yet.'
-                                : 'No promos in this view.'}
-                            {!query && tab === 'all' ? (
-                              <>
-                                {' '}
-                                <button
-                                  type='button'
-                                  className='btn primary'
-                                  style={{ marginTop: 12 }}
-                                  onClick={() => navigate('/marketing/promo-offers/new')}
-                                >
-                                  Create promo offer
-                                </button>
-                              </>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
+        }
+      >
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Offer</TableHead>
+              <TableHead>Benefit</TableHead>
+              <TableHead>Uses</TableHead>
+              <TableHead>Expires</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && <TableLoading colSpan={6} />}
+            {!loading && filtered.length === 0 && (
+              <TableEmpty colSpan={6}>
+                {query
+                  ? 'No promos match your search.'
+                  : tab === 'all'
+                    ? 'No promo offers yet.'
+                    : 'No promos in this view.'}
+                {!query && tab === 'all' ? (
+                  <Button size="sm" className="mt-3" onClick={() => navigate('/marketing/promo-offers/new')}>
+                    Create promo offer
+                  </Button>
+                ) : null}
+              </TableEmpty>
             )}
-          </div>
-        </div>
-      </div>
+            {filtered.map((row) => {
+              const status = promoStatus(row)
+              const busy = busyId === row.id
+              const prospectLine = [row.prospect_name, row.prospect_email || row.prospect_phone]
+                .filter(Boolean)
+                .join(' · ')
+              return (
+                <TableRow key={row.id}>
+                  <TableCell>
+                    <div className="flex items-start gap-2.5">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-surface-muted/40">
+                        <i className="ti ti-ticket text-[16px] text-muted-foreground" />
+                      </div>
+                      <div className="min-w-0">
+                        <Link
+                          to={`/marketing/promo-offers/${row.id}/edit`}
+                          className="text-[13px] font-semibold leading-tight text-foreground hover:underline"
+                        >
+                          {row.name || row.code}
+                        </Link>
+                        <button
+                          type="button"
+                          className="ml-2 inline-flex items-center gap-1 rounded border border-border bg-surface-muted/40 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-surface-muted"
+                          onClick={() => copyCode(row.code)}
+                          title="Copy code"
+                        >
+                          <i className="ti ti-copy text-[10px]" />
+                          <span>{row.code}</span>
+                        </button>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          {row.lead_sales_task_id ? 'Lead sales' : 'Manual'}
+                          {row.created_at ? ` · ${formatShortDate(row.created_at)}` : ''}
+                          {prospectLine ? ` · ${prospectLine}` : ''}
+                        </div>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-[12.5px] font-semibold text-foreground">{offerTypeLabel(row)}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground" title={limitsLine(row)}>
+                      {limitsLine(row)}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="font-semibold text-foreground">{row.redemption_count}</span>
+                    <span className="text-muted-foreground"> / {row.max_redemptions}</span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground" title={formatWhen(row.expires_at)}>
+                    {formatShortDate(row.expires_at)}
+                  </TableCell>
+                  <TableCell>
+                    <Pill tone={statusPillTone(status)}>{statusLabel(status)}</Pill>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-1">
+                      <Button asChild size="sm" variant="ghost" className="h-7 w-7 p-0" title="Edit promo">
+                        <Link to={`/marketing/promo-offers/${row.id}/edit`}>
+                          <i className="ti ti-pencil text-[14px]" />
+                        </Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => openApply(row)}
+                        disabled={!row.is_active}
+                        title="Apply to organisations"
+                      >
+                        <i className="ti ti-building-community text-[14px]" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 w-7 p-0"
+                        onClick={() => copyLink(row)}
+                        disabled={!row.signup_url}
+                        title="Copy signup link"
+                      >
+                        <i className="ti ti-link text-[14px]" />
+                      </Button>
+                      {row.lead_sales_task_id ? (
+                        <Button asChild size="sm" variant="ghost" className="h-7 w-7 p-0" title="Open lead sales task">
+                          <Link to={`/marketing/lead-sales/${row.lead_sales_task_id}`}>
+                            <i className="ti ti-phone-call text-[14px]" />
+                          </Link>
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant={row.is_active ? 'destructive' : 'ghost'}
+                        className="h-7 w-7 p-0"
+                        disabled={busy}
+                        onClick={() => toggleActive(row)}
+                        title={row.is_active ? 'Deactivate' : 'Activate'}
+                      >
+                        <i
+                          className={`ti ${busy ? 'ti-loader-2' : row.is_active ? 'ti-player-pause' : 'ti-player-play'} text-[14px]`}
+                        />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </StripeTable>
+      </Panel>
 
-      {applyPromo ? (
-        <div
-          role='dialog'
-          aria-modal='true'
-          onClick={closeApply}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 80,
-            background: 'rgba(15, 23, 42, 0.45)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
-        >
-          <div
-            className='card'
-            style={{ width: '100%', maxWidth: 560, background: '#fff', padding: 20, borderRadius: 12 }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 style={{ marginTop: 0, marginBottom: 8 }}>Apply {applyPromo.code} to organisations</h2>
-            <p className='muted' style={{ marginTop: 0 }}>
-              {applyPromo.benefit_summary || applyPromo.name || applyPromo.code}. Search, tick one or more orgs, then
-              apply. Already-redeemed orgs are skipped.
-            </p>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <input
-                className='input'
-                style={{ flex: 1 }}
-                placeholder='Search organisation name…'
+      <Modal open={!!applyPromo} onOpenChange={(open) => !open && closeApply()}>
+        <ModalContent>
+          <ModalHeader>
+            <ModalTitle>Apply {applyPromo?.code} to organisations</ModalTitle>
+            <ModalDescription>
+              {applyPromo?.benefit_summary || applyPromo?.name || applyPromo?.code}. Search, tick one or more orgs, then apply.
+              Already-redeemed orgs are skipped.
+            </ModalDescription>
+          </ModalHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Input
+                placeholder="Search organisation name…"
                 value={orgQuery}
                 onChange={(e) => setOrgQuery(e.target.value)}
                 onKeyDown={(e) => {
@@ -576,53 +538,48 @@ export default function PromoOffers() {
                     void searchOrgs()
                   }
                 }}
+                className="flex-1"
               />
-              <button type='button' className='btn soft' onClick={() => void searchOrgs()}>
+              <Button variant="outline" onClick={() => void searchOrgs()}>
                 Search
-              </button>
+              </Button>
             </div>
-            <div style={{ maxHeight: 280, overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8, marginBottom: 12 }}>
+            <div className="max-h-64 overflow-auto rounded-md border border-border bg-surface-muted/30 p-2">
               {orgs.length === 0 ? (
-                <p className='muted' style={{ margin: 8 }}>
-                  Search to find organisations.
-                </p>
+                <p className="p-2 text-[13px] text-muted-foreground">Search to find organisations.</p>
               ) : (
                 orgs.map((o) => (
-                  <label key={o.id} style={{ display: 'flex', gap: 8, padding: 8, cursor: 'pointer' }}>
+                  <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-surface-muted/50">
                     <input
-                      type='checkbox'
+                      type="checkbox"
                       checked={selectedOrgIds.includes(o.id)}
                       onChange={() => toggleOrg(o.id)}
+                      className="h-4 w-4"
                     />
-                    <span>
-                      <strong>{o.name}</strong>
-                      <span className='muted'> · {String(o.id || '').slice(0, 8)}</span>
+                    <span className="text-[13px]">
+                      <strong className="font-semibold text-foreground">{o.name}</strong>
+                      <span className="text-muted-foreground"> · {String(o.id || '').slice(0, 8)}</span>
                     </span>
                   </label>
                 ))
               )}
             </div>
             {applyResult ? (
-              <div className='note' style={{ marginBottom: 12, fontSize: 12 }}>
+              <div className="rounded-md border border-border bg-surface px-3 py-2 text-[12px] text-foreground">
                 Applied {applyResult.applied ?? 0} · failed/skipped {applyResult.failed ?? 0}
               </div>
             ) : null}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button type='button' className='btn soft' onClick={closeApply}>
-                Close
-              </button>
-              <button
-                type='button'
-                className='btn primary'
-                disabled={applying || selectedOrgIds.length === 0}
-                onClick={() => void applyToSelectedOrgs()}
-              >
-                {applying ? 'Applying…' : `Apply to ${selectedOrgIds.length || 0} org(s)`}
-              </button>
-            </div>
           </div>
-        </div>
-      ) : null}
-    </>
+          <ModalFooter>
+            <Button variant="outline" onClick={closeApply}>
+              Close
+            </Button>
+            <Button disabled={applying || selectedOrgIds.length === 0} onClick={() => void applyToSelectedOrgs()}>
+              {applying ? 'Applying…' : `Apply to ${selectedOrgIds.length || 0} org(s)`}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </div>
   )
 }
