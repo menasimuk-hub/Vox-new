@@ -56,6 +56,21 @@ class SalesRep(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
+    # Mailbox configuration (Salesman Mail v1)
+    smtp_host: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    smtp_port: Mapped[int] = mapped_column(Integer, nullable=False, default=587)
+    smtp_use_tls: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    smtp_use_ssl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    smtp_username: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    smtp_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    imap_host: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    imap_port: Mapped[int] = mapped_column(Integer, nullable=False, default=993)
+    imap_use_ssl: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    imap_use_tls: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    imap_username: Mapped[str] = mapped_column(String(320), nullable=False, default="")
+    imap_password_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    email_signature: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
 
 class SalesCustomer(Base):
     """A prospect/customer added by a salesman in their portal."""

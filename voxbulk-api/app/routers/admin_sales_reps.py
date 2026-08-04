@@ -370,6 +370,25 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
         )
         if k in body
     }
+    mailbox = body.get("mailbox") if isinstance(body.get("mailbox"), dict) else {
+        k: body.get(k)
+        for k in (
+            "smtp_host",
+            "smtp_port",
+            "smtp_use_tls",
+            "smtp_use_ssl",
+            "smtp_username",
+            "smtp_password",
+            "imap_host",
+            "imap_port",
+            "imap_use_ssl",
+            "imap_use_tls",
+            "imap_username",
+            "imap_password",
+            "email_signature",
+        )
+        if k in body
+    }
     try:
         rep = SalesRepService.create_rep(
             db,
@@ -391,6 +410,7 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
             partner_terms=body.get("partner_terms"),
             commission_mode=body.get("commission_mode"),
             one_time_bonus_minor=body.get("one_time_bonus_minor"),
+            mailbox=mailbox or None,
         )
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

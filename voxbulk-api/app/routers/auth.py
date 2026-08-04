@@ -347,6 +347,31 @@ def logout(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(
     db.commit()
     return {"ok": True}
 
+
+@router.post("/me/change-password")
+def change_password(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    """Change password while signed in (current password required). Bumps token_version."""
+    current = str(payload.get("current_password") or "")
+    new_password = str(payload.get("new_password") or "")
+    if len(new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be at least 8 characters")
+    if current == new_password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must differ from the current one")
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    if not user.password_hash or not verify_password(current, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    user.password_hash = hash_password(new_password)
+    user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
+    db.add(user)
+    db.commit()
+    return {"ok": True}
+
 @router.post("/register")
 def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)):
     """

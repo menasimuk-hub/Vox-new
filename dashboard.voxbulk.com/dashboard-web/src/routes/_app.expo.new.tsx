@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  FileUp,
   Gift,
   Mail,
   Package,
@@ -21,7 +20,6 @@ import { ExpoBoothPrintCard } from "@/components/expo-booth-print-card";
 import { ExpoPayDialog } from "@/components/expo-pay-dialog";
 import {
   categoriesToPayload,
-  CategoryProductsEditor,
   emptyRepresentative,
   RepresentativesEditor,
   representativesFromApi,
@@ -44,7 +42,7 @@ import { cn } from "@/lib/utils";
 import { waIndustryIcon } from "@/lib/wa-industry-icon";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 type Industry = { id: string; slug: string; name: string; addon_question?: string | null };
 type Package = {
@@ -91,11 +89,10 @@ const EXPO_STEPS: WizardStepDef[] = [
   { id: 1, title: "Industry", icon: Briefcase },
   { id: 2, title: "Event", icon: CalendarDays },
   { id: 3, title: "Offers", icon: Gift },
-  { id: 4, title: "Products", icon: FileUp },
-  { id: 5, title: "Questions", icon: Target },
-  { id: 6, title: "Preview", icon: Eye },
-  { id: 7, title: "Package", icon: Package },
-  { id: 8, title: "Activate", icon: Rocket },
+  { id: 4, title: "Questions", icon: Target },
+  { id: 5, title: "Preview", icon: Eye },
+  { id: 6, title: "Package", icon: Package },
+  { id: 7, title: "Activate", icon: Rocket },
 ];
 
 const DEFAULT_Q_KEYS = ["interest", "role", "timeline", "follow_up", "consent_info"];
@@ -273,19 +270,14 @@ function CreateExpoBooth() {
     return start || null;
   }, [exhibitionStartsAt, exhibitionEndsAt]);
 
-  const categoryMaxCategories: number | null | undefined = selectedPackage
-    ? selectedPackage.max_categories ?? null
-    : undefined;
-
   const canNext: Record<Step, boolean> = {
     1: Boolean(industryId),
     2: Boolean(exhibitionName.trim() && company.trim() && EMAIL_RE.test(visitorContactEmail.trim())),
     3: true,
-    4: true,
-    5: selectedQKeys.length > 0,
-    6: true,
-    7: Boolean(packageId),
-    8: true,
+    4: selectedQKeys.length > 0,
+    5: true,
+    6: Boolean(packageId),
+    7: true,
   };
 
   function nextBlockedReason(s: Step): string | null {
@@ -298,8 +290,8 @@ function CreateExpoBooth() {
       if (!EMAIL_RE.test(visitorContactEmail.trim())) return "Enter a valid contact email to continue";
       return "Fill the required event fields to continue";
     }
-    if (s === 5) return "Select at least one qualifying question to continue";
-    if (s === 7) return "Choose a package to continue";
+    if (s === 4) return "Select at least one qualifying question to continue";
+    if (s === 6) return "Choose a package to continue";
     return null;
   }
 
@@ -366,7 +358,7 @@ function CreateExpoBooth() {
   }
 
   React.useEffect(() => {
-    if (step === 6) {
+    if (step === 5) {
       void runPreviewDraft();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -406,7 +398,7 @@ function CreateExpoBooth() {
           selectedPackage.max_categories === 1 ? "y" : "ies"
         }. Remove a category or choose a bigger package.`,
       );
-      setStep(4);
+      setStep(6);
       return;
     }
     setSaving(true);
@@ -417,7 +409,7 @@ function CreateExpoBooth() {
         body: JSON.stringify(payload),
       });
       setCreated(res.item);
-      setStep(8);
+      setStep(7);
       // Seed Saved booths cache so the new QR appears immediately
       queryClient.setQueryData<{ ok: boolean; items: Array<typeof res.item> }>(["expo", "booths"], (prev) => {
         const items = prev?.items ? [...prev.items] : [];
@@ -675,27 +667,6 @@ function CreateExpoBooth() {
         {step === 4 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Products & files</CardTitle>
-              <CardDescription>
-                Optional — group products into categories with catalogue, price list, or product sheet files.
-                Visitors who consent get catalogue/price list downloads; product sheets can match interest. Skip to
-                capture leads only.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <CategoryProductsEditor
-                categories={categories}
-                onChange={setCategories}
-                maxCategories={categoryMaxCategories}
-                packages={packages}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 5 && (
-          <Card>
-            <CardHeader>
               <CardTitle className="text-base">Qualifying questions</CardTitle>
               <CardDescription>
                 Fixed contact first — visitors see this as the first WhatsApp / web message:
@@ -823,7 +794,7 @@ function CreateExpoBooth() {
           </Card>
         )}
 
-        {step === 6 && (
+        {step === 5 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -873,7 +844,7 @@ function CreateExpoBooth() {
           </Card>
         )}
 
-        {step === 7 && (
+        {step === 6 && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Choose package</CardTitle>
@@ -923,7 +894,7 @@ function CreateExpoBooth() {
           </Card>
         )}
 
-        {step === 8 && (
+        {step === 7 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -1093,7 +1064,7 @@ function CreateExpoBooth() {
         }}
       />
 
-      {step < 8 || !created ? (
+      {step < 7 || !created ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <Button
@@ -1104,7 +1075,7 @@ function CreateExpoBooth() {
             >
               <ChevronLeft className="mr-1 size-4" /> Back
             </Button>
-            {step < 8 ? (
+            {step < 7 ? (
               <div className="flex flex-col items-end gap-1">
                 {nextBlockedReason(step) ? (
                   <p className="max-w-xs text-right text-xs text-muted-foreground">{nextBlockedReason(step)}</p>
@@ -1118,7 +1089,7 @@ function CreateExpoBooth() {
                       toast.message(reason);
                       return;
                     }
-                    setStep((s) => (s < 8 ? ((s + 1) as Step) : s));
+                    setStep((s) => (s < 7 ? ((s + 1) as Step) : s));
                   }}
                 >
                   Next <ChevronRight className="ml-1 size-4" />

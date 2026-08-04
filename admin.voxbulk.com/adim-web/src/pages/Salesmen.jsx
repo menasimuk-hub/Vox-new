@@ -27,7 +27,26 @@ function Modal({ title, onClose, children, wide }) {
   )
 }
 
-const EMPTY_FORM = { name: '', email: '', password: '', promo_code: '', country: '', caller_id: '', commission_pct: '15' }
+const EMPTY_FORM = {
+  name: '',
+  email: '',
+  password: '',
+  promo_code: '',
+  country: '',
+  caller_id: '',
+  commission_pct: '15',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_use_tls: true,
+  smtp_username: '',
+  smtp_password: '',
+  imap_host: '',
+  imap_port: '993',
+  imap_use_ssl: true,
+  imap_username: '',
+  imap_password: '',
+  email_signature: '',
+}
 const PROMO_CODE_RE = /^[A-Z0-9]{4,12}$/
 const SALESMAN_EMAIL_DOMAIN = 'voxbulk.com'
 
@@ -53,7 +72,24 @@ export default function Salesmen() {
   const [createErr, setCreateErr] = useState('')
 
   const [editRep, setEditRep] = useState(null)
-  const [editForm, setEditForm] = useState({ name: '', promo_code: '', country: '', caller_id: '', commission_pct: '15' })
+  const [editForm, setEditForm] = useState({
+    name: '',
+    promo_code: '',
+    country: '',
+    caller_id: '',
+    commission_pct: '15',
+    smtp_host: '',
+    smtp_port: '587',
+    smtp_use_tls: true,
+    smtp_username: '',
+    smtp_password: '',
+    imap_host: '',
+    imap_port: '993',
+    imap_use_ssl: true,
+    imap_username: '',
+    imap_password: '',
+    email_signature: '',
+  })
 
   const [pwRep, setPwRep] = useState(null)
   const [pwValue, setPwValue] = useState('')
@@ -114,16 +150,29 @@ export default function Salesmen() {
     try {
       const res = await apiFetch('/admin/sales-reps', {
         method: 'POST',
-        body: JSON.stringify({
-          kind: 'salesman',
-          name,
-          email,
-          password,
-          promo_code: promoCode,
-          country: createForm.country.trim().toUpperCase(),
-          caller_id: createForm.caller_id.trim(),
-          commission_pct: Number(createForm.commission_pct || 15),
-        }),
+          body: JSON.stringify({
+            kind: 'salesman',
+            name,
+            email,
+            password,
+            promo_code: promoCode,
+            country: createForm.country.trim().toUpperCase(),
+            caller_id: createForm.caller_id.trim(),
+            commission_pct: Number(createForm.commission_pct || 15),
+            smtp_host: createForm.smtp_host.trim(),
+            smtp_port: Number(createForm.smtp_port || 587),
+            smtp_use_tls: Boolean(createForm.smtp_use_tls),
+            smtp_use_ssl: Boolean(createForm.smtp_use_ssl),
+            smtp_username: createForm.smtp_username.trim(),
+            smtp_password: createForm.smtp_password,
+            imap_host: createForm.imap_host.trim(),
+            imap_port: Number(createForm.imap_port || 993),
+            imap_use_ssl: Boolean(createForm.imap_use_ssl),
+            imap_use_tls: Boolean(createForm.imap_use_tls),
+            imap_username: createForm.imap_username.trim(),
+            imap_password: createForm.imap_password,
+            email_signature: createForm.email_signature.trim(),
+          }),
       })
       setMsg(`Created ${res?.rep?.email || email} · promo code ${res?.rep?.promo_code || promoCode} · commission ${res?.rep?.commission_pct ?? 15}%. They sign in at the dashboard with this email + password.`)
       setCreateForm(EMPTY_FORM)
@@ -147,6 +196,17 @@ export default function Salesmen() {
       country: rep.country || '',
       caller_id: rep.caller_id || '',
       commission_pct: String(rep.commission_pct ?? 15),
+      smtp_host: rep.smtp_host || '',
+      smtp_port: String(rep.smtp_port ?? 587),
+      smtp_use_tls: rep.smtp_use_tls !== false,
+      smtp_username: rep.smtp_username || '',
+      smtp_password: '',
+      imap_host: rep.imap_host || '',
+      imap_port: String(rep.imap_port ?? 993),
+      imap_use_ssl: rep.imap_use_ssl !== false,
+      imap_username: rep.imap_username || '',
+      imap_password: '',
+      email_signature: rep.email_signature || '',
     })
   }
 
@@ -156,15 +216,28 @@ export default function Salesmen() {
     setErr('')
     setMsg('')
     try {
+      const payload = {
+        name: editForm.name.trim(),
+        promo_code: editForm.promo_code.trim().toUpperCase(),
+        country: editForm.country.trim().toUpperCase(),
+        caller_id: editForm.caller_id.trim(),
+        commission_pct: Number(editForm.commission_pct || 15),
+      }
+      if (editForm.smtp_host) payload.smtp_host = editForm.smtp_host.trim()
+      if (editForm.smtp_port) payload.smtp_port = Number(editForm.smtp_port)
+      if (editForm.smtp_username) payload.smtp_username = editForm.smtp_username.trim()
+      if (editForm.smtp_password) payload.smtp_password = editForm.smtp_password
+      payload.smtp_use_tls = Boolean(editForm.smtp_use_tls)
+      payload.smtp_use_ssl = Boolean(editForm.smtp_use_ssl)
+      if (editForm.imap_host) payload.imap_host = editForm.imap_host.trim()
+      if (editForm.imap_port) payload.imap_port = Number(editForm.imap_port)
+      if (editForm.imap_username) payload.imap_username = editForm.imap_username.trim()
+      if (editForm.imap_password) payload.imap_password = editForm.imap_password
+      payload.imap_use_ssl = Boolean(editForm.imap_use_ssl)
+      if (editForm.email_signature !== undefined) payload.email_signature = editForm.email_signature.trim()
       await apiFetch(`/admin/sales-reps/${editRep.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          name: editForm.name.trim(),
-          promo_code: editForm.promo_code.trim().toUpperCase(),
-          country: editForm.country.trim().toUpperCase(),
-          caller_id: editForm.caller_id.trim(),
-          commission_pct: Number(editForm.commission_pct || 15),
-        }),
+        body: JSON.stringify(payload),
       })
       setMsg(`Updated ${editForm.name || editRep.email}.`)
       setEditRep(null)
@@ -345,6 +418,60 @@ export default function Salesmen() {
                 </label>
               </div>
               <p className='muted' style={{ margin: 0, fontSize: 12 }}>Default 15%. Applied to the 2nd monthly invoice (or 1/12 of yearly) when the customer pays.</p>
+              <hr style={{ margin: '12px 0', border: 0, borderTop: '1px solid rgba(0,0,0,0.1)' }} />
+              <h4 style={{ margin: 0, fontSize: 14 }}>Mailbox (Salesman Mail — optional)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Host</span>
+                  <input className='input' value={createForm.smtp_host} onChange={(e) => setCreateForm({ ...createForm, smtp_host: e.target.value })} placeholder='smtp.gmail.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Port</span>
+                  <input className='input' type='number' value={createForm.smtp_port} onChange={(e) => setCreateForm({ ...createForm, smtp_port: e.target.value })} placeholder='587' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Username</span>
+                  <input className='input' value={createForm.smtp_username} onChange={(e) => setCreateForm({ ...createForm, smtp_username: e.target.value })} placeholder='sales@company.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Password</span>
+                  <input className='input' type='password' value={createForm.smtp_password} onChange={(e) => setCreateForm({ ...createForm, smtp_password: e.target.value })} placeholder='(write-only)' />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type='checkbox' checked={createForm.smtp_use_tls} onChange={(e) => setCreateForm({ ...createForm, smtp_use_tls: e.target.checked, smtp_use_ssl: !e.target.checked })} />
+                  <span className='label' style={{ margin: 0 }}>SMTP TLS (587)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type='checkbox' checked={createForm.smtp_use_ssl} onChange={(e) => setCreateForm({ ...createForm, smtp_use_ssl: e.target.checked, smtp_use_tls: !e.target.checked })} />
+                  <span className='label' style={{ margin: 0 }}>SMTP SSL (465)</span>
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Host</span>
+                  <input className='input' value={createForm.imap_host} onChange={(e) => setCreateForm({ ...createForm, imap_host: e.target.value })} placeholder='imap.gmail.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Port</span>
+                  <input className='input' type='number' value={createForm.imap_port} onChange={(e) => setCreateForm({ ...createForm, imap_port: e.target.value })} placeholder='993' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Username</span>
+                  <input className='input' value={createForm.imap_username} onChange={(e) => setCreateForm({ ...createForm, imap_username: e.target.value })} placeholder='sales@company.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Password</span>
+                  <input className='input' type='password' value={createForm.imap_password} onChange={(e) => setCreateForm({ ...createForm, imap_password: e.target.value })} placeholder='(write-only)' />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type='checkbox' checked={createForm.imap_use_ssl} onChange={(e) => setCreateForm({ ...createForm, imap_use_ssl: e.target.checked })} />
+                  <span className='label' style={{ margin: 0 }}>IMAP SSL (993)</span>
+                </label>
+              </div>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='label'>Email Signature (HTML/text)</span>
+                <textarea className='input' rows={3} value={createForm.email_signature} onChange={(e) => setCreateForm({ ...createForm, email_signature: e.target.value })} placeholder='Best regards,\nJohn Smith\nVoxBulk Sales' />
+              </label>
             </div>
             <div className='occ-modal-foot'>
               <button type='button' className='btn soft' onClick={() => setShowCreate(false)} disabled={busy}>Cancel</button>
@@ -381,6 +508,60 @@ export default function Salesmen() {
                   <input className='input' type='number' min='0' max='100' step='0.01' value={editForm.commission_pct} onChange={(e) => setEditForm({ ...editForm, commission_pct: e.target.value })} required />
                 </label>
               </div>
+              <hr style={{ margin: '12px 0', border: 0, borderTop: '1px solid rgba(0,0,0,0.1)' }} />
+              <h4 style={{ margin: 0, fontSize: 14 }}>Mailbox (Salesman Mail — leave blank to keep existing)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Host</span>
+                  <input className='input' value={editForm.smtp_host} onChange={(e) => setEditForm({ ...editForm, smtp_host: e.target.value })} placeholder='smtp.gmail.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Port</span>
+                  <input className='input' type='number' value={editForm.smtp_port} onChange={(e) => setEditForm({ ...editForm, smtp_port: e.target.value })} placeholder='587' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Username</span>
+                  <input className='input' value={editForm.smtp_username} onChange={(e) => setEditForm({ ...editForm, smtp_username: e.target.value })} placeholder='sales@company.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>SMTP Password</span>
+                  <input className='input' type='password' value={editForm.smtp_password} onChange={(e) => setEditForm({ ...editForm, smtp_password: e.target.value })} placeholder='(write-only)' />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type='checkbox' checked={editForm.smtp_use_tls} onChange={(e) => setEditForm({ ...editForm, smtp_use_tls: e.target.checked })} />
+                  <span className='label' style={{ margin: 0 }}>SMTP TLS</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type='checkbox' checked={editForm.smtp_use_ssl} onChange={(e) => setEditForm({ ...editForm, smtp_use_ssl: e.target.checked })} />
+                  <span className='label' style={{ margin: 0 }}>SMTP SSL</span>
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0,1fr))', gap: 12 }}>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Host</span>
+                  <input className='input' value={editForm.imap_host} onChange={(e) => setEditForm({ ...editForm, imap_host: e.target.value })} placeholder='imap.gmail.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Port</span>
+                  <input className='input' type='number' value={editForm.imap_port} onChange={(e) => setEditForm({ ...editForm, imap_port: e.target.value })} placeholder='993' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Username</span>
+                  <input className='input' value={editForm.imap_username} onChange={(e) => setEditForm({ ...editForm, imap_username: e.target.value })} placeholder='sales@company.com' />
+                </label>
+                <label style={{ display: 'grid', gap: 6 }}>
+                  <span className='label'>IMAP Password</span>
+                  <input className='input' type='password' value={editForm.imap_password} onChange={(e) => setEditForm({ ...editForm, imap_password: e.target.value })} placeholder='(write-only)' />
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input type='checkbox' checked={editForm.imap_use_ssl} onChange={(e) => setEditForm({ ...editForm, imap_use_ssl: e.target.checked })} />
+                  <span className='label' style={{ margin: 0 }}>IMAP SSL</span>
+                </label>
+              </div>
+              <label style={{ display: 'grid', gap: 6 }}>
+                <span className='label'>Email Signature (HTML/text)</span>
+                <textarea className='input' rows={3} value={editForm.email_signature} onChange={(e) => setEditForm({ ...editForm, email_signature: e.target.value })} placeholder='Best regards,\nJohn Smith' />
+              </label>
             </div>
             <div className='occ-modal-foot'>
               <button type='button' className='btn soft' onClick={() => setEditRep(null)} disabled={busy}>Cancel</button>

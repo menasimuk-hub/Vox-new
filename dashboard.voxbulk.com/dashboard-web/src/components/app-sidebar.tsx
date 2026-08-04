@@ -11,7 +11,7 @@ import {
   Ticket,
   IdCard,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
-  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus, Smile,
+  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus, Smile, Mail,
 } from "lucide-react";
 
 import {
@@ -68,6 +68,15 @@ const salesGroup: Group = {
       },
     },
     { title: "Won deals", url: "/sales/deals", icon: Handshake },
+    {
+      title: "Mail",
+      url: "/sales/mail",
+      icon: Mail,
+      isActive: (path) => {
+        const p = normalizePath(path);
+        return p.startsWith("/sales/mail");
+      },
+    },
     { title: "Wallet & commission", url: "/sales/wallet", icon: Wallet },
   ],
 };
@@ -142,12 +151,13 @@ const groups: Group[] = [
   { key: "expo", label: "VoxBulk Expo", items: [
     { title: "Create Expo booth", url: "/expo/new", icon: Ticket },
     { title: "Saved booths", url: "/expo", icon: ListChecks },
+    { title: "Add catalogues", url: "/expo/catalogues", icon: Package },
     { title: "Lead results", url: "/expo/leads", icon: BarChart3 },
   ]},
   { key: "smartCard", label: "Smart Card QR", visibleKey: "smartCard", items: [
     { title: "Create Smart Card QR", url: "/smart-card/new", icon: IdCard },
     { title: "Saved QR codes", url: "/smart-card", icon: ListChecks },
-    { title: "Manage products", url: "/smart-card/catalogue", icon: Package },
+    { title: "Add catalogues", url: "/smart-card/catalogue", icon: Package },
     { title: "Lead results", url: "/smart-card/leads", icon: BarChart3 },
   ]},
   { key: "campaigns", label: "Campaigns", items: [

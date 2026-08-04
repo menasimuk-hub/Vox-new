@@ -146,6 +146,17 @@ class SalesRepService:
             "payout": SalesPayoutService.payout_dict(rep),
             "is_active": bool(rep.is_active),
             "created_at": rep.created_at.isoformat() if rep.created_at else None,
+            "has_smtp": bool(rep.smtp_host and rep.smtp_username and rep.smtp_password_enc),
+            "has_imap": bool(rep.imap_host and rep.imap_username and rep.imap_password_enc),
+            "smtp_host": rep.smtp_host or "",
+            "smtp_port": int(rep.smtp_port or 587),
+            "smtp_use_tls": bool(rep.smtp_use_tls),
+            "smtp_username": rep.smtp_username or "",
+            "imap_host": rep.imap_host or "",
+            "imap_port": int(rep.imap_port or 993),
+            "imap_use_ssl": bool(rep.imap_use_ssl),
+            "imap_username": rep.imap_username or "",
+            "email_signature": rep.email_signature or "",
         }
 
     @staticmethod
@@ -251,6 +262,7 @@ class SalesRepService:
         partner_terms: Any = None,
         commission_mode: Any = None,
         one_time_bonus_minor: Any = None,
+        mailbox: dict[str, Any] | None = None,
     ) -> SalesRep:
         from app.services.sales_hub_benefits import (
             default_commission_tiers,
@@ -375,6 +387,36 @@ class SalesRepService:
         set_commission_extras(rep, mode=commission_mode, one_time_bonus_minor=one_time_bonus_minor)
         if partner_terms is not None or kind_norm == KIND_PARTNER_CHANNEL:
             set_partner_terms(rep, partner_terms if partner_terms is not None else default_partner_terms())
+        # Apply mailbox fields if provided (Salesman Mail)
+        if mailbox:
+            from app.core.encryption import get_encryptor
+            encryptor = get_encryptor()
+            if "smtp_host" in mailbox:
+                rep.smtp_host = str(mailbox["smtp_host"] or "").strip()
+            if "smtp_port" in mailbox:
+                rep.smtp_port = int(mailbox["smtp_port"] or 587)
+            if "smtp_use_tls" in mailbox:
+                rep.smtp_use_tls = bool(mailbox["smtp_use_tls"])
+            if "smtp_use_ssl" in mailbox:
+                rep.smtp_use_ssl = bool(mailbox["smtp_use_ssl"])
+            if "smtp_username" in mailbox:
+                rep.smtp_username = str(mailbox["smtp_username"] or "").strip()
+            if "smtp_password" in mailbox and mailbox["smtp_password"]:
+                rep.smtp_password_enc = encryptor.encrypt_str(str(mailbox["smtp_password"]))
+            if "imap_host" in mailbox:
+                rep.imap_host = str(mailbox["imap_host"] or "").strip()
+            if "imap_port" in mailbox:
+                rep.imap_port = int(mailbox["imap_port"] or 993)
+            if "imap_use_ssl" in mailbox:
+                rep.imap_use_ssl = bool(mailbox["imap_use_ssl"])
+            if "imap_use_tls" in mailbox:
+                rep.imap_use_tls = bool(mailbox["imap_use_tls"])
+            if "imap_username" in mailbox:
+                rep.imap_username = str(mailbox["imap_username"] or "").strip()
+            if "imap_password" in mailbox and mailbox["imap_password"]:
+                rep.imap_password_enc = encryptor.encrypt_str(str(mailbox["imap_password"]))
+            if "email_signature" in mailbox:
+                rep.email_signature = str(mailbox["email_signature"] or "").strip()
         db.add(rep)
 
         if kind_norm == KIND_PARTNER_CHANNEL:
@@ -446,6 +488,37 @@ class SalesRepService:
             rep.caller_id = (str(patch["caller_id"] or "").strip() or None)
         if "is_active" in patch:
             rep.is_active = bool(patch["is_active"])
+        # Mailbox fields (Salesman Mail)
+        if "smtp_host" in patch:
+            rep.smtp_host = str(patch["smtp_host"] or "").strip()
+        if "smtp_port" in patch:
+            rep.smtp_port = int(patch["smtp_port"] or 587)
+        if "smtp_use_tls" in patch:
+            rep.smtp_use_tls = bool(patch["smtp_use_tls"])
+        if "smtp_use_ssl" in patch:
+            rep.smtp_use_ssl = bool(patch["smtp_use_ssl"])
+        if "smtp_username" in patch:
+            rep.smtp_username = str(patch["smtp_username"] or "").strip()
+        if "smtp_password" in patch and patch["smtp_password"]:
+            from app.core.encryption import get_encryptor
+            encryptor = get_encryptor()
+            rep.smtp_password_enc = encryptor.encrypt_str(str(patch["smtp_password"]))
+        if "imap_host" in patch:
+            rep.imap_host = str(patch["imap_host"] or "").strip()
+        if "imap_port" in patch:
+            rep.imap_port = int(patch["imap_port"] or 993)
+        if "imap_use_ssl" in patch:
+            rep.imap_use_ssl = bool(patch["imap_use_ssl"])
+        if "imap_use_tls" in patch:
+            rep.imap_use_tls = bool(patch["imap_use_tls"])
+        if "imap_username" in patch:
+            rep.imap_username = str(patch["imap_username"] or "").strip()
+        if "imap_password" in patch and patch["imap_password"]:
+            from app.core.encryption import get_encryptor
+            encryptor = get_encryptor()
+            rep.imap_password_enc = encryptor.encrypt_str(str(patch["imap_password"]))
+        if "email_signature" in patch:
+            rep.email_signature = str(patch["email_signature"] or "").strip()
         payout_keys = {
             "payout_method",
             "bank_holder_name",
@@ -636,6 +709,32 @@ class SalesRepService:
         cust.updated_at = now
         db.commit()
         db.refresh(cust)
+        # Auto-create mail contact if email is present (Salesman Mail)
+        if cust.email:
+            try:
+                from app.models.sales_mail import SalesMailContact
+                existing = db.execute(
+                    select(SalesMailContact).where(
+                        SalesMailContact.sales_rep_id == str(rep_id),
+                        SalesMailContact.email == cust.email.strip().lower()
+                    )
+                ).scalar_one_or_none()
+                if not existing:
+                    import uuid
+                    contact = SalesMailContact(
+                        id=str(uuid.uuid4()),
+                        sales_rep_id=str(rep_id),
+                        sales_customer_id=cust.id,
+                        email=cust.email.strip().lower(),
+                        name=cust.full_name,
+                        company=cust.company_name,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    db.add(contact)
+                    db.commit()
+            except Exception:
+                logger.exception("Failed to auto-create mail contact for customer %s", cust.id)
         return cust
 
     @staticmethod

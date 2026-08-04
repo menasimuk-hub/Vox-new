@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
-  FileUp,
   Gift,
   Package,
   QrCode,
@@ -17,7 +16,7 @@ import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Stepper, type WizardStepDef } from "@/components/create-wizard/stepper";
-import { CategoryProductsEditor, newCategory, type CategoryDraft } from "@/components/expo-booth-sections";
+import { type CategoryDraft } from "@/components/expo-booth-sections";
 import {
   emptyRepresentativeForm,
   RepresentativeFields,
@@ -40,7 +39,7 @@ import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 
 type QuestionOpt = {
   key: string;
@@ -70,12 +69,11 @@ type DraftRep = {
 
 const STEPS: WizardStepDef[] = [
   { id: 1, title: "Company", icon: Briefcase },
-  { id: 2, title: "Products", icon: FileUp },
-  { id: 3, title: "Questions", icon: Target },
-  { id: 4, title: "Offers", icon: Gift },
-  { id: 5, title: "Preview", icon: Eye },
-  { id: 6, title: "Package", icon: Package },
-  { id: 7, title: "Activate", icon: Rocket },
+  { id: 2, title: "Questions", icon: Target },
+  { id: 3, title: "Offers", icon: Gift },
+  { id: 4, title: "Preview", icon: Eye },
+  { id: 5, title: "Package", icon: Package },
+  { id: 6, title: "Activate", icon: Rocket },
 ];
 
 const DEFAULT_Q_KEYS = ["interest", "role", "timeline", "follow_up", "consent_info"];
@@ -172,10 +170,10 @@ function SmartCardNewWizard() {
     if (step === 1) {
       return Boolean(companyName.trim() && rep.name.trim());
     }
-    if (step === 3) {
+    if (step === 2) {
       return selectedQKeys.length > 0 && Boolean(contactCapture);
     }
-    if (step === 6) {
+    if (step === 5) {
       return Boolean(planId) && seatQty >= 1;
     }
     return true;
@@ -221,11 +219,11 @@ function SmartCardNewWizard() {
     }
     if (!canNext) {
       if (step === 1) toast.error("Company name and first representative are required");
-      if (step === 3) toast.error("Select contact mode and at least one question");
+      if (step === 2) toast.error("Select contact mode and at least one question");
       return;
     }
-    if (step === 4) {
-      // Preview step next — persist draft
+    if (step === 3) {
+      // Offers done — persist draft for preview
       setSaving(true);
       try {
         const res = await apiFetch<{
@@ -237,7 +235,7 @@ function SmartCardNewWizard() {
         });
         setDraftRep(res.representative);
         await qc.invalidateQueries({ queryKey: ["smart-card"] });
-        setStep(5);
+        setStep(4);
         toast.success("Preview ready — scan the QR to test (up to 15 free tests)");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not create preview");
@@ -246,15 +244,15 @@ function SmartCardNewWizard() {
       }
       return;
     }
+    if (step === 4) {
+      setStep(5);
+      return;
+    }
     if (step === 5) {
       setStep(6);
       return;
     }
-    if (step === 6) {
-      setStep(7);
-      return;
-    }
-    if (step < 7) setStep((s) => (s + 1) as Step);
+    if (step < 6) setStep((s) => (s + 1) as Step);
   };
 
   const activate = async () => {
@@ -419,31 +417,6 @@ function SmartCardNewWizard() {
         {step === 2 && (
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Products & catalogue</CardTitle>
-              <CardDescription>Optional — add categories and products. Skip if you only want leads.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <CategoryProductsEditor
-                categories={categories}
-                onChange={setCategories}
-                maxCategories={null}
-                packages={[]}
-              />
-              {categories.length === 0 ? (
-                <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
-                  Skip — no catalogue yet. You can assign products later when editing a QR.
-                </p>
-              ) : null}
-              <Button type="button" variant="outline" size="sm" onClick={() => setCategories([newCategory("General")])}>
-                Add a category
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 3 && (
-          <Card>
-            <CardHeader>
               <CardTitle className="text-base">Qualifying questions</CardTitle>
               <CardDescription>
                 Required — contact capture first (scan card or type company info), then choose questions.
@@ -514,7 +487,7 @@ function SmartCardNewWizard() {
           </Card>
         )}
 
-        {step === 4 && (
+        {step === 3 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -564,7 +537,7 @@ function SmartCardNewWizard() {
           </Card>
         )}
 
-        {step === 5 && (
+        {step === 4 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -603,7 +576,7 @@ function SmartCardNewWizard() {
           </Card>
         )}
 
-        {step === 6 && (
+        {step === 5 && (
           <div className="space-y-4">
             <Card>
               <CardHeader>
@@ -691,7 +664,7 @@ function SmartCardNewWizard() {
           </div>
         )}
 
-        {step === 7 && (
+        {step === 6 && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Activate</CardTitle>
@@ -733,7 +706,7 @@ function SmartCardNewWizard() {
         }}
       />
 
-      {step < 7 ? (
+      {step < 6 ? (
         <div className="flex items-center justify-between gap-3 border-t pt-4">
           <Button
             type="button"
@@ -744,7 +717,7 @@ function SmartCardNewWizard() {
             <ChevronLeft className="size-4" /> Back
           </Button>
           <Button type="button" disabled={!canNext || saving} onClick={() => void goNext()}>
-            {saving ? "Saving…" : step === 4 ? "Save & preview" : "Next"}
+            {saving ? "Saving…" : step === 3 ? "Save & preview" : "Next"}
             <ChevronRight className="size-4" />
           </Button>
         </div>

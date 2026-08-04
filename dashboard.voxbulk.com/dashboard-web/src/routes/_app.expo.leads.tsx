@@ -44,6 +44,7 @@ type LeadAnswer = {
   answer_text_en?: string | null;
   answer_source?: string | null;
   step_order?: number;
+  audio_url?: string | null;
 };
 
 const TRANSLATION_UNAVAILABLE = "[Translation unavailable]";
@@ -646,6 +647,11 @@ function ExpoLeads() {
                           </p>
                           {a.question_prompt ? (
                             <p className="mt-1.5 text-[13px] font-medium text-foreground">{a.question_prompt}</p>
+                          ) : null}
+                          {a.answer_source === "voice" && a.audio_url ? (
+                            <audio controls preload="none" className="mt-3 w-full" src={a.audio_url}>
+                              Your browser does not support audio playback.
+                            </audio>
                           ) : null}
                           {showBoth ? (
                             <div className="mt-3 space-y-3">

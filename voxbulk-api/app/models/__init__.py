@@ -195,3 +195,4 @@ from app.models.site_seo import SiteSeoHealthSnapshot, SiteSeoRedirect, SiteSeoS
 from app.models.voxbox_admin_user import VoxboxAdminUser  # noqa: F401
 from app.models.voxbox_mail_account import VoxboxMailAccount  # noqa: F401
 from app.models.voxbox_message import VoxboxMessage  # noqa: F401
+from app.models.sales_mail import SalesMailContact, SalesMailLabel, SalesMailMessage  # noqa: F401

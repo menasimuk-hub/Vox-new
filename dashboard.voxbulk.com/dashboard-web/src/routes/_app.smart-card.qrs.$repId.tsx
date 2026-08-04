@@ -236,7 +236,7 @@ function SmartCardEditQrPage() {
               <CardDescription>
                 Tick products for this representative. Add or remove catalogue items under{" "}
                 <Link to="/smart-card/catalogue" className="text-primary underline">
-                  Manage products
+                  Add catalogues
                 </Link>{" "}
                 or reopen Create setup.
               </CardDescription>
@@ -247,7 +247,7 @@ function SmartCardEditQrPage() {
                   No catalogue products yet.{" "}
                   {canEdit ? (
                     <Link to="/smart-card/catalogue" className="text-primary underline">
-                      Manage products
+                      Add catalogues
                     </Link>
                   ) : null}
                 </p>

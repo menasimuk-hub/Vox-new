@@ -37,6 +37,7 @@ import { canEditOrgProfile, normalizeOrgRole } from "@/lib/org-roles";
 import { requireNonBillingOnlySettings } from "@/lib/guards/settings-route";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useSession } from "@/lib/session";
+import { apiFetch } from "@/lib/api";
 
 export const Route = createFileRoute("/_app/settings/profile")({
   head: () => ({ meta: [{ title: "Organisation profile — VoxBulk" }] }),
@@ -68,6 +69,10 @@ function ProfileSettings() {
   const [country, setCountry] = React.useState("United Kingdom");
   const [deleteConfirm, setDeleteConfirm] = React.useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
+  const [changingPassword, setChangingPassword] = React.useState(false);
   const deletionQ = useDeletionStatus();
   const requestDeletionM = useRequestAccountDeletion();
   const cancelDeletionM = useCancelAccountDeletion();
@@ -171,6 +176,35 @@ function ProfileSettings() {
     }
   };
 
+  const onChangePassword = async () => {
+    if (newPassword.length < 8) {
+      toast.error("New password must be at least 8 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New password and confirmation do not match");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await apiFetch("/auth/me/change-password", {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+        }),
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      toast.success("Password updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update password");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
@@ -261,6 +295,57 @@ function ProfileSettings() {
               </div>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Update the password you use to sign in to the dashboard. You will stay signed in on this device.
+          </p>
+          <div className="grid max-w-md gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="current-password">Current password</Label>
+              <Input
+                id="current-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-password">New password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="At least 8 characters"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm-password">Confirm new password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+              />
+            </div>
+            <Button
+              className="w-fit"
+              disabled={changingPassword}
+              onClick={() => void onChangePassword()}
+            >
+              {changingPassword ? "Saving…" : "Update password"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

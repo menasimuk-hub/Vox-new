@@ -403,6 +403,21 @@ class ExpoResultsService:
                     prompts[key] = str(step.get("prompt"))
                 if key and step.get("label"):
                     labels[key] = str(step.get("label"))
+            voice_by_response: dict[str, str] = {}
+            if rows:
+                response_ids = [str(r.id) for r in rows if getattr(r, "id", None)]
+                if response_ids:
+                    jobs = db.execute(
+                        select(ExpoVoiceNoteJob).where(
+                            ExpoVoiceNoteJob.org_id == org_id,
+                            ExpoVoiceNoteJob.response_id.in_(response_ids),
+                        )
+                    ).scalars().all()
+                    for job in jobs:
+                        rid = str(job.response_id or "")
+                        url = str(job.media_url or "").strip()
+                        if rid and url and rid not in voice_by_response:
+                            voice_by_response[rid] = url
             for r in rows:
                 key = str(r.question_key or "")
                 answers.append(
@@ -415,6 +430,7 @@ class ExpoResultsService:
                         "answer_text_en": r.answer_text_en,
                         "answer_source": r.answer_source,
                         "step_order": r.step_order,
+                        "audio_url": voice_by_response.get(str(r.id)) if str(r.answer_source or "").lower() == "voice" else None,
                     }
                 )
         data["answers"] = answers
