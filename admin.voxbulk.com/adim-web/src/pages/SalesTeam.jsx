@@ -270,6 +270,9 @@ function defaultPayout() {
   }
 }
 
+/** Platform mailbox host for salesman SMTP/IMAP (aaPanel / domain mail). */
+const SALESMAN_MAIL_HOST = 'voxbulk.com'
+
 function emptyForm(isPartner) {
   return {
     name: '',
@@ -287,6 +290,9 @@ function emptyForm(isPartner) {
     partner_comm_value: '15',
     commission_mode: 'commission_only',
     one_time_bonus_major: '0',
+    mailbox_username: '',
+    mailbox_password: '',
+    email_signature: '',
   }
 }
 
@@ -350,6 +356,9 @@ function repToForm(rep) {
     one_time_bonus_major: rep.one_time_bonus_minor != null
       ? String(Number(rep.one_time_bonus_minor) / 100)
       : '0',
+    mailbox_username: rep.smtp_username || '',
+    mailbox_password: '',
+    email_signature: rep.email_signature || '',
   }
 }
 
@@ -461,6 +470,9 @@ export default function SalesTeam() {
   const [editStats, setEditStats] = useState(null)
   const [editRepMeta, setEditRepMeta] = useState(null) // { is_active, ref_id, ... }
 
+  const [testMailboxBusy, setTestMailboxBusy] = useState(false)
+  const [testMailboxResult, setTestMailboxResult] = useState(null)
+
   const kind = tab === 'partners' ? 'partner_channel' : 'salesman'
   const isPartner = kind === 'partner_channel'
   const formCurrency = currencyForCountry(form.country)
@@ -563,6 +575,7 @@ export default function SalesTeam() {
     setEditId(null)
     setForm(emptyForm(tab === 'partners'))
     setFormErr('')
+    setTestMailboxResult(null)
     setEditorTab('profile')
     setEditStats(null)
     setEditRepMeta({ is_active: true, ref_id: '' })
@@ -573,6 +586,7 @@ export default function SalesTeam() {
     setEditId(rep.id)
     setForm(repToForm(rep))
     setFormErr('')
+    setTestMailboxResult(null)
     setEditorTab('profile')
     setEditRepMeta(rep)
     setProfileRep(rep)
@@ -631,6 +645,28 @@ export default function SalesTeam() {
       payout: form.payout,
       commission_mode: form.commission_mode,
       one_time_bonus_minor: Math.round(parseFloat(form.one_time_bonus_major || '0') * 100),
+    }
+    if (!isPartner) {
+      const mailboxUser = String(form.mailbox_username || form.email || '').trim()
+      if (mailboxUser) {
+        payload.smtp_host = SALESMAN_MAIL_HOST
+        payload.smtp_port = 587
+        payload.smtp_use_tls = true
+        payload.smtp_use_ssl = false
+        payload.smtp_username = mailboxUser
+        payload.imap_host = SALESMAN_MAIL_HOST
+        payload.imap_port = 993
+        payload.imap_use_ssl = true
+        payload.imap_use_tls = false
+        payload.imap_username = mailboxUser
+        payload.email_signature = String(form.email_signature || '').trim()
+        if (form.mailbox_password) {
+          payload.smtp_password = form.mailbox_password
+          payload.imap_password = form.mailbox_password
+        }
+      } else if (editId) {
+        payload.email_signature = String(form.email_signature || '').trim()
+      }
     }
     try {
       if (editId) {
@@ -708,6 +744,29 @@ export default function SalesTeam() {
       showToast(e?.message || 'Delete failed')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const testMailboxConnection = async () => {
+    const username = String(form.mailbox_username || form.email || '').trim()
+    const password = String(form.mailbox_password || '').trim()
+    setTestMailboxBusy(true)
+    setTestMailboxResult(null)
+    try {
+      const res = await apiFetch(`/admin/sales-reps/${editId || 'test'}/test-mailbox`, {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      })
+      setTestMailboxResult(res)
+    } catch (e) {
+      setTestMailboxResult({
+        ok: false,
+        smtp_ok: false,
+        imap_ok: false,
+        message: e?.message || 'Test failed',
+      })
+    } finally {
+      setTestMailboxBusy(false)
     }
   }
 
@@ -1224,7 +1283,19 @@ export default function SalesTeam() {
       </div>
       <div className='field'>
         <label>Email</label>
-        <input type='email' value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={Boolean(editId)} />
+        <input
+          type='email'
+          value={form.email}
+          onChange={(e) => {
+            const email = e.target.value
+            const next = { ...form, email }
+            if (!isPartner && !editId && (!form.mailbox_username || form.mailbox_username === form.email)) {
+              next.mailbox_username = email
+            }
+            setForm(next)
+          }}
+          disabled={Boolean(editId)}
+        />
       </div>
       <div className='field-row'>
         <div className='field'>
@@ -1699,6 +1770,61 @@ export default function SalesTeam() {
                   <p className='muted'>Use the ⋯ menu on the accounts table to reset password.</p>
                 )}
               </section>
+              {!isPartner ? (
+                <section className='hub-card' style={{ gridColumn: '1 / -1' }}>
+                  <h3>Mail account</h3>
+                  <p className='card-hint'>
+                    Mailbox on <strong>{SALESMAN_MAIL_HOST}</strong> (SMTP 587 / IMAP 993). Enter the mailbox username and password so the salesman can send and receive from Sales.
+                  </p>
+                  <div className='field-row'>
+                    <div className='field'>
+                      <label>Username (email)</label>
+                      <input
+                        type='email'
+                        value={form.mailbox_username}
+                        onChange={(e) => setForm({ ...form, mailbox_username: e.target.value })}
+                        placeholder={form.email || 'salesman1@voxbulk.com'}
+                      />
+                    </div>
+                    <div className='field'>
+                      <label>Mailbox password {editId ? <span className='hint'>leave blank to keep</span> : null}</label>
+                      <input
+                        type='password'
+                        value={form.mailbox_password}
+                        onChange={(e) => setForm({ ...form, mailbox_password: e.target.value })}
+                        placeholder={editId ? 'Only if changing' : 'Mailbox password'}
+                        autoComplete='new-password'
+                      />
+                    </div>
+                  </div>
+                  <div className='field'>
+                    <label>Email signature</label>
+                    <textarea
+                      rows={3}
+                      value={form.email_signature}
+                      onChange={(e) => setForm({ ...form, email_signature: e.target.value })}
+                      placeholder={'Best regards,\nJohn Smith\nVoxBulk Sales'}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+                    <button
+                      type='button'
+                      className='btn btn-ghost'
+                      disabled={testMailboxBusy || !(form.mailbox_username || form.email) || (!form.mailbox_password && !editId)}
+                      onClick={testMailboxConnection}
+                    >
+                      {testMailboxBusy ? 'Testing…' : editId && !form.mailbox_password ? 'Test stored credentials' : 'Test connection'}
+                    </button>
+                    {testMailboxResult ? (
+                      <span className={testMailboxResult.ok ? 'tone-positive' : 'tone-warning'} style={{ fontSize: 13 }}>
+                        {testMailboxResult.ok ? '✓ Connection OK' : '✗ Failed'}
+                        {' · '}SMTP {testMailboxResult.smtp_ok ? '✓' : '✗'} · IMAP {testMailboxResult.imap_ok ? '✓' : '✗'}
+                        {testMailboxResult.message ? ` — ${testMailboxResult.message}` : ''}
+                      </span>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
             </>
           ) : null}
           {editorTab === 'promo' ? (

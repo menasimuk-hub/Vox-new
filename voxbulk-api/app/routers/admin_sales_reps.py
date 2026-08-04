@@ -482,7 +482,7 @@ def test_sales_rep_mailbox(
     try:
         import smtplib
         from email.mime.text import MIMEText
-        with smtplib.SMTP("mail.voxbulk.com", 587, timeout=10) as server:
+        with smtplib.SMTP("voxbulk.com", 587, timeout=10) as server:
             server.starttls()
             server.login(username, password)
             smtp_ok = True
@@ -493,7 +493,7 @@ def test_sales_rep_mailbox(
     # Test IMAP
     try:
         import imaplib
-        with imaplib.IMAP4_SSL("mail.voxbulk.com", 993, timeout=10) as mail:
+        with imaplib.IMAP4_SSL("voxbulk.com", 993, timeout=10) as mail:
             mail.login(username, password)
             imap_ok = True
             message.append("IMAP OK")

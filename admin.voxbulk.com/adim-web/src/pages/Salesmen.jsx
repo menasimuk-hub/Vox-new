@@ -148,13 +148,13 @@ export default function Salesmen() {
             country: createForm.country.trim().toUpperCase(),
             caller_id: createForm.caller_id.trim(),
             commission_pct: Number(createForm.commission_pct || 15),
-            smtp_host: 'mail.voxbulk.com',
+            smtp_host: 'voxbulk.com',
             smtp_port: 587,
             smtp_use_tls: true,
             smtp_use_ssl: false,
             smtp_username: mailboxUser,
             smtp_password: createForm.mailbox_password,
-            imap_host: 'mail.voxbulk.com',
+            imap_host: 'voxbulk.com',
             imap_port: 993,
             imap_use_ssl: true,
             imap_use_tls: false,
@@ -207,12 +207,12 @@ export default function Salesmen() {
         email_signature: editForm.email_signature.trim(),
       }
       if (mailboxUser) {
-        payload.smtp_host = 'mail.voxbulk.com'
+        payload.smtp_host = 'voxbulk.com'
         payload.smtp_port = 587
         payload.smtp_use_tls = true
         payload.smtp_use_ssl = false
         payload.smtp_username = mailboxUser
-        payload.imap_host = 'mail.voxbulk.com'
+        payload.imap_host = 'voxbulk.com'
         payload.imap_port = 993
         payload.imap_use_ssl = true
         payload.imap_use_tls = false
