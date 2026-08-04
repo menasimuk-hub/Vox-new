@@ -261,7 +261,7 @@ function SalesMailPage() {
     setOpenMessage(null);
   };
 
-  const openMessage = async (id: string) => {
+  const loadAndOpenMessage = async (id: string) => {
     try {
       const res = await apiFetch<{ message: MailDetail }>(`/sales/mail/messages/${id}`);
       setOpenMessage(res.message);
@@ -749,7 +749,7 @@ function SalesMailPage() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        onClick={() => void openMessage(singleSelected.id).then(() => undefined)}
+                        onClick={() => void loadAndOpenMessage(singleSelected.id).then(() => undefined)}
                       >
                         <Mail className="size-3.5" /> Open
                       </Button>
@@ -805,7 +805,7 @@ function SalesMailPage() {
                       !m.is_read && "bg-primary/5",
                       selectedIds.includes(m.id) && "bg-primary/10",
                     )}
-                    onClick={() => void openMessage(m.id)}
+                    onClick={() => void loadAndOpenMessage(m.id)}
                   >
                     <span onClick={(e) => e.stopPropagation()} className="mt-1">
                       <Checkbox
