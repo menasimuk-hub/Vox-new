@@ -52,6 +52,43 @@ body.dark .support-disk {
   --shadow-pop: 0 12px 32px -12px oklch(0.24 0.026 259 / 22%);
   --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-status-open: var(--status-open);
+  --color-status-open-bg: var(--status-open-bg);
+  --color-status-pending: var(--status-pending);
+  --color-status-pending-bg: var(--status-pending-bg);
+  --color-status-waiting: var(--status-waiting);
+  --color-status-waiting-bg: var(--status-waiting-bg);
+  --color-status-resolved: var(--status-resolved);
+  --color-status-resolved-bg: var(--status-resolved-bg);
+  --color-status-closed: var(--status-closed);
+  --color-status-closed-bg: var(--status-closed-bg);
+  --color-priority-urgent: var(--priority-urgent);
+  --color-priority-high: var(--priority-high);
+  --color-priority-normal: var(--priority-normal);
+  --color-priority-low: var(--priority-low);
+  --color-note: var(--note);
+  --color-note-bg: var(--note-bg);
   --ds-radius: var(--radius);
   --ds-background: var(--background);
   --ds-foreground: var(--foreground);
@@ -100,6 +137,43 @@ body.dark .support-disk {
 }
 
 .support-disk *, .support-disk *::before, .support-disk *::after { box-sizing: border-box; }
+.support-disk button,
+.support-disk [role="button"] {
+  appearance: none;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  min-width: 0;
+  margin: 0;
+}
+.support-disk .sd-button {
+  border-radius: .375rem;
+  line-height: 1.25rem;
+}
+.support-disk .sd-btn-primary {
+  background: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  border: 1px solid transparent !important;
+  box-shadow: 0 1px 2px oklch(0.24 0.026 259 / 10%);
+}
+.support-disk .sd-btn-primary:hover { background: color-mix(in oklch, var(--primary) 90%, black) !important; }
+.support-disk button.bg-primary,
+.support-disk .bg-primary {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+}
+.support-disk .bg-background { background-color: var(--background) !important; }
+.support-disk .bg-surface { background-color: var(--surface) !important; }
+.support-disk .bg-surface-subtle { background-color: var(--surface-subtle) !important; }
+.support-disk .bg-popover { background-color: var(--popover) !important; }
+.support-disk .bg-accent { background-color: var(--accent) !important; }
+.support-disk .bg-secondary { background-color: var(--secondary) !important; }
+.support-disk .text-primary { color: var(--primary) !important; }
+.support-disk .text-foreground { color: var(--foreground) !important; }
+.support-disk .text-muted-foreground { color: var(--muted-foreground) !important; }
+.support-disk .text-destructive { color: var(--destructive) !important; }
+.support-disk .border-border { border-color: var(--border) !important; }
+.support-disk .border-input { border-color: var(--input) !important; }
 .support-disk h1, .support-disk h2, .support-disk h3, .support-disk h4 { font-family: var(--font-display); letter-spacing: -.015em; }
 body.dark .support-disk input, body.dark .support-disk select, body.dark .support-disk textarea,
 body.dark .support-disk table, body.dark .support-disk th, body.dark .support-disk td {

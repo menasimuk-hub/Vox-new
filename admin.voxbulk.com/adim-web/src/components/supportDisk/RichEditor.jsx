@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Bold, Code2, Heading2, Italic, Link2, List, ListOrdered, Quote, Underline } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
+import { Button } from './Button'
 
 export default function RichEditor({ value = '', onChange, placeholder = 'Write the content…' }) {
   const editor = useRef(null)

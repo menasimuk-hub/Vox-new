@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { BookOpen, ChevronRight, HelpCircle, Pencil, Plus, Search, Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
+import { Button } from './Button'
 import { Modal } from '@/components/ui/Modal'
 import RichEditor from './RichEditor'
 

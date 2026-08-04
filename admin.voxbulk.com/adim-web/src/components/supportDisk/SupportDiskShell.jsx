@@ -1,5 +1,6 @@
 import React from 'react'
 import { Bell, Search } from 'lucide-react'
+import { Button } from './Button'
 import '../../pages/supportDisk.css'
 
 export default function SupportDiskShell({ title, subtitle, search, onSearch, actions, children }) {
@@ -15,7 +16,7 @@ export default function SupportDiskShell({ title, subtitle, search, onSearch, ac
           <input value={search || ''} onChange={(e) => onSearch(e.target.value)} placeholder="Search Support Disk…" className="h-9 w-64 rounded-md border border-input bg-surface-subtle pl-8 pr-3 text-sm outline-none focus:border-ring" />
         </label> : null}
         {actions}
-        <button className="grid size-9 place-items-center rounded-md text-muted-foreground hover:bg-accent" aria-label="Notifications"><Bell className="size-4" /></button>
+        <Button variant="ghost" size="icon" className="size-9 text-muted-foreground" aria-label="Notifications"><Bell className="size-4" /></Button>
       </div>
     </header>
     <main className="min-h-0 flex-1">{children}</main>

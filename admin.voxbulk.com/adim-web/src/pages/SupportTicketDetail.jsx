@@ -53,10 +53,23 @@ export default function SupportTicketDetail() {
     })
     await load()
   }
+  const polishReply = async (draft) => {
+    const data = await apiFetch(`/admin/support/tickets/${ticketId}/polish-reply`, { method: 'POST', body: { draft } })
+    return data.polished
+  }
+  const writeReply = async () => {
+    const recent = (detail?.messages || []).slice(-6).map((message) => `${message.sender_type}: ${message.body}`).join('\n')
+    const prompt = `Write a concise, professional customer support reply. Return only the reply text.\n\nTicket: ${detail?.ticket?.subject || ''}\nRequester: ${detail?.ticket?.created_by_email || 'Customer'}\nConversation:\n${recent}`
+    return polishReply(prompt)
+  }
+  const closeTicket = async () => {
+    await apiFetch(`/admin/support/tickets/${ticketId}/status`, { method: 'POST', body: { status: 'closed' } })
+    navigate('/support/tickets')
+  }
   const t = detail?.ticket
   return <SupportDiskShell title={t?.public_ref || 'Ticket detail'} subtitle={t?.organisation_name || 'Support Disk conversation'}>
     {error ? <div className="m-4 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</div> : null}
-    {!t ? <div className="p-10 text-center text-muted-foreground">Loading ticket…</div> : <div className="h-[calc(100vh-120px)]"><TicketDetail ticket={t} messages={detail.messages || []} admins={admins} cannedReplies={canned} helpLinks={links} faqs={faqs} onBack={() => navigate('/support/tickets')} onStatusChange={updateStatus} onAssign={assign} onSend={sendReply} onPolish={async (draft) => { const data = await apiFetch(`/admin/support/tickets/${ticketId}/polish-reply`, { method: 'POST', body: { draft } }); return data.polished }} /></div>}
+    {!t ? <div className="p-10 text-center text-muted-foreground">Loading ticket…</div> : <div className="h-[calc(100vh-120px)]"><TicketDetail ticket={t} messages={detail.messages || []} admins={admins} cannedReplies={canned} helpLinks={links} faqs={faqs} onBack={() => navigate('/support/tickets')} onStatusChange={updateStatus} onAssign={assign} onSend={sendReply} onPolish={polishReply} onWriteAi={writeReply} onDelete={closeTicket} /></div>}
   </SupportDiskShell>
 }
 
