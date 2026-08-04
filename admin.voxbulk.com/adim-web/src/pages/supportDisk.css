@@ -150,30 +150,74 @@ body.dark .support-disk {
   border-radius: .375rem;
   line-height: 1.25rem;
 }
+
+/* Kill admin global button chrome inside Support Disk */
+.support-disk button.sd-button,
+.support-disk .sd-button {
+  background-image: none !important;
+  text-shadow: none !important;
+  border-style: solid;
+}
+.support-disk button.sd-btn-primary,
 .support-disk .sd-btn-primary {
   background: var(--primary) !important;
   color: var(--primary-foreground) !important;
   border: 1px solid transparent !important;
-  box-shadow: 0 1px 2px oklch(0.24 0.026 259 / 10%);
+  box-shadow: 0 1px 2px oklch(0.24 0.026 259 / 10%) !important;
 }
-.support-disk .sd-btn-primary:hover { background: color-mix(in oklch, var(--primary) 90%, black) !important; }
-.support-disk button.bg-primary,
-.support-disk .bg-primary {
-  background-color: var(--primary) !important;
-  color: var(--primary-foreground) !important;
+.support-disk button.sd-btn-primary:hover,
+.support-disk .sd-btn-primary:hover {
+  background: color-mix(in oklch, var(--primary) 90%, black) !important;
 }
+.support-disk button.border,
+.support-disk .border.border-input {
+  border-width: 1px !important;
+  border-color: var(--input) !important;
+  background: var(--background) !important;
+}
+.support-disk .bg-primary { background-color: var(--primary) !important; color: var(--primary-foreground) !important; }
 .support-disk .bg-background { background-color: var(--background) !important; }
 .support-disk .bg-surface { background-color: var(--surface) !important; }
 .support-disk .bg-surface-subtle { background-color: var(--surface-subtle) !important; }
 .support-disk .bg-popover { background-color: var(--popover) !important; }
 .support-disk .bg-accent { background-color: var(--accent) !important; }
 .support-disk .bg-secondary { background-color: var(--secondary) !important; }
+.support-disk .bg-destructive { background-color: var(--destructive) !important; color: var(--destructive-foreground) !important; }
 .support-disk .text-primary { color: var(--primary) !important; }
 .support-disk .text-foreground { color: var(--foreground) !important; }
 .support-disk .text-muted-foreground { color: var(--muted-foreground) !important; }
 .support-disk .text-destructive { color: var(--destructive) !important; }
+.support-disk .text-primary-foreground { color: var(--primary-foreground) !important; }
 .support-disk .border-border { border-color: var(--border) !important; }
 .support-disk .border-input { border-color: var(--input) !important; }
+.support-disk button.hover\:bg-accent:hover,
+.support-disk .hover\:bg-accent:hover {
+  background: var(--accent) !important;
+  color: var(--accent-foreground) !important;
+}
+.support-disk .bg-status-open-bg { background-color: var(--status-open-bg) !important; }
+.support-disk .text-status-open { color: var(--status-open) !important; }
+.support-disk .bg-status-open { background-color: var(--status-open) !important; }
+.support-disk .bg-status-pending-bg { background-color: var(--status-pending-bg) !important; }
+.support-disk .text-status-pending { color: var(--status-pending) !important; }
+.support-disk .bg-status-pending { background-color: var(--status-pending) !important; }
+.support-disk .bg-status-waiting-bg { background-color: var(--status-waiting-bg) !important; }
+.support-disk .text-status-waiting { color: var(--status-waiting) !important; }
+.support-disk .bg-status-waiting { background-color: var(--status-waiting) !important; }
+.support-disk .bg-status-resolved-bg { background-color: var(--status-resolved-bg) !important; }
+.support-disk .text-status-resolved { color: var(--status-resolved) !important; }
+.support-disk .bg-status-resolved { background-color: var(--status-resolved) !important; }
+.support-disk .bg-status-closed-bg { background-color: var(--status-closed-bg) !important; }
+.support-disk .text-status-closed { color: var(--status-closed) !important; }
+.support-disk .bg-status-closed { background-color: var(--status-closed) !important; }
+.support-disk .text-priority-urgent { color: var(--priority-urgent) !important; }
+.support-disk .text-priority-high { color: var(--priority-high) !important; }
+.support-disk .text-priority-normal { color: var(--priority-normal) !important; }
+.support-disk .text-priority-low { color: var(--priority-low) !important; }
+.support-disk .bg-note-bg { background-color: var(--note-bg) !important; }
+.support-disk .shadow-panel { box-shadow: var(--shadow-panel) !important; }
+.support-disk .font-display { font-family: var(--font-display) !important; }
+
 .support-disk h1, .support-disk h2, .support-disk h3, .support-disk h4 { font-family: var(--font-display); letter-spacing: -.015em; }
 body.dark .support-disk input, body.dark .support-disk select, body.dark .support-disk textarea,
 body.dark .support-disk table, body.dark .support-disk th, body.dark .support-disk td {

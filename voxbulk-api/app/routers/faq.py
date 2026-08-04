@@ -15,10 +15,11 @@ router = APIRouter(tags=["faq"])
 
 @router.get("/faq")
 def public_faq(search: str | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    """Authenticated dashboard FAQ — surface=dashboard."""
+    """Authenticated dashboard FAQ — surface=dashboard (falls back to frontend until dashboard content exists)."""
     user = db.get(User, principal.user_id)
     viewer_email = getattr(user, "email", None) if user else None
-    cats = FAQService.list_categories(db, surface="dashboard")
+    surface = "dashboard"
+    cats = FAQService.list_categories(db, surface=surface)
     items = FAQService.list_items(
         db,
         search=search,
@@ -26,8 +27,22 @@ def public_faq(search: str | None = None, db: Session = Depends(get_db), princip
         limit=200,
         viewer_email=viewer_email,
         apply_integration_release_gate=True,
-        surface="dashboard",
+        surface=surface,
     )
+    # Compat: surface split emptied dashboard until admins create dashboard FAQs —
+    # fall back to the previous shared catalogue (frontend) so Documentation & FAQ is not blank.
+    if not items:
+        surface = "frontend"
+        cats = FAQService.list_categories(db, surface=surface)
+        items = FAQService.list_items(
+            db,
+            search=search,
+            published_only=True,
+            limit=200,
+            viewer_email=viewer_email,
+            apply_integration_release_gate=True,
+            surface=surface,
+        )
     grouped = []
     for c in cats:
         rows = [item_to_dict(db, i) for i in items if i.category_id == c.id]
@@ -35,7 +50,17 @@ def public_faq(search: str | None = None, db: Session = Depends(get_db), princip
             grouped.append({**category_to_dict(c), "items": rows})
     uncategorised = [item_to_dict(db, i) for i in items if i.category_id is None]
     if uncategorised:
-        grouped.append({"id": None, "name": "Other", "slug": "other", "sort_order": 9999, "created_at": None, "surface": "dashboard", "items": uncategorised})
+        grouped.append(
+            {
+                "id": None,
+                "name": "Other",
+                "slug": "other",
+                "sort_order": 9999,
+                "created_at": None,
+                "surface": surface,
+                "items": uncategorised,
+            }
+        )
     return grouped
 
 
