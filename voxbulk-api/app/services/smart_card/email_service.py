@@ -27,6 +27,16 @@ EXPIRED_TEMPLATE = "smart_card_expired"
 class SmartCardEmailService:
     @staticmethod
     def _smtp(db: Session) -> dict[str, str | None]:
+        from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+        outbound = PlatformSenderEmailService.resolve_outbound(db, "smart_card")
+        if outbound and outbound.get("from_email"):
+            return {
+                "from_name": outbound.get("from_name"),
+                "from_email": outbound.get("from_email"),
+                "smtp_username": outbound.get("smtp_username") or outbound.get("from_email"),
+                "smtp_password": outbound.get("smtp_password"),
+            }
         from_name, from_email = SmartCardMailboxSettingsService.from_address(db)
         row = SmartCardMailboxSettingsService.get_row(db)
         password = SmartCardMailboxSettingsService.get_decrypted_password(db)

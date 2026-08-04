@@ -89,11 +89,23 @@ def _send_auto_reply(db: Session, *, to_addr: str, subject: str, body: str) -> N
     if not to_addr or "@" not in to_addr:
         return
     try:
+        from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+        outbound = PlatformSenderEmailService.resolve_outbound(db, "careers")
+        kwargs: dict = {}
+        if outbound and outbound.get("from_email"):
+            kwargs = {
+                "from_email": outbound["from_email"],
+                "from_name": outbound.get("from_name"),
+                "smtp_username": outbound.get("smtp_username"),
+                "smtp_password": outbound.get("smtp_password"),
+            }
         SmtpMailerService.send_plain(
             db,
             to_addr=to_addr.strip(),
             subject=subject[:180],
             body=body,
+            **kwargs,
         )
     except SmtpMailerError as e:
         logger.warning("career_mailbox_auto_reply_failed", extra={"err": str(e)})

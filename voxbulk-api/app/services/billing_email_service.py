@@ -37,6 +37,11 @@ BILLING_TEMPLATE_KEYS = frozenset(
 
 
 def billing_from_address(db: Session) -> tuple[str, str]:
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "billing")
+    if outbound and outbound.get("from_email"):
+        return str(outbound["from_name"] or "VOXBULK Billing"), str(outbound["from_email"])
     row = BillingMailboxSettingsService.get_row(db)
     email = str(row.mailbox_email or "billing@voxbulk.com").strip().lower()
     return "VOXBULK Billing", email
@@ -51,6 +56,21 @@ def _looks_like_html(text: str) -> bool:
     return bool(_HTML_TAG_RE.search(str(text or "")))
 
 
+def _billing_smtp_kwargs(db: Session) -> dict[str, Any]:
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "billing")
+    if outbound and outbound.get("from_email"):
+        return {
+            "from_email": outbound["from_email"],
+            "from_name": outbound["from_name"],
+            "smtp_username": outbound.get("smtp_username"),
+            "smtp_password": outbound.get("smtp_password"),
+        }
+    from_name, from_email = billing_from_address(db)
+    return {"from_email": from_email, "from_name": from_name, "smtp_username": None, "smtp_password": None}
+
+
 def _deliver_billing_message(
     db: Session,
     *,
@@ -59,7 +79,9 @@ def _deliver_billing_message(
     body: str,
     attachments: list[dict[str, Any]] | None = None,
 ) -> None:
-    from_name, from_email = billing_from_address(db)
+    kwargs = _billing_smtp_kwargs(db)
+    from_email = kwargs["from_email"]
+    from_name = kwargs["from_name"]
     clean_body = str(body or "")
     try:
         if _looks_like_html(clean_body):
@@ -71,6 +93,8 @@ def _deliver_billing_message(
                 attachments=attachments,
                 from_email=from_email,
                 from_name=from_name,
+                smtp_username=kwargs.get("smtp_username"),
+                smtp_password=kwargs.get("smtp_password"),
             )
         else:
             SmtpMailerService.send_plain(
@@ -81,6 +105,8 @@ def _deliver_billing_message(
                 attachments=attachments,
                 from_email=from_email,
                 from_name=from_name,
+                smtp_username=kwargs.get("smtp_username"),
+                smtp_password=kwargs.get("smtp_password"),
             )
     except SmtpMailerError as exc:
         if not _looks_like_html(clean_body):
@@ -97,6 +123,8 @@ def _deliver_billing_message(
             attachments=attachments,
             from_email=from_email,
             from_name=from_name,
+            smtp_username=kwargs.get("smtp_username"),
+            smtp_password=kwargs.get("smtp_password"),
         )
 
 

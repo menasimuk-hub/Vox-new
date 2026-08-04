@@ -50,6 +50,16 @@ def _parse_offer_config(raw: str | None) -> dict[str, Any] | None:
 class ExpoEmailService:
     @staticmethod
     def _smtp_from(db: Session) -> dict[str, str | None]:
+        from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+        outbound = PlatformSenderEmailService.resolve_outbound(db, "expo")
+        if outbound and outbound.get("from_email"):
+            return {
+                "from_name": outbound.get("from_name"),
+                "from_email": outbound.get("from_email"),
+                "smtp_username": outbound.get("smtp_username"),
+                "smtp_password": outbound.get("smtp_password"),
+            }
         from_name, from_email = ExpoMailboxSettingsService.from_address(db)
         pwd = ExpoMailboxSettingsService.get_decrypted_password(db)
         row = ExpoMailboxSettingsService.get_row(db)

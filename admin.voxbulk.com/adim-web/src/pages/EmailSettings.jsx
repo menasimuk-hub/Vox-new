@@ -172,6 +172,8 @@ export default function EmailSettings() {
     purpose: '',
     notes: '',
     is_active: true,
+    smtp_username: '',
+    password: '',
   })
 
   const loadSmtp = useCallback(async () => {
@@ -276,7 +278,15 @@ export default function EmailSettings() {
   const openAddSender = () => {
     setSenderErr('')
     setSenderMsg('')
-    setSenderForm({ local_part: '', from_name: '', purpose: '', notes: '', is_active: true })
+    setSenderForm({
+      local_part: '',
+      from_name: '',
+      purpose: '',
+      notes: '',
+      is_active: true,
+      smtp_username: '',
+      password: '',
+    })
     setSenderModal({ mode: 'add' })
   }
 
@@ -289,6 +299,8 @@ export default function EmailSettings() {
       purpose: row.purpose || '',
       notes: row.notes || '',
       is_active: row.is_active !== false,
+      smtp_username: row.smtp_username || '',
+      password: '',
     })
     setSenderModal({ mode: 'edit', row })
   }
@@ -304,6 +316,10 @@ export default function EmailSettings() {
         purpose: String(senderForm.purpose || '').trim(),
         notes: String(senderForm.notes || '').trim() || null,
         is_active: Boolean(senderForm.is_active),
+        smtp_username: String(senderForm.smtp_username || '').trim() || null,
+      }
+      if (String(senderForm.password || '').trim()) {
+        payload.password = String(senderForm.password).trim()
       }
       if (!payload.local_part) throw new Error('Local-part is required (e.g. sales)')
       if (senderModal?.mode === 'edit' && senderModal.row?.id) {
@@ -323,6 +339,33 @@ export default function EmailSettings() {
       await loadSenderEmails()
     } catch (e) {
       setSenderErr(e?.message || 'Save failed')
+    } finally {
+      setSenderBusy(false)
+    }
+  }
+
+  const testSenderEmail = async (row) => {
+    const to = String(testTo || supportTestTo || '').trim()
+    if (!to) {
+      setSenderErr('Set a test recipient (same as SMTP test To) before testing.')
+      return
+    }
+    setSenderBusy(true)
+    setSenderErr('')
+    setSenderMsg('')
+    try {
+      const res = await apiFetch(`/admin/email/sender-emails/${encodeURIComponent(row.id)}/test`, {
+        method: 'POST',
+        body: JSON.stringify({ to }),
+      })
+      setSenderMsg(res?.detail || `Test sent to ${to} from ${row.email || row.local_part}`)
+      try {
+        window.localStorage.setItem('voxbulk_admin_test_email_to', to)
+      } catch {
+        /* ignore */
+      }
+    } catch (e) {
+      setSenderErr(e?.message || 'Test failed')
     } finally {
       setSenderBusy(false)
     }
@@ -1351,8 +1394,18 @@ export default function EmailSettings() {
                 Platform sender emails
               </div>
               <div className="note" style={{ marginBottom: 12 }}>
-                Manage From addresses on <strong>@voxbulk.com</strong> only (e.g. sales@ for Sales Hub invoices).
-                Sending still uses the platform SMTP host — your provider must allow each alias.
+                <strong>SMTP tab</strong> = mail server. This table = each mailbox login (From + password) used when the system sends.
+                Domain locked to <strong>@voxbulk.com</strong>. System rows (sales, billing, careers, support, expo, survey.codes, smartqr, noreply) are auto-seeded and copied from existing mailbox settings.
+              </div>
+              <div className="field" style={{ maxWidth: 360, marginBottom: 12 }}>
+                <label>Test recipient</label>
+                <input
+                  className="input"
+                  type="email"
+                  value={testTo}
+                  onChange={(e) => setTestTo(e.target.value)}
+                  placeholder="you@company.com"
+                />
               </div>
               {senderErr ? <div className="note" style={{ color: 'var(--danger, #b42318)', marginBottom: 12 }}>{senderErr}</div> : null}
               {senderMsg ? <div className="note" style={{ marginBottom: 12 }}>{senderMsg}</div> : null}
@@ -1371,6 +1424,7 @@ export default function EmailSettings() {
                         <th>From name</th>
                         <th>Address</th>
                         <th>Purpose</th>
+                        <th>Password</th>
                         <th>Status</th>
                         <th>Notes</th>
                         <th>Actions</th>
@@ -1379,7 +1433,7 @@ export default function EmailSettings() {
                     <tbody>
                       {senderEmails.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="muted">No sender emails yet. Add sales@ with purpose &quot;sales&quot;.</td>
+                          <td colSpan={7} className="muted">No sender emails yet — they will appear after load/seed.</td>
                         </tr>
                       ) : (
                         senderEmails.map((row) => (
@@ -1387,6 +1441,11 @@ export default function EmailSettings() {
                             <td>{row.from_name || '—'}</td>
                             <td><code>{row.email || `${row.local_part}@voxbulk.com`}</code></td>
                             <td>{row.purpose || '—'}</td>
+                            <td>
+                              <span className={`pill ${row.password_set ? 'ok' : 'warn'}`}>
+                                {row.password_set ? 'Set' : 'Not set'}
+                              </span>
+                            </td>
                             <td>
                               <span className={`pill ${row.is_active ? 'ok' : 'warn'}`}>
                                 {row.is_active ? 'Active' : 'Frozen'}
@@ -1397,6 +1456,15 @@ export default function EmailSettings() {
                               <div className="templateRowActions">
                                 <button type="button" className="emailIconBtn primary" title="Edit" onClick={() => openEditSender(row)}>
                                   <i className="ti ti-pencil" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="emailIconBtn"
+                                  title="Test send"
+                                  disabled={senderBusy || !row.is_active}
+                                  onClick={() => testSenderEmail(row)}
+                                >
+                                  <i className="ti ti-send" />
                                 </button>
                                 <button
                                   type="button"
@@ -1459,6 +1527,27 @@ export default function EmailSettings() {
                           value={senderForm.purpose}
                           onChange={(e) => setSenderForm((s) => ({ ...s, purpose: e.target.value }))}
                           placeholder="sales"
+                        />
+                      </label>
+                      <label>
+                        SMTP username (optional)
+                        <input
+                          className="input"
+                          value={senderForm.smtp_username}
+                          onChange={(e) => setSenderForm((s) => ({ ...s, smtp_username: e.target.value }))}
+                          placeholder="Defaults to full email"
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        Password
+                        <input
+                          className="input"
+                          type="password"
+                          value={senderForm.password}
+                          onChange={(e) => setSenderForm((s) => ({ ...s, password: e.target.value }))}
+                          placeholder={senderModal.mode === 'edit' ? 'Leave blank to keep' : 'Mailbox password'}
+                          autoComplete="new-password"
                         />
                       </label>
                       <label>

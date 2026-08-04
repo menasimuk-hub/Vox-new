@@ -1,6 +1,8 @@
-"""Platform sender emails (@voxbulk.com) CRUD + purpose resolver."""
+"""Platform sender emails (@voxbulk.com) CRUD + purpose resolver + passwords."""
 
 from __future__ import annotations
+
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine
@@ -38,10 +40,15 @@ def test_create_sales_and_resolve_purpose(db):
         from_name="Voxbulk Sales",
         purpose="sales",
         notes="Hub invoices",
+        password="secret-sales",
     )
     assert row.email == "sales@voxbulk.com"
     sender = PlatformSenderEmailService.get_sender_by_purpose(db, "sales")
     assert sender == ("Voxbulk Sales", "sales@voxbulk.com")
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "sales")
+    assert outbound["from_email"] == "sales@voxbulk.com"
+    assert outbound["smtp_password"] == "secret-sales"
+    assert outbound["smtp_username"] == "sales@voxbulk.com"
 
 
 def test_reject_non_voxbulk_domain(db):
@@ -69,3 +76,28 @@ def test_delete_sender(db):
     row = PlatformSenderEmailService.create(db, local_part="noreply", purpose="noreply")
     PlatformSenderEmailService.delete(db, row.id)
     assert PlatformSenderEmailService.list_all(db) == []
+
+
+def test_ensure_system_senders_seeds(db):
+    rows = PlatformSenderEmailService.ensure_system_senders(db)
+    purposes = {r.purpose for r in rows}
+    assert "sales" in purposes
+    assert "noreply" in purposes
+    assert "billing" in purposes
+    # Idempotent
+    rows2 = PlatformSenderEmailService.ensure_system_senders(db)
+    assert len(rows2) >= len(rows)
+
+
+def test_test_send_uses_row_password(db):
+    row = PlatformSenderEmailService.create(
+        db, local_part="noreply", purpose="noreply", password="npw", from_name="No Reply"
+    )
+    with patch("app.services.smtp_mailer_service.SmtpMailerService.send_plain") as send:
+        send.return_value = None
+        PlatformSenderEmailService.test_send(db, row.id, to_addr="admin@example.com")
+        assert send.called
+        kwargs = send.call_args.kwargs
+        assert kwargs["from_email"] == "noreply@voxbulk.com"
+        assert kwargs["smtp_password"] == "npw"
+        assert kwargs["to_addr"] == "admin@example.com"

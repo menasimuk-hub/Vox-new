@@ -175,11 +175,18 @@ class SalesOfferSendService:
 
     @staticmethod
     def _send_email(db: Session, *, to_addr: str, variables: dict[str, str]) -> None:
+        from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+        outbound = PlatformSenderEmailService.resolve_outbound(db, "sales") or {}
         sent, err = TransactionalEmailService.send_templated_optional(
             db,
             template_key="sales_offer",
             to_email=to_addr,
             variables=variables,
+            from_email=outbound.get("from_email"),
+            from_name=outbound.get("from_name"),
+            smtp_username=outbound.get("smtp_username"),
+            smtp_password=outbound.get("smtp_password"),
         )
         if sent:
             return

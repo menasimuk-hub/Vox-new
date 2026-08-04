@@ -158,7 +158,7 @@ def test_one_time_plus_commission(db):
 
 
 def test_hub_invoice_send_uses_sales_sender(db):
-    PlatformSenderEmailService.create(db, local_part="sales", from_name="Sales", purpose="sales")
+    PlatformSenderEmailService.create(db, local_part="sales", from_name="Sales", purpose="sales", password="spw")
     user = User(email="rep@test.com", password_hash=hash_password("x"), is_active=True)
     db.add(user)
     db.flush()
@@ -198,6 +198,77 @@ def test_hub_invoice_send_uses_sales_sender(db):
         kwargs = send.call_args.kwargs
         assert kwargs["from_email"] == "sales@voxbulk.com"
         assert kwargs["to_addr"] == "buyer@example.com"
+        assert kwargs["smtp_password"] == "spw"
+
+
+def test_hub_invoice_send_falls_back_to_rep_email(db):
+    PlatformSenderEmailService.create(db, local_part="sales", from_name="Sales", purpose="sales")
+    user = User(email="rep-fallback@test.com", password_hash=hash_password("x"), is_active=True)
+    db.add(user)
+    db.flush()
+    rep = SalesRep(
+        user_id=user.id,
+        name="R3",
+        kind="salesman",
+        promo_code="R3",
+        is_active=True,
+        currency="GBP",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(rep)
+    db.commit()
+    inv = SalesHubInvoiceService.create(
+        db,
+        rep=rep,
+        payload={
+            "sales_rep_id": rep.id,
+            "customer": "",
+            "customer_email": None,
+            "currency": "GBP",
+            "items": [{"description": "Sales commission", "quantity": 1, "unit_price_minor": 1000}],
+        },
+    )
+    assert inv.customer_email == "rep-fallback@test.com"
+    with patch("app.services.smtp_mailer_service.SmtpMailerService.send_html") as send:
+        send.return_value = None
+        with patch.object(SalesHubInvoiceService, "render_pdf_bytes", return_value=b"%PDF"):
+            with patch(
+                "app.services.transactional_email_service.TransactionalEmailService.load_template_fields",
+                return_value=("Subj", "<p>x</p>", True),
+            ):
+                SalesHubInvoiceService.send_email(db, inv=inv, reminder=False)
+        assert send.call_args.kwargs["to_addr"] == "rep-fallback@test.com"
+
+
+def test_hub_invoice_render_html_uses_get_settings(db):
+    user = User(email="rep4@test.com", password_hash=hash_password("x"), is_active=True)
+    db.add(user)
+    db.flush()
+    rep = SalesRep(
+        user_id=user.id,
+        name="R4",
+        kind="salesman",
+        promo_code="R4",
+        is_active=True,
+        currency="GBP",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(rep)
+    db.commit()
+    inv = SalesHubInvoiceService.create(
+        db,
+        rep=rep,
+        payload={
+            "customer": "Acme",
+            "currency": "GBP",
+            "items": [{"description": "Sales commission", "quantity": 1, "unit_price_minor": 100}],
+        },
+    )
+    html = SalesHubInvoiceService.render_html(db, inv)
+    assert "Invoice" in html
+    assert inv.number in html
 
 
 def test_hub_invoice_send_requires_sales_sender(db):

@@ -21,6 +21,11 @@ _HTML_TAG_RE = re.compile(r"<[a-z][\s\S]*?>", re.I)
 
 def careers_from_address(db: Session) -> tuple[str, str]:
     """From line for all interview/careers candidate emails."""
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "careers")
+    if outbound and outbound.get("from_email"):
+        return str(outbound["from_name"] or "VOXBULK Careers"), str(outbound["from_email"])
     row = CareerMailboxSettingsService.get_row(db)
     email = str(row.mailbox_email or "careers@voxbulk.com").strip().lower()
     return "VOXBULK Careers", email
@@ -28,6 +33,21 @@ def careers_from_address(db: Session) -> tuple[str, str]:
 
 def _looks_like_html(text: str) -> bool:
     return bool(_HTML_TAG_RE.search(str(text or "")))
+
+
+def _careers_smtp_kwargs(db: Session) -> dict[str, Any]:
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "careers")
+    if outbound and outbound.get("from_email"):
+        return {
+            "from_email": outbound["from_email"],
+            "from_name": outbound["from_name"],
+            "smtp_username": outbound.get("smtp_username"),
+            "smtp_password": outbound.get("smtp_password"),
+        }
+    from_name, from_email = careers_from_address(db)
+    return {"from_email": from_email, "from_name": from_name, "smtp_username": None, "smtp_password": None}
 
 
 def _deliver_careers_message(
@@ -39,10 +59,11 @@ def _deliver_careers_message(
     attachments: list[dict[str, Any]] | None = None,
 ) -> None:
     """
-    Send via platform SMTP credentials but with From = careers@ (mailbox settings).
+    Send via platform SMTP credentials but with From = careers@ (Emails hub / mailbox settings).
     Falls back to plain text if HTML is rejected by the mail server.
     """
-    from_name, from_email = careers_from_address(db)
+    kwargs = _careers_smtp_kwargs(db)
+    from_name, from_email = kwargs["from_name"], kwargs["from_email"]
     clean_body = str(body or "")
     try:
         if _looks_like_html(clean_body):
@@ -54,6 +75,8 @@ def _deliver_careers_message(
                 attachments=attachments,
                 from_email=from_email,
                 from_name=from_name,
+                smtp_username=kwargs.get("smtp_username"),
+                smtp_password=kwargs.get("smtp_password"),
             )
         else:
             SmtpMailerService.send_plain(
@@ -64,6 +87,8 @@ def _deliver_careers_message(
                 attachments=attachments,
                 from_email=from_email,
                 from_name=from_name,
+                smtp_username=kwargs.get("smtp_username"),
+                smtp_password=kwargs.get("smtp_password"),
             )
     except SmtpMailerError as exc:
         if not _looks_like_html(clean_body):
@@ -85,6 +110,8 @@ def _deliver_careers_message(
             attachments=attachments,
             from_email=from_email,
             from_name=from_name,
+            smtp_username=kwargs.get("smtp_username"),
+            smtp_password=kwargs.get("smtp_password"),
         )
 
 

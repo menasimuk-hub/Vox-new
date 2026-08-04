@@ -159,6 +159,39 @@ class SalesHubInvoiceService:
         return totals
 
     @staticmethod
+    def _rep_contact_email(db: Session, rep: SalesRep) -> str | None:
+        from app.models.user import User
+
+        email = (getattr(rep, "email", None) or "").strip().lower()
+        if email and "@" in email:
+            return email
+        user = db.get(User, rep.user_id) if getattr(rep, "user_id", None) else None
+        if user and (user.email or "").strip():
+            return str(user.email).strip().lower()
+        return None
+
+    @staticmethod
+    def _ensure_recipient_email(db: Session, inv: SalesHubInvoice) -> str:
+        """Resolve To address: invoice.customer_email, else sales rep login email (backfill)."""
+        to_email = (getattr(inv, "customer_email", None) or "").strip().lower()
+        if to_email and "@" in to_email:
+            return to_email
+        rep = db.get(SalesRep, inv.sales_rep_id) if inv.sales_rep_id else None
+        if rep is None:
+            raise SalesRepError("Customer email is required to send this invoice. Set customer_email first.")
+        fallback = SalesHubInvoiceService._rep_contact_email(db, rep)
+        if not fallback:
+            raise SalesRepError("Customer email is required to send this invoice. Set customer_email first.")
+        inv.customer_email = fallback
+        if not (inv.customer or "").strip():
+            inv.customer = (rep.company_name or rep.name or "").strip() or inv.customer
+        inv.updated_at = datetime.utcnow()
+        db.add(inv)
+        db.commit()
+        db.refresh(inv)
+        return fallback
+
+    @staticmethod
     def create(db: Session, *, rep: SalesRep, payload: dict[str, Any]) -> SalesHubInvoice:
         kind = str(payload.get("kind") or KIND_COMMISSION).strip().lower()
         if kind not in VALID_KINDS:
@@ -170,12 +203,16 @@ class SalesHubInvoiceService:
             terms = parse_partner_terms(rep)
             if not discount and terms.get("discount_percent"):
                 discount = float(terms["discount_percent"])
+        customer_email = (str(payload.get("customer_email") or "").strip().lower() or None)
+        if not customer_email:
+            customer_email = SalesHubInvoiceService._rep_contact_email(db, rep)
+        customer = str(payload.get("customer") or "").strip() or (rep.company_name or rep.name or "").strip()
         inv = SalesHubInvoice(
             sales_rep_id=rep.id,
             number=SalesHubInvoiceService._next_number(db),
             kind=kind,
-            customer=str(payload.get("customer") or rep.name or "").strip(),
-            customer_email=(str(payload.get("customer_email") or "").strip().lower() or None),
+            customer=customer,
+            customer_email=customer_email,
             customer_tax_number=(str(payload.get("customer_tax_number") or "").strip() or None),
             currency=currency,
             discount_percent=discount,
@@ -382,7 +419,7 @@ class SalesHubInvoiceService:
 
     @staticmethod
     def render_html(db: Session, inv: SalesHubInvoice, items: list[SalesHubInvoiceItem] | None = None) -> str:
-        from app.core.config import settings
+        from app.core.config import get_settings
         from app.services.brand_assets import logo_data_uri
 
         if items is None:
@@ -395,6 +432,7 @@ class SalesHubInvoiceService:
         after = sub - disc_minor
         tax_minor = int(round(after * tax / 100.0))
         logo = logo_data_uri(variant="logo-black") or ""
+        settings = get_settings()
         company = getattr(settings, "invoice_company_name", None) or "Voxbulk Ltd"
         company_email = getattr(settings, "invoice_company_email", None) or "sales@voxbulk.com"
         addr = getattr(settings, "invoice_company_address", None) or ""
@@ -446,13 +484,12 @@ th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}} .muted{{col
         from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
         from app.services.transactional_email_service import TransactionalEmailService, substitute_placeholders
 
-        to_email = (getattr(inv, "customer_email", None) or "").strip()
-        if not to_email or "@" not in to_email:
-            raise SalesRepError("Customer email is required to send this invoice. Set customer_email first.")
-        sender = PlatformSenderEmailService.get_sender_by_purpose(db, "sales")
-        if sender is None:
+        to_email = SalesHubInvoiceService._ensure_recipient_email(db, inv)
+        outbound = PlatformSenderEmailService.resolve_outbound(db, "sales")
+        if outbound is None or not outbound.get("from_email"):
             raise SalesRepError("Configure sales@ in Messaging → Emails (purpose: sales, active).")
-        from_name, from_email = sender
+        from_name = outbound["from_name"]
+        from_email = outbound["from_email"]
         template_key = "sales_hub_invoice_reminder" if reminder else "sales_hub_invoice_sent"
         subject_tpl, body_tpl, enabled = TransactionalEmailService.load_template_fields(db, template_key=template_key)
         if not enabled:
@@ -491,6 +528,8 @@ th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}} .muted{{col
                 from_email=from_email,
                 from_name=from_name,
                 attachments=attachments,
+                smtp_username=outbound.get("smtp_username"),
+                smtp_password=outbound.get("smtp_password"),
             )
         except SmtpMailerError as e:
             raise SalesRepError(str(e)) from e

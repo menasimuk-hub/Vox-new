@@ -455,15 +455,16 @@ class SalesPayoutService:
                 return
             subject = substitute_placeholders(subject_tpl, variables)
             body = substitute_placeholders(body_tpl, variables)
-            sender = PlatformSenderEmailService.get_sender_by_purpose(db, "sales")
-            from_name, from_email = sender if sender else (None, None)
+            outbound = PlatformSenderEmailService.resolve_outbound(db, "sales") or {}
             SmtpMailerService.send_html(
                 db,
                 to_addr=to_email,
                 subject=subject,
                 body=body,
-                from_email=from_email,
-                from_name=from_name,
+                from_email=outbound.get("from_email"),
+                from_name=outbound.get("from_name"),
+                smtp_username=outbound.get("smtp_username"),
+                smtp_password=outbound.get("smtp_password"),
             )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to send %s for payout invoice %s", template_key, invoice.id)

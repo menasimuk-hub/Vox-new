@@ -192,6 +192,25 @@ def send_support_smtp_test(db: Session, *, to_email: str) -> dict[str, Any]:
     if not to_addr or "@" not in to_addr:
         raise SmtpMailerError("Invalid recipient email address.")
 
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "support")
+    if outbound and outbound.get("from_email") and not (SupportMailboxSettingsService.get_row(db).smtp_host or "").strip():
+        SmtpMailerService.send_plain(
+            db,
+            to_addr=to_addr,
+            subject="VOXBULK / Support mailbox test",
+            body=(
+                "This is a test message from the support mailbox (support@voxbulk.com).\n\n"
+                "If you received this email, outbound mail is working."
+            ),
+            from_email=outbound["from_email"],
+            from_name=outbound.get("from_name") or DEFAULT_FROM_NAME,
+            smtp_username=outbound.get("smtp_username"),
+            smtp_password=outbound.get("smtp_password"),
+        )
+        return {"ok": True, "detail": f"Test email sent to {to_addr} via Emails hub (support).", "via": "emails_hub"}
+
     row = SupportMailboxSettingsService.get_row(db)
     from_name, from_email = SupportMailboxSettingsService.from_address(db)
     smtp_user = (row.smtp_username or from_email or "").strip() or None

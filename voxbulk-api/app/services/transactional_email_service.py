@@ -215,6 +215,23 @@ class TransactionalEmailService:
 
         subject = substitute_placeholders(subject_tpl, variables).strip() or k.replace("_", " ").title()
         body = substitute_placeholders(body_tpl, variables)
+        # Default From = Emails purpose noreply when caller did not override
+        use_from_email = from_email
+        use_from_name = from_name
+        use_user = smtp_username
+        use_pwd = smtp_password
+        if not (use_from_email or "").strip():
+            try:
+                from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+                outbound = PlatformSenderEmailService.resolve_outbound(db, "noreply")
+                if outbound and outbound.get("from_email"):
+                    use_from_email = outbound["from_email"]
+                    use_from_name = outbound.get("from_name")
+                    use_user = outbound.get("smtp_username")
+                    use_pwd = outbound.get("smtp_password")
+            except Exception:
+                pass
         try:
             _deliver_message(
                 db,
@@ -222,10 +239,10 @@ class TransactionalEmailService:
                 subject=subject,
                 body=body,
                 attachments=attachments,
-                from_email=from_email,
-                from_name=from_name,
-                smtp_username=smtp_username,
-                smtp_password=smtp_password,
+                from_email=use_from_email,
+                from_name=use_from_name,
+                smtp_username=use_user,
+                smtp_password=use_pwd,
             )
         except SmtpMailerError as e:
             logger.warning("transactional_smtp_failed", extra={"template": k, "err": str(e)})

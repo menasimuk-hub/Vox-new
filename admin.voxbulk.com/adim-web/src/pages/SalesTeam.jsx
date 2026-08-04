@@ -1909,7 +1909,19 @@ export default function SalesTeam() {
           <div className='field-row'>
             <div className='field'>
               <label>Sales rep</label>
-              <select value={createInvForm.sales_rep_id} onChange={(e) => setCreateInvForm({ ...createInvForm, sales_rep_id: e.target.value })}>
+              <select
+                value={createInvForm.sales_rep_id}
+                onChange={(e) => {
+                  const id = e.target.value
+                  const r = allReps.find((x) => x.id === id)
+                  setCreateInvForm({
+                    ...createInvForm,
+                    sales_rep_id: id,
+                    customer: r ? (r.company_name || r.name || createInvForm.customer) : createInvForm.customer,
+                    customer_email: r ? (r.email || createInvForm.customer_email) : createInvForm.customer_email,
+                  })
+                }}
+              >
                 <option value=''>Select…</option>
                 {allReps.map((r) => (
                   <option key={r.id} value={r.id}>{r.name} ({r.kind})</option>

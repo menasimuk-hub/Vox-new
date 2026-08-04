@@ -26,6 +26,11 @@ def _looks_like_html(text: str) -> bool:
 
 def _smtp_auth_override(db: Session) -> tuple[str | None, str | None]:
     """When mailbox password is set, authenticate as that mailbox on platform SMTP host."""
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "survey_codes")
+    if outbound and outbound.get("smtp_password"):
+        return outbound.get("smtp_username"), outbound.get("smtp_password")
     row = SurveyCodesMailboxSettingsService.get_row(db)
     pwd = SurveyCodesMailboxSettingsService.get_decrypted_password(db)
     if not pwd:
@@ -41,8 +46,17 @@ def _deliver(
     subject: str,
     body: str,
 ) -> None:
-    from_name, from_email = SurveyCodesMailboxSettingsService.from_address(db)
-    smtp_username, smtp_password = _smtp_auth_override(db)
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    outbound = PlatformSenderEmailService.resolve_outbound(db, "survey_codes")
+    if outbound and outbound.get("from_email"):
+        from_name = outbound.get("from_name") or "VOXBULK Survey Codes"
+        from_email = outbound["from_email"]
+        smtp_username = outbound.get("smtp_username")
+        smtp_password = outbound.get("smtp_password")
+    else:
+        from_name, from_email = SurveyCodesMailboxSettingsService.from_address(db)
+        smtp_username, smtp_password = _smtp_auth_override(db)
     clean_body = str(body or "")
     kwargs: dict[str, Any] = {
         "to_addr": to_addr,
