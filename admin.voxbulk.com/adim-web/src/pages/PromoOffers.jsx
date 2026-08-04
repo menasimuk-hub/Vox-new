@@ -6,7 +6,7 @@ import { Panel } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Pill } from '@/components/ui/Badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs'
-import { Modal, ModalContent, ModalHeader, ModalTitle, ModalDescription, ModalFooter } from '@/components/ui/Modal'
+import { Modal } from '@/components/ui/Modal'
 import {
   StripeTable,
   TableBody,
@@ -517,68 +517,70 @@ export default function PromoOffers() {
         </StripeTable>
       </Panel>
 
-      <Modal open={!!applyPromo} onOpenChange={(open) => !open && closeApply()}>
-        <ModalContent>
-          <ModalHeader>
-            <ModalTitle>Apply {applyPromo?.code} to organisations</ModalTitle>
-            <ModalDescription>
-              {applyPromo?.benefit_summary || applyPromo?.name || applyPromo?.code}. Search, tick one or more orgs, then apply.
-              Already-redeemed orgs are skipped.
-            </ModalDescription>
-          </ModalHeader>
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <Input
-                placeholder="Search organisation name…"
-                value={orgQuery}
-                onChange={(e) => setOrgQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    void searchOrgs()
-                  }
-                }}
-                className="flex-1"
-              />
-              <Button variant="outline" onClick={() => void searchOrgs()}>
-                Search
-              </Button>
-            </div>
-            <div className="max-h-64 overflow-auto rounded-md border border-border bg-surface-muted/30 p-2">
-              {orgs.length === 0 ? (
-                <p className="p-2 text-[13px] text-muted-foreground">Search to find organisations.</p>
-              ) : (
-                orgs.map((o) => (
-                  <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-surface-muted/50">
-                    <input
-                      type="checkbox"
-                      checked={selectedOrgIds.includes(o.id)}
-                      onChange={() => toggleOrg(o.id)}
-                      className="h-4 w-4"
-                    />
-                    <span className="text-[13px]">
-                      <strong className="font-semibold text-foreground">{o.name}</strong>
-                      <span className="text-muted-foreground"> · {String(o.id || '').slice(0, 8)}</span>
-                    </span>
-                  </label>
-                ))
-              )}
-            </div>
-            {applyResult ? (
-              <div className="rounded-md border border-border bg-surface px-3 py-2 text-[12px] text-foreground">
-                Applied {applyResult.applied ?? 0} · failed/skipped {applyResult.failed ?? 0}
-              </div>
-            ) : null}
-          </div>
-          <ModalFooter>
+      <Modal
+        open={!!applyPromo}
+        onOpenChange={(open) => !open && closeApply()}
+        title={applyPromo ? `Apply ${applyPromo.code} to organisations` : 'Apply promo'}
+        description={
+          applyPromo
+            ? `${applyPromo.benefit_summary || applyPromo.name || applyPromo.code}. Search, tick one or more orgs, then apply. Already-redeemed orgs are skipped.`
+            : undefined
+        }
+        footer={
+          <>
             <Button variant="outline" onClick={closeApply}>
               Close
             </Button>
             <Button disabled={applying || selectedOrgIds.length === 0} onClick={() => void applyToSelectedOrgs()}>
               {applying ? 'Applying…' : `Apply to ${selectedOrgIds.length || 0} org(s)`}
             </Button>
-          </ModalFooter>
-        </ModalContent>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <Input
+              placeholder="Search organisation name…"
+              value={orgQuery}
+              onChange={(e) => setOrgQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void searchOrgs()
+                }
+              }}
+              className="flex-1"
+            />
+            <Button variant="outline" onClick={() => void searchOrgs()}>
+              Search
+            </Button>
+          </div>
+          <div className="max-h-64 overflow-auto rounded-md border border-border bg-surface-muted/30 p-2">
+            {orgs.length === 0 ? (
+              <p className="p-2 text-[13px] text-muted-foreground">Search to find organisations.</p>
+            ) : (
+              orgs.map((o) => (
+                <label key={o.id} className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-surface-muted/50">
+                  <input
+                    type="checkbox"
+                    checked={selectedOrgIds.includes(o.id)}
+                    onChange={() => toggleOrg(o.id)}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-[13px]">
+                    <strong className="font-semibold text-foreground">{o.name}</strong>
+                    <span className="text-muted-foreground"> · {String(o.id || '').slice(0, 8)}</span>
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          {applyResult ? (
+            <div className="rounded-md border border-border bg-surface px-3 py-2 text-[12px] text-foreground">
+              Applied {applyResult.applied ?? 0} · failed/skipped {applyResult.failed ?? 0}
+            </div>
+          ) : null}
+        </div>
       </Modal>
     </div>
   )

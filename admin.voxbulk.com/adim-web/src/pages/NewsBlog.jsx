@@ -5,7 +5,7 @@ import { Panel } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Pill } from '@/components/ui/Badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs'
-import { Modal, ModalContent, ModalHeader, ModalTitle, ModalDescription } from '@/components/ui/Modal'
+import { Modal } from '@/components/ui/Modal'
 import {
   StripeTable,
   TableBody,
@@ -472,26 +472,26 @@ export default function NewsBlog() {
         </Panel>
       )}
 
-      <Modal open={previewOpen} onOpenChange={setPreviewOpen}>
-        <ModalContent className="max-w-2xl">
-          <ModalHeader>
-            <ModalTitle>Preview</ModalTitle>
-            <ModalDescription>Content preview as it will appear on the public site.</ModalDescription>
-          </ModalHeader>
-          <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 pb-6">
-            <h1 className="text-[22px] font-bold text-foreground">{draft.title || 'Untitled'}</h1>
-            {previewSrc ? (
-              <img className="max-h-[280px] w-full rounded-md border border-border object-cover" src={previewSrc} alt="" />
-            ) : null}
-            <div className="text-[15px] leading-relaxed text-foreground">
-              {draft.body_mode === 'html' ? (
-                <div dangerouslySetInnerHTML={{ __html: draft.body }} />
-              ) : (
-                <pre className="whitespace-pre-wrap font-sans">{draft.body}</pre>
-              )}
-            </div>
+      <Modal
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        title="Preview"
+        description="Content preview as it will appear on the public site."
+        className="max-w-2xl"
+      >
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto">
+          <h1 className="text-[22px] font-bold text-foreground">{draft.title || 'Untitled'}</h1>
+          {previewSrc ? (
+            <img className="max-h-[280px] w-full rounded-md border border-border object-cover" src={previewSrc} alt="" />
+          ) : null}
+          <div className="text-[15px] leading-relaxed text-foreground">
+            {draft.body_mode === 'html' ? (
+              <div dangerouslySetInnerHTML={{ __html: draft.body }} />
+            ) : (
+              <pre className="whitespace-pre-wrap font-sans">{draft.body}</pre>
+            )}
           </div>
-        </ModalContent>
+        </div>
       </Modal>
     </div>
   )
