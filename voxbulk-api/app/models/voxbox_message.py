@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -25,11 +26,13 @@ class VoxboxMessage(Base):
 
     from_name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     from_email: Mapped[str] = mapped_column(String(320), nullable=False, default="", index=True)
-    to_addrs: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
-    subject: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    # Many-recipient To headers can exceed 1KB; keep a generous VARCHAR.
+    to_addrs: Mapped[str] = mapped_column(String(2000), nullable=False, default="")
+    subject: Mapped[str] = mapped_column(String(998), nullable=False, default="")
     preview: Mapped[str] = mapped_column(String(500), nullable=False, default="")
-    body_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    body_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # MySQL TEXT is 64KB — HTML mail routinely exceeds that; use MEDIUMTEXT (16MB).
+    body_text: Mapped[str | None] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=True)
+    body_html: Mapped[str | None] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=True)
 
     date: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     unread: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

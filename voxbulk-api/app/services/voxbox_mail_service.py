@@ -436,70 +436,81 @@ class VoxboxMailService:
                             flags = meta
                     if not raw:
                         continue
-                    msg = message_from_bytes(raw)
-                    internet_id = (_decode_mime(msg.get("Message-ID")) or "").strip()[:500]
-                    if not internet_id:
-                        uid = num.decode() if isinstance(num, bytes) else str(num)
-                        internet_id = f"voxbox-{account.id}-{folder_label}-{uid}"[:500]
-                    existing = db.execute(
-                        select(VoxboxMessage)
-                        .where(
-                            VoxboxMessage.account_id == account.id,
-                            VoxboxMessage.internet_message_id == internet_id,
-                        )
-                        .limit(1)
-                    ).scalar_one_or_none()
-                    from_name, from_email = _parse_from(msg.get("From"))
-                    to_addrs = _decode_mime(msg.get("To"))[:1000]
-                    subject = _decode_mime(msg.get("Subject"))[:500]
-                    text, html = _collect_bodies(msg)
-                    preview = (text or _strip_html(html) or "")[:500]
-                    date = _parse_date(msg.get("Date"))
-                    unread = "\\Seen" not in flags
-                    important = "\\Flagged" in flags or msg.get("X-Priority") == "1"
-                    if existing is None:
-                        db.add(
-                            VoxboxMessage(
-                                id=str(uuid.uuid4()),
-                                account_id=account.id,
-                                internet_message_id=internet_id,
-                                imap_uid=(num.decode() if isinstance(num, bytes) else str(num))[:64],
-                                folder=folder_label,
-                                from_name=from_name,
-                                from_email=from_email,
-                                to_addrs=to_addrs,
-                                subject=subject,
-                                preview=preview,
-                                body_text=text or None,
-                                body_html=html or None,
-                                date=date,
-                                unread=unread if folder_label == "inbox" else False,
-                                important=important,
-                                starred="\\Flagged" in flags,
-                                has_attachment=_has_attachment(msg),
-                                created_at=VoxboxMailService._now(),
-                                updated_at=VoxboxMailService._now(),
+                    try:
+                        msg = message_from_bytes(raw)
+                        internet_id = (_decode_mime(msg.get("Message-ID")) or "").strip()[:500]
+                        if not internet_id:
+                            uid = num.decode() if isinstance(num, bytes) else str(num)
+                            internet_id = f"voxbox-{account.id}-{folder_label}-{uid}"[:500]
+                        existing = db.execute(
+                            select(VoxboxMessage)
+                            .where(
+                                VoxboxMessage.account_id == account.id,
+                                VoxboxMessage.internet_message_id == internet_id,
                             )
+                            .limit(1)
+                        ).scalar_one_or_none()
+                        from_name, from_email = _parse_from(msg.get("From"))
+                        to_addrs = _decode_mime(msg.get("To"))[:2000]
+                        subject = _decode_mime(msg.get("Subject"))[:998]
+                        text, html = _collect_bodies(msg)
+                        preview = (text or _strip_html(html) or "")[:500]
+                        date = _parse_date(msg.get("Date"))
+                        unread = "\\Seen" not in flags
+                        important = "\\Flagged" in flags or msg.get("X-Priority") == "1"
+                        if existing is None:
+                            db.add(
+                                VoxboxMessage(
+                                    id=str(uuid.uuid4()),
+                                    account_id=account.id,
+                                    internet_message_id=internet_id,
+                                    imap_uid=(num.decode() if isinstance(num, bytes) else str(num))[:64],
+                                    folder=folder_label,
+                                    from_name=from_name,
+                                    from_email=from_email,
+                                    to_addrs=to_addrs,
+                                    subject=subject,
+                                    preview=preview,
+                                    body_text=text or None,
+                                    body_html=html or None,
+                                    date=date,
+                                    unread=unread if folder_label == "inbox" else False,
+                                    important=important,
+                                    starred="\\Flagged" in flags,
+                                    has_attachment=_has_attachment(msg),
+                                    created_at=VoxboxMailService._now(),
+                                    updated_at=VoxboxMailService._now(),
+                                )
+                            )
+                            stored += 1
+                        else:
+                            existing.subject = subject or existing.subject
+                            existing.preview = preview or existing.preview
+                            if text:
+                                existing.body_text = text
+                            if html:
+                                existing.body_html = html
+                            existing.from_name = from_name or existing.from_name
+                            existing.from_email = from_email or existing.from_email
+                            existing.to_addrs = to_addrs or existing.to_addrs
+                            # Keep local trash/archive — do not resurrect from INBOX sync
+                            local_folder = (existing.folder or "").strip().lower()
+                            if local_folder not in {"trash", "archive"}:
+                                existing.folder = folder_label
+                            existing.has_attachment = _has_attachment(msg) or bool(existing.has_attachment)
+                            existing.updated_at = VoxboxMailService._now()
+                            db.add(existing)
+                        db.commit()
+                    except Exception as msg_exc:
+                        db.rollback()
+                        logger.warning(
+                            "voxbox_sync_skip_message account=%s folder=%s uid=%s err=%s",
+                            account.id,
+                            folder_label,
+                            num,
+                            msg_exc,
                         )
-                        stored += 1
-                    else:
-                        existing.subject = subject or existing.subject
-                        existing.preview = preview or existing.preview
-                        if text:
-                            existing.body_text = text
-                        if html:
-                            existing.body_html = html
-                        existing.from_name = from_name or existing.from_name
-                        existing.from_email = from_email or existing.from_email
-                        existing.to_addrs = to_addrs or existing.to_addrs
-                        # Keep local trash/archive — do not resurrect from INBOX sync
-                        local_folder = (existing.folder or "").strip().lower()
-                        if local_folder not in {"trash", "archive"}:
-                            existing.folder = folder_label
-                        existing.has_attachment = _has_attachment(msg) or bool(existing.has_attachment)
-                        existing.updated_at = VoxboxMailService._now()
-                        db.add(existing)
-                    db.commit()
+                        continue
         finally:
             try:
                 conn.logout()
