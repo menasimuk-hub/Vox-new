@@ -15,9 +15,10 @@ router = APIRouter(tags=["faq"])
 
 @router.get("/faq")
 def public_faq(search: str | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    """Authenticated dashboard FAQ — surface=dashboard."""
     user = db.get(User, principal.user_id)
     viewer_email = getattr(user, "email", None) if user else None
-    cats = FAQService.list_categories(db)
+    cats = FAQService.list_categories(db, surface="dashboard")
     items = FAQService.list_items(
         db,
         search=search,
@@ -25,6 +26,7 @@ def public_faq(search: str | None = None, db: Session = Depends(get_db), princip
         limit=200,
         viewer_email=viewer_email,
         apply_integration_release_gate=True,
+        surface="dashboard",
     )
     grouped = []
     for c in cats:
@@ -33,13 +35,13 @@ def public_faq(search: str | None = None, db: Session = Depends(get_db), princip
             grouped.append({**category_to_dict(c), "items": rows})
     uncategorised = [item_to_dict(db, i) for i in items if i.category_id is None]
     if uncategorised:
-        grouped.append({"id": None, "name": "Other", "slug": "other", "sort_order": 9999, "created_at": None, "items": uncategorised})
+        grouped.append({"id": None, "name": "Other", "slug": "other", "sort_order": 9999, "created_at": None, "surface": "dashboard", "items": uncategorised})
     return grouped
 
 
 @router.get("/admin/faq/categories")
-def admin_faq_categories(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
-    return [category_to_dict(c) for c in FAQService.list_categories(db)]
+def admin_faq_categories(surface: str | None = None, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+    return [category_to_dict(c) for c in FAQService.list_categories(db, surface=surface)]
 
 
 @router.post("/admin/faq/categories")
@@ -62,12 +64,16 @@ def admin_delete_faq_category(category_id: int, db: Session = Depends(get_db), _
 def admin_faq_items(
     search: str | None = None,
     category_id: int | None = None,
+    surface: str | None = None,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_platform_admin),
 ):
-    return [item_to_dict(db, i) for i in FAQService.list_items(db, search=search, category_id=category_id, limit=limit, offset=offset)]
+    return [
+        item_to_dict(db, i)
+        for i in FAQService.list_items(db, search=search, category_id=category_id, surface=surface, limit=limit, offset=offset)
+    ]
 
 
 @router.post("/admin/faq/items")
@@ -92,4 +98,3 @@ def admin_update_faq_item(item_id: int, payload: FAQItemIn, db: Session = Depend
 def admin_delete_faq_item(item_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
     FAQService.delete_item(db, item_id)
     return {"ok": True}
-

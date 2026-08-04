@@ -151,6 +151,7 @@ class AssistantOrchestrator:
                     category=str(data.get("category") or "technical"),
                     subject=str(data.get("subject") or "Support request"),
                     message=customer_message[:8000],
+                    channel="assistant",
                     staff_note=staff_note[:8000] if staff_note else None,
                 )
             except ValueError as e:

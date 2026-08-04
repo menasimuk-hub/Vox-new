@@ -74,6 +74,7 @@ def create_diagnostic_support_ticket(
         category="technical",
         subject=subject[:200],
         message=customer_message[:8000],
+        channel="assistant",
         staff_note=staff_note[:8000] if staff_note else None,
     )
     ticket_ref = str(getattr(ticket, "public_ref", None) or ticket.id)

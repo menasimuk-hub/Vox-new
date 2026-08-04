@@ -61,6 +61,7 @@ def create_my_ticket(payload: TicketCreateIn, db: Session = Depends(get_db), pri
             message=payload.message,
             branch_id=payload.branch_id,
             priority=payload.priority,
+            channel="web",
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
@@ -84,6 +85,7 @@ async def create_my_ticket_with_uploads(
             category=category,
             subject=subject,
             message=message,
+            channel="web",
             attachments=await _read_attachments(attachments),
         )
     except ValueError as e:

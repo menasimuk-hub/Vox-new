@@ -22,6 +22,7 @@ class SupportTicket(Base):
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="open", index=True)
     priority: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    channel: Mapped[str] = mapped_column(String(30), nullable=False, default="web", index=True)
 
     assigned_admin_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("admin_users.id"), nullable=True, index=True)
 

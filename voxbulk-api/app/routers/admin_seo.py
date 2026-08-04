@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -456,6 +456,28 @@ def public_faq_list(db: Session = Depends(get_db)):
 @public_router.get("/faq/{slug}")
 def public_faq_item(slug: str, db: Session = Depends(get_db)):
     return svc.public_faq_by_slug(db, slug)
+
+
+@public_router.get("/help/articles")
+def public_help_articles(db: Session = Depends(get_db)):
+    from app.services.support_kb_service import SupportKbService
+
+    rows = SupportKbService.list_articles(db, kind="article", published_only=True)
+    return {"items": [SupportKbService.article_to_dict(a) for a in rows]}
+
+
+@public_router.get("/help/articles/{slug}")
+def public_help_article(slug: str, db: Session = Depends(get_db)):
+    from app.services.support_kb_service import SupportKbService
+
+    row = SupportKbService.get_by_slug(db, slug, published_only=True)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Article not found")
+    row.views = int(row.views or 0) + 1
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return SupportKbService.article_to_dict(row)
 
 
 @public_router.get("/integration-visibility/{provider_key}")

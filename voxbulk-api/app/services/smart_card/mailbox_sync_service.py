@@ -319,6 +319,7 @@ def sync_to_tickets(db: Session) -> dict[str, Any]:
                     subject=f"[Smart Card] {subject}"[:240],
                     message=ticket_body,
                     priority="normal",
+                    channel="imap",
                     staff_note=staff_note,
                 )
                 tickets += 1

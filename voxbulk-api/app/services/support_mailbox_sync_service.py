@@ -337,6 +337,7 @@ def sync_support_mailbox(db: Session) -> dict[str, Any]:
                     subject=f"[Email] {subject}"[:240],
                     message=ticket_body,
                     priority="normal",
+                    channel="imap",
                     staff_note=staff_note,
                 )
                 tickets += 1

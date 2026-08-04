@@ -52,7 +52,7 @@ class FAQService:
         for (cat_name, cat_slug, cat_order), faqs in MARKETING_FAQ_GROUPS:
             product = db.execute(select(FAQCategory).where(FAQCategory.slug == cat_slug)).scalar_one_or_none()
             if product is None:
-                product = FAQCategory(name=cat_name, slug=cat_slug, sort_order=cat_order, created_at=now)
+                product = FAQCategory(name=cat_name, slug=cat_slug, sort_order=cat_order, surface="frontend", created_at=now)
                 db.add(product)
                 db.flush()
             else:
@@ -77,6 +77,7 @@ class FAQService:
                         question=question,
                         answer=answer,
                         slug=slug,
+                        surface="frontend",
                         is_featured=bool(featured),
                         is_published=True,
                         sort_order=int(sort_order),
@@ -133,12 +134,23 @@ class FAQService:
         FAQService.ensure_marketing_faqs(db)
 
     @staticmethod
-    def list_categories(db: Session) -> list[FAQCategory]:
+    def list_categories(db: Session, *, surface: str | None = None) -> list[FAQCategory]:
         FAQService.seed_defaults(db)
-        return list(db.execute(select(FAQCategory).order_by(FAQCategory.sort_order.asc(), FAQCategory.name.asc())).scalars())
+        stmt = select(FAQCategory)
+        if surface:
+            stmt = stmt.where(FAQCategory.surface == surface)
+        return list(db.execute(stmt.order_by(FAQCategory.sort_order.asc(), FAQCategory.name.asc())).scalars())
 
     @staticmethod
-    def upsert_category(db: Session, *, category_id: int | None, name: str, slug: str | None, sort_order: int) -> FAQCategory:
+    def upsert_category(
+        db: Session,
+        *,
+        category_id: int | None,
+        name: str,
+        slug: str | None,
+        sort_order: int,
+        surface: str = "frontend",
+    ) -> FAQCategory:
         now = datetime.utcnow()
         row = db.get(FAQCategory, category_id) if category_id else None
         if row is None:
@@ -146,6 +158,10 @@ class FAQService:
         row.name = name.strip()
         row.slug = slugify(slug or name)
         row.sort_order = int(sort_order or 0)
+        surf = (surface or "frontend").strip().lower()
+        if surf not in {"frontend", "dashboard"}:
+            surf = "frontend"
+        row.surface = surf
         db.add(row)
         db.commit()
         db.refresh(row)
@@ -170,6 +186,7 @@ class FAQService:
         offset: int = 0,
         viewer_email: str | None = None,
         apply_integration_release_gate: bool = False,
+        surface: str | None = None,
     ) -> list[FAQItem]:
         FAQService.seed_defaults(db)
         stmt = select(FAQItem)
@@ -177,6 +194,8 @@ class FAQService:
             stmt = stmt.where(FAQItem.is_published == True)  # noqa: E712
         if category_id:
             stmt = stmt.where(FAQItem.category_id == category_id)
+        if surface:
+            stmt = stmt.where(FAQItem.surface == surface)
         if search:
             q = f"%{search.strip()}%"
             stmt = stmt.where(or_(FAQItem.question.ilike(q), FAQItem.answer.ilike(q)))
@@ -213,6 +232,7 @@ class FAQService:
         is_published: bool,
         sort_order: int,
         linked_provider: str | None = None,
+        surface: str = "frontend",
     ) -> FAQItem:
         now = datetime.utcnow()
         row = db.get(FAQItem, item_id) if item_id else None
@@ -226,6 +246,10 @@ class FAQService:
         row.is_featured = bool(is_featured)
         row.is_published = bool(is_published)
         row.sort_order = int(sort_order or 0)
+        surf = (surface or "frontend").strip().lower()
+        if surf not in {"frontend", "dashboard"}:
+            surf = "frontend"
+        row.surface = surf
         if linked_provider is not None:
             link = str(linked_provider or "").strip().lower() or None
             row.linked_provider = link
@@ -262,7 +286,14 @@ class FAQService:
 
 
 def category_to_dict(c: FAQCategory) -> dict:
-    return {"id": c.id, "name": c.name, "slug": c.slug, "sort_order": c.sort_order, "created_at": c.created_at}
+    return {
+        "id": c.id,
+        "name": c.name,
+        "slug": c.slug,
+        "sort_order": c.sort_order,
+        "surface": getattr(c, "surface", None) or "frontend",
+        "created_at": c.created_at,
+    }
 
 
 def item_to_dict(db: Session, item: FAQItem) -> dict:
@@ -274,6 +305,7 @@ def item_to_dict(db: Session, item: FAQItem) -> dict:
         "question": item.question,
         "answer": item.answer,
         "slug": item.slug,
+        "surface": getattr(item, "surface", None) or "frontend",
         "is_featured": bool(item.is_featured),
         "is_published": bool(item.is_published),
         "sort_order": item.sort_order,

@@ -1426,7 +1426,7 @@ def public_faq_list(db: Session) -> list[dict[str, Any]]:
     rows = (
         db.execute(
             select(FAQItem)
-            .where(FAQItem.is_published.is_(True))
+            .where(FAQItem.is_published.is_(True), FAQItem.surface == "frontend")
             .order_by(FAQItem.sort_order.asc(), FAQItem.id.asc())
         )
         .scalars()
@@ -1450,7 +1450,13 @@ def public_faq_list(db: Session) -> list[dict[str, Any]]:
 def public_faq_by_slug(db: Session, slug: str) -> dict[str, Any]:
     from app.services.integration_release_service import IntegrationReleaseService
 
-    row = db.execute(select(FAQItem).where(FAQItem.slug == slug, FAQItem.is_published.is_(True))).scalar_one_or_none()
+    row = db.execute(
+        select(FAQItem).where(
+            FAQItem.slug == slug,
+            FAQItem.is_published.is_(True),
+            FAQItem.surface == "frontend",
+        )
+    ).scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="FAQ not found")
     if not IntegrationReleaseService.can_view_faq_item(

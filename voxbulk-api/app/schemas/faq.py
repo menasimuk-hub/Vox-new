@@ -9,6 +9,7 @@ class FAQCategoryIn(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     slug: str | None = Field(default=None, max_length=180)
     sort_order: int = 0
+    surface: str = Field(default="frontend", max_length=20)
 
 
 class FAQItemIn(BaseModel):
@@ -19,6 +20,7 @@ class FAQItemIn(BaseModel):
     is_published: bool = True
     sort_order: int = 0
     linked_provider: str | None = Field(default=None, max_length=50)
+    surface: str = Field(default="frontend", max_length=20)
 
 
 class FAQCategoryOut(BaseModel):

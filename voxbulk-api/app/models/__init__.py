@@ -100,6 +100,12 @@ from app.models.support_ticket import (  # noqa: F401
     SupportTicketEvent,
     SupportTicketMessage,
 )
+from app.models.support_kb import (  # noqa: F401
+    SupportHelpLink,
+    SupportKbArticle,
+    SupportKbCategory,
+    SupportSlaSettings,
+)
 from app.models.platform_service import PlatformService, ServicePricingRule  # noqa: F401
 from app.models.pricing import OrgCustomPricing, PricingGlobalSettings, TopupTier  # noqa: F401
 from app.models.plan_price import PlanPrice, PricingCurrencySettings  # noqa: F401

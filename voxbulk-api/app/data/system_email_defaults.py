@@ -685,4 +685,64 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             badge="Smart Card QR",
         ),
     },
+    "support_ticket_created": {
+        "title": "Support ticket created",
+        "subject": "We received your request {{public_ref}}",
+        "body": wrap_brand_email(
+            title="Support request received",
+            inner_html="""<p>Hi <strong>{{customer_name}}</strong>,</p>
+  <p>We have opened ticket <strong>{{public_ref}}</strong> for <strong>{{organisation_name}}</strong>.</p>
+  <p><strong>Subject:</strong> {{subject}}</p>
+  <p>Our team will reply as soon as possible.</p>
+  """
+            + cta_button(href="{{ticket_url}}", label="View ticket")
+            + """
+  <p style="font-size:13px;color:#6b6560;">Questions? Contact <a href="mailto:{{support_email}}" style="color:#1a2d5c;">{{support_email}}</a>.</p>""",
+            footer="Sent by VOXBULK Support · support@voxbulk.com",
+        ),
+    },
+    "support_ticket_reply": {
+        "title": "Support ticket reply",
+        "subject": "Update on {{public_ref}}: {{subject}}",
+        "body": wrap_brand_email(
+            title="New reply from support",
+            inner_html="""<p>Hi <strong>{{customer_name}}</strong>,</p>
+  <p>There is a new reply on ticket <strong>{{public_ref}}</strong>.</p>
+  <div style="margin:16px 0;padding:14px;border:1px solid #e5e2dc;border-radius:8px;background:#faf9f7;white-space:pre-wrap;">{{reply_body}}</div>
+  """
+            + cta_button(href="{{ticket_url}}", label="Open ticket")
+            + """
+  <p style="font-size:13px;color:#6b6560;">Reply from this email thread or in your dashboard.</p>""",
+            footer="Sent by VOXBULK Support · support@voxbulk.com",
+        ),
+    },
+    "support_ticket_status": {
+        "title": "Support ticket status",
+        "subject": "Ticket {{public_ref}} is now {{status}}",
+        "body": wrap_brand_email(
+            title="Ticket status updated",
+            inner_html="""<p>Hi <strong>{{customer_name}}</strong>,</p>
+  <p>Ticket <strong>{{public_ref}}</strong> ({{subject}}) is now <strong>{{status}}</strong>.</p>
+  """
+            + cta_button(href="{{ticket_url}}", label="View ticket")
+            + """
+  <p style="font-size:13px;color:#6b6560;">Need more help? Email <a href="mailto:{{support_email}}" style="color:#1a2d5c;">{{support_email}}</a>.</p>""",
+            footer="Sent by VOXBULK Support · support@voxbulk.com",
+        ),
+    },
+    "support_ticket_assigned": {
+        "title": "Support ticket assigned",
+        "subject": "Assigned: {{public_ref}} — {{subject}}",
+        "body": wrap_brand_email(
+            title="Ticket assigned to you",
+            inner_html="""<p>Hi,</p>
+  <p>Ticket <strong>{{public_ref}}</strong> has been assigned to you.</p>
+  <p><strong>Org:</strong> {{organisation_name}}<br/><strong>Subject:</strong> {{subject}}<br/><strong>Status:</strong> {{status}}</p>
+  """
+            + cta_button(href="{{admin_ticket_url}}", label="Open in admin")
+            + """
+  <p style="font-size:13px;color:#6b6560;">Support Disk · VoxBulk</p>""",
+            footer="Sent by VOXBULK Support · support@voxbulk.com",
+        ),
+    },
 }

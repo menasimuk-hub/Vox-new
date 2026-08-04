@@ -22,7 +22,10 @@ from app.models.user import User
 
 
 CATEGORIES = {"technical", "invoices", "pre-sale", "smart_card"}
-STATUSES = {"open", "pending", "closed"}
+STATUSES = {"open", "pending", "waiting", "resolved", "closed"}
+CHANNELS = {"email", "web", "imap", "assistant"}
+OPEN_QUEUE_STATUSES = {"open", "pending", "waiting"}
+PRIORITIES = {"urgent", "high", "normal", "low"}
 
 
 def normalize_category(category: str) -> str:
@@ -41,8 +44,26 @@ def normalize_category(category: str) -> str:
 def normalize_status(status: str) -> str:
     s = (status or "").strip().lower()
     if s not in STATUSES:
-        raise ValueError("status must be one of: open, pending, closed")
+        raise ValueError("status must be one of: open, pending, waiting, resolved, closed")
     return s
+
+
+def normalize_channel(channel: str | None) -> str:
+    c = (channel or "web").strip().lower()
+    if c in {"mail", "smtp"}:
+        c = "email"
+    if c not in CHANNELS:
+        raise ValueError("channel must be one of: email, web, imap, assistant")
+    return c
+
+
+def normalize_priority(priority: str | None) -> str | None:
+    if priority is None or not str(priority).strip():
+        return None
+    p = str(priority).strip().lower()
+    if p not in PRIORITIES:
+        raise ValueError("priority must be one of: urgent, high, normal, low")
+    return p
 
 
 def support_visible_categories(role: str) -> set[str] | None:
@@ -75,6 +96,7 @@ class SupportTicketService:
         message: str,
         branch_id: str | None = None,
         priority: str | None = None,
+        channel: str | None = "web",
         attachments: list[dict] | None = None,
         staff_note: str | None = None,
     ) -> SupportTicket:
@@ -91,7 +113,8 @@ class SupportTicketService:
             category=cat,
             subject=(subject or "").strip(),
             status="open",
-            priority=(priority or "").strip() or None,
+            priority=normalize_priority(priority) or "normal",
+            channel=normalize_channel(channel),
             customer_unread=False,
             admin_unread=True,
             last_message_at=now,
@@ -127,6 +150,12 @@ class SupportTicketService:
         SupportTicketService._event(db, t, "created", "customer", actor_user_id=user_id)
         db.commit()
         db.refresh(t)
+        try:
+            from app.services.support_ticket_email_service import SupportTicketEmailService
+
+            SupportTicketEmailService.notify_created(db, t)
+        except Exception:
+            pass
         return t
 
     @staticmethod
@@ -177,6 +206,9 @@ class SupportTicketService:
         assigned_admin_user_id: str | None = None,
         organisation_id: str | None = None,
         search: str | None = None,
+        channel: str | None = None,
+        priority: str | None = None,
+        open_queue: bool = False,
         limit: int = 50,
         offset: int = 0,
     ):
@@ -186,10 +218,21 @@ class SupportTicketService:
             if not allowed:
                 return []
             stmt = stmt.where(SupportTicket.category.in_(allowed))
-        if status:
-            stmt = stmt.where(SupportTicket.status == normalize_status(status))
+        if open_queue:
+            stmt = stmt.where(SupportTicket.status.in_(tuple(OPEN_QUEUE_STATUSES)))
+        elif status:
+            # Allow comma-separated statuses
+            parts = [normalize_status(p) for p in str(status).split(",") if p.strip()]
+            if len(parts) == 1:
+                stmt = stmt.where(SupportTicket.status == parts[0])
+            elif parts:
+                stmt = stmt.where(SupportTicket.status.in_(parts))
         if category:
             stmt = stmt.where(SupportTicket.category == normalize_category(category))
+        if channel:
+            stmt = stmt.where(SupportTicket.channel == normalize_channel(channel))
+        if priority:
+            stmt = stmt.where(SupportTicket.priority == normalize_priority(priority))
         if assigned_admin_user_id:
             if assigned_admin_user_id == "unassigned":
                 stmt = stmt.where(SupportTicket.assigned_admin_user_id.is_(None))
@@ -199,7 +242,13 @@ class SupportTicketService:
             stmt = stmt.where(SupportTicket.organisation_id == organisation_id)
         if search:
             q = f"%{search.strip()}%"
-            stmt = stmt.where(or_(SupportTicket.public_ref.ilike(q), SupportTicket.subject.ilike(q)))
+            creator_ids = list(
+                db.execute(select(User.id).where(User.email.ilike(q)).limit(50)).scalars()
+            )
+            clauses = [SupportTicket.public_ref.ilike(q), SupportTicket.subject.ilike(q)]
+            if creator_ids:
+                clauses.append(SupportTicket.created_by_user_id.in_(creator_ids))
+            stmt = stmt.where(or_(*clauses))
         return list(db.execute(stmt.order_by(SupportTicket.last_message_at.desc()).limit(min(max(limit, 1), 200)).offset(max(offset, 0))).scalars())
 
     @staticmethod
@@ -239,6 +288,13 @@ class SupportTicketService:
             NotificationService.create_ticket_reply_notification(db, ticket=ticket)
         db.commit()
         db.refresh(ticket)
+        if not internal:
+            try:
+                from app.services.support_ticket_email_service import SupportTicketEmailService
+
+                SupportTicketEmailService.notify_reply(db, ticket, reply_body=message.strip())
+            except Exception:
+                pass
         return ticket
 
     @staticmethod
@@ -247,12 +303,18 @@ class SupportTicketService:
         old = ticket.status
         now = datetime.utcnow()
         ticket.status = next_status
-        ticket.closed_at = now if next_status == "closed" else None
+        ticket.closed_at = now if next_status in {"closed", "resolved"} else None
         ticket.updated_at = now
         db.add(ticket)
         SupportTicketService._event(db, ticket, "status_changed", "admin", actor_user_id=actor.id, from_value=old, to_value=next_status)
         db.commit()
         db.refresh(ticket)
+        try:
+            from app.services.support_ticket_email_service import SupportTicketEmailService
+
+            SupportTicketEmailService.notify_status(db, ticket)
+        except Exception:
+            pass
         return ticket
 
     @staticmethod
@@ -272,6 +334,13 @@ class SupportTicketService:
         SupportTicketService._event(db, ticket, "reassigned", "admin", actor_user_id=actor.id, from_value=old, to_value=admin_id)
         db.commit()
         db.refresh(ticket)
+        if admin_id:
+            try:
+                from app.services.support_ticket_email_service import SupportTicketEmailService
+
+                SupportTicketEmailService.notify_assigned(db, ticket)
+            except Exception:
+                pass
         return ticket
 
     @staticmethod
@@ -331,12 +400,16 @@ class SupportTicketService:
         return {
             "total_open": sum(1 for t in rows if t.status == "open"),
             "total_pending": sum(1 for t in rows if t.status == "pending"),
+            "total_waiting": sum(1 for t in rows if t.status == "waiting"),
+            "total_resolved": sum(1 for t in rows if t.status == "resolved"),
             "total_closed": sum(1 for t in rows if t.status == "closed"),
-            "unassigned": sum(1 for t in rows if t.assigned_admin_user_id is None and t.status != "closed"),
+            "open_queue": sum(1 for t in rows if t.status in OPEN_QUEUE_STATUSES),
+            "admin_unread": sum(1 for t in rows if t.admin_unread),
+            "unassigned": sum(1 for t in rows if t.assigned_admin_user_id is None and t.status not in {"closed", "resolved"}),
             "technical_open": sum(1 for t in rows if t.category == "technical" and t.status == "open"),
             "invoices_open": sum(1 for t in rows if t.category == "invoices" and t.status == "open"),
             "pre_sale_open": sum(1 for t in rows if t.category == "pre-sale" and t.status == "open"),
-            "overdue": sum(1 for t in rows if t.status != "closed" and t.last_message_at < overdue_cutoff),
+            "overdue": sum(1 for t in rows if t.status not in {"closed", "resolved"} and t.last_message_at < overdue_cutoff),
         }
 
     @staticmethod
@@ -352,6 +425,172 @@ class SupportTicketService:
                 to_value=to_value,
                 created_at=datetime.utcnow(),
             )
+        )
+
+    @staticmethod
+    def insights(db: Session, *, role: str) -> dict:
+        from collections import defaultdict
+
+        stmt = select(SupportTicket)
+        allowed = support_visible_categories(role)
+        if allowed is not None:
+            if not allowed:
+                return {
+                    "kpis": {"avg_first_reply": "—", "avg_resolution": "—", "tickets_this_week": 0, "csat": "—"},
+                    "volume_trend": [],
+                    "response_trend": [],
+                    "csat_trend": [],
+                    "agents": [],
+                }
+            stmt = stmt.where(SupportTicket.category.in_(allowed))
+        rows = list(db.execute(stmt).scalars())
+        now = datetime.utcnow()
+        week_ago = now - timedelta(days=7)
+        tickets_this_week = sum(1 for t in rows if t.created_at and t.created_at >= week_ago)
+
+        # First admin reply ages
+        first_reply_hours: list[float] = []
+        resolution_hours: list[float] = []
+        for t in rows:
+            msgs = SupportTicketService.messages(db, t.id, include_internal=False)
+            first_admin = next((m for m in msgs if m.sender_type == "admin"), None)
+            if first_admin and t.created_at:
+                first_reply_hours.append(max(0.0, (first_admin.created_at - t.created_at).total_seconds() / 3600.0))
+            if t.status in {"resolved", "closed"} and t.closed_at and t.created_at:
+                resolution_hours.append(max(0.0, (t.closed_at - t.created_at).total_seconds() / 3600.0))
+
+        def _avg_label(vals: list[float]) -> str:
+            if not vals:
+                return "—"
+            avg = sum(vals) / len(vals)
+            if avg < 1:
+                return f"{int(avg * 60)}m"
+            return f"{avg:.1f}h"
+
+        volume_by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"created": 0, "resolved": 0})
+        for i in range(6, -1, -1):
+            day = (now - timedelta(days=i)).strftime("%a")
+            volume_by_day[day]  # ensure key
+        for t in rows:
+            if t.created_at and t.created_at >= week_ago:
+                volume_by_day[t.created_at.strftime("%a")]["created"] += 1
+            if t.closed_at and t.closed_at >= week_ago and t.status in {"resolved", "closed"}:
+                volume_by_day[t.closed_at.strftime("%a")]["resolved"] += 1
+
+        agent_stats: dict[str, dict] = defaultdict(lambda: {"resolved": 0, "first_reply_sum": 0.0, "first_reply_n": 0})
+        for t in rows:
+            if not t.assigned_admin_user_id:
+                continue
+            email = db.execute(select(AdminUser.email).where(AdminUser.id == t.assigned_admin_user_id)).scalar_one_or_none() or t.assigned_admin_user_id
+            if t.status in {"resolved", "closed"}:
+                agent_stats[email]["resolved"] += 1
+            msgs = SupportTicketService.messages(db, t.id, include_internal=False)
+            first_admin = next((m for m in msgs if m.sender_type == "admin"), None)
+            if first_admin and t.created_at:
+                agent_stats[email]["first_reply_sum"] += max(0.0, (first_admin.created_at - t.created_at).total_seconds() / 3600.0)
+                agent_stats[email]["first_reply_n"] += 1
+
+        agents = []
+        for email, st in sorted(agent_stats.items(), key=lambda x: -x[1]["resolved"])[:20]:
+            fr = "—"
+            if st["first_reply_n"]:
+                avg = st["first_reply_sum"] / st["first_reply_n"]
+                fr = f"{int(avg * 60)}m" if avg < 1 else f"{avg:.1f}h"
+            agents.append({"email": email, "resolved": st["resolved"], "first_reply": fr, "csat": "—"})
+
+        day_order = [(now - timedelta(days=i)).strftime("%a") for i in range(6, -1, -1)]
+        volume_trend = [{"day": d, **volume_by_day[d]} for d in day_order]
+
+        return {
+            "kpis": {
+                "avg_first_reply": _avg_label(first_reply_hours),
+                "avg_resolution": _avg_label(resolution_hours),
+                "tickets_this_week": tickets_this_week,
+                "csat": "—",
+            },
+            "volume_trend": volume_trend,
+            "response_trend": [
+                {"period": "This week", "first_reply": round(sum(first_reply_hours) / len(first_reply_hours), 2) if first_reply_hours else 0, "resolution": round(sum(resolution_hours) / len(resolution_hours), 2) if resolution_hours else 0}
+            ],
+            "csat_trend": [],
+            "agents": agents,
+        }
+
+    @staticmethod
+    def sla_breaches(db: Session, *, role: str) -> list[dict]:
+        from app.services.support_kb_service import SupportSlaService
+
+        settings = SupportSlaService.get_row(db)
+        first_h = int(settings.first_response_hours or 4)
+        resolve_h = int(settings.resolve_hours or 48)
+        waiting_h = int(settings.waiting_hours or 24)
+        now = datetime.utcnow()
+        stmt = select(SupportTicket).where(SupportTicket.status.in_(tuple(OPEN_QUEUE_STATUSES)))
+        allowed = support_visible_categories(role)
+        if allowed is not None:
+            if not allowed:
+                return []
+            stmt = stmt.where(SupportTicket.category.in_(allowed))
+        rows = list(db.execute(stmt.order_by(SupportTicket.last_message_at.asc()).limit(200)).scalars())
+        out = []
+        for t in rows:
+            age_h = max(0.0, (now - (t.created_at or now)).total_seconds() / 3600.0)
+            idle_h = max(0.0, (now - (t.last_message_at or now)).total_seconds() / 3600.0)
+            msgs = SupportTicketService.messages(db, t.id, include_internal=False)
+            has_admin = any(m.sender_type == "admin" for m in msgs)
+            breached = False
+            at_risk = False
+            label = "On track"
+            if not has_admin and age_h >= first_h:
+                breached = True
+                label = f"First response overdue ({int(age_h)}h)"
+            elif not has_admin and age_h >= first_h * 0.75:
+                at_risk = True
+                label = "First response at risk"
+            elif age_h >= resolve_h:
+                breached = True
+                label = f"Resolution overdue ({int(age_h)}h)"
+            elif t.status == "waiting" and idle_h >= waiting_h:
+                breached = True
+                label = "Waiting too long"
+            elif age_h >= resolve_h * 0.75:
+                at_risk = True
+                label = "Resolution at risk"
+            if not breached and not at_risk:
+                continue
+            d = ticket_to_dict(db, t)
+            d["breached"] = breached
+            d["label"] = label
+            out.append(d)
+        return out
+
+    @staticmethod
+    def polish_reply(db: Session, *, draft: str) -> str:
+        text = (draft or "").strip()
+        if not text:
+            return ""
+        try:
+            from app.services.agents.base import AgentMessage
+            from app.services.providers.openai_service import OpenAIProviderService
+
+            result = OpenAIProviderService.complete(
+                db,
+                system_prompt="You polish customer support replies. Keep meaning, make them clear, professional and concise. Return only the polished reply text.",
+                messages=[AgentMessage(role="user", content=text)],
+                max_tokens=800,
+            )
+            polished = str(getattr(result, "assistant_text", None) or "").strip()
+            if polished:
+                return polished
+        except Exception:
+            pass
+        sentence = text[0].upper() + text[1:] if text else ""
+        if sentence and sentence[-1] not in ".!?":
+            sentence += "."
+        return (
+            "Thanks for your patience on this.\n\n"
+            + sentence.replace(" cant ", " can't ").replace(" dont ", " don't ")
+            + "\n\nIf anything above isn't clear, just reply here and I'll pick it straight back up."
         )
 
 
@@ -439,7 +678,8 @@ def ticket_to_dict(db: Session, t: SupportTicket) -> dict:
         "category": t.category,
         "subject": t.subject,
         "status": t.status,
-        "priority": t.priority,
+        "priority": t.priority or "normal",
+        "channel": getattr(t, "channel", None) or "web",
         "assigned_admin_user_id": t.assigned_admin_user_id,
         "assigned_admin_email": assigned,
         "customer_unread": bool(t.customer_unread),
