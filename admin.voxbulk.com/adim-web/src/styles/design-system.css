@@ -51,6 +51,25 @@
   --color-info-soft: var(--ds-info-soft);
   --color-surface: var(--ds-surface);
   --color-surface-muted: var(--ds-surface-muted);
+  --color-surface-subtle: var(--ds-surface-subtle);
+  --color-status-open: var(--ds-status-open);
+  --color-status-open-bg: var(--ds-status-open-bg);
+  --color-status-pending: var(--ds-status-pending);
+  --color-status-pending-bg: var(--ds-status-pending-bg);
+  --color-status-waiting: var(--ds-status-waiting);
+  --color-status-waiting-bg: var(--ds-status-waiting-bg);
+  --color-status-resolved: var(--ds-status-resolved);
+  --color-status-resolved-bg: var(--ds-status-resolved-bg);
+  --color-status-closed: var(--ds-status-closed);
+  --color-status-closed-bg: var(--ds-status-closed-bg);
+  --color-priority-urgent: var(--ds-priority-urgent);
+  --color-priority-high: var(--ds-priority-high);
+  --color-priority-normal: var(--ds-priority-normal);
+  --color-priority-low: var(--ds-priority-low);
+  --color-note: var(--ds-note);
+  --color-note-bg: var(--ds-note-bg);
+  --shadow-panel: var(--shadow-panel);
+  --font-display: var(--font-display);
 }
 
 :root {

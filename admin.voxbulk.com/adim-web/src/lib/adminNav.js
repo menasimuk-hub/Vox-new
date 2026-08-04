@@ -197,11 +197,15 @@ export const NAV = [
   [
     'Support',
     [
-      ['Support inbox', '/support/inbox'],
-      ['Open tickets', '/support/tickets'],
-      ['Help centre content', '/support/help'],
-      ['FAQ management', '/support/faq'],
-      ['SLA tracking', '/support/sla'],
+      ['Support Inbox', '/support/inbox'],
+      ['Open Tickets', '/support/tickets'],
+      ['Help Centre', '/support/help-centre'],
+      ['FAQ (Frontend)', '/support/faq-frontend'],
+      ['FAQ (User dashboard)', '/support/faq-dashboard'],
+      ['Canned replies', '/support/canned-replies'],
+      ['Help links', '/support/help-links'],
+      ['Insights', '/support/insights'],
+      ['SLA & KPIs', '/support/sla'],
     ],
   ],
   [

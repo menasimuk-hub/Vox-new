@@ -1,0 +1,14 @@
+import React, { useEffect, useState } from 'react'
+import { ExternalLink, Plus, Trash2 } from 'lucide-react'
+import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Modal } from '@/components/ui/Modal'
+import SupportDiskShell from '../components/supportDisk/SupportDiskShell'
+
+export default function SupportHelpLinks() {
+  const [rows, setRows] = useState([]), [form, setForm] = useState(null), [error, setError] = useState('')
+  const load = async () => { try { setRows(await apiFetch('/admin/support/help-links') || []) } catch (e) { setError(e.message) } }
+  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async () => { await apiFetch(form.id ? `/admin/support/help-links/${form.id}` : '/admin/support/help-links', { method: form.id ? 'PUT' : 'POST', body: form }); setForm(null); load() }
+  return <SupportDiskShell title="Help links" subtitle="Quick links agents can insert into replies" actions={<Button size="sm" onClick={() => setForm({ title: '', url: '', description: '' })}><Plus /> New link</Button>}><div className="p-4 sm:p-6"><div className="mx-auto max-w-5xl space-y-3">{error ? <div className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</div> : null}{rows.map((r) => <div key={r.id} className="flex items-center gap-3 rounded-xl border border-border bg-surface p-4 shadow-panel"><ExternalLink className="size-4 text-primary" /><button className="min-w-0 flex-1 text-left" onClick={() => setForm(r)}><strong className="block text-sm">{r.title || r.label}</strong><span className="block truncate text-xs text-muted-foreground">{r.url}</span></button><Button variant="ghost" size="icon" className="text-destructive" onClick={async () => { await apiFetch(`/admin/support/help-links/${r.id}`, { method: 'DELETE' }); load() }}><Trash2 /></Button></div>)}{!rows.length && !error ? <div className="rounded-xl border border-dashed p-10 text-center text-muted-foreground">No help links yet.</div> : null}</div></div><Modal open={!!form} onOpenChange={(o) => !o && setForm(null)} className="support-disk support-disk-dialog max-w-lg" title={form?.id ? 'Edit help link' : 'New help link'} footer={<Button onClick={save}>Save</Button>}><div className="space-y-3"><input value={form?.title || form?.label || ''} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title" className="h-9 w-full rounded-md border px-3" /><input value={form?.url || ''} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" className="h-9 w-full rounded-md border px-3" /><textarea value={form?.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description" className="min-h-24 w-full rounded-md border p-3" /></div></Modal></SupportDiskShell>
+}

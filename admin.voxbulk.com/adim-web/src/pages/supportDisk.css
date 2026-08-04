@@ -1,0 +1,125 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&display=swap");
+
+.content:has(.support-disk),
+body.dark .content:has(.support-disk) {
+  padding: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+  background: oklch(0.975 0.003 258) !important;
+}
+
+.support-disk,
+body.dark .support-disk {
+  --radius: .5rem;
+  --background: oklch(0.975 0.003 258);
+  --foreground: oklch(0.24 0.026 259);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.026 259);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.026 259);
+  --primary: oklch(0.53 0.148 256);
+  --primary-foreground: oklch(0.99 0.002 250);
+  --secondary: oklch(0.958 0.006 258);
+  --secondary-foreground: oklch(0.32 0.03 259);
+  --muted: oklch(0.962 0.005 258);
+  --muted-foreground: oklch(0.53 0.022 258);
+  --accent: oklch(0.945 0.022 250);
+  --accent-foreground: oklch(0.4 0.11 256);
+  --destructive: oklch(0.577 0.211 25.5);
+  --destructive-foreground: oklch(0.99 0.002 250);
+  --border: oklch(0.915 0.007 258);
+  --input: oklch(0.915 0.007 258);
+  --ring: oklch(0.53 0.148 256);
+  --surface: oklch(1 0 0);
+  --surface-subtle: oklch(0.975 0.003 258);
+  --status-open: oklch(0.55 0.15 250);
+  --status-open-bg: oklch(0.945 0.028 250);
+  --status-pending: oklch(0.6 0.13 68);
+  --status-pending-bg: oklch(0.96 0.04 82);
+  --status-waiting: oklch(0.55 0.12 305);
+  --status-waiting-bg: oklch(0.955 0.025 305);
+  --status-resolved: oklch(0.52 0.11 160);
+  --status-resolved-bg: oklch(0.95 0.04 160);
+  --status-closed: oklch(0.5 0.015 258);
+  --status-closed-bg: oklch(0.95 0.004 258);
+  --priority-urgent: oklch(0.55 0.2 25);
+  --priority-high: oklch(0.62 0.16 45);
+  --priority-normal: oklch(0.58 0.11 235);
+  --priority-low: oklch(0.6 0.02 258);
+  --note: oklch(0.62 0.14 82);
+  --note-bg: oklch(0.975 0.035 92);
+  --shadow-panel: 0 1px 2px oklch(0.24 0.026 259 / 6%), 0 1px 1px oklch(0.24 0.026 259 / 4%);
+  --shadow-pop: 0 12px 32px -12px oklch(0.24 0.026 259 / 22%);
+  --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --ds-radius: var(--radius);
+  --ds-background: var(--background);
+  --ds-foreground: var(--foreground);
+  --ds-card: var(--card);
+  --ds-card-foreground: var(--card-foreground);
+  --ds-popover: var(--popover);
+  --ds-popover-foreground: var(--popover-foreground);
+  --ds-primary: var(--primary);
+  --ds-primary-foreground: var(--primary-foreground);
+  --ds-secondary: var(--secondary);
+  --ds-secondary-foreground: var(--secondary-foreground);
+  --ds-muted: var(--muted);
+  --ds-muted-foreground: var(--muted-foreground);
+  --ds-accent: var(--accent);
+  --ds-accent-foreground: var(--accent-foreground);
+  --ds-destructive: var(--destructive);
+  --ds-destructive-foreground: var(--destructive-foreground);
+  --ds-border: var(--border);
+  --ds-input: var(--input);
+  --ds-ring: var(--ring);
+  --ds-surface: var(--surface);
+  --ds-surface-muted: var(--surface-subtle);
+  --ds-surface-subtle: var(--surface-subtle);
+  --ds-status-open: var(--status-open);
+  --ds-status-open-bg: var(--status-open-bg);
+  --ds-status-pending: var(--status-pending);
+  --ds-status-pending-bg: var(--status-pending-bg);
+  --ds-status-waiting: var(--status-waiting);
+  --ds-status-waiting-bg: var(--status-waiting-bg);
+  --ds-status-resolved: var(--status-resolved);
+  --ds-status-resolved-bg: var(--status-resolved-bg);
+  --ds-status-closed: var(--status-closed);
+  --ds-status-closed-bg: var(--status-closed-bg);
+  --ds-priority-urgent: var(--priority-urgent);
+  --ds-priority-high: var(--priority-high);
+  --ds-priority-normal: var(--priority-normal);
+  --ds-priority-low: var(--priority-low);
+  --ds-note: var(--note);
+  --ds-note-bg: var(--note-bg);
+  color-scheme: light;
+  min-height: calc(100vh - 56px);
+  width: 100%;
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+  font-family: var(--font-sans);
+}
+
+.support-disk *, .support-disk *::before, .support-disk *::after { box-sizing: border-box; }
+.support-disk h1, .support-disk h2, .support-disk h3, .support-disk h4 { font-family: var(--font-display); letter-spacing: -.015em; }
+body.dark .support-disk input, body.dark .support-disk select, body.dark .support-disk textarea,
+body.dark .support-disk table, body.dark .support-disk th, body.dark .support-disk td {
+  color: var(--foreground) !important;
+  border-color: var(--border) !important;
+}
+.support-disk.support-disk-dialog {
+  min-height: 0;
+  width: calc(100% - 2rem);
+  background: var(--surface) !important;
+  font-family: var(--font-sans);
+}
+.support-disk .kb-prose h2 { font-size: 1.05rem; font-weight: 700; margin: 1.1em 0 .4em; }
+.support-disk .kb-prose h3 { font-size: .95rem; font-weight: 700; margin: 1em 0 .35em; }
+.support-disk .kb-prose p { margin-bottom: .7em; line-height: 1.65; }
+.support-disk .kb-prose ul, .support-disk .kb-prose ol { margin: .5em 0 .9em 1.25em; line-height: 1.65; }
+.support-disk .kb-prose ul { list-style: disc; }
+.support-disk .kb-prose ol { list-style: decimal; }
+.support-disk .kb-prose a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.support-disk .kb-prose blockquote { border-left: 3px solid var(--border); padding-left: .85em; color: var(--muted-foreground); margin: .6em 0 .9em; }
+.support-disk .kb-prose img { max-width: 100%; border-radius: .5rem; border: 1px solid var(--border); margin: .6em 0; }
+.support-disk .kb-prose strong { font-weight: 700; }
+.support-disk .kb-prose code { background: var(--secondary); padding: .1em .35em; border-radius: .25rem; font-size: .9em; }

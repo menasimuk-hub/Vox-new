@@ -174,13 +174,17 @@ export default function App() {
           <Route path='custom' element={<Navigate to='/pricing/private' replace />} />
         </Route>
 
-        <Route path='/support/inbox' element={<P.SupportTickets />} />
+        <Route path='/support/inbox' element={<P.SupportInbox />} />
         <Route path='/support/tickets' element={<P.SupportTickets />} />
         <Route path='/support/tickets/:ticketId' element={<P.SupportTicketDetail />} />
-        <Route path='/support/notes' element={G('Customer notes')} />
-        <Route path='/support/escalations' element={G('Escalations')} />
-        <Route path='/support/help' element={<P.HelpCentreContent />} />
-        <Route path='/support/faq' element={<P.FAQManagement />} />
+        <Route path='/support/help-centre' element={<P.SupportHelpCentre />} />
+        <Route path='/support/faq-frontend' element={<P.SupportFaqFrontend />} />
+        <Route path='/support/faq-dashboard' element={<P.SupportFaqDashboard />} />
+        <Route path='/support/canned-replies' element={<P.SupportCannedReplies />} />
+        <Route path='/support/help-links' element={<P.SupportHelpLinks />} />
+        <Route path='/support/insights' element={<P.SupportInsights />} />
+        <Route path='/support/help' element={<Navigate to='/support/help-centre' replace />} />
+        <Route path='/support/faq' element={<Navigate to='/support/faq-dashboard' replace />} />
         <Route path='/support/sla' element={<P.SupportSLA />} />
 
         <Route path='/ai/wa-templates' element={<P.WaTemplatesHub />} />
