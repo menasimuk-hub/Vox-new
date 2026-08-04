@@ -88,9 +88,6 @@ function LoginPage() {
             <Button type="submit" className="w-full" disabled={submitting}>
               <LogIn className="size-4" /> {submitting ? "Signing in…" : "Sign in"}
             </Button>
-            <p className="text-center text-xs text-muted-foreground">
-              Use credentials from server <span className="font-medium">.env</span>
-            </p>
           </form>
         </div>
       </div>
