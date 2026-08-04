@@ -44,8 +44,12 @@ class SalesRep(Base):
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     # Promo: wallet voucher + per-service benefits (JSON).
     promo_benefits_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Salesman months 2/3/4 commission tiers (JSON).
+    # Salesman months 1–6 commission tiers (JSON).
     commission_tiers_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # commission_only | one_time_only | one_time_plus_commission
+    commission_mode: Mapped[str] = mapped_column(String(40), nullable=False, default="commission_only")
+    # Fixed one-time bonus in minor units (rep currency).
+    one_time_bonus_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     # Partner discount % + billing mode (JSON).
     partner_terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

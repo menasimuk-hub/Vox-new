@@ -161,10 +161,28 @@ export default function EmailSettings() {
   const [listError, setListError] = useState('')
   const [listsLoading, setListsLoading] = useState(true)
 
+  const [senderEmails, setSenderEmails] = useState([])
+  const [senderBusy, setSenderBusy] = useState(false)
+  const [senderMsg, setSenderMsg] = useState('')
+  const [senderErr, setSenderErr] = useState('')
+  const [senderModal, setSenderModal] = useState(null) // null | { mode: 'add'|'edit', row? }
+  const [senderForm, setSenderForm] = useState({
+    local_part: '',
+    from_name: '',
+    purpose: '',
+    notes: '',
+    is_active: true,
+  })
+
   const loadSmtp = useCallback(async () => {
     const data = await apiFetch('/admin/email/smtp')
     setSmtp(data)
     setSecureMode(secureModeFromFlags(Boolean(data?.use_tls), Boolean(data?.use_ssl)))
+  }, [])
+
+  const loadSenderEmails = useCallback(async () => {
+    const data = await apiFetch('/admin/email/sender-emails')
+    setSenderEmails(Array.isArray(data?.items) ? data.items : [])
   }, [])
 
   const loadCareerMailbox = useCallback(async () => {
@@ -237,6 +255,7 @@ export default function EmailSettings() {
         await loadBillingMailbox()
         await loadSurveyCodesMailbox()
         await loadSupportMailbox()
+        await loadSenderEmails()
       } catch (e) {
         if (!cancelled) setLoadError(e?.message || 'Failed to load SMTP')
       }
@@ -252,7 +271,96 @@ export default function EmailSettings() {
     return () => {
       cancelled = true
     }
-  }, [loadSmtp, loadLists, loadCareerMailbox, loadBillingMailbox, loadSurveyCodesMailbox, loadSupportMailbox])
+  }, [loadSmtp, loadLists, loadCareerMailbox, loadBillingMailbox, loadSurveyCodesMailbox, loadSupportMailbox, loadSenderEmails])
+
+  const openAddSender = () => {
+    setSenderErr('')
+    setSenderMsg('')
+    setSenderForm({ local_part: '', from_name: '', purpose: '', notes: '', is_active: true })
+    setSenderModal({ mode: 'add' })
+  }
+
+  const openEditSender = (row) => {
+    setSenderErr('')
+    setSenderMsg('')
+    setSenderForm({
+      local_part: row.local_part || '',
+      from_name: row.from_name || '',
+      purpose: row.purpose || '',
+      notes: row.notes || '',
+      is_active: row.is_active !== false,
+    })
+    setSenderModal({ mode: 'edit', row })
+  }
+
+  const saveSenderEmail = async () => {
+    setSenderBusy(true)
+    setSenderErr('')
+    setSenderMsg('')
+    try {
+      const payload = {
+        local_part: String(senderForm.local_part || '').trim(),
+        from_name: String(senderForm.from_name || '').trim(),
+        purpose: String(senderForm.purpose || '').trim(),
+        notes: String(senderForm.notes || '').trim() || null,
+        is_active: Boolean(senderForm.is_active),
+      }
+      if (!payload.local_part) throw new Error('Local-part is required (e.g. sales)')
+      if (senderModal?.mode === 'edit' && senderModal.row?.id) {
+        await apiFetch(`/admin/email/sender-emails/${encodeURIComponent(senderModal.row.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        })
+        setSenderMsg('Sender updated')
+      } else {
+        await apiFetch('/admin/email/sender-emails', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+        setSenderMsg('Sender added')
+      }
+      setSenderModal(null)
+      await loadSenderEmails()
+    } catch (e) {
+      setSenderErr(e?.message || 'Save failed')
+    } finally {
+      setSenderBusy(false)
+    }
+  }
+
+  const freezeSenderEmail = async (row, frozen) => {
+    setSenderBusy(true)
+    setSenderErr('')
+    setSenderMsg('')
+    try {
+      await apiFetch(`/admin/email/sender-emails/${encodeURIComponent(row.id)}/freeze`, {
+        method: 'POST',
+        body: JSON.stringify({ frozen }),
+      })
+      setSenderMsg(frozen ? 'Sender frozen' : 'Sender unfrozen')
+      await loadSenderEmails()
+    } catch (e) {
+      setSenderErr(e?.message || 'Update failed')
+    } finally {
+      setSenderBusy(false)
+    }
+  }
+
+  const deleteSenderEmail = async (row) => {
+    if (!window.confirm(`Delete ${row.email || row.local_part}@voxbulk.com?`)) return
+    setSenderBusy(true)
+    setSenderErr('')
+    setSenderMsg('')
+    try {
+      await apiFetch(`/admin/email/sender-emails/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+      setSenderMsg('Sender deleted')
+      await loadSenderEmails()
+    } catch (e) {
+      setSenderErr(e?.message || 'Delete failed')
+    } finally {
+      setSenderBusy(false)
+    }
+  }
 
   const saveSmtp = async () => {
     setSaving(true)
@@ -1233,6 +1341,153 @@ export default function EmailSettings() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === 'emails' && (
+            <div className="emailTabPanel" role="tabpanel">
+              <div className="emailSectionTitle">
+                <i className="ti ti-address-book" />
+                Platform sender emails
+              </div>
+              <div className="note" style={{ marginBottom: 12 }}>
+                Manage From addresses on <strong>@voxbulk.com</strong> only (e.g. sales@ for Sales Hub invoices).
+                Sending still uses the platform SMTP host — your provider must allow each alias.
+              </div>
+              {senderErr ? <div className="note" style={{ color: 'var(--danger, #b42318)', marginBottom: 12 }}>{senderErr}</div> : null}
+              {senderMsg ? <div className="note" style={{ marginBottom: 12 }}>{senderMsg}</div> : null}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                <button type="button" className="btn primary" onClick={openAddSender} disabled={senderBusy}>
+                  Add email
+                </button>
+              </div>
+              {loading ? (
+                <div className="note">Loading…</div>
+              ) : (
+                <div className="tableWrap">
+                  <table className="dataTable">
+                    <thead>
+                      <tr>
+                        <th>From name</th>
+                        <th>Address</th>
+                        <th>Purpose</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {senderEmails.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="muted">No sender emails yet. Add sales@ with purpose &quot;sales&quot;.</td>
+                        </tr>
+                      ) : (
+                        senderEmails.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.from_name || '—'}</td>
+                            <td><code>{row.email || `${row.local_part}@voxbulk.com`}</code></td>
+                            <td>{row.purpose || '—'}</td>
+                            <td>
+                              <span className={`pill ${row.is_active ? 'ok' : 'warn'}`}>
+                                {row.is_active ? 'Active' : 'Frozen'}
+                              </span>
+                            </td>
+                            <td className="muted">{row.notes || '—'}</td>
+                            <td>
+                              <div className="templateRowActions">
+                                <button type="button" className="emailIconBtn primary" title="Edit" onClick={() => openEditSender(row)}>
+                                  <i className="ti ti-pencil" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="emailIconBtn"
+                                  title={row.is_active ? 'Freeze' : 'Unfreeze'}
+                                  disabled={senderBusy}
+                                  onClick={() => freezeSenderEmail(row, row.is_active)}
+                                >
+                                  <i className={`ti ${row.is_active ? 'ti-player-pause' : 'ti-player-play'}`} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="emailIconBtn danger"
+                                  title="Delete"
+                                  disabled={senderBusy}
+                                  onClick={() => deleteSenderEmail(row)}
+                                >
+                                  <i className="ti ti-trash" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {senderModal ? (
+                <div className="modalOverlay" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 80 }}>
+                  <div className="card" style={{ width: 'min(480px, 92vw)', padding: 20 }}>
+                    <h3 style={{ marginTop: 0 }}>{senderModal.mode === 'edit' ? 'Edit sender' : 'Add sender'}</h3>
+                    <div className="stack" style={{ gap: 12 }}>
+                      <label>
+                        Local-part
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <input
+                            className="input"
+                            value={senderForm.local_part}
+                            onChange={(e) => setSenderForm((s) => ({ ...s, local_part: e.target.value }))}
+                            placeholder="sales"
+                            autoComplete="off"
+                          />
+                          <span className="muted">@voxbulk.com</span>
+                        </div>
+                      </label>
+                      <label>
+                        From name
+                        <input
+                          className="input"
+                          value={senderForm.from_name}
+                          onChange={(e) => setSenderForm((s) => ({ ...s, from_name: e.target.value }))}
+                          placeholder="Voxbulk Sales"
+                        />
+                      </label>
+                      <label>
+                        Purpose key
+                        <input
+                          className="input"
+                          value={senderForm.purpose}
+                          onChange={(e) => setSenderForm((s) => ({ ...s, purpose: e.target.value }))}
+                          placeholder="sales"
+                        />
+                      </label>
+                      <label>
+                        Notes
+                        <input
+                          className="input"
+                          value={senderForm.notes}
+                          onChange={(e) => setSenderForm((s) => ({ ...s, notes: e.target.value }))}
+                        />
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(senderForm.is_active)}
+                          onChange={(e) => setSenderForm((s) => ({ ...s, is_active: e.target.checked }))}
+                        />
+                        Active (uncheck to freeze)
+                      </label>
+                      {senderErr ? <div className="note" style={{ color: 'var(--danger, #b42318)' }}>{senderErr}</div> : null}
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button type="button" className="btn soft" onClick={() => setSenderModal(null)} disabled={senderBusy}>Cancel</button>
+                        <button type="button" className="btn primary" onClick={saveSenderEmail} disabled={senderBusy}>
+                          {senderBusy ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
 

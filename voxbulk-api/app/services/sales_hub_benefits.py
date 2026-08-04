@@ -16,7 +16,7 @@ from app.services.billing_currency import (
     normalize_currency,
 )
 
-SERVICE_IDS = ("ai_interview", "wa_survey", "customer_feedback", "voxbulk_expo")
+SERVICE_IDS = ("ai_interview", "wa_survey", "customer_feedback", "voxbulk_expo", "smart_card")
 
 SERVICE_META: dict[str, dict[str, Any]] = {
     "ai_interview": {
@@ -50,14 +50,25 @@ SERVICE_META: dict[str, dict[str, Any]] = {
         "service_kind": "expo",
         "options": [
             {"kind": "free_package_days", "label": "Free package days", "unit": "days", "default": 3},
-            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor", "default": 2000},
             {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
+        ],
+    },
+    "smart_card": {
+        "name": "Smart Card QR",
+        "service_kind": "smart_card",
+        "options": [
+            {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
+            {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor", "default": 2000},
+            {"kind": "free_days", "label": "Free trial days", "unit": "days", "default": 14},
         ],
     },
 }
 
 SERVICE_KIND_BY_ID = {sid: meta["service_kind"] for sid, meta in SERVICE_META.items()}
 DEFAULT_VOUCHER_MINOR = 2000
+COMMISSION_MONTHS = (1, 2, 3, 4, 5, 6)
+COMMISSION_MODES = frozenset({"commission_only", "one_time_only", "one_time_plus_commission"})
+DEFAULT_COMMISSION_MODE = "commission_only"
 
 
 def _loads(raw: str | None, default: Any) -> Any:
@@ -105,11 +116,37 @@ def default_promo_benefits(*, voucher_enabled: bool = True, voucher_minor: int =
 
 
 def default_commission_tiers(*, month2_pct: float = 15.0) -> list[dict[str, Any]]:
+    pct = float(month2_pct)
     return [
-        {"month": 2, "enabled": True, "kind": "percent", "value": float(month2_pct)},
-        {"month": 3, "enabled": False, "kind": "percent", "value": float(month2_pct)},
-        {"month": 4, "enabled": False, "kind": "percent", "value": float(month2_pct)},
+        {"month": m, "enabled": m == 2, "kind": "percent", "value": pct}
+        for m in COMMISSION_MONTHS
     ]
+
+
+def normalize_commission_mode(raw: Any) -> str:
+    mode = str(raw or DEFAULT_COMMISSION_MODE).strip().lower()
+    return mode if mode in COMMISSION_MODES else DEFAULT_COMMISSION_MODE
+
+
+def parse_commission_mode(rep) -> str:
+    return normalize_commission_mode(getattr(rep, "commission_mode", None))
+
+
+def parse_one_time_bonus_minor(rep) -> int:
+    try:
+        return max(0, int(getattr(rep, "one_time_bonus_minor", None) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_commission_extras(rep, *, mode: Any = None, one_time_bonus_minor: Any = None) -> None:
+    if mode is not None:
+        rep.commission_mode = normalize_commission_mode(mode)
+    if one_time_bonus_minor is not None:
+        try:
+            rep.one_time_bonus_minor = max(0, int(one_time_bonus_minor))
+        except (TypeError, ValueError):
+            rep.one_time_bonus_minor = 0
 
 
 def default_partner_terms(*, discount_percent: float = 0.0, billing: str = "customer_pays") -> dict[str, Any]:
@@ -145,7 +182,7 @@ def parse_commission_tiers(rep) -> list[dict[str, Any]]:
     if isinstance(raw, list) and raw:
         by_month = {int(t.get("month") or 0): t for t in raw if isinstance(t, dict)}
         out = []
-        for month in (2, 3, 4):
+        for month in COMMISSION_MONTHS:
             t = by_month.get(month) or {"month": month, "enabled": False, "kind": "percent", "value": 15}
             out.append(
                 {
@@ -160,7 +197,6 @@ def parse_commission_tiers(rep) -> list[dict[str, Any]]:
     from app.services.sales_payout_service import (
         COMMISSION_TYPE_FIXED,
         COMMISSION_TYPE_MONTH2,
-        COMMISSION_TYPE_PERCENT,
         SalesPayoutService,
     )
 
@@ -169,14 +205,64 @@ def parse_commission_tiers(rep) -> list[dict[str, Any]]:
     fixed = int(getattr(rep, "commission_fixed_minor", None) or 0)
     if ctype == COMMISSION_TYPE_MONTH2:
         return default_commission_tiers(month2_pct=pct)
-    # percent/fixed → treat as partner-style next payment; still expose month2 slot for UI consistency
     kind = "fixed" if ctype == COMMISSION_TYPE_FIXED else "percent"
     value = fixed if kind == "fixed" else pct
-    return [
-        {"month": 2, "enabled": ctype == COMMISSION_TYPE_MONTH2, "kind": kind, "value": value},
-        {"month": 3, "enabled": False, "kind": "percent", "value": pct},
-        {"month": 4, "enabled": False, "kind": "percent", "value": pct},
-    ]
+    out = default_commission_tiers(month2_pct=pct)
+    # Partner-style: expose month-1 as the “next payment” slot when using percent/fixed
+    out[0] = {"month": 1, "enabled": True, "kind": kind, "value": value}
+    for i in range(1, len(out)):
+        out[i] = {**out[i], "enabled": False}
+    return out
+
+
+def normalize_commission_tiers(payload: Any) -> list[dict[str, Any]]:
+    base = default_commission_tiers()
+    if not isinstance(payload, list):
+        return base
+    by_month = {int(t.get("month") or 0): t for t in payload if isinstance(t, dict)}
+    out = []
+    for month in COMMISSION_MONTHS:
+        t = by_month.get(month) or {}
+        kind = "fixed" if str(t.get("kind") or "").lower() == "fixed" else "percent"
+        out.append(
+            {
+                "month": month,
+                "enabled": bool(t.get("enabled")),
+                "kind": kind,
+                "value": float(t.get("value") or 0),
+            }
+        )
+    return out
+
+
+def set_commission_tiers(rep, payload: Any, *, preserve_partner_type: bool = False) -> list[dict[str, Any]]:
+    data = normalize_commission_tiers(payload)
+    rep.commission_tiers_json = _dumps(data)
+    primary = next((t for t in data if t["enabled"]), data[1] if len(data) > 1 else data[0])
+    is_partner = str(getattr(rep, "kind", "") or "").lower() == "partner_channel"
+    if preserve_partner_type or is_partner:
+        # Partners keep percent/fixed “every paid invoice” semantics; tiers are display/secondary
+        if primary["kind"] == "fixed":
+            rep.commission_type = "fixed"
+            rep.commission_fixed_minor = int(round(float(primary["value"])))
+        else:
+            rep.commission_type = "percent"
+            rep.commission_pct = float(primary["value"])
+            rep.commission_fixed_minor = 0
+        return data
+    if primary["kind"] == "fixed":
+        rep.commission_type = "fixed"
+        rep.commission_fixed_minor = int(round(float(primary["value"])))
+        rep.commission_pct = float(
+            next((t["value"] for t in data if t["kind"] == "percent"), getattr(rep, "commission_pct", 15) or 15)
+        )
+    else:
+        enabled_months = [t["month"] for t in data if t["enabled"]]
+        if enabled_months:
+            rep.commission_type = "month2"
+        rep.commission_pct = float(primary["value"])
+        rep.commission_fixed_minor = 0
+    return data
 
 
 def parse_partner_terms(rep) -> dict[str, Any]:
@@ -219,26 +305,6 @@ def normalize_promo_benefits(payload: Any) -> dict[str, Any]:
     return base
 
 
-def normalize_commission_tiers(payload: Any) -> list[dict[str, Any]]:
-    base = default_commission_tiers()
-    if not isinstance(payload, list):
-        return base
-    by_month = {int(t.get("month") or 0): t for t in payload if isinstance(t, dict)}
-    out = []
-    for month in (2, 3, 4):
-        t = by_month.get(month) or {}
-        kind = "fixed" if str(t.get("kind") or "").lower() == "fixed" else "percent"
-        out.append(
-            {
-                "month": month,
-                "enabled": bool(t.get("enabled")),
-                "kind": kind,
-                "value": float(t.get("value") or 0),
-            }
-        )
-    return out
-
-
 def normalize_partner_terms(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return default_partner_terms()
@@ -251,25 +317,6 @@ def normalize_partner_terms(payload: Any) -> dict[str, Any]:
 def set_promo_benefits(rep, payload: Any) -> dict[str, Any]:
     data = normalize_promo_benefits(payload)
     rep.promo_benefits_json = _dumps(data)
-    return data
-
-
-def set_commission_tiers(rep, payload: Any) -> list[dict[str, Any]]:
-    data = normalize_commission_tiers(payload)
-    rep.commission_tiers_json = _dumps(data)
-    # Keep legacy columns in sync with first enabled tier (or month 2).
-    primary = next((t for t in data if t["enabled"]), data[0])
-    if primary["kind"] == "fixed":
-        rep.commission_type = "fixed"
-        rep.commission_fixed_minor = int(round(float(primary["value"])))
-        rep.commission_pct = float(data[0]["value"] if data[0]["kind"] == "percent" else getattr(rep, "commission_pct", 15) or 15)
-    else:
-        # If only month 2 (or monthly tiers) — month2; if partner uses next-payment percent they set commission_type separately
-        enabled_months = [t["month"] for t in data if t["enabled"]]
-        if enabled_months and set(enabled_months) <= {2, 3, 4}:
-            rep.commission_type = "month2"
-        rep.commission_pct = float(primary["value"])
-        rep.commission_fixed_minor = 0
     return data
 
 
@@ -348,6 +395,8 @@ def packages_for_currency(db: Session, currency: str) -> list[dict[str, Any]]:
             "customer_feedback": "customer_feedback",
             "expo": "voxbulk_expo",
             "voxbulk": "voxbulk_expo",
+            "smart_card": "smart_card",
+            "smartcard": "smart_card",
         }
         seen_services: set[str] = set()
         for plan in plans:
@@ -385,7 +434,7 @@ def packages_for_currency(db: Session, currency: str) -> list[dict[str, Any]]:
                 }
             )
             seen_services.add(service_id)
-            if len(seen_services) >= 4:
+            if len(seen_services) >= 5:
                 break
     except Exception:
         pass

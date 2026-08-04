@@ -62,14 +62,62 @@ def test_normalize_promo_benefits_services():
 def test_commission_tiers_normalize():
     tiers = normalize_commission_tiers(
         [
+            {"month": 1, "enabled": True, "kind": "percent", "value": 8},
             {"month": 2, "enabled": True, "kind": "percent", "value": 10},
             {"month": 3, "enabled": True, "kind": "percent", "value": 5},
             {"month": 4, "enabled": False, "kind": "percent", "value": 5},
+            {"month": 6, "enabled": True, "kind": "fixed", "value": 500},
         ]
     )
-    assert tiers[0]["month"] == 2 and tiers[0]["enabled"]
-    assert tiers[1]["enabled"]
-    assert not tiers[2]["enabled"]
+    assert [t["month"] for t in tiers] == [1, 2, 3, 4, 5, 6]
+    assert tiers[0]["month"] == 1 and tiers[0]["enabled"] and tiers[0]["value"] == 8
+    assert tiers[1]["enabled"] and tiers[1]["value"] == 10
+    assert tiers[2]["enabled"]
+    assert not tiers[3]["enabled"]
+    assert not tiers[4]["enabled"]  # month 5 missing → disabled
+    assert tiers[5]["enabled"] and tiers[5]["kind"] == "fixed" and tiers[5]["value"] == 500
+
+
+def test_smart_card_in_promo_normalize():
+    raw = {
+        "wallet_voucher": {"enabled": False, "amount_minor": 0},
+        "services": {
+            "smart_card": {"enabled": True, "kind": "percent_discount", "value": 15},
+        },
+    }
+    b = normalize_promo_benefits(raw)
+    assert "smart_card" in b["services"]
+    assert b["services"]["smart_card"]["enabled"] is True
+    assert b["services"]["smart_card"]["kind"] == "percent_discount"
+    lines = benefit_summaries(b, currency="GBP")
+    assert any("Smart Card" in x or "smart" in x.lower() for x in lines)
+
+
+def test_commission_mode_helpers():
+    from app.services.sales_hub_benefits import normalize_commission_mode, set_commission_extras
+
+    assert normalize_commission_mode("one_time_only") == "one_time_only"
+    assert normalize_commission_mode("bogus") == "commission_only"
+    rep = _FakeRep()
+    rep.commission_mode = "commission_only"
+    rep.one_time_bonus_minor = 0
+    set_commission_extras(rep, mode="one_time_plus_commission", one_time_bonus_minor=5000)
+    assert rep.commission_mode == "one_time_plus_commission"
+    assert rep.one_time_bonus_minor == 5000
+
+
+def test_set_commission_tiers_preserves_partner_percent():
+    from app.services.sales_hub_benefits import set_commission_tiers
+
+    rep = _FakeRep(commission_type="percent", commission_pct=12)
+    rep.kind = "partner_channel"
+    set_commission_tiers(
+        rep,
+        [{"month": 2, "enabled": True, "kind": "percent", "value": 20}],
+        preserve_partner_type=True,
+    )
+    assert rep.commission_type == "percent"
+    assert float(rep.commission_pct) == 20.0
 
 
 def test_parse_legacy_rep_defaults_voucher():

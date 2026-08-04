@@ -421,7 +421,10 @@ class SalesPayoutService:
     @staticmethod
     def _send_email(db: Session, *, rep: SalesRep, invoice: SalesPayoutInvoice, template_key: str) -> None:
         try:
-            from app.services.billing_email_service import BillingEmailService
+            from app.services.email_template_service import EmailTemplateService
+            from app.services.platform_sender_email_service import PlatformSenderEmailService
+            from app.services.smtp_mailer_service import SmtpMailerService
+            from app.services.transactional_email_service import TransactionalEmailService, substitute_placeholders
 
             user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
             to_email = (user.email if user else "") or ""
@@ -444,11 +447,23 @@ class SalesPayoutService:
                 "payout_method_summary": SalesPayoutService.payout_method_summary(snapshot),
                 "status": invoice.status,
             }
-            BillingEmailService.send_templated_optional(
+            EmailTemplateService.ensure_system_templates(db)
+            subject_tpl, body_tpl, enabled = TransactionalEmailService.load_template_fields(
+                db, template_key=template_key
+            )
+            if not enabled or not (subject_tpl or "").strip() or not (body_tpl or "").strip():
+                return
+            subject = substitute_placeholders(subject_tpl, variables)
+            body = substitute_placeholders(body_tpl, variables)
+            sender = PlatformSenderEmailService.get_sender_by_purpose(db, "sales")
+            from_name, from_email = sender if sender else (None, None)
+            SmtpMailerService.send_html(
                 db,
-                template_key=template_key,
-                to_email=to_email,
-                variables=variables,
+                to_addr=to_email,
+                subject=subject,
+                body=body,
+                from_email=from_email,
+                from_name=from_name,
             )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to send %s for payout invoice %s", template_key, invoice.id)

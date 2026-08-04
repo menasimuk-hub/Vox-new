@@ -285,6 +285,7 @@ export const MESSAGING_TABS = [
   { id: 'whatsapp', label: 'WhatsApp templates', icon: 'ti-brand-whatsapp' },
   { id: 'sms', label: 'SMS templates', icon: 'ti-message' },
   { id: 'smtp', label: 'SMTP settings', icon: 'ti-server' },
+  { id: 'emails', label: 'Emails', icon: 'ti-address-book' },
   { id: 'support', label: 'Support mailbox', icon: 'ti-headset' },
   { id: 'careers', label: 'Career mailbox', icon: 'ti-inbox' },
   { id: 'billing', label: 'Billing mailbox', icon: 'ti-receipt' },

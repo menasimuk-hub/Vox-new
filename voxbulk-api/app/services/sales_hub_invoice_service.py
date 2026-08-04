@@ -71,6 +71,7 @@ class SalesHubInvoiceService:
             "number": inv.number,
             "kind": inv.kind,
             "customer": inv.customer,
+            "customer_email": getattr(inv, "customer_email", None),
             "customer_tax_number": inv.customer_tax_number,
             "currency": inv.currency,
             "discount_percent": float(inv.discount_percent or 0),
@@ -174,6 +175,7 @@ class SalesHubInvoiceService:
             number=SalesHubInvoiceService._next_number(db),
             kind=kind,
             customer=str(payload.get("customer") or rep.name or "").strip(),
+            customer_email=(str(payload.get("customer_email") or "").strip().lower() or None),
             customer_tax_number=(str(payload.get("customer_tax_number") or "").strip() or None),
             currency=currency,
             discount_percent=discount,
@@ -216,6 +218,8 @@ class SalesHubInvoiceService:
             raise SalesRepError("Paid invoices cannot be edited")
         if "customer" in payload:
             inv.customer = str(payload.get("customer") or "").strip()
+        if "customer_email" in payload:
+            inv.customer_email = (str(payload.get("customer_email") or "").strip().lower() or None)
         if "customer_tax_number" in payload:
             inv.customer_tax_number = (str(payload.get("customer_tax_number") or "").strip() or None)
         if "discount_percent" in payload:
@@ -375,3 +379,123 @@ class SalesHubInvoiceService:
             "currency": inv.currency,
             "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items),
         }
+
+    @staticmethod
+    def render_html(db: Session, inv: SalesHubInvoice, items: list[SalesHubInvoiceItem] | None = None) -> str:
+        from app.core.config import settings
+        from app.services.brand_assets import logo_data_uri
+
+        if items is None:
+            items = SalesHubInvoiceService.list_items(db, inv.id)
+        total = SalesHubInvoiceService.invoice_total_minor(inv, items)
+        sub = SalesHubInvoiceService.invoice_subtotal_minor(items)
+        disc = float(inv.discount_percent or 0)
+        tax = float(inv.tax_percent or 0)
+        disc_minor = int(round(sub * disc / 100.0))
+        after = sub - disc_minor
+        tax_minor = int(round(after * tax / 100.0))
+        logo = logo_data_uri(variant="logo-black") or ""
+        company = getattr(settings, "invoice_company_name", None) or "Voxbulk Ltd"
+        company_email = getattr(settings, "invoice_company_email", None) or "sales@voxbulk.com"
+        addr = getattr(settings, "invoice_company_address", None) or ""
+        lines_html = "".join(
+            f"<tr><td>{it.description}</td><td style='text-align:right'>{int(it.quantity or 1)}</td>"
+            f"<td style='text-align:right'>{money_display(int(it.unit_price_minor or 0), inv.currency)}</td></tr>"
+            for it in items
+        )
+        logo_html = f'<img src="{logo}" alt="Voxbulk" style="height:40px;margin-bottom:12px"/>' if logo else ""
+        return f"""<!DOCTYPE html><html><head><meta charset="utf-8"/><title>{inv.number}</title>
+<style>body{{font-family:system-ui,sans-serif;color:#1e293b;margin:40px}} table{{width:100%;border-collapse:collapse;margin-top:24px}}
+th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}} .muted{{color:#64748b;font-size:13px}}
+.total{{font-size:18px;font-weight:700;margin-top:16px}}</style></head><body>
+{logo_html}
+<h1 style="margin:0 0 4px">Invoice {inv.number}</h1>
+<p class="muted">{str(inv.kind or '').capitalize()} · {inv.status}</p>
+<div style="display:flex;justify-content:space-between;gap:24px;margin-top:24px">
+  <div><strong>{company}</strong><div class="muted">{addr}<br/>{company_email}</div></div>
+  <div style="text-align:right"><strong>Bill to</strong><div>{inv.customer}</div>
+  <div class="muted">{inv.customer_email or ''}</div></div>
+</div>
+<table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Amount</th></tr></thead>
+<tbody>{lines_html or '<tr><td colspan="3">Sales commission</td></tr>'}</tbody></table>
+<div style="margin-left:auto;max-width:240px;margin-top:16px">
+  <div>Subtotal {money_display(sub, inv.currency)}</div>
+  <div>Discount {disc:g}% (−{money_display(disc_minor, inv.currency)})</div>
+  <div>Tax {tax:g}% ({money_display(tax_minor, inv.currency)})</div>
+  <div class="total">Total {money_display(total, inv.currency)}</div>
+</div>
+</body></html>"""
+
+    @staticmethod
+    def render_pdf_bytes(db: Session, inv: SalesHubInvoice) -> bytes:
+        from app.services.invoice_pdf_service import render_html_to_pdf_bytes
+
+        items = SalesHubInvoiceService.list_items(db, inv.id)
+        html = SalesHubInvoiceService.render_html(db, inv, items)
+        return render_html_to_pdf_bytes(html)
+
+    @staticmethod
+    def send_email(
+        db: Session,
+        *,
+        inv: SalesHubInvoice,
+        reminder: bool = False,
+    ) -> dict[str, Any]:
+        """Email PDF to customer_email using sales@ sender from Emails table."""
+        from app.services.platform_sender_email_service import PlatformSenderEmailService
+        from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
+        from app.services.transactional_email_service import TransactionalEmailService, substitute_placeholders
+
+        to_email = (getattr(inv, "customer_email", None) or "").strip()
+        if not to_email or "@" not in to_email:
+            raise SalesRepError("Customer email is required to send this invoice. Set customer_email first.")
+        sender = PlatformSenderEmailService.get_sender_by_purpose(db, "sales")
+        if sender is None:
+            raise SalesRepError("Configure sales@ in Messaging → Emails (purpose: sales, active).")
+        from_name, from_email = sender
+        template_key = "sales_hub_invoice_reminder" if reminder else "sales_hub_invoice_sent"
+        subject_tpl, body_tpl, enabled = TransactionalEmailService.load_template_fields(db, template_key=template_key)
+        if not enabled:
+            raise SalesRepError(f"Email template '{template_key}' is disabled")
+        items = SalesHubInvoiceService.list_items(db, inv.id)
+        total = SalesHubInvoiceService.invoice_total_minor(inv, items)
+        vars_map = {
+            "invoice_number": inv.number,
+            "customer_name": inv.customer or "",
+            "customer_email": to_email,
+            "total": money_display(total, inv.currency),
+            "currency": inv.currency,
+            "kind": inv.kind or "",
+            "due_at": inv.due_at.strftime("%Y-%m-%d") if inv.due_at else "",
+        }
+        subject = substitute_placeholders(subject_tpl or f"Invoice {inv.number}", vars_map)
+        body = substitute_placeholders(
+            body_tpl or f"<p>Please find invoice <strong>{inv.number}</strong> attached ({vars_map['total']}).</p>",
+            vars_map,
+        )
+        pdf_bytes = SalesHubInvoiceService.render_pdf_bytes(db, inv)
+        attachments = [
+            {
+                "filename": f"{inv.number}.pdf",
+                "content": pdf_bytes,
+                "maintype": "application",
+                "subtype": "pdf",
+            }
+        ]
+        try:
+            SmtpMailerService.send_html(
+                db,
+                to_addr=to_email,
+                subject=subject,
+                body=body,
+                from_email=from_email,
+                from_name=from_name,
+                attachments=attachments,
+            )
+        except SmtpMailerError as e:
+            raise SalesRepError(str(e)) from e
+        if reminder:
+            SalesHubInvoiceService.remind(db, inv=inv)
+        else:
+            SalesHubInvoiceService.set_status(db, inv=inv, status=STATUS_SENT)
+        return {"ok": True, "to": to_email, "from": from_email}

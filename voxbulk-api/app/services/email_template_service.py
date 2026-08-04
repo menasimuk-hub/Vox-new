@@ -60,6 +60,8 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "survey_ai_followup_promo",
     "sales_payout_invoice_received",
     "sales_payout_invoice_paid",
+    "sales_hub_invoice_sent",
+    "sales_hub_invoice_reminder",
     "expo_visitor_catalogue",
     "expo_exhibitor_lead_digest",
     "expo_visitor_day_summary",

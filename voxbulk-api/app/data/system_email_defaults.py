@@ -491,6 +491,34 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             badge="Sales payout",
         ),
     },
+    "sales_hub_invoice_sent": {
+        "title": "Sales hub invoice sent",
+        "subject": "Invoice {{invoice_number}} from Voxbulk ({{total}})",
+        "body": wrap_brand_email(
+            title="Your invoice",
+            inner_html="""<p>Hi <strong>{{customer_name}}</strong>,</p>
+  <p>Please find invoice <strong>{{invoice_number}}</strong> attached.</p>
+  <p><strong>Total:</strong> {{total}} {{currency}}<br />
+  <strong>Due:</strong> {{due_at}}</p>
+  <p>Questions? Reply to this email or contact sales@voxbulk.com.</p>""",
+            footer="Sent by VOXBULK · sales@voxbulk.com",
+            badge="Sales",
+        ),
+    },
+    "sales_hub_invoice_reminder": {
+        "title": "Sales hub invoice reminder",
+        "subject": "Reminder: invoice {{invoice_number}} ({{total}})",
+        "body": wrap_brand_email(
+            title="Invoice reminder",
+            inner_html="""<p>Hi <strong>{{customer_name}}</strong>,</p>
+  <p>This is a friendly reminder that invoice <strong>{{invoice_number}}</strong> is still open.</p>
+  <p><strong>Total:</strong> {{total}} {{currency}}<br />
+  <strong>Due:</strong> {{due_at}}</p>
+  <p>The PDF is attached. Please get in touch if you need help.</p>""",
+            footer="Sent by VOXBULK · sales@voxbulk.com",
+            badge="Sales",
+        ),
+    },
     "expo_visitor_catalogue": {
         "title": "Expo catalogue / price list",
         "subject": "Your files from {{company_name}}",

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { apiFetch, apiFetchBlob } from '../lib/api'
+import { brandAssets } from '../lib/brand'
 import './salesTeam.css'
 
 /** Source: partner-sales-hub-main/src/lib/accounts.ts COMPANY */
@@ -38,13 +39,19 @@ const COUNTRIES = [
   { code: 'EG', label: 'Egypt' },
   { code: 'IN', label: 'India' },
 ]
-const SERVICE_IDS = ['ai_interview', 'wa_survey', 'customer_feedback', 'voxbulk_expo']
+const SERVICE_IDS = ['ai_interview', 'wa_survey', 'customer_feedback', 'voxbulk_expo', 'smart_card']
 const SERVICE_LABELS = {
   ai_interview: 'AI Interview Screening',
   wa_survey: 'WA Survey / AI Call Survey',
   customer_feedback: 'Customer Feedback',
   voxbulk_expo: 'Voxbulk Expo',
+  smart_card: 'Smart Card QR',
 }
+const COMMISSION_MODES = [
+  { value: 'commission_only', label: 'Commission only' },
+  { value: 'one_time_only', label: 'One-time bonus only' },
+  { value: 'one_time_plus_commission', label: 'One-time bonus + commission' },
+]
 /** Exact SERVICES.options from partner-sales-hub-main/src/lib/accounts.ts */
 const SERVICE_OPTIONS = {
   ai_interview: [
@@ -59,6 +66,11 @@ const SERVICE_OPTIONS = {
   customer_feedback: [
     { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
     { kind: 'free_days', label: 'Free days from 1st scan', unit: 'days', defaultValue: 15 },
+  ],
+  smart_card: [
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
+    { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
+    { kind: 'free_days', label: 'Free trial days', unit: 'days', defaultValue: 14 },
   ],
   voxbulk_expo: [
     { kind: 'free_package_days', label: 'Free package days', unit: 'days', defaultValue: 3 },
@@ -234,11 +246,12 @@ function defaultPromoBenefits() {
 }
 
 function defaultCommissionTiers(pct = 15) {
-  return [
-    { month: 2, enabled: true, kind: 'percent', value: String(pct) },
-    { month: 3, enabled: false, kind: 'percent', value: String(pct) },
-    { month: 4, enabled: false, kind: 'percent', value: String(pct) },
-  ]
+  return [1, 2, 3, 4, 5, 6].map((month) => ({
+    month,
+    enabled: month === 2,
+    kind: 'percent',
+    value: String(pct),
+  }))
 }
 
 function defaultPartnerTerms() {
@@ -272,6 +285,8 @@ function emptyForm(isPartner) {
     payout: defaultPayout(),
     partner_comm_kind: 'percent',
     partner_comm_value: '15',
+    commission_mode: 'commission_only',
+    one_time_bonus_major: '0',
   }
 }
 
@@ -292,12 +307,18 @@ function repToForm(rep) {
       value: String(value),
     }
   })
-  const tiers = (rep.commission_tiers || defaultCommissionTiers()).map((t) => ({
-    month: t.month,
-    enabled: Boolean(t.enabled),
-    kind: t.kind === 'fixed' ? 'fixed' : 'percent',
-    value: t.kind === 'fixed' ? String(Number(t.value || 0) / 100) : String(t.value ?? ''),
-  }))
+  const tierByMonth = Object.fromEntries(
+    (rep.commission_tiers || defaultCommissionTiers()).map((t) => [Number(t.month), t]),
+  )
+  const tiers = [1, 2, 3, 4, 5, 6].map((month) => {
+    const t = tierByMonth[month] || { month, enabled: month === 2, kind: 'percent', value: 15 }
+    return {
+      month,
+      enabled: Boolean(t.enabled),
+      kind: t.kind === 'fixed' ? 'fixed' : 'percent',
+      value: t.kind === 'fixed' ? String(Number(t.value || 0) / 100) : String(t.value ?? ''),
+    }
+  })
   const pt = rep.partner_terms || defaultPartnerTerms()
   const enabledTier = tiers.find((t) => t.enabled) || tiers[0]
   return {
@@ -325,6 +346,10 @@ function repToForm(rep) {
     payout: { ...defaultPayout(), ...(rep.payout || {}) },
     partner_comm_kind: enabledTier?.kind || 'percent',
     partner_comm_value: enabledTier?.value || '15',
+    commission_mode: rep.commission_mode || 'commission_only',
+    one_time_bonus_major: rep.one_time_bonus_minor != null
+      ? String(Number(rep.one_time_bonus_minor) / 100)
+      : '0',
   }
 }
 
@@ -353,16 +378,18 @@ function buildCommissionTiersPayload(form, isPartner) {
   if (isPartner) {
     const kind = form.partner_comm_kind
     const val = parseFloat(form.partner_comm_value || '0')
-    return [
-      {
-        month: 2,
-        enabled: true,
-        kind,
-        value: kind === 'fixed' ? Math.round(val * 100) : val,
-      },
-      { month: 3, enabled: false, kind: 'percent', value: 0 },
-      { month: 4, enabled: false, kind: 'percent', value: 0 },
-    ]
+    const month2Enabled = form.commission_tiers.find((t) => t.month === 2)?.enabled ?? true
+    return [1, 2, 3, 4, 5, 6].map((month) => {
+      if (month === 2) {
+        return {
+          month: 2,
+          enabled: month2Enabled,
+          kind,
+          value: kind === 'fixed' ? Math.round(val * 100) : val,
+        }
+      }
+      return { month, enabled: false, kind: 'percent', value: 0 }
+    })
   }
   return form.commission_tiers.map((t) => ({
     month: t.month,
@@ -422,10 +449,10 @@ export default function SalesTeam() {
     sales_rep_id: '',
     kind: 'commission',
     customer: '',
+    customer_email: '',
     discount_percent: '0',
     tax_percent: '0',
     commission_amount_major: '0',
-    items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
   })
   const [createInvErr, setCreateInvErr] = useState('')
 
@@ -602,6 +629,8 @@ export default function SalesTeam() {
         billing: form.partner_terms.billing,
       },
       payout: form.payout,
+      commission_mode: form.commission_mode,
+      one_time_bonus_minor: Math.round(parseFloat(form.one_time_bonus_major || '0') * 100),
     }
     try {
       if (editId) {
@@ -750,45 +779,63 @@ export default function SalesTeam() {
     }
   }
 
-  const createHubInvoice = async () => {
+  const downloadHubInvoicePdf = async (invoiceId) => {
+    try {
+      const blob = await apiFetchBlob(`/admin/sales-reps/hub-invoices/${encodeURIComponent(invoiceId)}/pdf`)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      setTimeout(() => URL.revokeObjectURL(url), 60000)
+    } catch (e) {
+      showToast(e?.message || 'PDF download failed')
+    }
+  }
+
+  const createHubInvoice = async (options = {}) => {
+    const { send_email: sendEmail, downloadPdf } = options
     setBusy(true)
     setCreateInvErr('')
     const rep = allReps.find((r) => r.id === createInvForm.sales_rep_id)
     const cur = rep?.currency || 'GBP'
-    const items = createInvForm.items.map((it) => ({
-      service_id: it.service_id || null,
-      description: it.description || 'Line item',
-      quantity: Math.max(1, parseInt(it.quantity || '1', 10)),
-      unit_price_minor: Math.round(parseFloat(it.unit_price_major || '0') * 100),
-    }))
+    const unitPriceMinor = Math.round(parseFloat(createInvForm.commission_amount_major || '0') * 100)
+    const items = [{
+      service_id: null,
+      description: 'Sales commission',
+      quantity: 1,
+      unit_price_minor: unitPriceMinor,
+    }]
     if (!createInvForm.sales_rep_id) {
       setCreateInvErr('Select a salesman/partner.')
       setBusy(false)
       return
     }
-    if (!items.length || items.every((it) => !it.unit_price_minor && !it.description)) {
-      setCreateInvErr('Add at least one line item.')
+    if (!unitPriceMinor) {
+      setCreateInvErr('Enter a sales commission amount.')
       setBusy(false)
       return
     }
     try {
-      await apiFetch('/admin/sales-reps/hub-invoices', {
+      const res = await apiFetch('/admin/sales-reps/hub-invoices', {
         method: 'POST',
         body: JSON.stringify({
           sales_rep_id: createInvForm.sales_rep_id,
           kind: createInvForm.kind,
           customer: createInvForm.customer,
+          customer_email: createInvForm.customer_email || null,
           currency: cur,
           discount_percent: parseFloat(createInvForm.discount_percent || '0'),
           tax_percent: parseFloat(createInvForm.tax_percent || '0'),
-          commission_amount_minor: Math.round(parseFloat(createInvForm.commission_amount_major || '0') * 100),
+          commission_amount_minor: unitPriceMinor,
+          send_email: Boolean(sendEmail),
           items,
         }),
       })
-      showToast('Invoice created')
+      showToast(sendEmail ? 'Invoice created and sent' : 'Invoice created')
       setShowCreateInvoice(false)
       await loadHubInvoices()
       await loadReps()
+      if (downloadPdf && res?.invoice?.id) {
+        await downloadHubInvoicePdf(res.invoice.id)
+      }
     } catch (e) {
       setCreateInvErr(e?.message || 'Create failed')
     } finally {
@@ -922,9 +969,8 @@ export default function SalesTeam() {
         </div>
       </header>
       {renderKpiStrip()}
-      <section className='accounts-layout'>
-        <div className='accounts-main'>
-          <div className='tabs-toolbar'>
+      <section className='accounts-main' style={{ marginTop: 24 }}>
+        <div className='tabs-toolbar'>
             <div className='tabs-list'>
               <button type='button' className={tab === 'salesman' ? 'active' : ''} onClick={() => switchTab('salesman')}>
                 Salesmen ({allReps.filter((r) => r.kind !== 'partner_channel').length})
@@ -1030,30 +1076,6 @@ export default function SalesTeam() {
               </table>
             </div>
           )}
-        </div>
-        <aside className='aside-card'>
-          <div className='aside-card-head'>
-            <h2>Latest invoices</h2>
-            <button type='button' className='link-all' onClick={() => setView('invoices')}>View all</button>
-          </div>
-          <ul className='aside-list'>
-            {hubInvoices.slice(0, 6).map((inv) => (
-              <li key={inv.id}>
-                <button type='button' className='aside-invoice' onClick={() => openInvoiceDetail(inv.id)}>
-                  <div className='aside-invoice-row'>
-                    <span className='inv-num'>{inv.number}</span>
-                    {statusBadge(inv.status)}
-                  </div>
-                  <div className='inv-meta'>
-                    <span className='trunc'>{inv.rep_name || inv.customer || '—'}</span>
-                    <span className='tabular'>{inv.total_display || money(inv.total_minor, inv.currency)}</span>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {hubInvoices.length === 0 ? <p className='muted' style={{ marginTop: 12 }}>No invoices yet.</p> : null}
-        </aside>
       </section>
     </>
   )
@@ -1085,10 +1107,10 @@ export default function SalesTeam() {
                 sales_rep_id: allReps[0]?.id || '',
                 kind: 'commission',
                 customer: '',
+                customer_email: '',
                 discount_percent: '0',
                 tax_percent: '0',
                 commission_amount_major: '0',
-                items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
               })
               setCreateInvErr('')
               setShowCreateInvoice(true)
@@ -1349,9 +1371,37 @@ export default function SalesTeam() {
     </div>
   )
 
+  const renderCommissionModeFields = () => (
+    <div className='field-row' style={{ marginTop: 16 }}>
+      <div className='field'>
+        <label>Commission mode</label>
+        <select
+          value={form.commission_mode}
+          onChange={(e) => setForm({ ...form, commission_mode: e.target.value })}
+        >
+          {COMMISSION_MODES.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+      </div>
+      {form.commission_mode !== 'commission_only' ? (
+        <div className='field'>
+          <label>One-time bonus ({currencySymbol(formCurrency)})</label>
+          <input
+            type='number'
+            min='0'
+            step='0.01'
+            value={form.one_time_bonus_major}
+            onChange={(e) => setForm({ ...form, one_time_bonus_major: e.target.value })}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+
   const renderEditorCommissionTab = () => {
     if (isPartner) {
-      const enabled = form.commission_tiers.some((t) => t.enabled)
+      const enabled = form.commission_tiers.find((t) => t.month === 2)?.enabled ?? false
       return (
         <div className='card-body'>
           <div className='commission-partner-grid'>
@@ -1359,8 +1409,8 @@ export default function SalesTeam() {
               <HubSwitch
                 checked={enabled}
                 onCheckedChange={(v) => {
-                  const tiers = form.commission_tiers.map((t, i) => (
-                    i === 0 ? { ...t, enabled: v } : { ...t, enabled: false }
+                  const tiers = form.commission_tiers.map((t) => (
+                    t.month === 2 ? { ...t, enabled: v } : { ...t, enabled: false }
                   ))
                   setForm({ ...form, commission_tiers: tiers })
                 }}
@@ -1382,6 +1432,7 @@ export default function SalesTeam() {
               onChange={(e) => setForm({ ...form, partner_comm_value: e.target.value })}
             />
           </div>
+          {renderCommissionModeFields()}
           <div className='field-row'>
             <div className='field'>
               <label>Partner discount %</label>
@@ -1443,6 +1494,7 @@ export default function SalesTeam() {
             />
           </div>
         ))}
+        {renderCommissionModeFields()}
       </div>
     )
   }
@@ -1497,10 +1549,10 @@ export default function SalesTeam() {
               sales_rep_id: editId || '',
               kind: 'commission',
               customer: form.name || '',
+              customer_email: form.email || '',
               discount_percent: '0',
               tax_percent: '0',
               commission_amount_major: '0',
-              items: [{ service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
             })
             setCreateInvErr('')
             setShowCreateInvoice(true)
@@ -1662,7 +1714,7 @@ export default function SalesTeam() {
               <p className='card-hint'>
                 {isPartner
                   ? 'Partners earn commission on the next payment only.'
-                  : 'Salesmen earn commission on the 2nd, 3rd and 4th month subscriptions.'}
+                  : 'Salesmen earn commission on enabled months (1–6) of customer subscriptions.'}
               </p>
               {renderEditorCommissionTab()}
             </section>
@@ -1706,6 +1758,9 @@ export default function SalesTeam() {
             </p>
           </div>
           <div className='hub-header-actions'>
+            <button type='button' className='btn btn-ghost' disabled={busy} onClick={() => downloadHubInvoicePdf(inv.id)}>
+              Download PDF
+            </button>
             <button type='button' className='btn btn-ghost' onClick={() => { setView('invoices'); setInvoiceDetail(null) }}>
               <IconBack /> Back
             </button>
@@ -1754,6 +1809,13 @@ export default function SalesTeam() {
           <section className='hub-card inv-document'>
             <div className='inv-doc-top'>
               <div className='inv-from'>
+                <img
+                  src={brandAssets.logoBlack}
+                  alt='VoxBulk'
+                  className='inv-logo'
+                  style={{ height: 36, marginBottom: 12, display: 'block' }}
+                  onError={(e) => { e.currentTarget.style.display = 'none' }}
+                />
                 <p className='strong'>{COMPANY.name}</p>
                 {COMPANY.addressLines.map((l) => <p key={l} className='muted'>{l}</p>)}
                 <p className='muted'>{COMPANY.country}</p>
@@ -1763,6 +1825,7 @@ export default function SalesTeam() {
               <div className='inv-billto'>
                 <p className='banner-label'>Bill to</p>
                 <p className='strong'>{inv.customer || '—'}</p>
+                {inv.customer_email ? <p className='muted'>{inv.customer_email}</p> : null}
                 {inv.customer_tax_number ? <p className='muted'>Tax no. {inv.customer_tax_number}</p> : null}
                 <p className='muted' style={{ marginTop: 8 }}>Issued {(inv.issued_at || inv.created_at || '').slice(0, 10) || '—'}</p>
                 <p className='muted'>Due {(inv.due_at || '').slice(0, 10) || '—'}</p>
@@ -1866,51 +1929,18 @@ export default function SalesTeam() {
             <input type='text' value={createInvForm.customer} onChange={(e) => setCreateInvForm({ ...createInvForm, customer: e.target.value })} />
           </div>
           <div className='field'>
-            <label>Line items</label>
-            {createInvForm.items.map((it, idx) => (
-              <div key={idx} className='line-item-row'>
-                <div className='field'>
-                  <select value={it.service_id} onChange={(e) => {
-                    const items = [...createInvForm.items]
-                    items[idx] = { ...it, service_id: e.target.value }
-                    setCreateInvForm({ ...createInvForm, items })
-                  }}>
-                    {SERVICE_IDS.map((sid) => (
-                      <option key={sid} value={sid}>{SERVICE_LABELS[sid]}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className='field'>
-                  <input type='text' placeholder='Description' value={it.description} onChange={(e) => {
-                    const items = [...createInvForm.items]
-                    items[idx] = { ...it, description: e.target.value }
-                    setCreateInvForm({ ...createInvForm, items })
-                  }} />
-                </div>
-                <div className='field'>
-                  <input type='number' min='1' placeholder='Qty' value={it.quantity} onChange={(e) => {
-                    const items = [...createInvForm.items]
-                    items[idx] = { ...it, quantity: e.target.value }
-                    setCreateInvForm({ ...createInvForm, items })
-                  }} />
-                </div>
-                <div className='field'>
-                  <input type='number' min='0' step='0.01' placeholder='Unit price' value={it.unit_price_major} onChange={(e) => {
-                    const items = [...createInvForm.items]
-                    items[idx] = { ...it, unit_price_major: e.target.value }
-                    setCreateInvForm({ ...createInvForm, items })
-                  }} />
-                </div>
-                <button type='button' className='btn btn-ghost btn-sm' onClick={() => {
-                  const items = createInvForm.items.filter((_, i) => i !== idx)
-                  setCreateInvForm({ ...createInvForm, items: items.length ? items : createInvForm.items })
-                }}>×</button>
-              </div>
-            ))}
-            <button type='button' className='btn btn-ghost btn-sm' onClick={() => setCreateInvForm({
-              ...createInvForm,
-              items: [...createInvForm.items, { service_id: 'wa_survey', description: '', quantity: '1', unit_price_major: '0' }],
-            })}>Add line</button>
+            <label>Customer email</label>
+            <input type='email' value={createInvForm.customer_email} onChange={(e) => setCreateInvForm({ ...createInvForm, customer_email: e.target.value })} />
+          </div>
+          <div className='field'>
+            <label>Sales commission amount</label>
+            <input
+              type='number'
+              min='0'
+              step='0.01'
+              value={createInvForm.commission_amount_major}
+              onChange={(e) => setCreateInvForm({ ...createInvForm, commission_amount_major: e.target.value })}
+            />
           </div>
           <div className='field-row'>
             <div className='field'>
@@ -1921,17 +1951,13 @@ export default function SalesTeam() {
               <label>Tax %</label>
               <input type='number' min='0' value={createInvForm.tax_percent} onChange={(e) => setCreateInvForm({ ...createInvForm, tax_percent: e.target.value })} />
             </div>
-            {createInvForm.kind === 'commission' ? (
-              <div className='field'>
-                <label>Commission amount</label>
-                <input type='number' min='0' step='0.01' value={createInvForm.commission_amount_major} onChange={(e) => setCreateInvForm({ ...createInvForm, commission_amount_major: e.target.value })} />
-              </div>
-            ) : null}
           </div>
         </div>
         <div className='modal-foot'>
           <button type='button' className='btn btn-ghost' onClick={() => setShowCreateInvoice(false)}>Cancel</button>
-          <button type='button' className='btn btn-primary' disabled={busy} onClick={createHubInvoice}>Create</button>
+          <button type='button' className='btn btn-primary' disabled={busy} onClick={() => createHubInvoice()}>Create</button>
+          <button type='button' className='btn btn-primary' disabled={busy} onClick={() => createHubInvoice({ downloadPdf: true })}>Create &amp; download PDF</button>
+          <button type='button' className='btn btn-primary' disabled={busy} onClick={() => createHubInvoice({ send_email: true })}>Create &amp; send email</button>
         </div>
       </div>
     </div>

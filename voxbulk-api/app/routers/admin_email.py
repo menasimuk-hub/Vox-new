@@ -137,6 +137,70 @@ def get_billing_mailbox_settings(db: Session = Depends(get_db), _admin=Depends(r
     return BillingMailboxSettingsService.to_public_dict(db, row)
 
 
+@router.get("/sender-emails")
+def list_sender_emails(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+    rows = PlatformSenderEmailService.list_all(db)
+    return {"ok": True, "items": [PlatformSenderEmailService.to_dict(r) for r in rows], "domain": "voxbulk.com"}
+
+
+@router.post("/sender-emails")
+def create_sender_email(payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.platform_sender_email_service import PlatformSenderEmailError, PlatformSenderEmailService
+
+    body = payload or {}
+    try:
+        row = PlatformSenderEmailService.create(
+            db,
+            local_part=str(body.get("local_part") or body.get("email") or ""),
+            from_name=str(body.get("from_name") or ""),
+            purpose=str(body.get("purpose") or ""),
+            notes=body.get("notes"),
+            is_active=body.get("is_active", True) is not False,
+        )
+    except PlatformSenderEmailError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    return {"ok": True, "item": PlatformSenderEmailService.to_dict(row)}
+
+
+@router.patch("/sender-emails/{row_id}")
+def patch_sender_email(
+    row_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))
+):
+    from app.services.platform_sender_email_service import PlatformSenderEmailError, PlatformSenderEmailService
+
+    try:
+        row = PlatformSenderEmailService.update(db, row_id, payload or {})
+    except PlatformSenderEmailError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    return {"ok": True, "item": PlatformSenderEmailService.to_dict(row)}
+
+
+@router.post("/sender-emails/{row_id}/freeze")
+def freeze_sender_email(row_id: str, payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.platform_sender_email_service import PlatformSenderEmailError, PlatformSenderEmailService
+
+    body = payload or {}
+    frozen = body.get("frozen", True) is not False
+    try:
+        row = PlatformSenderEmailService.freeze(db, row_id, frozen=frozen)
+    except PlatformSenderEmailError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    return {"ok": True, "item": PlatformSenderEmailService.to_dict(row)}
+
+
+@router.delete("/sender-emails/{row_id}")
+def delete_sender_email(row_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    from app.services.platform_sender_email_service import PlatformSenderEmailError, PlatformSenderEmailService
+
+    try:
+        PlatformSenderEmailService.delete(db, row_id)
+    except PlatformSenderEmailError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message) from e
+    return {"ok": True}
+
+
 @router.put("/billing-mailbox")
 def put_billing_mailbox_settings(
     payload: BillingMailboxSettingsUpdate,

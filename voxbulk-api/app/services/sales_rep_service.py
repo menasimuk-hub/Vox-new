@@ -106,7 +106,9 @@ class SalesRepService:
             benefit_summaries,
             commission_summary,
             currency_of_rep,
+            parse_commission_mode,
             parse_commission_tiers,
+            parse_one_time_bonus_minor,
             parse_partner_terms,
             parse_promo_benefits,
         )
@@ -132,6 +134,8 @@ class SalesRepService:
             "commission_pct": SalesRepService.commission_pct_of(rep),
             "commission_type": SalesPayoutService.commission_type_of(rep),
             "commission_fixed_minor": SalesPayoutService.fixed_minor_of(rep),
+            "commission_mode": parse_commission_mode(rep),
+            "one_time_bonus_minor": parse_one_time_bonus_minor(rep),
             "commission_tiers": tiers,
             "commission_summary": commission_summary(
                 tiers, currency=currency, partner=partner, partner_terms=partner_terms
@@ -245,11 +249,14 @@ class SalesRepService:
         promo_benefits: Any = None,
         commission_tiers: Any = None,
         partner_terms: Any = None,
+        commission_mode: Any = None,
+        one_time_bonus_minor: Any = None,
     ) -> SalesRep:
         from app.services.sales_hub_benefits import (
             default_commission_tiers,
             default_partner_terms,
             default_promo_benefits,
+            set_commission_extras,
             set_commission_tiers,
             set_partner_terms,
             set_promo_benefits,
@@ -351,22 +358,21 @@ class SalesRepService:
                 set_commission_tiers(
                     rep,
                     [
-                        {"month": 2, "enabled": True, "kind": "fixed", "value": fixed_minor},
-                        {"month": 3, "enabled": False, "kind": "percent", "value": pct},
-                        {"month": 4, "enabled": False, "kind": "percent", "value": pct},
+                        {"month": 1, "enabled": True, "kind": "fixed", "value": fixed_minor},
+                        *[{"month": m, "enabled": False, "kind": "percent", "value": pct} for m in (2, 3, 4, 5, 6)],
                     ],
                 )
             else:
                 set_commission_tiers(
                     rep,
                     [
-                        {"month": 2, "enabled": True, "kind": "percent", "value": pct},
-                        {"month": 3, "enabled": False, "kind": "percent", "value": pct},
-                        {"month": 4, "enabled": False, "kind": "percent", "value": pct},
+                        {"month": 1, "enabled": True, "kind": "percent", "value": pct},
+                        *[{"month": m, "enabled": False, "kind": "percent", "value": pct} for m in (2, 3, 4, 5, 6)],
                     ],
                 )
                 if kind_norm == KIND_PARTNER_CHANNEL:
                     rep.commission_type = COMMISSION_TYPE_PERCENT
+        set_commission_extras(rep, mode=commission_mode, one_time_bonus_minor=one_time_bonus_minor)
         if partner_terms is not None or kind_norm == KIND_PARTNER_CHANNEL:
             set_partner_terms(rep, partner_terms if partner_terms is not None else default_partner_terms())
         db.add(rep)
@@ -424,6 +430,14 @@ class SalesRepService:
             from app.services.sales_hub_benefits import set_commission_tiers
 
             set_commission_tiers(rep, patch.get("commission_tiers"))
+        if "commission_mode" in patch or "one_time_bonus_minor" in patch:
+            from app.services.sales_hub_benefits import set_commission_extras
+
+            set_commission_extras(
+                rep,
+                mode=patch.get("commission_mode") if "commission_mode" in patch else None,
+                one_time_bonus_minor=patch.get("one_time_bonus_minor") if "one_time_bonus_minor" in patch else None,
+            )
         if "partner_terms" in patch:
             from app.services.sales_hub_benefits import set_partner_terms
 
@@ -1277,19 +1291,79 @@ class SalesRepService:
                 else:
                     return None
             else:
-                # month2 + multi-month tiers
+                # month2 + multi-month tiers (months 1–6)
+                from app.services.sales_hub_benefits import (
+                    COMMISSION_MONTHS,
+                    parse_commission_mode,
+                    parse_one_time_bonus_minor,
+                )
+
+                mode = parse_commission_mode(rep)
+                bonus_minor = parse_one_time_bonus_minor(rep)
                 interval = SalesRepService._org_plan_interval(db, org_id)
+
+                def _already_one_time() -> bool:
+                    return (
+                        db.execute(
+                            select(SalesCommission).where(
+                                SalesCommission.sales_rep_id == rep.id,
+                                SalesCommission.org_id == org_id,
+                                SalesCommission.kind == "one_time_bonus",
+                            )
+                        ).scalar_one_or_none()
+                        is not None
+                    )
+
+                def _add_one_time_if_needed(link_cust_id: str | None) -> SalesCommission | None:
+                    if mode == "commission_only" or bonus_minor <= 0:
+                        return None
+                    if _already_one_time():
+                        return None
+                    if currency.upper() != currency_of_rep(rep).upper():
+                        return None
+                    bonus = SalesCommission(
+                        sales_rep_id=rep.id,
+                        sales_customer_id=link_cust_id,
+                        org_id=org_id,
+                        invoice_id=invoice_id,
+                        amount_minor=bonus_minor,
+                        currency=currency,
+                        kind="one_time_bonus",
+                        status="pending",
+                        note=f"One-time bonus {SalesPayoutService.format_gbp(bonus_minor)}.",
+                    )
+                    db.add(bonus)
+                    return bonus
+
+                if mode == "one_time_only":
+                    link_cust = db.execute(
+                        select(SalesCustomer).where(
+                            SalesCustomer.sales_rep_id == rep.id, SalesCustomer.org_id == org_id
+                        )
+                    ).scalars().first()
+                    bonus = _add_one_time_if_needed(link_cust.id if link_cust else None)
+                    if bonus is None:
+                        return None
+                    db.commit()
+                    db.refresh(bonus)
+                    return bonus
+
                 if interval == "yearly":
                     existing = db.execute(
                         select(SalesCommission).where(
                             SalesCommission.sales_rep_id == rep.id,
                             SalesCommission.org_id == org_id,
-                            SalesCommission.kind.in_(["yearly_1mo", "monthly_2nd", "monthly_3rd", "monthly_4th"]),
+                            SalesCommission.kind.in_(
+                                ["yearly_1mo", "monthly_1st", "monthly_2nd", "monthly_3rd", "monthly_4th", "monthly_5th", "monthly_6th"]
+                            ),
                         )
                     ).scalar_one_or_none()
                     if existing is not None:
                         return None
                     tier = next((t for t in tiers if int(t["month"]) == 2 and t.get("enabled")), None)
+                    if tier is None:
+                        # Fall back to first enabled month for yearly
+                        tier = next((t for t in tiers if t.get("enabled")), None)
                     if tier is None:
                         return None
                     kind = "yearly_1mo"
@@ -1299,7 +1373,7 @@ class SalesRepService:
                         if currency.upper() != rep_cur.upper():
                             return None
                         commission_minor = int(round(float(tier["value"])))
-                        note = f"Fixed month-2 yearly commission on one month of yearly plan."
+                        note = f"Fixed yearly commission on one month of yearly plan."
                     else:
                         commission_minor = SalesRepService.apply_commission_pct(base_minor, float(tier["value"]))
                         note = f"{float(tier['value']):g}% of one month of a yearly plan."
@@ -1312,12 +1386,19 @@ class SalesRepService:
                         )
                     ).scalars().all()
                     paid_n = len(paid_invoices)
-                    if paid_n not in (2, 3, 4):
+                    if paid_n not in COMMISSION_MONTHS:
                         return None
                     tier = next((t for t in tiers if int(t["month"]) == paid_n and t.get("enabled")), None)
                     if tier is None:
                         return None
-                    kind_map = {2: "monthly_2nd", 3: "monthly_3rd", 4: "monthly_4th"}
+                    kind_map = {
+                        1: "monthly_1st",
+                        2: "monthly_2nd",
+                        3: "monthly_3rd",
+                        4: "monthly_4th",
+                        5: "monthly_5th",
+                        6: "monthly_6th",
+                    }
                     kind = kind_map[paid_n]
                     existing = db.execute(
                         select(SalesCommission).where(
@@ -1333,6 +1414,7 @@ class SalesRepService:
                             select(SalesCommission).where(
                                 SalesCommission.sales_rep_id == rep.id,
                                 SalesCommission.invoice_id == invoice_id,
+                                SalesCommission.kind != "one_time_bonus",
                             )
                         ).scalar_one_or_none()
                         if already is not None:
@@ -1369,6 +1451,35 @@ class SalesRepService:
                 note=note,
             )
             db.add(comm)
+            # one_time_plus_commission: also grant one-time on first qualifying accrual
+            try:
+                from app.services.sales_hub_benefits import parse_commission_mode as _pcm
+
+                if _pcm(rep) == "one_time_plus_commission":
+                    already_ot = db.execute(
+                        select(SalesCommission).where(
+                            SalesCommission.sales_rep_id == rep.id,
+                            SalesCommission.org_id == org_id,
+                            SalesCommission.kind == "one_time_bonus",
+                        )
+                    ).scalar_one_or_none()
+                    bonus_amt = int(getattr(rep, "one_time_bonus_minor", None) or 0)
+                    if already_ot is None and bonus_amt > 0:
+                        db.add(
+                            SalesCommission(
+                                sales_rep_id=rep.id,
+                                sales_customer_id=link_cust.id if link_cust is not None else None,
+                                org_id=org_id,
+                                invoice_id=invoice_id,
+                                amount_minor=bonus_amt,
+                                currency=currency,
+                                kind="one_time_bonus",
+                                status="pending",
+                                note=f"One-time bonus {SalesPayoutService.format_gbp(bonus_amt)}.",
+                            )
+                        )
+            except Exception:  # noqa: BLE001
+                pass
             db.commit()
             db.refresh(comm)
             return comm

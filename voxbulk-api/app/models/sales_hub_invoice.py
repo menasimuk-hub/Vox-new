@@ -20,6 +20,7 @@ class SalesHubInvoice(Base):
     # commission = we pay them | charge = they pay us
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="commission", index=True)
     customer: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    customer_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     customer_tax_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="GBP")
     discount_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)

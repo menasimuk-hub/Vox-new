@@ -87,10 +87,33 @@ def create_hub_invoice(payload: dict, db: Session = Depends(get_db), _admin=Depe
     rep = _get_rep(db, rep_id)
     try:
         inv = SalesHubInvoiceService.create(db, rep=rep, payload=body)
+        if body.get("send_email"):
+            SalesHubInvoiceService.send_email(db, inv=inv, reminder=False)
+            inv = SalesHubInvoiceService.get(db, inv.id) or inv
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     items = SalesHubInvoiceService.list_items(db, inv.id)
     return {"ok": True, "invoice": SalesHubInvoiceService.invoice_to_dict(inv, items)}
+
+
+@router.get("/hub-invoices/{invoice_id}/pdf")
+def hub_invoice_pdf(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from fastapi.responses import Response
+
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
+
+    inv = SalesHubInvoiceService.get(db, invoice_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    try:
+        pdf = SalesHubInvoiceService.render_pdf_bytes(db, inv)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF failed: {e}") from e
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{inv.number}.pdf"'},
+    )
 
 
 @router.get("/hub-invoices/{invoice_id}")
@@ -128,13 +151,14 @@ def update_hub_invoice(
 
 @router.post("/hub-invoices/{invoice_id}/send")
 def send_hub_invoice(invoice_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
-    from app.services.sales_hub_invoice_service import STATUS_SENT, SalesHubInvoiceService
+    from app.services.sales_hub_invoice_service import SalesHubInvoiceService
 
     inv = SalesHubInvoiceService.get(db, invoice_id)
     if inv is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     try:
-        inv = SalesHubInvoiceService.set_status(db, inv=inv, status=STATUS_SENT)
+        SalesHubInvoiceService.send_email(db, inv=inv, reminder=False)
+        inv = SalesHubInvoiceService.get(db, invoice_id) or inv
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     items = SalesHubInvoiceService.list_items(db, inv.id)
@@ -149,7 +173,8 @@ def remind_hub_invoice(invoice_id: str, db: Session = Depends(get_db), _admin=De
     if inv is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     try:
-        inv = SalesHubInvoiceService.remind(db, inv=inv)
+        SalesHubInvoiceService.send_email(db, inv=inv, reminder=True)
+        inv = SalesHubInvoiceService.get(db, invoice_id) or inv
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     items = SalesHubInvoiceService.list_items(db, inv.id)
@@ -230,20 +255,29 @@ def collect_hub_invoice(
 
 @router.get("/team-kpis")
 def sales_team_kpis(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from sqlalchemy import func, select
+
+    from app.models.sales_rep import SalesCommission
     from app.services.sales_hub_invoice_service import SalesHubInvoiceService
 
     reps = SalesRepService.list_reps(db)
     leads = 0
     paying = 0
     revenue = 0
-    earned = 0
-    paid = 0
     for r in reps:
-        # list_reps embeds light stats; pull dashboard for accurate wallet when needed is heavy —
-        # use embedded commission_minor + customers
         paying += int(r.get("customers") or 0)
-        earned += int(r.get("commission_minor") or 0)
-    # Outstanding hub invoices
+    # Real wallet totals from SalesCommission (pending + requested + paid)
+    earned = int(
+        db.execute(select(func.coalesce(func.sum(SalesCommission.amount_minor), 0))).scalar() or 0
+    )
+    paid = int(
+        db.execute(
+            select(func.coalesce(func.sum(SalesCommission.amount_minor), 0)).where(
+                SalesCommission.status == "paid"
+            )
+        ).scalar()
+        or 0
+    )
     hub_kpis = SalesHubInvoiceService.kpi_totals(db)
     outstanding = int(hub_kpis.get("new") or 0) + int(hub_kpis.get("sent") or 0)
     salesmen = sum(1 for r in reps if r.get("kind") == "salesman")
@@ -355,6 +389,8 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
             promo_benefits=body.get("promo_benefits"),
             commission_tiers=body.get("commission_tiers"),
             partner_terms=body.get("partner_terms"),
+            commission_mode=body.get("commission_mode"),
+            one_time_bonus_minor=body.get("one_time_bonus_minor"),
         )
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
