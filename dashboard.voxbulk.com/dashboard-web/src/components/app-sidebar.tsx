@@ -143,14 +143,12 @@ const groups: Group[] = [
     { title: "Create Expo booth", url: "/expo/new", icon: Ticket },
     { title: "Saved booths", url: "/expo", icon: ListChecks },
     { title: "Lead results", url: "/expo/leads", icon: BarChart3 },
-    { title: "Packages & pricing", url: "/account/expo/packages", icon: Package },
   ]},
   { key: "smartCard", label: "Smart Card QR", visibleKey: "smartCard", items: [
     { title: "Create Smart Card QR", url: "/smart-card/new", icon: IdCard },
     { title: "Saved QR codes", url: "/smart-card", icon: ListChecks },
     { title: "Manage products", url: "/smart-card/catalogue", icon: Package },
     { title: "Lead results", url: "/smart-card/leads", icon: BarChart3 },
-    { title: "Packages & pricing", url: "/account/smart-card/packages", icon: Package },
   ]},
   { key: "campaigns", label: "Campaigns", items: [
     { title: "Create template", url: "/campaigns/new", icon: FilePlus2 },
@@ -177,10 +175,7 @@ const groups: Group[] = [
     { title: "Opt-out list", url: "/settings/opt-out", icon: Ban },
   ]},
   { key: "account", label: "Account", items: [
-    { title: "Core platform packages", url: "/account/packages", icon: Package },
-    { title: "Customer feedback packages", url: "/account/feedback/packages", icon: Smile, requiresService: "feedback" },
-    { title: "Expo packages", url: "/account/expo/packages", icon: Ticket, requiresService: "expo" },
-    { title: "Smart Card packages", url: "/account/smart-card/packages", icon: IdCard, requiresService: "smartCard" },
+    { title: "Packages & pricing", url: "/account/packages", icon: Package },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
     { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },
