@@ -90,6 +90,7 @@ from app.routers.admin_ai_team import router as admin_ai_team_router
 from app.routers.public_ai_team import router as public_ai_team_router
 from app.routers.admin_sales_reps import router as admin_sales_reps_router
 from app.routers.sales import router as sales_router
+from app.routers.voxbox import router as voxbox_router
 from app.routers.brand_public import router as brand_public_router
 from app.services.lead_sales_scheduler import lead_sales_scheduler_loop
 from app.services.interview_call_dispatch_service import interview_call_scheduler_loop
@@ -781,3 +782,5 @@ app.include_router(public_smart_card_router)
 app.include_router(admin_sales_reps_router)
 app.include_router(admin_sales_reps_router, prefix="/api")
 app.include_router(sales_router)
+app.include_router(voxbox_router)
+app.include_router(voxbox_router, prefix="/api")

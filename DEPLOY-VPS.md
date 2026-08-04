@@ -296,6 +296,9 @@ VOX_HARD_RESET=1 ./deploy-vps.sh    # discard local edits (incl. routeTree.gen.t
 |-----|--------------|--------------|
 | Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
 | Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
+| Voxbox | `voxbox.voxbulk.com/voxbox-web/dist/` | `/www/wwwroot/voxbox.voxbulk.com` |
+
+One-time Voxbox site (aaPanel/nginx): `sudo bash scripts/vps-setup-voxbox-site.sh` then apply SSL in aaPanel if needed. Set `VOXBOX_ADMIN_*` in `voxbulk-api/.env`.
 | API | `voxbulk-api/` | systemd / `vox.sh` |
 
 ---

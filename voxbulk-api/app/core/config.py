@@ -140,6 +140,11 @@ class Settings(BaseSettings):
     admin_app_origin: str = Field(default="https://admin.voxbulk.com", alias="ADMIN_APP_ORIGIN")
     booking_app_origin: str = Field(default="", alias="BOOKING_APP_ORIGIN")
 
+    # Voxbox unified inbox (single admin; password hashed into DB on first login)
+    voxbox_admin_username: str = Field(default="admin", alias="VOXBOX_ADMIN_USERNAME")
+    voxbox_admin_password: str = Field(default="", alias="VOXBOX_ADMIN_PASSWORD")
+    voxbox_admin_display_name: str = Field(default="Admin", alias="VOXBOX_ADMIN_DISPLAY_NAME")
+
     # Password reset email links expire after this window (minutes)
     password_reset_token_expire_minutes: int = Field(default=60, alias="PASSWORD_RESET_TOKEN_EXPIRE_MINUTES")
 
@@ -199,9 +204,11 @@ class Settings(BaseSettings):
                 "http://localhost:5173",  # public frontend
                 "http://localhost:5174",  # admin
                 "http://localhost:5175",  # dashboard
+                "http://localhost:5176",  # voxbox
                 "http://127.0.0.1:5173",
                 "http://127.0.0.1:5174",
                 "http://127.0.0.1:5175",
+                "http://127.0.0.1:5176",
             ]
         # Production fallback when CORS_ALLOW_ORIGINS unset (dashboard/public call api.* cross-origin).
         if str(self.env).lower() in {"production", "prod", "staging"}:
@@ -210,6 +217,7 @@ class Settings(BaseSettings):
                 "https://www.voxbulk.com",
                 "https://admin.voxbulk.com",
                 "https://dashboard.voxbulk.com",
+                "https://voxbox.voxbulk.com",
             ]
         return []
 

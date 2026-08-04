@@ -192,3 +192,6 @@ from app.models.partner import PartnerApiKey, PartnerProvider, PartnerScreening 
 from app.models.integration_tester import IntegrationTester  # noqa: F401
 from app.models.site_blog_news_item import SiteBlogNewsItem  # noqa: F401
 from app.models.site_seo import SiteSeoHealthSnapshot, SiteSeoRedirect, SiteSeoSettings  # noqa: F401
+from app.models.voxbox_admin_user import VoxboxAdminUser  # noqa: F401
+from app.models.voxbox_mail_account import VoxboxMailAccount  # noqa: F401
+from app.models.voxbox_message import VoxboxMessage  # noqa: F401

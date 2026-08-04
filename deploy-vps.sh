@@ -22,12 +22,14 @@ set -euo pipefail
 VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
 VOX_PUBLIC_DIST="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
+VOX_VOXBOX_DIST="${VOX_VOXBOX_DIST:-/www/wwwroot/voxbox.voxbulk.com}"
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="$ROOT/voxbulk-api"
 ADMIN_DIR="$ROOT/admin.voxbulk.com/adim-web"
 DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
+VOXBOX_DIR="$ROOT/voxbox.voxbulk.com/voxbox-web"
 VOX_SH="$ROOT/vox.sh"
 
 GIT_REMOTE="${VOX_GIT_REMOTE:-origin}"
@@ -70,6 +72,7 @@ _clear_untracked_pull_conflicts() {
     admin.voxbulk.com/adim-web/public/brand
     dashboard.voxbulk.com/dashboard-web/public/brand
     voxbulk.com/frontend/public/brand
+    voxbox.voxbulk.com/voxbox-web/public/brand
   )
   for prefix in "${prefixes[@]}"; do
     while IFS= read -r path; do
@@ -162,13 +165,18 @@ build_all_frontends() {
     return
   fi
   sync_brand_assets
-  info "Building all web apps: admin + dashboard + public (when present) …"
+  info "Building all web apps: admin + dashboard + public + voxbox (when present) …"
   build_frontend "$ADMIN_DIR" "admin (adim-web)"
   build_frontend "$DASH_DIR" "dashboard"
   if [[ -d "$PUBLIC_DIR" ]]; then
     build_frontend "$PUBLIC_DIR" "public site"
   else
     warn "Public frontend not found at $PUBLIC_DIR — skip"
+  fi
+  if [[ -d "$VOXBOX_DIR" ]]; then
+    build_frontend "$VOXBOX_DIR" "voxbox"
+  else
+    warn "Voxbox frontend not found at $VOXBOX_DIR — skip"
   fi
 }
 
@@ -336,6 +344,9 @@ sync_well_known() {
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
   copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard-dist-client"
+  if [[ -d "$VOXBOX_DIR/dist" ]]; then
+    copy_dist "$VOXBOX_DIR/dist" "${VOX_VOXBOX_DIST:-}" "voxbox"
+  fi
   sync_well_known
   # Public site (TanStack Start) is served via vite preview :5173 — NOT static wwwroot.
 }
@@ -380,6 +391,37 @@ ensure_auth_url_env() {
   if [[ "${env_name}" == "production" || "${env_name}" == "prod" ]]; then
     set_env_flag PUBLIC_APP_ORIGIN "https://voxbulk.com"
     set_env_flag DASHBOARD_APP_ORIGIN "https://dashboard.voxbulk.com"
+  fi
+
+  # Ensure Voxbox CORS origin when CORS_ALLOW_ORIGINS is explicitly set.
+  if grep -q '^CORS_ALLOW_ORIGINS=' "$env_file" 2>/dev/null; then
+    local cors_line cors_val
+    cors_line="$(grep -E '^CORS_ALLOW_ORIGINS=' "$env_file" | tail -n1 || true)"
+    cors_val="${cors_line#CORS_ALLOW_ORIGINS=}"
+    if [[ -n "${cors_val}" && "${cors_val}" != *voxbox.voxbulk.com* ]]; then
+      sed -i "s|^CORS_ALLOW_ORIGINS=.*|CORS_ALLOW_ORIGINS=${cors_val},https://voxbox.voxbulk.com|" "$env_file"
+      info "Appended https://voxbox.voxbulk.com to CORS_ALLOW_ORIGINS"
+    fi
+  fi
+
+  # Seed Voxbox admin keys if missing (operator should set a strong password).
+  if ! grep -q '^VOXBOX_ADMIN_USERNAME=' "$env_file" 2>/dev/null; then
+    echo "VOXBOX_ADMIN_USERNAME=admin" >> "$env_file"
+    info "Added VOXBOX_ADMIN_USERNAME=admin to .env"
+  fi
+  if ! grep -q '^VOXBOX_ADMIN_PASSWORD=' "$env_file" 2>/dev/null; then
+    local gen_pw
+    gen_pw="$(python3 - <<'PY'
+import secrets,string
+alphabet=string.ascii_letters+string.digits
+print('Vb'+''.join(secrets.choice(alphabet) for _ in range(14))+'!')
+PY
+)"
+    echo "VOXBOX_ADMIN_PASSWORD=${gen_pw}" >> "$env_file"
+    warn "Generated VOXBOX_ADMIN_PASSWORD in .env — change it after first login"
+  fi
+  if ! grep -q '^VOXBOX_ADMIN_DISPLAY_NAME=' "$env_file" 2>/dev/null; then
+    echo "VOXBOX_ADMIN_DISPLAY_NAME=Admin" >> "$env_file"
   fi
 
   if [[ -x "$ROOT/scripts/vps-check-auth-env.sh" ]]; then

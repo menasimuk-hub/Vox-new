@@ -15,6 +15,7 @@ const brandTargets = [
   join(root, 'dashboard.voxbulk.com', 'dashboard-web', 'public', 'brand'),
   join(root, 'voxbulk.com', 'frontend', 'public', 'brand'),
   join(root, 'voxbulk.com', 'voxbulk.com', 'frontend', 'public', 'brand'),
+  join(root, 'voxbox.voxbulk.com', 'voxbox-web', 'public', 'brand'),
 ]
 
 const files = [
