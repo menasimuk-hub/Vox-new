@@ -176,258 +176,323 @@ export default function NewsBlog() {
   const previewSrc = resolveImageUrl(draft.image_url)
 
   return (
-    <div className="nb-page">
-      <style>{css}</style>
-      <div className="nb-header">
+    <div className="ds-scope space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1>Blog & News</h1>
-          <p>Manage journal essays and newsroom updates for voxbulk.com</p>
+          <h1 className="text-[15px] font-semibold leading-tight text-foreground">Blog & News</h1>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            Manage journal essays and newsroom updates for voxbulk.com
+          </p>
         </div>
       </div>
 
-      <div className="nb-tabs">
-        <button type="button" className={`nb-tab ${tab === 'blog' ? 'active' : ''}`} onClick={() => { setTab('blog'); closeEditor() }}>
-          Blog
-        </button>
-        <button type="button" className={`nb-tab ${tab === 'news' ? 'active' : ''}`} onClick={() => { setTab('news'); closeEditor() }}>
-          News
-        </button>
-      </div>
+      <Tabs value={tab} onValueChange={(next) => { setTab(next); closeEditor() }}>
+        <TabsList>
+          <TabsTrigger value="blog">Blog</TabsTrigger>
+          <TabsTrigger value="news">News</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
-      {msg ? <div className={`nb-msg ${msg.toLowerCase().includes('fail') || msg.toLowerCase().includes('could not') || msg.toLowerCase().includes('please') ? 'error' : ''}`}>{msg}</div> : null}
-
-      {view === 'list' ? (
-        <div>
-          <div className="nb-toolbar">
-            <span className="nb-count">
-              {loading ? 'Loading…' : `${filtered.length} ${filtered.length === 1 ? 'item' : 'items'}`}
-            </span>
-            <button type="button" className="nb-btn nb-btn-primary" onClick={openCreate}>
-              + Add {tab === 'blog' ? 'post' : 'news'}
-            </button>
-          </div>
-          <div className="nb-card">
-            {!loading && filtered.length === 0 ? (
-              <div className="nb-empty">
-                <strong>Nothing here yet</strong>
-                Click Add to create the first entry.
-              </div>
-            ) : (
-              <table className="nb-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '52%' }}>Title</th>
-                    <th>Status</th>
-                    <th style={{ textAlign: 'right' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((item) => {
-                    const src = resolveImageUrl(item.image_url)
-                    return (
-                      <tr key={item.id}>
-                        <td>
-                          <div className="nb-title-cell">
-                            {src ? (
-                              <img className="nb-thumb" src={src} alt="" />
-                            ) : (
-                              <div className="nb-thumb">No img</div>
-                            )}
-                            <div>
-                              <div className="nb-row-title">{item.title || 'Untitled'}</div>
-                              <div className="nb-row-meta">
-                                {item.body_mode === 'html' ? 'HTML content' : 'Plain text'}
-                                {item.published_at ? ` · ${item.published_at}` : ''}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`nb-status ${item.is_visible ? 'live' : 'hidden'}`}>
-                            <span className="dot" />
-                            {item.is_visible ? 'Visible' : 'Hidden'}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="nb-actions">
-                            <button type="button" className="nb-icon-btn" title="Edit" onClick={() => openEdit(item)}>
-                              ✎
-                            </button>
-                            <button
-                              type="button"
-                              className="nb-icon-btn"
-                              title={item.is_visible ? 'Hide' : 'Show'}
-                              onClick={() => toggleVisible(item)}
-                            >
-                              {item.is_visible ? '👁' : '○'}
-                            </button>
-                            <button type="button" className="nb-icon-btn danger" title="Delete" onClick={() => remove(item)}>
-                              ⌫
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="nb-editor">
-          <h2>{editingId ? 'Edit' : 'Add'} {tab === 'blog' ? 'post' : 'news item'}</h2>
-
-          <div className="nb-field">
-            <label>Title</label>
-            <input
-              type="text"
-              value={draft.title}
-              onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-              placeholder="Enter a title"
-            />
-          </div>
-
-          <div className="nb-field">
-            <label>Image</label>
-            <div className="nb-image-row">
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    type="url"
-                    value={draft.image_url}
-                    onChange={(e) => setDraft((d) => ({ ...d, image_url: e.target.value }))}
-                    placeholder="Paste an image URL, or upload a file"
-                    style={{ flex: 1 }}
-                  />
-                  <button type="button" className="nb-btn nb-btn-ghost" disabled={uploading} onClick={() => fileRef.current?.click()}>
-                    {uploading ? 'Compressing…' : 'Upload'}
-                  </button>
-                  <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onUpload} />
-                </div>
-                <div className="nb-hint">Any format accepted. Saved as 1200×900 WebP for a consistent, fast theme.</div>
-              </div>
-              {previewSrc ? <img className="nb-image-preview" src={previewSrc} alt="" /> : null}
-            </div>
-          </div>
-
-          {tab === 'blog' ? (
-            <>
-              <div className="nb-field">
-                <label>Excerpt</label>
-                <input
-                  type="text"
-                  value={draft.excerpt}
-                  onChange={(e) => setDraft((d) => ({ ...d, excerpt: e.target.value }))}
-                  placeholder="Short summary shown on the journal index"
-                />
-              </div>
-              <div className="nb-field" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label>Category</label>
-                  <input
-                    type="text"
-                    value={draft.category}
-                    onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label>Read mins</label>
-                  <input
-                    type="text"
-                    value={draft.read_mins}
-                    onChange={(e) => setDraft((d) => ({ ...d, read_mins: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="nb-field" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label>Author</label>
-                  <input
-                    type="text"
-                    value={draft.author}
-                    onChange={(e) => setDraft((d) => ({ ...d, author: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label>Author role</label>
-                  <input
-                    type="text"
-                    value={draft.author_role}
-                    onChange={(e) => setDraft((d) => ({ ...d, author_role: e.target.value }))}
-                  />
-                </div>
-              </div>
-            </>
-          ) : null}
-
-          <div className="nb-field">
-            <label>Published date</label>
-            <input
-              type="text"
-              value={draft.published_at}
-              onChange={(e) => setDraft((d) => ({ ...d, published_at: e.target.value }))}
-              placeholder="YYYY-MM-DD"
-            />
-          </div>
-
-          <div className="nb-field">
-            <label>Body</label>
-            <div className="nb-body-toggle">
-              <button
-                type="button"
-                className={draft.body_mode === 'text' ? 'active' : ''}
-                onClick={() => setDraft((d) => ({ ...d, body_mode: 'text' }))}
-              >
-                Text
-              </button>
-              <button
-                type="button"
-                className={draft.body_mode === 'html' ? 'active' : ''}
-                onClick={() => setDraft((d) => ({ ...d, body_mode: 'html' }))}
-              >
-                HTML
-              </button>
-            </div>
-            <textarea
-              className={draft.body_mode === 'text' ? 'text-mode' : ''}
-              value={draft.body}
-              onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
-              placeholder={draft.body_mode === 'html' ? '<p>Write raw HTML here...</p>' : 'Write the content here...'}
-            />
-          </div>
-
-          <div className="nb-editor-actions">
-            <button type="button" className="nb-btn nb-btn-ghost" onClick={closeEditor}>Cancel</button>
-            <button type="button" className="nb-btn nb-btn-ghost" onClick={() => setPreviewOpen(true)}>Preview</button>
-            <button type="button" className="nb-btn nb-btn-primary" disabled={saving} onClick={save}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {previewOpen ? (
-        <div className="nb-modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) setPreviewOpen(false) }}>
-          <div className="nb-modal">
-            <div className="nb-modal-head">
-              <span>Preview</span>
-              <button type="button" className="nb-modal-close" onClick={() => setPreviewOpen(false)}>×</button>
-            </div>
-            <div className="nb-modal-body">
-              <h1 className="nb-preview-title">{draft.title || 'Untitled'}</h1>
-              {previewSrc ? <img className="nb-preview-image" src={previewSrc} alt="" /> : null}
-              <div className="nb-preview-content">
-                {draft.body_mode === 'html' ? (
-                  <div dangerouslySetInnerHTML={{ __html: draft.body }} />
-                ) : (
-                  <pre>{draft.body}</pre>
-                )}
-              </div>
-            </div>
-          </div>
+      {msg ? (
+        <div
+          className={`rounded-md border px-3 py-2 text-sm ${
+            msg.toLowerCase().includes('fail') || msg.toLowerCase().includes('could not') || msg.toLowerCase().includes('please')
+              ? 'border-destructive/40 bg-destructive/10 text-destructive'
+              : 'border-border bg-surface text-foreground'
+          }`}
+        >
+          {msg}
         </div>
       ) : null}
+
+      {view === 'list' ? (
+        <Panel
+          title={`${filtered.length} ${filtered.length === 1 ? 'item' : 'items'}`}
+          subtitle={loading ? 'Loading…' : `${tab === 'blog' ? 'Blog posts' : 'News items'} for the public site.`}
+          action={
+            <Button size="sm" className="h-8" onClick={openCreate}>
+              Add {tab === 'blog' ? 'post' : 'news'}
+            </Button>
+          }
+        >
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead style={{ width: '52%' }}>Title</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {!loading && filtered.length === 0 && (
+                <TableEmpty colSpan={3}>
+                  <div className="py-8">
+                    <strong className="block text-[15px] text-foreground">Nothing here yet</strong>
+                    <p className="mt-1 text-[13px] text-muted-foreground">Click Add to create the first entry.</p>
+                  </div>
+                </TableEmpty>
+              )}
+              {filtered.map((item) => {
+                const src = resolveImageUrl(item.image_url)
+                return (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        {src ? (
+                          <img
+                            className="h-11 w-11 shrink-0 rounded-md border border-border object-cover"
+                            src={src}
+                            alt=""
+                          />
+                        ) : (
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-surface-muted text-[10px] text-muted-foreground">
+                            No img
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-semibold text-foreground">{item.title || 'Untitled'}</div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">
+                            {item.body_mode === 'html' ? 'HTML content' : 'Plain text'}
+                            {item.published_at ? ` · ${item.published_at}` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Pill tone={item.is_visible ? 'success' : 'neutral'}>
+                        {item.is_visible ? 'Visible' : 'Hidden'}
+                      </Pill>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          title="Edit"
+                          onClick={() => openEdit(item)}
+                        >
+                          <i className="ti ti-pencil text-[14px]" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          title={item.is_visible ? 'Hide' : 'Show'}
+                          onClick={() => toggleVisible(item)}
+                        >
+                          <i className={`ti ${item.is_visible ? 'ti-eye' : 'ti-eye-off'} text-[14px]`} />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                          title="Delete"
+                          onClick={() => remove(item)}
+                        >
+                          <i className="ti ti-trash text-[14px]" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </StripeTable>
+        </Panel>
+      ) : (
+        <Panel
+          title={`${editingId ? 'Edit' : 'Add'} ${tab === 'blog' ? 'post' : 'news item'}`}
+          subtitle={`Fill in the details below${tab === 'blog' ? ' for the journal' : ''}.`}
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Title
+              </label>
+              <Input
+                type="text"
+                value={draft.title}
+                onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+                placeholder="Enter a title"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Image
+              </label>
+              <div className="flex items-start gap-3">
+                <div className="flex-1 space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      type="url"
+                      value={draft.image_url}
+                      onChange={(e) => setDraft((d) => ({ ...d, image_url: e.target.value }))}
+                      placeholder="Paste an image URL, or upload a file"
+                      className="flex-1"
+                    />
+                    <Button variant="outline" disabled={uploading} onClick={() => fileRef.current?.click()}>
+                      {uploading ? 'Compressing…' : 'Upload'}
+                    </Button>
+                    <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onUpload} />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Any format accepted. Saved as 1200×900 WebP for a consistent, fast theme.
+                  </p>
+                </div>
+                {previewSrc ? (
+                  <img
+                    className="h-18 w-18 shrink-0 rounded-md border border-border object-cover"
+                    src={previewSrc}
+                    alt=""
+                  />
+                ) : null}
+              </div>
+            </div>
+
+            {tab === 'blog' ? (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Excerpt
+                  </label>
+                  <Input
+                    type="text"
+                    value={draft.excerpt}
+                    onChange={(e) => setDraft((d) => ({ ...d, excerpt: e.target.value }))}
+                    placeholder="Short summary shown on the journal index"
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Category
+                    </label>
+                    <Input
+                      type="text"
+                      value={draft.category}
+                      onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Read mins
+                    </label>
+                    <Input
+                      type="text"
+                      value={draft.read_mins}
+                      onChange={(e) => setDraft((d) => ({ ...d, read_mins: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Author
+                    </label>
+                    <Input
+                      type="text"
+                      value={draft.author}
+                      onChange={(e) => setDraft((d) => ({ ...d, author: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Author role
+                    </label>
+                    <Input
+                      type="text"
+                      value={draft.author_role}
+                      onChange={(e) => setDraft((d) => ({ ...d, author_role: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Published date
+              </label>
+              <Input
+                type="text"
+                value={draft.published_at}
+                onChange={(e) => setDraft((d) => ({ ...d, published_at: e.target.value }))}
+                placeholder="YYYY-MM-DD"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Body
+              </label>
+              <div className="mb-2 inline-flex rounded-md border border-border bg-surface-muted/50 p-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={draft.body_mode === 'text' ? 'default' : 'ghost'}
+                  className="h-7"
+                  onClick={() => setDraft((d) => ({ ...d, body_mode: 'text' }))}
+                >
+                  Text
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={draft.body_mode === 'html' ? 'default' : 'ghost'}
+                  className="h-7"
+                  onClick={() => setDraft((d) => ({ ...d, body_mode: 'html' }))}
+                >
+                  HTML
+                </Button>
+              </div>
+              <textarea
+                className={`w-full resize-y rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  draft.body_mode === 'html' ? 'min-h-[220px] font-mono text-[13.5px] leading-relaxed' : 'min-h-[220px]'
+                }`}
+                value={draft.body}
+                onChange={(e) => setDraft((d) => ({ ...d, body: e.target.value }))}
+                placeholder={draft.body_mode === 'html' ? '<p>Write raw HTML here...</p>' : 'Write the content here...'}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="outline" onClick={closeEditor}>
+                Cancel
+              </Button>
+              <Button variant="outline" onClick={() => setPreviewOpen(true)}>
+                Preview
+              </Button>
+              <Button disabled={saving} onClick={save}>
+                {saving ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </Panel>
+      )}
+
+      <Modal open={previewOpen} onOpenChange={setPreviewOpen}>
+        <ModalContent className="max-w-2xl">
+          <ModalHeader>
+            <ModalTitle>Preview</ModalTitle>
+            <ModalDescription>Content preview as it will appear on the public site.</ModalDescription>
+          </ModalHeader>
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto px-6 pb-6">
+            <h1 className="text-[22px] font-bold text-foreground">{draft.title || 'Untitled'}</h1>
+            {previewSrc ? (
+              <img className="max-h-[280px] w-full rounded-md border border-border object-cover" src={previewSrc} alt="" />
+            ) : null}
+            <div className="text-[15px] leading-relaxed text-foreground">
+              {draft.body_mode === 'html' ? (
+                <div dangerouslySetInnerHTML={{ __html: draft.body }} />
+              ) : (
+                <pre className="whitespace-pre-wrap font-sans">{draft.body}</pre>
+              )}
+            </div>
+          </div>
+        </ModalContent>
+      </Modal>
     </div>
   )
 }
