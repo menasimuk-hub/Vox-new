@@ -152,6 +152,17 @@ function statusBadge(status) {
   return map[status] || 'b-pending'
 }
 
+function statusBadgeVariant(status) {
+  const map = {
+    draft: 'warning', sending: 'info', sent: 'success',
+    cancelled: 'destructive', failed: 'destructive', pending: 'warning',
+    unsubscribed: 'destructive', skipped: 'muted',
+    paused_daily_limit: 'warning', paused: 'warning', scheduled: 'info',
+    test: 'muted',
+  }
+  return map[status] || 'default'
+}
+
 function contactDisplayName(r) {
   return [r.first_name, r.last_name].filter(Boolean).join(' ') || '—'
 }
@@ -1304,7 +1315,7 @@ export default function ApifyOutreach() {
                     onChange={(e) => setNewName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') createCampaign() }}
                   />
-                  <button type="button" className="ait-btn primary sm" disabled={!!busy} onClick={createCampaign}>Create</button>
+                  <Button size="sm" disabled={!!busy} onClick={createCampaign}>Create</Button>
                 </div>
               </div>
               <div className="ait-table-wrap" style={{ marginTop: 0 }}>
@@ -1330,7 +1341,7 @@ export default function ApifyOutreach() {
                           </button>
                           {c.event_name ? <div className="ait-contact-email">{c.event_name}</div> : null}
                         </td>
-                        <td><span className={`ait-badge ${statusBadge(c.status)}`}>{c.status}</span></td>
+                        <td><Pill variant={statusBadgeVariant(c.status)}>{c.status}</Pill></td>
                         <td className="ait-muted-num">{c.total_count || 0}</td>
                         <td className="ait-muted-num">{c.sent_count || 0}</td>
                         <td className="ait-muted-num">{c.opened_count || 0}</td>
@@ -1340,15 +1351,15 @@ export default function ApifyOutreach() {
                         <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(c.updated_at)}</td>
                         <td>
                           <div className="ait-btn-row" style={{ margin: 0, gap: 4, flexWrap: 'wrap' }}>
-                            <button type="button" className="ait-btn xs" onClick={() => editCampaign(c)}>Edit</button>
-                            <button type="button" className="ait-btn xs" onClick={() => viewCampaignSent(c)}>Sent</button>
+                            <Button size="xs" onClick={() => editCampaign(c)}>Edit</Button>
+                            <Button size="xs" onClick={() => viewCampaignSent(c)}>Sent</Button>
                             {c.status === 'sending' || c.status === 'scheduled' ? (
-                              <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => pauseCampaign(c.id)}>Pause</button>
+                              <Button size="xs" disabled={!!busy} onClick={() => pauseCampaign(c.id)}>Pause</Button>
                             ) : null}
                             {c.status === 'paused' || c.status === 'paused_daily_limit' ? (
-                              <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={() => resumeCampaign(c.id)}>Resume</button>
+                              <Button size="xs" disabled={!!busy} onClick={() => resumeCampaign(c.id)}>Resume</Button>
                             ) : null}
-                            <button type="button" className="ait-btn xs danger" disabled={!!busy || c.status === 'sending'} onClick={() => deleteCampaignById(c.id)}>Delete</button>
+                            <Button size="xs" variant="destructive" disabled={!!busy || c.status === 'sending'} onClick={() => deleteCampaignById(c.id)}>Delete</Button>
                           </div>
                         </td>
                       </tr>
@@ -1371,9 +1382,9 @@ export default function ApifyOutreach() {
           <div className="ait-campaigns-page">
             <div className="ait-campaign-main">
               <div className="ait-btn-row" style={{ marginBottom: 10, marginTop: 0 }}>
-                <button type="button" className="ait-btn sm" onClick={() => navigate('/marketing/apify')}>
+                <Button size="sm" onClick={() => navigate('/marketing/apify')}>
                   ← Campaigns
-                </button>
+                </Button>
                 <span className="ait-toolbar-meta" style={{ marginLeft: 4 }}>
                   {campaign?.name || 'Campaign settings'}
                 </span>
@@ -1384,7 +1395,7 @@ export default function ApifyOutreach() {
                 <>
                   <div className="ait-toolbar">
                     <div className="ait-toolbar-left">
-                      <span className={`ait-badge ${statusBadge(campaign.status)}`}>{campaign.status}</span>
+                      <Pill variant={statusBadgeVariant(campaign.status)}>{campaign.status}</Pill>
                       <span className="ait-toolbar-meta">{campaign.sent_count}/{campaign.total_count} sent</span>
                       {campaign.scheduled_at ? (
                         <span className="ait-toolbar-meta">Scheduled {new Date(campaign.scheduled_at).toLocaleString()}</span>
@@ -1392,13 +1403,13 @@ export default function ApifyOutreach() {
                     </div>
                     <div className="ait-toolbar-right">
                       {(campaign.status === 'sending' || campaign.status === 'scheduled') && (
-                        <button type="button" className="ait-btn sm" disabled={!!busy} onClick={() => pauseCampaign()}>Pause</button>
+                        <Button size="sm" disabled={!!busy} onClick={() => pauseCampaign()}>Pause</Button>
                       )}
                       {(campaign.status === 'paused' || campaign.status === 'paused_daily_limit') && (
-                        <button type="button" className="ait-btn sm primary" disabled={!!busy} onClick={() => resumeCampaign()}>Resume</button>
+                        <Button size="sm" disabled={!!busy} onClick={() => resumeCampaign()}>Resume</Button>
                       )}
-                      <button type="button" className="ait-btn sm" disabled={!!busy || campaign.status === 'sending'} onClick={saveCampaignMeta}>Save</button>
-                      <button type="button" className="ait-btn danger sm" disabled={!!busy || campaign.status === 'sending'} onClick={deleteCampaign}>Delete</button>
+                      <Button size="sm" disabled={!!busy || campaign.status === 'sending'} onClick={saveCampaignMeta}>Save</Button>
+                      <Button size="sm" variant="destructive" disabled={!!busy || campaign.status === 'sending'} onClick={deleteCampaign}>Delete</Button>
                     </div>
                   </div>
 
@@ -1422,12 +1433,12 @@ export default function ApifyOutreach() {
                         <div className="ait-btn-row" style={{ margin: 0, gap: 6 }}>
                           {campaign.status === 'sending' && (
                             <>
-                              <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => pauseCampaign()}>Pause</button>
-                              <button type="button" className="ait-btn danger xs" disabled={!!busy} onClick={cancelSend}>Cancel</button>
+                              <Button size="xs" disabled={!!busy} onClick={() => pauseCampaign()}>Pause</Button>
+                              <Button size="xs" variant="destructive" disabled={!!busy} onClick={cancelSend}>Cancel</Button>
                             </>
                           )}
                           {(campaign.status === 'paused' || campaign.status === 'paused_daily_limit') && (
-                            <button type="button" className="ait-btn xs primary" disabled={!!busy} onClick={() => resumeCampaign()}>Resume</button>
+                            <Button size="xs" disabled={!!busy} onClick={() => resumeCampaign()}>Resume</Button>
                           )}
                         </div>
                       </div>
@@ -1459,9 +1470,10 @@ export default function ApifyOutreach() {
                     </div>
                     <div className="ait-card-body">
                       <div className="ait-fg-2" style={{ marginBottom: 0 }}>
-                        <div className="ait-field">
-                          <label>Campaign name</label>
-                          <input
+                        <div className="space-y-2">
+                          <Label htmlFor="campaign-name">Campaign name</Label>
+                          <Input
+                            id="campaign-name"
                             className="ait-campaign-name-input"
                             value={campaign.name || ''}
                             disabled={campaign.status === 'sending'}
@@ -1469,9 +1481,10 @@ export default function ApifyOutreach() {
                             onChange={(e) => setCampaign({ ...campaign, name: e.target.value })}
                           />
                         </div>
-                        <div className="ait-field">
-                          <label>Event name · {'{{event-name}}'}</label>
-                          <input
+                        <div className="space-y-2">
+                          <Label htmlFor="event-name">Event name · {'{{event-name}}'}</Label>
+                          <Input
+                            id="event-name"
                             value={campaign.event_name || ''}
                             disabled={campaign.status === 'sending'}
                             placeholder="e.g. London Packaging Week"
@@ -1483,28 +1496,29 @@ export default function ApifyOutreach() {
                         </div>
                       </div>
                       <div className="ait-fg-2" style={{ marginTop: 12 }}>
-                        <div className="ait-field">
-                          <label>Schedule send</label>
-                          <input
+                        <div className="space-y-2">
+                          <Label htmlFor="schedule-send">Schedule send</Label>
+                          <Input
+                            id="schedule-send"
                             type="datetime-local"
                             disabled={campaign.status === 'sending'}
                             value={campaign._scheduleLocal ?? toLocalInputValue(campaign.scheduled_at)}
                             onChange={(e) => setCampaign({ ...campaign, _scheduleLocal: e.target.value })}
                           />
                         </div>
-                        <div className="ait-field">
-                          <label>&nbsp;</label>
+                        <div className="space-y-2">
+                          <Label>&nbsp;</Label>
                           <div className="ait-btn-row" style={{ margin: 0 }}>
-                            <button type="button" className="ait-btn sm" disabled={!!busy || campaign.status === 'sending'} onClick={scheduleCampaign}>Schedule</button>
-                            <button
-                              type="button"
-                              className="ait-btn ghost sm"
+                            <Button size="sm" disabled={!!busy || campaign.status === 'sending'} onClick={scheduleCampaign}>Schedule</Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
                               disabled={!!busy || campaign.status === 'sending'}
                               onClick={clearSchedule}
                             >
                               Clear
-                            </button>
-                            <button type="button" className="ait-btn ghost sm" disabled={!!busy || campaign.status === 'sending'} onClick={saveCampaignMeta}>Save</button>
+                            </Button>
+                            <Button size="sm" variant="ghost" disabled={!!busy || campaign.status === 'sending'} onClick={saveCampaignMeta}>Save</Button>
                           </div>
                           <span className="ait-hint" style={{ display: 'block', marginTop: 4 }}>
                             Celery starts the queue at this time. Pause stops until Resume.
@@ -1523,24 +1537,25 @@ export default function ApifyOutreach() {
                           <span className="ait-sec-sub">Email subject & HTML</span>
                         </div>
                       </div>
-                      <button type="button" className="ait-btn xs" onClick={() => { navigate('/marketing/apify'); setTab('templates') }}>Edit templates</button>
+                      <Button size="xs" onClick={() => { navigate('/marketing/apify'); setTab('templates') }}>Edit templates</Button>
                     </div>
                     <div className="ait-card-body">
                       <div className="ait-fg-2">
-                        <div className="ait-field">
-                          <label>Select template</label>
-                          <select
+                        <div className="space-y-2">
+                          <Label htmlFor="select-template">Select template</Label>
+                          <Select
+                            id="select-template"
                             value={campaign.template_id || ''}
                             disabled={campaign.status === 'sending'}
                             onChange={(e) => applyTemplate(e.target.value)}
                           >
                             <option value="">— choose —</option>
                             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                          </select>
+                          </Select>
                         </div>
-                        <div className="ait-field">
-                          <label>Subject (from template)</label>
-                          <input disabled value={campaign.subject || ''} />
+                        <div className="space-y-2">
+                          <Label htmlFor="subject-from-template">Subject (from template)</Label>
+                          <Input id="subject-from-template" disabled value={campaign.subject || ''} />
                         </div>
                       </div>
                       <div className="ait-email-snippet" style={{ whiteSpace: 'pre-wrap', maxHeight: 120, overflow: 'auto' }}>
@@ -1559,10 +1574,10 @@ export default function ApifyOutreach() {
                         </div>
                       </div>
                       <div className="ait-btn-row" style={{ margin: 0, gap: 6 }}>
-                        <button type="button" className="ait-btn xs" disabled={!recipients.length} onClick={openAudiencePreview}>
+                        <Button size="xs" disabled={!recipients.length} onClick={openAudiencePreview}>
                           Preview contacts
-                        </button>
-                        <button type="button" className="ait-btn danger xs" disabled={!recipients.length || campaign.status === 'sending'} onClick={clearAudience}>Clear</button>
+                        </Button>
+                        <Button size="xs" variant="destructive" disabled={!recipients.length || campaign.status === 'sending'} onClick={clearAudience}>Clear</Button>
                       </div>
                     </div>
                     <div className="ait-card-body">
@@ -1619,29 +1634,29 @@ export default function ApifyOutreach() {
                             )}
                           </div>
                           <div className="ait-btn-row">
-                            <button type="button" className="ait-btn sm" disabled={!csvContacts.length} onClick={openSheetContactsPreview}>
+                            <Button size="sm" disabled={!csvContacts.length} onClick={openSheetContactsPreview}>
                               Preview contacts
-                            </button>
-                            <button
-                              type="button"
-                              className="ait-btn primary sm"
+                            </Button>
+                            <Button
+                              size="sm"
                               disabled={!!busy || (!csvMapping.email && !csvEmailOk)}
                               onClick={importCsvToCampaign}
                             >
                               Add to audience ({csvTotal})
-                            </button>
-                            <button type="button" className="ait-btn ghost sm" onClick={() => setCsvMapOpen((v) => !v)}>
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={() => setCsvMapOpen((v) => !v)}>
                               {csvMapOpen ? 'Hide columns' : 'Fix columns'}
-                            </button>
-                            <button type="button" className="ait-btn ghost sm" onClick={resetCsvUpload}>Cancel</button>
+                            </Button>
+                            <Button size="sm" variant="ghost" onClick={resetCsvUpload}>Cancel</Button>
                           </div>
                           {csvMapOpen && (
                             <div className="ait-fg-3" style={{ marginTop: 14 }}>
                               <p className="ait-hint" style={{ marginTop: 0 }}>Only needed if auto-detect got a column wrong.</p>
                               {CSV_MAP_FIELDS.map((f) => (
-                                <div className="ait-field" key={f.key}>
-                                  <label>{f.label}{f.required ? ' *' : ''}</label>
-                                  <select
+                                <div className="space-y-2" key={f.key}>
+                                  <Label htmlFor={`csv-map-${f.key}`}>{f.label}{f.required ? ' *' : ''}</Label>
+                                  <Select
+                                    id={`csv-map-${f.key}`}
                                     value={csvMapping[f.key] || ''}
                                     onChange={(e) => {
                                       const next = { ...csvMapping, [f.key]: e.target.value }
@@ -1651,7 +1666,7 @@ export default function ApifyOutreach() {
                                   >
                                     <option value="">— skip —</option>
                                     {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                                  </select>
+                                  </Select>
                                 </div>
                               ))}
                             </div>
@@ -1676,15 +1691,15 @@ export default function ApifyOutreach() {
                                     <div className="ait-contact-email">{r.email}</div>
                                   </td>
                                   <td>{r.company_name || '—'}</td>
-                                  <td><span className={`ait-badge ${statusBadge(r.status)}`}>{r.status || '—'}</span></td>
+                                  <td><Pill variant={statusBadgeVariant(r.status)}>{r.status || '—'}</Pill></td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                           {recipients.length > 8 && (
-                            <button type="button" className="ait-btn ghost xs" style={{ marginTop: 8 }} onClick={openAudiencePreview}>
+                            <Button size="xs" variant="ghost" style={{ marginTop: 8 }} onClick={openAudiencePreview}>
                               View all {recipients.length} contacts
-                            </button>
+                            </Button>
                           )}
                         </div>
                       )}
@@ -1703,44 +1718,41 @@ export default function ApifyOutreach() {
                     </div>
                     <div className="ait-card-body">
                       <div className="ait-fg-2">
-                        <div className="ait-field">
-                          <label>Send test to</label>
-                          <input type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder={settings.from_email || 'you@company.com'} />
+                        <div className="space-y-2">
+                          <Label htmlFor="send-test-to">Send test to</Label>
+                          <Input id="send-test-to" type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder={settings.from_email || 'you@company.com'} />
                         </div>
-                        <div className="ait-field">
-                          <label>From</label>
-                          <input disabled value={settings.from_email || '— set in Sending —'} />
+                        <div className="space-y-2">
+                          <Label htmlFor="from-email">From</Label>
+                          <Input id="from-email" disabled value={settings.from_email || '— set in Sending —'} />
                         </div>
                       </div>
                       <div className="ait-btn-row">
-                        <button type="button" className="ait-btn sm" disabled={!!busy} onClick={runPreview}>Preview</button>
-                        <button type="button" className="ait-btn sm" disabled={!!busy} onClick={sendTest}>Send test</button>
-                        <button
-                          type="button"
-                          className="ait-btn primary"
+                        <Button size="sm" disabled={!!busy} onClick={runPreview}>Preview</Button>
+                        <Button size="sm" disabled={!!busy} onClick={sendTest}>Send test</Button>
+                        <Button
                           disabled={!!busy || campaign.status === 'sending' || !campaign.total_count}
                           onClick={() => sendAll(false)}
                         >
                           {campaign.status === 'paused_daily_limit' ? 'Resume send' : 'Send all'} ({pendingCount || 0} pending)
-                        </button>
+                        </Button>
                         {(campaign.sent_count > 0 || recipients.some((r) => r.status === 'sent')) && (
-                          <button
-                            type="button"
-                            className="ait-btn sm"
+                          <Button
+                            size="sm"
                             disabled={!!busy || campaign.status === 'sending'}
                             onClick={() => sendAll(true)}
                           >
                             Resend
-                          </button>
+                          </Button>
                         )}
-                        <button
-                          type="button"
-                          className="ait-btn ghost sm"
+                        <Button
+                          size="sm"
+                          variant="ghost"
                           disabled={!campaign.sent_count}
                           onClick={() => viewCampaignSent(campaign)}
                         >
                           View sent
-                        </button>
+                        </Button>
                       </div>
                       <p className="ait-hint" style={{ marginTop: 10 }}>
                         <strong>Send test</strong> always prefixes the subject with <code>[TEST]</code> — that is not the live campaign.
@@ -1765,7 +1777,7 @@ export default function ApifyOutreach() {
                     <span className="ait-sec-sub">Filter tracking by campaign</span>
                   </div>
                 </div>
-                <button type="button" className="ait-btn xs" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Refresh</button>
+                <Button size="xs" disabled={!!busy} onClick={() => act('tracking', loadTracking)}>Refresh</Button>
               </div>
               <div className="ait-table-wrap">
                 <table className="ait-tbl ait-tbl-compact">
@@ -1783,7 +1795,7 @@ export default function ApifyOutreach() {
                     {(tracking?.campaigns || []).map((c) => (
                       <tr key={c.id}>
                         <td><strong>{c.name}</strong></td>
-                        <td><span className={`ait-badge ${statusBadge(c.status)}`}>{c.status}</span></td>
+                        <td><Pill variant={statusBadgeVariant(c.status)}>{c.status}</Pill></td>
                         <td>{c.sent_count}/{c.total_count}</td>
                         <td>{c.clicked_count || 0}</td>
                         <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{timeAgo(c.updated_at)}</td>
@@ -1890,9 +1902,9 @@ export default function ApifyOutreach() {
                         <td style={{ fontSize: 12, color: 'var(--ait-text3)' }}>{s.unsubscribed_at ? new Date(s.unsubscribed_at).toLocaleString() : '—'}</td>
                         <td style={{ fontSize: 12 }}>{s.source_campaign_id ? String(s.source_campaign_id).slice(0, 8) : '—'}</td>
                         <td>
-                          <button
-                            type="button"
-                            className="ait-btn xs danger"
+                          <Button
+                            size="xs"
+                            variant="destructive"
                             disabled={!!busy}
                             onClick={() => act('unsub-del', async () => {
                               if (!window.confirm(`Remove ${s.email} from unsubscribe list?`)) return
@@ -1902,7 +1914,7 @@ export default function ApifyOutreach() {
                             })}
                           >
                             Remove
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     ))}
