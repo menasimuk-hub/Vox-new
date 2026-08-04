@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Textarea } from '@/components/ui/Textarea'
 import './ai-team.css'
 
 /**
@@ -174,7 +179,9 @@ export default function ApifyReply() {
   if (!meta) {
     return (
       <div className="ai-team-page" style={{ padding: 24, maxWidth: 720 }}>
-        <Link to="/marketing/apify?tab=tracking&filter=sent">← Back to Sent</Link>
+        <Button asChild variant="ghost">
+          <Link to="/marketing/apify?tab=tracking&filter=sent">← Back to Sent</Link>
+        </Button>
         <p style={{ color: 'crimson', marginTop: 16 }}>{error || 'Message not found'}</p>
       </div>
     )
@@ -194,12 +201,16 @@ export default function ApifyReply() {
           </div>
         </div>
         <div className="ait-topbar-right">
-          <Link className="ait-btn ghost sm" to="/marketing/apify?tab=tracking&filter=sent">← Sent</Link>
-          <Link className="ait-btn ghost sm" to="/marketing/apify?tab=tracking">Tracking</Link>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/marketing/apify?tab=tracking&filter=sent">← Sent</Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/marketing/apify?tab=tracking">Tracking</Link>
+          </Button>
           {kind === 'inbox' && (
-            <button type="button" className="ait-btn danger sm" disabled={!!busy} onClick={deleteMessage}>
+            <Button variant="destructive" size="sm" disabled={!!busy} onClick={deleteMessage}>
               <i className="ti ti-trash" style={{ marginRight: 6 }} />Delete
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -208,8 +219,8 @@ export default function ApifyReply() {
       {error && !banner && <div className="ait-msg-banner err">{error}</div>}
 
       <div className="ait-thread-page">
-        <div className="ait-card ait-thread-meta">
-          <div className="ait-card-body" style={{ paddingTop: 14, paddingBottom: 14 }}>
+        <Panel className="ait-thread-meta">
+          <div className="p-3.5">
             <div className="ait-fg-2" style={{ marginBottom: 0 }}>
               <div>
                 <div className="ait-thread-label">Contact</div>
@@ -223,91 +234,89 @@ export default function ApifyReply() {
               </div>
             </div>
           </div>
-        </div>
+        </Panel>
 
         {hasOutbound && (
-          <div className="ait-card">
-            <div className="ait-card-hdr">
-              <span className="ait-card-title">What you sent</span>
-              {meta.sent_at ? <span className="ait-toolbar-meta">{new Date(meta.sent_at).toLocaleString()}</span> : null}
-            </div>
-            <div className="ait-card-body">
+          <Panel
+            title="What you sent"
+            action={meta.sent_at ? <span className="text-xs text-muted-foreground">{new Date(meta.sent_at).toLocaleString()}</span> : null}
+          >
+            <div className="space-y-3">
               <div className="ait-thread-subject">{meta.outbound_subject || '(no subject)'}</div>
               {meta.outbound_html ? (
-                <div className="ait-email-client-frame" style={{ marginTop: 12 }}>
+                <div className="ait-email-client-frame">
                   <iframe title="sent-email" className="ait-html-preview" srcDoc={meta.outbound_html} />
                 </div>
               ) : (
                 <pre className="ait-thread-plain">{meta.outbound_text || '—'}</pre>
               )}
             </div>
-          </div>
+          </Panel>
         )}
 
         {hasInbound ? (
-          <div className="ait-card">
-            <div className="ait-card-hdr">
-              <span className="ait-card-title">Their reply</span>
-              {meta.replied_at || meta.received_at ? (
-                <span className="ait-toolbar-meta">
+          <Panel
+            title="Their reply"
+            action={
+              meta.replied_at || meta.received_at ? (
+                <span className="text-xs text-muted-foreground">
                   {new Date(meta.replied_at || meta.received_at).toLocaleString()}
                 </span>
-              ) : null}
+              ) : null
+            }
+          >
+            <div className="ait-inbound-box">
+              <strong>{meta.inbound_subject || '(no subject)'}</strong>
+              <pre>{meta.inbound_body || '—'}</pre>
             </div>
-            <div className="ait-card-body">
-              <div className="ait-inbound-box">
-                <strong>{meta.inbound_subject || '(no subject)'}</strong>
-                <pre>{meta.inbound_body || '—'}</pre>
-              </div>
-            </div>
-          </div>
+          </Panel>
         ) : (
-          <div className="ait-card">
-            <div className="ait-card-body">
-              <p className="ait-hint" style={{ margin: 0 }}>No reply received yet for this contact.</p>
-            </div>
-          </div>
+          <Panel>
+            <p className="m-0 text-xs text-muted-foreground">No reply received yet for this contact.</p>
+          </Panel>
         )}
 
-        <div className="ait-card">
-          <div className="ait-card-hdr">
-            <span className="ait-card-title">Your response</span>
-            {!showCompose && (
-              <button type="button" className="ait-btn sm" onClick={() => setShowCompose(true)}>Compose reply</button>
-            )}
-          </div>
+        <Panel
+          title="Your response"
+          action={
+            !showCompose && (
+              <Button size="sm" variant="outline" onClick={() => setShowCompose(true)}>Compose reply</Button>
+            )
+          }
+        >
           {showCompose && (
-            <div className="ait-card-body">
-              <div className="ait-field">
-                <label>To</label>
-                <input value={meta.email || ''} readOnly />
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="reply-to">To</Label>
+                <Input id="reply-to" value={meta.email || ''} readOnly />
               </div>
-              <div className="ait-field">
-                <label>Subject</label>
-                <input value={subject} onChange={(e) => setSubject(e.target.value)} />
+              <div className="space-y-1.5">
+                <Label htmlFor="reply-subject">Subject</Label>
+                <Input id="reply-subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
               </div>
-              <div className="ait-field">
-                <label>Message</label>
-                <textarea
-                  style={{ minHeight: 180 }}
+              <div className="space-y-1.5">
+                <Label htmlFor="reply-message">Message</Label>
+                <Textarea
+                  id="reply-message"
+                  className="min-h-[180px]"
                   value={body}
-                  placeholder="Click “AI Generate Reply” for a professional draft, or type your own…"
+                  placeholder="Click AI Generate Reply for a professional draft, or type your own"
                   onChange={(e) => setBody(e.target.value)}
                 />
               </div>
-              <div className="ait-btn-row" style={{ flexWrap: 'wrap' }}>
-                <button type="button" className="ait-btn primary" disabled={!!busy} onClick={generateAiReply}>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={!!busy} onClick={generateAiReply}>
                   <i className="ti ti-sparkles" style={{ marginRight: 8 }} />
                   {busy === 'ai' ? 'Generating…' : 'AI Generate Reply'}
-                </button>
-                <button type="button" className="ait-btn" disabled={!!busy || !body.trim()} onClick={sendReply}>
+                </Button>
+                <Button variant="outline" disabled={!!busy || !body.trim()} onClick={sendReply}>
                   <i className="ti ti-send" style={{ marginRight: 8 }} />
                   {busy === 'send' ? 'Sending…' : 'Send reply'}
-                </button>
+                </Button>
               </div>
             </div>
           )}
-        </div>
+        </Panel>
       </div>
     </div>
   )
