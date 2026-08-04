@@ -14,8 +14,11 @@ from datetime import datetime
 from email import message_from_bytes
 from email.header import decode_header
 from email.message import EmailMessage, Message
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email import encoders
+import base64
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -113,6 +116,8 @@ def get_mailbox_status(db: Session, sales_rep_id: str) -> dict[str, Any]:
         "has_smtp": has_smtp,
         "signature_preview": rep.email_signature[:200] if rep.email_signature else "",
         "promo_code": rep.promo_code or "",
+        "smtp_username": rep.smtp_username or "",
+        "smtp_host": rep.smtp_host or "",
     }
 
 
@@ -339,8 +344,74 @@ def get_message(db: Session, sales_rep_id: str, message_id: str) -> dict[str, An
         "date": msg.date.isoformat() if msg.date else None,
         "is_read": msg.is_read,
         "is_starred": msg.is_starred,
+        "is_deleted": msg.is_deleted,
+        "direction": msg.direction,
         "labels": json.loads(msg.labels_json) if msg.labels_json else [],
     }
+
+
+def patch_message(
+    db: Session,
+    sales_rep_id: str,
+    message_id: str,
+    *,
+    is_starred: bool | None = None,
+    is_deleted: bool | None = None,
+    is_read: bool | None = None,
+) -> dict[str, Any]:
+    msg = db.scalar(
+        select(SalesMailMessage).where(SalesMailMessage.id == message_id, SalesMailMessage.sales_rep_id == sales_rep_id)
+    )
+    if not msg:
+        raise SalesMailServiceError("Message not found")
+    if is_starred is not None:
+        msg.is_starred = bool(is_starred)
+    if is_deleted is not None:
+        msg.is_deleted = bool(is_deleted)
+    if is_read is not None:
+        msg.is_read = bool(is_read)
+    msg.updated_at = datetime.utcnow()
+    db.commit()
+    return get_message(db, sales_rep_id, message_id)
+
+
+def delete_messages(db: Session, sales_rep_id: str, message_ids: list[str], *, permanent: bool = False) -> dict[str, Any]:
+    ids = [str(i).strip() for i in (message_ids or []) if str(i).strip()]
+    if not ids:
+        return {"deleted": 0}
+    rows = list(
+        db.scalars(
+            select(SalesMailMessage).where(
+                SalesMailMessage.sales_rep_id == sales_rep_id,
+                SalesMailMessage.id.in_(ids),
+            )
+        ).all()
+    )
+    count = 0
+    for msg in rows:
+        if permanent or msg.is_deleted:
+            db.delete(msg)
+        else:
+            msg.is_deleted = True
+            msg.updated_at = datetime.utcnow()
+        count += 1
+    db.commit()
+    return {"deleted": count}
+
+
+def empty_trash(db: Session, sales_rep_id: str) -> dict[str, Any]:
+    rows = list(
+        db.scalars(
+            select(SalesMailMessage).where(
+                SalesMailMessage.sales_rep_id == sales_rep_id,
+                SalesMailMessage.is_deleted.is_(True),
+            )
+        ).all()
+    )
+    for msg in rows:
+        db.delete(msg)
+    db.commit()
+    return {"deleted": len(rows)}
 
 
 def send_email(
@@ -351,8 +422,11 @@ def send_email(
     body_html: str,
     body_text: str | None = None,
     insert_promo: bool = False,
+    *,
+    cc: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Send an email via SMTP for a salesman."""
+    """Send an email via SMTP for a salesman (optional CC + base64 attachments)."""
     rep = db.scalar(select(SalesRep).where(SalesRep.id == sales_rep_id))
     if not rep:
         raise SalesMailServiceError("Sales rep not found")
@@ -377,13 +451,49 @@ def send_email(
         final_body_html = f"{final_body_html}\n<div>{rep.email_signature}</div>"
         final_body_text = f"{final_body_text}\n\n{_strip_html(rep.email_signature)}"
 
-    msg = MIMEMultipart("alternative")
+    attachments = attachments or []
+    has_att = len(attachments) > 0
+
+    if has_att:
+        root = MIMEMultipart("mixed")
+        alt = MIMEMultipart("alternative")
+        alt.attach(MIMEText(final_body_text, "plain", "utf-8"))
+        alt.attach(MIMEText(final_body_html, "html", "utf-8"))
+        root.attach(alt)
+        for att in attachments:
+            name = str(att.get("filename") or att.get("name") or "attachment").strip() or "attachment"
+            ctype = str(att.get("content_type") or "application/octet-stream").strip()
+            raw_b64 = str(att.get("data_base64") or att.get("dataBase64") or "")
+            if "," in raw_b64 and raw_b64.strip().startswith("data:"):
+                raw_b64 = raw_b64.split(",", 1)[1]
+            try:
+                payload = base64.b64decode(raw_b64, validate=False)
+            except Exception as e:
+                raise SalesMailServiceError(f"Invalid attachment data for {name}") from e
+            if len(payload) > 8_000_000:
+                raise SalesMailServiceError(f"Attachment {name} exceeds 8 MB")
+            maintype, _, subtype = ctype.partition("/")
+            part = MIMEBase(maintype or "application", subtype or "octet-stream")
+            part.set_payload(payload)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", "attachment", filename=name)
+            root.attach(part)
+        msg = root
+    else:
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(final_body_text, "plain", "utf-8"))
+        msg.attach(MIMEText(final_body_html, "html", "utf-8"))
+
     msg["From"] = rep.smtp_username
     msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
     msg["Subject"] = subject
     msg["Message-ID"] = email.utils.make_msgid()
-    msg.attach(MIMEText(final_body_text, "plain", "utf-8"))
-    msg.attach(MIMEText(final_body_html, "html", "utf-8"))
+
+    recipients = [p.strip() for p in to.split(",") if p.strip()]
+    if cc:
+        recipients.extend([p.strip() for p in cc.split(",") if p.strip()])
 
     try:
         if rep.smtp_use_ssl:
@@ -393,7 +503,7 @@ def send_email(
             if rep.smtp_use_tls:
                 server.starttls(context=ssl.create_default_context())
         server.login(rep.smtp_username, password)
-        server.sendmail(rep.smtp_username, to, msg.as_string())
+        server.sendmail(rep.smtp_username, recipients, msg.as_string())
         server.quit()
 
         sent_msg = SalesMailMessage(
@@ -404,10 +514,11 @@ def send_email(
             from_email=rep.smtp_username,
             from_name=rep.name,
             to_email=to,
+            cc_email=cc or None,
             subject=subject,
             body_text=final_body_text,
             body_html=final_body_html,
-            has_attachments=False,
+            has_attachments=has_att,
             direction="sent",
             is_read=True,
             is_starred=False,
@@ -426,6 +537,62 @@ def send_email(
         raise SalesMailServiceError(f"Failed to send email: {e}") from e
 
 
-def polish_body_with_ai(body: str) -> str:
-    """AI polish body text (stub for now — can integrate OpenAI later)."""
-    return body.strip()
+def polish_body_with_ai(
+    db: Session,
+    *,
+    body: str,
+    mode: str = "fix",
+    subject: str = "",
+    from_line: str = "",
+    context_body: str = "",
+) -> str:
+    """AI write or polish an email draft using platform OpenAI/DeepSeek when configured."""
+    mode_key = (mode or "fix").strip().lower()
+    draft = (body or "").strip()
+    if mode_key == "write" and not draft and not (context_body or "").strip():
+        return ""
+    if mode_key != "write" and not draft:
+        return draft
+
+    try:
+        from app.services.agents.base import AgentMessage
+        from app.services.providers.openai_service import OpenAIProviderService
+
+        if mode_key == "write":
+            system = (
+                "You are an expert B2B sales email writer for VoxBulk. "
+                "Write a concise, professional reply the salesman can send. "
+                "Return only the email body plain text — no subject line, no markdown fences."
+            )
+            user = (
+                f"Incoming subject: {subject or '(none)'}\n"
+                f"From: {from_line or '(unknown)'}\n\n"
+                f"Incoming message:\n{(context_body or '')[:4000]}\n\n"
+                "Write a polished reply."
+            )
+        else:
+            system = (
+                "You are an expert editor for professional sales email. "
+                "Improve clarity, grammar, and tone while keeping the salesman intent. "
+                "Return only the rewritten email body plain text — no commentary."
+            )
+            user = (
+                f"Subject context: {subject or '(none)'}\n"
+                f"Original thread from: {from_line or '(n/a)'}\n\n"
+                f"Draft to improve:\n{draft[:4000]}"
+            )
+
+        result = OpenAIProviderService.complete(
+            db,
+            system_prompt=system,
+            messages=[AgentMessage(role="user", content=user)],
+            max_tokens=800,
+            temperature=0.4,
+        )
+        text = str(getattr(result, "assistant_text", None) or "").strip()
+        if text:
+            return text
+    except Exception as e:
+        logger.warning("sales mail AI polish failed: %s", e)
+
+    return draft

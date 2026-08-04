@@ -109,6 +109,44 @@ def get_message(message_id: str, db: Session = Depends(get_db), principal: Curre
     return {"ok": True, "message": message}
 
 
+@router.patch("/messages/{message_id}")
+def patch_message(message_id: str, payload: dict, db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    rep = _require_salesman(db, principal)
+    body = payload or {}
+    try:
+        message = sales_mail_service.patch_message(
+            db,
+            rep.id,
+            message_id,
+            is_starred=body["is_starred"] if "is_starred" in body else None,
+            is_deleted=body["is_deleted"] if "is_deleted" in body else None,
+            is_read=body["is_read"] if "is_read" in body else None,
+        )
+    except SalesMailServiceError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"ok": True, "message": message}
+
+
+@router.post("/messages/delete")
+def delete_messages(payload: dict, db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    rep = _require_salesman(db, principal)
+    body = payload or {}
+    ids = list(body.get("ids") or [])
+    permanent = bool(body.get("permanent", False))
+    try:
+        result = sales_mail_service.delete_messages(db, rep.id, ids, permanent=permanent)
+    except SalesMailServiceError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **result}
+
+
+@router.post("/trash/empty")
+def empty_trash(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    rep = _require_salesman(db, principal)
+    result = sales_mail_service.empty_trash(db, rep.id)
+    return {"ok": True, **result}
+
+
 @router.post("/send")
 def send_email(payload: dict, db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
     rep = _require_salesman(db, principal)
@@ -118,6 +156,8 @@ def send_email(payload: dict, db: Session = Depends(get_db), principal: CurrentP
     body_html = str(body.get("body_html", "")).strip()
     body_text = str(body.get("body_text", "")).strip() if body.get("body_text") else None
     insert_promo = bool(body.get("insert_promo", False))
+    cc = str(body.get("cc", "")).strip() or None
+    attachments = body.get("attachments") if isinstance(body.get("attachments"), list) else []
 
     if not to:
         raise HTTPException(status_code=400, detail="Recipient email is required")
@@ -127,7 +167,17 @@ def send_email(payload: dict, db: Session = Depends(get_db), principal: CurrentP
         raise HTTPException(status_code=400, detail="Email body is required")
 
     try:
-        result = sales_mail_service.send_email(db, rep.id, to, subject, body_html, body_text, insert_promo)
+        result = sales_mail_service.send_email(
+            db,
+            rep.id,
+            to,
+            subject,
+            body_html,
+            body_text,
+            insert_promo,
+            cc=cc,
+            attachments=attachments,
+        )
     except SalesMailServiceError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, **result}
@@ -138,5 +188,13 @@ def polish_body(payload: dict, db: Session = Depends(get_db), principal: Current
     _require_salesman(db, principal)
     body = payload or {}
     original = str(body.get("body", "")).strip()
-    polished = sales_mail_service.polish_body_with_ai(original)
+    mode = str(body.get("mode", "fix") or "fix").strip().lower()
+    polished = sales_mail_service.polish_body_with_ai(
+        db,
+        body=original,
+        mode=mode,
+        subject=str(body.get("subject") or ""),
+        from_line=str(body.get("from") or body.get("from_line") or ""),
+        context_body=str(body.get("context_body") or ""),
+    )
     return {"ok": True, "polished": polished}
