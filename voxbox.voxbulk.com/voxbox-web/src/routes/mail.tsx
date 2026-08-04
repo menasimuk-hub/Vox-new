@@ -578,8 +578,8 @@ function MailApp() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDelete?.kind === "bulk"
-                ? "The selected messages will be moved to Trash."
-                : "This message will be moved to Trash."}
+                ? "Selected messages will be deleted from the mail server and moved to Trash in Voxbox."
+                : "This message will be deleted from the mail server and moved to Trash in Voxbox."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

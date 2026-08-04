@@ -628,7 +628,7 @@ export default function OrganisationProfile() {
   }
 
   return (
-    <div className='orgProfilePage'>
+    <div className='orgProfilePage ds-scope'>
       <div className='orgProfilePage-header'>
         <div>
           <h1 className='orgProfilePage-title'>{org?.name || 'Organisation profile'}</h1>

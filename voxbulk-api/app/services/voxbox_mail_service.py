@@ -491,7 +491,10 @@ class VoxboxMailService:
                         existing.from_name = from_name or existing.from_name
                         existing.from_email = from_email or existing.from_email
                         existing.to_addrs = to_addrs or existing.to_addrs
-                        existing.folder = folder_label
+                        # Keep local trash/archive — do not resurrect from INBOX sync
+                        local_folder = (existing.folder or "").strip().lower()
+                        if local_folder not in {"trash", "archive"}:
+                            existing.folder = folder_label
                         existing.has_attachment = _has_attachment(msg) or bool(existing.has_attachment)
                         existing.updated_at = VoxboxMailService._now()
                         db.add(existing)
@@ -563,11 +566,99 @@ class VoxboxMailService:
         return VoxboxMailService.message_to_dict(row, full=True)
 
     @staticmethod
+    def _imap_delete_server_message(account: VoxboxMailAccount, row: VoxboxMessage) -> None:
+        """Mark the message deleted on IMAP (INBOX/Sent) and expunge."""
+        user = (account.username or account.email or "").strip()
+        pwd = VoxboxMailService._decrypt_password(account)
+        if not user or not pwd or not (account.imap_host or "").strip():
+            raise VoxboxServiceError("IMAP credentials missing — cannot delete on server")
+
+        mid = (row.internet_message_id or "").strip()
+        folders = ["INBOX", "Sent", "INBOX.Sent", "[Gmail]/Sent Mail", "Sent Items", "INBOX.Sent Items"]
+        source_folder = (row.folder or "").strip().lower()
+        if source_folder == "sent":
+            folders = ["Sent", "INBOX.Sent", "[Gmail]/Sent Mail", "Sent Items", "INBOX.Sent Items", "INBOX"]
+
+        conn = VoxboxMailService._imap_connect(account)
+        deleted = False
+        try:
+            conn.login(user, pwd)
+            for folder_name in folders:
+                try:
+                    typ, _ = conn.select(folder_name)
+                except Exception:
+                    continue
+                if typ != "OK":
+                    continue
+                ids: list[bytes] = []
+                if mid and not mid.startswith("voxbox-"):
+                    # HEADER Message-ID search (with and without angle brackets)
+                    candidates = [mid]
+                    if mid.startswith("<") and mid.endswith(">"):
+                        candidates.append(mid[1:-1])
+                    else:
+                        candidates.append(f"<{mid}>")
+                    for cand in candidates:
+                        try:
+                            typ, data = conn.search(None, "HEADER", "Message-ID", cand)
+                        except Exception:
+                            continue
+                        if typ == "OK" and data and data[0]:
+                            ids = data[0].split()
+                            if ids:
+                                break
+                    if not ids:
+                        continue
+                elif (row.imap_uid or "").strip():
+                    uid = (row.imap_uid or "").strip().encode()
+                    ids = [uid]
+                else:
+                    continue
+                for num in ids:
+                    conn.store(num, "+FLAGS", "\\Deleted")
+                    deleted = True
+                if deleted:
+                    conn.expunge()
+                    break
+            if not deleted:
+                logger.warning(
+                    "voxbox_imap_delete_not_found account=%s message_id=%s internet_id=%s",
+                    account.id,
+                    row.id,
+                    mid[:80],
+                )
+        finally:
+            try:
+                conn.logout()
+            except Exception:
+                pass
+
+    @staticmethod
     def patch_message(db: Session, message_id: str, payload: VoxboxMessagePatch) -> dict[str, Any]:
         row = db.get(VoxboxMessage, message_id)
         if row is None:
             raise VoxboxServiceError("Message not found")
         data = payload.model_dump(exclude_unset=True)
+        prev_folder = (row.folder or "").strip().lower()
+        new_folder = data.get("folder")
+        moving_to_trash = (
+            new_folder is not None
+            and str(new_folder).strip().lower() == "trash"
+            and prev_folder != "trash"
+        )
+
+        if moving_to_trash:
+            account = db.get(VoxboxMailAccount, row.account_id)
+            if account is None:
+                raise VoxboxServiceError("Account not found")
+            try:
+                VoxboxMailService._imap_delete_server_message(account, row)
+            except VoxboxServiceError:
+                raise
+            except Exception as exc:
+                logger.exception("voxbox_imap_delete_failed message_id=%s", message_id)
+                raise VoxboxServiceError(f"Could not delete on mail server: {exc}") from exc
+
         for key in ("unread", "starred", "important", "folder"):
             if key in data and data[key] is not None:
                 setattr(row, key, data[key])
@@ -634,7 +725,7 @@ class VoxboxMailService:
             if account.smtp_use_ssl or port == 465:
                 with smtplib.SMTP_SSL(host, port, context=ctx, timeout=60) as smtp:
                     smtp.login(user, pwd)
-                    smtp.send_message(msg)
+                    smtp.send_message(msg, from_addr=account.email or user, to_addrs=[to_addr])
             else:
                 with smtplib.SMTP(host, port, timeout=60) as smtp:
                     smtp.ehlo()
@@ -642,7 +733,7 @@ class VoxboxMailService:
                         smtp.starttls(context=ctx)
                         smtp.ehlo()
                     smtp.login(user, pwd)
-                    smtp.send_message(msg)
+                    smtp.send_message(msg, from_addr=account.email or user, to_addrs=[to_addr])
         except Exception as exc:
             raise VoxboxServiceError(f"Send failed: {exc}") from exc
 

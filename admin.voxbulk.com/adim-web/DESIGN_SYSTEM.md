@@ -8,7 +8,8 @@ Reference implementation: `telynx-settings-hub-main` (the approved dark Stripe-l
 ## Phase 1 status (Dashboard + shell)
 
 - **Done:** Sidebar/Topbar token density; Home Dashboard body matches reference `/dashboard` (KPIs, Panel, Tabs, tables); shared `components/ui` (Button, Table, Tabs, Card/Panel, Badge, KpiCard, Progress, Separator, Sparkline).
-- **Phase 2 Batch A (in progress):** Analytics KPIs/cost-revenue, Organisation detail/zones, Integration Test group, Campaigns hub — migrate to `components/ui` only.
+- **Phase 2 Batch A (done):** Analytics KPIs/cost-revenue, Organisation detail/zones, Integration Test group, Campaigns hub.
+- **Phase 2 Batch B (in progress):** OnboardingServices → full ui; Org Control + OrganisationProfile → design-system token mapping (structure preserved); OCC full JSX rewrite deferred.
 - **Phase 2 deferred islands:** Support Disk, AI Team, Sales Team, Telnyx/Meta, Partners, Email, WA Templates Hub, Products Hub — leave until their batch.
 - **Cursor rule:** `.cursor/rules/admin-theme-phase1.mdc`
 

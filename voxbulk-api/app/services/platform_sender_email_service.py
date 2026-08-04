@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.encryption import get_encryptor
@@ -138,6 +138,44 @@ class PlatformSenderEmailService:
             "from_name": row.from_name or row.local_part,
             "from_email": row.email,
             "smtp_username": user if pwd else None,
+            "smtp_password": pwd,
+        }
+
+    @staticmethod
+    def resolve_outbound_for_address(db: Session, email: str) -> dict[str, str | None] | None:
+        """Resolve SMTP auth for a specific From address (Emails table)."""
+        addr = (email or "").strip().lower()
+        if not addr or "@" not in addr:
+            return None
+        row = db.execute(
+            select(PlatformSenderEmail)
+            .where(
+                PlatformSenderEmail.is_active.is_(True),
+                func.lower(PlatformSenderEmail.email) == addr,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is None:
+            # Also match local_part@domain
+            local = addr.split("@", 1)[0]
+            row = db.execute(
+                select(PlatformSenderEmail)
+                .where(
+                    PlatformSenderEmail.is_active.is_(True),
+                    PlatformSenderEmail.local_part == local,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+        if row is None:
+            return None
+        pwd = PlatformSenderEmailService.get_decrypted_password(db, row)
+        if not pwd:
+            return None
+        user = (getattr(row, "smtp_username", None) or "").strip() or row.email
+        return {
+            "from_name": row.from_name or row.local_part,
+            "from_email": row.email,
+            "smtp_username": user,
             "smtp_password": pwd,
         }
 

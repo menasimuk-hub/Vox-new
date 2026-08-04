@@ -1,6 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
-import './onboarding-services.css'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Switch } from '@/components/ui/Switch'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table'
 
 const SERVICE_ROWS = [
   { key: 'interview', label: 'Interviews', desc: 'AI phone screening campaigns', icon: 'ti-phone' },
@@ -43,49 +55,48 @@ function servicesFromApi(raw) {
   }
 }
 
-function ToggleSwitch({ checked, disabled, onChange, label }) {
-  return (
-    <div className='os-toggle-wrap'>
-      <span className='os-toggle-label'>{checked ? 'Granted' : 'Off'}</span>
-      <button
-        type='button'
-        role='switch'
-        aria-checked={checked}
-        aria-label={label}
-        className={`os-toggle${checked ? ' on' : ''}`}
-        disabled={disabled}
-        onClick={() => !disabled && onChange(!checked)}
-      />
-    </div>
-  )
-}
-
 function ServiceModuleRows({ services, onToggle, enabledCount, disabled }) {
   const ordered = [...SERVICE_ROWS].sort(
     (a, b) => Number(Boolean(services[b.key])) - Number(Boolean(services[a.key])),
   )
   return (
-    <div className='os-module-list'>
+    <div className='flex flex-col gap-2'>
       {ordered.map((row) => {
         const on = Boolean(services[row.key])
         const lockOff = on && enabledCount <= 1
         return (
-          <div key={row.key} className='os-module-row'>
-            <div className='os-module-main'>
-              <span className={`os-icon-chip ${row.key}${on ? ' enabled' : ''}`} aria-hidden>
+          <div
+            key={row.key}
+            className='flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2.5'
+          >
+            <div className='flex min-w-0 items-center gap-3'>
+              <span
+                className={[
+                  'grid size-9 shrink-0 place-items-center rounded-lg text-[16px]',
+                  on
+                    ? 'bg-success-soft text-success ring-1 ring-inset ring-success/40'
+                    : 'bg-secondary text-secondary-foreground',
+                ].join(' ')}
+                aria-hidden
+              >
                 <i className={`ti ${row.icon}`} />
               </span>
-              <div className='os-module-text'>
-                <strong>{row.label}</strong>
-                <span>{row.desc}</span>
+              <div className='min-w-0'>
+                <strong className='block text-[13px] font-semibold text-foreground'>{row.label}</strong>
+                <span className='block text-[11px] text-muted-foreground'>{row.desc}</span>
               </div>
             </div>
-            <ToggleSwitch
-              checked={on}
-              disabled={disabled || lockOff}
-              label={`Grant ${row.label}`}
-              onChange={(value) => onToggle(row.key, value)}
-            />
+            <div className='flex shrink-0 items-center gap-2'>
+              <span className='min-w-[3.25rem] text-right text-[11px] text-muted-foreground'>
+                {on ? 'Granted' : 'Off'}
+              </span>
+              <Switch
+                checked={on}
+                disabled={disabled || lockOff}
+                aria-label={`Grant ${row.label}`}
+                onCheckedChange={(value) => onToggle(row.key, value)}
+              />
+            </div>
           </div>
         )
       })}
@@ -100,33 +111,39 @@ function CustomerPreview({ breakdown, orgName }) {
     return score(b) - score(a)
   })
   return (
-    <div className='os-preview'>
-      <div className='os-preview-head'>What {orgName || 'this customer'} sees today</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Module</th>
-            <th>Admin granted</th>
-            <th>Customer enabled</th>
-            <th>In sidebar</th>
-          </tr>
-        </thead>
-        <tbody>
+    <div className='mt-3.5 space-y-2'>
+      <p className='m-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground'>
+        What {orgName || 'this customer'} sees today
+      </p>
+      <StripeTable>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Module</TableHead>
+            <TableHead>Admin granted</TableHead>
+            <TableHead>Customer enabled</TableHead>
+            <TableHead>In sidebar</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {ordered.map((row) => (
-            <tr key={row.key}>
-              <td>
-                {row.enabled ? <span className='os-enabled-dot' aria-hidden /> : null}
-                {row.label}
-              </td>
-              <td>{row.allowed ? 'Yes' : 'No'}</td>
-              <td>{row.allowed ? (row.enabled ? 'Yes' : 'No') : '—'}</td>
-              <td className={row.allowed && !row.visible ? 'hint' : ''}>
+            <TableRow key={row.key}>
+              <TableCell>
+                <span className='inline-flex items-center gap-2'>
+                  {row.enabled ? (
+                    <span className='inline-block size-2 shrink-0 rounded-full bg-success' aria-hidden />
+                  ) : null}
+                  {row.label}
+                </span>
+              </TableCell>
+              <TableCell>{row.allowed ? 'Yes' : 'No'}</TableCell>
+              <TableCell>{row.allowed ? (row.enabled ? 'Yes' : 'No') : '—'}</TableCell>
+              <TableCell className={row.allowed && !row.visible ? 'text-warning' : ''}>
                 {row.visible ? 'Yes' : row.allowed ? 'No' : 'Hidden'}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </StripeTable>
     </div>
   )
 }
@@ -365,7 +382,7 @@ export default function OnboardingServices() {
   const orgSectionDisabled = loadingOrgs || savingOrgs || (!applyToAll && selectedOrgIds.length === 0)
 
   return (
-    <div className='onboarding-services-page'>
+    <div className='ds-scope space-y-4'>
       <div className='pageTop'>
         <div>
           <h1>Dashboard modules</h1>
@@ -376,174 +393,208 @@ export default function OnboardingServices() {
         </div>
       </div>
 
-      <div className='os-steps'>
-        <ol>
-          <li>Grant modules <strong>on</strong> here to make them available to organisations.</li>
-          <li>Customers choose visibility in <strong>Settings → Services</strong> — you do not control their sidebar directly.</li>
-          <li>Use <strong>organisation overrides</strong> when specific customers need different grants than platform defaults.</li>
+      <div className='rounded-lg border border-border bg-surface-muted px-4 py-3.5 text-[13px] leading-relaxed text-muted-foreground'>
+        <ol className='m-0 list-decimal space-y-1.5 pl-5'>
+          <li>
+            Grant modules <strong className='text-foreground'>on</strong> here to make them available to organisations.
+          </li>
+          <li>
+            Customers choose visibility in <strong className='text-foreground'>Settings → Services</strong> — you do not
+            control their sidebar directly.
+          </li>
+          <li>
+            Use <strong className='text-foreground'>organisation overrides</strong> when specific customers need different
+            grants than platform defaults.
+          </li>
         </ol>
       </div>
 
-      {error ? <div className='os-banner error'>{error}</div> : null}
-      {success ? <div className='os-banner success'>{success}</div> : null}
-
-      <div className='card' style={{ marginBottom: 16 }}>
-        <div className='cardHead'>
-          <h3>Platform defaults</h3>
-          {loadingPlatform ? <span className='pill'>Loading…</span> : null}
+      {error ? (
+        <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+          {error}
         </div>
-        <div className='cardBody'>
-          <p className='muted' style={{ fontSize: 13, marginBottom: 12 }}>
-            Default grants for new organisations and any org without a custom override.
-          </p>
-          <ServiceModuleRows
-            services={platformServices}
-            onToggle={onPlatformToggle}
-            enabledCount={platformEnabledCount}
-            disabled={loadingPlatform || savingPlatform}
+      ) : null}
+      {success ? (
+        <div className='rounded-md border border-success/40 bg-success-soft px-3 py-2 text-sm text-success'>
+          {success}
+        </div>
+      ) : null}
+
+      <Panel
+        title='Platform defaults'
+        subtitle='Default grants for new organisations and any org without a custom override.'
+        action={loadingPlatform ? <Pill tone='info'>Loading…</Pill> : null}
+        bodyClassName='space-y-3'
+      >
+        <ServiceModuleRows
+          services={platformServices}
+          onToggle={onPlatformToggle}
+          enabledCount={platformEnabledCount}
+          disabled={loadingPlatform || savingPlatform}
+        />
+        <label className='flex items-center gap-2 text-[13px] text-foreground'>
+          <input
+            type='checkbox'
+            className='size-3.5 accent-primary'
+            checked={resetAllOnPlatformSave}
+            onChange={(e) => setResetAllOnPlatformSave(e.target.checked)}
           />
-          <label className='os-reset-row'>
-            <input
-              type='checkbox'
-              checked={resetAllOnPlatformSave}
-              onChange={(e) => setResetAllOnPlatformSave(e.target.checked)}
-            />
-            Also reset <strong>all</strong> organisations to inherit these defaults
-          </label>
-          <div className='os-actions'>
-            <button
-              type='button'
-              className='btn primary'
-              onClick={() => void onSavePlatform()}
-              disabled={loadingPlatform || savingPlatform}
-            >
-              {savingPlatform ? 'Saving…' : 'Save platform defaults'}
-            </button>
-          </div>
+          Also reset <strong>all</strong> organisations to inherit these defaults
+        </label>
+        <div className='flex flex-wrap gap-2'>
+          <Button
+            type='button'
+            size='sm'
+            className='h-8'
+            onClick={() => void onSavePlatform()}
+            disabled={loadingPlatform || savingPlatform}
+          >
+            {savingPlatform ? 'Saving…' : 'Save platform defaults'}
+          </Button>
         </div>
-      </div>
+      </Panel>
 
-      <div className='card'>
-        <div className='cardHead'>
-          <h3>Organisation overrides</h3>
-          {loadingOrgs ? <span className='pill'>Loading…</span> : null}
+      <Panel
+        title='Organisation overrides'
+        subtitle='Apply custom module grants to one, many, or all organisations.'
+        action={loadingOrgs ? <Pill tone='info'>Loading…</Pill> : null}
+        bodyClassName='space-y-3'
+      >
+        <div className='inline-flex h-8 items-center rounded-lg bg-muted p-0.5 text-muted-foreground'>
+          <button
+            type='button'
+            className={[
+              'inline-flex items-center justify-center rounded-md px-3 py-1 text-xs font-medium transition-all',
+              orgMode === 'selected' ? 'bg-background text-foreground shadow' : 'hover:text-foreground',
+            ].join(' ')}
+            onClick={() => setOrgMode('selected')}
+          >
+            Selected organisations
+          </button>
+          <button
+            type='button'
+            className={[
+              'inline-flex items-center justify-center rounded-md px-3 py-1 text-xs font-medium transition-all',
+              orgMode === 'all' ? 'bg-background text-foreground shadow' : 'hover:text-foreground',
+            ].join(' ')}
+            onClick={() => {
+              setOrgMode('all')
+              setSelectedOrgIds([])
+            }}
+          >
+            All organisations
+          </button>
         </div>
-        <div className='cardBody'>
-          <div className='os-segment'>
-            <button
-              type='button'
-              className={orgMode === 'selected' ? 'active' : ''}
-              onClick={() => setOrgMode('selected')}
-            >
-              Selected organisations
-            </button>
-            <button
-              type='button'
-              className={orgMode === 'all' ? 'active' : ''}
-              onClick={() => {
-                setOrgMode('all')
-                setSelectedOrgIds([])
-              }}
-            >
-              All organisations
-            </button>
-          </div>
 
-          <div className='os-grid org-section'>
-            {!applyToAll ? (
-              <div className='os-org-panel'>
-                <input
-                  className='os-search'
-                  type='search'
-                  placeholder='Search organisations…'
-                  value={orgSearch}
-                  onChange={(e) => setOrgSearch(e.target.value)}
-                />
-                <div className='os-org-toolbar'>
-                  <span className='pill'>{selectedOrgIds.length} selected</span>
-                  <button type='button' onClick={selectAllFiltered}>Select all shown</button>
-                  <button type='button' onClick={clearOrgSelection}>Clear</button>
-                </div>
-                <div className='os-org-list'>
-                  {filteredOrgs.map((o) => (
+        <div className='grid gap-4 lg:grid-cols-[minmax(240px,34%)_minmax(0,1fr)] lg:items-start'>
+          {!applyToAll ? (
+            <div className='rounded-lg border border-border bg-surface-muted p-3'>
+              <Input
+                type='search'
+                placeholder='Search organisations…'
+                value={orgSearch}
+                onChange={(e) => setOrgSearch(e.target.value)}
+                className='mb-2.5 h-8'
+              />
+              <div className='mb-2 flex flex-wrap items-center gap-2 text-[12px]'>
+                <Pill tone='info'>{selectedOrgIds.length} selected</Pill>
+                <Button type='button' variant='link' size='sm' className='h-auto p-0 text-[12px]' onClick={selectAllFiltered}>
+                  Select all shown
+                </Button>
+                <Button type='button' variant='link' size='sm' className='h-auto p-0 text-[12px]' onClick={clearOrgSelection}>
+                  Clear
+                </Button>
+              </div>
+              <div className='flex max-h-[280px] flex-col gap-0.5 overflow-y-auto'>
+                {filteredOrgs.map((o) => {
+                  const selected = selectedOrgIds.includes(o.id)
+                  return (
                     <label
                       key={o.id}
-                      className={`os-org-item${selectedOrgIds.includes(o.id) ? ' selected' : ''}`}
+                      className={[
+                        'flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-[13px]',
+                        selected ? 'bg-primary/10 font-semibold text-foreground' : 'text-foreground hover:bg-muted/60',
+                      ].join(' ')}
                     >
                       <input
                         type='checkbox'
-                        checked={selectedOrgIds.includes(o.id)}
+                        className='size-3.5 shrink-0 accent-primary'
+                        checked={selected}
                         onChange={() => toggleOrgSelection(o.id)}
                       />
-                      <span>{o.name}</span>
+                      <span className='min-w-0 truncate'>{o.name}</span>
                     </label>
-                  ))}
-                </div>
+                  )
+                })}
               </div>
-            ) : (
-              <div className='os-org-panel'>
-                <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                  Module grants below apply to <strong>every organisation</strong> when you save.
-                </p>
-              </div>
-            )}
-
-            <div>
-              {!applyToAll && singleOrgId ? (
-                <span className={`os-status-pill${usesPlatformDefault ? '' : ' custom'}`}>
-                  {usesPlatformDefault ? 'Inherits platform defaults' : 'Custom override active'}
-                </span>
-              ) : null}
-
-              {!applyToAll && selectedOrgIds.length > 1 ? (
-                <p className='os-multi-hint'>
-                  Same module grants will apply to <strong>{selectedOrgIds.length} organisations</strong> when you save.
-                  Select only one org to preview what that customer sees.
-                </p>
-              ) : null}
-
-              <p className='os-grant-hint'>
-                Toggle <strong>Granted</strong> to control what the customer may use. Revoked modules disappear from their
-                dashboard and Settings → Services.
+            </div>
+          ) : (
+            <div className='rounded-lg border border-border bg-surface-muted p-3'>
+              <p className='m-0 text-[13px] text-muted-foreground'>
+                Module grants below apply to <strong className='text-foreground'>every organisation</strong> when you
+                save.
               </p>
+            </div>
+          )}
 
-              <ServiceModuleRows
-                services={orgServices}
-                onToggle={onOrgToggle}
-                enabledCount={orgEnabledCount}
+          <div className='min-w-0 space-y-2.5'>
+            {!applyToAll && singleOrgId ? (
+              <Pill tone={usesPlatformDefault ? 'info' : 'warning'}>
+                {usesPlatformDefault ? 'Inherits platform defaults' : 'Custom override active'}
+              </Pill>
+            ) : null}
+
+            {!applyToAll && selectedOrgIds.length > 1 ? (
+              <p className='rounded-md border border-border bg-surface-muted px-2.5 py-2 text-[12px] text-muted-foreground'>
+                Same module grants will apply to <strong className='text-foreground'>{selectedOrgIds.length} organisations</strong>{' '}
+                when you save. Select only one org to preview what that customer sees.
+              </p>
+            ) : null}
+
+            <p className='m-0 text-[12px] text-muted-foreground'>
+              Toggle <strong className='text-foreground'>Granted</strong> to control what the customer may use. Revoked
+              modules disappear from their dashboard and Settings → Services.
+            </p>
+
+            <ServiceModuleRows
+              services={orgServices}
+              onToggle={onOrgToggle}
+              enabledCount={orgEnabledCount}
+              disabled={orgSectionDisabled}
+            />
+
+            {!applyToAll && singleOrgId ? (
+              <CustomerPreview breakdown={serviceBreakdown} orgName={selectedOrgName} />
+            ) : null}
+
+            <div className='flex flex-wrap gap-2 pt-1'>
+              <Button
+                type='button'
+                size='sm'
+                className='h-8'
+                onClick={() => void onSaveSelectedOrgs()}
                 disabled={orgSectionDisabled}
-              />
-
-              {!applyToAll && singleOrgId ? (
-                <CustomerPreview breakdown={serviceBreakdown} orgName={selectedOrgName} />
-              ) : null}
-
-              <div className='os-actions'>
-                <button
-                  type='button'
-                  className='btn primary'
-                  onClick={() => void onSaveSelectedOrgs()}
-                  disabled={orgSectionDisabled}
-                >
-                  {savingOrgs
-                    ? 'Saving…'
-                    : applyToAll
-                      ? 'Apply grants to all organisations'
-                      : `Save grants for ${selectedOrgIds.length} organisation(s)`}
-                </button>
-                <button
-                  type='button'
-                  className='btn soft'
-                  onClick={() => void onResetSelectedToPlatform()}
-                  disabled={savingOrgs || (!applyToAll && selectedOrgIds.length === 0)}
-                >
-                  Reset to platform defaults
-                </button>
-              </div>
+              >
+                {savingOrgs
+                  ? 'Saving…'
+                  : applyToAll
+                    ? 'Apply grants to all organisations'
+                    : `Save grants for ${selectedOrgIds.length} organisation(s)`}
+              </Button>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='h-8'
+                onClick={() => void onResetSelectedToPlatform()}
+                disabled={savingOrgs || (!applyToAll && selectedOrgIds.length === 0)}
+              >
+                Reset to platform defaults
+              </Button>
             </div>
           </div>
         </div>
-      </div>
+      </Panel>
     </div>
   )
 }

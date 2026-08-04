@@ -1321,7 +1321,7 @@ export default function OrgControlCenter() {
   }
 
   return (
-    <div className="occ">
+    <div className="occ ds-scope">
       <ToastStack toasts={toasts} />
 
       {error ? (

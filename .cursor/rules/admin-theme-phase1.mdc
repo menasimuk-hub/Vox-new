@@ -19,17 +19,13 @@ alwaysApply: false
 - Home Dashboard rebuilt to reference `/dashboard`.
 - Foundation: Button, Table, Tabs, Card/Panel, Badge, KpiCard, Progress, Separator, Sparkline.
 
-## Phase 2 — Batch A (in progress): quick wins
+## Phase 2 — Batch A (done) / Batch B (in progress)
 
-Migrate thin legacy / Dashboard-shaped pages to `components/ui` + design-system. Keep logic/API unchanged.
-
-| Batch A targets |
-|-----------------|
-| Analytics: `PlatformKpis`, `CostRevenue` |
-| Orgs: `OrganisationDetail`, `ZoneOrganisations`, `IntegrationTestGroup` |
-| Campaigns: `CampaignsHub`, `CampaignTemplates` |
-
-Already largely on ui (polish only if touched): `Organisations`, `Categories`, `OnboardingAddCustomer`, `Agents`.
+| Batch | Status |
+|-------|--------|
+| A Analytics, org detail/zones, campaigns, testers | Done |
+| B OnboardingServices (full ui), OCC + OrganisationProfile (token map) | In progress — OCC full JSX rewrite later |
+| C–F | Deferred |
 
 ## Phase 2 — later batches (do not nibble)
 

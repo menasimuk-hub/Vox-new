@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import smtplib
 import ssl
@@ -11,7 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.services.smtp_settings_service import SmtpSettingsService
 
+logger = logging.getLogger(__name__)
+
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
+_SENDER_DOMAIN = "voxbulk.com"
 
 
 def _html_to_plain(text: str) -> str:
@@ -149,6 +153,24 @@ class SmtpMailerService:
 
         from_email = str(from_email or row.from_email or "").strip()
         from_name = str(from_name if from_name is not None else row.from_name or "").strip()
+
+        # If Header From is a platform @voxbulk.com address but we are still on the
+        # shared SMTP login, prefer that mailbox's own SMTP password when configured.
+        # Avoids "login as personal, From noreply@" which fails SPF and dumps DSNs
+        # into the personal inbox (Undelivered Mail Returned to Sender).
+        if from_email and "@" in from_email and (not smtp_username or not smtp_password):
+            try:
+                from app.services.platform_sender_email_service import PlatformSenderEmailService
+
+                aligned = PlatformSenderEmailService.resolve_outbound_for_address(db, from_email)
+                if aligned and aligned.get("smtp_password"):
+                    username = aligned.get("smtp_username") or from_email
+                    pwd = aligned.get("smtp_password")
+                    if not from_name:
+                        from_name = str(aligned.get("from_name") or "").strip()
+            except Exception:
+                logger.exception("smtp_align_platform_sender_failed from=%s", from_email)
+
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = formataddr((from_name, from_email)) if from_name else from_email
@@ -174,12 +196,31 @@ class SmtpMailerService:
             subtype = str(attachment.get("subtype") or "octet-stream")
             msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
 
+        # Envelope MAIL FROM / Return-Path: must match the authenticated mailbox.
+        # send_message() defaults envelope to Header From, which breaks when From
+        # is branded but SMTP auth is a different mailbox.
+        envelope_from = (username or "").strip() or from_email
+        auth_l = (username or "").strip().lower()
+        from_l = (from_email or "").strip().lower()
+        if (
+            from_l.endswith(f"@{_SENDER_DOMAIN}")
+            and auth_l
+            and auth_l != from_l
+            and not auth_l.endswith(f"@{_SENDER_DOMAIN}")
+        ):
+            logger.warning(
+                "smtp_from_auth_mismatch from=%s auth=%s — set mailbox password in Admin → Emails "
+                "for this address so SPF aligns and bounces stop hitting the SMTP login inbox",
+                from_email,
+                username,
+            )
+
         try:
             if row.use_ssl:
                 with smtplib.SMTP_SSL(host, port, context=ctx, timeout=30) as server:
                     if username and pwd is not None:
                         server.login(username, pwd)
-                    server.send_message(msg)
+                    server.send_message(msg, from_addr=envelope_from, to_addrs=[to_addr])
             else:
                 with smtplib.SMTP(host, port, timeout=30) as server:
                     server.ehlo()
@@ -190,7 +231,7 @@ class SmtpMailerService:
                         server.login(username, pwd)
                     elif username and pwd is None:
                         raise SmtpMailerError("SMTP username is set but password is missing.")
-                    server.send_message(msg)
+                    server.send_message(msg, from_addr=envelope_from, to_addrs=[to_addr])
         except SmtpMailerError:
             raise
         except smtplib.SMTPAuthenticationError as e:

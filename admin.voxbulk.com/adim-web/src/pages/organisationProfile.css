@@ -1,11 +1,12 @@
 .orgProfilePage {
-  --op-border: #e4e3e0;
-  --op-surface: #fff;
-  --op-surface2: #f0efed;
-  --op-text: #0f0f0e;
-  --op-text2: #6b6a66;
-  --op-text3: #9b9a96;
-  --op-radius: 10px;
+  /* Phase 2 Batch B: align profile shell with design-system tokens */
+  --op-border: var(--ds-border, oklch(0.9 0.012 85));
+  --op-surface: var(--ds-card, oklch(0.995 0.004 85));
+  --op-surface2: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  --op-text: var(--ds-foreground, oklch(0.22 0.02 260));
+  --op-text2: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --op-text3: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --op-radius: 0.625rem;
   max-width: 1440px;
   margin: 0 auto;
   padding: 0 4px 48px;
@@ -26,6 +27,7 @@
   font-weight: 600;
   letter-spacing: -0.4px;
   margin: 0;
+  color: var(--op-text);
 }
 
 .orgProfilePage-sub {
@@ -70,15 +72,15 @@
 }
 
 .orgProfilePage-note.error {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
+  border-color: color-mix(in oklch, var(--ds-destructive, oklch(0.6 0.21 27)) 35%, transparent);
+  background: color-mix(in oklch, var(--ds-destructive, oklch(0.6 0.21 27)) 10%, transparent);
+  color: var(--ds-destructive, oklch(0.6 0.21 27));
 }
 
 .orgProfilePage-note.ok {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-  color: #166534;
+  border-color: color-mix(in oklch, var(--ds-success, oklch(0.55 0.14 150)) 35%, transparent);
+  background: var(--ds-success-soft, oklch(0.93 0.06 150));
+  color: var(--ds-success, oklch(0.55 0.14 150));
 }
 
 .orgProfilePage-tabs {
