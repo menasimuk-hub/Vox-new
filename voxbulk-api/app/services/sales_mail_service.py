@@ -156,22 +156,63 @@ def delete_label(db: Session, sales_rep_id: str, label_id: str) -> None:
 
 
 def list_contacts(db: Session, sales_rep_id: str) -> list[dict[str, Any]]:
-    """List all contacts for a salesman."""
+    """Contacts = mailbox address book + all sales customers with an email (follow-up list)."""
+    from app.models.sales_rep import SalesCustomer
+
     contacts = db.scalars(
         select(SalesMailContact)
         .where(SalesMailContact.sales_rep_id == sales_rep_id)
         .order_by(SalesMailContact.name)
     ).all()
-    return [
-        {
+    by_email: dict[str, dict[str, Any]] = {}
+    for c in contacts:
+        email = (c.email or "").strip().lower()
+        if not email:
+            continue
+        by_email[email] = {
             "id": c.id,
             "email": c.email,
             "name": c.name,
             "company": c.company,
             "sales_customer_id": c.sales_customer_id,
+            "stage": None,
+            "source": "contact",
         }
-        for c in contacts
-    ]
+
+    customers = db.scalars(
+        select(SalesCustomer)
+        .where(SalesCustomer.sales_rep_id == str(sales_rep_id))
+        .order_by(SalesCustomer.created_at.desc())
+    ).all()
+    for cust in customers:
+        email = (cust.email or "").strip().lower()
+        if not email:
+            continue
+        stage = SalesRepService._derive_stage(cust)
+        # Follow-up pool = everyone not yet won
+        if stage == "won":
+            continue
+        existing = by_email.get(email)
+        if existing:
+            existing["name"] = existing["name"] or cust.full_name or cust.contact_person
+            existing["company"] = existing["company"] or cust.company_name
+            existing["sales_customer_id"] = existing["sales_customer_id"] or cust.id
+            existing["stage"] = stage
+            existing["source"] = "customer"
+        else:
+            by_email[email] = {
+                "id": cust.id,
+                "email": cust.email,
+                "name": cust.full_name or cust.contact_person,
+                "company": cust.company_name,
+                "sales_customer_id": cust.id,
+                "stage": stage,
+                "source": "customer",
+            }
+
+    items = list(by_email.values())
+    items.sort(key=lambda r: (str(r.get("name") or r.get("email") or "").lower()))
+    return items
 
 
 def sync_messages_from_imap(db: Session, sales_rep_id: str, folder: str = "INBOX", limit: int = 50) -> dict[str, Any]:

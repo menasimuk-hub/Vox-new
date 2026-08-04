@@ -2,6 +2,7 @@ import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  Code2,
   CornerUpLeft,
   Forward,
   Gift,
@@ -15,6 +16,7 @@ import {
   Sparkles,
   Star,
   Trash2,
+  Type,
   Users,
   Wand2,
   X,
@@ -26,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -81,7 +84,14 @@ type MailDetail = MailMessage & {
   is_deleted?: boolean;
 };
 
-type MailContact = { id: string; email: string; name?: string | null; company?: string | null };
+type MailContact = {
+  id: string;
+  email: string;
+  name?: string | null;
+  company?: string | null;
+  stage?: string | null;
+  source?: string | null;
+};
 
 type ComposeAttachment = {
   id: string;
@@ -124,18 +134,6 @@ function textToHtml(text: string) {
     .join("");
 }
 
-function quotedForward(msg: MailDetail) {
-  const header = [
-    "---------- Forwarded message ----------",
-    `From: ${msg.from_name || msg.from_email || ""} <${msg.from_email || ""}>`,
-    `Date: ${formatFull(msg.date)}`,
-    `Subject: ${msg.subject || ""}`,
-    `To: ${msg.to_email || ""}`,
-    "",
-  ].join("\n");
-  return `${header}${msg.body_text || ""}`;
-}
-
 function SalesMailPage() {
   const [tab, setTab] = React.useState<TabKey>("inbox");
   const [view, setView] = React.useState<ViewMode>("list");
@@ -156,10 +154,12 @@ function SalesMailPage() {
   const [subject, setSubject] = React.useState("");
   const [body, setBody] = React.useState("");
   const [attachments, setAttachments] = React.useState<ComposeAttachment[]>([]);
+  const [bodyFormat, setBodyFormat] = React.useState<"text" | "html">("text");
   const [sending, setSending] = React.useState(false);
   const [aiBusy, setAiBusy] = React.useState<"write" | "fix" | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const replyContextRef = React.useRef<MailDetail | null>(null);
+  const [replyContext, setReplyContext] = React.useState<MailDetail | null>(null);
 
   const loadStatus = React.useCallback(async () => {
     const res = await apiFetch<MailStatus & { ok?: boolean }>("/sales/mail/status");
@@ -184,8 +184,11 @@ function SalesMailPage() {
     try {
       const st = await loadStatus();
       const meta = FOLDERS.find((t) => t.key === tab);
-      if (tab === "contacts") await loadContacts();
-      else if (st?.configured || st?.has_imap) await loadMessages(meta?.folder || "INBOX");
+      // Always load follow-up contacts for the Contacts tab and compose To suggestions
+      await loadContacts();
+      if (tab === "contacts") {
+        /* contacts already loaded */
+      } else if (st?.configured || st?.has_imap) await loadMessages(meta?.folder || "INBOX");
       else setMessages([]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load mail");
@@ -217,10 +220,12 @@ function SalesMailPage() {
   };
 
   const openCompose = (mode: ComposeMode = "new", msg?: MailDetail | null, prefillTo?: string) => {
-    replyContextRef.current = msg || null;
+    replyContextRef.current = mode === "new" ? null : msg || null;
+    setReplyContext(mode === "new" ? null : msg || null);
     setComposeMode(mode);
     setAttachments([]);
     setAiBusy(null);
+    setBodyFormat("text");
     if (mode === "new") {
       setTo(prefillTo || "");
       setCc("");
@@ -254,11 +259,11 @@ function SalesMailPage() {
         setSubject((msg.subject || "").toLowerCase().startsWith("fw:") || (msg.subject || "").toLowerCase().startsWith("fwd:")
           ? msg.subject || ""
           : `Fwd: ${msg.subject || ""}`);
-        setBody(quotedForward(msg));
+        // Gmail-style: intro stays empty; original message is shown below the editor
+        setBody("");
       }
     }
     setView("compose");
-    setOpenMessage(null);
   };
 
   const loadAndOpenMessage = async (id: string) => {
@@ -374,14 +379,41 @@ function SalesMailPage() {
     if (!to.trim() || !subject.trim() || !body.trim()) return;
     setSending(true);
     try {
+      let bodyText = bodyFormat === "html" ? body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : body;
+      let bodyHtml =
+        bodyFormat === "html" ? (body.trim().includes("<") ? body : textToHtml(body)) : textToHtml(body);
+
+      // Gmail-style: append the original / forwarded message under the new reply
+      if (composeMode !== "new" && replyContext) {
+        const quoteHeader = [
+          "",
+          "---------- Original message ----------",
+          `From: ${replyContext.from_name || replyContext.from_email || ""} <${replyContext.from_email || ""}>`,
+          `Date: ${formatFull(replyContext.date)}`,
+          `Subject: ${replyContext.subject || ""}`,
+          `To: ${replyContext.to_email || ""}`,
+          "",
+        ].join("\n");
+        const quoteText = replyContext.body_text || "";
+        bodyText = `${bodyText}\n${quoteHeader}${quoteText}`;
+        const quoteHtml = replyContext.body_html
+          ? replyContext.body_html
+          : textToHtml(quoteText);
+        bodyHtml = `${bodyHtml}<br/><hr/><p style="color:#666;font-size:12px">---------- Original message ----------<br/>From: ${
+          replyContext.from_name || replyContext.from_email || ""
+        } &lt;${replyContext.from_email || ""}&gt;<br/>Date: ${formatFull(replyContext.date)}<br/>Subject: ${
+          replyContext.subject || ""
+        }<br/>To: ${replyContext.to_email || ""}</p>${quoteHtml}`;
+      }
+
       await apiFetch("/sales/mail/send", {
         method: "POST",
         body: JSON.stringify({
           to: to.trim(),
           cc: cc.trim() || undefined,
           subject: subject.trim(),
-          body_html: textToHtml(body),
-          body_text: body,
+          body_html: bodyHtml,
+          body_text: bodyText,
           attachments: attachments.map((a) => ({
             filename: a.name,
             content_type: a.contentType,
@@ -393,6 +425,8 @@ function SalesMailPage() {
       setView("list");
       setTab("sent");
       setAttachments([]);
+      setReplyContext(null);
+      replyContextRef.current = null;
       await loadMessages("Sent");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Send failed");
@@ -473,7 +507,18 @@ function SalesMailPage() {
     return (
       <div className="flex w-full flex-col gap-4 pb-10">
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => setView(openMessage ? "read" : "list")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              if (replyContext) {
+                setOpenMessage(replyContext);
+                setView("read");
+              } else {
+                setView("list");
+              }
+            }}
+          >
             <ArrowLeft className="size-4" /> Back
           </Button>
           <h1 className="text-xl font-semibold tracking-tight">
@@ -502,66 +547,147 @@ function SalesMailPage() {
           </div>
         </div>
 
-        <div className="mx-auto w-full max-w-3xl space-y-4 rounded-xl border bg-card p-4 sm:p-6">
-          <div className="space-y-1.5">
-            <Label>From</Label>
-            <Input value={status?.smtp_username || "Mailbox not configured"} disabled />
-          </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label>To</Label>
-              {!showCc ? (
-                <button type="button" className="text-xs text-primary hover:underline" onClick={() => setShowCc(true)}>
-                  Cc
-                </button>
-              ) : null}
-            </div>
-            <Input
-              list="sales-mail-contacts"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="name@company.com"
-            />
-          </div>
-          {showCc ? (
+        <div className="w-full overflow-hidden rounded-xl border border-neutral-200 bg-white text-neutral-900 shadow-sm">
+          <div className="space-y-4 px-4 pt-4 sm:px-6 sm:pt-6">
             <div className="space-y-1.5">
-              <Label>Cc</Label>
-              <Input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="cc@company.com" />
+              <Label className="text-neutral-700">From</Label>
+              <Input
+                value={status?.smtp_username || "Mailbox not configured"}
+                disabled
+                className="border-neutral-200 bg-white text-neutral-900"
+              />
             </div>
-          ) : null}
-          <div className="space-y-1.5">
-            <Label>Subject</Label>
-            <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-neutral-700">To</Label>
+                {!showCc ? (
+                  <button type="button" className="text-xs text-primary hover:underline" onClick={() => setShowCc(true)}>
+                    Cc
+                  </button>
+                ) : null}
+              </div>
+              <Input
+                list="sales-mail-contacts"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+                placeholder="name@company.com"
+                className="border-neutral-200 bg-white text-neutral-900"
+              />
+            </div>
+            {showCc ? (
+              <div className="space-y-1.5">
+                <Label className="text-neutral-700">Cc</Label>
+                <Input
+                  value={cc}
+                  onChange={(e) => setCc(e.target.value)}
+                  placeholder="cc@company.com"
+                  className="border-neutral-200 bg-white text-neutral-900"
+                />
+              </div>
+            ) : null}
+            <div className="space-y-1.5">
+              <Label className="text-neutral-700">Subject</Label>
+              <Input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="border-neutral-200 bg-white text-neutral-900"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Message</Label>
+
+          <div className="space-y-1.5 border-t border-neutral-200 px-4 pt-3 sm:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-neutral-700">Message</Label>
+              <Tabs value={bodyFormat} onValueChange={(v) => setBodyFormat(v as "text" | "html")}>
+                <TabsList className="h-8">
+                  <TabsTrigger value="text" className="gap-1.5 px-2 text-xs">
+                    <Type className="size-3.5" /> Plain text
+                  </TabsTrigger>
+                  <TabsTrigger value="html" className="gap-1.5 px-2 text-xs">
+                    <Code2 className="size-3.5" /> HTML
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
             <Textarea
               rows={14}
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="Write your message, or use Reply with AI / Fix with AI…"
-              className="min-h-[280px] font-sans text-sm leading-relaxed"
+              placeholder={
+                bodyFormat === "html"
+                  ? "Write HTML or plain text (plain text is wrapped as HTML on send)…"
+                  : "Write your message, or use Reply with AI / Fix with AI…"
+              }
+              className="min-h-[320px] border-neutral-200 bg-white font-sans text-sm leading-relaxed text-neutral-900"
             />
+            {bodyFormat === "html" ? (
+              <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                <p className="mb-2 text-xs font-medium text-neutral-500">HTML preview</p>
+                <div
+                  className="prose prose-sm max-w-none text-sm text-neutral-900"
+                  dangerouslySetInnerHTML={{
+                    __html: body.trim().includes("<") ? body : textToHtml(body),
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
+
+          {composeMode !== "new" && replyContext ? (
+            <div className="border-t border-neutral-200 bg-neutral-50 px-4 py-4 sm:px-6">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+                {composeMode === "forward" ? "Forwarded message" : "Original message"}
+              </p>
+              <div className="rounded-lg border border-neutral-200 bg-white p-4">
+                <p className="text-sm font-medium text-neutral-900">{replyContext.subject || "(no subject)"}</p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  {replyContext.from_name || replyContext.from_email}
+                  {replyContext.from_email ? ` <${replyContext.from_email}>` : ""}
+                  {" · "}
+                  {formatFull(replyContext.date)}
+                </p>
+                {replyContext.body_html ? (
+                  <div
+                    className="prose prose-sm mt-3 max-w-none text-sm text-neutral-800"
+                    dangerouslySetInnerHTML={{ __html: replyContext.body_html }}
+                  />
+                ) : (
+                  <pre className="mt-3 whitespace-pre-wrap font-sans text-sm text-neutral-800">
+                    {replyContext.body_text || ""}
+                  </pre>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           {status?.signature_preview ? (
-            <p className="whitespace-pre-wrap rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <p className="mx-4 mt-3 whitespace-pre-wrap rounded-lg bg-neutral-50 px-3 py-2 text-xs text-neutral-500 sm:mx-6">
               Signature will be appended on send
             </p>
           ) : null}
+
           {attachments.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 px-4 pt-3 sm:px-6">
               {attachments.map((a) => (
-                <span key={a.id} className="inline-flex items-center gap-1 rounded-lg border bg-muted/30 px-2 py-1 text-xs">
+                <span
+                  key={a.id}
+                  className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1 text-xs"
+                >
                   <Paperclip className="size-3" />
                   <span className="max-w-[10rem] truncate">{a.name}</span>
-                  <button type="button" aria-label={`Remove ${a.name}`} onClick={() => setAttachments((p) => p.filter((x) => x.id !== a.id))}>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${a.name}`}
+                    onClick={() => setAttachments((p) => p.filter((x) => x.id !== a.id))}
+                  >
                     <X className="size-3.5 text-muted-foreground hover:text-destructive" />
                   </button>
                 </span>
               ))}
             </div>
           ) : null}
-          <div className="flex flex-wrap gap-2">
+
+          <div className="flex flex-wrap gap-2 border-t border-neutral-200 px-4 py-4 sm:px-6">
             <Button type="button" size="sm" variant="secondary" onClick={() => fileRef.current?.click()}>
               <Paperclip className="size-4" /> Attach
             </Button>
@@ -616,7 +742,7 @@ function SalesMailPage() {
           </div>
         </div>
 
-        <article className="rounded-xl border bg-card p-4 sm:p-6">
+        <article className="rounded-xl border border-neutral-200 bg-white p-4 text-neutral-900 sm:p-6">
           <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{msg.subject || "(no subject)"}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{msg.from_name || msg.from_email}</span>
@@ -678,7 +804,7 @@ function SalesMailPage() {
           </div>
         </div>
 
-        {!configured && !loading ? (
+        {!configured && !loading && tab !== "contacts" ? (
           <div className="rounded-xl border bg-card p-10 text-center">
             <Mail className="mx-auto size-8 text-muted-foreground" />
             <p className="mt-3 font-medium">Mailbox not configured</p>
@@ -688,11 +814,19 @@ function SalesMailPage() {
           </div>
         ) : null}
 
-        {tab === "contacts" && configured ? (
+        {tab === "contacts" ? (
           <div className="overflow-hidden rounded-xl border bg-card">
-            {contacts.length === 0 ? (
+            <div className="border-b bg-muted/30 px-4 py-2.5">
+              <p className="text-sm font-medium">Follow-up customers</p>
+              <p className="text-xs text-muted-foreground">
+                All customers on your follow-up list with an email (won deals are hidden).
+              </p>
+            </div>
+            {loading ? (
+              <p className="p-10 text-center text-sm text-muted-foreground">Loading…</p>
+            ) : contacts.length === 0 ? (
               <p className="p-10 text-center text-sm text-muted-foreground">
-                Contacts appear when you add sales customers with an email.
+                No follow-up customers yet. Add sales customers with an email to see them here.
               </p>
             ) : (
               <ul className="divide-y">
@@ -703,15 +837,24 @@ function SalesMailPage() {
                       <p className="truncate text-xs text-muted-foreground">
                         {c.email}
                         {c.company ? ` · ${c.company}` : ""}
+                        {c.stage ? ` · ${c.stage}` : ""}
                       </p>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openCompose("new", null, c.email)}
-                    >
-                      Email
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {c.stage ? (
+                        <Badge variant="secondary" className="capitalize">
+                          {c.stage.replace(/_/g, " ")}
+                        </Badge>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!status?.has_smtp}
+                        onClick={() => openCompose("new", null, c.email)}
+                      >
+                        Email
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
