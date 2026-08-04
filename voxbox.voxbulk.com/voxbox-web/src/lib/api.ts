@@ -325,8 +325,36 @@ export async function composeMessage(body: {
   to: string;
   subject: string;
   body: string;
+  bodyHtml?: string;
+  format?: "text" | "html";
+  attachments?: Array<{ name: string; contentType: string; dataBase64: string }>;
 }): Promise<void> {
-  await request("/voxbox/messages/compose", { method: "POST", body });
+  await request("/voxbox/messages/compose", {
+    method: "POST",
+    body: {
+      accountId: body.accountId,
+      to: body.to,
+      subject: body.subject,
+      body: body.body,
+      bodyHtml: body.bodyHtml,
+      format: body.format ?? "text",
+      attachments: (body.attachments || []).map((a) => ({
+        name: a.name,
+        contentType: a.contentType,
+        dataBase64: a.dataBase64,
+      })),
+    },
+  });
+}
+
+export async function deleteMessagePermanent(id: string): Promise<void> {
+  await request(`/voxbox/messages/${id}`, { method: "DELETE" });
+}
+
+export async function emptyTrash(accountId?: string): Promise<{ deleted: number }> {
+  const qs =
+    accountId && accountId !== "all" ? `?account_id=${encodeURIComponent(accountId)}` : "";
+  return request<{ deleted: number }>(`/voxbox/messages/empty-trash${qs}`, { method: "POST" });
 }
 
 export async function syncMail(): Promise<SyncResult> {

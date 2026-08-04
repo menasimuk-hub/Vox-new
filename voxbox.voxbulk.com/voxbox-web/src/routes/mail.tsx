@@ -30,7 +30,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { AccountSidebar } from "@/components/mail/AccountSidebar";
-import { ComposeDialog } from "@/components/mail/ComposeDialog";
+import { ComposeView, type ComposeSendPayload } from "@/components/mail/ComposeView";
 import { KpiRow } from "@/components/mail/KpiRow";
 import { MessageTable } from "@/components/mail/MessageTable";
 import { MessageView } from "@/components/mail/MessageView";
@@ -40,6 +40,8 @@ import {
   composeMessage,
   createAccount,
   deleteAccount,
+  deleteMessagePermanent,
+  emptyTrash,
   fetchAccounts,
   fetchKpi,
   fetchMessage,
@@ -110,8 +112,15 @@ function MailApp() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<
-    { kind: "single"; id: string } | { kind: "bulk" } | null
+    { kind: "single"; id: string } | { kind: "bulk" } | { kind: "empty-trash" } | null
   >(null);
+
+  function openCompose() {
+    setComposeOpen(true);
+    setOpenId(null);
+    setShowSettings(false);
+    setMobileNav(false);
+  }
 
   const activeIds = useMemo(
     () => accounts.filter((a) => !a.frozen).map((a) => a.id),
@@ -243,6 +252,7 @@ function MailApp() {
     setOpenId(m.id);
     setViewMode(mode);
     setShowSettings(false);
+    setComposeOpen(false);
     if (m.unread) void patch(m.id, { unread: false });
   }
 
@@ -274,15 +284,23 @@ function MailApp() {
     }
   }
 
-  async function sendCompose(payload: {
-    accountId: string;
-    to: string;
-    subject: string;
-    body: string;
-  }) {
+  async function sendCompose(payload: ComposeSendPayload) {
     try {
-      await composeMessage(payload);
+      await composeMessage({
+        accountId: payload.accountId,
+        to: payload.to,
+        subject: payload.subject,
+        body: payload.body,
+        bodyHtml: payload.bodyHtml,
+        format: payload.format,
+        attachments: payload.attachments.map((a) => ({
+          name: a.name,
+          contentType: a.contentType,
+          dataBase64: a.dataBase64,
+        })),
+      });
       toast.success("Message sent.");
+      setComposeOpen(false);
       setTab("sent");
       setOpenId(null);
       await refreshMessages();
@@ -318,15 +336,41 @@ function MailApp() {
 
   async function runDelete() {
     if (!confirmDelete) return;
-    const ids =
-      confirmDelete.kind === "single" ? [confirmDelete.id] : selected;
     try {
-      await Promise.all(ids.map((id) => patchMessage(id, { folder: "trash" })));
-      if (confirmDelete.kind === "single" && openId === confirmDelete.id) setOpenId(null);
-      setSelected((s) => s.filter((x) => !ids.includes(x)));
-      await refreshMessages();
-      await refreshKpi();
-      toast.success(ids.length === 1 ? "Moved to trash." : `${ids.length} messages moved to trash.`);
+      if (confirmDelete.kind === "empty-trash") {
+        const res = await emptyTrash(account);
+        setOpenId(null);
+        setSelected([]);
+        await refreshMessages();
+        await refreshKpi();
+        toast.success(
+          res.deleted === 0
+            ? "Trash is already empty."
+            : `Permanently deleted ${res.deleted} message${res.deleted === 1 ? "" : "s"}.`,
+        );
+      } else {
+        const ids =
+          confirmDelete.kind === "single" ? [confirmDelete.id] : selected;
+        const permanent = tab === "trash";
+        if (permanent) {
+          await Promise.all(ids.map((id) => deleteMessagePermanent(id)));
+        } else {
+          await Promise.all(ids.map((id) => patchMessage(id, { folder: "trash" })));
+        }
+        if (confirmDelete.kind === "single" && openId === confirmDelete.id) setOpenId(null);
+        setSelected((s) => s.filter((x) => !ids.includes(x)));
+        await refreshMessages();
+        await refreshKpi();
+        toast.success(
+          permanent
+            ? ids.length === 1
+              ? "Permanently deleted."
+              : `${ids.length} messages permanently deleted.`
+            : ids.length === 1
+              ? "Moved to trash."
+              : `${ids.length} messages moved to trash.`,
+        );
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Delete failed.");
     }
@@ -394,12 +438,15 @@ function MailApp() {
         setAccount(id);
         setOpenId(null);
         setShowSettings(false);
+        setComposeOpen(false);
         setMobileNav(false);
         setSelected([]);
       }}
       onMove={moveAccount}
+      onCompose={openCompose}
       onOpenSettings={() => {
         setShowSettings(true);
+        setComposeOpen(false);
         setOpenId(null);
         setMobileNav(false);
       }}
@@ -443,7 +490,7 @@ function MailApp() {
           <div className="ml-auto flex items-center gap-1">
             <Button
               size="sm"
-              onClick={() => setComposeOpen(true)}
+              onClick={openCompose}
               disabled={accounts.filter((a) => !a.frozen).length === 0}
             >
               <PenSquare className="size-4" />
@@ -483,6 +530,7 @@ function MailApp() {
                   setTab(t.id);
                   setOpenId(null);
                   setShowSettings(false);
+                  setComposeOpen(false);
                   setSelected([]);
                 }}
                 className={cn(
@@ -523,6 +571,13 @@ function MailApp() {
               onDeleteAccount={(id) => void removeAccount(id)}
               onSaveUser={(u) => void saveUser(u)}
               onTestAccount={(a) => testAccount(a.id)}
+            />
+          ) : composeOpen ? (
+            <ComposeView
+              accounts={accounts}
+              defaultAccountId={account !== "all" ? account : undefined}
+              onBack={() => setComposeOpen(false)}
+              onSend={sendCompose}
             />
           ) : openMessage ? (
             <>
@@ -568,7 +623,7 @@ function MailApp() {
           ) : (
             <>
               <KpiRow messages={scoped} kpi={kpi ?? undefined} />
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h1 className="font-display text-lg font-semibold">
                   {TABS.find((t) => t.id === tab)?.label}
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
@@ -578,15 +633,26 @@ function MailApp() {
                       : accounts.find((a) => a.id === account)?.email}
                   </span>
                 </h1>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="shrink-0 sm:hidden"
-                  onClick={() => setComposeOpen(true)}
-                  disabled={accounts.filter((a) => !a.frozen).length === 0}
-                >
-                  <PenSquare className="size-4" /> Compose
-                </Button>
+                <div className="flex shrink-0 gap-1">
+                  {tab === "trash" && listed.length > 0 ? (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setConfirmDelete({ kind: "empty-trash" })}
+                    >
+                      <Trash2 className="size-4" /> Empty trash
+                    </Button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="sm:hidden"
+                    onClick={openCompose}
+                    disabled={accounts.filter((a) => !a.frozen).length === 0}
+                  >
+                    <PenSquare className="size-4" /> Compose
+                  </Button>
+                </div>
               </div>
               <MessageTable
                 messages={listed}
@@ -601,7 +667,7 @@ function MailApp() {
                   )
                 }
                 onBulkDelete={() => setConfirmDelete({ kind: "bulk" })}
-                onCompose={() => setComposeOpen(true)}
+                onCompose={openCompose}
                 onOpen={(m) => openMsg(m)}
                 onReply={(m) => openMsg(m, "reply")}
                 onForward={(m) => openMsg(m, "forward")}
@@ -625,26 +691,28 @@ function MailApp() {
         </main>
       </div>
 
-      <ComposeDialog
-        open={composeOpen}
-        onOpenChange={setComposeOpen}
-        accounts={accounts}
-        defaultAccountId={account !== "all" ? account : undefined}
-        onSend={sendCompose}
-      />
-
       <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {confirmDelete?.kind === "bulk"
-                ? `Delete ${selected.length} messages?`
-                : "Delete this message?"}
+              {confirmDelete?.kind === "empty-trash"
+                ? "Empty trash permanently?"
+                : confirmDelete?.kind === "bulk"
+                  ? tab === "trash"
+                    ? `Permanently delete ${selected.length} messages?`
+                    : `Delete ${selected.length} messages?`
+                  : tab === "trash"
+                    ? "Permanently delete this message?"
+                    : "Delete this message?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmDelete?.kind === "bulk"
-                ? "Selected messages will be deleted from the mail server and moved to Trash in Voxbox."
-                : "This message will be deleted from the mail server and moved to Trash in Voxbox."}
+              {confirmDelete?.kind === "empty-trash"
+                ? "All messages in Trash will be permanently removed from Voxbox. This cannot be undone."
+                : tab === "trash"
+                  ? "This permanently removes the message from Voxbox. It was already deleted from the mail server when moved to Trash."
+                  : confirmDelete?.kind === "bulk"
+                    ? "Selected messages will be deleted from the mail server and moved to Trash in Voxbox."
+                    : "This message will be deleted from the mail server and moved to Trash in Voxbox."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -653,7 +721,9 @@ function MailApp() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => void runDelete()}
             >
-              Delete
+              {confirmDelete?.kind === "empty-trash" || tab === "trash"
+                ? "Delete forever"
+                : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

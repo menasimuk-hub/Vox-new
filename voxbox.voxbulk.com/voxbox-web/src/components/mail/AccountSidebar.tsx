@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronUp, Inbox, Plus, Settings, Mail } from "lucide-react";
+import { ChevronDown, ChevronUp, Inbox, PenSquare, Plus, Settings, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { MailAccount, MailMessage } from "@/lib/mail-store";
@@ -10,6 +10,7 @@ interface Props {
   onSelect: (id: string) => void;
   onMove: (id: string, dir: -1 | 1) => void;
   onOpenSettings: () => void;
+  onCompose: () => void;
   displayName: string;
 }
 
@@ -20,11 +21,14 @@ export function AccountSidebar({
   onSelect,
   onMove,
   onOpenSettings,
+  onCompose,
   displayName,
 }: Props) {
   const unreadFor = (id: string) =>
     messages.filter((m) => m.folder === "inbox" && m.unread && (id === "all" || m.accountId === id))
       .length;
+
+  const canCompose = accounts.some((a) => !a.frozen);
 
   return (
     <nav className="flex h-full flex-col gap-1 p-3">
@@ -34,6 +38,10 @@ export function AccountSidebar({
         </p>
         <p className="truncate font-display text-sm font-semibold">{displayName}</p>
       </div>
+
+      <Button className="mb-2 w-full justify-start gap-2" disabled={!canCompose} onClick={onCompose}>
+        <PenSquare className="size-4" /> Compose
+      </Button>
 
       <button
         onClick={() => onSelect("all")}

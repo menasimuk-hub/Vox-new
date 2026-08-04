@@ -66,11 +66,20 @@ class VoxboxSendIn(BaseModel):
     to: str | None = Field(default=None, max_length=1000)
 
 
+class VoxboxComposeAttachmentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(default="application/octet-stream", max_length=120)
+    data_base64: str = Field(min_length=1, max_length=8_000_000)
+
+
 class VoxboxComposeIn(BaseModel):
     account_id: str = Field(min_length=1, max_length=64)
     to: str = Field(min_length=3, max_length=1000)
     subject: str = Field(default="", max_length=500)
     body: str = Field(min_length=1, max_length=50000)
+    body_html: str | None = Field(default=None, max_length=100000)
+    format: str = Field(default="text", pattern="^(text|html)$")
+    attachments: list[VoxboxComposeAttachmentIn] = Field(default_factory=list, max_length=10)
 
 
 class VoxboxAiReplyIn(BaseModel):

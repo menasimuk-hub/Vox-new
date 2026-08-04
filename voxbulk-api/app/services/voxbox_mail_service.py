@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import email.utils
 import imaplib
 import logging
@@ -693,7 +694,9 @@ class VoxboxMailService:
         to_addr: str,
         subject: str,
         body: str,
+        body_html: str | None = None,
         in_reply_to: str | None = None,
+        attachments: list[dict[str, str]] | None = None,
     ) -> EmailMessage:
         user = (account.username or account.email or "").strip()
         pwd = VoxboxMailService._decrypt_password(account)
@@ -703,8 +706,13 @@ class VoxboxMailService:
             raise VoxboxServiceError("Recipient address required")
 
         text = body.strip()
-        if account.signature and account.signature.strip() and account.signature.strip() not in text:
-            text = f"{text}\n\n{account.signature.strip()}"
+        sig = (account.signature or "").strip()
+        if sig and sig not in text:
+            text = f"{text}\n\n{sig}"
+
+        html = (body_html or "").strip() or None
+        if html and sig and sig not in html:
+            html = f"{html}<br/><br/><pre style=\"font-family:inherit;white-space:pre-wrap\">{sig}</pre>"
 
         msg = EmailMessage()
         msg["Subject"] = (subject or "(no subject)")[:500]
@@ -714,6 +722,25 @@ class VoxboxMailService:
             msg["In-Reply-To"] = in_reply_to
             msg["References"] = in_reply_to
         msg.set_content(text)
+        if html:
+            msg.add_alternative(html, subtype="html")
+
+        for att in attachments or []:
+            name = (att.get("name") or "attachment").strip()[:255] or "attachment"
+            ctype = (att.get("content_type") or "application/octet-stream").strip()[:120]
+            raw_b64 = (att.get("data_base64") or "").strip()
+            if "," in raw_b64 and raw_b64.lower().startswith("data:"):
+                raw_b64 = raw_b64.split(",", 1)[1]
+            try:
+                data = base64.b64decode(raw_b64, validate=False)
+            except Exception as exc:
+                raise VoxboxServiceError(f"Invalid attachment data for {name}") from exc
+            if len(data) > 5_000_000:
+                raise VoxboxServiceError(f"Attachment {name} exceeds 5 MB")
+            maintype, _, subtype = ctype.partition("/")
+            if not subtype:
+                maintype, subtype = "application", "octet-stream"
+            msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
 
         host = (account.smtp_host or "").strip()
         port = int(account.smtp_port or 465)
@@ -744,8 +771,11 @@ class VoxboxMailService:
         subject: str,
         body: str,
         msg: EmailMessage,
+        body_html: str | None = None,
+        has_attachment: bool = False,
     ) -> dict[str, Any]:
         text = body.strip()
+        html = (body_html or "").strip() or f"<p>{text.replace(chr(10), '<br/>')}</p>"
         sent = VoxboxMessage(
             id=str(uuid.uuid4()),
             account_id=account.id,
@@ -758,12 +788,12 @@ class VoxboxMailService:
             subject=subject[:500],
             preview=text[:500],
             body_text=text,
-            body_html=f"<p>{text.replace(chr(10), '<br/>')}</p>",
+            body_html=html,
             date=VoxboxMailService._now(),
             unread=False,
             important=False,
             starred=False,
-            has_attachment=False,
+            has_attachment=bool(has_attachment),
             created_at=VoxboxMailService._now(),
             updated_at=VoxboxMailService._now(),
         )
@@ -771,6 +801,28 @@ class VoxboxMailService:
         db.commit()
         db.refresh(sent)
         return VoxboxMailService.message_to_dict(sent, full=True)
+
+    @staticmethod
+    def delete_message(db: Session, message_id: str) -> dict[str, str]:
+        """Permanently remove a message from Voxbox (used for Trash / Empty trash)."""
+        row = db.get(VoxboxMessage, message_id)
+        if row is None:
+            raise VoxboxServiceError("Message not found")
+        # Already removed from IMAP when moved to trash; purge local row.
+        db.delete(row)
+        db.commit()
+        return {"ok": "true", "id": message_id}
+
+    @staticmethod
+    def empty_trash(db: Session, *, account_id: str | None = None) -> dict[str, Any]:
+        stmt = select(VoxboxMessage).where(VoxboxMessage.folder == "trash")
+        if account_id and account_id != "all":
+            stmt = stmt.where(VoxboxMessage.account_id == account_id)
+        rows = list(db.scalars(stmt))
+        for row in rows:
+            db.delete(row)
+        db.commit()
+        return {"ok": True, "deleted": len(rows)}
 
     @staticmethod
     def send_message(db: Session, message_id: str, payload: VoxboxSendIn) -> dict[str, Any]:
@@ -808,9 +860,38 @@ class VoxboxMailService:
         to_addr = (payload.to or "").strip()
         subject = (payload.subject or "").strip() or "(no subject)"
         body = payload.body.strip()
-        msg = VoxboxMailService._smtp_send(account, to_addr=to_addr, subject=subject, body=body)
+        fmt = (payload.format or "text").strip().lower()
+        html = (payload.body_html or "").strip() or None
+        if fmt == "html" and not html:
+            html = body
+            plain = re.sub(r"<br\s*/?>", "\n", html, flags=re.I)
+            plain = re.sub(r"<[^>]+>", "", plain)
+            body = plain.strip() or body
+        attachments = [
+            {
+                "name": a.name,
+                "content_type": a.content_type,
+                "data_base64": a.data_base64,
+            }
+            for a in (payload.attachments or [])
+        ]
+        msg = VoxboxMailService._smtp_send(
+            account,
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            body_html=html if fmt == "html" else None,
+            attachments=attachments,
+        )
         return VoxboxMailService._store_sent(
-            db, account, to_addr=to_addr, subject=subject, body=body, msg=msg
+            db,
+            account,
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            msg=msg,
+            body_html=html if fmt == "html" else None,
+            has_attachment=bool(attachments),
         )
 
     @staticmethod
