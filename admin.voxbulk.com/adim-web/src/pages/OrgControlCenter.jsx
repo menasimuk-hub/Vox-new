@@ -2342,7 +2342,7 @@ export default function OrgControlCenter() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </TabsContent>
 
           <TabsContent value="activity" className="space-y-4 p-6">
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
