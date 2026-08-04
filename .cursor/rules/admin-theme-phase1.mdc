@@ -1,0 +1,33 @@
+---
+description: Admin Phase-1 design system — new admin pages must use shared ui + tokens only
+globs: admin.voxbulk.com/adim-web/**
+alwaysApply: false
+---
+
+# Admin theme — Phase 1 guardrails
+
+## Source of truth
+
+- Tokens + rules: `admin.voxbulk.com/adim-web/DESIGN_SYSTEM.md`
+- CSS: `admin.voxbulk.com/adim-web/src/styles/design-system.css` (`--ds-*`)
+- Shared components: `admin.voxbulk.com/adim-web/src/components/ui/`
+- Visual reference: `telynx-settings-hub-main` (OKLCH palette, density)
+
+## Phase 1 scope (done)
+
+- Shell chrome: Sidebar + Topbar restyled to reference tokens/density (existing shell kept).
+- Home Dashboard (`pages/Dashboard.jsx`) rebuilt to reference `/dashboard` patterns.
+- Foundation: Button, Table, Tabs, Card/Panel, Badge, KpiCard, Progress, Separator, Sparkline.
+
+## Rules for new / touched admin UI
+
+1. **Use `components/ui` + design-system tokens only** — no new page-local palettes, hex colors, or one-off button/table CSS.
+2. **Do not invent tokens** — if something is missing, add it to `DESIGN_SYSTEM.md` + `design-system.css` first.
+3. **Do not create new theme islands** (page-scoped color systems that fight `--ds-*` / legacy aliases).
+4. **Phase 2 pages stay as-is until migrated** — do not “fix” AI Team, Sales Team, Support Disk, Integrations hubs, etc. unless the task is that migration.
+5. Keep existing **Sidebar + Topbar shell** (nav/RBAC/search). Do not replace with sticky-header-only chrome.
+6. Visual/structural changes only unless the task explicitly changes logic/API.
+
+## Legacy CSS
+
+`styles.css` still powers non-migrated pages. Legacy vars (`--bg`, `--s1`, `--grn`, …) are aliased toward the reference OKLCH palette so shell + unmigrated pages stay coherent. Prefer Tailwind/`components/ui` on new work; do not expand legacy class islands.

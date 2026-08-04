@@ -3,39 +3,40 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:  #f5f1ea;
-  --s1:  #fbf8f3;
-  --s2:  #f0ebe3;
-  --s3:  #e8e2d8;
-  --b1:  rgba(42, 38, 32, 0.08);
-  --b2:  rgba(42, 38, 32, 0.14);
-  --input-bg: #ffffff;
-  --t1:  #2a2620;
-  --t2:  #6b6458;
-  --t3:  #9a9288;
-  /* Primary accent — deep navy (dashboard primary) */
-  --grn:  #2d3550;
-  --grn2: #1e2640;
-  --gd:   rgba(45, 53, 80, 0.10);
-  --gd2:  rgba(45, 53, 80, 0.16);
-  --pur:  #534AB7;
-  --pd:   rgba(83,74,183,0.10);
-  --pd2:  rgba(83,74,183,0.18);
-  --amb:  #854F0B;
-  --ad:   rgba(133,79,11,0.10);
-  --red:  #A32D2D;
-  --rd:   rgba(163,45,45,0.10);
-  --blu:  #185FA5;
-  --bd:   rgba(24,95,165,0.10);
+  /* Phase-1: legacy shell tokens aliased to telynx-settings-hub OKLCH palette */
+  --bg:  oklch(0.975 0.012 85);
+  --s1:  oklch(0.995 0.004 85);
+  --s2:  oklch(0.955 0.014 85);
+  --s3:  oklch(0.93 0.012 80);
+  --b1:  oklch(0.9 0.012 85);
+  --b2:  oklch(0.9 0.012 85);
+  --input-bg: oklch(0.995 0.004 85);
+  --t1:  oklch(0.22 0.02 260);
+  --t2:  oklch(0.5 0.02 260);
+  --t3:  oklch(0.5 0.02 260);
+  /* Primary accent — deep navy (reference --primary) */
+  --grn:  oklch(0.27 0.04 265);
+  --grn2: oklch(0.22 0.04 265);
+  --gd:   color-mix(in oklch, oklch(0.27 0.04 265) 12%, transparent);
+  --gd2:  color-mix(in oklch, oklch(0.27 0.04 265) 18%, transparent);
+  --pur:  oklch(0.45 0.12 290);
+  --pd:   color-mix(in oklch, oklch(0.45 0.12 290) 12%, transparent);
+  --pd2:  color-mix(in oklch, oklch(0.45 0.12 290) 18%, transparent);
+  --amb:  oklch(0.62 0.13 65);
+  --ad:   oklch(0.93 0.05 75);
+  --red:  oklch(0.6 0.21 27);
+  --rd:   color-mix(in oklch, oklch(0.6 0.21 27) 12%, transparent);
+  --blu:  oklch(0.52 0.1 250);
+  --bd:   oklch(0.93 0.03 250);
   --sb-w: 252px;
   --transition: all 0.22s cubic-bezier(.4,0,.2,1);
 
   /* Legacy aliases used across admin pages */
-  --font-heading: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-heading: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --sidebar-width: var(--sb-w);
-  --page-padding: 20px;
-  --content-max: 1600px;
+  --page-padding: 16px;
+  --content-max: 1400px;
   --text: var(--t1);
   --muted: var(--t2);
   --muted-2: var(--t3);
@@ -51,41 +52,42 @@
   --panel-2: var(--s2);
   --blue: var(--grn);
   --blue-dark: var(--grn2);
-  --green: #16a34a;
+  --green: oklch(0.55 0.14 150);
   --orange: var(--amb);
-  --orange-dark: #6b3d08;
-  --radius-xs: 9px;
-  --radius-sm: 12px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
+  --orange-dark: oklch(0.5 0.12 65);
+  /* Match reference radius scale (0.625rem base) */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
 }
 
 body.dark {
-  --bg:  #1a1814;
-  --s1:  #242019;
-  --s2:  #2c2820;
-  --s3:  #363028;
-  --b1:  rgba(255,255,255,0.07);
-  --b2:  rgba(255,255,255,0.13);
+  --bg:  oklch(0.16 0.02 260);
+  --s1:  oklch(0.21 0.025 260);
+  --s2:  oklch(0.24 0.025 260);
+  --s3:  oklch(0.28 0.04 260);
+  --b1:  oklch(1 0 0 / 10%);
+  --b2:  oklch(1 0 0 / 15%);
   --input-bg: var(--s1);
-  --t1:  #f5f1ea;
-  --t2:  #b8b0a4;
-  --t3:  #8a8278;
-  --grn:  #6b7aad;
-  --grn2: #556299;
-  --gd:   rgba(107,122,173,0.14);
-  --gd2:  rgba(107,122,173,0.22);
-  --pur:  #7c6ff7;
-  --pd:   rgba(124,111,247,0.12);
-  --pd2:  rgba(124,111,247,0.22);
-  --amb:  #f5a623;
-  --ad:   rgba(245,166,35,0.12);
-  --red:  #ff5370;
-  --rd:   rgba(255,83,112,0.12);
-  --blu:  #4facfe;
-  --bd:   rgba(79,172,254,0.12);
-  --green: #4ade80;
-  --orange-dark: #fbbf24;
+  --t1:  oklch(0.98 0.003 247);
+  --t2:  oklch(0.7 0.04 256);
+  --t3:  oklch(0.7 0.04 256);
+  --grn:  oklch(0.93 0.013 255);
+  --grn2: oklch(0.85 0.02 255);
+  --gd:   color-mix(in oklch, oklch(0.93 0.013 255) 14%, transparent);
+  --gd2:  color-mix(in oklch, oklch(0.93 0.013 255) 22%, transparent);
+  --pur:  oklch(0.7 0.14 290);
+  --pd:   color-mix(in oklch, oklch(0.7 0.14 290) 14%, transparent);
+  --pd2:  color-mix(in oklch, oklch(0.7 0.14 290) 22%, transparent);
+  --amb:  oklch(0.78 0.14 75);
+  --ad:   oklch(0.32 0.05 75);
+  --red:  oklch(0.7 0.19 22);
+  --rd:   color-mix(in oklch, oklch(0.7 0.19 22) 14%, transparent);
+  --blu:  oklch(0.7 0.1 250);
+  --bd:   oklch(0.3 0.04 250);
+  --green: oklch(0.7 0.16 150);
+  --orange-dark: oklch(0.78 0.14 75);
 
   /* Legacy aliases — must be redefined on body so numbers/labels stay readable */
   --text: var(--t1);
@@ -139,7 +141,7 @@ img, svg { display: block; }
 .sb.collapsed { width: 58px; }
 
 .sb-logo {
-  padding: 16px 14px 14px;
+  padding: 12px 12px 10px;
   border-bottom: 1px solid var(--b1);
   display: flex; align-items: center; gap: 0px;
   overflow: hidden; flex-shrink: 0;
@@ -202,7 +204,7 @@ body.dark .sb-logo-icon .icon-light { display: none; }
 
 .sb-toggle {
   margin-left: auto;
-  width: 26px; height: 26px; border-radius: 6px;
+  width: 26px; height: 26px; border-radius: var(--radius-sm);
   border: 1px solid var(--b2); background: transparent;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; color: var(--t2);
@@ -214,7 +216,7 @@ body.dark .sb-logo-icon .icon-light { display: none; }
 
 .sb-nav {
   flex: 1; overflow-y: auto; overflow-x: hidden;
-  padding: 10px 10px 16px;
+  padding: 8px 8px 14px;
   scrollbar-width: thin;
   scrollbar-color: var(--b2) transparent;
 }
@@ -243,8 +245,8 @@ body.dark .sb-logo-icon .icon-light { display: none; }
   width: 100%;
   border: none;
   background: transparent;
-  padding: 9px 11px; font-size: 13px; color: var(--t2);
-  cursor: pointer; border-radius: 10px;
+  padding: 7px 10px; font-size: 12.5px; color: var(--t2);
+  cursor: pointer; border-radius: var(--radius-sm);
   transition: background .15s, color .15s;
   margin-bottom: 0;
   white-space: nowrap; overflow: hidden;
@@ -384,31 +386,33 @@ body.dark .sb-logo-icon .icon-light { display: none; }
 }
 .main.expanded { margin-left: 58px; }
 
-.content { padding: 20px; flex: 1; }
+.content { padding: 16px; flex: 1; max-width: 1400px; width: 100%; margin: 0 auto; }
 
-/* Topbar */
+/* Topbar — compact density matching reference */
 .topbar {
   display: flex; align-items: center; gap: 10px;
-  padding: 11px 20px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--b1);
-  background: var(--s1);
+  background: color-mix(in oklch, var(--s1) 85%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   position: sticky; top: 0; z-index: 50;
   transition: var(--transition);
 }
 .tb-info { flex: 1; min-width: 0; }
-.tb-title { font-size: 16px; font-weight: 600; color: var(--t1); }
+.tb-title { font-size: 14px; font-weight: 600; color: var(--t1); }
 .tb-sub { font-size: 11px; color: var(--t3); margin-top: 1px; }
 .tb-r { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .admin-search {
   width: min(360px, 34vw);
-  height: 34px;
+  height: 32px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  border: 1.5px solid var(--b2);
-  border-radius: 9px;
+  border: 1px solid var(--b2);
+  border-radius: var(--radius-sm);
   background: var(--s2);
   color: var(--t3);
   position: relative;
@@ -425,7 +429,7 @@ body.dark .sb-logo-icon .icon-light { display: none; }
 }
 
 .tbbtn {
-  width: 32px; height: 32px; border-radius: 9px;
+  width: 30px; height: 30px; border-radius: var(--radius-sm);
   border: 1px solid var(--b2); background: transparent;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; color: var(--t2); transition: var(--transition);

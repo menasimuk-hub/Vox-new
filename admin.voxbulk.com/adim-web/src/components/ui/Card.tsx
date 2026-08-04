@@ -1,41 +1,62 @@
 import * as React from "react";
+import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 /**
- * Panel — the compact section card used across the telynx-settings-hub-main
- * screens (slim header with a bottom border + p-4 body). Use this for page
- * surfaces; the shadcn `Card` parts below remain available for richer layouts.
+ * Panel — compact section card from telynx-settings-hub-main
+ * (icon + title/description header, border-b, dense body).
  */
 interface PanelProps extends React.HTMLAttributes<HTMLElement> {
   title?: React.ReactNode;
   subtitle?: React.ReactNode;
+  description?: React.ReactNode;
+  icon?: LucideIcon;
   action?: React.ReactNode;
   bodyClassName?: string;
 }
 
 const Panel = React.forwardRef<HTMLElement, PanelProps>(
-  ({ title, subtitle, action, children, className, bodyClassName, ...props }, ref) => (
-    <section
-      ref={ref}
-      className={cn(
-        "rounded-lg border border-border bg-card text-card-foreground shadow-[0_1px_0_rgba(0,0,0,0.02)]",
-        className,
-      )}
-      {...props}
-    >
-      {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-          <div className="min-w-0">
-            {title && <h3 className="text-[13px] font-semibold tracking-tight">{title}</h3>}
-            {subtitle && <p className="text-[11px] text-muted-foreground">{subtitle}</p>}
-          </div>
-          {action}
-        </header>
-      )}
-      <div className={cn("p-4", bodyClassName)}>{children}</div>
-    </section>
-  ),
+  (
+    { title, subtitle, description, icon: Icon, action, children, className, bodyClassName, ...props },
+    ref,
+  ) => {
+    const desc = description ?? subtitle;
+    return (
+      <section
+        ref={ref}
+        className={cn(
+          "rounded-xl border border-border bg-card text-card-foreground shadow-sm",
+          className,
+        )}
+        {...props}
+      >
+        {(title || action || Icon) && (
+          <header className="flex items-start justify-between gap-3 border-b border-border/70 px-3.5 py-2.5">
+            <div className="flex min-w-0 items-start gap-2">
+              {Icon ? (
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-secondary text-secondary-foreground">
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+              ) : null}
+              <div className="min-w-0">
+                {title ? (
+                  <h3 className="text-[13px] font-semibold leading-tight tracking-tight text-foreground">
+                    {title}
+                  </h3>
+                ) : null}
+                {desc ? (
+                  <p className="truncate text-[11px] leading-tight text-muted-foreground">{desc}</p>
+                ) : null}
+              </div>
+            </div>
+            {action}
+          </header>
+        )}
+        <div className={cn("p-3", bodyClassName)}>{children}</div>
+      </section>
+    );
+  },
 );
 Panel.displayName = "Panel";
 

@@ -1,11 +1,28 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  BadgeCheck,
-  AlertTriangle,
   Activity,
-  RefreshCw,
+  AlertTriangle,
+  ArrowUpRight,
+  Bot,
+  Building2,
+  CheckCircle2,
+  CircleDollarSign,
+  CreditCard,
+  Database,
+  Inbox,
+  LifeBuoy,
+  Megaphone,
   MessageSquare,
+  QrCode,
+  RefreshCw,
+  Server,
+  Settings2,
+  Sparkles,
+  Timer,
+  UserPlus,
+  Wallet,
+  Zap,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import { normalizeAdminRole } from '../lib/adminPaths'
@@ -14,9 +31,24 @@ import {
   INTEGRATION_PROVIDERS,
   integrationCardStatus,
 } from '../lib/integrationsCatalog'
-
-const DashboardProductChart = lazy(() => import('../components/DashboardProductChart'))
-const DashboardKpiSpark = lazy(() => import('../components/DashboardKpiSpark'))
+import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { Progress } from '@/components/ui/Progress'
+import { Separator } from '@/components/ui/Separator'
+import { Switch } from '@/components/ui/Switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/Sheet'
+import { Sparkline, StatusDot, spark } from '@/components/ui/Sparkline'
 
 function deferNonCritical(task) {
   const run = window.requestIdleCallback || ((fn) => window.setTimeout(fn, 250))
@@ -47,22 +79,6 @@ const HEALTH_BALANCE_KEYS = {
   elevenlabs: 'elevenlabs',
 }
 
-function DashboardSection({ title, description, action, children }) {
-  return (
-    <section className='dashboardSection'>
-      <div className='dashboardSectionHead'>
-        <div>
-          <h2>{title}</h2>
-          {description ? <p>{description}</p> : null}
-        </div>
-        {action || null}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-
 function balanceDetail(key, balances) {
   if (key === 'telnyx') {
     const row = balances?.telnyx
@@ -83,75 +99,11 @@ function integrationMetaLine(key, summary, balances) {
   return 'Running · credentials configured'
 }
 
-function DashboardApiCard({ provider, summary, balances, onOpen }) {
-  const status = integrationCardStatus(summary)
-  const detail = integrationMetaLine(provider.key, summary, balances)
-  return (
-    <button
-      type='button'
-      className={`dashApiCard integrationKpiCard ${status.cardClass}`}
-      onClick={onOpen}
-      title={`Open ${provider.label} settings`}
-    >
-      <div className='integrationKpiCardTop'>
-        <span className='integrationKpiIcon'>
-          <i className={`ti ${provider.icon}`} />
-        </span>
-        <span className={`integrationKpiDot ${status.connected ? 'isOn' : 'isOff'}`} title={status.label} />
-      </div>
-      <strong className='integrationKpiTitle'>{provider.label}</strong>
-      <p className='integrationKpiBlurb'>{provider.blurb}</p>
-      <p className='dashApiCardDetail'>{detail}</p>
-      <div className='integrationKpiFoot'>
-        <span className={`pill ${status.pillClass}`}>{status.label}</span>
-        <span className='integrationKpiOpen'>
-          Settings <i className='ti ti-chevron-right' />
-        </span>
-      </div>
-    </button>
-  )
-}
-
-function ProductMiniChart(props) {
-  return (
-    <Suspense
-      fallback={
-        <div className="dashProductCard">
-          <div className="dashProductCardHead">
-            <strong>{props.title}</strong>
-          </div>
-          <span className="dashProductCardSub muted">Loading chart…</span>
-        </div>
-      }
-    >
-      <DashboardProductChart {...props} />
-    </Suspense>
-  )
-}
-
-function KpiSpark({ rows }) {
-  if (!rows?.length) return null
-  return (
-    <Suspense fallback={<div className="dashKpiSpark muted" style={{ fontSize: 11 }}>…</div>}>
-      <DashboardKpiSpark rows={rows} />
-    </Suspense>
-  )
-}
-
-function ProductHubCard({ title, description, href, icon, stat }) {
-  return (
-    <Link to={href} className='dashProductCard dashProductCardLink dashProductHubCard'>
-      <div className='dashProductHubIcon'>
-        <i className={`ti ${icon}`} />
-      </div>
-      <strong>{title}</strong>
-      <p className='dashProductCardSub'>{description}</p>
-      {stat ? <span className='dashProductHubStat'>{stat}</span> : null}
-      <span className='dashProductHubOpen'>
-        Open <i className='ti ti-chevron-right' />
-      </span>
-    </Link>
-  )
+function toneFromCount(count, { warnAt = 1, badAt = null } = {}) {
+  const v = Number(count || 0)
+  if (badAt != null && v >= badAt) return 'bad'
+  if (v >= warnAt) return 'warn'
+  return 'ok'
 }
 
 export default function Dashboard() {
@@ -177,6 +129,10 @@ export default function Dashboard() {
   const [celeryRestarting, setCeleryRestarting] = useState(false)
   const [celeryMsg, setCeleryMsg] = useState('')
   const [error, setError] = useState('')
+  const [activeKpi, setActiveKpi] = useState(null)
+  const [productTab, setProductTab] = useState('wa')
+  const [integrationQuery, setIntegrationQuery] = useState('')
+  const [onlineOnly, setOnlineOnly] = useState(false)
 
   const loadIntegrations = useCallback(async () => {
     if (!isSuper) {
@@ -334,48 +290,243 @@ export default function Dashboard() {
   const activeOrgs = orgSummary.active
   const telnyxBalance = providerBalances?.telnyx
   const elevenBalance = providerBalances?.elevenlabs
+  const openTickets = support?.total_open ?? support?.open ?? 0
+  const pastDue = billing?.subscriptions_past_due ?? 0
+  const failedHooks = webhooks.failed || 0
 
-  const enabledIntegrations = useMemo(
-    () =>
-      INTEGRATION_PROVIDERS.filter((p) => {
-        const s = health[p.key]
-        return s && s.is_enabled && s.configured && !s.error
-      }),
-    [health],
-  )
+  const enabledIntegrations = useMemo(() => {
+    const q = integrationQuery.trim().toLowerCase()
+    return INTEGRATION_PROVIDERS.filter((p) => {
+      const s = health[p.key]
+      const online = Boolean(s && s.is_enabled && s.configured && !s.error)
+      if (!online && !s) return false
+      if (!s || !s.is_enabled || !s.configured || s.error) {
+        if (onlineOnly) return false
+        // Still show only enabled+configured in the grid (same as before)
+        return false
+      }
+      if (onlineOnly && !online) return false
+      if (!q) return true
+      return (
+        p.label.toLowerCase().includes(q) ||
+        (p.group || '').toLowerCase().includes(q) ||
+        (p.blurb || '').toLowerCase().includes(q)
+      )
+    })
+  }, [health, integrationQuery, onlineOnly])
 
-  const surveyChartRows = useMemo(
+  const overviewKpis = useMemo(() => {
+    const dash = loading ? '…' : null
+    return [
+      {
+        id: 'orgs',
+        label: 'Organisations',
+        value: dash ?? n(orgTotal),
+        sub: `${n(activeOrgs)} active`,
+        icon: Building2,
+        valueTone: 'default',
+        href: '/organisations',
+        detail: [`${n(activeOrgs)} active of ${n(orgTotal)} total`, 'Open Organisations to manage tenants'],
+        spark: spark(3),
+      },
+      {
+        id: 'subs',
+        label: 'Active subscriptions',
+        value: dash ?? n(billing?.subscriptions_active),
+        sub: `${n(billing?.subscriptions_trial)} trial`,
+        icon: CreditCard,
+        valueTone: 'ok',
+        href: '/billing/subscriptions',
+        detail: [
+          `${n(billing?.subscriptions_active)} paying · ${n(billing?.subscriptions_trial)} trial`,
+          `Latest: ${fmt(billing?.latest_subscription_created_at)}`,
+        ],
+        spark: spark(4),
+      },
+      {
+        id: 'pastdue',
+        label: 'Past due',
+        value: dash ?? n(pastDue),
+        sub: `${n(billing?.subscriptions_pending_payment)} pending pay`,
+        icon: AlertTriangle,
+        valueTone: toneFromCount(pastDue),
+        href: '/billing/subscriptions',
+        detail: [`${n(pastDue)} past due`, `${n(billing?.subscriptions_pending_payment)} pending payment`],
+        spark: spark(5),
+      },
+      {
+        id: 'tickets',
+        label: 'Open tickets',
+        value: dash ?? n(openTickets),
+        sub: `${n(support?.unassigned ?? 0)} unassigned`,
+        icon: LifeBuoy,
+        valueTone: toneFromCount(openTickets),
+        href: '/support/inbox',
+        detail: [`${n(openTickets)} open`, `${n(support?.unassigned ?? 0)} unassigned`],
+        spark: spark(6),
+      },
+      {
+        id: 'wa',
+        label: 'WA surveys live',
+        value: dash ?? n(surveys?.live ?? 0),
+        sub: `${n(surveys?.total ?? 0)} total`,
+        icon: MessageSquare,
+        valueTone: 'default',
+        href: '/operations/running-surveys',
+        detail: [
+          `${n(surveys?.running ?? surveys?.live ?? 0)} running · ${n(surveys?.scheduled ?? 0)} scheduled · ${n(surveys?.completed ?? 0)} completed · ${n(surveys?.paused ?? 0)} paused`,
+        ],
+        spark: spark(7),
+      },
+      {
+        id: 'ai',
+        label: 'AI interviews live',
+        value: dash ?? n(interviews?.live ?? 0),
+        sub: `${n(interviews?.total ?? 0)} total`,
+        icon: Bot,
+        valueTone: 'default',
+        href: '/operations/running-interviews',
+        detail: [
+          `${n(interviews?.running ?? interviews?.live ?? 0)} running · ${n(interviews?.scheduled ?? 0)} scheduled · ${n(interviews?.completed ?? 0)} completed · ${n(interviews?.drafts ?? 0)} drafts`,
+        ],
+        spark: spark(8),
+      },
+      {
+        id: 'hooks',
+        label: 'Failed webhooks',
+        value: dash ?? n(failedHooks),
+        sub: 'recent delivery errors',
+        icon: Zap,
+        valueTone: toneFromCount(failedHooks),
+        href: '/integrations/webhooks',
+        detail: [`${n(failedHooks)} recent failures`, `Latest: ${fmt(webhooks.latest_received_at)}`],
+        spark: spark(9),
+      },
+      {
+        id: 'credit',
+        label: 'Telnyx credit',
+        value: dash ?? (telnyxBalance?.ok ? money(telnyxBalance.amount, telnyxBalance.currency) : '—'),
+        sub: 'voice / SMS balance',
+        icon: Wallet,
+        valueTone: telnyxBalance?.ok && Number(telnyxBalance.amount) < 20 ? 'warn' : telnyxBalance?.ok ? 'ok' : 'warn',
+        href: '/integrations/telnyx',
+        detail: [telnyxBalance?.ok ? money(telnyxBalance.amount, telnyxBalance.currency) : telnyxBalance?.message || 'Not configured'],
+        spark: spark(10),
+      },
+    ]
+  }, [
+    loading,
+    orgTotal,
+    activeOrgs,
+    billing,
+    pastDue,
+    openTickets,
+    support,
+    surveys,
+    interviews,
+    failedHooks,
+    webhooks.latest_received_at,
+    telnyxBalance,
+  ])
+
+  const productTabs = useMemo(
     () => [
-      { n: 'Live', v: surveys?.live ?? 0, fill: '#0891b2' },
-      { n: 'Running', v: surveys?.running ?? 0, fill: '#06b6d4' },
-      { n: 'Scheduled', v: surveys?.scheduled ?? 0, fill: '#22d3ee' },
-      { n: 'Completed', v: surveys?.completed ?? 0, fill: '#0e7490' },
-      { n: 'Paused', v: surveys?.paused ?? 0, fill: '#94a3b8' },
+      {
+        id: 'wa',
+        label: 'WA Survey',
+        live: surveys?.live ?? 0,
+        total: surveys?.total ?? 0,
+        icon: MessageSquare,
+        href: '/operations/running-surveys',
+        breakdown: [
+          { label: 'Running', value: surveys?.running ?? surveys?.live ?? 0 },
+          { label: 'Scheduled', value: surveys?.scheduled ?? 0 },
+          { label: 'Completed', value: surveys?.completed ?? 0 },
+          { label: 'Paused', value: surveys?.paused ?? 0 },
+        ],
+      },
+      {
+        id: 'ai',
+        label: 'AI Interview',
+        live: interviews?.live ?? 0,
+        total: interviews?.total ?? 0,
+        icon: Bot,
+        href: '/operations/running-interviews',
+        breakdown: [
+          { label: 'Running', value: interviews?.running ?? interviews?.live ?? 0 },
+          { label: 'Scheduled', value: interviews?.scheduled ?? 0 },
+          { label: 'Completed', value: interviews?.completed ?? 0 },
+          { label: 'Drafts', value: interviews?.drafts ?? 0 },
+        ],
+      },
+      {
+        id: 'campaigns',
+        label: 'Campaigns',
+        live: null,
+        total: null,
+        icon: Megaphone,
+        href: '/campaigns',
+        breakdown: [
+          { label: 'Hub', value: '—', note: 'Template library' },
+          { label: 'Broadcast', value: '—', note: 'Outbound' },
+        ],
+      },
+      {
+        id: 'feedback',
+        label: 'Feedback',
+        live: null,
+        total: null,
+        icon: Sparkles,
+        href: '/customer-feedback/industries',
+        breakdown: [
+          { label: 'Catalog', value: '—', note: 'Industries' },
+          { label: 'Results', value: '—', note: 'WA feedback' },
+        ],
+      },
     ],
-    [surveys],
+    [surveys, interviews],
   )
 
-  const interviewChartRows = useMemo(
-    () => [
-      { n: 'Live', v: interviews?.live ?? 0, fill: '#7c3aed' },
-      { n: 'Running', v: interviews?.running ?? 0, fill: '#a855f7' },
-      { n: 'Scheduled', v: interviews?.scheduled ?? 0, fill: '#c084fc' },
-      { n: 'Completed', v: interviews?.completed ?? 0, fill: '#6d28d9' },
-      { n: 'Drafts', v: interviews?.drafts ?? 0, fill: '#a78bfa' },
-    ],
-    [interviews],
-  )
+  const celeryStats = useMemo(() => {
+    const workerOk = Boolean(celery?.worker?.ping?.ok || celery?.worker?.process_running)
+    const beatOk = Boolean(celery?.beat?.schedule?.ok || celery?.beat?.process_running)
+    const redisOk = Boolean(celery?.redis?.ok)
+    const criticalHave = (celery?.worker?.tasks?.has_critical || []).length
+    const criticalNeed = (celery?.critical_tasks || []).length || 4
+    const criticalOk = criticalHave >= criticalNeed && !celery?.worker?.tasks?.missing_critical?.length
+    return [
+      {
+        label: 'Worker',
+        value: loading ? '…' : celery?.worker?.supervisor?.state || (celery?.worker?.process_running ? 'PROCESS' : '—'),
+        note: `ping ${celery?.worker?.ping?.ok ? 'ok' : 'fail'}${celery?.worker?.ping?.nodes?.length ? ` · ${celery.worker.ping.nodes.length} node(s)` : ''}`,
+        tone: workerOk ? 'ok' : 'bad',
+      },
+      {
+        label: 'Beat',
+        value: loading ? '…' : celery?.beat?.supervisor?.state || (celery?.beat?.process_running ? 'PROCESS' : '—'),
+        note: `schedule ${celery?.beat?.schedule?.ok ? 'ok' : 'check needed'}`,
+        tone: beatOk ? 'ok' : 'warn',
+      },
+      {
+        label: 'Redis',
+        value: loading ? '…' : celery?.redis?.ok ? 'OK' : 'DOWN',
+        note: celery?.redis?.detail || 'broker',
+        tone: redisOk ? 'ok' : 'bad',
+      },
+      {
+        label: 'Critical tasks',
+        value: loading ? '…' : `${criticalHave}/${criticalNeed}`,
+        note: celery?.stale_code
+          ? 'Restart needed after deploy'
+          : celery?.worker?.tasks?.missing_critical?.length
+            ? `Missing: ${celery.worker.tasks.missing_critical.join(', ')}`
+            : 'registered on worker',
+        tone: criticalOk ? 'ok' : 'warn',
+      },
+    ]
+  }, [celery, loading])
 
-  const overviewKpis = [
-    { label: 'Organisations', value: n(orgTotal), sub: `${n(activeOrgs)} active`, href: '/organisations', spark: [{ v: orgTotal }] },
-    { label: 'Active subscriptions', value: n(billing?.subscriptions_active), sub: `${n(billing?.subscriptions_trial)} trial`, href: '/billing/subscriptions' },
-    { label: 'Past due', value: n(billing?.subscriptions_past_due), sub: `${n(billing?.subscriptions_pending_payment)} pending pay`, href: '/billing/subscriptions' },
-    { label: 'Open tickets', value: n(support?.total_open ?? support?.open ?? 0), sub: `${n(support?.unassigned ?? 0)} unassigned`, href: '/support/inbox' },
-    { label: 'WA surveys live', value: n(surveys?.live ?? 0), sub: `${n(surveys?.total ?? 0)} total`, href: '/operations/running-surveys', spark: surveyChartRows.slice(0, 3) },
-    { label: 'AI interviews live', value: n(interviews?.live ?? 0), sub: `${n(interviews?.total ?? 0)} total`, href: '/operations/running-interviews', spark: interviewChartRows.slice(0, 3) },
-    { label: 'Failed webhooks', value: n(webhooks.failed || 0), sub: 'recent delivery errors', href: '/integrations/webhooks' },
-    { label: 'Telnyx credit', value: telnyxBalance?.ok ? money(telnyxBalance.amount, telnyxBalance.currency) : '—', sub: 'voice / SMS balance', href: '/integrations/telnyx' },
-  ]
+  const systemsOk = celery?.ok !== false && Number(failedHooks) === 0
 
   const decideSignup = async (id, action) => {
     try {
@@ -392,416 +543,633 @@ export default function Dashboard() {
   }
 
   return (
-    <div className='pageShell dashboardPage'>
-      <div className='pageTop'>
-        <div>
-          <h1>Dashboard</h1>
-          <p>Live platform overview — products, enabled APIs, billing, and operations queues.</p>
-        </div>
-        <div className='actions'>
-          <button type='button' className='btn soft' onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
-            <RefreshCw size={16} className='btnIconLeading' />
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <Link to='/analytics/kpis' className='btn soft'>
-            Analytics
-          </Link>
-          <Link to='/onboarding/add-customer' className='btn primary'>
-            Add customer
-          </Link>
+    <div className="space-y-3">
+      <div className="sticky top-0 z-20 -mx-4 border-b border-border/70 bg-background/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/70 sm:-mx-0 sm:rounded-none">
+        <div className="flex flex-wrap items-center gap-3 py-2.5">
+          <div className="min-w-0">
+            <h1 className="text-[15px] font-semibold leading-tight text-foreground">Platform overview</h1>
+            <p className="text-[11px] leading-tight text-muted-foreground">
+              Compact KPIs with mini charts — click a card for detail.
+            </p>
+          </div>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
+              <StatusDot tone={systemsOk ? 'ok' : 'warn'} />
+              {systemsOk ? 'All systems operational' : 'Attention needed'}
+            </Badge>
+            <span className="hidden text-[11px] text-muted-foreground sm:inline">
+              Checked {celery?.checked_at ? fmt(celery.checked_at) : loading ? '…' : '—'}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5 text-[11px]"
+              onClick={() => setRefreshKey((k) => k + 1)}
+              disabled={loading}
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+              {loading ? 'Refreshing…' : 'Refresh'}
+            </Button>
+            <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+              <Link to="/analytics/kpis">Analytics</Link>
+            </Button>
+            <Button asChild size="sm" className="h-7 text-[11px]">
+              <Link to="/onboarding/add-customer">Add customer</Link>
+            </Button>
+          </div>
         </div>
       </div>
 
-      {error ? <div className='note dashboardErrorNote'>{error}</div> : null}
-
-      <DashboardSection title='Platform overview' description='Compact KPIs with mini charts — click a card for detail.'>
-        <div className='dashKpiGrid'>
-          {overviewKpis.map((kpi) => (
-            <Link key={kpi.label} to={kpi.href} className='dashKpiCard dashKpiCardLink'>
-              <span className='dashKpiLabel'>{kpi.label}</span>
-              <strong className='dashKpiValue'>{loading ? '…' : kpi.value}</strong>
-              <span className='dashKpiSub'>{kpi.sub}</span>
-              {kpi.spark?.length ? (
-                <KpiSpark rows={kpi.spark} />
-              ) : null}
-            </Link>
-          ))}
+      {error ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
+          {error}
         </div>
-      </DashboardSection>
+      ) : null}
 
-      <DashboardSection
-        title='Celery / background jobs'
-        description='Worker + beat health for deferred WA surveys, billing, and voice notes.'
-        action={
-          isSuper ? (
-            <button
-              type='button'
-              className='btn soft'
-              onClick={() => void restartCelery()}
-              disabled={celeryRestarting || loading}
-            >
-              <RefreshCw size={16} className={`btnIconLeading${celeryRestarting ? ' spin' : ''}`} />
-              {celeryRestarting ? 'Restarting…' : 'Restart Celery'}
-            </button>
-          ) : null
-        }
-      >
-        {!isSuper ? (
-          <p className='muted dashboardHint'>Celery controls are visible to superadmin only.</p>
-        ) : (
-          <div className={`dashCeleryMonitor${celery && celery.ok === false ? ' isBad' : celery?.ok ? ' isGood' : ''}`}>
-            <div className='dashCeleryGrid'>
-              <div className='dashCeleryStat'>
-                <span className='dashKpiLabel'>Worker</span>
-                <strong className='dashCeleryValue'>
-                  {loading ? '…' : celery?.worker?.supervisor?.state || (celery?.worker?.process_running ? 'PROCESS' : '—')}
-                </strong>
-                <span className='dashKpiSub'>
-                  ping {celery?.worker?.ping?.ok ? 'ok' : 'fail'}
-                  {celery?.worker?.ping?.nodes?.length ? ` · ${celery.worker.ping.nodes.length} node(s)` : ''}
-                </span>
-              </div>
-              <div className='dashCeleryStat'>
-                <span className='dashKpiLabel'>Beat</span>
-                <strong className='dashCeleryValue'>
-                  {loading ? '…' : celery?.beat?.supervisor?.state || (celery?.beat?.process_running ? 'PROCESS' : '—')}
-                </strong>
-                <span className='dashKpiSub'>
-                  schedule {celery?.beat?.schedule?.ok ? 'ok' : 'check needed'}
-                </span>
-              </div>
-              <div className='dashCeleryStat'>
-                <span className='dashKpiLabel'>Redis</span>
-                <strong className='dashCeleryValue'>{loading ? '…' : celery?.redis?.ok ? 'OK' : 'DOWN'}</strong>
-                <span className='dashKpiSub'>{celery?.redis?.detail || 'broker'}</span>
-              </div>
-              <div className='dashCeleryStat'>
-                <span className='dashKpiLabel'>Critical tasks</span>
-                <strong className='dashCeleryValue'>
-                  {loading
-                    ? '…'
-                    : `${(celery?.worker?.tasks?.has_critical || []).length}/${(celery?.critical_tasks || []).length || 4}`}
-                </strong>
-                <span className='dashKpiSub'>
-                  {celery?.stale_code
-                    ? 'Restart needed after deploy'
-                    : celery?.worker?.tasks?.missing_critical?.length
-                      ? `Missing: ${celery.worker.tasks.missing_critical.join(', ')}`
-                      : 'registered on worker'}
-                </span>
-              </div>
-            </div>
-            {celery?.issues?.length ? (
-              <ul className='dashCeleryIssues'>
-                {celery.issues.map((issue) => (
-                  <li key={issue}>
-                    <AlertTriangle size={14} /> {issue}
-                  </li>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+        {overviewKpis.map((kpi, i) => (
+          <KpiCard
+            key={kpi.id}
+            variant="dashboard"
+            index={i}
+            icon={kpi.icon}
+            label={kpi.label}
+            value={kpi.value}
+            sub={kpi.sub}
+            valueTone={kpi.valueTone}
+            spark={kpi.spark}
+            onClick={() => setActiveKpi(kpi)}
+          />
+        ))}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Panel
+          title="Celery / background jobs"
+          description="Worker + beat health for deferred WA surveys, billing, and voice notes."
+          icon={Server}
+          action={
+            isSuper ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 gap-1.5 text-[11px]"
+                onClick={() => void restartCelery()}
+                disabled={celeryRestarting || loading}
+              >
+                <RefreshCw className={cn('h-3.5 w-3.5', celeryRestarting && 'animate-spin')} />
+                {celeryRestarting ? 'Restarting…' : 'Restart Celery'}
+              </Button>
+            ) : null
+          }
+        >
+          {!isSuper ? (
+            <p className="text-[12px] text-muted-foreground">Celery controls are visible to superadmin only.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {celeryStats.map((s) => (
+                  <div key={s.label} className="rounded-lg border border-border bg-surface-muted/60 p-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{s.label}</span>
+                      <StatusDot tone={s.tone} />
+                    </div>
+                    <p className="mt-0.5 text-[13px] font-semibold text-foreground">{s.value}</p>
+                    <p className="text-[10px] text-muted-foreground">{s.note}</p>
+                  </div>
                 ))}
-              </ul>
-            ) : (
-              <p className='dashCeleryOk'>
-                <BadgeCheck size={14} /> Healthy — deferred WA starts and billing schedules can run.
-              </p>
-            )}
-            {celeryMsg ? <p className='dashCeleryMsg'>{celeryMsg}</p> : null}
-            <p className='muted dashCeleryChecked'>
-              Checked {celery?.checked_at ? fmt(celery.checked_at) : '—'}
-              {celeryRestarting ? ' · restarting…' : ''}
-            </p>
+              </div>
+              {celery?.issues?.length ? (
+                <ul className="mt-2 space-y-1 rounded-lg border border-warning/30 bg-warning-soft/60 px-2 py-1.5 text-[11px] text-foreground">
+                  {celery.issues.map((issue) => (
+                    <li key={issue} className="flex items-start gap-1.5">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+                      {issue}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-success/30 bg-success-soft/60 px-2 py-1.5 text-[11px] text-foreground">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                  Healthy — deferred WA starts and billing schedules can run.
+                </div>
+              )}
+              {celeryMsg ? <p className="mt-2 text-[11px] text-muted-foreground">{celeryMsg}</p> : null}
+              <div className="mt-2 space-y-1.5">
+                {[
+                  { label: 'Queue depth', value: Number(celery?.queue_depth ?? 0), max: 100 },
+                  {
+                    label: 'Task success (24h)',
+                    value: Number(celery?.task_success_pct ?? (celery?.ok ? 99 : 0)),
+                    max: 100,
+                  },
+                ].map((q) => (
+                  <div key={q.label}>
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>{q.label}</span>
+                      <span className="tabular-nums">{q.value}</span>
+                    </div>
+                    <Progress value={(q.value / q.max) * 100} className="h-1" />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </Panel>
+
+        <Panel
+          title="Products"
+          description="WA Survey, AI Interview, campaigns and feedback — compact volume."
+          icon={Activity}
+          className="lg:col-span-2"
+        >
+          <Tabs value={productTab} onValueChange={setProductTab}>
+            <TabsList className="h-8 w-full justify-start gap-1 bg-secondary p-0.5">
+              {productTabs.map((p) => (
+                <TabsTrigger key={p.id} value={p.id} className="h-7 gap-1.5 text-[11px]">
+                  <p.icon className="h-3.5 w-3.5" />
+                  {p.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {productTabs.map((p, pi) => (
+              <TabsContent key={p.id} value={p.id} className="mt-2.5">
+                <div className="grid gap-2.5 sm:grid-cols-[auto_1fr]">
+                  <button
+                    type="button"
+                    onClick={() => navigate(p.href)}
+                    className="rounded-lg border border-border bg-surface-muted/60 p-2.5 text-left transition-colors hover:border-ring/40 sm:w-40"
+                  >
+                    <p className="text-2xl font-semibold leading-none tabular-nums text-foreground">
+                      {p.live == null ? '—' : loading ? '…' : n(p.live)}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">live now</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      {p.total == null ? 'Open hub' : `${n(p.total)} total`}
+                    </p>
+                    <div className="mt-1 text-primary">
+                      <Sparkline data={spark(pi + 11)} />
+                    </div>
+                  </button>
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                    {p.breakdown.map((b) => {
+                      const numeric = typeof b.value === 'number'
+                      const pct = numeric && p.total ? Math.round((b.value / Math.max(p.total, 1)) * 100) : 0
+                      return (
+                        <div key={b.label} className="rounded-lg border border-border bg-card p-2">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{b.label}</p>
+                          <p className="text-base font-semibold tabular-nums text-foreground">
+                            {numeric ? (loading ? '…' : n(b.value)) : b.value}
+                          </p>
+                          {b.note ? <p className="text-[10px] text-muted-foreground">{b.note}</p> : null}
+                          {numeric ? <Progress value={pct} className="mt-1 h-1" /> : null}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
+
+          <Separator className="my-3" />
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            {[
+              {
+                title: 'Campaigns',
+                desc: 'Broadcast templates and outbound hub.',
+                cta: 'Template library',
+                to: '/campaigns',
+                icon: Megaphone,
+              },
+              {
+                title: 'Customer feedback',
+                desc: 'Industries, packages, locations, results.',
+                cta: 'Feedback catalog',
+                to: '/customer-feedback/industries',
+                icon: Sparkles,
+              },
+              {
+                title: 'Smart card QR',
+                desc: 'QR profiles, scans and redirect targets.',
+                cta: 'QR studio',
+                to: '/operations/smart-card-insights',
+                icon: QrCode,
+              },
+            ].map((c) => (
+              <Link
+                key={c.title}
+                to={c.to}
+                className="group rounded-lg border border-border bg-card p-2.5 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
+              >
+                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+                  <c.icon className="h-3.5 w-3.5" /> {c.title}
+                </div>
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{c.desc}</p>
+                <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-foreground">
+                  {c.cta}
+                  <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                </span>
+              </Link>
+            ))}
           </div>
-        )}
-      </DashboardSection>
+        </Panel>
+      </div>
 
-      <DashboardSection title='Products' description='WA Survey, AI Interview, campaigns, and customer feedback — compact volume charts.'>
-        <div className='dashProductGrid'>
-          <ProductMiniChart
-            title='WA Survey'
-            href='/operations/running-surveys'
-            total={surveys?.total ?? 0}
-            live={surveys?.live ?? 0}
-            rows={surveyChartRows}
-            accent='#0891b2'
-          />
-          <ProductMiniChart
-            title='AI Interview'
-            href='/operations/running-interviews'
-            total={interviews?.total ?? 0}
-            live={interviews?.live ?? 0}
-            rows={interviewChartRows}
-            accent='#7c3aed'
-          />
-          <ProductHubCard
-            title='Campaigns'
-            description='Broadcast templates and outbound campaign hub.'
-            href='/campaigns'
-            icon='ti-ad-2'
-            stat='Template library'
-          />
-          <ProductHubCard
-            title='Customer feedback'
-            description='Industries, packages, locations, and WhatsApp survey results.'
-            href='/customer-feedback/industries'
-            icon='ti-message-circle'
-            stat='Feedback catalog'
-          />
-        </div>
-      </DashboardSection>
-
-      <DashboardSection
-        title='Platform APIs'
-        description='Enabled integrations only — click a card to open API settings.'
+      <Panel
+        title="Platform APIs"
+        description="Enabled integrations only — click a card to open API settings."
+        icon={Settings2}
         action={
           isSuper ? (
-            <Link to='/integrations/kpi' className='btn soft'>
-              All integrations
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={integrationQuery}
+                onChange={(e) => setIntegrationQuery(e.target.value)}
+                placeholder="Search integrations…"
+                className="h-7 w-40 text-[11px]"
+              />
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <Switch
+                  checked={onlineOnly}
+                  onCheckedChange={setOnlineOnly}
+                  className="data-[state=checked]:bg-success"
+                />
+                Online only
+              </label>
+              <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+                <Link to="/integrations/kpi">All integrations</Link>
+              </Button>
+            </div>
           ) : null
         }
       >
         {!isSuper ? (
-          <p className='muted dashboardHint'>Enabled API status is visible to superadmin only.</p>
+          <p className="text-[12px] text-muted-foreground">Enabled API status is visible to superadmin only.</p>
         ) : integrationsLoading ? (
-          <p className='muted dashboardHint'>Loading integration status…</p>
+          <p className="text-[12px] text-muted-foreground">Loading integration status…</p>
         ) : enabledIntegrations.length === 0 ? (
-          <p className='muted dashboardHint'>No enabled integrations — turn providers on in Integrations.</p>
+          <p className="py-6 text-center text-[12px] text-muted-foreground">
+            {integrationQuery
+              ? `No integrations match “${integrationQuery}”.`
+              : 'No enabled integrations — turn providers on in Integrations.'}
+          </p>
         ) : (
           <>
-            <div className='dashApiGrid'>
-              {enabledIntegrations.map((p) => (
-                <DashboardApiCard
-                  key={p.key}
-                  provider={p}
-                  summary={health[p.key]}
-                  balances={providerBalances}
-                  onOpen={() => navigate(`/integrations/${p.key}`)}
-                />
-              ))}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {enabledIntegrations.map((p, idx) => {
+                const status = integrationCardStatus(health[p.key])
+                const detail = integrationMetaLine(p.key, health[p.key], providerBalances)
+                return (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => navigate(`/integrations/${p.key}`)}
+                    style={{ animationDelay: `${idx * 20}ms` }}
+                    className="group animate-in fade-in-50 rounded-lg border border-border bg-card p-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-[12px] font-semibold text-foreground">{p.label}</p>
+                        <p className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">{p.blurb}</p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'shrink-0 gap-1 rounded-full px-1.5 text-[9px]',
+                          status.connected
+                            ? 'border-success/40 text-success'
+                            : 'border-border text-muted-foreground',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'h-1.5 w-1.5 rounded-full',
+                            status.connected ? 'bg-success' : 'bg-muted-foreground',
+                          )}
+                        />
+                        {status.label}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-[10px] text-muted-foreground">{detail}</span>
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium text-foreground opacity-70 group-hover:opacity-100">
+                        Settings <ArrowUpRight className="h-3 w-3" />
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
-            <div className='dashApiWebhookRow'>
+            <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-surface-muted/50 px-2.5 py-2 text-[11px]">
               <span>
-                Webhooks failed: <strong>{n(webhooks.failed || 0)}</strong>
+                Webhooks failed: <strong className="tabular-nums">{n(failedHooks)}</strong>
               </span>
-              <span className='muted'>Latest: {fmt(webhooks.latest_received_at)}</span>
-              <Link to='/integrations/webhooks' className='btn soft sm'>
-                Webhook settings
-              </Link>
+              <span className="text-muted-foreground">Latest: {fmt(webhooks.latest_received_at)}</span>
+              <Button asChild size="sm" variant="outline" className="ml-auto h-7 text-[11px]">
+                <Link to="/integrations/webhooks">Webhook settings</Link>
+              </Button>
             </div>
           </>
         )}
-      </DashboardSection>
+      </Panel>
 
-      <DashboardSection title='Queues & operations' description='Support, compliance, and onboarding.'>
-      <div className='grid-12'>
-        <div className='span-8 stack'>
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>Open support tickets</h3>
-              <Link to='/support/inbox' className='btn soft'>
-                View inbox
-              </Link>
-            </div>
-            <div className='cardBody'>
-              {tickets.length ? (
-                <div className='tableWrap'>
-                  <table className='table'>
-                    <thead>
-                      <tr>
-                        <th>Subject</th>
-                        <th>Category</th>
-                        <th>Status</th>
-                        <th>Updated</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tickets.map((t) => (
-                        <tr
-                          key={t.id}
-                          className='tableRowClickable'
-                          onClick={() => navigate(`/support/tickets/${t.id}`)}
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Panel
+          title="Queues & operations"
+          description="Support, compliance, and onboarding."
+          icon={Inbox}
+          className="lg:col-span-2"
+          action={
+            <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+              <Link to="/support/inbox">View inbox</Link>
+            </Button>
+          }
+        >
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-[11px]">
+              <thead className="bg-surface-muted/70 text-muted-foreground">
+                <tr>
+                  {['Subject', 'Category', 'Status', 'Updated'].map((h) => (
+                    <th key={h} className="px-2.5 py-1.5 text-left font-medium">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tickets.length ? (
+                  tickets.map((t) => (
+                    <tr
+                      key={t.id}
+                      className="cursor-pointer border-t border-border/70 hover:bg-muted/50"
+                      onClick={() => navigate(`/support/tickets/${t.id}`)}
+                    >
+                      <td className="px-2.5 py-1.5 font-medium text-foreground">{t.subject}</td>
+                      <td className="px-2.5 py-1.5 text-muted-foreground">{t.category || '—'}</td>
+                      <td className="px-2.5 py-1.5">
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-warning/40 px-1.5 text-[9px] text-warning"
                         >
-                          <td>{t.subject}</td>
-                          <td>{t.category || '—'}</td>
-                          <td>
-                            <span className='pill p-cyan'>{t.status}</span>
-                          </td>
-                          <td className='muted'>{fmt(t.updated_at || t.last_message_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className='muted'>No open tickets.</p>
-              )}
-            </div>
+                          {t.status}
+                        </Badge>
+                      </td>
+                      <td className="px-2.5 py-1.5 tabular-nums text-muted-foreground">
+                        {fmt(t.updated_at || t.last_message_at)}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-2.5 py-6 text-center text-muted-foreground">
+                      No open tickets.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
 
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>Pending account deletions</h3>
-              <Link to='/compliance/account-deletions' className='btn soft'>
-                View queue
-              </Link>
-            </div>
-            <div className='cardBody'>
-              <div className='dashboardInlineBadge'>
-                <span className='pill p-amber'>{n(accountDeletions.pending_count || accountDeletions.items.length)} awaiting</span>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-border bg-surface-muted/50 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+                  <Database className="h-3.5 w-3.5" /> Pending account deletions
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {n(accountDeletions.pending_count || accountDeletions.items.length)} awaiting
+                </span>
               </div>
               {accountDeletions.items.length ? (
-                <div className='tableWrap'>
-                  <table className='table'>
-                    <thead>
-                      <tr>
-                        <th>User</th>
-                        <th>Organisation</th>
-                        <th>Requested</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {accountDeletions.items.slice(0, 8).map((row) => (
-                        <tr
-                          key={row.id}
-                          className='tableRowClickable'
-                          onClick={() => navigate('/compliance/account-deletions')}
-                        >
-                          <td>{row.requested_by_email || '—'}</td>
-                          <td>{row.org_name || '—'}</td>
-                          <td className='muted'>{fmt(row.requested_at)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className='muted'>No pending account deletion requests.</p>
-              )}
-            </div>
-          </div>
-
-          <div className='card'>
-            <div className='cardHead'>
-              <h3>Pending signups</h3>
-              <span className='pill p-amber'>{n(pending.length)} awaiting</span>
-            </div>
-            <div className='cardBody'>
-              {pending.length ? (
-                <div className='tableWrap'>
-                  <table className='table'>
-                    <thead>
-                      <tr>
-                        <th>Email</th>
-                        <th>Organisation</th>
-                        <th>Requested</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pending.slice(0, 10).map((row) => (
-                        <tr key={row.id}>
-                          <td>{row.email || row.contact_email || '—'}</td>
-                          <td>{row.organisation_name || row.org_name || '—'}</td>
-                          <td className='muted'>{fmt(row.created_at)}</td>
-                          <td>
-                            <div className='rowActionsCompact'>
-                              <button type='button' className='btn soft sm' onClick={() => decideSignup(row.id, 'approve')}>
-                                Approve
-                              </button>
-                              <button type='button' className='btn soft sm' onClick={() => decideSignup(row.id, 'reject')}>
-                                Reject
-                              </button>
-                              {row.organisation_id ? (
-                                <button type='button' className='btn soft sm' onClick={() => openOrgUsers(row.organisation_id)}>
-                                  Users
-                                </button>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className='muted'>No pending onboarding requests.</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className='span-4'>
-          <div className='stack'>
-            <div className='card'>
-              <div className='cardHead'>
-                <h3>Needs attention</h3>
-                <span className='pill p-red'>Live</span>
-              </div>
-              <div className='cardBody'>
-                <div className='timeline'>
-                  {[
-                    ['Failed webhooks', `${n(webhooks.failed)} recent`, '/integrations/webhooks', AlertTriangle],
-                    ['Past-due subscriptions', `${n(billing?.subscriptions_past_due)} subs`, '/billing/subscriptions', Activity],
-                    ['Pending signups', `${n(pending.length)} to review`, '/onboarding/add-customer', MessageSquare],
-                    ['Open tickets', `${n(support?.total_open ?? 0)} open`, '/support/inbox', BadgeCheck],
-                  ].map(([title, detail, href, Icon]) => (
-                    <div
-                      className='timelineItem'
-                      key={title}
-                      onClick={() => navigate(href)}
-                      role='button'
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') navigate(href)
-                      }}
-                    >
-                      <div className='timelineIcon'>
-                        <Icon size={16} />
-                      </div>
-                      <div>
-                        <div className='timelineTitle'>{title}</div>
-                        <div className='muted'>{detail}</div>
-                      </div>
-                    </div>
+                <ul className="mt-1.5 space-y-1">
+                  {accountDeletions.items.slice(0, 4).map((row) => (
+                    <li key={row.id} className="truncate text-[11px] text-muted-foreground">
+                      {row.requested_by_email || '—'} · {row.org_name || '—'}
+                    </li>
                   ))}
-                </div>
-              </div>
+                </ul>
+              ) : (
+                <p className="mt-1 text-[11px] text-muted-foreground">No pending account deletion requests.</p>
+              )}
+              <Button asChild size="sm" variant="ghost" className="mt-1 h-6 px-1.5 text-[11px]">
+                <Link to="/compliance/account-deletions">View queue</Link>
+              </Button>
             </div>
 
-            <div className='card'>
-              <div className='cardHead'>
-                <h3>Latest activity</h3>
+            <div className="rounded-lg border border-border bg-surface-muted/50 p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+                  <UserPlus className="h-3.5 w-3.5" /> Pending signups
+                </span>
+                <span className="text-[10px] text-muted-foreground">{n(pending.length)} awaiting</span>
               </div>
-              <div className='cardBody'>
-                <div className='list'>
-                  <div className='listRow'>
-                    <span>Latest subscription</span>
-                    <strong className='dashboardMetaStrong'>{fmt(billing?.latest_subscription_created_at)}</strong>
-                  </div>
-                  <div className='listRow'>
-                    <span>WA surveys live</span>
-                    <strong>{n(surveys?.live ?? 0)}</strong>
-                  </div>
-                  <div className='listRow'>
-                    <span>AI interviews live</span>
-                    <strong>{n(interviews?.live ?? 0)}</strong>
-                  </div>
-                  <div className='listRow'>
-                    <span>ElevenLabs chars</span>
-                    <strong>{elevenBalance?.ok ? n(elevenBalance.characters_remaining) : '—'}</strong>
-                  </div>
-                </div>
-                <div className='actions dashboardCardActions'>
-                  <Link to='/operations/running-surveys' className='btn soft'>WA Survey</Link>
-                  <Link to='/operations/running-interviews' className='btn soft'>AI Interview</Link>
-                  <Link to='/campaigns' className='btn soft'>Campaigns</Link>
-                  <Link to='/customer-feedback/industries' className='btn soft'>Feedback</Link>
-                </div>
-              </div>
+              {pending.length ? (
+                <ul className="mt-1.5 space-y-1.5">
+                  {pending.slice(0, 4).map((row) => (
+                    <li key={row.id} className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                        {row.email || row.contact_email || '—'}
+                      </span>
+                      <span className="flex shrink-0 gap-1">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-6 px-1.5 text-[10px]"
+                          onClick={() => void decideSignup(row.id, 'approve')}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-1.5 text-[10px]"
+                          onClick={() => void decideSignup(row.id, 'reject')}
+                        >
+                          Reject
+                        </Button>
+                        {row.organisation_id ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-1.5 text-[10px]"
+                            onClick={() => openOrgUsers(row.organisation_id)}
+                          >
+                            Users
+                          </Button>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-[11px] text-muted-foreground">No pending onboarding requests.</p>
+              )}
+              <Button asChild size="sm" variant="ghost" className="mt-1 h-6 px-1.5 text-[11px]">
+                <Link to="/onboarding/add-customer">View queue</Link>
+              </Button>
             </div>
           </div>
-        </div>
+        </Panel>
+
+        <Panel
+          title="Needs attention"
+          description="Live signals across billing, delivery and support."
+          icon={AlertTriangle}
+          action={
+            <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
+              <StatusDot tone="ok" /> Live
+            </Badge>
+          }
+        >
+          <div className="space-y-1.5">
+            {[
+              {
+                label: 'Failed webhooks',
+                value: `${n(failedHooks)} recent`,
+                tone: toneFromCount(failedHooks),
+                icon: Zap,
+                href: '/integrations/webhooks',
+              },
+              {
+                label: 'Past-due subscriptions',
+                value: `${n(pastDue)} subs`,
+                tone: toneFromCount(pastDue),
+                icon: CircleDollarSign,
+                href: '/billing/subscriptions',
+              },
+              {
+                label: 'Pending signups',
+                value: `${n(pending.length)} to review`,
+                tone: toneFromCount(pending.length),
+                icon: UserPlus,
+                href: '/onboarding/add-customer',
+              },
+              {
+                label: 'Open tickets',
+                value: `${n(openTickets)} open`,
+                tone: toneFromCount(openTickets),
+                icon: LifeBuoy,
+                href: '/support/inbox',
+              },
+              {
+                label: 'Telnyx credit',
+                value: telnyxBalance?.ok ? money(telnyxBalance.amount, telnyxBalance.currency) : '—',
+                tone: telnyxBalance?.ok && Number(telnyxBalance.amount) < 20 ? 'warn' : 'ok',
+                icon: Wallet,
+                href: '/integrations/telnyx',
+              },
+            ].map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => navigate(a.href)}
+                className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40"
+              >
+                <span className="flex items-center gap-1.5 text-[11px] text-foreground">
+                  <a.icon className="h-3.5 w-3.5 text-muted-foreground" />
+                  {a.label}
+                </span>
+                <span
+                  className={cn(
+                    'flex items-center gap-1.5 text-[11px] tabular-nums',
+                    a.tone === 'ok' ? 'text-muted-foreground' : 'text-warning',
+                  )}
+                >
+                  <StatusDot tone={a.tone} />
+                  {a.value}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <Separator className="my-2.5" />
+
+          <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+            <Timer className="h-3.5 w-3.5" /> Latest activity
+          </p>
+          <ul className="space-y-1 text-[11px] text-muted-foreground">
+            {[
+              { icon: CreditCard, t: 'Latest subscription', v: fmt(billing?.latest_subscription_created_at) },
+              { icon: MessageSquare, t: 'WA surveys live', v: n(surveys?.live ?? 0) },
+              { icon: Bot, t: 'AI interviews live', v: n(interviews?.live ?? 0) },
+              {
+                icon: Sparkles,
+                t: 'ElevenLabs chars',
+                v: elevenBalance?.ok ? n(elevenBalance.characters_remaining) : '—',
+              },
+            ].map((r) => (
+              <li key={r.t} className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5">
+                  <r.icon className="h-3 w-3" />
+                  {r.t}
+                </span>
+                <span className="tabular-nums text-foreground">{r.v}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+              <Link to="/operations/running-surveys">WA Survey</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+              <Link to="/operations/running-interviews">AI Interview</Link>
+            </Button>
+            <Button asChild size="sm" variant="outline" className="h-7 text-[11px]">
+              <Link to="/campaigns">Campaigns</Link>
+            </Button>
+          </div>
+        </Panel>
       </div>
-      </DashboardSection>
+
+      <Sheet open={!!activeKpi} onOpenChange={(o) => !o && setActiveKpi(null)}>
+        <SheetContent className="w-full sm:max-w-md">
+          {activeKpi ? (
+            <>
+              <SheetHeader>
+                <SheetTitle className="flex items-center gap-2 text-sm">
+                  {activeKpi.icon ? <activeKpi.icon className="h-4 w-4" /> : null}
+                  {activeKpi.label}
+                </SheetTitle>
+                <SheetDescription className="text-[11px]">{activeKpi.sub}</SheetDescription>
+              </SheetHeader>
+              <div className="space-y-3 px-0 pb-4 pt-2">
+                <div className="rounded-lg border border-border bg-surface-muted/60 p-3">
+                  <p className="text-3xl font-semibold tabular-nums text-foreground">{activeKpi.value}</p>
+                  <div className="mt-2 text-primary">
+                    <Sparkline data={activeKpi.spark || spark(7)} className="h-14" />
+                  </div>
+                </div>
+                <ul className="space-y-1.5">
+                  {(activeKpi.detail || []).map((d) => (
+                    <li
+                      key={d}
+                      className="rounded-md border border-border bg-card px-2.5 py-1.5 text-[11px] text-muted-foreground"
+                    >
+                      {d}
+                    </li>
+                  ))}
+                </ul>
+                <Button
+                  size="sm"
+                  className="w-full text-[11px]"
+                  onClick={() => {
+                    const href = activeKpi.href
+                    setActiveKpi(null)
+                    if (href) navigate(href)
+                  }}
+                >
+                  Open full report
+                </Button>
+              </div>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

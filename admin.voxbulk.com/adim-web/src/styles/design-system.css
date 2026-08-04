@@ -162,13 +162,15 @@
   }
 }
 
-/* Re-assert the admin radius scale. Tailwind's default theme.css emits
-   --radius-xs/sm/md/lg to :root, which would otherwise shrink the legacy admin
-   pages. The ui components use the inlined (calc) radii from @theme inline above,
-   so they are unaffected by these values. */
+/* Keep legacy radius aliases aligned with reference 0.625rem scale.
+   ui components use @theme inline calc() from --ds-radius. */
 :root {
-  --radius-xs: 9px;
-  --radius-sm: 12px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
