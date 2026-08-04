@@ -158,6 +158,7 @@ def delete_label(db: Session, sales_rep_id: str, label_id: str) -> None:
 def list_contacts(db: Session, sales_rep_id: str) -> list[dict[str, Any]]:
     """Contacts = mailbox address book + all sales customers with an email (follow-up list)."""
     from app.models.sales_rep import SalesCustomer
+    from app.services.sales_rep_service import SalesRepService
 
     contacts = db.scalars(
         select(SalesMailContact)
