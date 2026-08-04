@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "date-fns";
 import {
   ArrowLeft,
   Forward,
   ImagePlus,
   Link2,
+  Loader2,
   Send,
   Sparkles,
   Star,
@@ -34,6 +35,8 @@ interface Props {
   message: MailMessage;
   account?: MailAccount | undefined;
   mode: "read" | "reply" | "forward";
+  /** True while full HTML body is still downloading */
+  loadingBody?: boolean;
   onBack: () => void;
   onSend: (body: string, kind: "reply" | "forward", attachments: MailAttachment[]) => void;
   onDelete: (id: string) => void;
@@ -45,6 +48,7 @@ export function MessageView({
   message,
   account,
   mode,
+  loadingBody = false,
   onBack,
   onSend,
   onDelete,
@@ -60,8 +64,23 @@ export function MessageView({
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
+  const [viewTab, setViewTab] = useState<"text" | "html">("text");
   const fileRef = useRef<HTMLInputElement>(null);
   const signature = account?.signature?.trim() ?? "";
+
+  const plainText = useMemo(() => {
+    const t = (message.text || "").trim();
+    if (t) return t;
+    return (message.preview || "").trim();
+  }, [message.text, message.preview]);
+
+  const hasHtml = Boolean((message.html || "").trim());
+
+  useEffect(() => {
+    // Gmail-like: show text immediately; flip to HTML once the rich body arrives.
+    if (hasHtml && !loadingBody) setViewTab("html");
+    else setViewTab("text");
+  }, [message.id, hasHtml, loadingBody]);
 
   async function writeWithAi() {
     setLoading(true);
@@ -195,21 +214,40 @@ export function MessageView({
           <span className="ml-auto">{format(new Date(message.date), "PPp")}</span>
         </div>
 
-        <Tabs defaultValue="html" className="mt-5">
-          <TabsList>
-            <TabsTrigger value="html">HTML</TabsTrigger>
-            <TabsTrigger value="text">Plain text</TabsTrigger>
-          </TabsList>
-          <TabsContent value="html">
-            <div
-              className="mail-html text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: message.html }}
-            />
-          </TabsContent>
+        <Tabs
+          value={viewTab}
+          onValueChange={(v) => setViewTab(v as "text" | "html")}
+          className="mt-5"
+        >
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <TabsList>
+              <TabsTrigger value="text">Plain text</TabsTrigger>
+              <TabsTrigger value="html" disabled={!hasHtml && loadingBody}>
+                HTML
+              </TabsTrigger>
+            </TabsList>
+            {loadingBody && !hasHtml ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" /> Loading formatted view…
+              </span>
+            ) : null}
+          </div>
           <TabsContent value="text">
             <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
-              {message.text}
+              {plainText || (loadingBody ? "Loading…" : "No message body.")}
             </pre>
+          </TabsContent>
+          <TabsContent value="html">
+            {hasHtml ? (
+              <div
+                className="mail-html text-sm leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: message.html }}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {loadingBody ? "Loading HTML…" : "No HTML version for this message."}
+              </p>
+            )}
           </TabsContent>
         </Tabs>
 

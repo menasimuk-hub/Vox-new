@@ -4,12 +4,21 @@ import {
   Archive,
   CornerUpLeft,
   Forward,
+  Mail,
   Paperclip,
+  PenSquare,
   Star,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { MailAccount, MailMessage } from "@/lib/mail-store";
 
@@ -20,6 +29,7 @@ interface Props {
   onToggleSelect: (id: string) => void;
   onToggleAll: () => void;
   onBulkDelete: () => void;
+  onCompose: () => void;
   onOpen: (m: MailMessage) => void;
   onReply: (m: MailMessage) => void;
   onForward: (m: MailMessage) => void;
@@ -36,6 +46,7 @@ export function MessageTable({
   onToggleSelect,
   onToggleAll,
   onBulkDelete,
+  onCompose,
   onOpen,
   onReply,
   onForward,
@@ -53,10 +64,12 @@ export function MessageTable({
   }
 
   const allSelected = messages.every((m) => selected.includes(m.id));
+  const single =
+    selected.length === 1 ? messages.find((m) => m.id === selected[0]) : undefined;
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
-      <div className="flex items-center gap-3 border-b bg-surface-2 px-3 py-2 sm:px-4">
+      <div className="flex flex-wrap items-center gap-2 border-b bg-surface-2 px-3 py-2 sm:gap-3 sm:px-4">
         <Checkbox
           checked={allSelected}
           onCheckedChange={onToggleAll}
@@ -65,16 +78,41 @@ export function MessageTable({
         <span className="text-xs text-muted-foreground">
           {selected.length > 0 ? `${selected.length} selected` : "Select all"}
         </span>
-        {selected.length > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto text-destructive hover:text-destructive"
-            onClick={onBulkDelete}
-          >
-            <Trash2 className="size-3.5" /> Delete selected
-          </Button>
-        )}
+        {selected.length > 0 ? (
+          <div className="ml-auto flex flex-wrap items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="secondary">
+                  <Mail className="size-3.5" /> Send email
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onCompose}>
+                  <PenSquare className="size-3.5" /> Compose new
+                </DropdownMenuItem>
+                {single ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => onReply(single)}>
+                      <CornerUpLeft className="size-3.5" /> Reply
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onForward(single)}>
+                      <Forward className="size-3.5" /> Forward
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              onClick={onBulkDelete}
+            >
+              <Trash2 className="size-3.5" /> Delete
+            </Button>
+          </div>
+        ) : null}
       </div>
       <ul className="divide-y">
         {messages.map((m) => {

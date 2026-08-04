@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.encryption import get_encryptor
 from app.models.voxbox_mail_account import VoxboxMailAccount
 from app.models.voxbox_message import VoxboxMessage
-from app.schemas.voxbox import VoxboxAccountIn, VoxboxAccountUpdate, VoxboxAiReplyIn, VoxboxMessagePatch, VoxboxSendIn
+from app.schemas.voxbox import VoxboxAccountIn, VoxboxAccountUpdate, VoxboxAiReplyIn, VoxboxComposeIn, VoxboxMessagePatch, VoxboxSendIn
 
 logger = logging.getLogger(__name__)
 
@@ -687,36 +687,33 @@ class VoxboxMailService:
         }
 
     @staticmethod
-    def send_message(db: Session, message_id: str, payload: VoxboxSendIn) -> dict[str, Any]:
-        src = db.get(VoxboxMessage, message_id)
-        if src is None:
-            raise VoxboxServiceError("Message not found")
-        account = db.get(VoxboxMailAccount, src.account_id)
-        if account is None:
-            raise VoxboxServiceError("Account not found")
+    def _smtp_send(
+        account: VoxboxMailAccount,
+        *,
+        to_addr: str,
+        subject: str,
+        body: str,
+        in_reply_to: str | None = None,
+    ) -> EmailMessage:
         user = (account.username or account.email or "").strip()
         pwd = VoxboxMailService._decrypt_password(account)
         if not user or not pwd:
             raise VoxboxServiceError("SMTP credentials missing")
-
-        to_addr = (payload.to or src.from_email or "").strip()
         if not to_addr or "@" not in to_addr:
             raise VoxboxServiceError("Recipient address required")
-        base_subj = (src.subject or "").strip()
-        base_subj = re.sub(r"^(Re|Fwd):\s*", "", base_subj, flags=re.I)
-        subject = f"{'Re' if payload.kind == 'reply' else 'Fwd'}: {base_subj}"[:500]
-        body = payload.body.strip()
-        if account.signature and account.signature.strip() not in body:
-            body = f"{body}\n\n{account.signature.strip()}"
+
+        text = body.strip()
+        if account.signature and account.signature.strip() and account.signature.strip() not in text:
+            text = f"{text}\n\n{account.signature.strip()}"
 
         msg = EmailMessage()
-        msg["Subject"] = subject
+        msg["Subject"] = (subject or "(no subject)")[:500]
         msg["From"] = email.utils.formataddr((account.name or "", account.email))
         msg["To"] = to_addr
-        if payload.kind == "reply" and src.internet_message_id:
-            msg["In-Reply-To"] = src.internet_message_id
-            msg["References"] = src.internet_message_id
-        msg.set_content(body)
+        if in_reply_to:
+            msg["In-Reply-To"] = in_reply_to
+            msg["References"] = in_reply_to
+        msg.set_content(text)
 
         host = (account.smtp_host or "").strip()
         port = int(account.smtp_port or 465)
@@ -736,7 +733,19 @@ class VoxboxMailService:
                     smtp.send_message(msg, from_addr=account.email or user, to_addrs=[to_addr])
         except Exception as exc:
             raise VoxboxServiceError(f"Send failed: {exc}") from exc
+        return msg
 
+    @staticmethod
+    def _store_sent(
+        db: Session,
+        account: VoxboxMailAccount,
+        *,
+        to_addr: str,
+        subject: str,
+        body: str,
+        msg: EmailMessage,
+    ) -> dict[str, Any]:
+        text = body.strip()
         sent = VoxboxMessage(
             id=str(uuid.uuid4()),
             account_id=account.id,
@@ -746,10 +755,10 @@ class VoxboxMailService:
             from_name=account.name or "",
             from_email=account.email,
             to_addrs=to_addr,
-            subject=subject,
-            preview=body[:500],
-            body_text=body,
-            body_html=f"<p>{body.replace(chr(10), '<br/>')}</p>",
+            subject=subject[:500],
+            preview=text[:500],
+            body_text=text,
+            body_html=f"<p>{text.replace(chr(10), '<br/>')}</p>",
             date=VoxboxMailService._now(),
             unread=False,
             important=False,
@@ -762,6 +771,47 @@ class VoxboxMailService:
         db.commit()
         db.refresh(sent)
         return VoxboxMailService.message_to_dict(sent, full=True)
+
+    @staticmethod
+    def send_message(db: Session, message_id: str, payload: VoxboxSendIn) -> dict[str, Any]:
+        src = db.get(VoxboxMessage, message_id)
+        if src is None:
+            raise VoxboxServiceError("Message not found")
+        account = db.get(VoxboxMailAccount, src.account_id)
+        if account is None:
+            raise VoxboxServiceError("Account not found")
+
+        to_addr = (payload.to or src.from_email or "").strip()
+        base_subj = (src.subject or "").strip()
+        base_subj = re.sub(r"^(Re|Fwd):\s*", "", base_subj, flags=re.I)
+        subject = f"{'Re' if payload.kind == 'reply' else 'Fwd'}: {base_subj}"[:500]
+        body = payload.body.strip()
+        in_reply = src.internet_message_id if payload.kind == "reply" else None
+        msg = VoxboxMailService._smtp_send(
+            account,
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            in_reply_to=in_reply,
+        )
+        return VoxboxMailService._store_sent(
+            db, account, to_addr=to_addr, subject=subject, body=body, msg=msg
+        )
+
+    @staticmethod
+    def compose_message(db: Session, payload: VoxboxComposeIn) -> dict[str, Any]:
+        account = db.get(VoxboxMailAccount, payload.account_id)
+        if account is None:
+            raise VoxboxServiceError("Account not found")
+        if account.frozen:
+            raise VoxboxServiceError("Account is frozen")
+        to_addr = (payload.to or "").strip()
+        subject = (payload.subject or "").strip() or "(no subject)"
+        body = payload.body.strip()
+        msg = VoxboxMailService._smtp_send(account, to_addr=to_addr, subject=subject, body=body)
+        return VoxboxMailService._store_sent(
+            db, account, to_addr=to_addr, subject=subject, body=body, msg=msg
+        )
 
     @staticmethod
     def ai_reply(db: Session, payload: VoxboxAiReplyIn) -> dict[str, Any]:

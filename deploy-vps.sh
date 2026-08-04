@@ -205,13 +205,25 @@ copy_dist() {
   [[ "${asset_count:-0}" -gt 0 ]] || fail "$label build invalid: no JS/CSS assets under $src"
 
   if [[ -d "$dest" && -f "$dest/index.html" ]]; then
-    local backup="${dest}.backup-$(date +%Y%m%d-%H%M%S)"
-    info "Backing up $label wwwroot → $backup"
-    sudo cp -a "$dest" "$backup" || warn "Could not backup $dest"
-    local safe_label
-    safe_label=$(printf '%s' "$label" | tr -c 'a-zA-Z0-9._-' '-')
-    # Best-effort only — never abort deploy if /tmp marker is not writable
-    echo "$backup" > "/tmp/voxbulk-backup-${safe_label}.path" 2>/dev/null || true
+    # Optional one-off snapshot (off by default — left many *.backup-* dirs on the VPS).
+    if [[ "${VOX_WWWROOT_BACKUP:-0}" == "1" ]]; then
+      local backup="${dest}.backup-$(date +%Y%m%d-%H%M%S)"
+      info "Backing up $label wwwroot → $backup"
+      sudo cp -a "$dest" "$backup" || warn "Could not backup $dest"
+    fi
+  fi
+
+  # Remove leftover wwwroot timestamp backups from older deploys
+  local parent base
+  parent=$(dirname "$dest")
+  base=$(basename "$dest")
+  if [[ -d "$parent" ]]; then
+    local stale
+    # shellcheck disable=SC2044
+    for stale in $(find "$parent" -maxdepth 1 -type d -name "${base}.backup-*" 2>/dev/null); do
+      info "Removing stale wwwroot backup: $stale"
+      sudo rm -rf "$stale" || warn "Could not remove $stale"
+    done
   fi
 
   info "Copying $label → $dest"

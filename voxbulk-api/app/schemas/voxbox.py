@@ -66,6 +66,13 @@ class VoxboxSendIn(BaseModel):
     to: str | None = Field(default=None, max_length=1000)
 
 
+class VoxboxComposeIn(BaseModel):
+    account_id: str = Field(min_length=1, max_length=64)
+    to: str = Field(min_length=3, max_length=1000)
+    subject: str = Field(default="", max_length=500)
+    body: str = Field(min_length=1, max_length=50000)
+
+
 class VoxboxAiReplyIn(BaseModel):
     subject: str = Field(default="", max_length=400)
     from_: str = Field(default="", alias="from", max_length=200)

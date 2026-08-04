@@ -49,15 +49,27 @@ class VoxboxAuthService:
             db.refresh(row)
             return row
 
-        # If DB password empty (corrupt), re-seed from env when available.
-        if not (row.password_hash or "").strip() and env_pass:
-            row.username = env_user
-            row.password_hash = hash_password(env_pass)
-            row.display_name = env_display or row.display_name
-            row.updated_at = datetime.utcnow()
-            db.add(row)
-            db.commit()
-            db.refresh(row)
+        # Keep DB in sync with .env whenever password is set there (ops source of truth
+        # after API reload). Settings UI still updates DB until the next restart/env change.
+        if env_pass:
+            needs = (
+                (row.username or "").strip() != env_user
+                or not (row.password_hash or "").strip()
+                or not verify_password(env_pass, row.password_hash)
+            )
+            if needs:
+                row.username = env_user
+                row.password_hash = hash_password(env_pass)
+                if env_display:
+                    row.display_name = env_display
+                row.updated_at = datetime.utcnow()
+                db.add(row)
+                db.commit()
+                db.refresh(row)
+        elif not (row.password_hash or "").strip():
+            raise VoxboxAuthError(
+                "Voxbox admin password missing. Set VOXBOX_ADMIN_PASSWORD in .env"
+            )
         return row
 
     @staticmethod

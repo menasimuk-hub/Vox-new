@@ -57,9 +57,6 @@ function LoginPage() {
       <div className="flex flex-1 items-center justify-center px-4 pb-16">
         <div className="w-full max-w-sm">
           <h1 className="font-display text-3xl font-semibold">Welcome back</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            All your mailboxes in one place — no more logging in and out.
-          </p>
 
           <form onSubmit={submit} className="mt-8 space-y-4 rounded-xl border bg-card p-5">
             <div className="space-y-1.5">

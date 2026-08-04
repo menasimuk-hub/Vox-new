@@ -6,6 +6,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  PenSquare,
   RefreshCw,
   Search,
   Send,
@@ -29,12 +30,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { AccountSidebar } from "@/components/mail/AccountSidebar";
+import { ComposeDialog } from "@/components/mail/ComposeDialog";
 import { KpiRow } from "@/components/mail/KpiRow";
 import { MessageTable } from "@/components/mail/MessageTable";
 import { MessageView } from "@/components/mail/MessageView";
 import { SettingsView } from "@/components/mail/SettingsView";
 import {
   clearToken,
+  composeMessage,
   createAccount,
   deleteAccount,
   fetchAccounts,
@@ -98,8 +101,10 @@ function MailApp() {
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [openMessage, setOpenMessage] = useState<MailMessage | null>(null);
+  const [loadingBody, setLoadingBody] = useState(false);
   const [viewMode, setViewMode] = useState<"read" | "reply" | "forward">("read");
   const [showSettings, setShowSettings] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -197,17 +202,31 @@ function MailApp() {
   useEffect(() => {
     if (!openId) {
       setOpenMessage(null);
+      setLoadingBody(false);
       return;
     }
     const cached = messages.find((m) => m.id === openId);
-    if (cached?.html || cached?.text) {
-      setOpenMessage(cached);
-      return;
-    }
+    // Show list preview/text immediately (Gmail-like), then always fetch full HTML body.
+    if (cached) setOpenMessage(cached);
+    let cancelled = false;
+    setLoadingBody(true);
     void fetchMessage(openId)
-      .then(setOpenMessage)
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Could not load message."));
-  }, [openId, messages]);
+      .then((full) => {
+        if (cancelled) return;
+        setOpenMessage(full);
+        setMessages((prev) => prev.map((m) => (m.id === full.id ? { ...m, ...full } : m)));
+      })
+      .catch((e) => {
+        if (!cancelled) toast.error(e instanceof Error ? e.message : "Could not load message.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBody(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only refetch when openId changes
+  }, [openId]);
 
   async function patch(id: string, p: Partial<MailMessage>) {
     try {
@@ -252,6 +271,25 @@ function MailApp() {
       await refreshKpi();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Send failed.");
+    }
+  }
+
+  async function sendCompose(payload: {
+    accountId: string;
+    to: string;
+    subject: string;
+    body: string;
+  }) {
+    try {
+      await composeMessage(payload);
+      toast.success("Message sent.");
+      setTab("sent");
+      setOpenId(null);
+      await refreshMessages();
+      await refreshKpi();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Send failed.");
+      throw e;
     }
   }
 
@@ -403,6 +441,14 @@ function MailApp() {
           </div>
 
           <div className="ml-auto flex items-center gap-1">
+            <Button
+              size="sm"
+              onClick={() => setComposeOpen(true)}
+              disabled={accounts.filter((a) => !a.frozen).length === 0}
+            >
+              <PenSquare className="size-4" />
+              <span className="hidden sm:inline">Compose</span>
+            </Button>
             <Button variant="ghost" size="sm" onClick={() => void sync()} disabled={syncing}>
               <RefreshCw className={cn("size-4", syncing && "animate-spin")} />
               <span className="hidden sm:inline">Sync</span>
@@ -506,6 +552,7 @@ function MailApp() {
                 message={openMessage}
                 account={accounts.find((a) => a.id === openMessage.accountId)}
                 mode={viewMode}
+                loadingBody={loadingBody}
                 onBack={() => setOpenId(null)}
                 onSend={(body, kind, attachments) => void sendReply(body, kind, attachments)}
                 onDelete={(id) => setConfirmDelete({ kind: "single", id })}
@@ -521,7 +568,7 @@ function MailApp() {
           ) : (
             <>
               <KpiRow messages={scoped} kpi={kpi ?? undefined} />
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h1 className="font-display text-lg font-semibold">
                   {TABS.find((t) => t.id === tab)?.label}
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
@@ -531,6 +578,15 @@ function MailApp() {
                       : accounts.find((a) => a.id === account)?.email}
                   </span>
                 </h1>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0 sm:hidden"
+                  onClick={() => setComposeOpen(true)}
+                  disabled={accounts.filter((a) => !a.frozen).length === 0}
+                >
+                  <PenSquare className="size-4" /> Compose
+                </Button>
               </div>
               <MessageTable
                 messages={listed}
@@ -545,6 +601,7 @@ function MailApp() {
                   )
                 }
                 onBulkDelete={() => setConfirmDelete({ kind: "bulk" })}
+                onCompose={() => setComposeOpen(true)}
                 onOpen={(m) => openMsg(m)}
                 onReply={(m) => openMsg(m, "reply")}
                 onForward={(m) => openMsg(m, "forward")}
@@ -567,6 +624,14 @@ function MailApp() {
           )}
         </main>
       </div>
+
+      <ComposeDialog
+        open={composeOpen}
+        onOpenChange={setComposeOpen}
+        accounts={accounts}
+        defaultAccountId={account !== "all" ? account : undefined}
+        onSend={sendCompose}
+      />
 
       <AlertDialog open={!!confirmDelete} onOpenChange={(o) => !o && setConfirmDelete(null)}>
         <AlertDialogContent>

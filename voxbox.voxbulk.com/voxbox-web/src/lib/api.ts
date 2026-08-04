@@ -320,6 +320,15 @@ export async function sendMessage(
   await request(`/voxbox/messages/${id}/send`, { method: "POST", body });
 }
 
+export async function composeMessage(body: {
+  accountId: string;
+  to: string;
+  subject: string;
+  body: string;
+}): Promise<void> {
+  await request("/voxbox/messages/compose", { method: "POST", body });
+}
+
 export async function syncMail(): Promise<SyncResult> {
   return request<SyncResult>("/voxbox/sync", { method: "POST" });
 }

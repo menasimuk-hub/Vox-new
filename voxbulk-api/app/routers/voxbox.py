@@ -10,6 +10,7 @@ from app.schemas.voxbox import (
     VoxboxAccountIn,
     VoxboxAccountUpdate,
     VoxboxAiReplyIn,
+    VoxboxComposeIn,
     VoxboxCredentialsUpdate,
     VoxboxLoginIn,
     VoxboxMessagePatch,
@@ -152,6 +153,18 @@ def patch_message(
         return VoxboxMailService.patch_message(db, message_id, payload)
     except VoxboxServiceError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/messages/compose")
+def compose_message(
+    payload: VoxboxComposeIn,
+    _principal: dict = Depends(get_voxbox_principal),
+    db: Session = Depends(get_db),
+):
+    try:
+        return VoxboxMailService.compose_message(db, payload)
+    except VoxboxServiceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.post("/messages/{message_id}/send")
