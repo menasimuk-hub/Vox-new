@@ -2,6 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import PlanPickerSelect from '../components/billing/PlanPickerSelect'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select'
 
 const SERVICES = [
   { value: 'voxbulk', label: 'Core subscription' },
@@ -39,6 +45,9 @@ const emptyDraft = {
   prospect_email: '',
   prospect_phone: '',
 }
+
+const planPickerClass =
+  'flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-[12px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
 function usageLabel(service) {
   if (service === 'survey') return 'Free survey contacts'
@@ -187,84 +196,118 @@ export default function PromoOfferCreate() {
     }
   }
 
-  if (loading) return <div className="page">Loading…</div>
+  if (loading) {
+    return (
+      <div className="ds-scope space-y-4">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </div>
+    )
+  }
 
   if (created) {
     return (
-      <div className="page" style={{ maxWidth: 720 }}>
-        <h1>Promo created</h1>
-        <p className="muted">{created.benefit_summary || previewLine}</p>
-        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-          <div>
-            <strong>Code:</strong> {created.code}
+      <div className="ds-scope mx-auto max-w-[720px] space-y-4">
+        <div>
+          <h1 className="text-[15px] font-semibold leading-tight text-foreground">Promo created</h1>
+          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+            {created.benefit_summary || previewLine}
+          </p>
+        </div>
+
+        <Panel title="Offer details" bodyClassName="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] text-muted-foreground">Code</span>
+            <Pill tone="info">{created.code}</Pill>
           </div>
-          <div style={{ marginTop: 8 }}>
-            <strong>Signup link:</strong>{' '}
-            <a href={created.signup_url} target="_blank" rel="noreferrer">
+          <div className="text-[13px] text-foreground">
+            <span className="font-semibold">Signup link:</span>{' '}
+            <a
+              href={created.signup_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline break-all"
+            >
               {created.signup_url}
             </a>
           </div>
-          <button
-            type="button"
-            className="btn"
-            style={{ marginTop: 12 }}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
             onClick={() => navigator.clipboard?.writeText(created.signup_url || created.code)}
           >
             Copy link
-          </button>
-        </div>
+          </Button>
+        </Panel>
 
-        <h2>Apply to organisations</h2>
-        <p className="muted">Select one or more orgs to apply this promo now (Admin apply).</p>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input
-            className="input"
-            placeholder="Search organisations"
-            value={orgQuery}
-            onChange={(e) => setOrgQuery(e.target.value)}
-          />
-          <button type="button" className="btn" onClick={() => void searchOrgs()}>
-            Search
-          </button>
-        </div>
-        <div className="card" style={{ maxHeight: 240, overflow: 'auto', padding: 8 }}>
-          {orgs.length === 0 ? (
-            <p className="muted">Search to find organisations.</p>
-          ) : (
-            orgs.map((o) => (
-              <label key={o.id} style={{ display: 'flex', gap: 8, padding: 6, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={selectedOrgIds.includes(o.id)}
-                  onChange={() => toggleOrg(o.id)}
-                />
-                <span>
-                  {o.name} <span className="muted">{o.id?.slice(0, 8)}</span>
-                </span>
-              </label>
-            ))
-          )}
-        </div>
-        <button
-          type="button"
-          className="btn primary"
-          style={{ marginTop: 12 }}
-          disabled={applying || selectedOrgIds.length === 0}
-          onClick={() => void applyToOrgs()}
+        <Panel
+          title="Apply to organisations"
+          subtitle="Select one or more orgs to apply this promo now (Admin apply)."
+          bodyClassName="space-y-3"
         >
-          {applying ? 'Applying…' : `Apply to ${selectedOrgIds.length} org(s)`}
-        </button>
-        {applyResult ? (
-          <pre style={{ marginTop: 12, fontSize: 12 }}>{JSON.stringify(applyResult, null, 2)}</pre>
-        ) : null}
+          <div className="flex gap-2">
+            <Input
+              placeholder="Search organisations"
+              value={orgQuery}
+              onChange={(e) => setOrgQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void searchOrgs()
+                }
+              }}
+              className="h-8 flex-1"
+            />
+            <Button variant="outline" size="sm" className="h-8" onClick={() => void searchOrgs()}>
+              Search
+            </Button>
+          </div>
+          <div className="max-h-60 overflow-auto rounded-md border border-border bg-surface-muted/30 p-2">
+            {orgs.length === 0 ? (
+              <p className="p-2 text-[13px] text-muted-foreground">Search to find organisations.</p>
+            ) : (
+              orgs.map((o) => (
+                <label
+                  key={o.id}
+                  className="flex cursor-pointer items-center gap-2 rounded p-2 hover:bg-surface-muted/50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedOrgIds.includes(o.id)}
+                    onChange={() => toggleOrg(o.id)}
+                    className="h-4 w-4"
+                  />
+                  <span className="text-[13px]">
+                    <strong className="font-semibold text-foreground">{o.name}</strong>
+                    <span className="text-muted-foreground"> · {String(o.id || '').slice(0, 8)}</span>
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          <Button
+            size="sm"
+            className="h-8"
+            disabled={applying || selectedOrgIds.length === 0}
+            onClick={() => void applyToOrgs()}
+          >
+            {applying ? 'Applying…' : `Apply to ${selectedOrgIds.length} org(s)`}
+          </Button>
+          {applyResult ? (
+            <pre className="overflow-auto rounded-md border border-border bg-surface px-3 py-2 text-[12px] text-foreground">
+              {JSON.stringify(applyResult, null, 2)}
+            </pre>
+          ) : null}
+        </Panel>
 
-        <div style={{ marginTop: 24, display: 'flex', gap: 12 }}>
-          <button type="button" className="btn" onClick={() => navigate('/marketing/promo-offers')}>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" className="h-8" onClick={() => navigate('/marketing/promo-offers')}>
             Back to list
-          </button>
-          <button
-            type="button"
-            className="btn"
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8"
             onClick={() => {
               setCreated(null)
               setDraft(emptyDraft)
@@ -273,159 +316,206 @@ export default function PromoOfferCreate() {
             }}
           >
             Create another
-          </button>
+          </Button>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="page" style={{ maxWidth: 720 }}>
-      <div style={{ marginBottom: 12 }}>
-        <Link to="/marketing/promo-offers">← Promo offers</Link>
+    <div className="ds-scope mx-auto max-w-[720px] space-y-4">
+      <div>
+        <div className="mb-1.5 text-xs text-muted-foreground">
+          <Link to="/marketing/promo-offers" className="text-primary hover:underline">
+            ← Promo offers
+          </Link>
+        </div>
+        <h1 className="text-[15px] font-semibold leading-tight text-foreground">New promo</h1>
+        <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
+          Pick a service, free usage or discount, then who can redeem it.
+        </p>
       </div>
-      <h1>New promo</h1>
-      <p className="muted">Pick a service, free usage or discount, then who can redeem it.</p>
 
-      <form onSubmit={onSubmit} className="card" style={{ padding: 20 }}>
-        {error ? <p style={{ color: 'crimson' }}>{error}</p> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
-        <label className="field">
-          <span>1. Service</span>
-          <select className="input" value={draft.service_kind} onChange={(e) => setField('service_kind', e.target.value)}>
-            {SERVICES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+      <form onSubmit={onSubmit}>
+        <Panel title="Promo details" subtitle={`Preview: ${previewLine}`} bodyClassName="space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">1. Service</Label>
+            <Select value={draft.service_kind} onValueChange={(v) => setField('service_kind', v)}>
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SERVICES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <label className="field">
-          <span>2. Benefit</span>
-          <select className="input" value={draft.benefit_kind} onChange={(e) => setField('benefit_kind', e.target.value)}>
-            {BENEFITS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">2. Benefit</Label>
+            <Select value={draft.benefit_kind} onValueChange={(v) => setField('benefit_kind', v)}>
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BENEFITS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        {draft.benefit_kind === 'free_usage' ? (
-          <>
-            {draft.service_kind === 'voxbulk' ? (
-              <>
-                <label className="field">
-                  <span>Plan</span>
-                  <PlanPickerSelect
-                    plans={corePlans}
-                    value={draft.plan_code}
-                    onChange={(code) => setField('plan_code', code)}
-                  />
-                </label>
-                <label className="field">
-                  <span>Trial days</span>
-                  <input
-                    className="input"
+          {draft.benefit_kind === 'free_usage' ? (
+            <>
+              {draft.service_kind === 'voxbulk' ? (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-muted-foreground">Plan</Label>
+                    <PlanPickerSelect
+                      plans={corePlans}
+                      value={draft.plan_code}
+                      onChange={(code) => setField('plan_code', code)}
+                      className={planPickerClass}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] text-muted-foreground">Trial days</Label>
+                    <Input
+                      className="h-8"
+                      type="number"
+                      min={1}
+                      value={draft.trial_days}
+                      onChange={(e) => setField('trial_days', e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">{usageLabel(draft.service_kind)}</Label>
+                  <Input
+                    className="h-8"
                     type="number"
                     min={1}
-                    value={draft.trial_days}
-                    onChange={(e) => setField('trial_days', e.target.value)}
+                    value={draft.usage_amount}
+                    onChange={(e) => setField('usage_amount', e.target.value)}
                   />
-                </label>
-              </>
-            ) : (
-              <label className="field">
-                <span>{usageLabel(draft.service_kind)}</span>
-                <input
-                  className="input"
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] text-muted-foreground">Discount type</Label>
+                <Select value={draft.discount_type} onValueChange={(v) => setField('discount_type', v)}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="percent">Percent off</SelectItem>
+                    <SelectItem value="fixed_minor">Fixed £ off</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] text-muted-foreground">
+                  {draft.discount_type === 'percent' ? 'Percent (1–100)' : 'Pounds (£)'}
+                </Label>
+                <Input
+                  className="h-8"
                   type="number"
                   min={1}
-                  value={draft.usage_amount}
-                  onChange={(e) => setField('usage_amount', e.target.value)}
+                  step={draft.discount_type === 'percent' ? 1 : 0.01}
+                  value={draft.discount_value}
+                  onChange={(e) => setField('discount_value', e.target.value)}
                 />
-              </label>
-            )}
-          </>
-        ) : (
-          <>
-            <label className="field">
-              <span>Discount type</span>
-              <select
-                className="input"
-                value={draft.discount_type}
-                onChange={(e) => setField('discount_type', e.target.value)}
-              >
-                <option value="percent">Percent off</option>
-                <option value="fixed_minor">Fixed £ off</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>{draft.discount_type === 'percent' ? 'Percent (1–100)' : 'Pounds (£)'}</span>
-              <input
-                className="input"
+              </div>
+            </>
+          )}
+
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">3. Who can redeem</Label>
+            <Select value={draft.redeem_mode} onValueChange={(v) => setField('redeem_mode', v)}>
+              <SelectTrigger className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REDEEM_MODES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground">Max redemptions</Label>
+              <Input
+                className="h-8"
                 type="number"
                 min={1}
-                step={draft.discount_type === 'percent' ? 1 : 0.01}
-                value={draft.discount_value}
-                onChange={(e) => setField('discount_value', e.target.value)}
+                value={draft.max_redemptions}
+                onChange={(e) => setField('max_redemptions', e.target.value)}
               />
-            </label>
-          </>
-        )}
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground">Expires in (days)</Label>
+              <Input
+                className="h-8"
+                type="number"
+                min={1}
+                value={draft.expires_in_days}
+                onChange={(e) => setField('expires_in_days', e.target.value)}
+              />
+            </div>
+          </div>
 
-        <label className="field">
-          <span>3. Who can redeem</span>
-          <select className="input" value={draft.redeem_mode} onChange={(e) => setField('redeem_mode', e.target.value)}>
-            {REDEEM_MODES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">Name</Label>
+            <Input
+              className="h-8"
+              value={draft.name}
+              onChange={(e) => setField('name', e.target.value)}
+              placeholder="Display name for this promo code"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] text-muted-foreground">Code (optional)</Label>
+            <Input
+              className="h-8"
+              value={draft.code}
+              onChange={(e) => setField('code', e.target.value)}
+              placeholder="Auto if blank"
+            />
+          </div>
 
-        <label className="field">
-          <span>Max redemptions</span>
-          <input
-            className="input"
-            type="number"
-            min={1}
-            value={draft.max_redemptions}
-            onChange={(e) => setField('max_redemptions', e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>Expires in (days)</span>
-          <input
-            className="input"
-            type="number"
-            min={1}
-            value={draft.expires_in_days}
-            onChange={(e) => setField('expires_in_days', e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span>Name</span>
-          <input
-            className="input"
-            value={draft.name}
-            onChange={(e) => setField('name', e.target.value)}
-            placeholder="Display name for this promo code"
-          />
-        </label>
-        <label className="field">
-          <span>Code (optional)</span>
-          <input className="input" value={draft.code} onChange={(e) => setField('code', e.target.value)} placeholder="Auto if blank" />
-        </label>
-
-        <p className="muted">Preview: {previewLine}</p>
-
-        <button type="submit" className="btn primary" disabled={saving}>
-          {saving ? 'Creating…' : 'Create promo'}
-        </button>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <Button type="submit" size="sm" className="h-8" disabled={saving}>
+              {saving ? 'Creating…' : 'Create promo'}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => navigate('/marketing/promo-offers')}
+            >
+              Cancel
+            </Button>
+          </div>
+        </Panel>
       </form>
     </div>
   )
