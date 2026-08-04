@@ -102,6 +102,8 @@ def _create_contact_ticket(
         priority="normal",
         channel="web",
         staff_note=f"Frontpage contact form · reply-to {email}",
+        requester_email=email,
+        requester_name=name,
     )
     return ticket.public_ref
 

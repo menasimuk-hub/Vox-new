@@ -98,9 +98,9 @@ def register_support_email_defaults() -> None:
 class SupportTicketEmailService:
     @staticmethod
     def customer_email(db: Session, ticket: SupportTicket) -> str | None:
-        user = db.get(User, ticket.created_by_user_id)
-        em = (getattr(user, "email", None) or "").strip().lower()
-        return em if em and "@" in em else None
+        from app.services.support_ticket_service import ticket_requester_email
+
+        return ticket_requester_email(db, ticket)
 
     @staticmethod
     def _variables(db: Session, ticket: SupportTicket, **extra: str) -> dict[str, str]:
@@ -108,7 +108,12 @@ class SupportTicketEmailService:
         org = db.get(Organisation, ticket.organisation_id)
         from_name, from_email = SupportMailboxSettingsService.from_address(db)
         ref = ticket.public_ref or f"TKT-{ticket.id:06d}"
-        name = (getattr(user, "full_name", None) or getattr(user, "name", None) or "").strip()
+        requester = SupportTicketEmailService.customer_email(db, ticket) or ""
+        name = (getattr(ticket, "requester_name", None) or "").strip()
+        if not name:
+            name = (getattr(user, "full_name", None) or getattr(user, "name", None) or "").strip()
+        if not name and requester:
+            name = requester.split("@")[0]
         if not name and user is not None:
             name = (getattr(user, "email", None) or "").split("@")[0]
         vars_: dict[str, str] = {
@@ -116,7 +121,7 @@ class SupportTicketEmailService:
             "subject": ticket.subject or "",
             "status": ticket.status or "",
             "customer_name": name or "there",
-            "customer_email": (getattr(user, "email", None) or ""),
+            "customer_email": requester or (getattr(user, "email", None) or ""),
             "organisation_name": (getattr(org, "name", None) or "your organisation"),
             "support_email": from_email or "support@voxbulk.com",
             "ticket_url": f"https://dashboard.voxbulk.com/account/support/tickets?ticket={ticket.id}",

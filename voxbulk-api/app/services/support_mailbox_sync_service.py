@@ -339,6 +339,8 @@ def sync_support_mailbox(db: Session) -> dict[str, Any]:
                     priority="normal",
                     channel="imap",
                     staff_note=staff_note,
+                    requester_email=from_addr or None,
+                    requester_name=(from_hdr.split("<")[0].strip().strip('"') if from_hdr else None) or None,
                 )
                 tickets += 1
             except Exception:

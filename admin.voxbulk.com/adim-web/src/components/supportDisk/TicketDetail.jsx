@@ -22,7 +22,7 @@ export default function TicketDetail({ ticket, messages = [], admins = [], canne
   const [tags, setTags] = useState(ticket.category ? [ticket.category] : ['support'])
   const [busy, setBusy] = useState(false)
   const textareaRef = useRef(null)
-  const requester = ticket.created_by_email || 'Customer'
+  const requester = ticket.requester_email || ticket.created_by_email || 'Customer'
   const filteredCanned = useMemo(() => cannedReplies.filter((c) => `${c.title} ${c.answer || c.body}`.toLowerCase().includes(cannedQuery.toLowerCase())), [cannedReplies, cannedQuery])
   const articles = useMemo(() => [...helpLinks.map((x) => ({ id: `h${x.id}`, title: x.title || x.label, body: `[${x.title || x.label}](${x.url})` })), ...faqs.map((x) => ({ id: `f${x.id}`, title: x.question, body: x.answer }))].filter((a) => `${a.title} ${a.body}`.toLowerCase().includes(linkQuery.toLowerCase())), [helpLinks, faqs, linkQuery])
   const insert = (snippet) => { setDraft((d) => d ? `${d.trimEnd()}\n\n${snippet}` : snippet); requestAnimationFrame(() => textareaRef.current?.focus()) }

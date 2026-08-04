@@ -17,6 +17,9 @@ class SupportTicket(Base):
     organisation_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
     branch_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("branches.id"), nullable=True, index=True)
     created_by_user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    # External contact (web form / IMAP) when created_by is a platform fallback actor
+    requester_email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    requester_name: Mapped[str | None] = mapped_column(String(180), nullable=True)
 
     category: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Iterable
 
@@ -20,12 +21,32 @@ from app.models.support_ticket import (
 )
 from app.models.user import User
 
+logger = logging.getLogger(__name__)
 
 CATEGORIES = {"technical", "invoices", "pre-sale", "smart_card"}
 STATUSES = {"open", "pending", "waiting", "resolved", "closed"}
 CHANNELS = {"email", "web", "imap", "assistant"}
 OPEN_QUEUE_STATUSES = {"open", "pending", "waiting"}
 PRIORITIES = {"urgent", "high", "normal", "low"}
+
+
+def _normalize_requester_email(value: str | None) -> str | None:
+    em = (value or "").strip().lower()
+    return em if em and "@" in em else None
+
+
+def _normalize_requester_name(value: str | None) -> str | None:
+    name = (value or "").strip()
+    return name[:180] if name else None
+
+
+def ticket_requester_email(db: Session, ticket: SupportTicket) -> str | None:
+    """Prefer explicit requester (web/IMAP contact); else ticket creator email."""
+    explicit = _normalize_requester_email(getattr(ticket, "requester_email", None))
+    if explicit:
+        return explicit
+    user = db.get(User, ticket.created_by_user_id)
+    return _normalize_requester_email(getattr(user, "email", None) if user else None)
 
 
 def normalize_category(category: str) -> str:
@@ -99,6 +120,8 @@ class SupportTicketService:
         channel: str | None = "web",
         attachments: list[dict] | None = None,
         staff_note: str | None = None,
+        requester_email: str | None = None,
+        requester_name: str | None = None,
     ) -> SupportTicket:
         cat = normalize_category(category)
         if branch_id:
@@ -106,10 +129,14 @@ class SupportTicketService:
             if ok is None:
                 raise ValueError("Invalid branch for organisation")
         now = datetime.utcnow()
+        req_email = _normalize_requester_email(requester_email)
+        req_name = _normalize_requester_name(requester_name)
         t = SupportTicket(
             organisation_id=org_id,
             branch_id=branch_id,
             created_by_user_id=user_id,
+            requester_email=req_email,
+            requester_name=req_name,
             category=cat,
             subject=(subject or "").strip(),
             status="open",
@@ -153,9 +180,16 @@ class SupportTicketService:
         try:
             from app.services.support_ticket_email_service import SupportTicketEmailService
 
-            SupportTicketEmailService.notify_created(db, t)
+            result = SupportTicketEmailService.notify_created(db, t)
+            if not result.get("ok"):
+                logger.warning(
+                    "support_ticket_notify_created_failed ticket=%s ref=%s result=%s",
+                    t.id,
+                    t.public_ref,
+                    result,
+                )
         except Exception:
-            pass
+            logger.exception("support_ticket_notify_created_error ticket=%s", t.id)
         return t
 
     @staticmethod
@@ -245,7 +279,11 @@ class SupportTicketService:
             creator_ids = list(
                 db.execute(select(User.id).where(User.email.ilike(q)).limit(50)).scalars()
             )
-            clauses = [SupportTicket.public_ref.ilike(q), SupportTicket.subject.ilike(q)]
+            clauses = [
+                SupportTicket.public_ref.ilike(q),
+                SupportTicket.subject.ilike(q),
+                SupportTicket.requester_email.ilike(q),
+            ]
             if creator_ids:
                 clauses.append(SupportTicket.created_by_user_id.in_(creator_ids))
             stmt = stmt.where(or_(*clauses))
@@ -292,9 +330,15 @@ class SupportTicketService:
             try:
                 from app.services.support_ticket_email_service import SupportTicketEmailService
 
-                SupportTicketEmailService.notify_reply(db, ticket, reply_body=message.strip())
+                result = SupportTicketEmailService.notify_reply(db, ticket, reply_body=message.strip())
+                if not result.get("ok"):
+                    logger.warning(
+                        "support_ticket_notify_reply_failed ticket=%s result=%s",
+                        ticket.id,
+                        result,
+                    )
             except Exception:
-                pass
+                logger.exception("support_ticket_notify_reply_error ticket=%s", ticket.id)
         return ticket
 
     @staticmethod
@@ -312,9 +356,11 @@ class SupportTicketService:
         try:
             from app.services.support_ticket_email_service import SupportTicketEmailService
 
-            SupportTicketEmailService.notify_status(db, ticket)
+            result = SupportTicketEmailService.notify_status(db, ticket)
+            if not result.get("ok"):
+                logger.warning("support_ticket_notify_status_failed ticket=%s result=%s", ticket.id, result)
         except Exception:
-            pass
+            logger.exception("support_ticket_notify_status_error ticket=%s", ticket.id)
         return ticket
 
     @staticmethod
@@ -338,9 +384,11 @@ class SupportTicketService:
             try:
                 from app.services.support_ticket_email_service import SupportTicketEmailService
 
-                SupportTicketEmailService.notify_assigned(db, ticket)
+                result = SupportTicketEmailService.notify_assigned(db, ticket)
+                if not result.get("ok"):
+                    logger.warning("support_ticket_notify_assigned_failed ticket=%s result=%s", ticket.id, result)
             except Exception:
-                pass
+                logger.exception("support_ticket_notify_assigned_error ticket=%s", ticket.id)
         return ticket
 
     @staticmethod
@@ -666,6 +714,7 @@ def ticket_to_dict(db: Session, t: SupportTicket) -> dict:
     branch = db.execute(select(Branch.name).where(Branch.id == t.branch_id)).scalar_one_or_none() if t.branch_id else None
     creator = db.execute(select(User.email).where(User.id == t.created_by_user_id)).scalar_one_or_none()
     assigned = db.execute(select(AdminUser.email).where(AdminUser.id == t.assigned_admin_user_id)).scalar_one_or_none() if t.assigned_admin_user_id else None
+    requester = ticket_requester_email(db, t)
     return {
         "id": t.id,
         "public_ref": t.public_ref or f"TKT-{t.id:06d}",
@@ -675,6 +724,8 @@ def ticket_to_dict(db: Session, t: SupportTicket) -> dict:
         "branch_name": branch,
         "created_by_user_id": t.created_by_user_id,
         "created_by_email": creator,
+        "requester_email": requester,
+        "requester_name": getattr(t, "requester_name", None) or None,
         "category": t.category,
         "subject": t.subject,
         "status": t.status,
@@ -697,6 +748,12 @@ def message_to_dict(db: Session, m: SupportTicketMessage) -> dict:
         email = db.execute(select(AdminUser.email).where(AdminUser.id == m.sender_admin_user_id)).scalar_one_or_none()
     if email is None and m.sender_user_id:
         email = db.execute(select(User.email).where(User.id == m.sender_user_id)).scalar_one_or_none()
+    # Web/IMAP contacts are often stored under a platform actor — show the real sender.
+    if m.sender_type == "customer" and not m.is_internal_note:
+        ticket = db.get(SupportTicket, m.ticket_id)
+        req = _normalize_requester_email(getattr(ticket, "requester_email", None) if ticket else None)
+        if req:
+            email = req
     return {
         "id": m.id,
         "ticket_id": m.ticket_id,

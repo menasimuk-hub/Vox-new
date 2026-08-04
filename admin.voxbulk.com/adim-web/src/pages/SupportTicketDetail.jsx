@@ -59,7 +59,7 @@ export default function SupportTicketDetail() {
   }
   const writeReply = async () => {
     const recent = (detail?.messages || []).slice(-6).map((message) => `${message.sender_type}: ${message.body}`).join('\n')
-    const prompt = `Write a concise, professional customer support reply. Return only the reply text.\n\nTicket: ${detail?.ticket?.subject || ''}\nRequester: ${detail?.ticket?.created_by_email || 'Customer'}\nConversation:\n${recent}`
+    const prompt = `Write a concise, professional customer support reply. Return only the reply text.\n\nTicket: ${detail?.ticket?.subject || ''}\nRequester: ${detail?.ticket?.requester_email || detail?.ticket?.created_by_email || 'Customer'}\nConversation:\n${recent}`
     return polishReply(prompt)
   }
   const closeTicket = async () => {

@@ -137,14 +137,27 @@ body.dark .support-disk {
 }
 
 .support-disk *, .support-disk *::before, .support-disk *::after { box-sizing: border-box; }
+
+/* Preflight-like button reset (admin has no Tailwind preflight — without this, browsers paint boxed native buttons) */
 .support-disk button,
-.support-disk [role="button"] {
+.support-disk [role="button"],
+.support-disk input[type="button"],
+.support-disk input[type="submit"],
+.support-disk input[type="reset"] {
   appearance: none;
+  -webkit-appearance: none;
   font: inherit;
+  color: inherit;
   text-transform: none;
   letter-spacing: normal;
   min-width: 0;
   margin: 0;
+  border: none;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  text-shadow: none;
+  cursor: pointer;
 }
 .support-disk .sd-button {
   border-radius: .375rem;
@@ -156,7 +169,6 @@ body.dark .support-disk {
 .support-disk .sd-button {
   background-image: none !important;
   text-shadow: none !important;
-  border-style: solid;
 }
 .support-disk button.sd-btn-primary,
 .support-disk .sd-btn-primary {
@@ -169,11 +181,23 @@ body.dark .support-disk {
 .support-disk .sd-btn-primary:hover {
   background: color-mix(in oklch, var(--primary) 90%, black) !important;
 }
-.support-disk button.border,
-.support-disk .border.border-input {
-  border-width: 1px !important;
-  border-color: var(--input) !important;
+/* Outline / bordered controls only — not ghost */
+.support-disk button.sd-button.border,
+.support-disk .sd-button.border,
+.support-disk button.border.border-input,
+.support-disk .border.border-input,
+.support-disk [role="combobox"].border,
+.support-disk button[data-state].border {
+  border: 1px solid var(--input) !important;
   background: var(--background) !important;
+  box-shadow: 0 1px 2px oklch(0.24 0.026 259 / 6%) !important;
+}
+.support-disk button.sd-button[class*="hover:bg-accent"]:not(.border):hover,
+.support-disk .sd-button[class*="hover:bg-accent"]:not(.border):hover {
+  background: var(--accent) !important;
+  color: var(--accent-foreground) !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
 .support-disk .bg-primary { background-color: var(--primary) !important; color: var(--primary-foreground) !important; }
 .support-disk .bg-background { background-color: var(--background) !important; }
