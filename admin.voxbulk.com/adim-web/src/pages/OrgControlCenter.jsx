@@ -4,6 +4,8 @@ import { ArrowLeft, Building2, CircleCheck, CreditCard, FileText, Megaphone, Sno
 import { apiFetch } from '../lib/api'
 import { adminOrderViewPath, filterOrdersByWorkflow, interviewFormatLabel, nextColumnSort, orderMatchesSearch, sortRowsByColumn, ORDER_PAYMENT_HELP } from '../lib/serviceOrderAdmin'
 import { currencySymbol } from '../lib/billingAdminUtils'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
 import PlanPickerSelect from '@/components/billing/PlanPickerSelect'
 import './orgControlCenter.css'
@@ -1325,14 +1327,12 @@ export default function OrgControlCenter() {
       <ToastStack toasts={toasts} />
 
       {error ? (
-        <div className="card alertCard" style={{ marginBottom: 16 }}>
-          <div className="cardBody alertText">{error}</div>
-          <div className="cardBody" style={{ paddingTop: 0 }}>
-            <button type="button" className="btn soft" onClick={loadList} disabled={loading}>
-              {loading ? 'Retrying…' : 'Retry'}
-            </button>
-          </div>
-        </div>
+        <Panel className="mb-4 border-destructive/40" bodyClassName="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-destructive">{error}</div>
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={loadList} disabled={loading}>
+            {loading ? 'Retrying…' : 'Retry'}
+          </Button>
+        </Panel>
       ) : null}
 
       <div className="occ-page-header">

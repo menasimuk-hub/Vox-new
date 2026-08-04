@@ -5,51 +5,57 @@ body.dark .content:has(.support-disk) {
   padding: 0 !important;
   max-width: none !important;
   width: 100% !important;
-  background: oklch(0.975 0.003 258) !important;
+  background: var(--ds-background, oklch(0.975 0.012 85)) !important;
 }
 
-.support-disk,
-body.dark .support-disk {
-  --radius: .5rem;
-  --background: oklch(0.975 0.003 258);
-  --foreground: oklch(0.24 0.026 259);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.24 0.026 259);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.24 0.026 259);
-  --primary: oklch(0.53 0.148 256);
-  --primary-foreground: oklch(0.99 0.002 250);
-  --secondary: oklch(0.958 0.006 258);
-  --secondary-foreground: oklch(0.32 0.03 259);
-  --muted: oklch(0.962 0.005 258);
-  --muted-foreground: oklch(0.53 0.022 258);
-  --accent: oklch(0.945 0.022 250);
-  --accent-foreground: oklch(0.4 0.11 256);
-  --destructive: oklch(0.577 0.211 25.5);
-  --destructive-foreground: oklch(0.99 0.002 250);
-  --border: oklch(0.915 0.007 258);
-  --input: oklch(0.915 0.007 258);
-  --ring: oklch(0.53 0.148 256);
-  --surface: oklch(1 0 0);
-  --surface-subtle: oklch(0.975 0.003 258);
-  --status-open: oklch(0.55 0.15 250);
-  --status-open-bg: oklch(0.945 0.028 250);
-  --status-pending: oklch(0.6 0.13 68);
-  --status-pending-bg: oklch(0.96 0.04 82);
-  --status-waiting: oklch(0.55 0.12 305);
-  --status-waiting-bg: oklch(0.955 0.025 305);
-  --status-resolved: oklch(0.52 0.11 160);
-  --status-resolved-bg: oklch(0.95 0.04 160);
-  --status-closed: oklch(0.5 0.015 258);
-  --status-closed-bg: oklch(0.95 0.004 258);
-  --priority-urgent: oklch(0.55 0.2 25);
-  --priority-high: oklch(0.62 0.16 45);
-  --priority-normal: oklch(0.58 0.11 235);
-  --priority-low: oklch(0.6 0.02 258);
-  --note: oklch(0.62 0.14 82);
-  --note-bg: oklch(0.975 0.035 92);
-  --shadow-panel: 0 1px 2px oklch(0.24 0.026 259 / 6%), 0 1px 1px oklch(0.24 0.026 259 / 4%);
-  --shadow-pop: 0 12px 32px -12px oklch(0.24 0.026 259 / 22%);
+body.dark .content:has(.support-disk) {
+  /* Island stays light — pin DESIGN_SYSTEM light background */
+  background: oklch(0.975 0.012 85) !important;
+}
+
+.support-disk {
+  /* Phase 2 Batch F: map Support Disk island onto design-system OKLCH palette */
+  --radius: 0.625rem;
+  --background: var(--ds-background, oklch(0.975 0.012 85));
+  --foreground: var(--ds-foreground, oklch(0.22 0.02 260));
+  --card: var(--ds-card, oklch(0.995 0.004 85));
+  --card-foreground: var(--ds-card-foreground, oklch(0.22 0.02 260));
+  --popover: var(--ds-popover, oklch(0.995 0.004 85));
+  --popover-foreground: var(--ds-popover-foreground, oklch(0.22 0.02 260));
+  --primary: var(--ds-primary, oklch(0.27 0.04 265));
+  --primary-foreground: var(--ds-primary-foreground, oklch(0.98 0.003 247));
+  --secondary: var(--ds-secondary, oklch(0.93 0.012 80));
+  --secondary-foreground: var(--ds-secondary-foreground, oklch(0.27 0.04 265));
+  --muted: var(--ds-muted, oklch(0.945 0.014 80));
+  --muted-foreground: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --accent: var(--ds-accent, oklch(0.93 0.012 80));
+  --accent-foreground: var(--ds-accent-foreground, oklch(0.27 0.04 265));
+  --destructive: var(--ds-destructive, oklch(0.6 0.21 27));
+  --destructive-foreground: var(--ds-destructive-foreground, oklch(0.99 0.003 247));
+  --border: var(--ds-border, oklch(0.9 0.012 85));
+  --input: var(--ds-input, oklch(0.9 0.012 85));
+  --ring: var(--ds-ring, oklch(0.62 0.05 260));
+  --surface: var(--ds-surface, oklch(0.995 0.004 85));
+  --surface-subtle: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  /* Status / priority / note → semantic ds tokens (no invented hues) */
+  --status-open: var(--ds-info, oklch(0.52 0.1 250));
+  --status-open-bg: var(--ds-info-soft, oklch(0.93 0.03 250));
+  --status-pending: var(--ds-warning, oklch(0.62 0.13 65));
+  --status-pending-bg: var(--ds-warning-soft, oklch(0.93 0.05 75));
+  --status-waiting: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --status-waiting-bg: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  --status-resolved: var(--ds-success, oklch(0.55 0.14 150));
+  --status-resolved-bg: var(--ds-success-soft, oklch(0.93 0.06 150));
+  --status-closed: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --status-closed-bg: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  --priority-urgent: var(--ds-destructive, oklch(0.6 0.21 27));
+  --priority-high: var(--ds-warning, oklch(0.62 0.13 65));
+  --priority-normal: var(--ds-info, oklch(0.52 0.1 250));
+  --priority-low: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --note: var(--ds-warning, oklch(0.62 0.13 65));
+  --note-bg: var(--ds-warning-soft, oklch(0.93 0.05 75));
+  --shadow-panel: 0 1px 2px color-mix(in oklch, var(--ds-foreground, oklch(0.22 0.02 260)) 6%, transparent), 0 1px 1px color-mix(in oklch, var(--ds-foreground, oklch(0.22 0.02 260)) 4%, transparent);
+  --shadow-pop: 0 12px 32px -12px color-mix(in oklch, var(--ds-foreground, oklch(0.22 0.02 260)) 22%, transparent);
   --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Manrope", ui-sans-serif, system-ui, sans-serif;
   --color-background: var(--background);
@@ -89,28 +95,7 @@ body.dark .support-disk {
   --color-priority-low: var(--priority-low);
   --color-note: var(--note);
   --color-note-bg: var(--note-bg);
-  --ds-radius: var(--radius);
-  --ds-background: var(--background);
-  --ds-foreground: var(--foreground);
-  --ds-card: var(--card);
-  --ds-card-foreground: var(--card-foreground);
-  --ds-popover: var(--popover);
-  --ds-popover-foreground: var(--popover-foreground);
-  --ds-primary: var(--primary);
-  --ds-primary-foreground: var(--primary-foreground);
-  --ds-secondary: var(--secondary);
-  --ds-secondary-foreground: var(--secondary-foreground);
-  --ds-muted: var(--muted);
-  --ds-muted-foreground: var(--muted-foreground);
-  --ds-accent: var(--accent);
-  --ds-accent-foreground: var(--accent-foreground);
-  --ds-destructive: var(--destructive);
-  --ds-destructive-foreground: var(--destructive-foreground);
-  --ds-border: var(--border);
-  --ds-input: var(--input);
-  --ds-ring: var(--ring);
-  --ds-surface: var(--surface);
-  --ds-surface-muted: var(--surface-subtle);
+  /* Island-only aliases for @theme status/priority (core --ds-* stay inherited) */
   --ds-surface-subtle: var(--surface-subtle);
   --ds-status-open: var(--status-open);
   --ds-status-open-bg: var(--status-open-bg);
@@ -134,6 +119,47 @@ body.dark .support-disk {
   background: var(--background) !important;
   color: var(--foreground) !important;
   font-family: var(--font-sans);
+}
+
+/* Pin light DESIGN_SYSTEM palette when admin shell is dark */
+body.dark .support-disk {
+  --background: oklch(0.975 0.012 85);
+  --foreground: oklch(0.22 0.02 260);
+  --card: oklch(0.995 0.004 85);
+  --card-foreground: oklch(0.22 0.02 260);
+  --popover: oklch(0.995 0.004 85);
+  --popover-foreground: oklch(0.22 0.02 260);
+  --primary: oklch(0.27 0.04 265);
+  --primary-foreground: oklch(0.98 0.003 247);
+  --secondary: oklch(0.93 0.012 80);
+  --secondary-foreground: oklch(0.27 0.04 265);
+  --muted: oklch(0.945 0.014 80);
+  --muted-foreground: oklch(0.5 0.02 260);
+  --accent: oklch(0.93 0.012 80);
+  --accent-foreground: oklch(0.27 0.04 265);
+  --destructive: oklch(0.6 0.21 27);
+  --destructive-foreground: oklch(0.99 0.003 247);
+  --border: oklch(0.9 0.012 85);
+  --input: oklch(0.9 0.012 85);
+  --ring: oklch(0.62 0.05 260);
+  --surface: oklch(0.995 0.004 85);
+  --surface-subtle: oklch(0.955 0.014 85);
+  --status-open: oklch(0.52 0.1 250);
+  --status-open-bg: oklch(0.93 0.03 250);
+  --status-pending: oklch(0.62 0.13 65);
+  --status-pending-bg: oklch(0.93 0.05 75);
+  --status-waiting: oklch(0.5 0.02 260);
+  --status-waiting-bg: oklch(0.955 0.014 85);
+  --status-resolved: oklch(0.55 0.14 150);
+  --status-resolved-bg: oklch(0.93 0.06 150);
+  --status-closed: oklch(0.5 0.02 260);
+  --status-closed-bg: oklch(0.955 0.014 85);
+  --priority-urgent: oklch(0.6 0.21 27);
+  --priority-high: oklch(0.62 0.13 65);
+  --priority-normal: oklch(0.52 0.1 250);
+  --priority-low: oklch(0.5 0.02 260);
+  --note: oklch(0.62 0.13 65);
+  --note-bg: oklch(0.93 0.05 75);
 }
 
 .support-disk *, .support-disk *::before, .support-disk *::after { box-sizing: border-box; }

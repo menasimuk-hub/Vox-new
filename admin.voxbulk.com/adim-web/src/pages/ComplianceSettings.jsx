@@ -1,6 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table'
 
 const LAWFUL_BASES = ['consent', 'contract', 'legitimate_interests', 'legal_obligation']
 const ARTICLE9 = [
@@ -13,6 +26,9 @@ const ARTICLE9 = [
   'public_health',
   'archiving_research',
 ]
+
+const selectClass =
+  'flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-[12px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
 export default function ComplianceSettings() {
   const [orgs, setOrgs] = useState([])
@@ -93,194 +109,219 @@ export default function ComplianceSettings() {
   const selectedOrg = orgs.find((o) => o.id === orgId)
 
   return (
-    <>
-      <div className="pageTop">
+    <div className='ds-scope space-y-4'>
+      <div className='pageTop'>
         <div>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-            Compliance / UK baseline
-          </div>
+          <div className='mb-1.5 text-[12px] text-muted-foreground'>Compliance / UK baseline</div>
           <h1>UK compliance settings</h1>
-          <p className="pageLead">
-            PECR, UK GDPR, and DPA 2018 baseline. Configure org defaults; service orders inherit these unless overridden in order config.
-            Survey WA and interview WA remain separate workflows — both use org suppression and STOP handling.
+          <p>
+            PECR, UK GDPR, and DPA 2018 baseline. Configure org defaults; service orders inherit these unless
+            overridden in order config. Survey WA and interview WA remain separate workflows — both use org
+            suppression and STOP handling.
           </p>
         </div>
-        <div className="pageTopActions">
-          <Link className="btn" to="/compliance/audit">Audit log</Link>
-          <button type="button" className="btn" onClick={runRetention}>Retention dry-run</button>
+        <div className='actions'>
+          <Button asChild variant='outline' size='sm' className='h-8'>
+            <Link to='/compliance/audit'>Audit log</Link>
+          </Button>
+          <Button type='button' variant='outline' size='sm' className='h-8' onClick={runRetention}>
+            Retention dry-run
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="alert error"><strong>{error}</strong></div> : null}
-      {msg ? <div className="alert ok"><strong>{msg}</strong></div> : null}
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardHead"><h2>Organisation defaults</h2></div>
-        <div className="cardBody">
-          {loading ? (
-            <p className="muted">Loading…</p>
-          ) : (
-            <form onSubmit={save} className="grid2">
-              <label className="field">
-                <span>Organisation</span>
-                <select className="input" value={orgId} onChange={(e) => setOrgId(e.target.value)}>
-                  {orgs.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name || o.id}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>Default lawful basis</span>
-                <select
-                  className="input"
-                  value={defaults?.lawful_basis_default || ''}
-                  onChange={(e) => updateField('lawful_basis_default', e.target.value)}
-                >
-                  <option value="">—</option>
-                  {LAWFUL_BASES.map((b) => <option key={b} value={b}>{b}</option>)}
-                </select>
-              </label>
-              <label className="field">
-                <span>Privacy notice URL</span>
-                <input
-                  className="input"
-                  value={defaults?.privacy_notice_url || ''}
-                  onChange={(e) => updateField('privacy_notice_url', e.target.value)}
-                  placeholder="https://…"
-                />
-              </label>
-              <label className="field">
-                <span>Contact email</span>
-                <input
-                  className="input"
-                  value={defaults?.contact_email || ''}
-                  onChange={(e) => updateField('contact_email', e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>DPO / data protection email</span>
-                <input
-                  className="input"
-                  value={defaults?.dpo_email || ''}
-                  onChange={(e) => updateField('dpo_email', e.target.value)}
-                />
-              </label>
-              <label className="field checkRow">
-                <input
-                  type="checkbox"
-                  checked={Boolean(defaults?.opt_out_enabled ?? true)}
-                  onChange={(e) => updateField('opt_out_enabled', e.target.checked)}
-                />
-                <span>Opt-out enabled (PECR)</span>
-              </label>
-              <label className="field checkRow">
-                <input
-                  type="checkbox"
-                  checked={Boolean(defaults?.special_category_data_present_default)}
-                  onChange={(e) => updateField('special_category_data_present_default', e.target.checked)}
-                />
-                <span>Special category data (default)</span>
-              </label>
-              <label className="field">
-                <span>Article 9 condition (if special category)</span>
-                <select
-                  className="input"
-                  value={defaults?.article9_condition_default || ''}
-                  onChange={(e) => updateField('article9_condition_default', e.target.value || null)}
-                >
-                  <option value="">—</option>
-                  {ARTICLE9.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </label>
-              <label className="field" style={{ gridColumn: '1 / -1' }}>
-                <span>Just-in-time privacy intro (default)</span>
-                <input
-                  className="input"
-                  value={defaults?.privacy_intro_text_default || ''}
-                  onChange={(e) => updateField('privacy_intro_text_default', e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Retention: messages (days)</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={defaults?.retention_days_messages ?? 365}
-                  onChange={(e) => updateField('retention_days_messages', Number(e.target.value))}
-                />
-              </label>
-              <label className="field">
-                <span>Retention: responses (days)</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={defaults?.retention_days_responses ?? 730}
-                  onChange={(e) => updateField('retention_days_responses', Number(e.target.value))}
-                />
-              </label>
-              <label className="field">
-                <span>Retention: recordings (days)</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={defaults?.retention_days_recordings ?? 90}
-                  onChange={(e) => updateField('retention_days_recordings', Number(e.target.value))}
-                />
-              </label>
-              <label className="field">
-                <span>Retention: transcripts (days)</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  value={defaults?.retention_days_transcripts ?? 365}
-                  onChange={(e) => updateField('retention_days_transcripts', Number(e.target.value))}
-                />
-              </label>
-              {selectedOrg ? (
-                <p className="muted" style={{ gridColumn: '1 / -1' }}>
-                  Orders for {selectedOrg.name} must pass compliance checks before launch/send.
-                  Override per order via API <code>PUT /admin/compliance/orders/:id</code> with a <code>compliance</code> object.
-                </p>
-              ) : null}
-              <div className="formActions" style={{ gridColumn: '1 / -1' }}>
-                <button type="submit" className="btn primary" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save org defaults'}
-                </button>
-              </div>
-            </form>
-          )}
+      {error ? (
+        <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+          <strong>{error}</strong>
         </div>
-      </div>
-
-      <div className="card">
-        <div className="cardHead"><h2>Recent compliance audit</h2></div>
-        <div className="cardBody tableWrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Event</th>
-                <th>Org</th>
-                <th>Order</th>
-              </tr>
-            </thead>
-            <tbody>
-              {audit.map((ev) => (
-                <tr key={ev.id}>
-                  <td>{ev.created_at ? new Date(ev.created_at).toLocaleString() : '—'}</td>
-                  <td><code>{ev.event_type}</code></td>
-                  <td className="muted">{ev.org_id ? ev.org_id.slice(0, 8) : '—'}</td>
-                  <td className="muted">{ev.order_id ? ev.order_id.slice(0, 8) : '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      ) : null}
+      {msg ? (
+        <div className='rounded-md border border-border bg-success-soft px-3 py-2 text-sm text-success'>
+          <strong>{msg}</strong>
         </div>
-      </div>
-    </>
+      ) : null}
+
+      <Panel title='Organisation defaults' subtitle='Inherited by service orders unless overridden.'>
+        {loading ? (
+          <p className='text-sm text-muted-foreground'>Loading…</p>
+        ) : (
+          <form onSubmit={save} className='grid gap-3 sm:grid-cols-2'>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Organisation</Label>
+              <select className={selectClass} value={orgId} onChange={(e) => setOrgId(e.target.value)}>
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name || o.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Default lawful basis</Label>
+              <select
+                className={selectClass}
+                value={defaults?.lawful_basis_default || ''}
+                onChange={(e) => updateField('lawful_basis_default', e.target.value)}
+              >
+                <option value=''>—</option>
+                {LAWFUL_BASES.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Privacy notice URL</Label>
+              <Input
+                className='h-8'
+                value={defaults?.privacy_notice_url || ''}
+                onChange={(e) => updateField('privacy_notice_url', e.target.value)}
+                placeholder='https://…'
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Contact email</Label>
+              <Input
+                className='h-8'
+                value={defaults?.contact_email || ''}
+                onChange={(e) => updateField('contact_email', e.target.value)}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>DPO / data protection email</Label>
+              <Input
+                className='h-8'
+                value={defaults?.dpo_email || ''}
+                onChange={(e) => updateField('dpo_email', e.target.value)}
+              />
+            </div>
+            <label className='flex cursor-pointer items-center gap-2.5 self-end pb-1 text-sm text-muted-foreground'>
+              <input
+                type='checkbox'
+                checked={Boolean(defaults?.opt_out_enabled ?? true)}
+                onChange={(e) => updateField('opt_out_enabled', e.target.checked)}
+              />
+              Opt-out enabled (PECR)
+            </label>
+            <label className='flex cursor-pointer items-center gap-2.5 self-end pb-1 text-sm text-muted-foreground'>
+              <input
+                type='checkbox'
+                checked={Boolean(defaults?.special_category_data_present_default)}
+                onChange={(e) => updateField('special_category_data_present_default', e.target.checked)}
+              />
+              Special category data (default)
+            </label>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Article 9 condition (if special category)</Label>
+              <select
+                className={selectClass}
+                value={defaults?.article9_condition_default || ''}
+                onChange={(e) => updateField('article9_condition_default', e.target.value || null)}
+              >
+                <option value=''>—</option>
+                {ARTICLE9.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className='space-y-1 sm:col-span-2'>
+              <Label className='text-[12px]'>Just-in-time privacy intro (default)</Label>
+              <Input
+                className='h-8'
+                value={defaults?.privacy_intro_text_default || ''}
+                onChange={(e) => updateField('privacy_intro_text_default', e.target.value)}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Retention: messages (days)</Label>
+              <Input
+                className='h-8'
+                type='number'
+                min={1}
+                value={defaults?.retention_days_messages ?? 365}
+                onChange={(e) => updateField('retention_days_messages', Number(e.target.value))}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Retention: responses (days)</Label>
+              <Input
+                className='h-8'
+                type='number'
+                min={1}
+                value={defaults?.retention_days_responses ?? 730}
+                onChange={(e) => updateField('retention_days_responses', Number(e.target.value))}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Retention: recordings (days)</Label>
+              <Input
+                className='h-8'
+                type='number'
+                min={1}
+                value={defaults?.retention_days_recordings ?? 90}
+                onChange={(e) => updateField('retention_days_recordings', Number(e.target.value))}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Retention: transcripts (days)</Label>
+              <Input
+                className='h-8'
+                type='number'
+                min={1}
+                value={defaults?.retention_days_transcripts ?? 365}
+                onChange={(e) => updateField('retention_days_transcripts', Number(e.target.value))}
+              />
+            </div>
+            {selectedOrg ? (
+              <p className='text-sm text-muted-foreground sm:col-span-2'>
+                Orders for {selectedOrg.name} must pass compliance checks before launch/send. Override per order via
+                API <code>PUT /admin/compliance/orders/:id</code> with a <code>compliance</code> object.
+              </p>
+            ) : null}
+            <div className='sm:col-span-2'>
+              <Button type='submit' size='sm' className='h-8' disabled={saving}>
+                {saving ? 'Saving…' : 'Save org defaults'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Panel>
+
+      <Panel title='Recent compliance audit' bodyClassName='overflow-x-auto'>
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>When</TableHead>
+              <TableHead>Event</TableHead>
+              <TableHead>Org</TableHead>
+              <TableHead>Order</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {audit.length === 0 ? (
+              <TableEmpty colSpan={4}>No audit events.</TableEmpty>
+            ) : (
+              audit.map((ev) => (
+                <TableRow key={ev.id}>
+                  <TableCell>{ev.created_at ? new Date(ev.created_at).toLocaleString() : '—'}</TableCell>
+                  <TableCell>
+                    <code className='text-[11px]'>{ev.event_type}</code>
+                  </TableCell>
+                  <TableCell className='text-muted-foreground'>
+                    {ev.org_id ? ev.org_id.slice(0, 8) : '—'}
+                  </TableCell>
+                  <TableCell className='text-muted-foreground'>
+                    {ev.order_id ? ev.order_id.slice(0, 8) : '—'}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </StripeTable>
+      </Panel>
+    </div>
   )
 }

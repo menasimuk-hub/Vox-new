@@ -9,6 +9,20 @@ import {
   recipientSessionChannel,
 } from '../lib/serviceOrderAdmin'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table'
 import './orgControlCenter.css'
 import '../components/orderAdminBilling.css'
 
@@ -26,42 +40,39 @@ function fmtWhen(iso) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
 }
 
-function statusBadge(status) {
+function statusTone(status) {
   const s = String(status || '').toLowerCase()
-  const map = {
-    running: 'occ-badge-blue',
-    approved: 'occ-badge-green',
-    completed: 'occ-badge-gray',
-    paused: 'occ-badge-amber',
-    pending: 'occ-badge-amber',
-    failed: 'occ-badge-red',
-    rejected: 'occ-badge-red',
-    paid: 'occ-badge-green',
+  if (['running', 'approved', 'paid', 'completed'].includes(s)) {
+    if (s === 'running') return 'info'
+    if (s === 'completed') return 'neutral'
+    return 'success'
   }
-  return <span className={`occ-badge ${map[s] || 'occ-badge-gray'}`}>{status || '—'}</span>
+  if (['paused', 'pending'].includes(s)) return 'warning'
+  if (['failed', 'rejected'].includes(s)) return 'danger'
+  return 'neutral'
 }
 
 function InfoRow({ label, value }) {
   return (
-    <div className="occ-info-row">
-      <span className="occ-info-row-label">{label}</span>
-      <span className="occ-info-row-value">{value}</span>
+    <div className="flex justify-between gap-3 border-b border-border/60 py-1.5 text-[12px] last:border-0">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="text-right text-foreground">{value}</span>
     </div>
   )
 }
 
 function ActivityTimeline({ events }) {
   if (!events?.length) {
-    return <div className="occ-empty-state">No activity events yet.</div>
+    return <div className="py-4 text-center text-sm text-muted-foreground">No activity events yet.</div>
   }
   return (
-    <ul className="order-activity-timeline">
+    <ul className="order-activity-timeline space-y-2">
       {events.map((ev, i) => (
-        <li key={`${ev.at}-${ev.code}-${i}`}>
-          <span className="order-activity-time">{fmtWhen(ev.at)}</span>
+        <li key={`${ev.at}-${ev.code}-${i}`} className="flex gap-3 text-[12px]">
+          <span className="shrink-0 tabular-nums text-muted-foreground">{fmtWhen(ev.at)}</span>
           <span>
-            <strong>{ev.label || ev.code}</strong>
-            {ev.detail ? <span className="muted"> — {ev.detail}</span> : null}
+            <strong className="text-foreground">{ev.label || ev.code}</strong>
+            {ev.detail ? <span className="text-muted-foreground"> — {ev.detail}</span> : null}
           </span>
         </li>
       ))}
@@ -156,82 +167,86 @@ export default function ServiceOrderDetail() {
   const estMin = order ? orderEstimatedDurationMin(order) : null
 
   return (
-    <div className="occ">
+    <div className="ds-scope occ space-y-4">
       {error ? (
-        <div className="card alertCard" style={{ marginBottom: 12 }}>
-          <div className="cardBody alertText">{error}</div>
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
         </div>
       ) : null}
 
       {loading ? (
-        <div className="occ-kpi-placeholder" style={{ margin: 16 }}>Loading order…</div>
+        <p className="text-sm text-muted-foreground">Loading order…</p>
       ) : null}
 
       {!loading && order ? (
-        <div className="occ-detail-panel" style={{ marginTop: 12 }}>
-          <div className="order-detail-header-compact">
-            <div className="occ-detail-org-row">
-              <div>
-                <div className="occ-detail-org-name">{order.title || 'Service order'}</div>
-                <div className="occ-detail-org-meta">
-                  <span className="occ-detail-org-id">{order.campaign_id || order.reference_id || order.id}</span>
-                  {statusBadge(order.status_label || order.status)}
-                  <span className="occ-badge occ-badge-gray">{order.service_code || 'order'}</span>
-                  <span className="muted">{order.org_name || '—'}</span>
-                  <span className="muted">· {order.recipient_count ?? recipients.length} contacts</span>
-                </div>
-                <form className="order-detail-ref-search" onSubmit={onRefSearch}>
-                  <input
-                    type="text"
-                    placeholder="Open by VB-CMP-… or order UUID"
-                    value={refSearch}
-                    onChange={(e) => setRefSearch(e.target.value)}
-                  />
-                  <button type="submit" className="occ-btn">Go</button>
-                </form>
-              </div>
+        <Panel
+          title={order.title || 'Service order'}
+          subtitle={`${order.campaign_id || order.reference_id || order.id} · ${order.org_name || '—'} · ${order.recipient_count ?? recipients.length} contacts`}
+          action={
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill tone={statusTone(order.status_label || order.status)}>
+                {order.status_label || order.status || '—'}
+              </Pill>
+              <Pill tone="neutral">{order.service_code || 'order'}</Pill>
             </div>
-          </div>
+          }
+          bodyClassName="space-y-4"
+        >
+          <form className="flex flex-wrap items-center gap-2" onSubmit={onRefSearch}>
+            <Input
+              className="h-8 max-w-sm flex-1"
+              type="text"
+              placeholder="Open by VB-CMP-… or order UUID"
+              value={refSearch}
+              onChange={(e) => setRefSearch(e.target.value)}
+            />
+            <Button type="submit" size="sm" className="h-8">
+              Go
+            </Button>
+          </form>
 
-          <div className="order-detail-metrics">
-            <OrderAdminBillingPanel order={order} showCallTable={false} />
-          </div>
+          <OrderAdminBillingPanel order={order} showCallTable={false} />
 
-          <div className="order-detail-tabs-wrap">
-            <div className="occ-tabs">
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="h-auto flex-wrap">
               {TABS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={`occ-tab-btn ${tab === t.id ? 'active' : ''}`}
-                  onClick={() => setTab(t.id)}
-                >
+                <TabsTrigger key={t.id} value={t.id} className="text-[12px]">
                   {t.label}
-                </button>
+                </TabsTrigger>
               ))}
-            </div>
+            </TabsList>
 
-            <div className={`occ-tab-content ${tab === 'overview' ? 'active' : ''}`}>
-              <div className="order-detail-info-row">
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Order</div>
+            <TabsContent value="overview" className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-border bg-surface-muted/30 p-3">
+                  <div className="mb-2 text-[12px] font-semibold text-foreground">Order</div>
                   <InfoRow label="Reference" value={order.reference_id || '—'} />
                   <InfoRow label="Campaign ID" value={order.campaign_id || '—'} />
-                  <InfoRow label="Delivery" value={order.service_code === 'interview' ? interviewFormatLabel(order) : orderDeliveryLabel(order)} />
+                  <InfoRow
+                    label="Delivery"
+                    value={
+                      order.service_code === 'interview'
+                        ? interviewFormatLabel(order)
+                        : orderDeliveryLabel(order)
+                    }
+                  />
                   {order.interview_sessions ? (
                     <InfoRow
                       label="Sessions"
                       value={`${order.interview_sessions.interview_format_label || '—'} — ${order.interview_sessions.web_sessions || 0} web, ${order.interview_sessions.phone_sessions || 0} phone, ${order.interview_sessions.total_billable_minutes || 0} billable min`}
                     />
                   ) : null}
-                  <InfoRow label="Channel" value={cfg.delivery || cfg.survey_channel || cfg.channel || order.quote_survey_channel || '—'} />
+                  <InfoRow
+                    label="Channel"
+                    value={cfg.delivery || cfg.survey_channel || cfg.channel || order.quote_survey_channel || '—'}
+                  />
                   <InfoRow label="Est. minutes" value={estMin != null ? `${estMin} min` : '—'} />
                   <InfoRow label="Created" value={fmtWhen(order.created_at)} />
                   <InfoRow label="Started" value={fmtWhen(order.started_at)} />
                   <InfoRow label="Completed" value={fmtWhen(order.completed_at)} />
                 </div>
-                <div className="occ-info-block">
-                  <div className="occ-info-block-title">Customer</div>
+                <div className="rounded-lg border border-border bg-surface-muted/30 p-3">
+                  <div className="mb-2 text-[12px] font-semibold text-foreground">Customer</div>
                   <InfoRow label="Organisation" value={order.org_name || '—'} />
                   <InfoRow label="Owner" value={order.owner_email || '—'} />
                   {(cfg.wa_template_name || cfg.template_name) ? (
@@ -240,176 +255,197 @@ export default function ServiceOrderDetail() {
                   {cfg.goal ? <InfoRow label="Goal" value={cfg.goal} /> : null}
                 </div>
               </div>
-              <OrderAdminBillingPanel
-                order={order}
-                showMetrics={false}
-                showFootnote
-              />
-            </div>
+              <OrderAdminBillingPanel order={order} showMetrics={false} showFootnote />
+            </TabsContent>
 
-            <div className={`occ-tab-content ${tab === 'calls' ? 'active' : ''}`}>
-              <div className="occ-table-wrap">
-                <table className="occ-data-table">
-                  <thead>
-                    <tr>
-                      <th>Contact</th>
-                      <th>Phone</th>
-                      <th>Email</th>
-                      <th>Channel</th>
-                      <th>Type</th>
-                      <th>Duration</th>
-                      <th>Min</th>
-                      <th>R.cost</th>
-                      <th>O.cost</th>
-                      <th>Margin</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+            <TabsContent value="calls">
+              <div className="overflow-x-auto">
+                <StripeTable>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Channel</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead>Min</TableHead>
+                      <TableHead>R.cost</TableHead>
+                      <TableHead>O.cost</TableHead>
+                      <TableHead>Margin</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {!recipients.length ? (
-                      <tr><td colSpan={11}><div className="occ-empty-state">No contacts.</div></td></tr>
-                    ) : recipients.map((r) => (
-                      <tr key={r.id}>
-                        <td>{r.name || '—'}</td>
-                        <td className="occ-mono">{r.phone || '—'}</td>
-                        <td>{r.email || '—'}</td>
-                        <td>{recipientSessionChannel(r, order)}</td>
-                        <td>{r.call_type || '—'}</td>
-                        <td>{formatDurationSeconds(r.duration_seconds)}</td>
-                        <td className="occ-mono">{r.billable_minutes ?? '—'}</td>
-                        <td className="occ-mono">{r.retail_cost_display || '—'}</td>
-                        <td className="occ-mono">{r.operator_cost_display || '—'}</td>
-                        <td className="occ-mono">{r.margin_display || '—'}</td>
-                        <td>{r.status || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                      <TableEmpty colSpan={11}>No contacts.</TableEmpty>
+                    ) : (
+                      recipients.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell>{r.name || '—'}</TableCell>
+                          <TableCell className="font-mono text-[12px]">{r.phone || '—'}</TableCell>
+                          <TableCell>{r.email || '—'}</TableCell>
+                          <TableCell>{recipientSessionChannel(r, order)}</TableCell>
+                          <TableCell>{r.call_type || '—'}</TableCell>
+                          <TableCell>{formatDurationSeconds(r.duration_seconds)}</TableCell>
+                          <TableCell className="font-mono text-[12px]">{r.billable_minutes ?? '—'}</TableCell>
+                          <TableCell className="font-mono text-[12px]">{r.retail_cost_display || '—'}</TableCell>
+                          <TableCell className="font-mono text-[12px]">{r.operator_cost_display || '—'}</TableCell>
+                          <TableCell className="font-mono text-[12px]">{r.margin_display || '—'}</TableCell>
+                          <TableCell>{r.status || '—'}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </StripeTable>
               </div>
-              <p className="order-billing-footnote" style={{ marginTop: 8 }}>
+              <p className="order-billing-footnote mt-2 text-[11px] text-muted-foreground">
                 R.cost = retail (billable min × rate + connection). O.cost = Telnyx operator (USD). Margin is not FX-adjusted.
               </p>
-            </div>
+            </TabsContent>
 
-            <div className={`occ-tab-content ${tab === 'activity' ? 'active' : ''}`}>
-              <div className="occ-info-block" style={{ marginBottom: 12 }}>
-                <div className="occ-info-block-title">Campaign timeline (order audit)</div>
+            <TabsContent value="activity" className="space-y-3">
+              <div className="rounded-lg border border-border bg-surface-muted/30 p-3">
+                <div className="mb-2 text-[12px] font-semibold text-foreground">Campaign timeline (order audit)</div>
                 <ActivityTimeline events={audit} />
               </div>
               {isInterview ? (
                 <>
-                  <div className="occ-info-block-title" style={{ marginBottom: 8 }}>Per-candidate activity</div>
+                  <div className="text-[12px] font-semibold text-foreground">Per-candidate activity</div>
                   {activityLoading ? (
-                    <div className="occ-empty-state">Loading candidate timelines…</div>
+                    <div className="py-4 text-center text-sm text-muted-foreground">Loading candidate timelines…</div>
                   ) : null}
                   {!activityLoading && !recipients.length ? (
-                    <div className="occ-empty-state">No contacts.</div>
+                    <div className="py-4 text-center text-sm text-muted-foreground">No contacts.</div>
                   ) : null}
                   {recipients.map((r) => {
                     const activity = activityByRecipient[r.id]
                     const open = expandedActivityId === r.id
                     return (
-                      <div key={r.id} className="occ-info-block" style={{ marginBottom: 10 }}>
-                        <button
+                      <div key={r.id} className="rounded-lg border border-border bg-surface-muted/30 p-3">
+                        <Button
                           type="button"
-                          className="occ-btn"
-                          style={{ marginBottom: open ? 8 : 0 }}
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
                           onClick={() => setExpandedActivityId(open ? '' : r.id)}
                         >
                           {open ? '▼' : '▶'} {r.name || r.email || r.phone || r.id}
                           {activity?.activity_status ? (
-                            <span className="occ-badge occ-badge-gray" style={{ marginLeft: 8 }}>
+                            <Pill tone="neutral" className="ml-2">
                               {activity.activity_status}
-                            </span>
+                            </Pill>
                           ) : null}
-                        </button>
+                        </Button>
                         {open ? (
-                          <ActivityTimeline events={activity?.events || []} />
+                          <div className="mt-2">
+                            <ActivityTimeline events={activity?.events || []} />
+                          </div>
                         ) : null}
                       </div>
                     )
                   })}
                 </>
               ) : (
-                <p className="order-billing-footnote">Per-candidate timelines are available for interview orders.</p>
+                <p className="order-billing-footnote text-[11px] text-muted-foreground">
+                  Per-candidate timelines are available for interview orders.
+                </p>
               )}
-            </div>
+            </TabsContent>
 
-            <div className={`occ-tab-content ${tab === 'contacts' ? 'active' : ''}`}>
-              <div className="occ-table-wrap">
-                <table className="occ-data-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Name</th>
-                      <th>Phone</th>
-                      <th>Email</th>
-                      {!isWa ? <th>Channel</th> : null}
-                      {!isWa ? <th>Duration</th> : null}
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+            <TabsContent value="contacts">
+              <div className="overflow-x-auto">
+                <StripeTable>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>#</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Phone</TableHead>
+                      <TableHead>Email</TableHead>
+                      {!isWa ? <TableHead>Channel</TableHead> : null}
+                      {!isWa ? <TableHead>Duration</TableHead> : null}
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
                     {recipients.map((r) => (
-                      <tr key={r.id}>
-                        <td>{r.row_number}</td>
-                        <td>{r.name}</td>
-                        <td>{r.phone || '—'}</td>
-                        <td>{r.email || '—'}</td>
-                        {!isWa ? <td>{recipientSessionChannel(r, order)}</td> : null}
-                        {!isWa ? <td>{formatDurationSeconds(r.duration_seconds)}</td> : null}
-                        <td>{r.status || '—'}</td>
-                      </tr>
+                      <TableRow key={r.id}>
+                        <TableCell>{r.row_number}</TableCell>
+                        <TableCell>{r.name}</TableCell>
+                        <TableCell>{r.phone || '—'}</TableCell>
+                        <TableCell>{r.email || '—'}</TableCell>
+                        {!isWa ? <TableCell>{recipientSessionChannel(r, order)}</TableCell> : null}
+                        {!isWa ? <TableCell>{formatDurationSeconds(r.duration_seconds)}</TableCell> : null}
+                        <TableCell>{r.status || '—'}</TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                </table>
+                  </TableBody>
+                </StripeTable>
               </div>
-            </div>
+            </TabsContent>
 
-            <div className={`occ-tab-content ${tab === 'audit' ? 'active' : ''}`}>
+            <TabsContent value="audit">
               {!audit.length ? (
-                <div className="occ-empty-state">No audit events.</div>
+                <div className="py-4 text-center text-sm text-muted-foreground">No audit events.</div>
               ) : (
-                <div className="occ-table-wrap">
-                  <table className="occ-data-table">
-                    <thead>
-                      <tr><th>When</th><th>Event</th><th>Detail</th></tr>
-                    </thead>
-                    <tbody>
+                <div className="overflow-x-auto">
+                  <StripeTable>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>When</TableHead>
+                        <TableHead>Event</TableHead>
+                        <TableHead>Detail</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                       {audit.map((ev, i) => (
-                        <tr key={`${ev.at}-${i}`}>
-                          <td style={{ color: 'var(--occ-text3)', fontSize: 12 }}>{fmtWhen(ev.at)}</td>
-                          <td>{ev.label || ev.kind}</td>
-                          <td>{ev.detail || '—'}</td>
-                        </tr>
+                        <TableRow key={`${ev.at}-${i}`}>
+                          <TableCell className="text-[12px] text-muted-foreground">{fmtWhen(ev.at)}</TableCell>
+                          <TableCell>{ev.label || ev.kind}</TableCell>
+                          <TableCell>{ev.detail || '—'}</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </StripeTable>
                 </div>
               )}
-            </div>
-          </div>
+            </TabsContent>
+          </Tabs>
 
-          <div className="order-detail-footer">
-            <Link className="occ-btn" to="/organisations/all-users">← Control Center</Link>
+          <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/organisations/all-users">← Control Center</Link>
+            </Button>
             {order.org_id ? (
-              <Link className="occ-btn" to={`/organisations/${order.org_id}`}>Organisation</Link>
+              <Button asChild variant="outline" size="sm" className="h-8">
+                <Link to={`/organisations/${order.org_id}`}>Organisation</Link>
+              </Button>
             ) : null}
             {order.service_code === 'survey' ? (
-              <Link className="occ-btn primary" to={`/operations/running-surveys?order=${encodeURIComponent(orderId)}`}>
-                Manage survey
-              </Link>
+              <Button asChild size="sm" className="h-8">
+                <Link to={`/operations/running-surveys?order=${encodeURIComponent(orderId)}`}>
+                  Manage survey
+                </Link>
+              </Button>
             ) : null}
             {order.service_code === 'interview' ? (
-              <Link className="occ-btn primary" to={`/operations/running-interviews?order=${encodeURIComponent(orderId)}`}>
-                Manage interview
-              </Link>
+              <Button asChild size="sm" className="h-8">
+                <Link to={`/operations/running-interviews?order=${encodeURIComponent(orderId)}`}>
+                  Manage interview
+                </Link>
+              </Button>
             ) : null}
-            <button type="button" className="occ-btn" onClick={() => load().catch((e) => setError(e?.message))}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => load().catch((e) => setError(e?.message))}
+            >
               Refresh
-            </button>
+            </Button>
           </div>
-        </div>
+        </Panel>
       ) : null}
     </div>
   )

@@ -1,8 +1,25 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/Table'
 
 const PAGE_SIZE = 20
+
+const selectClass =
+  'flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-[12px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
 export default function ComplianceOptOuts() {
   const [orgs, setOrgs] = useState([])
@@ -123,151 +140,212 @@ export default function ComplianceOptOuts() {
   }
 
   return (
-    <div className="page">
-      <div className="pageHead">
+    <div className='ds-scope space-y-4'>
+      <div className='pageTop'>
         <div>
-          <div className="breadcrumb">
-            <Link to="/compliance/consent">Compliance</Link> / STOP opt-out list
+          <div className='mb-1.5 text-[12px] text-muted-foreground'>
+            <Link to='/compliance/consent' className='text-primary hover:underline'>
+              Compliance
+            </Link>{' '}
+            / STOP opt-out list
           </div>
           <h1>STOP / opt-out list</h1>
-          <p className="muted">Platform-wide numbers that must not be called or messaged (all organisations).</p>
+          <p>Platform-wide numbers that must not be called or messaged (all organisations).</p>
         </div>
       </div>
 
-      {error ? <div className="alert error">{error}</div> : null}
-      {msg ? <div className="alert success">{msg}</div> : null}
+      {error ? (
+        <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+          {error}
+        </div>
+      ) : null}
+      {msg ? (
+        <div className='rounded-md border border-border bg-success-soft px-3 py-2 text-sm text-success'>{msg}</div>
+      ) : null}
 
-      <form className="card" onSubmit={onSearch} style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Filters</h3>
-        <div className="grid4" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
-          <label>
-            <span className="label">Organisation</span>
-            <select className="input" value={orgId} onChange={(e) => { setOrgId(e.target.value); setPage(1) }}>
-              <option value="">All organisations</option>
-              {orgs.map((o) => (
-                <option key={o.id} value={o.id}>{o.name || o.id}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span className="label">Phone</span>
-            <input className="input" placeholder="+4477…" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </label>
-          <label>
-            <span className="label">Reason</span>
-            <input className="input" placeholder="whatsapp_keyword…" value={reason} onChange={(e) => setReason(e.target.value)} />
-          </label>
-          <label>
-            <span className="label">From</span>
-            <input className="input" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          </label>
-          <label>
-            <span className="label">To</span>
-            <input className="input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          </label>
-        </div>
-        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-          <button type="submit" className="btn primary">Search</button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() => {
-              setOrgId('')
-              setPhone('')
-              setReason('')
-              setFromDate('')
-              setToDate('')
-              setPage(1)
-            }}
-          >
-            Clear
-          </button>
-        </div>
-      </form>
+      <Panel title='Filters' subtitle='Search the platform opt-out list.'>
+        <form onSubmit={onSearch} className='space-y-3'>
+          <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5'>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Organisation</Label>
+              <select
+                className={selectClass}
+                value={orgId}
+                onChange={(e) => {
+                  setOrgId(e.target.value)
+                  setPage(1)
+                }}
+              >
+                <option value=''>All organisations</option>
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name || o.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Phone</Label>
+              <Input className='h-8' placeholder='+4477…' value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Reason</Label>
+              <Input
+                className='h-8'
+                placeholder='whatsapp_keyword…'
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>From</Label>
+              <Input className='h-8' type='date' value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>To</Label>
+              <Input className='h-8' type='date' value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </div>
+          </div>
+          <div className='flex gap-2'>
+            <Button type='submit' size='sm' className='h-8'>
+              Search
+            </Button>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              className='h-8'
+              onClick={() => {
+                setOrgId('')
+                setPhone('')
+                setReason('')
+                setFromDate('')
+                setToDate('')
+                setPage(1)
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+        </form>
+      </Panel>
 
-      <form className="card" onSubmit={onAdd} style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Add number</h3>
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
-          <label>
-            <span className="label">Organisation</span>
-            <select className="input" value={addOrgId} onChange={(e) => setAddOrgId(e.target.value)} required>
-              {orgs.map((o) => (
-                <option key={o.id} value={o.id}>{o.name || o.id}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span className="label">Phone (E.164)</span>
-            <input className="input" placeholder="+447700900123" value={addPhone} onChange={(e) => setAddPhone(e.target.value)} required />
-          </label>
-          <label>
-            <span className="label">Name</span>
-            <input className="input" value={addName} onChange={(e) => setAddName(e.target.value)} />
-          </label>
-          <label>
-            <span className="label">Reason</span>
-            <input className="input" value={addReason} onChange={(e) => setAddReason(e.target.value)} />
-          </label>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Adding…' : 'Add to list'}</button>
-        </div>
-      </form>
+      <Panel title='Add number' subtitle='Manually suppress a phone across the platform.'>
+        <form onSubmit={onAdd} className='space-y-3'>
+          <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Organisation</Label>
+              <select className={selectClass} value={addOrgId} onChange={(e) => setAddOrgId(e.target.value)} required>
+                {orgs.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name || o.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Phone (E.164)</Label>
+              <Input
+                className='h-8'
+                placeholder='+447700900123'
+                value={addPhone}
+                onChange={(e) => setAddPhone(e.target.value)}
+                required
+              />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Name</Label>
+              <Input className='h-8' value={addName} onChange={(e) => setAddName(e.target.value)} />
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Reason</Label>
+              <Input className='h-8' value={addReason} onChange={(e) => setAddReason(e.target.value)} />
+            </div>
+          </div>
+          <Button type='submit' size='sm' className='h-8' disabled={saving}>
+            {saving ? 'Adding…' : 'Add to list'}
+          </Button>
+        </form>
+      </Panel>
 
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <h3 style={{ margin: 0 }}>Opt-outs ({total})</h3>
-          <span className="muted">Page {page} of {pages} · {PAGE_SIZE} per page</span>
-        </div>
+      <Panel
+        title={`Opt-outs (${total})`}
+        action={
+          <Pill tone='neutral'>
+            Page {page} of {pages} · {PAGE_SIZE} per page
+          </Pill>
+        }
+        bodyClassName='space-y-3'
+      >
         {loading ? (
-          <p className="muted">Loading…</p>
+          <p className='text-sm text-muted-foreground'>Loading…</p>
         ) : (
-          <div className="tableWrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Phone</th>
-                  <th>Name</th>
-                  <th>Organisation</th>
-                  <th>Reason</th>
-                  <th>Added</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
+          <div className='overflow-x-auto'>
+            <StripeTable>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Organisation</TableHead>
+                  <TableHead>Reason</TableHead>
+                  <TableHead>Added</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {items.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="muted">No opt-outs match these filters.</td>
-                  </tr>
+                  <TableEmpty colSpan={6}>No opt-outs match these filters.</TableEmpty>
                 ) : (
                   items.map((row) => (
-                    <tr key={row.id}>
-                      <td><code>{row.phone_e164 || row.phone}</code></td>
-                      <td>{row.contact_name || row.name || '—'}</td>
-                      <td>{row.org_name || row.org_id || '—'}</td>
-                      <td>{row.reason || '—'}</td>
-                      <td>{fmtDate(row.created_at)}</td>
-                      <td>
-                        <button type="button" className="btn danger sm" onClick={() => void onRemove(row.id)}>
+                    <TableRow key={row.id}>
+                      <TableCell>
+                        <code className='text-[11px]'>{row.phone_e164 || row.phone}</code>
+                      </TableCell>
+                      <TableCell>{row.contact_name || row.name || '—'}</TableCell>
+                      <TableCell>{row.org_name || row.org_id || '—'}</TableCell>
+                      <TableCell>{row.reason || '—'}</TableCell>
+                      <TableCell>{fmtDate(row.created_at)}</TableCell>
+                      <TableCell>
+                        <Button
+                          type='button'
+                          variant='destructive'
+                          size='sm'
+                          className='h-7 text-[11px]'
+                          onClick={() => void onRemove(row.id)}
+                        >
                           Remove
-                        </button>
-                      </td>
-                    </tr>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
                   ))
                 )}
-              </tbody>
-            </table>
+              </TableBody>
+            </StripeTable>
           </div>
         )}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button type="button" className="btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+        <div className='flex gap-2'>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-8'
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
             Previous
-          </button>
-          <button type="button" className="btn" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+          </Button>
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-8'
+            disabled={page >= pages}
+            onClick={() => setPage((p) => p + 1)}
+          >
             Next
-          </button>
+          </Button>
         </div>
-      </div>
+      </Panel>
     </div>
   )
 }

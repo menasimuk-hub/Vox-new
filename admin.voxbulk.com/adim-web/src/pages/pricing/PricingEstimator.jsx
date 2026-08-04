@@ -1,6 +1,8 @@
 import React from 'react'
 import { usePricingSettings } from './pricingUtils'
 import PricingPageFrame, { PricingField, PricingLoadGate } from './PricingPageFrame'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 
 export default function PricingEstimator() {
   const { settings, setSettings, loading, error, msg, save, load } = usePricingSettings()
@@ -15,17 +17,38 @@ export default function PricingEstimator() {
       onRetry={load}
     >
       {settings ? (
-      <PricingPageFrame title="Estimator defaults" description="Default slider values on customer Packages page." error={error} msg={msg}>
-        <div className="pricingGrid5">
-          <PricingField label="Duration (min)" compact>
-            <input className="input pricingInputSm pricingInputNum" type="number" min="1" value={settings.estimator_default_duration_min} onChange={(e) => set('estimator_default_duration_min', e.target.value)} />
-          </PricingField>
-          <PricingField label="Interviews" compact>
-            <input className="input pricingInputSm pricingInputNum" type="number" min="1" value={settings.estimator_default_interview_count} onChange={(e) => set('estimator_default_interview_count', e.target.value)} />
-          </PricingField>
-        </div>
-        <div className="pricingActions"><button className="btn" type="button" onClick={() => void save(settings)}>Save</button></div>
-      </PricingPageFrame>
+        <PricingPageFrame
+          title="Estimator defaults"
+          description="Default slider values on customer Packages page."
+          error={error}
+          msg={msg}
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <PricingField label="Duration (min)" compact>
+              <Input
+                className="h-8"
+                type="number"
+                min="1"
+                value={settings.estimator_default_duration_min}
+                onChange={(e) => set('estimator_default_duration_min', e.target.value)}
+              />
+            </PricingField>
+            <PricingField label="Interviews" compact>
+              <Input
+                className="h-8"
+                type="number"
+                min="1"
+                value={settings.estimator_default_interview_count}
+                onChange={(e) => set('estimator_default_interview_count', e.target.value)}
+              />
+            </PricingField>
+          </div>
+          <div className="pt-1">
+            <Button type="button" size="sm" className="h-8" onClick={() => void save(settings)}>
+              Save
+            </Button>
+          </div>
+        </PricingPageFrame>
       ) : null}
     </PricingLoadGate>
   )

@@ -6,37 +6,41 @@ body.dark .content:has(.sales-hub) {
   padding: 0 !important;
   max-width: none !important;
   width: 100% !important;
-  background: oklch(0.982 0.009 88) !important;
+  background: var(--ds-background, oklch(0.975 0.012 85)) !important;
+}
+
+body.dark .content:has(.sales-hub) {
+  background: oklch(0.975 0.012 85) !important;
 }
 
 .sales-hub {
-  /* Exact :root from partner-sales-hub-main/src/styles.css */
-  --radius: 0.5rem;
-  --background: oklch(0.982 0.009 88);
-  --foreground: oklch(0.26 0.045 258);
-  --card: oklch(0.99 0.008 90);
-  --card-foreground: oklch(0.26 0.045 258);
-  --popover: oklch(0.99 0.008 90);
-  --popover-foreground: oklch(0.26 0.045 258);
-  --primary: oklch(0.31 0.075 264);
-  --primary-foreground: oklch(0.98 0.01 90);
-  --secondary: oklch(0.955 0.014 88);
-  --secondary-foreground: oklch(0.31 0.075 264);
-  --muted: oklch(0.955 0.014 88);
-  --muted-foreground: oklch(0.5 0.03 262);
-  --accent: oklch(0.94 0.02 86);
-  --accent-foreground: oklch(0.31 0.075 264);
-  --destructive: oklch(0.55 0.2 27);
-  --destructive-foreground: oklch(0.98 0.01 90);
-  --border: oklch(0.915 0.018 86);
-  --input: oklch(0.915 0.018 86);
-  --ring: oklch(0.31 0.075 264);
-  --chart-1: oklch(0.31 0.075 264);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --ink-soft: oklch(0.5 0.03 262);
+  /* Phase 2 Batch F: map Sales Hub island onto design-system OKLCH palette */
+  --radius: 0.625rem;
+  --background: var(--ds-background, oklch(0.975 0.012 85));
+  --foreground: var(--ds-foreground, oklch(0.22 0.02 260));
+  --card: var(--ds-card, oklch(0.995 0.004 85));
+  --card-foreground: var(--ds-card-foreground, oklch(0.22 0.02 260));
+  --popover: var(--ds-popover, oklch(0.995 0.004 85));
+  --popover-foreground: var(--ds-popover-foreground, oklch(0.22 0.02 260));
+  --primary: var(--ds-primary, oklch(0.27 0.04 265));
+  --primary-foreground: var(--ds-primary-foreground, oklch(0.98 0.003 247));
+  --secondary: var(--ds-secondary, oklch(0.93 0.012 80));
+  --secondary-foreground: var(--ds-secondary-foreground, oklch(0.27 0.04 265));
+  --muted: var(--ds-muted, oklch(0.945 0.014 80));
+  --muted-foreground: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --accent: var(--ds-accent, oklch(0.93 0.012 80));
+  --accent-foreground: var(--ds-accent-foreground, oklch(0.27 0.04 265));
+  --destructive: var(--ds-destructive, oklch(0.6 0.21 27));
+  --destructive-foreground: var(--ds-destructive-foreground, oklch(0.99 0.003 247));
+  --border: var(--ds-border, oklch(0.9 0.012 85));
+  --input: var(--ds-input, oklch(0.9 0.012 85));
+  --ring: var(--ds-ring, oklch(0.62 0.05 260));
+  --chart-1: var(--ds-primary, oklch(0.27 0.04 265));
+  --chart-2: var(--ds-success, oklch(0.55 0.14 150));
+  --chart-3: var(--ds-info, oklch(0.52 0.1 250));
+  --chart-4: var(--ds-warning, oklch(0.62 0.13 65));
+  --chart-5: var(--ds-destructive, oklch(0.6 0.21 27));
+  --ink-soft: var(--ds-muted-foreground, oklch(0.5 0.02 260));
 
   color-scheme: light;
   box-sizing: border-box;
@@ -50,26 +54,26 @@ body.dark .content:has(.sales-hub) {
   padding: 0;
 }
 
-/* Never inherit admin dark theme inside the hub */
+/* Never inherit admin dark theme inside the hub — pin light DESIGN_SYSTEM values */
 body.dark .sales-hub {
-  --background: oklch(0.982 0.009 88);
-  --foreground: oklch(0.26 0.045 258);
-  --card: oklch(0.99 0.008 90);
-  --card-foreground: oklch(0.26 0.045 258);
-  --primary: oklch(0.31 0.075 264);
-  --primary-foreground: oklch(0.98 0.01 90);
-  --secondary: oklch(0.955 0.014 88);
-  --secondary-foreground: oklch(0.31 0.075 264);
-  --muted: oklch(0.955 0.014 88);
-  --muted-foreground: oklch(0.5 0.03 262);
-  --accent: oklch(0.94 0.02 86);
-  --accent-foreground: oklch(0.31 0.075 264);
-  --destructive: oklch(0.55 0.2 27);
-  --border: oklch(0.915 0.018 86);
-  --input: oklch(0.915 0.018 86);
-  --ring: oklch(0.31 0.075 264);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
+  --background: oklch(0.975 0.012 85);
+  --foreground: oklch(0.22 0.02 260);
+  --card: oklch(0.995 0.004 85);
+  --card-foreground: oklch(0.22 0.02 260);
+  --primary: oklch(0.27 0.04 265);
+  --primary-foreground: oklch(0.98 0.003 247);
+  --secondary: oklch(0.93 0.012 80);
+  --secondary-foreground: oklch(0.27 0.04 265);
+  --muted: oklch(0.945 0.014 80);
+  --muted-foreground: oklch(0.5 0.02 260);
+  --accent: oklch(0.93 0.012 80);
+  --accent-foreground: oklch(0.27 0.04 265);
+  --destructive: oklch(0.6 0.21 27);
+  --border: oklch(0.9 0.012 85);
+  --input: oklch(0.9 0.012 85);
+  --ring: oklch(0.62 0.05 260);
+  --chart-2: oklch(0.55 0.14 150);
+  --chart-3: oklch(0.52 0.1 250);
   background: var(--background) !important;
   color: var(--foreground) !important;
 }

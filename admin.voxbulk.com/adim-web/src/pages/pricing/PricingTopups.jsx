@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { penceToPounds, poundsToPence } from './pricingUtils'
 import PricingPageFrame, { PricingField, PricingLoadGate } from './PricingPageFrame'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 
 const emptyTier = { credit_gbp_pence: 5000, bonus_credit_pence: 0, is_active: true, sort_order: 100 }
 
@@ -103,7 +105,7 @@ export default function PricingTopups() {
                 <td className="pricingTdNum"><span className="pricingCellBox calc">{penceToPounds((t.credit_gbp_pence || 0) + (t.bonus_credit_pence || 0))}</span></td>
                 <td className="pricingTdNum"><BoxInput value={t.sort_order} onBlur={(e) => void saveTier({ ...t, sort_order: Number(e.target.value || 0) })} /></td>
                 <td className="pricingTdCenter"><input type="checkbox" defaultChecked={t.is_active} onChange={(e) => void saveTier({ ...t, is_active: e.target.checked })} /></td>
-                <td className="pricingTdCenter"><button className="btn soft pricingSaveBtn" type="button" onClick={() => void removeTier(t.id)}>Del</button></td>
+                <td className="pricingTdCenter"><Button variant="outline" size="sm" className="h-7 text-xs" type="button" onClick={() => void removeTier(t.id)}>Del</Button></td>
               </tr>
             ))}
           </tbody>
@@ -112,13 +114,13 @@ export default function PricingTopups() {
       <p className="pricingSectionLabel" style={{ marginTop: 16 }}>Add tier</p>
       <div className="pricingGrid5">
         <PricingField label="Credit £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={penceToPounds(draft.credit_gbp_pence)} onChange={(e) => setDraft({ ...draft, credit_gbp_pence: poundsToPence(e.target.value) })} />
+          <Input className="h-8" type="number" step="0.01" value={penceToPounds(draft.credit_gbp_pence)} onChange={(e) => setDraft({ ...draft, credit_gbp_pence: poundsToPence(e.target.value) })} />
         </PricingField>
         <PricingField label="Bonus £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={penceToPounds(draft.bonus_credit_pence)} onChange={(e) => setDraft({ ...draft, bonus_credit_pence: poundsToPence(e.target.value) })} />
+          <Input className="h-8" type="number" step="0.01" value={penceToPounds(draft.bonus_credit_pence)} onChange={(e) => setDraft({ ...draft, bonus_credit_pence: poundsToPence(e.target.value) })} />
         </PricingField>
         <div className="pricingActions" style={{ gridColumn: 'span 1', alignSelf: 'end' }}>
-          <button className="btn" type="button" onClick={() => void addTier()}>Add</button>
+          <Button size="sm" className="h-8" type="button" onClick={() => void addTier()}>Add</Button>
         </div>
       </div>
       </PricingPageFrame>

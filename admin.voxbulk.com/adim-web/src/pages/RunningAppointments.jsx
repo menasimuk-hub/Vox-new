@@ -1,20 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { AlertTriangle, Building2, CalendarClock, RefreshCw, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import { KpiCard } from '@/components/ui/KpiCard'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
-function StatCard({ label, value, hint }) {
-  return (
-    <div className="runningSurveyStatCompact">
-      <span className="runningSurveyStatCompactLabel">{label}</span>
-      <span className="runningSurveyStatCompactValue">{value}</span>
-      {hint ? <span className="runningSurveyStatCompactHint">{hint}</span> : null}
-    </div>
-  )
-}
-
-function issuePill(level) {
-  if (level === 'error') return 'leadPill leadPillDecline'
-  return 'leadPill leadPillHold'
+function issueTone(level) {
+  if (level === 'error') return 'danger'
+  return 'warning'
 }
 
 export default function RunningAppointments() {
@@ -99,233 +105,319 @@ export default function RunningAppointments() {
     )
   }, [orgs, search])
 
+  const kpiLoading = loading && !overview
+
   return (
-    <>
+    <div className="ds-scope space-y-4">
       <div className="pageTop">
         <div>
           <h1>Appointment Manager</h1>
           <p>Customers with the appointments module — setup status, WA templates, agents, and live pipeline.</p>
         </div>
-        <div className="pageTopActions">
-          <Link className="btn soft" to="/ai/agents">Appointment agents</Link>
-          <Link className="btn soft" to="/settings/wa-appointment">WA templates</Link>
-          <Link className="btn soft" to="/onboarding/services">Dashboard modules</Link>
-          <button type="button" className="btn primary" onClick={() => load().catch((e) => setError(e?.message))}>
+        <div className="actions">
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/ai/agents">Appointment agents</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/settings/wa-appointment">WA templates</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/onboarding/services">Dashboard modules</Link>
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8"
+            onClick={() => load().catch((e) => setError(e?.message))}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="card runningSurveyError"><div className="cardBody" style={{ color: '#b91c1c' }}>{error}</div></div> : null}
-      {orgsError ? <div className="card runningSurveyError"><div className="cardBody" style={{ color: '#b91c1c' }}>{orgsError}</div></div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+      {orgsError ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {orgsError}
+        </div>
+      ) : null}
 
-      <div className="runningSurveyStatsCompactRow">
-        <StatCard label="Active customers" value={loading && !overview ? '…' : (overview?.active_orgs ?? 0)} />
-        <StatCard label="Total appointments" value={loading && !overview ? '…' : (overview?.total_appointments ?? 0)} />
-        <StatCard label="At risk (24h)" value={loading && !overview ? '…' : (overview?.at_risk_24h ?? 0)} hint="Unconfirmed soon" />
-        <StatCard label="Customers with issues" value={loading && !overview ? '…' : (overview?.orgs_with_issues ?? 0)} hint="Setup / CRM / agent" />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          label="Active customers"
+          value={kpiLoading ? '…' : (overview?.active_orgs ?? 0)}
+          icon={Building2}
+          tone="info"
+        />
+        <KpiCard
+          label="Total appointments"
+          value={kpiLoading ? '…' : (overview?.total_appointments ?? 0)}
+          icon={CalendarClock}
+          tone="primary"
+        />
+        <KpiCard
+          label="At risk (24h)"
+          value={kpiLoading ? '…' : (overview?.at_risk_24h ?? 0)}
+          hint="Unconfirmed soon"
+          icon={AlertTriangle}
+          tone="warning"
+        />
+        <KpiCard
+          label="Customers with issues"
+          value={kpiLoading ? '…' : (overview?.orgs_with_issues ?? 0)}
+          hint="Setup / CRM / agent"
+          icon={Users}
+          tone="danger"
+        />
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardHead runningSurveyListHead">
-          <h3>Appointment AI agents</h3>
-          <Link className="btn soft" to="/ai/agents">Manage agents</Link>
-        </div>
-        <div className="cardBody">
-          {(overview?.appointment_agents || []).length ? (
-            <div className="runningSurveyStatsCompactRow">
-              {overview.appointment_agents.map((a) => (
-                <div key={a.id} className="runningSurveyStatCompact">
-                  <span className="runningSurveyStatCompactLabel">{a.voice_label || a.name}</span>
-                  <span className="runningSurveyStatCompactValue">{a.name}</span>
-                  {a.is_default ? <span className="runningSurveyStatCompactHint">Platform default</span> : null}
-                  <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to={`/ai/agents/${a.id}`}>
-                    Edit agent
-                  </Link>
+      <Panel
+        title="Appointment AI agents"
+        action={
+          <Button asChild variant="outline" size="sm" className="h-7 text-[11px]">
+            <Link to="/ai/agents">Manage agents</Link>
+          </Button>
+        }
+        bodyClassName="space-y-3"
+      >
+        {(overview?.appointment_agents || []).length ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {overview.appointment_agents.map((a) => (
+              <div key={a.id} className="rounded-lg border border-border bg-surface-muted/40 p-2.5">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {a.voice_label || a.name}
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="note">
-              No appointment agents yet. Open <Link to="/ai/agents">AI → Agents</Link>, edit an agent, enable <strong>Appointments</strong> under Service assignment, and mark one as <strong>Default</strong>. Customers pick the agent in their dashboard setup wizard when AI calls are on.
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardHead runningSurveyListHead">
-          <h3>Platform WA templates</h3>
-          <Link className="btn soft" to="/settings/wa-appointment">Manage templates</Link>
-        </div>
-        <div className="cardBody">
-          {templatesError ? (
-            <div className="note" style={{ color: '#b91c1c', marginBottom: 12 }}>{templatesError}</div>
-          ) : null}
-          <div className="runningSurveyStatsCompactRow">
-            {(templates.length ? templates : [
-              { label: 'Appointment confirmation', name: 'appt_confirm_v1' },
-              { label: 'Friendly confirmation', name: 'appt_confirm_v2' },
-              { label: 'Appointment reminder', name: 'appt_reminder_v1' },
-              { label: 'Clinic reminder', name: 'appt_reminder_v2' },
-            ]).map((t) => (
-              <div key={t.id || t.name} className="runningSurveyStatCompact">
-                <span className="runningSurveyStatCompactLabel">{t.display_name || t.label}</span>
-                <span className="runningSurveyStatCompactValue">{t.name}</span>
-                {t.active_for_appointment === false ? (
-                  <span className="runningSurveyStatCompactHint">Hidden</span>
+                <div className="text-sm font-medium text-foreground">{a.name}</div>
+                {a.is_default ? (
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">Platform default</div>
                 ) : null}
-                {t.id ? (
-                  <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to={`/settings/wa-appointment?edit=${t.id}`}>
-                    Edit
-                  </Link>
-                ) : (
-                  <Link className="btn soft" style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }} to="/settings/wa-appointment">
-                    Open editor
-                  </Link>
-                )}
+                <Button asChild variant="outline" size="sm" className="mt-2 h-7 text-[11px]">
+                  <Link to={`/ai/agents/${a.id}`}>Edit agent</Link>
+                </Button>
               </div>
             ))}
           </div>
-          {!templates.length && !loading ? (
-            <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>
-              Templates seed on first API load after migration <code>0130</code>. If this persists after deploy, open Manage templates and click Refresh.
-            </p>
-          ) : null}
-        </div>
-      </div>
+        ) : (
+          <div className="rounded-md border border-border bg-surface-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            No appointment agents yet. Open <Link to="/ai/agents" className="text-primary underline-offset-4 hover:underline">AI → Agents</Link>, edit an agent, enable <strong className="text-foreground">Appointments</strong> under Service assignment, and mark one as <strong className="text-foreground">Default</strong>. Customers pick the agent in their dashboard setup wizard when AI calls are on.
+          </div>
+        )}
+      </Panel>
 
-      <div className="runningSurveyLayout">
-        <div className="card runningSurveyList">
-          <div className="cardHead runningSurveyListHead">
-            <h3>Customers</h3>
-            <input
-              className="input runningSurveySearch"
+      <Panel
+        title="Platform WA templates"
+        action={
+          <Button asChild variant="outline" size="sm" className="h-7 text-[11px]">
+            <Link to="/settings/wa-appointment">Manage templates</Link>
+          </Button>
+        }
+        bodyClassName="space-y-3"
+      >
+        {templatesError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {templatesError}
+          </div>
+        ) : null}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {(templates.length ? templates : [
+            { label: 'Appointment confirmation', name: 'appt_confirm_v1' },
+            { label: 'Friendly confirmation', name: 'appt_confirm_v2' },
+            { label: 'Appointment reminder', name: 'appt_reminder_v1' },
+            { label: 'Clinic reminder', name: 'appt_reminder_v2' },
+          ]).map((t) => (
+            <div key={t.id || t.name} className="rounded-lg border border-border bg-surface-muted/40 p-2.5">
+              <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {t.display_name || t.label}
+              </div>
+              <div className="text-sm font-medium text-foreground">{t.name}</div>
+              {t.active_for_appointment === false ? (
+                <div className="mt-0.5 text-[11px] text-muted-foreground">Hidden</div>
+              ) : null}
+              <Button asChild variant="outline" size="sm" className="mt-2 h-7 text-[11px]">
+                <Link to={t.id ? `/settings/wa-appointment?edit=${t.id}` : '/settings/wa-appointment'}>
+                  {t.id ? 'Edit' : 'Open editor'}
+                </Link>
+              </Button>
+            </div>
+          ))}
+        </div>
+        {!templates.length && !loading ? (
+          <p className="text-[12px] text-muted-foreground">
+            Templates seed on first API load after migration <code>0130</code>. If this persists after deploy, open Manage templates and click Refresh.
+          </p>
+        ) : null}
+      </Panel>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel
+          title="Customers"
+          action={
+            <Input
+              className="h-8 w-[180px]"
               placeholder="Search org…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-          </div>
-          <div className="cardBody" style={{ padding: 0 }}>
-            {loading ? <div className="note" style={{ padding: 16 }}>Loading…</div> : null}
-            {!loading && !filtered.length ? <div className="note" style={{ padding: 16 }}>No customers with appointments enabled. Grant the module in Dashboard modules first.</div> : null}
-            <table className="table compact">
-              <thead>
-                <tr>
-                  <th>Organisation</th>
-                  <th>Setup</th>
-                  <th>Appts</th>
-                  <th>Risk</th>
-                  <th>Issues</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((o) => (
-                  <tr
+          }
+          bodyClassName="p-0"
+        >
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Organisation</TableHead>
+                <TableHead>Setup</TableHead>
+                <TableHead>Appts</TableHead>
+                <TableHead>Risk</TableHead>
+                <TableHead>Issues</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableLoading colSpan={5} />
+              ) : !filtered.length ? (
+                <TableEmpty colSpan={5}>
+                  No customers with appointments enabled. Grant the module in Dashboard modules first.
+                </TableEmpty>
+              ) : (
+                filtered.map((o) => (
+                  <TableRow
                     key={o.org_id}
-                    className={selectedId === o.org_id ? 'isSelected' : ''}
-                    style={{ cursor: 'pointer' }}
+                    data-state={selectedId === o.org_id ? 'selected' : undefined}
+                    className="cursor-pointer"
                     onClick={() => setSelectedId(o.org_id)}
                   >
-                    <td>
-                      <strong>{o.org_name}</strong>
-                      <div className="muted" style={{ fontSize: 12 }}>{o.contact_email}</div>
-                    </td>
-                    <td>
+                    <TableCell>
+                      <strong className="text-foreground">{o.org_name}</strong>
+                      <div className="text-[12px] text-muted-foreground">{o.contact_email}</div>
+                    </TableCell>
+                    <TableCell>
                       {o.setup_complete ? (
-                        <span className="leadPill leadPillAdvance">Live</span>
+                        <Pill tone="success">Live</Pill>
                       ) : (
-                        <span className="leadPill leadPillHold">Setup pending</span>
+                        <Pill tone="warning">Setup pending</Pill>
                       )}
-                    </td>
-                    <td>{o.appointment_count}</td>
-                    <td>{o.at_risk_24h > 0 ? <span className="leadPill leadPillHold">{o.at_risk_24h}</span> : '—'}</td>
-                    <td>{o.issue_count > 0 ? <span className="leadPill leadPillDecline">{o.issue_count}</span> : 'OK'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                    </TableCell>
+                    <TableCell>{o.appointment_count}</TableCell>
+                    <TableCell>
+                      {o.at_risk_24h > 0 ? <Pill tone="warning">{o.at_risk_24h}</Pill> : '—'}
+                    </TableCell>
+                    <TableCell>
+                      {o.issue_count > 0 ? <Pill tone="danger">{o.issue_count}</Pill> : 'OK'}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </StripeTable>
+        </Panel>
 
-        <div className="card runningSurveyDetail">
+        <Panel
+          title={detail?.org?.name || 'Customer detail'}
+          action={
+            detail?.org?.id ? (
+              <Button asChild variant="outline" size="sm" className="h-7 text-[11px]">
+                <Link to={`/organisations/${detail.org.id}`}>Open org</Link>
+              </Button>
+            ) : null
+          }
+          bodyClassName="space-y-4"
+        >
           {!detail ? (
-            <div className="cardBody note">Select a customer to view configuration and appointment processes.</div>
+            <p className="text-sm text-muted-foreground">Select a customer to view configuration and appointment processes.</p>
           ) : (
             <>
-              <div className="cardHead">
-                <h3>{detail.org?.name}</h3>
-                <Link className="btn soft" to={`/organisations/${detail.org?.id}`}>Open org</Link>
-              </div>
-              <div className="cardBody" style={{ display: 'grid', gap: 16 }}>
-                {!detail.config?.setup_complete ? (
-                  <div className="note" style={{ borderColor: '#fcd34d', background: '#fffbeb' }}>
-                    Customer has not completed the dashboard setup wizard yet.
-                  </div>
-                ) : null}
-
-                {detail.issues?.length ? (
-                  <div>
-                    <strong>Support flags</strong>
-                    <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                      {detail.issues.map((i) => (
-                        <li key={i.code}><span className={issuePill(i.level)} style={{ marginRight: 8 }}>{i.level}</span>{i.message}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                <div className="runningSurveyStatsCompactRow">
-                  <StatCard label="WA template" value={detail.config?.wa_template_name || '—'} />
-                  <StatCard label="WhatsApp" value={detail.config?.wa_enabled ? 'On' : 'Off'} />
-                  <StatCard label="AI calls" value={detail.config?.call_enabled ? 'On' : 'Off'} />
-                  <StatCard label="CRM" value={detail.config?.crm_provider || '—'} />
+              {!detail.config?.setup_complete ? (
+                <div className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
+                  Customer has not completed the dashboard setup wizard yet.
                 </div>
+              ) : null}
 
-                <div className="grid2">
-                  <div>
-                    <label className="muted">Outreach window</label>
-                    <div>{detail.config?.outreach_window_start || '09:00'} – {detail.config?.outreach_window_end || '16:00'}</div>
-                  </div>
-                  <div>
-                    <label className="muted">AI agent</label>
-                    <div>{detail.agent?.voice_label || detail.agent?.name || '—'}</div>
-                  </div>
-                </div>
-
+              {detail.issues?.length ? (
                 <div>
-                  <strong>Appointment processes</strong>
-                  <table className="table compact" style={{ marginTop: 8 }}>
-                    <thead>
-                      <tr>
-                        <th>Contact</th>
-                        <th>When</th>
-                        <th>Status</th>
-                        <th>Flags</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(detail.appointments || []).map((a) => (
-                        <tr key={a.id}>
-                          <td>{a.contact_name}<div className="muted" style={{ fontSize: 11 }}>{a.contact_phone}</div></td>
-                          <td style={{ fontSize: 12 }}>{a.appointment_datetime ? new Date(a.appointment_datetime).toLocaleString() : '—'}</td>
-                          <td>{a.status}</td>
-                          <td>
-                            {(a.flags || []).map((f) => (
-                              <span key={f} className="leadPill leadPillHold" style={{ marginRight: 4, fontSize: 10 }}>{f}</span>
-                            ))}
-                            {!a.flags?.length ? '—' : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <strong className="text-sm text-foreground">Support flags</strong>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+                    {detail.issues.map((i) => (
+                      <li key={i.code}>
+                        <Pill tone={issueTone(i.level)} className="mr-2">
+                          {i.level}
+                        </Pill>
+                        {i.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-2">
+                <KpiCard label="WA template" value={detail.config?.wa_template_name || '—'} tone="info" />
+                <KpiCard label="WhatsApp" value={detail.config?.wa_enabled ? 'On' : 'Off'} tone="primary" />
+                <KpiCard label="AI calls" value={detail.config?.call_enabled ? 'On' : 'Off'} tone="primary" />
+                <KpiCard label="CRM" value={detail.config?.crm_provider || '—'} tone="info" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <div className="text-[11px] text-muted-foreground">Outreach window</div>
+                  <div className="text-foreground">
+                    {detail.config?.outreach_window_start || '09:00'} – {detail.config?.outreach_window_end || '16:00'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-muted-foreground">AI agent</div>
+                  <div className="text-foreground">{detail.agent?.voice_label || detail.agent?.name || '—'}</div>
+                </div>
+              </div>
+
+              <div>
+                <strong className="text-sm text-foreground">Appointment processes</strong>
+                <div className="mt-2 overflow-x-auto">
+                  <StripeTable>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Contact</TableHead>
+                        <TableHead>When</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Flags</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(detail.appointments || []).length === 0 ? (
+                        <TableEmpty colSpan={4}>No appointments.</TableEmpty>
+                      ) : (
+                        (detail.appointments || []).map((a) => (
+                          <TableRow key={a.id}>
+                            <TableCell>
+                              {a.contact_name}
+                              <div className="text-[11px] text-muted-foreground">{a.contact_phone}</div>
+                            </TableCell>
+                            <TableCell className="text-[12px]">
+                              {a.appointment_datetime ? new Date(a.appointment_datetime).toLocaleString() : '—'}
+                            </TableCell>
+                            <TableCell>{a.status}</TableCell>
+                            <TableCell>
+                              {(a.flags || []).map((f) => (
+                                <Pill key={f} tone="warning" className="mr-1">
+                                  {f}
+                                </Pill>
+                              ))}
+                              {!a.flags?.length ? '—' : null}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </StripeTable>
                 </div>
               </div>
             </>
           )}
-        </div>
+        </Panel>
       </div>
-    </>
+    </div>
   )
 }

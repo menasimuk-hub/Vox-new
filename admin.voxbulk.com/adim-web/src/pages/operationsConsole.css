@@ -1,22 +1,23 @@
 .opsConsole {
-  --ops-bg: #f7f7f6;
-  --ops-surface: #fff;
-  --ops-surface2: #f0efed;
-  --ops-border: #e4e3e0;
-  --ops-border2: #d0cfc9;
-  --ops-text: #0f0f0e;
-  --ops-text2: #6b6a66;
-  --ops-text3: #9b9a96;
-  --ops-green: #16a34a;
-  --ops-green-bg: #f0fdf4;
-  --ops-amber: #d97706;
-  --ops-amber-bg: #fffbeb;
-  --ops-red: #dc2626;
-  --ops-red-bg: #fef2f2;
-  --ops-blue: #2563eb;
-  --ops-blue-bg: #eff6ff;
+  /* Phase 2 Batch C: map ops console island tokens onto design-system OKLCH palette */
+  --ops-bg: var(--ds-background, oklch(0.975 0.012 85));
+  --ops-surface: var(--ds-card, oklch(0.995 0.004 85));
+  --ops-surface2: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  --ops-border: var(--ds-border, oklch(0.9 0.012 85));
+  --ops-border2: color-mix(in oklch, var(--ds-border, oklch(0.9 0.012 85)) 80%, oklch(0.22 0.02 260));
+  --ops-text: var(--ds-foreground, oklch(0.22 0.02 260));
+  --ops-text2: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --ops-text3: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --ops-green: var(--ds-success, oklch(0.55 0.14 150));
+  --ops-green-bg: var(--ds-success-soft, oklch(0.93 0.06 150));
+  --ops-amber: var(--ds-warning, oklch(0.62 0.13 65));
+  --ops-amber-bg: var(--ds-warning-soft, oklch(0.93 0.05 75));
+  --ops-red: var(--ds-destructive, oklch(0.6 0.21 27));
+  --ops-red-bg: color-mix(in oklch, var(--ds-destructive, oklch(0.6 0.21 27)) 10%, transparent);
+  --ops-blue: var(--ds-info, oklch(0.52 0.1 250));
+  --ops-blue-bg: var(--ds-info-soft, oklch(0.93 0.03 250));
   --ops-mono: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
-  --ops-radius: 10px;
+  --ops-radius: 0.625rem;
   max-width: 1440px;
   margin: 0 auto;
   padding: 0 4px 48px;
@@ -66,15 +67,15 @@
 }
 
 .opsConsole-note.error {
-  border-color: #fecaca;
+  border-color: color-mix(in oklch, var(--ops-red) 35%, transparent);
   background: var(--ops-red-bg);
-  color: #991b1b;
+  color: var(--ops-red);
 }
 
 .opsConsole-note.ok {
-  border-color: #bbf7d0;
+  border-color: color-mix(in oklch, var(--ops-green) 35%, transparent);
   background: var(--ops-green-bg);
-  color: #166534;
+  color: var(--ops-green);
 }
 
 .opsConsole-kpis {
@@ -146,7 +147,7 @@
 
 .opsConsole-chip.active {
   background: var(--ops-text);
-  color: #fff;
+  color: var(--ds-primary-foreground, oklch(0.98 0.003 247));
   border-color: var(--ops-text);
 }
 
@@ -213,7 +214,7 @@
 }
 
 .opsConsole-table tbody tr:hover td {
-  background: #fafaf9;
+  background: var(--ops-surface2);
 }
 
 .opsConsole-mono {
@@ -228,7 +229,7 @@
 
 .opsConsole-errorCell {
   max-width: 320px;
-  color: #991b1b;
+  color: var(--ops-red);
   font-size: 12px;
   line-height: 1.4;
   word-break: break-word;
@@ -254,8 +255,8 @@
 .opsConsole-badge.received,
 .opsConsole-badge.processing,
 .opsConsole-badge.cyan {
-  background: #ecfeff;
-  color: #0e7490;
+  background: var(--ops-blue-bg);
+  color: var(--ops-blue);
 }
 
 .opsConsole-badge.calling,

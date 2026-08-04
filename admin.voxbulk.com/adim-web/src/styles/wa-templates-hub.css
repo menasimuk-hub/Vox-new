@@ -20,6 +20,11 @@
   }
 }
 
+.waTemplatesHub {
+  /* Phase 2 Batch F: ensure hub consumes design-system radius */
+  --wa-hub-radius: 0.625rem;
+}
+
 .waTemplatesHub .animate-fade-in {
   animation: wa-hub-fade-in 0.25s ease-out both;
 }
@@ -74,7 +79,7 @@
 }
 
 .waTemplatesHub button.wa-hub-name-btn:hover {
-  color: var(--ds-primary, #2d3550);
+  color: var(--ds-primary, oklch(0.27 0.04 265));
   text-decoration: underline;
   text-underline-offset: 4px;
   background: transparent !important;

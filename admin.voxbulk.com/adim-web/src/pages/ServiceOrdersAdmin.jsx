@@ -2,6 +2,18 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { adminOrderViewPath } from '../lib/serviceOrderAdmin'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 export default function ServiceOrdersAdmin() {
   const navigate = useNavigate()
@@ -84,56 +96,80 @@ export default function ServiceOrdersAdmin() {
   }
 
   return (
-    <>
-      <div className="pageTop">
-        <div>
-          <h1>Service orders — cash approval</h1>
-          <p>Approve survey and interview orders after the customer marks cash payment.</p>
+    <div className="ds-scope space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-semibold leading-tight text-foreground">Service orders — cash approval</h1>
+          <p className="text-[11px] leading-tight text-muted-foreground">
+            Approve survey and interview orders after the customer marks cash payment.
+          </p>
         </div>
-        <div className="actions">
-          <button type="button" className="btn soft" onClick={load}>Refresh</button>
+        <div className="ml-auto">
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={load}>
+            Refresh
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="note" style={{ borderColor: 'rgba(220,38,38,0.35)', marginBottom: 12 }}>{error}</div> : null}
-
-      <div className="card">
-        <div className="cardHead"><h3>Pending payment approval</h3></div>
-        <div className="cardBody">
-          {loading ? <div className="muted">Loading…</div> : null}
-          {!loading && !orders.length ? <div className="muted">No orders waiting for approval.</div> : null}
-          {!loading && orders.length ? (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Title</th>
-                  <th>Service</th>
-                  <th>Contacts</th>
-                  <th>Total</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id}>
-                    <td>{o.title}</td>
-                    <td>{o.service_code}</td>
-                    <td>{o.recipient_count}</td>
-                    <td>{o.quote_total_gbp}</td>
-                    <td>{o.payment_status}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <button type="button" className="btn primary bsm" disabled={busyId === o.id} onClick={() => approve(o.id)}>Approve</button>
-                      {' '}
-                      <button type="button" className="btn soft bsm" disabled={busyId === o.id} onClick={() => reject(o.id)}>Reject</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
         </div>
-      </div>
-    </>
+      ) : null}
+
+      <Panel title="Pending payment approval" subtitle="Cash orders waiting for admin decision.">
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Title</TableHead>
+              <TableHead>Service</TableHead>
+              <TableHead>Contacts</TableHead>
+              <TableHead>Total</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? <TableLoading colSpan={6} /> : null}
+            {!loading && !orders.length ? (
+              <TableEmpty colSpan={6}>No orders waiting for approval.</TableEmpty>
+            ) : null}
+            {!loading &&
+              orders.map((o) => (
+                <TableRow key={o.id}>
+                  <TableCell>{o.title}</TableCell>
+                  <TableCell>{o.service_code}</TableCell>
+                  <TableCell>{o.recipient_count}</TableCell>
+                  <TableCell>{o.quote_total_gbp}</TableCell>
+                  <TableCell>{o.payment_status}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex flex-wrap justify-end gap-1 whitespace-nowrap">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7"
+                        disabled={busyId === o.id}
+                        onClick={() => approve(o.id)}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7"
+                        disabled={busyId === o.id}
+                        onClick={() => reject(o.id)}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+          </TableBody>
+        </StripeTable>
+      </Panel>
+    </div>
   )
 }

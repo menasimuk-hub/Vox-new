@@ -9,36 +9,36 @@
 }
 
 .ai-team-page {
-  /* Stripe Dashboard-like tokens */
-  --ait-bg: #f6f9fc;
-  --ait-bg2: #ffffff;
-  --ait-bg3: #f6f9fc;
-  --ait-bg4: #eef2f7;
-  --ait-border: #e3e8ee;
-  --ait-border2: #e6ebf1;
-  --ait-text: #0a2540;
-  --ait-text2: #425466;
-  --ait-text3: #697386;
-  --ait-accent: #635bff;
-  --ait-accent-dim: rgba(99, 91, 255, 0.10);
-  --ait-accent-border: rgba(99, 91, 255, 0.28);
-  --ait-accent-hover: #0a2540;
-  --ait-green: #0d9488;
-  --ait-green-dim: rgba(13, 148, 136, 0.12);
-  --ait-amber: #c27803;
-  --ait-amber-dim: rgba(194, 120, 3, 0.12);
-  --ait-red: #df1b41;
-  --ait-red-dim: rgba(223, 27, 65, 0.10);
-  --ait-blue: #0073e6;
-  --ait-blue-dim: rgba(0, 115, 230, 0.10);
-  --ait-purple: #635bff;
-  --ait-purple-dim: rgba(99, 91, 255, 0.10);
+  /* Phase 2 Batch F: map AI Team island onto design-system OKLCH palette */
+  --ait-bg: var(--ds-background, oklch(0.975 0.012 85));
+  --ait-bg2: var(--ds-card, oklch(0.995 0.004 85));
+  --ait-bg3: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  --ait-bg4: var(--ds-muted, oklch(0.945 0.014 80));
+  --ait-border: var(--ds-border, oklch(0.9 0.012 85));
+  --ait-border2: color-mix(in oklch, var(--ds-border, oklch(0.9 0.012 85)) 80%, oklch(0.22 0.02 260));
+  --ait-text: var(--ds-foreground, oklch(0.22 0.02 260));
+  --ait-text2: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --ait-text3: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --ait-accent: var(--ds-primary, oklch(0.27 0.04 265));
+  --ait-accent-dim: color-mix(in oklch, var(--ds-primary, oklch(0.27 0.04 265)) 10%, transparent);
+  --ait-accent-border: color-mix(in oklch, var(--ds-primary, oklch(0.27 0.04 265)) 28%, transparent);
+  --ait-accent-hover: var(--ds-foreground, oklch(0.22 0.02 260));
+  --ait-green: var(--ds-success, oklch(0.55 0.14 150));
+  --ait-green-dim: var(--ds-success-soft, oklch(0.93 0.06 150));
+  --ait-amber: var(--ds-warning, oklch(0.62 0.13 65));
+  --ait-amber-dim: var(--ds-warning-soft, oklch(0.93 0.05 75));
+  --ait-red: var(--ds-destructive, oklch(0.6 0.21 27));
+  --ait-red-dim: color-mix(in oklch, var(--ds-destructive, oklch(0.6 0.21 27)) 10%, transparent);
+  --ait-blue: var(--ds-info, oklch(0.52 0.1 250));
+  --ait-blue-dim: var(--ds-info-soft, oklch(0.93 0.03 250));
+  --ait-purple: var(--ds-primary, oklch(0.27 0.04 265));
+  --ait-purple-dim: color-mix(in oklch, var(--ds-primary, oklch(0.27 0.04 265)) 10%, transparent);
   --ait-font: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   --ait-mono: 'JetBrains Mono', ui-monospace, monospace;
-  --ait-r: 8px;
-  --ait-r-sm: 6px;
-  --ait-r-lg: 12px;
-  --ait-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --ait-r: 0.625rem;
+  --ait-r-sm: calc(0.625rem - 4px);
+  --ait-r-lg: calc(0.625rem + 4px);
+  --ait-shadow: 0 1px 2px color-mix(in oklch, var(--ds-foreground, oklch(0.22 0.02 260)) 4%, transparent), 0 1px 3px color-mix(in oklch, var(--ds-foreground, oklch(0.22 0.02 260)) 6%, transparent);
 
   font-family: var(--ait-font);
   font-size: 14px;
@@ -67,8 +67,8 @@
 }
 .ai-team-page .ait-topbar-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .ai-team-page .ait-logo-mark {
-  width: 32px; height: 32px; background: linear-gradient(135deg, #635bff, #0a2540);
-  border-radius: 8px;
+  width: 32px; height: 32px; background: linear-gradient(135deg, var(--ait-accent), var(--ait-text));
+  border-radius: var(--ait-r);
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 700; color: white; letter-spacing: -.02em;
   flex-shrink: 0;

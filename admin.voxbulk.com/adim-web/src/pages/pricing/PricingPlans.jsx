@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { usePricingPlans, usePricingSettings, penceToPounds, poundsToPence } from './pricingUtils'
 import PricingPageFrame, { PricingFormulaBox, PricingLoadGate } from './PricingPageFrame'
+import { Button } from '@/components/ui/Button'
 
 function calcPreview(d, settings) {
   const price = Number(d.price_gbp_pence || 0)
@@ -62,7 +63,7 @@ function PlanRow({ plan, settings, onSave, highlight }) {
           <label className="svcPriceToggle"><input type="checkbox" checked={Boolean(d.is_active)} onChange={(e) => set('is_active', e.target.checked)} /><span className="svcPriceToggleUi" /></label>
         </td>
         <td className="pricingTdCenter">
-          <button className="btn soft pricingSaveBtn" type="button" onClick={() => onSave(plan.id, draft || plan)}>Save</button>
+          <Button variant="outline" size="sm" className="h-7 text-xs" type="button" onClick={() => onSave(plan.id, draft || plan)}>Save</Button>
         </td>
       </tr>
     )
@@ -97,7 +98,7 @@ function PlanRow({ plan, settings, onSave, highlight }) {
         <label className="svcPriceToggle"><input type="checkbox" checked={Boolean(d.is_active)} onChange={(e) => set('is_active', e.target.checked)} /><span className="svcPriceToggleUi" /></label>
       </td>
       <td className="pricingTdCenter">
-        <button className="btn soft pricingSaveBtn" type="button" onClick={() => onSave(plan.id, draft || plan)}>Save</button>
+        <Button variant="outline" size="sm" className="h-7 text-xs" type="button" onClick={() => onSave(plan.id, draft || plan)}>Save</Button>
       </td>
     </tr>
   )
@@ -129,7 +130,7 @@ export default function PricingPlans() {
         description="Edit prices on the left; green boxes are auto-calculated when you save."
         error={combinedError}
         msg={msg}
-        actions={<button className="btn soft" type="button" onClick={() => void seed()}>Seed defaults</button>}
+        actions={<Button variant="outline" size="sm" className="h-8" type="button" onClick={() => void seed()}>Seed defaults</Button>}
       >
         {settings ? (
           <PricingFormulaBox

@@ -19,33 +19,27 @@ alwaysApply: false
 - Home Dashboard rebuilt to reference `/dashboard`.
 - Foundation: Button, Table, Tabs, Card/Panel, Badge, KpiCard, Progress, Separator, Sparkline.
 
-## Phase 2 — Batch A (done) / Batch B (in progress)
+## Phase 2 (done — chrome + tokens)
 
 | Batch | Status |
 |-------|--------|
-| A Analytics, org detail/zones, campaigns, testers | Done |
-| B OnboardingServices (full ui), OCC + OrganisationProfile (token map) | In progress — OCC full JSX rewrite later |
-| C–F | Deferred |
+| A Analytics, org detail/zones, campaigns, testers | Done (full ui) |
+| B OnboardingServices, OrganisationProfile, OCC | Done (OCC structure kept; tokens + error chrome; Profile on ui) |
+| C Operations | Done (full or hybrid + CSS token map) |
+| D Compliance / Team / Legal / Meeting room | Done |
+| E Billing / Pricing | Done (frame + pages; ProductsHub token map only) |
+| F Dedicated islands | Done (CSS `--ds-*` token map; JSX islands kept) |
 
-## Phase 2 — later batches (do not nibble)
-
-| Batch | Focus |
-|-------|--------|
-| B | Org Control Center, OrganisationProfile, OnboardingServices |
-| C | Operations (`ops-theme`, queues, running surveys/interviews) |
-| D | Feedback polish, Compliance, Team/settings thin pages |
-| E | Billing & Pricing tables |
-| F | Dedicated islands — Support Disk, AI Team, Sales Team, Telnyx/Meta hubs, Partners, Email, WA Templates Hub, Products Hub, Connection Profiles |
+Heavy island JSX (Support Disk, AI Team, Sales Team, Telnyx hub, WA Templates Hub) stays structural — palette now follows design-system. Further full JSX rewrites are optional follow-ups, not Phase 2 blockers.
 
 ## Rules for new / touched admin UI
 
 1. **Use `components/ui` + design-system tokens only** — no new page-local palettes, hex colors, or one-off button/table CSS.
 2. **Do not invent tokens** — if something is missing, add it to `DESIGN_SYSTEM.md` + `design-system.css` first.
 3. **Do not create new theme islands.**
-4. **Do not “fix” Batch F islands** unless that batch is the task.
-5. Keep existing **Sidebar + Topbar shell** (nav/RBAC/search).
-6. Visual/structural changes only unless the task explicitly changes logic/API.
+4. Keep existing **Sidebar + Topbar shell** (nav/RBAC/search).
+5. Visual/structural changes only unless the task explicitly changes logic/API.
 
 ## Legacy CSS
 
-`styles.css` still powers non-migrated pages. Prefer Tailwind/`components/ui` on migrated work; do not expand legacy class islands.
+`styles.css` still powers residual unmigrated markup. Prefer Tailwind/`components/ui` on new work; do not expand legacy class islands.

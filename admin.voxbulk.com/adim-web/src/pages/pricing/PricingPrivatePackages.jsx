@@ -3,6 +3,8 @@ import { apiFetch } from '../../lib/api'
 import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
 import PricingPageFrame, { PricingLoadGate } from './PricingPageFrame'
 import { penceToPounds, poundsToPence } from './pricingUtils'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 
 const CURRENCIES = ['GBP', 'EUR', 'USD', 'CAD', 'AUD']
 const SERVICES = [
@@ -335,7 +337,7 @@ export default function PricingPrivatePackages() {
                       : 'Private deals for this product — not shown on public pricing.'}
                   </p>
                 </div>
-                <button className="btn soft" type="button" onClick={() => openCreate(svc.key)}>+ Create private package</button>
+                <Button variant="outline" size="sm" className="h-8" type="button" onClick={() => openCreate(svc.key)}>+ Create private package</Button>
               </div>
               <div className="tableWrap">
                 <table className="pricingPkgTable">
@@ -378,8 +380,8 @@ export default function PricingPrivatePackages() {
                               )}
                             </td>
                             <td className="pricingPkgActions">
-                              <button className="btn soft pricingSaveBtn" type="button" onClick={() => openEdit(pkg)}>Edit</button>
-                              <button className="btn ghost pricingSaveBtn" type="button" onClick={() => void deactivate(pkg)}>Off</button>
+                              <Button variant="outline" size="sm" className="h-7 text-xs" type="button" onClick={() => openEdit(pkg)}>Edit</Button>
+                              <Button variant="ghost" size="sm" className="h-7 text-xs" type="button" onClick={() => void deactivate(pkg)}>Off</Button>
                             </td>
                           </tr>
                         )
@@ -476,7 +478,7 @@ export default function PricingPrivatePackages() {
                 ) : null}
 
                 <h4 className="pricingPkgPricesTitle">Assign organisations</h4>
-                <input className="input" style={{ marginBottom: 8 }} placeholder="Search orgs…" value={orgQuery} onChange={(e) => setOrgQuery(e.target.value)} />
+                <Input className="mb-2 h-8" placeholder="Search orgs…" value={orgQuery} onChange={(e) => setOrgQuery(e.target.value)} />
                 <div className="pricingPrivateOrgList">
                   {filteredOrgs.slice(0, 80).map((o) => {
                     const on = (drawer.draft.org_ids || []).includes(o.id)
@@ -576,10 +578,10 @@ export default function PricingPrivatePackages() {
                 ) : null}
               </div>
               <div className="pricingPkgDrawerFooter">
-                <button className="btn ghost" type="button" onClick={closeDrawer}>Cancel</button>
-                <button className="btn primary" type="button" disabled={drawer.saving} onClick={() => void saveDrawer()}>
+                <Button variant="ghost" size="sm" className="h-8" type="button" onClick={closeDrawer}>Cancel</Button>
+                <Button size="sm" className="h-8" type="button" disabled={drawer.saving} onClick={() => void saveDrawer()}>
                   {drawer.saving ? 'Saving…' : 'Save & assign'}
-                </button>
+                </Button>
               </div>
             </div>
           ) : null}

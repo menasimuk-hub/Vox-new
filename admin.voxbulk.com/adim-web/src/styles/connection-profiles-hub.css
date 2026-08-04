@@ -1,8 +1,27 @@
-/* Connection Profiles hub — verbatim from Connetion Profile.html, scoped */
+/* Connection Profiles hub — scoped; tokens mapped to design-system */
 
 .connectionProfilesHub {
+  /* Phase 2 Batch F: map connection-profiles island onto design-system OKLCH palette */
+  --cph-bg: var(--ds-background, oklch(0.975 0.012 85));
+  --cph-card: var(--ds-card, oklch(0.995 0.004 85));
+  --cph-border: var(--ds-border, oklch(0.9 0.012 85));
+  --cph-border2: color-mix(in oklch, var(--ds-border, oklch(0.9 0.012 85)) 70%, transparent);
+  --cph-text: var(--ds-foreground, oklch(0.22 0.02 260));
+  --cph-text2: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --cph-surface-muted: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  --cph-primary: var(--ds-primary, oklch(0.27 0.04 265));
+  --cph-primary-fg: var(--ds-primary-foreground, oklch(0.98 0.003 247));
+  --cph-success: var(--ds-success, oklch(0.55 0.14 150));
+  --cph-success-soft: var(--ds-success-soft, oklch(0.93 0.06 150));
+  --cph-warning: var(--ds-warning, oklch(0.62 0.13 65));
+  --cph-warning-soft: var(--ds-warning-soft, oklch(0.93 0.05 75));
+  --cph-destructive: var(--ds-destructive, oklch(0.6 0.21 27));
+  --cph-destructive-soft: color-mix(in oklch, var(--ds-destructive, oklch(0.6 0.21 27)) 10%, transparent);
+  --cph-info: var(--ds-info, oklch(0.52 0.1 250));
+  --cph-info-soft: var(--ds-info-soft, oklch(0.93 0.03 250));
+  --cph-radius: 0.625rem;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", system-ui, sans-serif;
-  color: #1e1e1e;
+  color: var(--cph-text);
   line-height: 1.5;
 }
 
@@ -15,11 +34,11 @@
     }
 
 .connectionProfilesHub .section {
-      background: #ffffff;
+      background: var(--cph-card);
       padding: 1.5rem 2rem;
       margin-bottom: 1.5rem;
-      border: 1px solid #e2ddd6;
-      border-radius: 8px;
+      border: 1px solid var(--cph-border);
+      border-radius: var(--cph-radius);
       box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
 
@@ -28,9 +47,9 @@
       font-weight: 600;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: #5a544c;
+      color: var(--cph-text2);
       margin-bottom: 0.8rem;
-      border-bottom: 1px solid #eee9e3;
+      border-bottom: 1px solid var(--cph-border2);
       padding-bottom: 0.5rem;
       display: flex;
       align-items: center;
@@ -49,7 +68,7 @@
       display: flex;
       gap: 0.15rem;
       margin-bottom: 1.5rem;
-      border-bottom: 2px solid #e2ddd6;
+      border-bottom: 2px solid var(--cph-border);
       padding-bottom: 0;
     }
 
@@ -59,9 +78,9 @@
       padding: 0.4rem 1.2rem;
       font-size: 0.75rem;
       font-weight: 500;
-      color: #6b645a;
+      color: var(--cph-text2);
       cursor: pointer;
-      border-radius: 6px 6px 0 0;
+      border-radius: calc(var(--cph-radius) - 4px) calc(var(--cph-radius) - 4px) 0 0;
       display: flex;
       align-items: center;
       gap: 0.3rem;
@@ -72,13 +91,13 @@
     }
 
 .connectionProfilesHub .tab-btn:hover {
-      background: #f5f0e8;
-      color: #2c2c2c;
+      background: var(--cph-surface-muted);
+      color: var(--cph-text);
     }
 
 .connectionProfilesHub .tab-btn.active {
-      border-bottom-color: #5a544c;
-      color: #1a1a1a;
+      border-bottom-color: var(--cph-text2);
+      color: var(--cph-text);
       font-weight: 600;
     }
 
@@ -118,40 +137,40 @@
 .connectionProfilesHub label {
       font-size: 0.68rem;
       font-weight: 500;
-      color: #4a443c;
+      color: var(--cph-text2);
       letter-spacing: 0.03em;
       text-transform: uppercase;
     }
 
 .connectionProfilesHub label .required {
-      color: #b55a4a;
+      color: var(--cph-destructive);
       margin-left: 2px;
     }
 
 .connectionProfilesHub input,
 .connectionProfilesHub select {
-      background: #fcfaf7;
-      border: 1px solid #d6d0c4;
+      background: var(--cph-surface-muted);
+      border: 1px solid var(--cph-border);
       border-radius: 4px;
       padding: 0.35rem 0.55rem;
       font-size: 0.82rem;
       width: 100%;
       transition: border 0.15s, box-shadow 0.15s;
-      color: #1a1a1a;
+      color: var(--cph-text);
       font-family: inherit;
     }
 
 .connectionProfilesHub input:focus,
 .connectionProfilesHub select:focus {
       outline: none;
-      border-color: #8a8074;
+      border-color: var(--cph-text2);
       box-shadow: 0 0 0 2px rgba(138, 128, 116, 0.08);
-      background: #ffffff;
+      background: var(--cph-card);
     }
 
 .connectionProfilesHub input[readonly] {
-      background: #f0ece6;
-      color: #4a443c;
+      background: var(--cph-surface-muted);
+      color: var(--cph-text2);
       cursor: default;
     }
 
@@ -181,10 +200,10 @@
       position: absolute;
       cursor: pointer;
       inset: 0;
-      background: #d1c9bd;
+      background: var(--cph-border);
       border-radius: 20px;
       transition: background 0.2s;
-      border: 1px solid #b8afa2;
+      border: 1px solid var(--cph-border);
     }
 
 .connectionProfilesHub .toggle-slider::before {
@@ -194,26 +213,26 @@
       width: 11px;
       left: 2px;
       bottom: 2px;
-      background: #fcfaf7;
+      background: var(--cph-surface-muted);
       border-radius: 50%;
       transition: transform 0.2s;
-      border: 1px solid #a0988b;
+      border: 1px solid var(--cph-border);
     }
 
 .connectionProfilesHub .toggle-switch input:checked + .toggle-slider {
-      background: #7fb07f;
-      border-color: #5f8f5f;
+      background: var(--cph-success);
+      border-color: var(--cph-success);
     }
 
 .connectionProfilesHub .toggle-switch input:checked + .toggle-slider::before {
       transform: translateX(13px);
-      border-color: #4a7a4a;
+      border-color: var(--cph-success);
     }
 
 .connectionProfilesHub .toggle-label {
       font-size: 0.72rem;
       font-weight: 400;
-      color: #4a443c;
+      color: var(--cph-text2);
       user-select: none;
     }
 
@@ -235,13 +254,13 @@
     }
 
 .connectionProfilesHub .toggle-btn {
-      background: #f0ece6;
-      border: 1px solid #d0c9be;
+      background: var(--cph-surface-muted);
+      border: 1px solid var(--cph-border);
       border-radius: 4px;
       padding: 0.1rem 0.4rem;
       font-size: 0.6rem;
       cursor: pointer;
-      color: #4a443c;
+      color: var(--cph-text2);
       white-space: nowrap;
       height: 1.8rem;
       display: flex;
@@ -253,17 +272,17 @@
     }
 
 .connectionProfilesHub .toggle-btn:hover {
-      background: #e5dfd6;
+      background: var(--cph-border);
     }
 
 .connectionProfilesHub .copy-btn {
-      background: #f0ece6;
-      border: 1px solid #d0c9be;
+      background: var(--cph-surface-muted);
+      border: 1px solid var(--cph-border);
       border-radius: 4px;
       padding: 0.1rem 0.5rem;
       font-size: 0.6rem;
       cursor: pointer;
-      color: #4a443c;
+      color: var(--cph-text2);
       white-space: nowrap;
       height: 1.8rem;
       display: flex;
@@ -276,7 +295,7 @@
     }
 
 .connectionProfilesHub .copy-btn:hover {
-      background: #e5dfd6;
+      background: var(--cph-border);
     }
 
 .connectionProfilesHub .copy-btn i {
@@ -290,19 +309,19 @@
       gap: 0.4rem 0.7rem;
       margin-top: 0.8rem;
       padding-top: 0.6rem;
-      border-top: 1px solid #eee9e3;
+      border-top: 1px solid var(--cph-border2);
       align-items: center;
     }
 
 .connectionProfilesHub .btn {
-      border: 1px solid #d0c9be;
-      background: #f5f0e8;
+      border: 1px solid var(--cph-border);
+      background: var(--cph-surface-muted);
       padding: 0.35rem 1rem;
       font-size: 0.72rem;
       font-weight: 500;
       border-radius: 4px;
       cursor: pointer;
-      color: #2c2c2c;
+      color: var(--cph-text);
       transition: all 0.15s;
       display: inline-flex;
       align-items: center;
@@ -318,32 +337,32 @@
     }
 
 .connectionProfilesHub .btn-primary {
-      background: #e3dcd2;
-      border-color: #b8afa2;
+      background: var(--cph-border);
+      border-color: var(--cph-border);
       font-weight: 600;
     }
 
 .connectionProfilesHub .btn-primary:hover {
-      background: #d7cec1;
-      border-color: #a0988b;
+      background: var(--cph-border);
+      border-color: var(--cph-border);
     }
 
 .connectionProfilesHub .btn-secondary {
-      background: #f0ece6;
+      background: var(--cph-surface-muted);
     }
 
 .connectionProfilesHub .btn-secondary:hover {
-      background: #e5dfd6;
+      background: var(--cph-border);
     }
 
 .connectionProfilesHub .btn-danger {
-      border-color: #c9a89b;
-      color: #6e3d2f;
+      border-color: color-mix(in oklch, var(--cph-destructive) 35%, transparent);
+      color: var(--cph-destructive);
     }
 
 .connectionProfilesHub .btn-danger:hover {
-      background: #f5e8e3;
-      border-color: #b88a7a;
+      background: var(--cph-destructive-soft);
+      border-color: color-mix(in oklch, var(--cph-destructive) 40%, transparent);
     }
 
 .connectionProfilesHub .btn-sm {
@@ -352,15 +371,15 @@
     }
 
 .connectionProfilesHub .field-hint-warn {
-      color: #9a3412;
+      color: var(--cph-destructive);
     }
 
 .connectionProfilesHub .assignment-section {
       margin-top: 1rem;
       padding: 0.85rem 0.9rem;
-      border: 2px solid #d6d0c4;
+      border: 2px solid var(--cph-border);
       border-radius: 6px;
-      background: #fffdf9;
+      background: var(--cph-card);
     }
 
 .connectionProfilesHub .assignment-section-title {
@@ -368,14 +387,14 @@
       font-weight: 700;
       letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: #3b3630;
+      color: var(--cph-text);
       margin-bottom: 0.55rem;
     }
 
 .connectionProfilesHub .info-box-warn {
-      background: #fff4eb;
-      border-color: #e8c4a8;
-      color: #7c4a1e;
+      background: var(--cph-warning-soft);
+      border-color: color-mix(in oklch, var(--cph-warning) 35%, transparent);
+      color: var(--cph-warning);
     }
 
 .connectionProfilesHub .test-result {
@@ -388,17 +407,17 @@
       font-size: 0.72rem;
       padding: 0.1rem 0.6rem;
       border-radius: 10px;
-      background: #f0ece6;
+      background: var(--cph-surface-muted);
     }
 
 .connectionProfilesHub .test-result.success {
-      background: #e3eee3;
-      color: #2a5a2a;
+      background: var(--cph-success-soft);
+      color: var(--cph-success);
     }
 
 .connectionProfilesHub .test-result.fail {
-      background: #f5e8e3;
-      color: #7a3a2e;
+      background: var(--cph-destructive-soft);
+      color: var(--cph-destructive);
     }
 
     /* table - Twilio inspired */
@@ -411,17 +430,17 @@
       width: 100%;
       border-collapse: collapse;
       font-size: 0.78rem;
-      background: #fcfaf7;
+      background: var(--cph-surface-muted);
       border-radius: 6px;
     }
 
 .connectionProfilesHub th {
       text-align: left;
       padding: 0.4rem 0.4rem;
-      border-bottom: 1px solid #e2ddd6;
+      border-bottom: 1px solid var(--cph-border);
       font-weight: 600;
-      color: #4a443c;
-      background: #f5f0e8;
+      color: var(--cph-text2);
+      background: var(--cph-surface-muted);
       cursor: pointer;
       user-select: none;
       font-size: 0.65rem;
@@ -430,67 +449,67 @@
     }
 
 .connectionProfilesHub th:hover {
-      background: #efe9e0;
+      background: var(--cph-surface-muted);
     }
 
 .connectionProfilesHub td {
       padding: 0.4rem 0.4rem;
-      border-bottom: 1px solid #eee9e3;
+      border-bottom: 1px solid var(--cph-border2);
       vertical-align: middle;
     }
 
 .connectionProfilesHub td strong {
       font-weight: 600;
-      color: #1a1a1a;
+      color: var(--cph-text);
     }
 
 .connectionProfilesHub .badge {
       display: inline-block;
       padding: 0.02rem 0.4rem;
-      border-radius: 8px;
+      border-radius: var(--cph-radius);
       font-size: 0.6rem;
       font-weight: 500;
       letter-spacing: 0.03em;
-      border: 1px solid #d6d0c4;
+      border: 1px solid var(--cph-border);
     }
 
 .connectionProfilesHub .badge-default {
-      background: #e8e2d9;
-      border-color: #c0b8ab;
+      background: var(--cph-surface-muted);
+      border-color: var(--cph-border);
     }
 
 .connectionProfilesHub .badge-active {
-      background: #ddecdd;
-      border-color: #8ab88a;
-      color: #1e4a1e;
+      background: var(--cph-success-soft);
+      border-color: color-mix(in oklch, var(--cph-success) 45%, transparent);
+      color: var(--cph-success);
     }
 
 .connectionProfilesHub .badge-inactive {
-      background: #f0ece6;
-      border-color: #d0c9be;
-      color: #6b645a;
+      background: var(--cph-surface-muted);
+      border-color: var(--cph-border);
+      color: var(--cph-text2);
     }
 
 .connectionProfilesHub .badge-org {
-      background: #f0ece6;
-      border-color: #d0c9be;
+      background: var(--cph-surface-muted);
+      border-color: var(--cph-border);
       font-size: 0.55rem;
       padding: 0.02rem 0.35rem;
       margin: 0.05rem 0.1rem;
       display: inline-block;
       border-radius: 6px;
-      color: #4a443c;
+      color: var(--cph-text2);
     }
 
 .connectionProfilesHub .badge-service {
-      background: #e8f0e8;
-      border-color: #b0c8b0;
+      background: var(--cph-success-soft);
+      border-color: color-mix(in oklch, var(--cph-success) 45%, transparent);
       font-size: 0.55rem;
       padding: 0.02rem 0.35rem;
       margin: 0.05rem 0.1rem;
       display: inline-block;
       border-radius: 6px;
-      color: #1e4a1e;
+      color: var(--cph-success);
     }
 
 .connectionProfilesHub .actions-cell {
@@ -502,7 +521,7 @@
 .connectionProfilesHub .actions-cell .btn {
       padding: 0.08rem 0.4rem;
       font-size: 0.6rem;
-      background: #f0ece6;
+      background: var(--cph-surface-muted);
       border-radius: 3px;
     }
 
@@ -513,7 +532,7 @@
 
 .connectionProfilesHub .empty-row td {
       padding: 1.5rem 0.5rem;
-      color: #8a8074;
+      color: var(--cph-text2);
       font-style: italic;
       text-align: center;
       font-size: 0.78rem;
@@ -521,10 +540,10 @@
 
 .connectionProfilesHub .inline-note {
       font-size: 0.62rem;
-      color: #6b645a;
-      background: #f5f0e8;
+      color: var(--cph-text2);
+      background: var(--cph-surface-muted);
       padding: 0.08rem 0.5rem;
-      border-radius: 8px;
+      border-radius: var(--cph-radius);
       display: inline-block;
       margin-left: 0.15rem;
     }
@@ -536,12 +555,12 @@
       padding: 0.4rem 0.2rem 0.1rem;
       font-size: 0.72rem;
       align-items: center;
-      border-top: 1px solid #eee9e3;
+      border-top: 1px solid var(--cph-border2);
       margin-top: 0.3rem;
     }
 
 .connectionProfilesHub .pagination span {
-      background: #f5f0e8;
+      background: var(--cph-surface-muted);
       padding: 0.05rem 0.4rem;
       border-radius: 4px;
       font-size: 0.7rem;
@@ -600,32 +619,32 @@
 }
 
 .connectionProfilesHub .multi-select:focus-within {
-      border-color: #8a8074;
+      border-color: var(--cph-text2);
       box-shadow: 0 0 0 2px rgba(138, 128, 116, 0.06);
     }
 
 .connectionProfilesHub .multi-select .tag {
-      background: #f0ece6;
-      border: 1px solid #d0c9be;
-      border-radius: 8px;
+      background: var(--cph-surface-muted);
+      border: 1px solid var(--cph-border);
+      border-radius: var(--cph-radius);
       padding: 0.02rem 0.3rem 0.02rem 0.4rem;
       font-size: 0.68rem;
       display: inline-flex;
       align-items: center;
       gap: 0.15rem;
-      color: #3b3630;
+      color: var(--cph-text);
     }
 
 .connectionProfilesHub .multi-select .tag .remove-tag {
       cursor: pointer;
       font-weight: 600;
-      color: #8a7a6a;
+      color: var(--cph-text2);
       padding: 0 0.05rem;
       font-size: 0.7rem;
     }
 
 .connectionProfilesHub .multi-select .tag .remove-tag:hover {
-      color: #b55a4a;
+      color: var(--cph-destructive);
     }
 
 .connectionProfilesHub .multi-select input {
@@ -645,7 +664,7 @@
 .connectionProfilesHub .multi-select-disabled {
       opacity: 0.65;
       pointer-events: none;
-      background: #f0ece6;
+      background: var(--cph-surface-muted);
     }
 
 .connectionProfilesHub .org-picker {
@@ -660,7 +679,7 @@
 
 .connectionProfilesHub .org-picker-empty {
       font-size: 0.68rem;
-      color: #8a8278;
+      color: var(--cph-text2);
       font-style: italic;
       padding: 0.1rem 0;
     }
@@ -677,7 +696,7 @@
       font-weight: 600;
       letter-spacing: 0.04em;
       text-transform: uppercase;
-      color: #4a443c;
+      color: var(--cph-text2);
     }
 
 .connectionProfilesHub .org-picker-select {
@@ -685,31 +704,31 @@
       flex: 1;
       max-width: 420px;
       padding: 0.35rem 0.5rem;
-      border: 1px solid #d6d0c4;
+      border: 1px solid var(--cph-border);
       border-radius: 4px;
-      background: #fcfaf7;
+      background: var(--cph-surface-muted);
       font-size: 0.72rem;
-      color: #1a1a1a;
+      color: var(--cph-text);
     }
 
 .connectionProfilesHub .org-picker-count {
       font-size: 0.62rem;
-      color: #8a8278;
+      color: var(--cph-text2);
     }
 
 .connectionProfilesHub .field-hint {
       font-size: 0.65rem;
-      color: #6a645c;
+      color: var(--cph-text2);
       margin: 0.15rem 0 0.35rem;
       line-height: 1.35;
     }
 
 .connectionProfilesHub .org-suggestions {
-      border: 1px solid #d6d0c4;
+      border: 1px solid var(--cph-border);
       border-top: none;
       max-height: 100px;
       overflow-y: auto;
-      background: #fcfaf7;
+      background: var(--cph-surface-muted);
       display: none;
       border-radius: 0 0 4px 4px;
     }
@@ -722,12 +741,12 @@
       padding: 0.2rem 0.5rem;
       cursor: pointer;
       font-size: 0.74rem;
-      color: #2c2c2c;
+      color: var(--cph-text);
       transition: background 0.1s;
     }
 
 .connectionProfilesHub .org-suggestions .suggestion-item:hover {
-      background: #f0ece6;
+      background: var(--cph-surface-muted);
     }
 
     /* service toggles */
@@ -748,7 +767,7 @@
     }
 
 .connectionProfilesHub .service-item:hover {
-      background: #f5f0e8;
+      background: var(--cph-surface-muted);
     }
 
 .connectionProfilesHub .service-item .service-toggle {
@@ -774,7 +793,7 @@
 
 .connectionProfilesHub .service-label {
       font-size: 0.72rem;
-      color: #2c2c2c;
+      color: var(--cph-text);
       font-weight: 400;
     }
 
@@ -791,12 +810,12 @@
 
     /* info box */
 .connectionProfilesHub .info-box {
-      background: #f5f0e8;
-      border: 1px solid #e2ddd6;
+      background: var(--cph-surface-muted);
+      border: 1px solid var(--cph-border);
       border-radius: 4px;
       padding: 0.4rem 0.7rem;
       font-size: 0.7rem;
-      color: #5a544c;
+      color: var(--cph-text2);
       display: flex;
       align-items: center;
       gap: 0.4rem;
@@ -819,26 +838,26 @@
     }
 
 .connectionProfilesHub ::-webkit-scrollbar { width: 4px; height: 4px; }
-.connectionProfilesHub ::-webkit-scrollbar-track { background: #f5f0e8; }
-.connectionProfilesHub ::-webkit-scrollbar-thumb { background: #d0c9be; border-radius: 8px; }
+.connectionProfilesHub ::-webkit-scrollbar-track { background: var(--cph-surface-muted); }
+.connectionProfilesHub ::-webkit-scrollbar-thumb { background: var(--cph-border); border-radius: var(--cph-radius); }
 
 
 /* Dark mode isolation */
 body.dark .connectionProfilesHub input,
 body.dark .connectionProfilesHub select {
-  background: #fcfaf7 !important;
-  color: #1a1a1a !important;
-  border-color: #d6d0c4 !important;
+  background: var(--cph-surface-muted) !important;
+  color: var(--cph-text) !important;
+  border-color: var(--cph-border) !important;
 }
-body.dark .connectionProfilesHub input[readonly] { background: #f0ece6 !important; color: #4a443c !important; }
-body.dark .connectionProfilesHub .btn { background: #f5f0e8 !important; color: #2c2c2c !important; border-color: #d0c9be !important; }
-body.dark .connectionProfilesHub .btn-primary { background: #e3dcd2 !important; }
-body.dark .connectionProfilesHub .btn-secondary { background: #f0ece6 !important; }
-body.dark .connectionProfilesHub table { background: #fcfaf7 !important; }
-body.dark .connectionProfilesHub th { background: #f5f0e8 !important; color: #4a443c !important; }
-body.dark .connectionProfilesHub td { color: #1e1e1e !important; }
-body.dark .connectionProfilesHub label { color: #4a443c !important; }
-body.dark .connectionProfilesHub .section { background: #ffffff !important; border-color: #e2ddd6 !important; }
+body.dark .connectionProfilesHub input[readonly] { background: var(--cph-surface-muted) !important; color: var(--cph-text2) !important; }
+body.dark .connectionProfilesHub .btn { background: var(--cph-surface-muted) !important; color: var(--cph-text) !important; border-color: var(--cph-border) !important; }
+body.dark .connectionProfilesHub .btn-primary { background: var(--cph-border) !important; }
+body.dark .connectionProfilesHub .btn-secondary { background: var(--cph-surface-muted) !important; }
+body.dark .connectionProfilesHub table { background: var(--cph-surface-muted) !important; }
+body.dark .connectionProfilesHub th { background: var(--cph-surface-muted) !important; color: var(--cph-text2) !important; }
+body.dark .connectionProfilesHub td { color: var(--cph-text) !important; }
+body.dark .connectionProfilesHub label { color: var(--cph-text2) !important; }
+body.dark .connectionProfilesHub .section { background: var(--cph-card) !important; border-color: var(--cph-border) !important; }
 
 /* lucide-react renders svg instead of i */
 .connectionProfilesHub .section-title svg,

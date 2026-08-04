@@ -2,6 +2,12 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { money } from '../lib/billingAdminUtils'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import { KpiCard } from '@/components/ui/KpiCard'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 
 const n = (value) => Number(value || 0).toLocaleString()
 const dateText = (value) => (value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
@@ -61,14 +67,27 @@ function pageMeta(pathname) {
   }
 }
 
-function StatCard({ label, value, hint, accent, pill, pillClass = 'p-cyan' }) {
+const selectClass =
+  'flex h-8 min-w-[140px] rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
+
+function StatCard({ label, value, hint, tone = 'primary', pill, pillTone = 'info', index = 0 }) {
   return (
-    <div className="billingStat" style={{ '--accent': accent }}>
-      <label>{label}</label>
-      <strong>{value}</strong>
-      {hint ? <span>{hint}</span> : null}
-      {pill ? <span className={`pill billingStatPill ${pillClass}`}>{pill}</span> : null}
-    </div>
+    <KpiCard
+      label={label}
+      value={value}
+      hint={
+        <>
+          {hint ? <span>{hint}</span> : null}
+          {pill ? (
+            <span className="ml-1 inline-flex">
+              <Pill tone={pillTone}>{pill}</Pill>
+            </span>
+          ) : null}
+        </>
+      }
+      tone={tone}
+      index={index}
+    />
   )
 }
 
@@ -275,9 +294,9 @@ export default function Billing() {
         </td>
         <td className="muted">{dateShort(row.updated_at)}</td>
         <td className="billingListActions">
-          <button type="button" className="btn soft xs" onClick={() => openOrganisation(row.org_id)} title="Open organisation">
+          <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => openOrganisation(row.org_id)} title="Open organisation">
             <i className="ti ti-building" />
-          </button>
+          </Button>
         </td>
       </tr>
     )
@@ -306,9 +325,9 @@ export default function Billing() {
       <td className="muted">{row.payment_mode || '—'}</td>
       <td className="muted">{dateShort(row.updated_at)}</td>
       <td className="billingListActions">
-        <button type="button" className="btn soft xs" onClick={() => openOrganisation(row.org_id)} title="Open organisation">
+        <Button type="button" variant="outline" size="sm" className="h-7" onClick={() => openOrganisation(row.org_id)} title="Open organisation">
           <i className="ti ti-building" />
-        </button>
+        </Button>
       </td>
     </tr>
   )
@@ -331,428 +350,429 @@ export default function Billing() {
   )
 
   const subscriptionTabs = [
-    { id: 'all', label: 'All subscriptions', icon: 'ti-users' },
-    { id: 'active', label: 'Active & trial', icon: 'ti-circle-check' },
-    { id: 'pending', label: 'Pending payment', icon: 'ti-clock' },
-    { id: 'past_due', label: 'Past due', icon: 'ti-alert-triangle' },
+    { id: 'all', label: 'All subscriptions' },
+    { id: 'active', label: 'Active & trial' },
+    { id: 'pending', label: 'Pending payment' },
+    { id: 'past_due', label: 'Past due' },
   ]
 
   return (
-    <>
-      <div className="pageTop">
-        <div>
-          <h1>{meta.title}</h1>
-          <p>{meta.description}</p>
+    <div className="ds-scope space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-semibold leading-tight text-foreground">{meta.title}</h1>
+          <p className="text-[11px] leading-tight text-muted-foreground">{meta.description}</p>
         </div>
-        <div className="actions">
-          <button type="button" className="btn soft" onClick={refresh} disabled={loading}>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={refresh} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh'}
-          </button>
+          </Button>
           {isSubscriptions ? (
-            <Link className="btn soft" to="/billing/products?tab=subscription">
-              <i className="ti ti-box" /> Plan catalogue
-            </Link>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/products?tab=subscription">
+                <i className="ti ti-box" /> Plan catalogue
+              </Link>
+            </Button>
           ) : null}
-          <Link className="btn soft" to="/billing/invoices">
-            <i className="ti ti-receipt" /> Invoices
-          </Link>
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/billing/invoices">
+              <i className="ti ti-receipt" /> Invoices
+            </Link>
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="note billingErrorNote">{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
-      <div className="billingPageShell">
-        <div className="billingHub">
-          {(isSubscriptions || isReports) && (
-            <div className="billingStats">
-              <StatCard
-                label="Active"
-                value={n(ov.subscriptions_active)}
-                hint={`${n(ov.subscriptions_trial || 0)} on trial`}
-                accent="#0f766e"
-                pill={`${n(ov.subscriptions_total)} total`}
-                pillClass="p-green"
-              />
-              <StatCard
-                label="Pending payment"
-                value={n(ov.subscriptions_pending_payment)}
-                hint={pendingCash.length ? `${pendingCash.length} cash approval${pendingCash.length === 1 ? '' : 's'}` : 'Awaiting payment or approval'}
-                accent="#d97706"
-                pill={pendingCash.length ? 'Action needed' : 'Clear'}
-                pillClass={pendingCash.length ? 'p-amber' : 'p-cyan'}
-              />
-              <StatCard
-                label="Past due"
-                value={n(ov.subscriptions_past_due)}
-                hint="Needs follow-up"
-                accent="#dc2626"
-                pill="Review"
-                pillClass="p-red"
-              />
-              <StatCard
-                label="Payment mode"
-                value={n(ov.subscriptions_production_mode)}
-                hint={`${n(ov.subscriptions_test_mode)} in test mode`}
-                accent="#0891b2"
-                pill="Live"
-                pillClass="p-cyan"
-              />
-            </div>
-          )}
+      {(isSubscriptions || isReports) && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <StatCard
+            label="Active"
+            value={n(ov.subscriptions_active)}
+            hint={`${n(ov.subscriptions_trial || 0)} on trial`}
+            tone="success"
+            pill={`${n(ov.subscriptions_total)} total`}
+            pillTone="success"
+            index={0}
+          />
+          <StatCard
+            label="Pending payment"
+            value={n(ov.subscriptions_pending_payment)}
+            hint={
+              pendingCash.length
+                ? `${pendingCash.length} cash approval${pendingCash.length === 1 ? '' : 's'}`
+                : 'Awaiting payment or approval'
+            }
+            tone="warning"
+            pill={pendingCash.length ? 'Action needed' : 'Clear'}
+            pillTone={pendingCash.length ? 'warning' : 'info'}
+            index={1}
+          />
+          <StatCard
+            label="Past due"
+            value={n(ov.subscriptions_past_due)}
+            hint="Needs follow-up"
+            tone="danger"
+            pill="Review"
+            pillTone="danger"
+            index={2}
+          />
+          <StatCard
+            label="Payment mode"
+            value={n(ov.subscriptions_production_mode)}
+            hint={`${n(ov.subscriptions_test_mode)} in test mode`}
+            tone="info"
+            pill="Live"
+            pillTone="info"
+            index={3}
+          />
+        </div>
+      )}
 
-          {isSubscriptions && pendingCash.length > 0 && (
-            <div className="billingPanel billingPanelHighlight">
-              <div className="billingPanelHead">
-                <h3>
-                  <i className="ti ti-cash" /> Cash plan changes — approval queue
-                </h3>
-                <span className="pill p-amber">{pendingCash.length}</span>
-              </div>
-              <div className="billingTableWrap">
-                <table className="table billingTable">
-                  <thead>
-                    <tr>
-                      <th>Organisation</th>
-                      <th>Current plan</th>
-                      <th>Requested plan</th>
-                      <th>Price</th>
-                      <th>Submitted</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pendingCash.map((row) => (
-                      <tr key={row.subscription_id}>
-                        <td>
-                          <strong>{row.org_name || row.org_id}</strong>
-                        </td>
-                        <td>{row.current_plan_name || row.current_plan_code || '—'}</td>
-                        <td>{row.pending_plan_name}</td>
-                        <td>{money(row.pending_plan_price_gbp_pence, row.billing_currency)}</td>
-                        <td className="muted">{dateText(row.updated_at)}</td>
-                        <td className="billingListActions">
-                          <button
-                            type="button"
-                            className="btn primary bsm"
-                            disabled={pendingBusy === row.org_id}
-                            onClick={() => approveCash(row.org_id)}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            className="btn soft bsm"
-                            disabled={pendingBusy === row.org_id}
-                            onClick={() => rejectCash(row.org_id)}
-                          >
-                            Reject
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+      {isSubscriptions && pendingCash.length > 0 && (
+        <Panel
+          title="Cash plan changes — approval queue"
+          action={<Pill tone="warning">{pendingCash.length}</Pill>}
+        >
+          <table className="table billingTable">
+            <thead>
+              <tr>
+                <th>Organisation</th>
+                <th>Current plan</th>
+                <th>Requested plan</th>
+                <th>Price</th>
+                <th>Submitted</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {pendingCash.map((row) => (
+                <tr key={row.subscription_id}>
+                  <td>
+                    <strong>{row.org_name || row.org_id}</strong>
+                  </td>
+                  <td>{row.current_plan_name || row.current_plan_code || '—'}</td>
+                  <td>{row.pending_plan_name}</td>
+                  <td>{money(row.pending_plan_price_gbp_pence, row.billing_currency)}</td>
+                  <td className="muted">{dateText(row.updated_at)}</td>
+                  <td className="billingListActions">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7"
+                      disabled={pendingBusy === row.org_id}
+                      onClick={() => approveCash(row.org_id)}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7"
+                      disabled={pendingBusy === row.org_id}
+                      onClick={() => rejectCash(row.org_id)}
+                    >
+                      Reject
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Panel>
+      )}
 
-          {isSubscriptions && (
-            <>
-              <div className="billingTabBar">
-                {subscriptionTabs.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={`billingTabBtn${tab === item.id ? ' active' : ''}`}
-                    onClick={() => setTab(item.id)}
-                  >
-                    <i className={`ti ${item.icon}`} />
-                    {item.label}
-                    <span className="billingTabCount">{tabCounts[item.id] ?? 0}</span>
-                  </button>
+      {isSubscriptions && (
+        <>
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList className="h-auto flex-wrap">
+              {subscriptionTabs.map((item) => (
+                <TabsTrigger key={item.id} value={item.id} className="gap-1.5">
+                  {item.label}
+                  <Pill tone="neutral">{tabCounts[item.id] ?? 0}</Pill>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+
+          <Panel
+            title="Subscriptions"
+            action={
+              <span className="text-[11px] text-muted-foreground">
+                {filteredSubscriptions.length} subscription{filteredSubscriptions.length === 1 ? '' : 's'}
+              </span>
+            }
+            bodyClassName="space-y-3"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                className="h-8 max-w-xs"
+                placeholder="Search organisation, email, or plan…"
+                value={filters.search}
+                onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              />
+              <select
+                className={selectClass}
+                value={filters.status}
+                onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+              >
+                {STATUS_OPTIONS.map((opt) => (
+                  <option key={opt || 'all'} value={opt}>
+                    {opt ? opt.replace('_', ' ') : 'All statuses'}
+                  </option>
                 ))}
-              </div>
+              </select>
+              <select
+                className={selectClass}
+                value={filters.provider}
+                onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value }))}
+              >
+                {PROVIDER_OPTIONS.map((opt) => (
+                  <option key={opt || 'all'} value={opt}>
+                    {opt ? providerLabel(opt) : 'All providers'}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <div className="billingPanel">
-                <div className="billingToolbar">
-                  <div className="billingToolbarFilters">
-                    <input
-                      className="input billingSearch"
-                      placeholder="Search organisation, email, or plan…"
-                      value={filters.search}
-                      onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                    />
-                    <select
-                      className="input billingSelect"
-                      value={filters.status}
-                      onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-                    >
-                      {STATUS_OPTIONS.map((opt) => (
-                        <option key={opt || 'all'} value={opt}>
-                          {opt ? opt.replace('_', ' ') : 'All statuses'}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="input billingSelect"
-                      value={filters.provider}
-                      onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value }))}
-                    >
-                      {PROVIDER_OPTIONS.map((opt) => (
-                        <option key={opt || 'all'} value={opt}>
-                          {opt ? providerLabel(opt) : 'All providers'}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <span className="muted billingResultCount">
-                    {filteredSubscriptions.length} subscription{filteredSubscriptions.length === 1 ? '' : 's'}
-                  </span>
-                </div>
+            {loading ? <div className="py-6 text-center text-sm text-muted-foreground">Loading subscriptions…</div> : null}
+            {!loading && !filteredSubscriptions.length ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">No subscriptions match your filters.</div>
+            ) : null}
+            {!loading && filteredSubscriptions.length > 0 ? (
+              <table className="table billingTable">
+                <thead>
+                  <tr>
+                    <th>Organisation</th>
+                    <th>Plan</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                    <th>Provider</th>
+                    <th>Renews</th>
+                    <th>Next charge</th>
+                    <th>Updated</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>{filteredSubscriptions.map(renderSubscriptionRow)}</tbody>
+              </table>
+            ) : null}
+          </Panel>
+        </>
+      )}
 
-                <div className="billingTableWrap">
-                  {loading ? <div className="billingEmpty muted">Loading subscriptions…</div> : null}
-                  {!loading && !filteredSubscriptions.length ? (
-                    <div className="billingEmpty muted">No subscriptions match your filters.</div>
-                  ) : null}
-                  {!loading && filteredSubscriptions.length > 0 ? (
-                    <table className="table billingTable">
-                      <thead>
-                        <tr>
-                          <th>Organisation</th>
-                          <th>Plan</th>
-                          <th>Price</th>
-                          <th>Status</th>
-                          <th>Provider</th>
-                          <th>Renews</th>
-                          <th>Next charge</th>
-                          <th>Updated</th>
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>{filteredSubscriptions.map(renderSubscriptionRow)}</tbody>
-                    </table>
-                  ) : null}
-                </div>
-              </div>
-            </>
-          )}
+      {isMandates && (
+        <Panel
+          title="GoCardless mandates"
+          action={<span className="text-[11px] text-muted-foreground">{mandateRows.length} linked</span>}
+        >
+          {loading ? <div className="py-6 text-center text-sm text-muted-foreground">Loading mandates…</div> : null}
+          {!loading && !mandateRows.length ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">No GoCardless mandates found yet.</div>
+          ) : null}
+          {!loading && mandateRows.length > 0 ? (
+            <table className="table billingTable">
+              <thead>
+                <tr>
+                  <th>Organisation</th>
+                  <th>Customer ID</th>
+                  <th>Subscription / mandate ID</th>
+                  <th>Plan</th>
+                  <th>Status</th>
+                  <th>Mode</th>
+                  <th>Updated</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>{mandateRows.map(renderMandateRow)}</tbody>
+            </table>
+          ) : null}
+        </Panel>
+      )}
 
-          {isMandates && (
-            <div className="billingPanel">
-              <div className="billingPanelHead">
-                <h3>
-                  <i className="ti ti-building-bank" /> GoCardless mandates
-                </h3>
-                <span className="muted">{mandateRows.length} linked</span>
+      {isFailed && (
+        <>
+          <Panel title="Failed / stuck invoices" action={<Pill tone="danger">{failedInvoices.length}</Pill>}>
+            {loading ? <div className="py-6 text-center text-sm text-muted-foreground">Loading invoices…</div> : null}
+            {!loading && !failedInvoices.length ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No failed, past due, or collecting invoices.
               </div>
-              <div className="billingTableWrap">
-                {loading ? <div className="billingEmpty muted">Loading mandates…</div> : null}
-                {!loading && !mandateRows.length ? (
-                  <div className="billingEmpty muted">No GoCardless mandates found yet.</div>
-                ) : null}
-                {!loading && mandateRows.length > 0 ? (
-                  <table className="table billingTable">
-                    <thead>
-                      <tr>
-                        <th>Organisation</th>
-                        <th>Customer ID</th>
-                        <th>Subscription / mandate ID</th>
-                        <th>Plan</th>
-                        <th>Status</th>
-                        <th>Mode</th>
-                        <th>Updated</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>{mandateRows.map(renderMandateRow)}</tbody>
-                  </table>
-                ) : null}
+            ) : null}
+            {!loading && failedInvoices.length > 0 ? (
+              <table className="table billingTable">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Organisation</th>
+                    <th>Status</th>
+                    <th>Amount</th>
+                    <th>DD retries</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {failedInvoices.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.invoice_number || row.id?.slice(0, 8)}</td>
+                      <td>{row.organisation_name || row.org_name || '—'}</td>
+                      <td>
+                        <span className="pill p-amber">{row.status}</span>
+                      </td>
+                      <td>{money(row.amount_gbp_pence, row.currency)}</td>
+                      <td className="muted">
+                        {row.dd_retry_count || 0}
+                        {row.dd_next_retry_at ? ` · ${dateShort(row.dd_next_retry_at)}` : ''}
+                      </td>
+                      <td>
+                        <Button asChild variant="outline" size="sm" className="h-7">
+                          <Link to="/billing/invoices">Open</Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+          </Panel>
+
+          <Panel title="Failed payment events" action={<Pill tone="danger">{failedEvents.length}</Pill>}>
+            {loading ? <div className="py-6 text-center text-sm text-muted-foreground">Loading events…</div> : null}
+            {!loading && !failedEvents.length ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                No failed payment events in the recent window.
+              </div>
+            ) : null}
+            {!loading && failedEvents.length > 0 ? (
+              <table className="table billingTable">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Provider</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Reason</th>
+                    <th>Event ID</th>
+                  </tr>
+                </thead>
+                <tbody>{failedEvents.map(renderFailedRow)}</tbody>
+              </table>
+            ) : null}
+            <p className="mt-3 text-[12px] text-muted-foreground">
+              For full invoice history, open{' '}
+              <Link to="/billing/invoices" className="font-medium text-foreground underline-offset-2 hover:underline">
+                Invoices
+              </Link>
+              .
+            </p>
+          </Panel>
+        </>
+      )}
+
+      {isReports && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {opsSummary ? (
+            <div className="grid grid-cols-2 gap-3 lg:col-span-2 lg:grid-cols-4">
+              <StatCard
+                label="Pending refunds"
+                value={n(opsSummary.pending_refund_queue)}
+                hint="Awaiting admin review"
+                tone="warning"
+                pill="Queue"
+                pillTone="warning"
+                index={0}
+              />
+              <StatCard
+                label="Failed payments"
+                value={n(opsSummary.failed_payments)}
+                hint="Recent provider failures"
+                tone="danger"
+                pill="Review"
+                pillTone="danger"
+                index={1}
+              />
+              <StatCard
+                label="Billing exceptions"
+                value={n(opsSummary.billing_exceptions?.total)}
+                hint="Anomalies detected"
+                tone="info"
+                index={2}
+              />
+              <StatCard
+                label="Wallet liability"
+                value={money(opsSummary.wallet_liability_minor)}
+                hint="Sum of org wallet balances"
+                tone="success"
+                index={3}
+              />
+            </div>
+          ) : null}
+
+          <Panel title="Subscription breakdown">
+            <div className="divide-y divide-border text-[12.5px]">
+              <div className="flex items-center justify-between py-2">
+                <span className="text-muted-foreground">Total subscriptions</span>
+                <strong className="font-medium">{n(ov.subscriptions_total)}</strong>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-muted-foreground">Active</span>
+                <strong className="font-medium">{n(ov.subscriptions_active)}</strong>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-muted-foreground">Trial</span>
+                <strong className="font-medium">{n(ov.subscriptions_trial)}</strong>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-muted-foreground">Pending payment</span>
+                <strong className="font-medium">{n(ov.subscriptions_pending_payment)}</strong>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-muted-foreground">Past due</span>
+                <strong className="font-medium">{n(ov.subscriptions_past_due)}</strong>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-muted-foreground">Latest subscription created</span>
+                <strong className="font-medium">{dateText(ov.latest_subscription_created_at)}</strong>
               </div>
             </div>
-          )}
+          </Panel>
 
-          {isFailed && (
-            <>
-            <div className="billingPanel" style={{ marginBottom: 16 }}>
-              <div className="billingPanelHead">
-                <h3>
-                  <i className="ti ti-receipt" /> Failed / stuck invoices
-                </h3>
-                <span className="pill p-red">{failedInvoices.length}</span>
-              </div>
-              <div className="billingTableWrap">
-                {loading ? <div className="billingEmpty muted">Loading invoices…</div> : null}
-                {!loading && !failedInvoices.length ? (
-                  <div className="billingEmpty muted">No failed, past due, or collecting invoices.</div>
-                ) : null}
-                {!loading && failedInvoices.length > 0 ? (
-                  <table className="table billingTable">
-                    <thead>
-                      <tr>
-                        <th>Invoice</th>
-                        <th>Organisation</th>
-                        <th>Status</th>
-                        <th>Amount</th>
-                        <th>DD retries</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {failedInvoices.map((row) => (
-                        <tr key={row.id}>
-                          <td>{row.invoice_number || row.id?.slice(0, 8)}</td>
-                          <td>{row.organisation_name || row.org_name || '—'}</td>
-                          <td><span className="pill p-amber">{row.status}</span></td>
-                          <td>{money(row.amount_gbp_pence, row.currency)}</td>
-                          <td className="muted">{row.dd_retry_count || 0}{row.dd_next_retry_at ? ` · ${dateShort(row.dd_next_retry_at)}` : ''}</td>
-                          <td><Link className="btn soft xs" to="/billing/invoices">Open</Link></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : null}
-              </div>
-            </div>
-            <div className="billingPanel">
-              <div className="billingPanelHead">
-                <h3>
-                  <i className="ti ti-alert-circle" /> Failed payment events
-                </h3>
-                <span className="pill p-red">{failedEvents.length}</span>
-              </div>
-              <div className="billingTableWrap">
-                {loading ? <div className="billingEmpty muted">Loading events…</div> : null}
-                {!loading && !failedEvents.length ? (
-                  <div className="billingEmpty muted">No failed payment events in the recent window.</div>
-                ) : null}
-                {!loading && failedEvents.length > 0 ? (
-                  <table className="table billingTable">
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>Provider</th>
-                        <th>Customer</th>
-                        <th>Status</th>
-                        <th>Reason</th>
-                        <th>Event ID</th>
-                      </tr>
-                    </thead>
-                    <tbody>{failedEvents.map(renderFailedRow)}</tbody>
-                  </table>
-                ) : null}
-              </div>
-              <div className="billingPanelFoot muted">
-                For full invoice history, open <Link to="/billing/invoices">Invoices</Link>.
-              </div>
-            </div>
-            </>
-          )}
-
-          {isReports && (
-            <div className="billingReportsGrid">
-              {opsSummary ? (
-                <div className="billingStatsRow" style={{ gridColumn: '1 / -1' }}>
-                  <StatCard
-                    label="Pending refunds"
-                    value={n(opsSummary.pending_refund_queue)}
-                    hint="Awaiting admin review"
-                    accent="var(--amber)"
-                    pill="Queue"
-                    pillClass="p-amber"
-                  />
-                  <StatCard
-                    label="Failed payments"
-                    value={n(opsSummary.failed_payments)}
-                    hint="Recent provider failures"
-                    accent="var(--red)"
-                    pill="Review"
-                    pillClass="p-red"
-                  />
-                  <StatCard
-                    label="Billing exceptions"
-                    value={n(opsSummary.billing_exceptions?.total)}
-                    hint="Anomalies detected"
-                    accent="var(--cyan)"
-                  />
-                  <StatCard
-                    label="Wallet liability"
-                    value={money(opsSummary.wallet_liability_minor)}
-                    hint="Sum of org wallet balances"
-                    accent="var(--green)"
-                  />
-                </div>
-              ) : null}
-              <div className="billingPanel">
-                <div className="billingPanelHead">
-                  <h3>Subscription breakdown</h3>
-                </div>
-                <div className="billingReportList">
-                  <div className="billingReportRow">
-                    <span>Total subscriptions</span>
-                    <strong>{n(ov.subscriptions_total)}</strong>
-                  </div>
-                  <div className="billingReportRow">
-                    <span>Active</span>
-                    <strong>{n(ov.subscriptions_active)}</strong>
-                  </div>
-                  <div className="billingReportRow">
-                    <span>Trial</span>
-                    <strong>{n(ov.subscriptions_trial)}</strong>
-                  </div>
-                  <div className="billingReportRow">
-                    <span>Pending payment</span>
-                    <strong>{n(ov.subscriptions_pending_payment)}</strong>
-                  </div>
-                  <div className="billingReportRow">
-                    <span>Past due</span>
-                    <strong>{n(ov.subscriptions_past_due)}</strong>
-                  </div>
-                  <div className="billingReportRow">
-                    <span>Latest subscription created</span>
-                    <strong>{dateText(ov.latest_subscription_created_at)}</strong>
-                  </div>
-                </div>
-              </div>
-
-              <div className="billingPanel">
-                <div className="billingPanelHead">
-                  <h3>Quick links</h3>
-                </div>
-                <div className="billingQuickLinks">
-                  <Link className="billingQuickLink" to="/billing/subscriptions">
-                    <i className="ti ti-repeat" /> Subscriptions
-                  </Link>
-                  <Link className="billingQuickLink" to="/billing/invoices">
-                    <i className="ti ti-receipt" /> Invoices
-                  </Link>
-                  <Link className="billingQuickLink" to="/billing/products?tab=subscription">
-                    <i className="ti ti-box" /> Plan catalogue
-                  </Link>
-                  <Link className="billingQuickLink" to="/billing/service-orders">
-                    <i className="ti ti-shopping-cart" /> Service orders (cash)
-                  </Link>
-                  <Link className="billingQuickLink" to="/billing/calls-cost">
-                    <i className="ti ti-phone" /> Calls cost
-                  </Link>
-                  <Link className="billingQuickLink" to="/integrations/gocardless">
-                    <i className="ti ti-plug" /> GoCardless integration
-                  </Link>
-                  <Link className="billingQuickLink" to="/billing/refunds">
-                    <i className="ti ti-arrow-back-up" /> Refunds queue
-                  </Link>
-                  <Link className="billingQuickLink" to="/billing/exceptions">
-                    <i className="ti ti-alert-triangle" /> Billing exceptions
-                  </Link>
-                  <Link className="billingQuickLink" to="/billing/wallet-ledger">
-                    <i className="ti ti-wallet" /> Wallet ledger
-                  </Link>
-                </div>
-              </div>
-            </div>
-          )}
+          <Panel title="Quick links" bodyClassName="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/subscriptions">Subscriptions</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/invoices">Invoices</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/products?tab=subscription">Plan catalogue</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/service-orders">Service orders (cash)</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/calls-cost">Calls cost</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/integrations/gocardless">GoCardless integration</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/refunds">Refunds queue</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/exceptions">Billing exceptions</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-8">
+              <Link to="/billing/wallet-ledger">Wallet ledger</Link>
+            </Button>
+          </Panel>
         </div>
-      </div>
-    </>
+      )}
+    </div>
   )
 }

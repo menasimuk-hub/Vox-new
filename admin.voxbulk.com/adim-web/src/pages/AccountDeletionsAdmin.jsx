@@ -1,6 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import { Textarea } from '@/components/ui/Textarea'
+import { KpiCard } from '@/components/ui/KpiCard'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/Select'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
+import { Clock } from 'lucide-react'
 
 function fmtWhen(v) {
   if (!v) return '—'
@@ -9,6 +34,12 @@ function fmtWhen(v) {
   } catch {
     return String(v)
   }
+}
+
+function statusTone(status) {
+  if (status === 'pending') return 'warning'
+  if (status === 'completed') return 'success'
+  return 'neutral'
 }
 
 export default function AccountDeletionsAdmin() {
@@ -85,150 +116,168 @@ export default function AccountDeletionsAdmin() {
   }
 
   return (
-    <>
-      <div className="pageTop">
+    <div className='ds-scope space-y-4'>
+      <div className='pageTop'>
         <div>
           <h1>Account deletion requests</h1>
           <p>Review user-requested account deletions, view activity, and complete archival.</p>
         </div>
-        <div className="actions">
-          <button type="button" className="btn soft" onClick={load} disabled={loading}>
+        <div className='actions'>
+          <Button type='button' variant='secondary' size='sm' className='h-8' onClick={load} disabled={loading}>
             {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
+          </Button>
         </div>
       </div>
 
       {error ? (
-        <div className="note" style={{ marginBottom: 16, borderColor: 'rgba(220,38,38,0.35)' }}>
+        <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
           {error}
         </div>
       ) : null}
 
-      <div className="grid-4" style={{ marginBottom: 16 }}>
-        <div className="card">
-          <div className="cardBody">
-            <div className="muted" style={{ fontSize: 12 }}>Pending</div>
-            <div style={{ fontSize: 28, fontWeight: 700 }}>{pendingCount}</div>
-          </div>
-        </div>
+      <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+        <KpiCard icon={Clock} label='Pending' value={pendingCount} tone='warning' index={0} />
       </div>
 
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="cardBody" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label className="muted" style={{ fontSize: 13 }}>Status</label>
-          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ maxWidth: 200 }}>
-            <option value="pending">Pending</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="all">All</option>
-          </select>
-        </div>
-      </div>
+      <Panel title='Filters' bodyClassName='flex flex-wrap items-center gap-3'>
+        <Label className='text-[12px] text-muted-foreground'>Status</Label>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className='h-8 w-[200px] text-[12px]'>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='pending'>Pending</SelectItem>
+            <SelectItem value='completed'>Completed</SelectItem>
+            <SelectItem value='cancelled'>Cancelled</SelectItem>
+            <SelectItem value='all'>All</SelectItem>
+          </SelectContent>
+        </Select>
+      </Panel>
 
-      <div className="card">
-        <div className="cardBody tableWrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Requested</th>
-                <th>User</th>
-                <th>Organisation</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={5} className="muted">Loading…</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td colSpan={5} className="muted">No deletion requests.</td></tr>
-              ) : (
-                rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>{fmtWhen(row.requested_at)}</td>
-                    <td>{row.requested_by_email}</td>
-                    <td>
-                      <div>{row.org_name || '—'}</div>
-                      <div className="muted" style={{ fontSize: 11 }}>{row.org_id}</div>
-                    </td>
-                    <td><span className={`pill ${row.status === 'pending' ? 'p-amber' : row.status === 'completed' ? 'p-green' : ''}`}>{row.status}</span></td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <button type="button" className="btn soft xs" onClick={() => openDetail(row.id)}>Activity</button>
-                        <button
-                          type="button"
-                          className="btn soft xs"
+      <Panel title='Requests' subtitle='Open a row for activity or complete a pending deletion.' bodyClassName='overflow-x-auto'>
+        <StripeTable>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Requested</TableHead>
+              <TableHead>User</TableHead>
+              <TableHead>Organisation</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableLoading colSpan={5} />
+            ) : rows.length === 0 ? (
+              <TableEmpty colSpan={5}>No deletion requests.</TableEmpty>
+            ) : (
+              rows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>{fmtWhen(row.requested_at)}</TableCell>
+                  <TableCell>{row.requested_by_email}</TableCell>
+                  <TableCell>
+                    <div className='flex flex-col leading-tight'>
+                      <span>{row.org_name || '—'}</span>
+                      <span className='text-[11px] text-muted-foreground'>{row.org_id}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Pill tone={statusTone(row.status)}>{row.status}</Pill>
+                  </TableCell>
+                  <TableCell>
+                    <div className='flex flex-wrap gap-1.5'>
+                      <Button type='button' variant='secondary' size='sm' className='h-7 text-[11px]' onClick={() => openDetail(row.id)}>
+                        Activity
+                      </Button>
+                      <Button
+                        type='button'
+                        variant='secondary'
+                        size='sm'
+                        className='h-7 text-[11px]'
+                        onClick={() => {
+                          localStorage.setItem('voxbulk_admin_selected_org_id', row.org_id)
+                          navigate('/organisations/all-users')
+                        }}
+                      >
+                        OCC
+                      </Button>
+                      {row.status === 'pending' ? (
+                        <Button
+                          type='button'
+                          size='sm'
+                          className='h-7 text-[11px]'
                           onClick={() => {
-                            localStorage.setItem('voxbulk_admin_selected_org_id', row.org_id)
-                            navigate('/organisations/all-users')
+                            setCompleteId(row.id)
+                            setConfirmText('')
+                            setAdminNotes('')
                           }}
                         >
-                          OCC
-                        </button>
-                        {row.status === 'pending' ? (
-                          <button type="button" className="btn primary xs" onClick={() => { setCompleteId(row.id); setConfirmText(''); setAdminNotes('') }}>
-                            Complete deletion
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                          Complete deletion
+                        </Button>
+                      ) : null}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </StripeTable>
+      </Panel>
 
       {detail ? (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="cardHead" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3>Activity — {detail.requested_by_email}</h3>
-            <button type="button" className="btn soft xs" onClick={() => setDetail(null)}>Close</button>
-          </div>
-          <div className="cardBody">
-            {(detail.activity || []).length === 0 ? (
-              <p className="muted">No deletion activity logged.</p>
-            ) : (
-              <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none' }}>
-                {(detail.activity || []).map((ev) => (
-                  <li key={ev.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ fontWeight: 600 }}>{ev.action || ev.event_type}</div>
-                    <div className="muted" style={{ fontSize: 12 }}>
-                      {[ev.actor_email, ev.detail, fmtWhen(ev.created_at)].filter(Boolean).join(' · ')}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+        <Panel
+          title={`Activity — ${detail.requested_by_email}`}
+          action={
+            <Button type='button' variant='outline' size='sm' className='h-7 text-[11px]' onClick={() => setDetail(null)}>
+              Close
+            </Button>
+          }
+        >
+          {(detail.activity || []).length === 0 ? (
+            <p className='text-sm text-muted-foreground'>No deletion activity logged.</p>
+          ) : (
+            <ul className='m-0 list-none space-y-0 p-0'>
+              {(detail.activity || []).map((ev) => (
+                <li key={ev.id} className='border-b border-border py-2 last:border-b-0'>
+                  <div className='text-sm font-semibold'>{ev.action || ev.event_type}</div>
+                  <div className='text-[12px] text-muted-foreground'>
+                    {[ev.actor_email, ev.detail, fmtWhen(ev.created_at)].filter(Boolean).join(' · ')}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       ) : null}
 
       {completeId ? (
-        <div className="card" style={{ marginTop: 16, borderColor: 'rgba(220,38,38,0.35)' }}>
-          <div className="cardHead"><h3 style={{ color: 'var(--red)' }}>Complete account deletion</h3></div>
-          <div className="cardBody" style={{ display: 'grid', gap: 12, maxWidth: 480 }}>
-            <p className="muted" style={{ fontSize: 13 }}>
-              Archives the organisation, anonymizes PII, and retains invoices/audit records. Stop running campaigns first.
-            </p>
-            <label className="field">
-              <span className="fieldLabel">Admin notes (optional)</span>
-              <textarea className="input" rows={2} value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} />
-            </label>
-            <label className="field">
-              <span className="fieldLabel">Type DELETE to confirm</span>
-              <input className="input" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
-            </label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className="btn primary" disabled={busy === completeId} onClick={() => void completeDeletion()}>
-                {busy === completeId ? 'Processing…' : 'Confirm deletion'}
-              </button>
-              <button type="button" className="btn soft" onClick={() => setCompleteId(null)}>Cancel</button>
-            </div>
+        <Panel
+          title='Complete account deletion'
+          subtitle='Archives the organisation, anonymizes PII, and retains invoices/audit records.'
+          className='border-destructive/40'
+          bodyClassName='grid max-w-md gap-3'
+        >
+          <p className='text-[13px] text-muted-foreground'>
+            Archives the organisation, anonymizes PII, and retains invoices/audit records. Stop running campaigns first.
+          </p>
+          <div className='space-y-1'>
+            <Label className='text-[12px]'>Admin notes (optional)</Label>
+            <Textarea rows={2} value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} />
           </div>
-        </div>
+          <div className='space-y-1'>
+            <Label className='text-[12px]'>Type DELETE to confirm</Label>
+            <Input className='h-8' value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
+          </div>
+          <div className='flex gap-2'>
+            <Button type='button' size='sm' className='h-8' disabled={busy === completeId} onClick={() => void completeDeletion()}>
+              {busy === completeId ? 'Processing…' : 'Confirm deletion'}
+            </Button>
+            <Button type='button' variant='secondary' size='sm' className='h-8' onClick={() => setCompleteId(null)}>
+              Cancel
+            </Button>
+          </div>
+        </Panel>
       ) : null}
-    </>
+    </div>
   )
 }

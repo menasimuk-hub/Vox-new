@@ -1,24 +1,25 @@
 /* Telnyx settings hub — scoped theme (telynx-settings-hub design) */
 
 .telnyxHub {
+  /* Phase 2 Batch F: map Telnyx hub island onto design-system OKLCH palette */
   --tsh-radius: 0.625rem;
-  --tsh-bg: oklch(0.975 0.012 85);
-  --tsh-fg: oklch(0.22 0.02 260);
-  --tsh-surface: oklch(0.995 0.004 85);
-  --tsh-surface-muted: oklch(0.955 0.014 85);
-  --tsh-card: oklch(0.995 0.004 85);
-  --tsh-primary: oklch(0.27 0.04 265);
-  --tsh-primary-fg: oklch(0.98 0.003 247);
-  --tsh-muted-fg: oklch(0.5 0.02 260);
-  --tsh-border: oklch(0.9 0.012 85);
-  --tsh-success: oklch(0.55 0.14 150);
-  --tsh-success-soft: oklch(0.93 0.06 150);
-  --tsh-warning: oklch(0.62 0.13 65);
-  --tsh-warning-soft: oklch(0.93 0.05 75);
-  --tsh-danger: oklch(0.6 0.21 27);
-  --tsh-danger-soft: oklch(0.95 0.04 27);
-  --tsh-info: oklch(0.52 0.1 250);
-  --tsh-info-soft: oklch(0.93 0.03 250);
+  --tsh-bg: var(--ds-background, oklch(0.975 0.012 85));
+  --tsh-fg: var(--ds-foreground, oklch(0.22 0.02 260));
+  --tsh-surface: var(--ds-surface, oklch(0.995 0.004 85));
+  --tsh-surface-muted: var(--ds-surface-muted, oklch(0.955 0.014 85));
+  --tsh-card: var(--ds-card, oklch(0.995 0.004 85));
+  --tsh-primary: var(--ds-primary, oklch(0.27 0.04 265));
+  --tsh-primary-fg: var(--ds-primary-foreground, oklch(0.98 0.003 247));
+  --tsh-muted-fg: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --tsh-border: var(--ds-border, oklch(0.9 0.012 85));
+  --tsh-success: var(--ds-success, oklch(0.55 0.14 150));
+  --tsh-success-soft: var(--ds-success-soft, oklch(0.93 0.06 150));
+  --tsh-warning: var(--ds-warning, oklch(0.62 0.13 65));
+  --tsh-warning-soft: var(--ds-warning-soft, oklch(0.93 0.05 75));
+  --tsh-danger: var(--ds-destructive, oklch(0.6 0.21 27));
+  --tsh-danger-soft: color-mix(in oklch, var(--ds-destructive, oklch(0.6 0.21 27)) 10%, transparent);
+  --tsh-info: var(--ds-info, oklch(0.52 0.1 250));
+  --tsh-info-soft: var(--ds-info-soft, oklch(0.93 0.03 250));
 
   width: 100%;
   max-width: 1200px;

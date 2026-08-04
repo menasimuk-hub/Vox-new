@@ -1,5 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Label } from '@/components/ui/Label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/Select'
 
 export default function MeetingRoomSettings() {
   const [agents, setAgents] = useState([])
@@ -15,6 +25,11 @@ export default function MeetingRoomSettings() {
     () => agents.filter((a) => a.is_active && a.supports_interview),
     [agents],
   )
+
+  const flash = (text, isError = false) => {
+    setMsg(text)
+    setMsgError(isError)
+  }
 
   const load = async () => {
     setLoading(true)
@@ -37,11 +52,6 @@ export default function MeetingRoomSettings() {
     void load()
   }, [])
 
-  const flash = (text, isError = false) => {
-    setMsg(text)
-    setMsgError(isError)
-  }
-
   const save = async () => {
     setBusy(true)
     try {
@@ -63,55 +73,69 @@ export default function MeetingRoomSettings() {
   }
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1>Meeting room</h1>
-        <p className="muted">Default AI agent and language for browser interview meetings.</p>
+    <div className='ds-scope space-y-4'>
+      <div className='pageTop'>
+        <div>
+          <h1>Meeting room</h1>
+          <p>Default AI agent and language for browser interview meetings.</p>
+        </div>
       </div>
 
       {msg ? (
-        <div className="note" style={{ borderColor: msgError ? 'rgba(220,38,38,0.35)' : undefined }}>
+        <div
+          className={
+            msgError
+              ? 'rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'
+              : 'rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm text-foreground'
+          }
+        >
           {msg}
         </div>
       ) : null}
 
       {loading ? (
-        <p className="muted">Loading…</p>
+        <p className='text-sm text-muted-foreground'>Loading…</p>
       ) : (
-        <div className="card" style={{ maxWidth: 560 }}>
-          <div className="form-grid">
-            <label className="field">
-              <span>Agent</span>
-              <select className="input" value={agentId} onChange={(e) => setAgentId(e.target.value)}>
-                <option value="">— Select interview agent —</option>
-                {interviewAgents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name || a.slug || a.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Language</span>
-              <select
-                className="input"
-                value={languageCode}
-                onChange={(e) => setLanguageCode(e.target.value)}
-              >
-                {languages.map((row) => (
-                  <option key={row.code} value={row.code}>
-                    {row.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <Panel title='Defaults' subtitle='Agent and language applied to new meeting rooms.' className='max-w-xl'>
+          <div className='grid gap-3'>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Agent</Label>
+              <Select value={agentId || '__none__'} onValueChange={(v) => setAgentId(v === '__none__' ? '' : v)}>
+                <SelectTrigger className='h-8 text-[12px]'>
+                  <SelectValue placeholder='— Select interview agent —' />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value='__none__'>— Select interview agent —</SelectItem>
+                  {interviewAgents.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.name || a.slug || a.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='space-y-1'>
+              <Label className='text-[12px]'>Language</Label>
+              <Select value={languageCode} onValueChange={setLanguageCode}>
+                <SelectTrigger className='h-8 text-[12px]'>
+                  <SelectValue placeholder='Language' />
+                </SelectTrigger>
+                <SelectContent>
+                  {languages.map((row) => (
+                    <SelectItem key={row.code} value={row.code}>
+                      {row.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className='pt-1'>
+              <Button type='button' size='sm' className='h-8' disabled={busy} onClick={() => void save()}>
+                {busy ? 'Saving…' : 'Save settings'}
+              </Button>
+            </div>
           </div>
-          <div style={{ marginTop: 16 }}>
-            <button className="btn primary" type="button" disabled={busy} onClick={() => void save()}>
-              {busy ? 'Saving…' : 'Save settings'}
-            </button>
-          </div>
-        </div>
+        </Panel>
       )}
     </div>
   )

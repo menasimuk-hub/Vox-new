@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
 import '../styles/contact-time-settings.css'
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -23,6 +27,9 @@ const DEFAULT_TIMEZONES = [
   'Africa/Johannesburg',
   'Australia/Sydney',
 ]
+
+const selectClass =
+  'flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-[12px] shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
 
 function timeToPct(t) {
   const [h, m] = String(t || '00:00').split(':').map(Number)
@@ -198,23 +205,25 @@ export default function ComplianceContactTimeSettings() {
 
   if (loading) {
     return (
-      <div className="contact-time-page">
+      <div className="ds-scope contact-time-page">
         <div className="wrap">
-          <p className="loading-msg">Loading contact time settings…</p>
+          <p className="text-sm text-muted-foreground">Loading contact time settings…</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="contact-time-page">
-      <div className="wrap">
-        <p className="eyebrow">Outreach ops · internal</p>
-        <h1>Contact time settings</h1>
-        <p className="sub">
-          Set one calling window and one WhatsApp survey window. The system applies both in each recipient&apos;s local
-          time — detected automatically from their mobile number&apos;s country code, no manual country setup needed.
-        </p>
+    <div className="ds-scope contact-time-page space-y-4">
+      <div className="wrap space-y-4">
+        <div>
+          <p className="eyebrow">Outreach ops · internal</p>
+          <h1>Contact time settings</h1>
+          <p className="sub">
+            Set one calling window and one WhatsApp survey window. The system applies both in each recipient&apos;s local
+            time — detected automatically from their mobile number&apos;s country code, no manual country setup needed.
+          </p>
+        </div>
 
         <div className="locale-strip">
           <span className="dot-live" />
@@ -224,74 +233,93 @@ export default function ComplianceContactTimeSettings() {
 
         <DialPreview callStart={callStart} callEnd={callEnd} waStart={waStart} waEnd={waEnd} />
 
-        <div className="cards">
-          <div className="card call">
-            <p className="card-title">
-              <span className="sw" style={{ background: 'var(--accent)' }} />
-              Calling hours
-            </p>
-            <p className="card-desc">Outbound calls only go out inside this window, in the recipient&apos;s own local time.</p>
-            <p className="field-label">Active days</p>
-            <DayChips days={callDays} type="call" onToggle={toggleCallDay} />
-            <p className="field-label">Window (recipient local time)</p>
-            <div className="time-row">
-              <input type="time" value={callStart} onChange={(e) => setCallStart(e.target.value)} />
-              <span className="time-sep">to</span>
-              <input type="time" value={callEnd} onChange={(e) => setCallEnd(e.target.value)} />
+        <div className="grid gap-4 md:grid-cols-2">
+          <Panel
+            title={
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--accent)' }} />
+                Calling hours
+              </span>
+            }
+            subtitle="Outbound calls only go out inside this window, in the recipient's own local time."
+            bodyClassName="space-y-3"
+          >
+            <div>
+              <Label className="mb-1.5 text-[11px] text-muted-foreground">Active days</Label>
+              <DayChips days={callDays} type="call" onToggle={toggleCallDay} />
             </div>
-            <p className="field-label">Fallback time zone</p>
-            <select value={callTz} onChange={(e) => setCallTz(e.target.value)}>
-              {timezones.map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz}
-                </option>
-              ))}
-            </select>
-            <div className="note">
+            <div>
+              <Label className="mb-1.5 text-[11px] text-muted-foreground">Window (recipient local time)</Label>
+              <div className="flex items-center gap-2">
+                <Input className="h-8" type="time" value={callStart} onChange={(e) => setCallStart(e.target.value)} />
+                <span className="text-xs text-muted-foreground">to</span>
+                <Input className="h-8" type="time" value={callEnd} onChange={(e) => setCallEnd(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label className="mb-1.5 text-[11px] text-muted-foreground">Fallback time zone</Label>
+              <select className={selectClass} value={callTz} onChange={(e) => setCallTz(e.target.value)}>
+                {timezones.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="m-0 text-[11px] text-muted-foreground">
               Used only if a number&apos;s country can&apos;t be detected (landline ports, unrecognized prefixes, VOIP
               ranges).
+            </p>
+            <div className="flex items-center gap-2 pt-1">
+              <Button type="button" size="sm" className="h-8" disabled={busyCall} onClick={() => void saveCalling()}>
+                {busyCall ? 'Saving…' : 'Save calling hours'}
+              </Button>
+              {savedCall ? <span className="text-xs text-success">Saved</span> : null}
             </div>
-            <div className="save-row">
-              <button type="button" className="save-btn call" disabled={busyCall} onClick={() => void saveCalling()}>
-                Save calling hours
-              </button>
-              <span className={`saved-flag ${savedCall ? 'show' : ''}`}>Saved</span>
-            </div>
-          </div>
+          </Panel>
 
-          <div className="card wa">
-            <p className="card-title">
-              <span className="sw" style={{ background: 'var(--slate)' }} />
-              WhatsApp survey hours
-            </p>
-            <p className="card-desc">
-              First WA Survey template send only — in the recipient&apos;s local time. Customer Feedback and active
-              sessions are not restricted.
-            </p>
-            <p className="field-label">Active days</p>
-            <DayChips days={waDays} type="wa" onToggle={toggleWaDay} />
-            <p className="field-label">Window (recipient local time)</p>
-            <div className="time-row">
-              <input type="time" value={waStart} onChange={(e) => setWaStart(e.target.value)} />
-              <span className="time-sep">to</span>
-              <input type="time" value={waEnd} onChange={(e) => setWaEnd(e.target.value)} />
+          <Panel
+            title={
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--slate)' }} />
+                WhatsApp survey hours
+              </span>
+            }
+            subtitle="First WA Survey template send only — in the recipient's local time. Customer Feedback and active sessions are not restricted."
+            bodyClassName="space-y-3"
+          >
+            <div>
+              <Label className="mb-1.5 text-[11px] text-muted-foreground">Active days</Label>
+              <DayChips days={waDays} type="wa" onToggle={toggleWaDay} />
             </div>
-            <p className="field-label">Fallback time zone</p>
-            <select value={waTz} onChange={(e) => setWaTz(e.target.value)}>
-              {timezones.map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz}
-                </option>
-              ))}
-            </select>
-            <div className="note">Keep at least a 1 hour buffer after calling hours close so replies land during working hours.</div>
-            <div className="save-row">
-              <button type="button" className="save-btn wa" disabled={busyWa} onClick={() => void saveWa()}>
-                Save survey hours
-              </button>
-              <span className={`saved-flag ${savedWa ? 'show' : ''}`}>Saved</span>
+            <div>
+              <Label className="mb-1.5 text-[11px] text-muted-foreground">Window (recipient local time)</Label>
+              <div className="flex items-center gap-2">
+                <Input className="h-8" type="time" value={waStart} onChange={(e) => setWaStart(e.target.value)} />
+                <span className="text-xs text-muted-foreground">to</span>
+                <Input className="h-8" type="time" value={waEnd} onChange={(e) => setWaEnd(e.target.value)} />
+              </div>
             </div>
-          </div>
+            <div>
+              <Label className="mb-1.5 text-[11px] text-muted-foreground">Fallback time zone</Label>
+              <select className={selectClass} value={waTz} onChange={(e) => setWaTz(e.target.value)}>
+                {timezones.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="m-0 text-[11px] text-muted-foreground">
+              Keep at least a 1 hour buffer after calling hours close so replies land during working hours.
+            </p>
+            <div className="flex items-center gap-2 pt-1">
+              <Button type="button" size="sm" className="h-8" disabled={busyWa} onClick={() => void saveWa()}>
+                {busyWa ? 'Saving…' : 'Save survey hours'}
+              </Button>
+              {savedWa ? <span className="text-xs text-success">Saved</span> : null}
+            </div>
+          </Panel>
         </div>
       </div>
     </div>

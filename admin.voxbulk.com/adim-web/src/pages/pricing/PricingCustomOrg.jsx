@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import { penceToPounds, poundsToPence } from './pricingUtils'
 import PricingPageFrame, { PricingField, PricingLoadGate } from './PricingPageFrame'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 
 const empty = {
   org_id: '',
@@ -127,7 +129,7 @@ export default function PricingCustomOrg() {
                   <td className="pricingTdNum"><span className="pricingCellBox calc">{r.monthly_price_gbp_pence == null ? '—' : penceToPounds(r.monthly_price_gbp_pence)}</span></td>
                   <td className="pricingTdNum"><span className="pricingCellBox calc">{r.per_min_pence == null ? '—' : penceToPounds(r.per_min_pence)}</span></td>
                   <td className="pricingTdCenter">{r.is_active ? 'Yes' : 'No'}</td>
-                  <td className="pricingTdCenter"><button className="btn soft pricingSaveBtn" type="button" onClick={() => void remove(r.id)}>Delete</button></td>
+                  <td className="pricingTdCenter"><Button variant="outline" size="sm" className="h-7 text-xs" type="button" onClick={() => void remove(r.id)}>Delete</Button></td>
                 </tr>
               ))}
             </tbody>
@@ -138,40 +140,40 @@ export default function PricingCustomOrg() {
       <p className="pricingSectionLabel">Add custom pricing</p>
       <div className="pricingGrid5">
         <PricingField label="Organisation" compact>
-          <select className="input pricingInputSm" value={draft.org_id} onChange={(e) => set('org_id', e.target.value)}>
+          <select className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-[12px] shadow-sm" value={draft.org_id} onChange={(e) => set('org_id', e.target.value)}>
             <option value="">Select…</option>
             {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
         </PricingField>
         <PricingField label="Label" compact>
-          <input className="input pricingInputSm" value={draft.label} onChange={(e) => set('label', e.target.value)} placeholder="Deal name" />
+          <Input className="h-8" value={draft.label} onChange={(e) => set('label', e.target.value)} placeholder="Deal name" />
         </PricingField>
         <PricingField label="Monthly £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={draft.monthly_price_gbp_pence} onChange={(e) => set('monthly_price_gbp_pence', e.target.value)} />
+          <Input className="h-8" type="number" step="0.01" value={draft.monthly_price_gbp_pence} onChange={(e) => set('monthly_price_gbp_pence', e.target.value)} />
         </PricingField>
         <PricingField label="Per min £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={draft.per_min_pence} onChange={(e) => set('per_min_pence', e.target.value)} />
+          <Input className="h-8" type="number" step="0.01" value={draft.per_min_pence} onChange={(e) => set('per_min_pence', e.target.value)} />
         </PricingField>
         <PricingField label="Conn. fee £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={draft.connection_fee_pence} onChange={(e) => set('connection_fee_pence', e.target.value)} />
+          <Input className="h-8" type="number" step="0.01" value={draft.connection_fee_pence} onChange={(e) => set('connection_fee_pence', e.target.value)} />
         </PricingField>
         <PricingField label="Mins incl." compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" value={draft.minutes_included} onChange={(e) => set('minutes_included', e.target.value)} />
+          <Input className="h-8" type="number" value={draft.minutes_included} onChange={(e) => set('minutes_included', e.target.value)} />
         </PricingField>
         <PricingField label="WA incl." compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" value={draft.whatsapp_included} onChange={(e) => set('whatsapp_included', e.target.value)} />
+          <Input className="h-8" type="number" value={draft.whatsapp_included} onChange={(e) => set('whatsapp_included', e.target.value)} />
         </PricingField>
         <PricingField label="CV incl." compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" value={draft.cv_scans_included} onChange={(e) => set('cv_scans_included', e.target.value)} />
+          <Input className="h-8" type="number" value={draft.cv_scans_included} onChange={(e) => set('cv_scans_included', e.target.value)} />
         </PricingField>
         <PricingField label="IV per min £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={draft.interview_per_min_pence} onChange={(e) => set('interview_per_min_pence', e.target.value)} />
+          <Input className="h-8" type="number" step="0.01" value={draft.interview_per_min_pence} onChange={(e) => set('interview_per_min_pence', e.target.value)} />
         </PricingField>
         <PricingField label="WA fee £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={draft.whatsapp_survey_fee_pence} onChange={(e) => set('whatsapp_survey_fee_pence', e.target.value)} />
+          <Input className="h-8" type="number" step="0.01" value={draft.whatsapp_survey_fee_pence} onChange={(e) => set('whatsapp_survey_fee_pence', e.target.value)} />
         </PricingField>
         <PricingField label="ATS fee £" compact>
-          <input className="input pricingInputSm pricingInputNum" type="number" step="0.01" value={draft.ats_cv_scan_fee_pence} onChange={(e) => set('ats_cv_scan_fee_pence', e.target.value)} />
+          <Input className="h-8" type="number" step="0.01" value={draft.ats_cv_scan_fee_pence} onChange={(e) => set('ats_cv_scan_fee_pence', e.target.value)} />
         </PricingField>
         <PricingField label="Active" compact>
           <label className="svcPriceToggle" style={{ marginTop: 4 }}><input type="checkbox" checked={Boolean(draft.is_active)} onChange={(e) => set('is_active', e.target.checked)} /><span className="svcPriceToggleUi" /></label>
@@ -179,10 +181,10 @@ export default function PricingCustomOrg() {
       </div>
       <div className="pricingGrid5" style={{ marginTop: 10 }}>
         <PricingField label="Notes" compact wide fullRow>
-          <input className="input pricingInputSm" value={draft.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Optional notes" />
+          <Input className="h-8" value={draft.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Optional notes" />
         </PricingField>
       </div>
-      <div className="pricingActions"><button className="btn" type="button" onClick={() => void create()}>Create</button></div>
+      <div className="pricingActions"><Button size="sm" className="h-8" type="button" onClick={() => void create()}>Create</Button></div>
     </PricingPageFrame>
     </PricingLoadGate>
   )

@@ -4,6 +4,8 @@ import { apiFetch } from '../../lib/api'
 import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
 import PricingPageFrame, { PricingLoadGate } from './PricingPageFrame'
 import { penceToPounds, poundsToPence } from './pricingUtils'
+import { Button } from '@/components/ui/Button'
+import { Pill } from '@/components/ui/Badge'
 
 const CURRENCIES = ['GBP', 'EUR', 'USD', 'CAD', 'AUD']
 
@@ -372,9 +374,9 @@ export default function PricingPackages() {
                       <h3 className="pricingPkgTableTitle">{svc.title}</h3>
                       <p className="muted pricingPkgTableBlurb">{svc.blurb}</p>
                     </div>
-                    <button className="btn soft" type="button" onClick={() => openCreate(svc.key)}>
+                    <Button variant="outline" size="sm" className="h-8" type="button" onClick={() => openCreate(svc.key)}>
                       + Create package
-                    </button>
+                    </Button>
                   </div>
                   <div className="tableWrap">
                     <table className="pricingPkgTable">
@@ -415,8 +417,8 @@ export default function PricingPackages() {
                               <tr key={pkg.id} id={`pricing-pkg-row-${pkg.code}`} className="pricingPkgRow">
                                 <td>
                                   <strong>{pkg.name}</strong>
-                                  {pkg.is_featured ? <span className="pill p-cyan" style={{ marginLeft: 8 }}>Featured</span> : null}
-                                  {pkg.is_enterprise ? <span className="pill p-amber" style={{ marginLeft: 8 }}>Enterprise</span> : null}
+                                  {pkg.is_featured ? <Pill tone="info" className="ml-2">Featured</Pill> : null}
+                                  {pkg.is_enterprise ? <Pill tone="warning" className="ml-2">Enterprise</Pill> : null}
                                 </td>
                                 <td className="muted">{pkg.code}</td>
                                 {svc.priceMode === 'expo' ? (
@@ -438,12 +440,12 @@ export default function PricingPackages() {
                                   </>
                                 )}
                                 <td className="pricingPkgActions">
-                                  <button className="btn soft pricingSaveBtn" type="button" onClick={() => openEdit(svc.key, pkg)}>
+                                  <Button variant="outline" size="sm" className="h-7 text-xs" type="button" onClick={() => openEdit(svc.key, pkg)}>
                                     Edit
-                                  </button>
-                                  <button className="btn ghost pricingSaveBtn" type="button" onClick={() => void deactivate(pkg)}>
+                                  </Button>
+                                  <Button variant="ghost" size="sm" className="h-7 text-xs" type="button" onClick={() => void deactivate(pkg)}>
                                     Off
-                                  </button>
+                                  </Button>
                                 </td>
                               </tr>
                             )
@@ -655,10 +657,10 @@ export default function PricingPackages() {
                 </div>
 
                 <div className="pricingPkgDrawerFooter">
-                  <button className="btn ghost" type="button" onClick={closeDrawer}>Cancel</button>
-                  <button className="btn primary" type="button" disabled={drawer.saving} onClick={() => void saveDrawer()}>
+                  <Button variant="ghost" size="sm" className="h-8" type="button" onClick={closeDrawer}>Cancel</Button>
+                  <Button size="sm" className="h-8" type="button" disabled={drawer.saving} onClick={() => void saveDrawer()}>
                     {drawer.saving ? 'Saving…' : 'Save package'}
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : null}

@@ -7,6 +7,8 @@ import WaSurveySessionPanel from '../components/WaSurveySessionPanel'
 import OrderAdminBillingPanel from '../components/OrderAdminBillingPanel'
 import { formatDurationSeconds, sortServiceOrders } from '../lib/serviceOrderAdmin'
 import { KpiCard } from '@/components/ui/KpiCard'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 import '../styles/ops-theme.css'
 
 function surveyResponded(report) {
@@ -36,16 +38,6 @@ function contactPill(status) {
   if (s === 'completed') return 'leadPill leadPillAdvance'
   if (['failed', 'no_answer', 'busy'].includes(s)) return 'leadPill leadPillDecline'
   return 'leadPill leadPillNeutral'
-}
-
-function StatCard({ label, value, hint }) {
-  return (
-    <div className="card stat runningSurveyStat">
-      <div className="statValue">{value}</div>
-      <div className="muted">{label}</div>
-      {hint ? <div className="muted runningSurveyStatHint">{hint}</div> : null}
-    </div>
-  )
 }
 
 export default function RunningSurveys() {
@@ -363,28 +355,27 @@ export default function RunningSurveys() {
   }, [orders, listTab, searchQuery, sortBy])
 
   return (
-    <div className="opsTheme">
+    <div className="opsTheme ds-scope">
       <div className="pageTop">
         <div>
           <h1>Survey operations</h1>
           <p>
             Monitor running and finished surveys. Phone orders use AI dial; WhatsApp orders use adaptive WA sessions — see{' '}
-            <Link to="/operations/wa-survey-insights" style={{ color: 'var(--grn)' }}>WA Survey insights</Link>.
+            <Link to="/operations/wa-survey-insights" className="text-primary underline-offset-4 hover:underline">WA Survey insights</Link>.
           </p>
         </div>
-        <div className="actions">
-          <input
-            className="input runningSurveySearch"
+        <div className="actions flex flex-wrap items-center gap-2">
+          <Input
+            className="h-8 min-w-[180px] runningSurveySearch"
             type="search"
             placeholder="Search survey or company…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           <select
-            className="input runningSurveySearch"
+            className="h-8 min-w-[160px] rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
-            style={{ width: 'auto', minWidth: 160 }}
           >
             <option value="amount_desc">Amount (high → low)</option>
             <option value="amount_asc">Amount (low → high)</option>
@@ -393,14 +384,18 @@ export default function RunningSurveys() {
             <option value="order_asc">Reference A–Z</option>
             <option value="name_asc">Title A–Z</option>
           </select>
-          <button type="button" className="btn soft" onClick={load} disabled={loading}>
-            <RefreshCw size={15} />
+          <Button type="button" variant="outline" size="sm" className="h-8" onClick={load} disabled={loading}>
+            <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="note runningSurveyError">{error}</div> : null}
+      {error ? (
+        <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       {selected ? (
         <div className="card runningSurveyDetailCard runningSurveyDetailCard--top" ref={detailRef}>
@@ -411,10 +406,12 @@ export default function RunningSurveys() {
                 {selected.org_name} · {selected.owner_email} · {selected.recipient_count} contacts
               </div>
             </div>
-            <div className="runningSurveyDetailHeadActions">
+            <div className="runningSurveyDetailHeadActions flex flex-wrap items-center gap-2">
               <span className={statusPill(selected.status, selected.payment_status)}>{selected.status_label || selected.status}</span>
-              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Full order view</Link>
-              <button type="button" className="btn soft bsm" onClick={closeDetail}>Close</button>
+              <Button asChild variant="outline" size="sm" className="h-7 text-[11px]">
+                <Link to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Full order view</Link>
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-7 text-[11px]" onClick={closeDetail}>Close</Button>
             </div>
           </div>
 

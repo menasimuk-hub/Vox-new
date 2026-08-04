@@ -1,19 +1,20 @@
-/* Custom Org (WA Profiles) — scoped 1:1 port of Custom-org.html design (source of truth). */
+/* Custom Org (WA Profiles) — scoped island; tokens mapped to design-system. */
 .custom-org-page{
-  --bg:#ECE4D3;
-  --panel:#F6F1E7;
-  --ink:#221E19;
-  --ink-soft:#6B6355;
-  --line:#DCD2BA;
-  --navy:#1B2A55;
-  --navy-dark:#101B38;
-  --navy-soft:#E7EAF3;
-  --ok:#3E7A4A;
-  --ok-bg:#E1EFE3;
-  --warn:#B9531D;
-  --warn-bg:#F3E4D9;
-  --pending:#946B1E;
-  --pending-bg:#F4E7C9;
+  /* Phase 2 Batch C: map custom-org island tokens onto design-system OKLCH palette */
+  --bg: var(--ds-background, oklch(0.975 0.012 85));
+  --panel: var(--ds-card, oklch(0.995 0.004 85));
+  --ink: var(--ds-foreground, oklch(0.22 0.02 260));
+  --ink-soft: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  --line: var(--ds-border, oklch(0.9 0.012 85));
+  --navy: var(--ds-primary, oklch(0.27 0.04 265));
+  --navy-dark: color-mix(in oklch, var(--ds-primary, oklch(0.27 0.04 265)) 85%, oklch(0.15 0.03 265));
+  --navy-soft: var(--ds-info-soft, oklch(0.93 0.03 250));
+  --ok: var(--ds-success, oklch(0.55 0.14 150));
+  --ok-bg: var(--ds-success-soft, oklch(0.93 0.06 150));
+  --warn: var(--ds-warning, oklch(0.62 0.13 65));
+  --warn-bg: var(--ds-warning-soft, oklch(0.93 0.05 75));
+  --pending: var(--ds-warning, oklch(0.62 0.13 65));
+  --pending-bg: var(--ds-warning-soft, oklch(0.93 0.05 75));
 
   background:var(--bg);color:var(--ink);
   font-family:'Segoe UI',Inter,Arial,sans-serif;

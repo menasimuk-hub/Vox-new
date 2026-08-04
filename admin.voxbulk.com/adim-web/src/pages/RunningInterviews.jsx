@@ -121,16 +121,6 @@ function cvQualityLabel(q) {
   return 'No CV'
 }
 
-function StatCard({ label, value, hint }) {
-  return (
-    <div className="card stat runningSurveyStat">
-      <div className="statValue">{value}</div>
-      <div className="muted">{label}</div>
-      {hint ? <div className="muted runningSurveyStatHint">{hint}</div> : null}
-    </div>
-  )
-}
-
 export default function RunningInterviews() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -491,7 +481,7 @@ export default function RunningInterviews() {
   }, [orders, listTab, formatFilter, searchQuery, dateFrom, dateTo, tableSortField, tableSortAsc, interviewSortAccessors])
 
   return (
-    <div className="opsTheme">
+    <div className="opsTheme ds-scope">
       <div className="pageTop">
         <div>
           <h1>Interviews</h1>
@@ -502,7 +492,7 @@ export default function RunningInterviews() {
         </div>
       </div>
 
-      <div className="ds-scope flex w-full flex-wrap items-center gap-2">
+      <div className="mb-3 flex w-full flex-wrap items-center gap-2">
         <Input
           type="search"
           placeholder="Search order ID, VB-CMP, reference, name, or company…"
@@ -512,7 +502,12 @@ export default function RunningInterviews() {
         />
         <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" className="h-9 w-auto shrink-0" />
         <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} title="To date" className="h-9 w-auto shrink-0" />
-        <select className="h-9 rounded-md border px-2 text-sm" value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)} title="Format filter">
+        <select
+          className="h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          value={formatFilter}
+          onChange={(e) => setFormatFilter(e.target.value)}
+          title="Format filter"
+        >
           <option value="all">All formats</option>
           <option value="web">Web / mixed only</option>
         </select>
@@ -529,13 +524,17 @@ export default function RunningInterviews() {
           <option value="name_asc">Name A–Z</option>
           <option value="name_desc">Name Z–A</option>
         </select>
-        <Button type="button" variant="outline" className="h-9 shrink-0" onClick={load} disabled={loading}>
-          <RefreshCw size={15} />
+        <Button type="button" variant="outline" size="sm" className="h-9 shrink-0" onClick={load} disabled={loading}>
+          <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
           Refresh
         </Button>
       </div>
 
-      {error ? <div className="note runningSurveyError">{error}</div> : null}
+      {error ? (
+        <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       {selected ? (
         <div className="card runningSurveyDetailCard runningSurveyDetailCard--top" ref={detailRef}>
@@ -547,10 +546,12 @@ export default function RunningInterviews() {
                 {selected.org_name} · {selected.owner_email} · {selected.recipient_count} candidates
               </div>
             </div>
-            <div className="runningSurveyDetailHeadActions">
+            <div className="runningSurveyDetailHeadActions flex flex-wrap items-center gap-2">
               <span className={statusPill(selected.status, selected.payment_status)}>{selected.status_label || selected.status}</span>
-              <Link className="btn soft bsm" to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Full order view</Link>
-              <button type="button" className="btn soft bsm" onClick={closeDetail}>Close</button>
+              <Button asChild variant="outline" size="sm" className="h-7 text-[11px]">
+                <Link to={`/operations/orders/${encodeURIComponent(selected.id)}`}>Full order view</Link>
+              </Button>
+              <Button type="button" variant="outline" size="sm" className="h-7 text-[11px]" onClick={closeDetail}>Close</Button>
             </div>
           </div>
 

@@ -1,6 +1,18 @@
 import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/Select'
 
 const ROLES = [
   { value: 'superadmin', label: 'Superadmin — full console + manage platform admins' },
@@ -33,7 +45,9 @@ export default function AdminUserCreate() {
           is_superuser: String(role || '').trim().toLowerCase() === 'superadmin',
         }),
       })
-      setMsg(`Created platform admin for ${res?.email || email}. Sign in via the same public VOXBULK login URL using this email and password.`)
+      setMsg(
+        `Created platform admin for ${res?.email || email}. Sign in via the same public VOXBULK login URL using this email and password.`,
+      )
       setEmail('')
       setPassword('')
     } catch (e2) {
@@ -44,87 +58,100 @@ export default function AdminUserCreate() {
   }
 
   return (
-    <>
+    <div className='ds-scope space-y-4'>
       <div className='pageTop'>
         <div>
           <h1>Add platform admin</h1>
           <p>
-            Creates a login for internal VOXBULK operators — not organisation users invited to a customer account (those live under{' '}
-            <strong>Organisations → Users</strong> once you pick an organisation).
+            Creates a login for internal VOXBULK operators — not organisation users invited to a customer account
+            (those live under <strong>Organisations → Users</strong> once you pick an organisation).
           </p>
         </div>
         <div className='actions'>
-          <Link className='btn soft' to='/platform/users'>
-            Back to list
-          </Link>
+          <Button asChild variant='secondary' size='sm' className='h-8'>
+            <Link to='/platform/users'>Back to list</Link>
+          </Button>
         </div>
       </div>
 
-      <div className='pageShell' style={{ margin: '0 auto', width: '100%', maxWidth: 720 }}>
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>New platform admin</h3>
-            <span className='pill p-cyan'>Superadmin-only</span>
+      <Panel
+        title='New platform admin'
+        subtitle='Superadmin-only create form.'
+        action={<Pill tone='info'>Superadmin-only</Pill>}
+        className='mx-auto w-full max-w-[720px]'
+        bodyClassName='space-y-3'
+      >
+        {err ? (
+          <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+            {err}
           </div>
-          <div className='cardBody'>
-            {err ? (
-              <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>
-                {err}
-              </div>
-            ) : null}
-            {msg ? <div className='note'>{msg}</div> : null}
+        ) : null}
+        {msg ? (
+          <div className='rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm text-foreground'>{msg}</div>
+        ) : null}
 
-            <form onSubmit={submit} className='stack' style={{ gap: 12 }}>
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Email</label>
-                <input
-                  className='input'
-                  type='email'
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder='ops@yourcompany.com'
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Temporary password</label>
-                <input
-                  className='input'
-                  type='password'
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder='Min 6 characters'
-                  required
-                  minLength={6}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gap: 6 }}>
-                <label className='label'>Platform role</label>
-                <select className='input' value={role} onChange={(e) => setRole(e.target.value)}>
-                  {ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                <input type='checkbox' checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-                <span className='muted'>Active (can sign in)</span>
-              </label>
-
-              <div className='actions' style={{ marginTop: 6 }}>
-                <button className='btn primary' disabled={busy}>
-                  {busy ? 'Creating…' : 'Create platform admin'}
-                </button>
-              </div>
-            </form>
+        <form onSubmit={submit} className='grid gap-3'>
+          <div className='space-y-1'>
+            <Label htmlFor='admin-create-email' className='text-[12px]'>
+              Email
+            </Label>
+            <Input
+              id='admin-create-email'
+              className='h-8'
+              type='email'
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder='ops@yourcompany.com'
+              required
+            />
           </div>
-        </div>
-      </div>
-    </>
+
+          <div className='space-y-1'>
+            <Label htmlFor='admin-create-password' className='text-[12px]'>
+              Temporary password
+            </Label>
+            <Input
+              id='admin-create-password'
+              className='h-8'
+              type='password'
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder='Min 6 characters'
+              required
+              minLength={6}
+            />
+          </div>
+
+          <div className='space-y-1'>
+            <Label htmlFor='admin-create-role' className='text-[12px]'>
+              Platform role
+            </Label>
+            <Select value={role} onValueChange={setRole}>
+              <SelectTrigger id='admin-create-role' className='h-8 text-[12px]'>
+                <SelectValue placeholder='Select a role' />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLES.map((r) => (
+                  <SelectItem key={r.value} value={r.value}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <label className='flex cursor-pointer items-center gap-2.5 text-sm text-muted-foreground'>
+            <input type='checkbox' checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            Active (can sign in)
+          </label>
+
+          <div className='pt-1'>
+            <Button type='submit' size='sm' className='h-8' disabled={busy}>
+              {busy ? 'Creating…' : 'Create platform admin'}
+            </Button>
+          </div>
+        </form>
+      </Panel>
+    </div>
   )
 }

@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import PricingPageFrame, { PricingField, PricingLoadGate } from './PricingPageFrame'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { Switch } from '@/components/ui/Switch'
 
 export default function PricingInvoiceSettings() {
   const [settings, setSettings] = useState(null)
@@ -76,51 +80,57 @@ export default function PricingInvoiceSettings() {
           error={error}
           msg={msg}
           actions={
-            <button className="btn primary" type="button" disabled={saving} onClick={() => void save()}>
+            <Button size="sm" className="h-8" type="button" disabled={saving} onClick={() => void save()}>
               {saving ? 'Saving…' : 'Save settings'}
-            </button>
+            </Button>
           }
         >
-          <h3 className="pricingSectionTitle">Company details</h3>
-          <div className="pricingGrid5">
+          <h3 className="text-[12px] font-semibold text-foreground">Company details</h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <PricingField label="Company name" wide>
-              <input className="input" value={settings.company_name || ''} onChange={(e) => set('company_name', e.target.value)} />
+              <Input className="h-8" value={settings.company_name || ''} onChange={(e) => set('company_name', e.target.value)} />
             </PricingField>
             <PricingField label="Billing email" wide>
-              <input className="input" type="email" value={settings.company_email || ''} onChange={(e) => set('company_email', e.target.value)} placeholder="billing@voxbulk.com" />
+              <Input className="h-8" type="email" value={settings.company_email || ''} onChange={(e) => set('company_email', e.target.value)} placeholder="billing@voxbulk.com" />
             </PricingField>
             <PricingField label="Phone">
-              <input className="input" value={settings.company_phone || ''} onChange={(e) => set('company_phone', e.target.value)} />
+              <Input className="h-8" value={settings.company_phone || ''} onChange={(e) => set('company_phone', e.target.value)} />
             </PricingField>
           </div>
           <PricingField label="Registered address" fullRow>
-            <textarea className="input" rows={3} value={settings.company_address || ''} onChange={(e) => set('company_address', e.target.value)} />
+            <Textarea rows={3} value={settings.company_address || ''} onChange={(e) => set('company_address', e.target.value)} />
           </PricingField>
 
-          <h3 className="pricingSectionTitle">VAT</h3>
-          <div className="pricingGrid5">
+          <h3 className="text-[12px] font-semibold text-foreground">VAT</h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <PricingField label="VAT registered" compact>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <input type="checkbox" checked={Boolean(settings.vat_enabled)} onChange={(e) => set('vat_enabled', e.target.checked)} />
-                <span>Charge VAT on invoices</span>
-              </label>
+              <div className="flex items-center gap-2 pt-1">
+                <Switch
+                  checked={Boolean(settings.vat_enabled)}
+                  onCheckedChange={(checked) => set('vat_enabled', checked)}
+                  aria-label="Charge VAT on invoices"
+                />
+                <span className="text-xs text-muted-foreground">Charge VAT on invoices</span>
+              </div>
             </PricingField>
             <PricingField label="VAT number" wide>
-              <input className="input" value={settings.vat_number || ''} onChange={(e) => set('vat_number', e.target.value)} placeholder="GB123456789" />
+              <Input className="h-8" value={settings.vat_number || ''} onChange={(e) => set('vat_number', e.target.value)} placeholder="GB123456789" />
             </PricingField>
           </div>
-          <p className="muted">When enabled, UK customers are charged 20% VAT. Customers outside the UK are zero-rated unless a country rate is configured.</p>
+          <p className="m-0 text-xs text-muted-foreground">
+            When enabled, UK customers are charged 20% VAT. Customers outside the UK are zero-rated unless a country rate is configured.
+          </p>
 
-          <h3 className="pricingSectionTitle">Invoice numbering</h3>
-          <div className="pricingGrid5">
+          <h3 className="text-[12px] font-semibold text-foreground">Invoice numbering</h3>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <PricingField label="Prefix" compact hint="e.g. INV → INV-2026-000123">
-              <input className="input pricingInputSm" value={settings.invoice_prefix || ''} onChange={(e) => set('invoice_prefix', e.target.value)} />
+              <Input className="h-8" value={settings.invoice_prefix || ''} onChange={(e) => set('invoice_prefix', e.target.value)} />
             </PricingField>
             <PricingField label="Next number" compact>
-              <input className="input pricingInputSm pricingInputNum" type="number" min="1" value={settings.invoice_next_number ?? 1} onChange={(e) => set('invoice_next_number', e.target.value)} />
+              <Input className="h-8" type="number" min="1" value={settings.invoice_next_number ?? 1} onChange={(e) => set('invoice_next_number', e.target.value)} />
             </PricingField>
             <PricingField label="Due days" compact hint="Days until a Direct Debit invoice is due">
-              <input className="input pricingInputSm pricingInputNum" type="number" min="0" value={settings.invoice_due_days ?? 7} onChange={(e) => set('invoice_due_days', e.target.value)} />
+              <Input className="h-8" type="number" min="0" value={settings.invoice_due_days ?? 7} onChange={(e) => set('invoice_due_days', e.target.value)} />
             </PricingField>
           </div>
         </PricingPageFrame>

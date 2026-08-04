@@ -1,6 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Pill } from '@/components/ui/Badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/Select'
 
 const ROLES = [
   { value: 'superadmin', label: 'Superadmin (full access, can manage admins)' },
@@ -67,78 +79,92 @@ export default function AdminUserEdit() {
   }
 
   return (
-    <>
+    <div className='ds-scope space-y-4'>
       <div className='pageTop'>
         <div>
           <h1>Edit platform admin</h1>
           <p>
-            Updates the <strong>platform</strong> admin account backing this login (not organisation / invite users listed on an
-            organisation).
+            Updates the <strong>platform</strong> admin account backing this login (not organisation / invite users
+            listed on an organisation).
           </p>
         </div>
         <div className='actions'>
-          <button type='button' className='btn soft' onClick={() => navigate('/platform/users')}>
+          <Button type='button' variant='secondary' size='sm' className='h-8' onClick={() => navigate('/platform/users')}>
             Back to list
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div className='pageShell' style={{ margin: '0 auto', width: '100%', maxWidth: 720 }}>
-        <div className='card'>
-          <div className='cardHead'>
-            <h3>{email || id}</h3>
-            <span className='pill p-cyan'>Superadmin-only</span>
+      <Panel
+        title={email || id}
+        subtitle='Superadmin-only edit form.'
+        action={<Pill tone='info'>Superadmin-only</Pill>}
+        className='mx-auto w-full max-w-[720px]'
+        bodyClassName='space-y-3'
+      >
+        {err ? (
+          <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
+            {err}
           </div>
-          <div className='cardBody'>
-            {err ? (
-              <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>
-                {err}
-              </div>
-            ) : null}
-            {loading ? (
-              <div className='note'>Loading…</div>
-            ) : (
-              <form onSubmit={save} className='stack' style={{ gap: 12 }}>
-                <label className='label'>Email</label>
-                <input className='input' value={email} readOnly />
+        ) : null}
+        {loading ? (
+          <p className='text-sm text-muted-foreground'>Loading…</p>
+        ) : (
+          <form onSubmit={save} className='grid gap-3'>
+            <div className='space-y-1'>
+              <Label htmlFor='admin-edit-email' className='text-[12px]'>
+                Email
+              </Label>
+              <Input id='admin-edit-email' className='h-8' value={email} readOnly />
+            </div>
 
-                <label className='label'>Platform role</label>
-                <select className='input' value={role} onChange={(e) => setRole(e.target.value)}>
+            <div className='space-y-1'>
+              <Label htmlFor='admin-edit-role' className='text-[12px]'>
+                Platform role
+              </Label>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger id='admin-edit-role' className='h-8 text-[12px]'>
+                  <SelectValue placeholder='Select a role' />
+                </SelectTrigger>
+                <SelectContent>
                   {ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>
+                    <SelectItem key={r.value} value={r.value}>
                       {r.label}
-                    </option>
+                    </SelectItem>
                   ))}
-                </select>
+                </SelectContent>
+              </Select>
+            </div>
 
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                  <input type='checkbox' checked={active} onChange={(e) => setActive(e.target.checked)} />
-                  <span className='muted'>Active (can sign in)</span>
-                </label>
+            <label className='flex cursor-pointer items-center gap-2.5 text-sm text-muted-foreground'>
+              <input type='checkbox' checked={active} onChange={(e) => setActive(e.target.checked)} />
+              Active (can sign in)
+            </label>
 
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <label className='label'>New password (optional)</label>
-                  <input
-                    className='input'
-                    type='password'
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder='Leave blank to keep current password'
-                    minLength={6}
-                    autoComplete='new-password'
-                  />
-                </div>
+            <div className='space-y-1'>
+              <Label htmlFor='admin-edit-password' className='text-[12px]'>
+                New password (optional)
+              </Label>
+              <Input
+                id='admin-edit-password'
+                className='h-8'
+                type='password'
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder='Leave blank to keep current password'
+                minLength={6}
+                autoComplete='new-password'
+              />
+            </div>
 
-                <div className='actions' style={{ marginTop: 6 }}>
-                  <button className='btn primary' disabled={saving}>
-                    {saving ? 'Saving…' : 'Save changes'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      </div>
-    </>
+            <div className='pt-1'>
+              <Button type='submit' size='sm' className='h-8' disabled={saving}>
+                {saving ? 'Saving…' : 'Save changes'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Panel>
+    </div>
   )
 }

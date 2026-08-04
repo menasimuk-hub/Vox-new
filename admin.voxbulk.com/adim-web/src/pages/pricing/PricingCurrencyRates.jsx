@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import PricingPageFrame, { PricingLoadGate } from './PricingPageFrame'
 import { penceToPounds, poundsToPence } from './pricingUtils'
-
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
 import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
 
 const RATE_FIELDS = [
@@ -90,9 +91,9 @@ export default function PricingCurrencyRates() {
           error={error}
           msg={msg}
           actions={
-            <button className="btn primary" type="button" disabled={saving} onClick={() => void saveAll()}>
+            <Button size="sm" className="h-8" type="button" disabled={saving} onClick={() => void saveAll()}>
               {saving ? 'Saving…' : 'Save all rates'}
-            </button>
+            </Button>
           }
         >
           <table className="pricingPlanPriceTable">
@@ -110,8 +111,8 @@ export default function PricingCurrencyRates() {
                   <td><strong>{label}</strong></td>
                   {rows.map((row) => (
                     <td key={row.currency}>
-                      <input
-                        className="input pricingInputSm pricingInputNum"
+                      <Input
+                        className="h-8"
                         type="number"
                         step="0.01"
                         min="0"

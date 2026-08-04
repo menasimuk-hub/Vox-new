@@ -2,13 +2,15 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../../lib/api'
 import PricingPageFrame, { PricingLoadGate } from './PricingPageFrame'
 import { penceToPounds, poundsToPence } from './pricingUtils'
-
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
 import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
 
 function MoneyInput({ value, onChange, placeholder }) {
   return (
-    <input
-      className="input pricingInputSm pricingInputNum"
+    <Input
+      className="h-8"
       type="number"
       step="0.01"
       min="0"
@@ -117,9 +119,9 @@ export default function PricingPlanPrices() {
           error={error}
           msg={msg}
           actions={
-            <button className="btn primary" type="button" disabled={saving} onClick={() => void saveAll()}>
+            <Button size="sm" className="h-8" type="button" disabled={saving} onClick={() => void saveAll()}>
               {saving ? 'Saving…' : 'Save all prices'}
-            </button>
+            </Button>
           }
         >
           <div className="pricingPlanPricesStack">
@@ -128,8 +130,8 @@ export default function PricingPlanPrices() {
                 <div className="pricingPlanPriceHead">
                   <strong>{plan.plan_name}</strong>
                   <span className="muted">{plan.plan_code}</span>
-                  {plan.is_enterprise ? <span className="pill p-cyan">Enterprise — custom pricing</span> : null}
-                  {!plan.is_active ? <span className="pill p-amber">Inactive</span> : null}
+                  {plan.is_enterprise ? <Pill tone="info">Enterprise — custom pricing</Pill> : null}
+                  {!plan.is_active ? <Pill tone="warning">Inactive</Pill> : null}
                 </div>
                 {plan.is_enterprise ? (
                   <p className="muted">Enterprise pricing is agreed per customer (Custom org tab).</p>

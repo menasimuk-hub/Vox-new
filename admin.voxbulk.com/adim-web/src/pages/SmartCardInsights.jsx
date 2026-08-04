@@ -2,8 +2,20 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart3, Flame, QrCode, RefreshCw, Users } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
 import { KpiCard } from '@/components/ui/KpiCard'
-import '../styles/ops-theme.css'
+import { Pill } from '@/components/ui/Badge'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 function fmtWhen(iso) {
   if (!iso) return '—'
@@ -43,32 +55,37 @@ export default function SmartCardInsights() {
   const subs = overview?.subscriptions || []
 
   return (
-    <div className="opsPage">
-      <div className="opsHeader">
+    <div className="ds-scope space-y-4">
+      <div className="pageTop">
         <div>
           <h1>Smart Card QR insights</h1>
-          <p className="muted">Platform scans, sessions, leads, and seat subscription expiry.</p>
+          <p>Platform scans, sessions, leads, and seat subscription expiry.</p>
         </div>
-        <div className="opsHeaderActions">
-          <Link to="/billing/products?filter=smart_card" className="btn ghost">
-            Products
-          </Link>
-          <Link to="/pricing/packages?service=smart_card" className="btn ghost">
-            Pricing
-          </Link>
-          <button type="button" className="btn" onClick={() => load()} disabled={loading}>
-            <RefreshCw size={16} /> Refresh
-          </button>
+        <div className="actions">
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/billing/products?filter=smart_card">Products</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-8">
+            <Link to="/pricing/packages?service=smart_card">Pricing</Link>
+          </Button>
+          <Button type="button" size="sm" className="h-8" onClick={() => load()} disabled={loading}>
+            <RefreshCw className={loading ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />
+            Refresh
+          </Button>
         </div>
       </div>
 
-      {error ? <div className="banner err">{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       {loading && !overview ? (
-        <p className="muted">Loading…</p>
+        <p className="text-sm text-muted-foreground">Loading…</p>
       ) : (
         <>
-          <div className="opsKpiGrid">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <KpiCard label="Scans" value={overview?.scans ?? '—'} icon={QrCode} tone="info" />
             <KpiCard label="Sessions" value={overview?.sessions ?? '—'} icon={BarChart3} tone="info" />
             <KpiCard
@@ -84,53 +101,52 @@ export default function SmartCardInsights() {
               label="Companies / reps"
               value={`${overview?.companies ?? 0} / ${overview?.representatives ?? 0}`}
               icon={Users}
-              tone="neutral"
+              tone="primary"
             />
           </div>
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <div className="cardHead">
-              <h2>Seat subscriptions</h2>
-              <p className="muted">Shows when seats expire after purchase (`period_end`).</p>
-            </div>
-            <div className="tableWrap">
-              <table className="dataTable">
-                <thead>
-                  <tr>
-                    <th>Org</th>
-                    <th>Status</th>
-                    <th>Seats</th>
-                    <th>Expires</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="muted">
-                        No Smart Card seat subscriptions yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    subs.map((s) => (
-                      <tr key={s.id}>
-                        <td>
-                          <Link to={`/organisations/${s.org_id}`}>{s.org_id}</Link>
-                        </td>
-                        <td>
-                          <span className={s.expired ? 'pill danger' : 'pill'}>{s.status}</span>
-                          {s.expired ? ' expired' : ''}
-                        </td>
-                        <td>{s.seat_quantity}</td>
-                        <td>{fmtWhen(s.period_end)}</td>
-                        <td>{fmtWhen(s.created_at)}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <Panel
+            title="Seat subscriptions"
+            subtitle="Shows when seats expire after purchase (`period_end`)."
+            action={<Pill tone="info">{subs.length}</Pill>}
+            bodyClassName="p-0"
+          >
+            <StripeTable>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Org</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Seats</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead>Created</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableLoading colSpan={5} />
+                ) : subs.length === 0 ? (
+                  <TableEmpty colSpan={5}>No Smart Card seat subscriptions yet.</TableEmpty>
+                ) : (
+                  subs.map((s) => (
+                    <TableRow key={s.id}>
+                      <TableCell>
+                        <Link to={`/organisations/${s.org_id}`} className="text-primary underline-offset-4 hover:underline">
+                          {s.org_id}
+                        </Link>
+                      </TableCell>
+                      <TableCell>
+                        <Pill tone={s.expired ? 'danger' : 'neutral'}>{s.status}</Pill>
+                        {s.expired ? <span className="ml-1 text-[11px] text-muted-foreground">expired</span> : null}
+                      </TableCell>
+                      <TableCell>{s.seat_quantity}</TableCell>
+                      <TableCell>{fmtWhen(s.period_end)}</TableCell>
+                      <TableCell>{fmtWhen(s.created_at)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </StripeTable>
+          </Panel>
         </>
       )}
     </div>

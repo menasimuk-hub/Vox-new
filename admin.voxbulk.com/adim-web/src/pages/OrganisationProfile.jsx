@@ -4,7 +4,23 @@ import { apiFetch } from '../lib/api'
 import { money } from '../lib/billingAdminUtils'
 import PlanPickerSelect from '../components/billing/PlanPickerSelect'
 import { adminOrderViewPath, interviewFormatLabel, nextColumnSort, orderListSortTs, orderMatchesSearch, sortRowsByColumn } from '../lib/serviceOrderAdmin'
-import './organisationProfile.css'
+import { Button } from '@/components/ui/Button'
+import { Panel, Card } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Pill } from '@/components/ui/Badge'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/Tabs'
+import { Label } from '@/components/ui/Label'
+import { Textarea } from '@/components/ui/Textarea'
+import {
+  StripeTable,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableLoading,
+  TableRow,
+} from '@/components/ui/Table'
 
 const TAB_IDS = ['overview', 'profile', 'branches', 'users', 'plan', 'suspend']
 
@@ -30,14 +46,6 @@ function isProtectedUser(u) {
   if (u?.is_superuser) return true
   const em = String(u?.email || '').toLowerCase()
   return em.endsWith('@voxbulk.internal') || em === 'api-accounts@voxbulk.com'
-}
-
-function deletionPillClass(status) {
-  const s = String(status || 'active').toLowerCase()
-  if (s === 'pending') return 'p-amber'
-  if (s === 'archived') return 'p-red'
-  if (s === 'cancelled') return 'p-cyan'
-  return ''
 }
 
 export default function OrganisationProfile() {
@@ -627,34 +635,48 @@ export default function OrganisationProfile() {
     }
   }
 
+  const pillTone = (status) => {
+    const s = String(status || 'active').toLowerCase()
+    if (s === 'pending') return 'warning'
+    if (s === 'archived') return 'danger'
+    if (s === 'cancelled') return 'info'
+    return 'neutral'
+  }
+
   return (
-    <div className='orgProfilePage ds-scope'>
-      <div className='orgProfilePage-header'>
+    <div className='ds-scope mx-auto max-w-[1440px] space-y-4 px-1 pb-12'>
+      <div className='flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4 pt-5'>
         <div>
-          <h1 className='orgProfilePage-title'>{org?.name || 'Organisation profile'}</h1>
-          <p className='orgProfilePage-sub'>
+          <h1 className='text-xl font-semibold tracking-tight text-foreground'>{org?.name || 'Organisation profile'}</h1>
+          <p className='mt-1 max-w-2xl text-[13px] text-muted-foreground'>
             Tenant identity, branches, members, plans, and suspension. Billing ledger actions live in the Finance console.
           </p>
           {orgId ? (
-            <div className='orgProfilePage-meta'>
-              <span className='orgProfilePage-id' title={orgId}>{orgId}</span>
-              {org?.is_suspended ? <span className='pill p-amber'>Suspended</span> : org ? <span className='pill p-green'>Active</span> : null}
-              {org?.category_name ? <span className='pill p-cyan'>{org.category_name}</span> : null}
+            <div className='mt-2.5 flex flex-wrap items-center gap-2'>
+              <code className='rounded-md border border-border bg-muted px-2 py-0.5 text-xs font-mono text-muted-foreground' title={orgId}>{orgId}</code>
+              {org?.is_suspended ? <Pill tone='warning'>Suspended</Pill> : org ? <Pill tone='success'>Active</Pill> : null}
+              {org?.category_name ? <Pill tone='info'>{org.category_name}</Pill> : null}
               {org?.deletion_status && org.deletion_status !== 'active' ? (
-                <span className={`pill ${deletionPillClass(org.deletion_status)}`}>{org.deletion_status}</span>
+                <Pill tone={pillTone(org.deletion_status)}>{org.deletion_status}</Pill>
               ) : null}
             </div>
           ) : null}
         </div>
-        <div className='orgProfilePage-actions'>
-          <Link className='btn soft' to='/organisations'>Organisations</Link>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Button variant='outline' size='sm' asChild>
+            <Link to='/organisations'>Organisations</Link>
+          </Button>
           {orgId ? (
             <>
-              <Link className='btn soft' to={`/organisations/${encodeURIComponent(orgId)}`}>Ops detail</Link>
-              <Link className='btn soft' to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Finance console</Link>
-              <button
-                type='button'
-                className='btn soft'
+              <Button variant='outline' size='sm' asChild>
+                <Link to={`/organisations/${encodeURIComponent(orgId)}`}>Ops detail</Link>
+              </Button>
+              <Button variant='outline' size='sm' asChild>
+                <Link to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Finance console</Link>
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
                 onClick={async () => {
                   if (!signupUrl) return
                   try {
@@ -666,65 +688,67 @@ export default function OrganisationProfile() {
                 }}
               >
                 Copy signup link
-              </button>
-              <button
-                type='button'
-                className='btn soft'
+              </Button>
+              <Button
+                variant='outline'
+                size='sm'
                 onClick={() => signupUrl && window.open(signupUrl, '_blank', 'noopener,noreferrer')}
               >
                 Open signup
-              </button>
+              </Button>
             </>
           ) : null}
         </div>
       </div>
 
       {statusNote.text ? (
-        <div className={`orgProfilePage-note ${statusNote.type === 'error' ? 'error' : 'ok'}`}>{statusNote.text}</div>
+        <div className={statusNote.type === 'error' ? 'rounded-lg border border-destructive/35 bg-destructive/10 px-3 py-2.5 text-sm text-destructive' : 'rounded-lg border border-success/35 bg-success-soft px-3 py-2.5 text-sm text-success'}>
+          {statusNote.text}
+        </div>
       ) : null}
 
       {!orgId && (
-        <div className='card' style={{ marginTop: 16, marginBottom: 16 }}>
-          <div className='cardBody'>
-            <p className='muted' style={{ margin: 0 }}>Select an organisation from the list, then open Profile — or pass <code>?org_id=…</code> in the URL.</p>
-            <div className='orgProfilePage-quick'>
-              <Link className='btn primary' to='/organisations'>Browse organisations</Link>
-            </div>
+        <Panel bodyClassName='space-y-3'>
+          <p className='m-0 text-sm text-muted-foreground'>Select an organisation from the list, then open Profile — or pass <code className='rounded bg-muted px-1.5 py-0.5 text-xs'>?org_id=…</code> in the URL.</p>
+          <div>
+            <Button asChild>
+              <Link to='/organisations'>Browse organisations</Link>
+            </Button>
           </div>
-        </div>
+        </Panel>
       )}
 
       {loadError && orgId && (
-        <div className='card' style={{ marginTop: 16, marginBottom: 16, borderColor: '#fecaca' }}>
-          <div className='cardBody'>{loadError}</div>
-        </div>
+        <Panel bodyClassName='rounded-lg border-destructive/40 bg-destructive/10'>
+          <p className='m-0 text-sm text-destructive'>{loadError}</p>
+        </Panel>
       )}
 
       {org?.deletion_status && org.deletion_status !== 'active' ? (
-        <div className='card' style={{ marginTop: 16, marginBottom: 16, borderColor: org.deletion_status === 'pending' ? 'rgba(245,158,11,0.45)' : 'rgba(220,38,38,0.35)' }}>
-          <div className='cardBody' style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className={`pill ${deletionPillClass(org.deletion_status)}`}>
+        <Panel bodyClassName={org.deletion_status === 'pending' ? 'border-warning/40 bg-warning/10' : 'border-destructive/35 bg-destructive/10'}>
+          <div className='flex flex-wrap items-center gap-3'>
+            <Pill tone={pillTone(org.deletion_status)}>
               {org.deletion_status === 'pending' ? 'Pending deletion' : org.deletion_status === 'archived' ? 'Deleted' : org.deletion_status}
-            </span>
+            </Pill>
             {org.deletion_requested_at ? (
-              <span className='muted' style={{ fontSize: 13 }}>
+              <span className='text-[13px] text-muted-foreground'>
                 Requested {new Date(org.deletion_requested_at).toLocaleString()}
               </span>
             ) : null}
             {org.deletion_status === 'pending' ? (
-              <Link className='btn soft' to='/compliance/account-deletions' style={{ marginLeft: 'auto' }}>
-                Open deletion queue
-              </Link>
+              <Button variant='outline' size='sm' className='ml-auto' asChild>
+                <Link to='/compliance/account-deletions'>Open deletion queue</Link>
+              </Button>
             ) : null}
           </div>
-        </div>
+        </Panel>
       ) : null}
 
-      <div className='tabs orgProfilePage-tabs' style={{ flexWrap: 'wrap' }}>
+      <div className='inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground'>
         {TAB_IDS.map((id) => (
           <div
             key={id}
-            className={`tab ${tab === id ? 'active' : ''}`}
+            className={`inline-flex cursor-pointer items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all ${tab === id ? 'bg-background text-foreground shadow' : ''}`}
             role='button'
             tabIndex={0}
             onClick={() => selectTab(id)}
@@ -734,7 +758,6 @@ export default function OrganisationProfile() {
                 selectTab(id)
               }
             }}
-            style={{ cursor: 'pointer' }}
           >
             {id === 'suspend' ? 'Suspension' : id.charAt(0).toUpperCase() + id.slice(1)}
           </div>
@@ -742,696 +765,679 @@ export default function OrganisationProfile() {
       </div>
 
       {tab === 'overview' && (
-        <div className='grid-12'>
-          <div className='span-8 stack'>
-            <div className='heroPanel'>
-              <h2>{org ? org.name : orgId ? 'Loading…' : 'No organisation selected'}</h2>
-              <p>
+        <div className='grid grid-cols-1 gap-4 lg:grid-cols-12'>
+          <div className='space-y-4 lg:col-span-8'>
+            <Panel bodyClassName='space-y-3'>
+              <h2 className='text-lg font-semibold'>{org ? org.name : orgId ? 'Loading…' : 'No organisation selected'}</h2>
+              <p className='text-sm text-muted-foreground'>
                 {org
                   ? `${org.user_count} users · ${org.branch_count} branches · ${org.patient_count} patients · Core Platform ${org.core_plan_name || org.core_plan_code || org.plan_name || org.plan_code || '—'} · Customer Feedback ${org.feedback_plan_name || org.feedback_plan_code || '—'}`
                   : 'Select an org from the Organisations page.'}
               </p>
-              {org?.category_name ? <span className='pill p-cyan'>Category: {org.category_name}</span> : null}
-              {org?.is_suspended ? <span className='pill p-amber'>Suspended — organisation login blocked</span> : org ? <span className='pill p-green'>Active</span> : null}
-              {typeof org?.recovery_job_count === 'number' ? (
-                <span className='pill p-cyan' style={{ marginLeft: 6 }}>Recovery jobs: {org.recovery_job_count}</span>
-              ) : null}
-              <div className='orgProfilePage-quick'>
-                <button type='button' className='btn soft' onClick={() => selectTab('profile')}>Edit profile</button>
-                <button type='button' className='btn soft' onClick={() => selectTab('users')}>Manage users</button>
-                <button type='button' className='btn soft' onClick={() => selectTab('plan')}>Manage plans</button>
-                {orgId ? <Link className='btn soft' to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Finance console</Link> : null}
+              <div className='flex flex-wrap items-center gap-2'>
+                {org?.category_name ? <Pill tone='info'>Category: {org.category_name}</Pill> : null}
+                {org?.is_suspended ? <Pill tone='warning'>Suspended — organisation login blocked</Pill> : org ? <Pill tone='success'>Active</Pill> : null}
+                {typeof org?.recovery_job_count === 'number' ? (
+                  <Pill tone='info'>Recovery jobs: {org.recovery_job_count}</Pill>
+                ) : null}
               </div>
-            </div>
-            <div className='grid-4'>
-              <div className='card stat' style={{ '--accent': '#0f766e' }}>
-                <div className='muted'>Users</div>
-                <div className='statValue'>{org ? org.user_count : '—'}</div>
+              <div className='flex flex-wrap gap-2'>
+                <Button variant='outline' size='sm' onClick={() => selectTab('profile')}>Edit profile</Button>
+                <Button variant='outline' size='sm' onClick={() => selectTab('users')}>Manage users</Button>
+                <Button variant='outline' size='sm' onClick={() => selectTab('plan')}>Manage plans</Button>
+                {orgId ? (
+                  <Button variant='outline' size='sm' asChild>
+                    <Link to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Finance console</Link>
+                  </Button>
+                ) : null}
               </div>
-              <div className='card stat' style={{ '--accent': '#0891b2' }}>
-                <div className='muted'>Patients</div>
-                <div className='statValue'>{org ? org.patient_count : '—'}</div>
-              </div>
-              <div className='card stat' style={{ '--accent': '#7c3aed' }}>
-                <div className='muted'>Appointments</div>
-                <div className='statValue'>{org ? org.appointment_count : '—'}</div>
-              </div>
-              <div className='card stat' style={{ '--accent': '#d97706' }}>
-                <div className='muted'>Branches</div>
-                <div className='statValue'>{org ? org.branch_count : '—'}</div>
-              </div>
+            </Panel>
+            <div className='grid grid-cols-2 gap-3 sm:grid-cols-4'>
+              <Card className='relative overflow-hidden p-4 before:absolute before:inset-0 before:border-l-2 before:content-[""] before:border-l-[oklch(0.47_0.13_175)]'>
+                <div className='text-xs text-muted-foreground'>Users</div>
+                <div className='mt-1 text-2xl font-bold'>{org ? org.user_count : '—'}</div>
+              </Card>
+              <Card className='relative overflow-hidden p-4 before:absolute before:inset-0 before:border-l-2 before:content-[""] before:border-l-[oklch(0.52_0.1_195)]'>
+                <div className='text-xs text-muted-foreground'>Patients</div>
+                <div className='mt-1 text-2xl font-bold'>{org ? org.patient_count : '—'}</div>
+              </Card>
+              <Card className='relative overflow-hidden p-4 before:absolute before:inset-0 before:border-l-2 before:content-[""] before:border-l-[oklch(0.58_0.16_290)]'>
+                <div className='text-xs text-muted-foreground'>Appointments</div>
+                <div className='mt-1 text-2xl font-bold'>{org ? org.appointment_count : '—'}</div>
+              </Card>
+              <Card className='relative overflow-hidden p-4 before:absolute before:inset-0 before:border-l-2 before:content-[""] before:border-l-[oklch(0.57_0.15_45)]'>
+                <div className='text-xs text-muted-foreground'>Branches</div>
+                <div className='mt-1 text-2xl font-bold'>{org ? org.branch_count : '—'}</div>
+              </Card>
             </div>
           </div>
-          <div className='span-4 stack'>
-            <div className='card'>
-              <div className='cardHead'><h3>Billing snapshot</h3></div>
-              <div className='cardBody'>
-                <div className='list'>
-                  <div className='listRow'><span>Core Platform plan</span><strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong></div>
-                  <div className='listRow'><span>Core Platform status</span><strong>{org?.core_subscription_status || org?.subscription_status || '—'}</strong></div>
-                  <div className='listRow'><span>Customer Feedback plan</span><strong>{org?.feedback_plan_name || org?.feedback_plan_code || '—'}</strong></div>
-                  <div className='listRow'><span>Customer Feedback status</span><strong>{org?.feedback_subscription_status || '—'}</strong></div>
-                  <div className='listRow'><span>Next billing (Core)</span><strong>{financePreview?.subscription_finance?.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
-                  <div className='listRow'><span>Next charge (Core)</span><strong>{financePreview?.subscription_finance?.amount_next_payment_display || '—'}</strong></div>
-                  <div className='listRow'><span>Cancellation</span><strong>{financePreview?.status || 'none'}</strong></div>
-                  <div className='listRow'><span>Wallet</span><strong>{org?.wallet_balance_display || org?.wallet_balance_gbp || '—'}</strong></div>
-                </div>
-                <div className='actions' style={{ marginTop: 12, flexWrap: 'wrap' }}>
-                  <button type='button' className='btn soft' onClick={() => selectTab('plan')}>Manage plan</button>
-                  {orgId ? <Link to={`/organisations/all-users/${encodeURIComponent(orgId)}`} className='btn soft'>Finance console</Link> : null}
-                  <Link to='/onboarding/services' className='btn soft'>Product services</Link>
-                </div>
+          <div className='space-y-4 lg:col-span-4'>
+            <Panel title='Billing snapshot' bodyClassName='space-y-3'>
+              <div className='space-y-2 text-sm'>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Core Platform plan</span><strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong></div>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Core Platform status</span><strong>{org?.core_subscription_status || org?.subscription_status || '—'}</strong></div>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Customer Feedback plan</span><strong>{org?.feedback_plan_name || org?.feedback_plan_code || '—'}</strong></div>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Customer Feedback status</span><strong>{org?.feedback_subscription_status || '—'}</strong></div>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Next billing (Core)</span><strong>{financePreview?.subscription_finance?.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Next charge (Core)</span><strong>{financePreview?.subscription_finance?.amount_next_payment_display || '—'}</strong></div>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Cancellation</span><strong>{financePreview?.status || 'none'}</strong></div>
+                <div className='flex justify-between'><span className='text-muted-foreground'>Wallet</span><strong>{org?.wallet_balance_display || org?.wallet_balance_gbp || '—'}</strong></div>
               </div>
-            </div>
+              <div className='flex flex-wrap gap-2'>
+                <Button variant='outline' size='sm' onClick={() => selectTab('plan')}>Manage plan</Button>
+                {orgId ? (
+                  <Button variant='outline' size='sm' asChild>
+                    <Link to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Finance console</Link>
+                  </Button>
+                ) : null}
+                <Button variant='outline' size='sm' asChild>
+                  <Link to='/onboarding/services'>Product services</Link>
+                </Button>
+              </div>
+            </Panel>
           </div>
         </div>
       )}
 
       {tab === 'profile' && (
-        <div className='card orgProfilePage-full'>
-          <div className='cardHead'>
-            <h3>Profile details</h3>
-            <span className='pill p-cyan'>Saved fields</span>
-          </div>
-          <div className='cardBody'>
-            <div className='orgProfileForm orgProfileFormWide'>
-              <section className='orgProfileSection'>
-                <div className='orgProfileGrid2'>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-name'>
-                      Organisation name
-                    </label>
-                    <input
-                      id='org-profile-name'
-                      className='input'
-                      value={profileName}
-                      onChange={(e) => setProfileName(e.target.value)}
-                      disabled={!orgId}
-                    />
-                  </div>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-category'>
-                      Category
-                    </label>
-                    <select
-                      id='org-profile-category'
-                      className='select'
-                      value={profileCategoryId}
-                      onChange={(e) => setProfileCategoryId(e.target.value)}
-                      disabled={!orgId}
-                    >
-                      <option value=''>No category</option>
-                      {(categories || []).map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({c.slug})
-                        </option>
-                      ))}
-                    </select>
-                    <div className='muted' style={{ fontSize: 12, lineHeight: 1.45 }}>
-                      Manage categories under Organisations → Categories.
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className='orgProfileSection'>
-                <div className='formSectionTitle'>Address</div>
-                <div className='formField'>
-                  <label className='label' htmlFor='org-profile-address1'>
-                    Address line 1
-                  </label>
-                  <input id='org-profile-address1' className='input' value={profileAddress1} onChange={(e) => setProfileAddress1(e.target.value)} />
-                </div>
-                <div className='formField'>
-                  <label className='label' htmlFor='org-profile-address2'>
-                    Address line 2
-                  </label>
-                  <input id='org-profile-address2' className='input' value={profileAddress2} onChange={(e) => setProfileAddress2(e.target.value)} />
-                </div>
-                <div className='orgProfileGrid2'>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-city'>
-                      City
-                    </label>
-                    <input id='org-profile-city' className='input' value={profileCity} onChange={(e) => setProfileCity(e.target.value)} />
-                  </div>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-county'>
-                      County / state
-                    </label>
-                    <input id='org-profile-county' className='input' value={profileCountyState} onChange={(e) => setProfileCountyState(e.target.value)} />
-                  </div>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-postcode'>
-                      Postcode
-                    </label>
-                    <input id='org-profile-postcode' className='input' value={profilePostcode} onChange={(e) => setProfilePostcode(e.target.value)} />
-                  </div>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-country'>
-                      Country
-                    </label>
-                    <input id='org-profile-country' className='input' value={profileCountry} onChange={(e) => setProfileCountry(e.target.value)} />
-                  </div>
-                </div>
-              </section>
-
-              <section className='orgProfileSection'>
-                <div className='formSectionTitle'>Primary contact</div>
-                <div className='orgProfileGrid2'>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-contact-name'>
-                      Contact name
-                    </label>
-                    <input id='org-profile-contact-name' className='input' value={profileContactName} onChange={(e) => setProfileContactName(e.target.value)} />
-                  </div>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-contact-email'>
-                      Contact email
-                    </label>
-                    <input id='org-profile-contact-email' className='input' type='email' autoComplete='off' value={profileContactEmail} onChange={(e) => setProfileContactEmail(e.target.value)} />
-                  </div>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-phone'>
-                      Contact phone
-                    </label>
-                    <input id='org-profile-phone' className='input' value={profileContactPhone} onChange={(e) => setProfileContactPhone(e.target.value)} />
-                  </div>
-                  <div className='formField'>
-                    <label className='label' htmlFor='org-profile-website'>
-                      Website
-                    </label>
-                    <input id='org-profile-website' className='input' placeholder='https://…' value={profileWebsite} onChange={(e) => setProfileWebsite(e.target.value)} />
-                  </div>
-                </div>
-              </section>
-
-              <div className='formField'>
-                <label className='label' htmlFor='org-profile-notes'>
-                  Notes
-                </label>
-                <textarea
-                  id='org-profile-notes'
-                  className='input'
-                  rows={5}
-                  value={profileNotes}
-                  onChange={(e) => setProfileNotes(e.target.value)}
+        <Panel title='Profile details' action={<Pill tone='info'>Saved fields</Pill>} bodyClassName='space-y-6'>
+          <div className='space-y-4'>
+            <div className='grid gap-4 md:grid-cols-2'>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-name'>Organisation name</Label>
+                <Input
+                  id='org-profile-name'
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
                   disabled={!orgId}
-                  placeholder='Internal notes…'
                 />
               </div>
-
-              <div className='actions' style={{ marginTop: 4 }}>
-                <button type='button' className='btn primary' disabled={!orgId || profileSaving} onClick={saveProfile}>
-                  {profileSaving ? 'Saving…' : 'Save profile'}
-                </button>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-category'>Category</Label>
+                <select
+                  id='org-profile-category'
+                  className='flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50'
+                  value={profileCategoryId}
+                  onChange={(e) => setProfileCategoryId(e.target.value)}
+                  disabled={!orgId}
+                >
+                  <option value=''>No category</option>
+                  {(categories || []).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.slug})
+                    </option>
+                  ))}
+                </select>
+                <p className='text-xs leading-tight text-muted-foreground'>
+                  Manage categories under Organisations → Categories.
+                </p>
               </div>
             </div>
           </div>
-        </div>
+
+          <div className='space-y-4'>
+            <div className='text-sm font-semibold text-foreground'>Address</div>
+            <div className='space-y-4'>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-address1'>Address line 1</Label>
+                <Input id='org-profile-address1' value={profileAddress1} onChange={(e) => setProfileAddress1(e.target.value)} />
+              </div>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-address2'>Address line 2</Label>
+                <Input id='org-profile-address2' value={profileAddress2} onChange={(e) => setProfileAddress2(e.target.value)} />
+              </div>
+              <div className='grid gap-4 md:grid-cols-2'>
+                <div className='space-y-2'>
+                  <Label htmlFor='org-profile-city'>City</Label>
+                  <Input id='org-profile-city' value={profileCity} onChange={(e) => setProfileCity(e.target.value)} />
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='org-profile-county'>County / state</Label>
+                  <Input id='org-profile-county' value={profileCountyState} onChange={(e) => setProfileCountyState(e.target.value)} />
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='org-profile-postcode'>Postcode</Label>
+                  <Input id='org-profile-postcode' value={profilePostcode} onChange={(e) => setProfilePostcode(e.target.value)} />
+                </div>
+                <div className='space-y-2'>
+                  <Label htmlFor='org-profile-country'>Country</Label>
+                  <Input id='org-profile-country' value={profileCountry} onChange={(e) => setProfileCountry(e.target.value)} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className='space-y-4'>
+            <div className='text-sm font-semibold text-foreground'>Primary contact</div>
+            <div className='grid gap-4 md:grid-cols-2'>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-contact-name'>Contact name</Label>
+                <Input id='org-profile-contact-name' value={profileContactName} onChange={(e) => setProfileContactName(e.target.value)} />
+              </div>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-contact-email'>Contact email</Label>
+                <Input id='org-profile-contact-email' type='email' autoComplete='off' value={profileContactEmail} onChange={(e) => setProfileContactEmail(e.target.value)} />
+              </div>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-phone'>Contact phone</Label>
+                <Input id='org-profile-phone' value={profileContactPhone} onChange={(e) => setProfileContactPhone(e.target.value)} />
+              </div>
+              <div className='space-y-2'>
+                <Label htmlFor='org-profile-website'>Website</Label>
+                <Input id='org-profile-website' placeholder='https://…' value={profileWebsite} onChange={(e) => setProfileWebsite(e.target.value)} />
+              </div>
+            </div>
+          </div>
+
+          <div className='space-y-2'>
+            <Label htmlFor='org-profile-notes'>Notes</Label>
+            <Textarea
+              id='org-profile-notes'
+              rows={5}
+              value={profileNotes}
+              onChange={(e) => setProfileNotes(e.target.value)}
+              disabled={!orgId}
+              placeholder='Internal notes…'
+            />
+          </div>
+
+          <div>
+            <Button disabled={!orgId || profileSaving} onClick={saveProfile}>
+              {profileSaving ? 'Saving…' : 'Save profile'}
+            </Button>
+          </div>
+        </Panel>
       )}
 
       {tab === 'branches' && (
-        <div className='card'>
-          <div className='cardHead'><h3>Branches</h3></div>
-          <div className='cardBody'>
-            <div className='tableWrap'>
-              <table className='table'>
-                <thead>
-                  <tr><th>Name</th><th>City</th><th>Postcode</th><th>Address</th><th>Created</th></tr>
-                </thead>
-                <tbody>
-                  {(branches || []).map((b) => (
-                    <tr key={b.id}>
-                      <td>{b.name}</td>
-                      <td>{b.city || '—'}</td>
-                      <td>{b.postcode || '—'}</td>
-                      <td>{b.address_line1 || '—'}</td>
-                      <td>{b.created_at ? new Date(b.created_at).toLocaleString() : '—'}</td>
-                    </tr>
-                  ))}
-                  {!branches && <tr><td colSpan={5}>Loading…</td></tr>}
-                  {branches && branches.length === 0 && <tr><td colSpan={5}>No branches recorded.</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <Panel title='Branches'>
+          <StripeTable>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>City</TableHead>
+                <TableHead>Postcode</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(branches || []).map((b) => (
+                <TableRow key={b.id}>
+                  <TableCell>{b.name}</TableCell>
+                  <TableCell>{b.city || '—'}</TableCell>
+                  <TableCell>{b.postcode || '—'}</TableCell>
+                  <TableCell>{b.address_line1 || '—'}</TableCell>
+                  <TableCell>{b.created_at ? new Date(b.created_at).toLocaleString() : '—'}</TableCell>
+                </TableRow>
+              ))}
+              {!branches && <TableLoading colSpan={5} />}
+              {branches && branches.length === 0 && <TableEmpty colSpan={5}>No branches recorded.</TableEmpty>}
+            </TableBody>
+          </StripeTable>
+        </Panel>
       )}
 
       {tab === 'users' && (
-        <div className='stack' style={{ display: 'grid', gap: 14 }}>
-          <div className='card'>
-            <div className='cardHead'><h3>Add user (direct)</h3></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 10 }}>
-              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                Creates an active login for a new email, or links an existing account to this organisation. Password is required only for brand-new emails.
-              </p>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Email</span>
-                <input className='input' value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} disabled={!orgId} placeholder='name@company.com' />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>
-                  Temporary password <span style={{ color: '#dc2626' }}>*</span>
-                </span>
-                <input className='input' type='password' autoComplete='new-password' required minLength={6} value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} disabled={!orgId} placeholder='Min 6 characters' />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Role</span>
-                <select className='select' value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} disabled={!orgId}>
-                  {CLINIC_ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
-              </label>
-              <button type='button' className='btn primary' disabled={!orgId || userCreateBusy} onClick={createOrgUserDirect}>
-                {userCreateBusy ? 'Saving…' : 'Create / link user'}
-              </button>
+        <div className='space-y-3.5'>
+          <Panel title='Add user (direct)' bodyClassName='space-y-2.5'>
+            <p className='m-0 text-[13px] text-muted-foreground'>
+              Creates an active login for a new email, or links an existing account to this organisation. Password is required only for brand-new emails.
+            </p>
+            <div className='space-y-1.5'>
+              <Label className='text-xs text-muted-foreground'>Email</Label>
+              <Input value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} disabled={!orgId} placeholder='name@company.com' />
             </div>
-          </div>
+            <div className='space-y-1.5'>
+              <Label className='text-xs text-muted-foreground'>
+                Temporary password <span className='text-destructive'>*</span>
+              </Label>
+              <Input type='password' autoComplete='new-password' required minLength={6} value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} disabled={!orgId} placeholder='Min 6 characters' />
+            </div>
+            <div className='space-y-1.5'>
+              <Label className='text-xs text-muted-foreground'>Role</Label>
+              <select className='flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50' value={newUserRole} onChange={(e) => setNewUserRole(e.target.value)} disabled={!orgId}>
+                {CLINIC_ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+            <Button disabled={!orgId || userCreateBusy} onClick={createOrgUserDirect}>
+              {userCreateBusy ? 'Saving…' : 'Create / link user'}
+            </Button>
+          </Panel>
 
-          <div className='card'>
-            <div className='cardHead'><h3>Invite user (link)</h3></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 10 }}>
-              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                Sends no email from the server — copy the invite URL and share it. The user sets their password on the public sign-in page.
-              </p>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Email</span>
-                <input className='input' value={inviteEmailField} onChange={(e) => setInviteEmailField(e.target.value)} disabled={!orgId} placeholder='name@company.com' />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Role (applied when they accept)</span>
-                <select className='select' value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} disabled={!orgId}>
-                  {CLINIC_ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
-              </label>
-              <button type='button' className='btn primary' disabled={!orgId || inviteBusy} onClick={createOrgInviteFlow}>
-                {inviteBusy ? 'Creating…' : 'Generate invite link'}
-              </button>
-              {lastInviteUrl && (
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <span className='muted' style={{ fontSize: 12 }}>Latest invite URL</span>
-                  <code style={{ fontSize: 12, wordBreak: 'break-all', background: 'var(--surface, #f8fafc)', padding: 8, borderRadius: 8 }}>{lastInviteUrl}</code>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      type='button'
-                      className='btn soft'
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(lastInviteUrl)
-                          window.alert('Copied.')
-                        } catch {
-                          window.prompt('Copy:', lastInviteUrl)
-                        }
-                      }}
-                    >
-                      Copy link
-                    </button>
-                    <button
-                      type='button'
-                      className='btn soft'
-                      onClick={() => window.open(lastInviteUrl, '_blank', 'noopener,noreferrer')}
-                    >
-                      Open link
-                    </button>
-                  </div>
+          <Panel title='Invite user (link)' bodyClassName='space-y-2.5'>
+            <p className='m-0 text-[13px] text-muted-foreground'>
+              Sends no email from the server — copy the invite URL and share it. The user sets their password on the public sign-in page.
+            </p>
+            <div className='space-y-1.5'>
+              <Label className='text-xs text-muted-foreground'>Email</Label>
+              <Input value={inviteEmailField} onChange={(e) => setInviteEmailField(e.target.value)} disabled={!orgId} placeholder='name@company.com' />
+            </div>
+            <div className='space-y-1.5'>
+              <Label className='text-xs text-muted-foreground'>Role (applied when they accept)</Label>
+              <select className='flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50' value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} disabled={!orgId}>
+                {CLINIC_ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+            <Button disabled={!orgId || inviteBusy} onClick={createOrgInviteFlow}>
+              {inviteBusy ? 'Creating…' : 'Generate invite link'}
+            </Button>
+            {lastInviteUrl && (
+              <div className='space-y-1.5'>
+                <Label className='text-xs text-muted-foreground'>Latest invite URL</Label>
+                <code className='block break-all rounded-lg bg-muted p-2 text-xs'>{lastInviteUrl}</code>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(lastInviteUrl)
+                        window.alert('Copied.')
+                      } catch {
+                        window.prompt('Copy:', lastInviteUrl)
+                      }
+                    }}
+                  >
+                    Copy link
+                  </Button>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    onClick={() => window.open(lastInviteUrl, '_blank', 'noopener,noreferrer')}
+                  >
+                    Open link
+                  </Button>
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className='card'>
-            <div className='cardHead'><h3>Pending invites</h3></div>
-            <div className='cardBody'>
-              <div className='tableWrap'>
-                <table className='table'>
-                  <thead>
-                    <tr><th>Email</th><th>Role</th><th>Created</th><th>Expires</th><th>Status</th><th /></tr>
-                  </thead>
-                  <tbody>
-                    {(pendingInvites || []).map((inv) => (
-                      <tr key={inv.id}>
-                        <td>{inv.email}</td>
-                        <td>{inv.role || '—'}</td>
-                        <td>{inv.created_at ? new Date(inv.created_at).toLocaleString() : '—'}</td>
-                        <td>{inv.expires_at ? new Date(inv.expires_at).toLocaleString() : '—'}</td>
-                        <td>
-                          {inv.is_expired ? <span className='pill p-amber'>Expired</span> : <span className='pill p-cyan'>Pending</span>}
-                        </td>
-                        <td>
-                          <button type='button' className='btn soft' style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => revokeInviteRow(inv.id)}>Revoke</button>
-                        </td>
-                      </tr>
-                    ))}
-                    {!pendingInvites && <tr><td colSpan={6}>Loading…</td></tr>}
-                    {pendingInvites && pendingInvites.length === 0 && <tr><td colSpan={6}>No pending invites.</td></tr>}
-                  </tbody>
-                </table>
               </div>
-            </div>
-          </div>
+            )}
+          </Panel>
 
-          <div className='card'>
-            <div className='cardHead'><h3>Members</h3></div>
-            <div className='cardBody'>
-              <p className='muted' style={{ fontSize: 12, marginBottom: 12 }}>
-                <strong style={{ color: 'var(--red)' }}>Hard delete (TEST)</strong> — last button in each row’s Actions column.
-                Works for any member (not only sole owners). Solo org is wiped; shared orgs keep other members. Type{' '}
-                <code>HARD_DELETE</code> to confirm.
-              </p>
-              <div className='tableWrap'>
-                <table className='table'>
-                  <thead>
-                    <tr>
-                      <th>Email</th>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>Flags</th>
-                      <th>Linked</th>
-                      <th style={{ width: 260 }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(users || []).map((u) => (
-                      <tr key={u.user_id} className={selectedUserId === u.user_id ? 'rowSelected' : ''}>
-                        <td>
-                          <button type='button' className='linkish' onClick={() => selectUserActivity(u.user_id)}>
-                            {u.email}
-                          </button>
-                        </td>
-                        <td>{u.role || '—'}</td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            {u.is_active ? <span className='pill p-green'>Active</span> : <span className='pill p-amber'>Blocked</span>}
-                            {u.deletion_status && u.deletion_status !== 'active' ? (
-                              <span className={`pill ${deletionPillClass(u.deletion_status)}`}>
-                                {u.deletion_label || u.deletion_status}
-                              </span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td>{u.is_superuser ? <span className='pill'>Platform admin</span> : '—'}</td>
-                        <td>{u.linked_at ? new Date(u.linked_at).toLocaleString() : '—'}</td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                            <button
-                              type='button'
-                              className='btn soft'
-                              style={{ padding: '4px 10px', fontSize: 12 }}
-                              onClick={() => selectUserActivity(u.user_id)}
+          <Panel title='Pending invites'>
+            <StripeTable>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(pendingInvites || []).map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell>{inv.email}</TableCell>
+                    <TableCell>{inv.role || '—'}</TableCell>
+                    <TableCell>{inv.created_at ? new Date(inv.created_at).toLocaleString() : '—'}</TableCell>
+                    <TableCell>{inv.expires_at ? new Date(inv.expires_at).toLocaleString() : '—'}</TableCell>
+                    <TableCell>
+                      {inv.is_expired ? <Pill tone='warning'>Expired</Pill> : <Pill tone='info'>Pending</Pill>}
+                    </TableCell>
+                    <TableCell>
+                      <Button variant='outline' size='sm' className='h-7 text-xs' onClick={() => revokeInviteRow(inv.id)}>Revoke</Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!pendingInvites && <TableLoading colSpan={6} />}
+                {pendingInvites && pendingInvites.length === 0 && <TableEmpty colSpan={6}>No pending invites.</TableEmpty>}
+              </TableBody>
+            </StripeTable>
+          </Panel>
+
+          <Panel title='Members' bodyClassName='space-y-3 overflow-x-auto'>
+            <p className='m-0 text-xs text-muted-foreground'>
+              <strong className='text-destructive'>Hard delete (TEST)</strong> — last button in each row’s Actions column.
+              Works for any member (not only sole owners). Solo org is wiped; shared orgs keep other members. Type{' '}
+              <code>HARD_DELETE</code> to confirm.
+            </p>
+            <StripeTable>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Flags</TableHead>
+                  <TableHead>Linked</TableHead>
+                  <TableHead className='w-[260px]'>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(users || []).map((u) => (
+                  <TableRow key={u.user_id} className={selectedUserId === u.user_id ? 'bg-muted/40' : undefined}>
+                    <TableCell>
+                      <button type='button' className='text-primary hover:underline' onClick={() => selectUserActivity(u.user_id)}>
+                        {u.email}
+                      </button>
+                    </TableCell>
+                    <TableCell>{u.role || '—'}</TableCell>
+                    <TableCell>
+                      <div className='flex flex-wrap gap-1.5'>
+                        {u.is_active ? <Pill tone='success'>Active</Pill> : <Pill tone='warning'>Blocked</Pill>}
+                        {u.deletion_status && u.deletion_status !== 'active' ? (
+                          <Pill tone={pillTone(u.deletion_status)}>
+                            {u.deletion_label || u.deletion_status}
+                          </Pill>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell>{u.is_superuser ? <Pill tone='neutral'>Platform admin</Pill> : '—'}</TableCell>
+                    <TableCell>{u.linked_at ? new Date(u.linked_at).toLocaleString() : '—'}</TableCell>
+                    <TableCell>
+                      <div className='flex flex-wrap gap-1.5'>
+                        <Button
+                          variant='outline'
+                          size='sm'
+                          className='h-7 text-xs'
+                          onClick={() => selectUserActivity(u.user_id)}
+                        >
+                          Activity
+                        </Button>
+                        {isProtectedUser(u) ? (
+                          <span className='text-[11px] text-muted-foreground'>Protected</span>
+                        ) : (
+                          <>
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              className='h-7 text-xs'
+                              onClick={() => setUserBlocked(u.user_id, u.is_active)}
                             >
-                              Activity
-                            </button>
-                            {isProtectedUser(u) ? (
-                              <span className='muted' style={{ fontSize: 11 }}>Protected</span>
-                            ) : (
-                              <>
-                                <button
-                                  type='button'
-                                  className='btn soft'
-                                  style={{ padding: '4px 10px', fontSize: 12 }}
-                                  onClick={() => setUserBlocked(u.user_id, u.is_active)}
-                                >
-                                  {u.is_active ? 'Block' : 'Unblock'}
-                                </button>
-                                <button
-                                  type='button'
-                                  className='btn soft'
-                                  style={{ padding: '4px 10px', fontSize: 12 }}
-                                  onClick={() => removeUser(u.user_id, u.email)}
-                                >
-                                  Remove
-                                </button>
-                                <button
-                                  type='button'
-                                  className='btn soft'
-                                  style={{ padding: '4px 10px', fontSize: 12, color: 'var(--red)' }}
-                                  disabled={hardDeleteBusy === u.user_id}
-                                  onClick={() => void hardDeleteUser(u.user_id, u.email)}
-                                >
-                                  {hardDeleteBusy === u.user_id ? 'Deleting…' : 'Hard delete (TEST)'}
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {!users && <tr><td colSpan={6}>Loading…</td></tr>}
-                    {users && users.length === 0 && <tr><td colSpan={6}>No members yet.</td></tr>}
-                  </tbody>
-                </table>
-              </div>
-              <p className='muted' style={{ fontSize: 12, marginTop: 12 }}>
-                Generic organisation invite (no preset role):{' '}
-                {signupUrl ? <code style={{ fontSize: 11 }}>{signupUrl}</code> : '—'}
-              </p>
-            </div>
-          </div>
+                              {u.is_active ? 'Block' : 'Unblock'}
+                            </Button>
+                            <Button
+                              variant='outline'
+                              size='sm'
+                              className='h-7 text-xs'
+                              onClick={() => removeUser(u.user_id, u.email)}
+                            >
+                              Remove
+                            </Button>
+                            <Button
+                              variant='destructive'
+                              size='sm'
+                              className='h-7 text-xs'
+                              disabled={hardDeleteBusy === u.user_id}
+                              onClick={() => void hardDeleteUser(u.user_id, u.email)}
+                            >
+                              {hardDeleteBusy === u.user_id ? 'Deleting…' : 'Hard delete (TEST)'}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!users && <TableLoading colSpan={6} />}
+                {users && users.length === 0 && <TableEmpty colSpan={6}>No members yet.</TableEmpty>}
+              </TableBody>
+            </StripeTable>
+            <p className='m-0 text-xs text-muted-foreground'>
+              Generic organisation invite (no preset role):{' '}
+              {signupUrl ? <code className='text-[11px]'>{signupUrl}</code> : '—'}
+            </p>
+          </Panel>
 
           {selectedUserId ? (
-            <div className='card'>
-              <div className='cardHead'>
-                <h3>User activity</h3>
-                <button type='button' className='btn soft' onClick={() => refreshUserActivity()} disabled={userActivityLoading}>
+            <Panel
+              title='User activity'
+              action={
+                <Button type='button' variant='outline' size='sm' className='h-8' onClick={() => refreshUserActivity()} disabled={userActivityLoading}>
                   {userActivityLoading ? 'Loading…' : 'Refresh'}
-                </button>
-              </div>
-              <div className='cardBody stack' style={{ gap: 14 }}>
-                {userActivityLoading && !userActivity ? (
-                  <p className='muted'>Loading activity…</p>
-                ) : userActivity ? (
-                  <>
-                    <div className='list'>
-                      <div className='listRow'><span>Email</span><strong>{userActivity.user?.email}</strong></div>
-                      <div className='listRow'><span>Role</span><strong>{userActivity.user?.role || '—'}</strong></div>
-                      <div className='listRow'><span>Linked</span><strong>{userActivity.user?.linked_at ? new Date(userActivity.user.linked_at).toLocaleString() : '—'}</strong></div>
-                      <div className='listRow'><span>Account created</span><strong>{userActivity.user?.account_created_at ? new Date(userActivity.user.account_created_at).toLocaleString() : '—'}</strong></div>
-                    </div>
+                </Button>
+              }
+              bodyClassName='space-y-3.5'
+            >
+              {userActivityLoading && !userActivity ? (
+                <p className='m-0 text-sm text-muted-foreground'>Loading activity…</p>
+              ) : userActivity ? (
+                <>
+                  <div className='space-y-1.5 text-sm'>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Email</span><strong>{userActivity.user?.email}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Role</span><strong>{userActivity.user?.role || '—'}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Linked</span><strong>{userActivity.user?.linked_at ? new Date(userActivity.user.linked_at).toLocaleString() : '—'}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Account created</span><strong>{userActivity.user?.account_created_at ? new Date(userActivity.user.account_created_at).toLocaleString() : '—'}</strong></div>
+                  </div>
 
-                    <div>
-                      <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Audit log ({userActivity.counts?.audit_events ?? 0})</h4>
-                      {(userActivity.audit_events || []).length ? (
-                        <div className='tableWrap'>
-                          <table className='table'>
-                            <thead><tr><th>Time</th><th>Action</th><th>Detail</th></tr></thead>
-                            <tbody>
-                              {userActivity.audit_events.map((ev) => (
-                                <tr key={ev.id}>
-                                  <td className='muted'>{ev.created_at ? new Date(ev.created_at).toLocaleString() : '—'}</td>
-                                  <td>{ev.action}</td>
-                                  <td>{ev.detail || '—'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className='muted' style={{ fontSize: 13 }}>No audit events recorded for this user yet.</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                        <h4 style={{ margin: 0, fontSize: 14, flex: '1 1 auto' }}>Service orders ({userActivity.counts?.service_orders ?? 0})</h4>
-                        <input
-                          type='search'
-                          className='input'
-                          placeholder='Search order ID, VB-CMP, reference, title…'
-                          value={userOrdersSearch}
-                          onChange={(e) => setUserOrdersSearch(e.target.value)}
-                          style={{ minWidth: 220, maxWidth: 360 }}
-                        />
+                  <div>
+                    <h4 className='mb-2 mt-0 text-sm font-semibold'>Audit log ({userActivity.counts?.audit_events ?? 0})</h4>
+                    {(userActivity.audit_events || []).length ? (
+                      <div className='overflow-x-auto'>
+                        <StripeTable>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Time</TableHead>
+                              <TableHead>Action</TableHead>
+                              <TableHead>Detail</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {userActivity.audit_events.map((ev) => (
+                              <TableRow key={ev.id}>
+                                <TableCell className='text-muted-foreground'>{ev.created_at ? new Date(ev.created_at).toLocaleString() : '—'}</TableCell>
+                                <TableCell>{ev.action}</TableCell>
+                                <TableCell>{ev.detail || '—'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </StripeTable>
                       </div>
-                      {filteredUserOrders.length ? (
-                        <div className='tableWrap'>
-                          <table className='table'>
-                            <thead>
-                              <tr>
-                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('reference')}>Order ID</th>
-                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('title')}>Title</th>
-                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('service')}>Service</th>
-                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('format')}>Format</th>
-                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('status')}>Status</th>
-                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('quote')}>Quote</th>
-                                <th style={{ cursor: 'pointer' }} onClick={() => sortUserOrdersColumn('updated')}>Updated</th>
-                                <th>View</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {filteredUserOrders.map((o) => (
-                                <tr key={o.id}>
-                                  <td className='muted'><code>{o.reference_id || o.campaign_id || o.id?.slice(0, 8)}</code></td>
-                                  <td>{o.title || '—'}</td>
-                                  <td>{o.service_code}</td>
-                                  <td>{o.service_code === 'interview' ? interviewFormatLabel(o) : '—'}</td>
-                                  <td><span className='pill p-cyan'>{o.status}</span></td>
-                                  <td>{o.quote_total_gbp || money(Number(o.quote_total_pence || 0))}</td>
-                                  <td className='muted'>{o.updated_at ? new Date(o.updated_at).toLocaleString() : '—'}</td>
-                                  <td><Link className='btn soft bsm' to={adminOrderViewPath(o)}>Open</Link></td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className='muted' style={{ fontSize: 13 }}>{userOrdersSearch.trim() ? 'No orders match your search.' : 'No surveys or interviews created by this user.'}</p>
-                      )}
-                    </div>
+                    ) : (
+                      <p className='m-0 text-[13px] text-muted-foreground'>No audit events recorded for this user yet.</p>
+                    )}
+                  </div>
 
-                    <div>
-                      <h4 style={{ margin: '0 0 8px', fontSize: 14 }}>Support tickets ({userActivity.counts?.support_tickets ?? 0})</h4>
-                      {(userActivity.support_tickets || []).length ? (
-                        <div className='tableWrap'>
-                          <table className='table'>
-                            <thead><tr><th>Subject</th><th>Category</th><th>Status</th><th>Updated</th></tr></thead>
-                            <tbody>
-                              {userActivity.support_tickets.map((t) => (
-                                <tr key={t.id}>
-                                  <td>{t.subject}</td>
-                                  <td>{t.category}</td>
-                                  <td><span className='pill p-cyan'>{t.status}</span></td>
-                                  <td className='muted'>{t.updated_at ? new Date(t.updated_at).toLocaleString() : '—'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ) : (
-                        <p className='muted' style={{ fontSize: 13 }}>No support tickets opened by this user.</p>
-                      )}
+                  <div>
+                    <div className='mb-2 flex flex-wrap items-center gap-2'>
+                      <h4 className='m-0 flex-1 text-sm font-semibold'>Service orders ({userActivity.counts?.service_orders ?? 0})</h4>
+                      <Input
+                        type='search'
+                        className='h-8 min-w-[220px] max-w-sm'
+                        placeholder='Search order ID, VB-CMP, reference, title…'
+                        value={userOrdersSearch}
+                        onChange={(e) => setUserOrdersSearch(e.target.value)}
+                      />
                     </div>
-                  </>
-                ) : (
-                  <p className='muted'>Could not load activity for this user.</p>
-                )}
-              </div>
-            </div>
+                    {filteredUserOrders.length ? (
+                      <div className='overflow-x-auto'>
+                        <StripeTable>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className='cursor-pointer' onClick={() => sortUserOrdersColumn('reference')}>Order ID</TableHead>
+                              <TableHead className='cursor-pointer' onClick={() => sortUserOrdersColumn('title')}>Title</TableHead>
+                              <TableHead className='cursor-pointer' onClick={() => sortUserOrdersColumn('service')}>Service</TableHead>
+                              <TableHead className='cursor-pointer' onClick={() => sortUserOrdersColumn('format')}>Format</TableHead>
+                              <TableHead className='cursor-pointer' onClick={() => sortUserOrdersColumn('status')}>Status</TableHead>
+                              <TableHead className='cursor-pointer' onClick={() => sortUserOrdersColumn('quote')}>Quote</TableHead>
+                              <TableHead className='cursor-pointer' onClick={() => sortUserOrdersColumn('updated')}>Updated</TableHead>
+                              <TableHead>View</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {filteredUserOrders.map((o) => (
+                              <TableRow key={o.id}>
+                                <TableCell className='text-muted-foreground'><code>{o.reference_id || o.campaign_id || o.id?.slice(0, 8)}</code></TableCell>
+                                <TableCell>{o.title || '—'}</TableCell>
+                                <TableCell>{o.service_code}</TableCell>
+                                <TableCell>{o.service_code === 'interview' ? interviewFormatLabel(o) : '—'}</TableCell>
+                                <TableCell><Pill tone='info'>{o.status}</Pill></TableCell>
+                                <TableCell>{o.quote_total_gbp || money(Number(o.quote_total_pence || 0))}</TableCell>
+                                <TableCell className='text-muted-foreground'>{o.updated_at ? new Date(o.updated_at).toLocaleString() : '—'}</TableCell>
+                                <TableCell>
+                                  <Button asChild variant='outline' size='sm' className='h-7 text-xs'>
+                                    <Link to={adminOrderViewPath(o)}>Open</Link>
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </StripeTable>
+                      </div>
+                    ) : (
+                      <p className='m-0 text-[13px] text-muted-foreground'>{userOrdersSearch.trim() ? 'No orders match your search.' : 'No surveys or interviews created by this user.'}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 className='mb-2 mt-0 text-sm font-semibold'>Support tickets ({userActivity.counts?.support_tickets ?? 0})</h4>
+                    {(userActivity.support_tickets || []).length ? (
+                      <div className='overflow-x-auto'>
+                        <StripeTable>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Subject</TableHead>
+                              <TableHead>Category</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Updated</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {userActivity.support_tickets.map((t) => (
+                              <TableRow key={t.id}>
+                                <TableCell>{t.subject}</TableCell>
+                                <TableCell>{t.category}</TableCell>
+                                <TableCell><Pill tone='info'>{t.status}</Pill></TableCell>
+                                <TableCell className='text-muted-foreground'>{t.updated_at ? new Date(t.updated_at).toLocaleString() : '—'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </StripeTable>
+                      </div>
+                    ) : (
+                      <p className='m-0 text-[13px] text-muted-foreground'>No support tickets opened by this user.</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p className='m-0 text-sm text-muted-foreground'>Could not load activity for this user.</p>
+              )}
+            </Panel>
           ) : null}
         </div>
       )}
 
       {tab === 'plan' && (
-        <div className='orgProfilePage-grid2'>
-          <div className='card'>
-            <div className='cardHead'><h3>Core Platform plan</h3><span className='pill p-cyan'>Subscription</span></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
-              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                Current: <strong>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong> ({org?.core_subscription_status || org?.subscription_status || '—'})
-              </p>
-              {financePreview?.subscription_finance ? (
-                <div className='list' style={{ fontSize: 13 }}>
-                  <div className='listRow'><span>Next billing</span><strong>{financePreview.subscription_finance.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
-                  <div className='listRow'><span>Next charge</span><strong>{financePreview.subscription_finance.amount_next_payment_display || '—'}</strong></div>
-                  <div className='listRow'><span>Cancel at period end</span><strong>{financePreview.subscription_finance.cancel_at_period_end ? 'Yes' : 'No'}</strong></div>
-                  <div className='listRow'><span>Unused value (est.)</span><strong>{financePreview.calculated_unused_value_display || '—'}</strong></div>
-                </div>
-              ) : null}
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Core Platform plan</span>
-                <PlanPickerSelect
-                  value={planCode}
-                  onChange={setPlanCode}
-                  productLine='core'
-                  placeholder='Choose Core platform plan…'
-                  disabled={!orgId}
-                  className='select'
-                />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>
-                <input className='input' value={subStatus} onChange={(e) => setSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
-              </label>
-              {upgradePreview ? (
-                <div className='list' style={{ fontSize: 13, padding: 10, background: 'var(--surface2, #f8fafc)', borderRadius: 8 }}>
-                  <div className='listRow'><span>Upgrade preview</span><strong>{upgradePreview.new_plan_name || upgradePreview.new_plan_code}</strong></div>
-                  <div className='listRow'><span>Pro-rata charge</span><strong>{upgradePreview.pro_rata_display || money(upgradePreview.pro_rata_minor, upgradePreview.currency)}</strong></div>
-                  <div className='listRow'><span>New monthly</span><strong>{upgradePreview.new_monthly_display || money(upgradePreview.new_monthly_minor, upgradePreview.currency)}</strong></div>
-                </div>
-              ) : null}
-              <button className='btn primary' disabled={!orgId || planSaving || !planCode.trim()} onClick={savePlan}>
-                {planSaving ? 'Applying…' : 'Apply Core Platform plan'}
-              </button>
-              <p className='muted' style={{ fontSize: 12, margin: 0 }}>
-                Assigns the Core Platform subscription only. Private packages (from Pricing → Private packages) appear in the picker as “Private · …”.
-              </p>
-            </div>
-          </div>
+        <div className='grid gap-4 lg:grid-cols-2'>
+          <Panel title='Core Platform plan' action={<Pill tone='info'>Subscription</Pill>} bodyClassName='space-y-3.5'>
+            <p className='m-0 text-[13px] text-muted-foreground'>
+              Current: <strong className='text-foreground'>{org?.core_plan_name || org?.core_plan_code || org?.plan_name || org?.plan_code || '—'}</strong> ({org?.core_subscription_status || org?.subscription_status || '—'})
+            </p>
+            {financePreview?.subscription_finance ? (
+              <div className='space-y-1.5 text-[13px]'>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Next billing</span><strong>{financePreview.subscription_finance.next_billing_date ? new Date(financePreview.subscription_finance.next_billing_date).toLocaleDateString() : '—'}</strong></div>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Next charge</span><strong>{financePreview.subscription_finance.amount_next_payment_display || '—'}</strong></div>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Cancel at period end</span><strong>{financePreview.subscription_finance.cancel_at_period_end ? 'Yes' : 'No'}</strong></div>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Unused value (est.)</span><strong>{financePreview.calculated_unused_value_display || '—'}</strong></div>
+              </div>
+            ) : null}
+            <label className='grid gap-1.5'>
+              <span className='text-xs text-muted-foreground'>Core Platform plan</span>
+              <PlanPickerSelect
+                value={planCode}
+                onChange={setPlanCode}
+                productLine='core'
+                placeholder='Choose Core platform plan…'
+                disabled={!orgId}
+                className='select'
+              />
+            </label>
+            <label className='grid gap-1.5'>
+              <span className='text-xs text-muted-foreground'>Subscription status</span>
+              <Input className='h-8' value={subStatus} onChange={(e) => setSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
+            </label>
+            {upgradePreview ? (
+              <div className='space-y-1.5 rounded-md bg-muted/50 p-2.5 text-[13px]'>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Upgrade preview</span><strong>{upgradePreview.new_plan_name || upgradePreview.new_plan_code}</strong></div>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Pro-rata charge</span><strong>{upgradePreview.pro_rata_display || money(upgradePreview.pro_rata_minor, upgradePreview.currency)}</strong></div>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>New monthly</span><strong>{upgradePreview.new_monthly_display || money(upgradePreview.new_monthly_minor, upgradePreview.currency)}</strong></div>
+              </div>
+            ) : null}
+            <Button size='sm' className='h-8' disabled={!orgId || planSaving || !planCode.trim()} onClick={savePlan}>
+              {planSaving ? 'Applying…' : 'Apply Core Platform plan'}
+            </Button>
+            <p className='m-0 text-xs text-muted-foreground'>
+              Assigns the Core Platform subscription only. Private packages (from Pricing → Private packages) appear in the picker as “Private · …”.
+            </p>
+          </Panel>
 
-          <div className='card'>
-            <div className='cardHead'><h3>Customer Feedback plan</h3><span className='pill p-amber'>Separate billing</span></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
-              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                Current: <strong>{org?.feedback_plan_name || org?.feedback_plan_code || 'None — assign below'}</strong>
-                {org?.feedback_subscription_status ? ` (${org.feedback_subscription_status})` : ''}
-              </p>
-              {(org?.feedback_wa_units_included || org?.feedback_wa_units_used) ? (
-                <div className='list' style={{ fontSize: 13 }}>
-                  <div className='listRow'><span>WA included</span><strong>{org?.feedback_wa_units_included ?? 0}</strong></div>
-                  <div className='listRow'><span>WA used</span><strong>{org?.feedback_wa_units_used ?? 0}</strong></div>
-                  <div className='listRow'><span>WA remaining</span><strong>{org?.feedback_wa_units_remaining ?? 0}</strong></div>
-                </div>
-              ) : null}
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Customer Feedback plan</span>
-                <PlanPickerSelect
-                  value={feedbackPlanCode}
-                  onChange={setFeedbackPlanCode}
-                  productLine='feedback'
-                  marketZone={org?.market_zone || 'gb'}
-                  placeholder='Choose Customer feedback plan…'
-                  disabled={!orgId}
-                  className='select'
-                />
-              </label>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Subscription status</span>
-                <input className='input' value={feedbackSubStatus} onChange={(e) => setFeedbackSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
-              </label>
-              <button className='btn primary' disabled={!orgId || feedbackPlanSaving || !feedbackPlanCode.trim()} onClick={saveFeedbackPlan}>
-                {feedbackPlanSaving ? 'Applying…' : 'Apply Customer Feedback plan'}
-              </button>
-              <p className='muted' style={{ fontSize: 12, margin: 0 }}>
-                Customer Feedback billing is separate from Core Platform. An org can have both plans at once.
-              </p>
-            </div>
-          </div>
+          <Panel title='Customer Feedback plan' action={<Pill tone='warning'>Separate billing</Pill>} bodyClassName='space-y-3.5'>
+            <p className='m-0 text-[13px] text-muted-foreground'>
+              Current: <strong className='text-foreground'>{org?.feedback_plan_name || org?.feedback_plan_code || 'None — assign below'}</strong>
+              {org?.feedback_subscription_status ? ` (${org.feedback_subscription_status})` : ''}
+            </p>
+            {(org?.feedback_wa_units_included || org?.feedback_wa_units_used) ? (
+              <div className='space-y-1.5 text-[13px]'>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA included</span><strong>{org?.feedback_wa_units_included ?? 0}</strong></div>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA used</span><strong>{org?.feedback_wa_units_used ?? 0}</strong></div>
+                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA remaining</span><strong>{org?.feedback_wa_units_remaining ?? 0}</strong></div>
+              </div>
+            ) : null}
+            <label className='grid gap-1.5'>
+              <span className='text-xs text-muted-foreground'>Customer Feedback plan</span>
+              <PlanPickerSelect
+                value={feedbackPlanCode}
+                onChange={setFeedbackPlanCode}
+                productLine='feedback'
+                marketZone={org?.market_zone || 'gb'}
+                placeholder='Choose Customer feedback plan…'
+                disabled={!orgId}
+                className='select'
+              />
+            </label>
+            <label className='grid gap-1.5'>
+              <span className='text-xs text-muted-foreground'>Subscription status</span>
+              <Input className='h-8' value={feedbackSubStatus} onChange={(e) => setFeedbackSubStatus(e.target.value)} placeholder='active, trial…' disabled={!orgId} />
+            </label>
+            <Button size='sm' className='h-8' disabled={!orgId || feedbackPlanSaving || !feedbackPlanCode.trim()} onClick={saveFeedbackPlan}>
+              {feedbackPlanSaving ? 'Applying…' : 'Apply Customer Feedback plan'}
+            </Button>
+            <p className='m-0 text-xs text-muted-foreground'>
+              Customer Feedback billing is separate from Core Platform. An org can have both plans at once.
+            </p>
+          </Panel>
 
-          <div className='card'>
-            <div className='cardHead'><h3>Wallet & finance</h3></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
-              <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-                Balance: <strong>{org?.wallet_balance_display || org?.wallet_balance_gbp || money(0, org?.billing_currency)}</strong> — ledger-backed credits only.
-              </p>
-              <label style={{ display: 'grid', gap: 6 }}>
-                <span className='muted' style={{ fontSize: 12 }}>Add credit ({org?.billing_currency || 'GBP'})</span>
-                <input
-                  className='input'
-                  type='number'
-                  min='1'
-                  step='1'
-                  value={walletCreditGbp}
-                  onChange={(e) => setWalletCreditGbp(e.target.value)}
-                  disabled={!orgId || walletBusy}
-                />
-              </label>
-              <button className='btn soft' disabled={!orgId || walletBusy} onClick={creditWallet}>
-                {walletBusy ? 'Crediting…' : 'Add wallet credit'}
-              </button>
-              <Link className='btn soft' to='/billing/wallet-ledger'>Global wallet ledger</Link>
-              {orgId ? <Link className='btn soft' to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Open finance console</Link> : null}
-            </div>
-          </div>
+          <Panel title='Wallet & finance' bodyClassName='space-y-3.5'>
+            <p className='m-0 text-[13px] text-muted-foreground'>
+              Balance: <strong className='text-foreground'>{org?.wallet_balance_display || org?.wallet_balance_gbp || money(0, org?.billing_currency)}</strong> — ledger-backed credits only.
+            </p>
+            <label className='grid gap-1.5'>
+              <span className='text-xs text-muted-foreground'>Add credit ({org?.billing_currency || 'GBP'})</span>
+              <Input
+                className='h-8'
+                type='number'
+                min='1'
+                step='1'
+                value={walletCreditGbp}
+                onChange={(e) => setWalletCreditGbp(e.target.value)}
+                disabled={!orgId || walletBusy}
+              />
+            </label>
+            <Button variant='outline' size='sm' className='h-8' disabled={!orgId || walletBusy} onClick={creditWallet}>
+              {walletBusy ? 'Crediting…' : 'Add wallet credit'}
+            </Button>
+            <Button asChild variant='outline' size='sm' className='h-8'>
+              <Link to='/billing/wallet-ledger'>Global wallet ledger</Link>
+            </Button>
+            {orgId ? (
+              <Button asChild variant='outline' size='sm' className='h-8'>
+                <Link to={`/organisations/all-users/${encodeURIComponent(orgId)}`}>Open finance console</Link>
+              </Button>
+            ) : null}
+          </Panel>
 
-          <div className='card'>
-            <div className='cardHead'><h3>Finance notes</h3></div>
-            <div className='cardBody stack' style={{ display: 'grid', gap: 10 }}>
-              <textarea className='input' rows={4} value={financeNote} onChange={(e) => setFinanceNote(e.target.value)} disabled={!orgId} placeholder='Internal finance/admin notes…' />
-              <button className='btn soft' disabled={!orgId || financeBusy} onClick={async () => {
+          <Panel title='Finance notes' bodyClassName='space-y-2.5'>
+            <Textarea rows={4} value={financeNote} onChange={(e) => setFinanceNote(e.target.value)} disabled={!orgId} placeholder='Internal finance/admin notes…' />
+            <Button
+              variant='outline'
+              size='sm'
+              className='h-8'
+              disabled={!orgId || financeBusy}
+              onClick={async () => {
                 setFinanceBusy(true)
                 setStatusNote({ type: '', text: '' })
                 try {
@@ -1443,31 +1449,30 @@ export default function OrganisationProfile() {
                 } finally {
                   setFinanceBusy(false)
                 }
-              }}>{financeBusy ? 'Saving…' : 'Save notes'}</button>
-            </div>
-          </div>
+              }}
+            >
+              {financeBusy ? 'Saving…' : 'Save notes'}
+            </Button>
+          </Panel>
         </div>
       )}
 
       {tab === 'suspend' && (
-        <div className='card orgProfilePage-full'>
-          <div className='cardHead'><h3>Organisation suspension</h3></div>
-          <div className='cardBody stack' style={{ display: 'grid', gap: 14 }}>
-            <p className='muted' style={{ fontSize: 13, margin: 0 }}>
-              When suspended, non–platform users cannot obtain a bearer token for this tenant. Superusers retain access for support.
-            </p>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-              <input
-                type='checkbox'
-                checked={Boolean(org?.is_suspended)}
-                disabled={!org || suspendSaving}
-                onChange={(e) => saveSuspended(e.target.checked)}
-              />
-              <span>Suspended</span>
-            </label>
-            {suspendSaving && <span className='muted'>Updating…</span>}
-          </div>
-        </div>
+        <Panel title='Organisation suspension' bodyClassName='space-y-3.5'>
+          <p className='m-0 text-[13px] text-muted-foreground'>
+            When suspended, non–platform users cannot obtain a bearer token for this tenant. Superusers retain access for support.
+          </p>
+          <label className='flex cursor-pointer items-center gap-2.5'>
+            <input
+              type='checkbox'
+              checked={Boolean(org?.is_suspended)}
+              disabled={!org || suspendSaving}
+              onChange={(e) => saveSuspended(e.target.checked)}
+            />
+            <span className='text-sm'>Suspended</span>
+          </label>
+          {suspendSaving && <span className='text-sm text-muted-foreground'>Updating…</span>}
+        </Panel>
       )}
     </div>
   )

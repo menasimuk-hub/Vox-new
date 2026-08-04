@@ -3,6 +3,13 @@ import { Link } from 'react-router-dom'
 import { apiFetch, apiFetchBlob, apiFetchText } from '../lib/api'
 import { buildEmailTestVariables } from '../lib/messagingConstants'
 import { currencySymbol, money } from '../lib/billingAdminUtils'
+import { Button } from '@/components/ui/Button'
+import { Panel } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Label } from '@/components/ui/Label'
+import { Textarea } from '@/components/ui/Textarea'
+import { Pill } from '@/components/ui/Badge'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 
 const dateText = (value) => (value ? new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const dateShort = (value) => (value ? new Date(value).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
@@ -24,12 +31,12 @@ function substitutePlaceholders(template, variables) {
   return out
 }
 
-function statusPillClass(status) {
+function statusPillTone(status) {
   const s = String(status || '').toLowerCase()
-  if (s === 'paid') return 'p-green'
-  if (s === 'failed') return 'p-red'
-  if (s === 'issued' || s === 'open') return 'p-amber'
-  return ''
+  if (s === 'paid' || s === 'approved') return 'success'
+  if (s === 'failed' || s === 'rejected') return 'danger'
+  if (s === 'issued' || s === 'open' || s === 'pending') return 'warning'
+  return 'neutral'
 }
 
 function normTag(value) {
@@ -519,9 +526,9 @@ export default function InvoicesAdmin() {
           <strong>{money(row.amount_gbp_pence, row.currency)}</strong>
         </td>
         <td>
-          <span className={`pill invoiceStatusPill ${statusPillClass(isCancelled ? 'failed' : row.status)}`}>
+          <Pill tone={statusPillTone(isCancelled ? 'failed' : row.status)} className="invoiceStatusPill">
             {isCancelled ? 'cancelled' : (row.status || '—')}
-          </span>
+          </Pill>
           {row.disputed ? <span className="invoiceMiniFlag">disputed</span> : null}
           {row.emailed_at ? <span className="invoiceMiniFlag ok" title={dateText(row.emailed_at)}>sent</span> : null}
           {tags.length ? (
@@ -602,57 +609,54 @@ export default function InvoicesAdmin() {
   }
 
   return (
-    <>
+    <div className="ds-scope space-y-4">
       <div className="pageTop">
         <div>
           <h1>Invoices</h1>
           <p>All billing invoices, printable PDF template, and VAT rates by country.</p>
-          <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          <p className="mt-1.5 text-xs text-muted-foreground">
             Compact invoice list — use icons to view, edit, or cancel. More actions (collect, mark paid, refund) are under ⋮.
           </p>
         </div>
         <div className="actions">
           {tab === 'invoices' ? (
-            <button type="button" className="btn soft" onClick={loadInvoices} disabled={loading}>
+            <Button type="button" variant="outline" size="sm" className="h-8" onClick={loadInvoices} disabled={loading}>
               Refresh
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
 
-      <div className="emailTabBar" role="tablist" style={{ marginBottom: 16 }}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`emailTabBtn ${tab === t.id ? 'active' : ''}`}
-            onClick={() => setTab(t.id)}
-          >
-            <i className={`ti ${t.icon}`} /> {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="h-auto flex-wrap">
+          {TABS.map((t) => (
+            <TabsTrigger key={t.id} value={t.id} className="gap-1.5 text-[12px]">
+              <i className={`ti ${t.icon}`} /> {t.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
-      {error ? <div className="note" style={{ borderColor: 'rgba(220,38,38,0.35)', marginBottom: 12 }}>{error}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       {tab === 'invoices' ? (
         <>
           {billingRequests.filter((r) => String(r.status || '').toLowerCase() === 'pending').length > 0 ? (
-            <div className="card" style={{ marginBottom: 16, borderColor: 'var(--amber, #f59e0b)' }}>
-              <div className="cardBody" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                <div>
-                  <strong>{billingRequests.filter((r) => String(r.status || '').toLowerCase() === 'pending').length} pending billing request(s)</strong>
-                  <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-                    Cancellation and refund reviews awaiting admin action.
-                  </div>
+            <Panel className="border-warning/40" bodyClassName="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <strong>{billingRequests.filter((r) => String(r.status || '').toLowerCase() === 'pending').length} pending billing request(s)</strong>
+                <div className="mt-1 text-[13px] text-muted-foreground">
+                  Cancellation and refund reviews awaiting admin action.
                 </div>
-                <button type="button" className="btn" onClick={() => setTab('requests')}>
-                  View billing requests
-                </button>
               </div>
-            </div>
+              <Button type="button" size="sm" className="h-8" onClick={() => setTab('requests')}>
+                View billing requests
+              </Button>
+            </Panel>
           ) : null}
           <div className="invoiceStatsBar">
             <span className="invoiceStatChip">
@@ -670,271 +674,269 @@ export default function InvoicesAdmin() {
             </span>
           </div>
 
-          <div className="card invoiceHubFilters invoiceHubFiltersCompact">
-            <div className="cardBody invoiceFilterGrid">
-              <label className="msgFieldBlockTight">
-                <span className="label">Search</span>
-                <input
-                  className="input inputCompact"
-                  value={filters.search}
-                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                  placeholder="Invoice #, email, org"
-                  onKeyDown={(e) => e.key === 'Enter' && loadInvoices()}
-                />
-              </label>
-              <label className="msgFieldBlockTight">
-                <span className="label">Status</span>
-                <select className="input inputCompact" value={filters.status} onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}>
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s || 'all'} value={s}>{s || 'All'}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="msgFieldBlockTight">
-                <span className="label">Provider</span>
-                <input className="input inputCompact" value={filters.provider} onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value }))} placeholder="gocardless" />
-              </label>
-              <button type="button" className="btn primary btnCompact" onClick={loadInvoices}>Apply</button>
-            </div>
-          </div>
+          <Panel title="Filters" bodyClassName="flex flex-wrap items-end gap-3">
+            <label className="grid min-w-[160px] flex-1 gap-1">
+              <Label className="text-[11px] text-muted-foreground">Search</Label>
+              <Input
+                className="h-8"
+                value={filters.search}
+                onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                placeholder="Invoice #, email, org"
+                onKeyDown={(e) => e.key === 'Enter' && loadInvoices()}
+              />
+            </label>
+            <label className="grid min-w-[120px] gap-1">
+              <Label className="text-[11px] text-muted-foreground">Status</Label>
+              <select
+                className="flex h-8 w-full rounded-md border border-input bg-transparent px-3 py-1 text-[12px] shadow-sm"
+                value={filters.status}
+                onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+              >
+                {STATUS_OPTIONS.map((s) => (
+                  <option key={s || 'all'} value={s}>{s || 'All'}</option>
+                ))}
+              </select>
+            </label>
+            <label className="grid min-w-[120px] gap-1">
+              <Label className="text-[11px] text-muted-foreground">Provider</Label>
+              <Input
+                className="h-8"
+                value={filters.provider}
+                onChange={(e) => setFilters((f) => ({ ...f, provider: e.target.value }))}
+                placeholder="gocardless"
+              />
+            </label>
+            <Button type="button" size="sm" className="h-8" onClick={loadInvoices}>Apply</Button>
+          </Panel>
 
-          <div className="card invoiceListCard">
-            <div className="cardHead invoiceListHead">
-              <h3>All invoices</h3>
-              <span className="pill p-cyan">{sortedInvoices.length} shown</span>
-            </div>
-            <div className="cardBody invoiceTableWrap">
-              {loading ? <div className="muted invoiceListEmpty">Loading…</div> : null}
-              {!loading && !sortedInvoices.length ? (
-                <div className="muted invoiceListEmpty">No invoices yet. Complete a GoCardless payment to create one.</div>
-              ) : null}
-              {!loading && sortedInvoices.length ? (
-                <table className="table invoiceDenseTable invoiceListTable">
-                  <thead>
-                    <tr>
-                      <th>Invoice</th>
-                      <th>Date</th>
-                      <th>Organisation</th>
-                      <th>Amount</th>
-                      <th>Status</th>
-                      <th style={{ textAlign: 'right', width: 168 }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>{sortedInvoices.map(renderInvoiceRow)}</tbody>
-                </table>
-              ) : null}
-            </div>
-          </div>
+          <Panel
+            title="All invoices"
+            action={<Pill tone="info">{sortedInvoices.length} shown</Pill>}
+            bodyClassName="invoiceTableWrap overflow-x-auto"
+          >
+            {loading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
+            {!loading && !sortedInvoices.length ? (
+              <div className="text-sm text-muted-foreground">No invoices yet. Complete a GoCardless payment to create one.</div>
+            ) : null}
+            {!loading && sortedInvoices.length ? (
+              <table className="table invoiceDenseTable invoiceListTable">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Date</th>
+                    <th>Organisation</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th style={{ textAlign: 'right', width: 168 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>{sortedInvoices.map(renderInvoiceRow)}</tbody>
+              </table>
+            ) : null}
+          </Panel>
         </>
       ) : null}
 
       {tab === 'requests' ? (
-        <div className="card invoiceListCard">
-          <div className="cardHead invoiceListHead">
-            <h3>Billing requests</h3>
-            <span className="pill p-cyan">{billingRequests.length} shown</span>
+        <Panel
+          title="Billing requests"
+          action={<Pill tone="info">{billingRequests.length} shown</Pill>}
+          bodyClassName="invoiceTableWrap overflow-x-auto"
+        >
+          {loading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
+          {!loading && !billingRequests.length ? (
+            <div className="text-sm text-muted-foreground">No cancellation or refund review requests yet.</div>
+          ) : null}
+          {!loading && billingRequests.length ? (
+            <table className="table invoiceDenseTable invoiceListTable">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Organisation</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Refund</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {billingRequests.map((row) => (
+                  <tr key={`${row.type}-${row.id}`}>
+                    <td>{dateShort(row.requested_at)}</td>
+                    <td>{row.org_name || row.org_id || '—'}</td>
+                    <td>{String(row.type || '').replace('_', ' ')}</td>
+                    <td><Pill tone={statusPillTone(row.status)}>{row.status || '—'}</Pill></td>
+                    <td>{row.requested_refund_type ? String(row.requested_refund_type).replace(/_/g, ' ') : '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {row.org_id ? (
+                        <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                          <Link to={`/organisations/${encodeURIComponent(row.org_id)}/control-center`}>
+                            Open org
+                          </Link>
+                        </Button>
+                      ) : null}
+                      {row.support_ticket_id ? (
+                        <Button asChild variant="outline" size="sm" className="ml-2 h-7 text-xs">
+                          <Link to={`/support/tickets/${row.support_ticket_id}`}>
+                            Ticket
+                          </Link>
+                        </Button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </Panel>
+      ) : null}
+
+      {tab === 'template' ? (
+        <Panel
+          title="Invoice document HTML"
+          action={<Pill tone="info">PDF + dashboard view</Pill>}
+          bodyClassName="space-y-4"
+        >
+          <p className="m-0 text-[11px] text-muted-foreground">
+            Placeholders: <code>{'{{invoice_number}}'}</code>, <code>{'{{organisation_name}}'}</code>, <code>{'{{line_items_html}}'}</code>,{' '}
+            <code>{'{{subtotal}}'}</code>, <code>{'{{tax_amount}}'}</code>, <code>{'{{amount}}'}</code>.
+            Email notification: <Link to="/settings/email/templates/new_invoice/edit" className="text-primary hover:underline">new_invoice</Link>.
+          </p>
+
+          <div className="emailEditorSplit invoiceTemplateSplit">
+            <div className="emailEditorFields space-y-2">
+              <Label className="text-[11px] text-muted-foreground">Subject (reference)</Label>
+              <Input
+                className="h-8"
+                value={templateDraft.subject}
+                onChange={(e) => setTemplateDraft((d) => ({ ...d, subject: e.target.value }))}
+              />
+              <Label className="text-[11px] text-muted-foreground">HTML body</Label>
+              <Textarea
+                className="min-h-[280px] font-mono text-[12px]"
+                value={templateDraft.body}
+                onChange={(e) => setTemplateDraft((d) => ({ ...d, body: e.target.value }))}
+                placeholder="<html>…</html>"
+              />
+            </div>
+
+            <div className="msgFieldBlock msgFieldBlockTight emailEditorPreviewCol space-y-2">
+              <Label className="text-[11px] text-muted-foreground">
+                <i className="ti ti-eye mr-1.5" />
+                Live HTML preview
+              </Label>
+              <div className="emailPreviewBox emailPreviewBoxTall invoiceDocPreviewBox">
+                {previewHtml ? (
+                  <div className="emailPreviewInner invoiceDocPreviewInner" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                ) : (
+                  <p className="m-0 text-sm text-muted-foreground">HTML preview appears here.</p>
+                )}
+              </div>
+            </div>
           </div>
-          <div className="cardBody invoiceTableWrap">
-            {loading ? <div className="muted invoiceListEmpty">Loading…</div> : null}
-            {!loading && !billingRequests.length ? (
-              <div className="muted invoiceListEmpty">No cancellation or refund review requests yet.</div>
-            ) : null}
-            {!loading && billingRequests.length ? (
-              <table className="table invoiceDenseTable invoiceListTable">
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" className="h-8" onClick={saveTemplate} disabled={templateSaving}>
+              <i className="ti ti-device-floppy" />
+              {templateSaving ? 'Saving…' : 'Save invoice template'}
+            </Button>
+            {templateMsg ? <span className="text-xs text-muted-foreground">{templateMsg}</span> : null}
+          </div>
+        </Panel>
+      ) : null}
+
+      {tab === 'vat' ? (
+        <>
+          <Panel title="Add / update country VAT" bodyClassName="flex flex-wrap items-end gap-3">
+            <label className="grid min-w-[80px] gap-1">
+              <Label className="text-[11px] text-muted-foreground">Code</Label>
+              <Input className="h-8" maxLength={2} value={vatDraft.country_code} onChange={(e) => setVatDraft((d) => ({ ...d, country_code: e.target.value.toUpperCase() }))} placeholder="AE" />
+            </label>
+            <label className="grid min-w-[180px] flex-1 gap-1">
+              <Label className="text-[11px] text-muted-foreground">Country</Label>
+              <Input className="h-8" value={vatDraft.country_name} onChange={(e) => setVatDraft((d) => ({ ...d, country_name: e.target.value }))} placeholder="United Arab Emirates" />
+            </label>
+            <label className="grid min-w-[100px] gap-1">
+              <Label className="text-[11px] text-muted-foreground">VAT %</Label>
+              <Input className="h-8" type="number" min="0" step="0.01" value={vatDraft.vat_rate_percent} onChange={(e) => setVatDraft((d) => ({ ...d, vat_rate_percent: e.target.value }))} />
+            </label>
+            <label className="grid min-w-[160px] flex-1 gap-1">
+              <Label className="text-[11px] text-muted-foreground">Notes</Label>
+              <Input className="h-8" value={vatDraft.notes} onChange={(e) => setVatDraft((d) => ({ ...d, notes: e.target.value }))} placeholder="Optional" />
+            </label>
+            <Button type="button" size="sm" className="h-8" disabled={busy === 'vat'} onClick={saveVat}>Save</Button>
+          </Panel>
+
+          <Panel title="VAT rates" bodyClassName="invoiceTableWrap overflow-x-auto">
+            {loading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
+            {!loading && vatRates.length ? (
+              <table className="table invoiceDenseTable">
                 <thead>
                   <tr>
-                    <th>Date</th>
-                    <th>Organisation</th>
-                    <th>Type</th>
-                    <th>Status</th>
-                    <th>Refund</th>
-                    <th style={{ textAlign: 'right' }}>Actions</th>
+                    <th>Code</th>
+                    <th>Country</th>
+                    <th>VAT %</th>
+                    <th>Enabled</th>
+                    <th>Notes</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {billingRequests.map((row) => (
-                    <tr key={`${row.type}-${row.id}`}>
-                      <td>{dateShort(row.requested_at)}</td>
-                      <td>{row.org_name || row.org_id || '—'}</td>
-                      <td>{String(row.type || '').replace('_', ' ')}</td>
-                      <td><span className={`pill ${row.status === 'pending' ? 'p-amber' : row.status === 'approved' ? 'p-green' : ''}`}>{row.status || '—'}</span></td>
-                      <td>{row.requested_refund_type ? String(row.requested_refund_type).replace(/_/g, ' ') : '—'}</td>
-                      <td style={{ textAlign: 'right' }}>
-                        {row.org_id ? (
-                          <Link className="btn btnCompact" to={`/organisations/${encodeURIComponent(row.org_id)}/control-center`}>
-                            Open org
-                          </Link>
-                        ) : null}
-                        {row.support_ticket_id ? (
-                          <Link className="btn btnCompact" to={`/support/tickets/${row.support_ticket_id}`} style={{ marginLeft: 8 }}>
-                            Ticket
-                          </Link>
-                        ) : null}
+                  {vatRates.map((row) => (
+                    <tr key={row.country_code}>
+                      <td><code>{row.country_code}</code></td>
+                      <td>{row.country_name}</td>
+                      <td>
+                        <Input
+                          className="h-8 w-[90px]"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          defaultValue={row.vat_rate_percent}
+                          onBlur={(e) => updateVatRow({ ...row, vat_rate_percent: Number(e.target.value || 0) })}
+                        />
                       </td>
+                      <td>
+                        <input
+                          type="checkbox"
+                          defaultChecked={row.is_enabled !== false}
+                          onChange={(e) => updateVatRow({ ...row, is_enabled: e.target.checked })}
+                        />
+                      </td>
+                      <td className="text-xs text-muted-foreground">{row.notes || '—'}</td>
+                      <td className="text-[11px] text-muted-foreground">{row.updated_at ? dateText(row.updated_at) : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      {tab === 'template' ? (
-        <div className="card msgTemplateEditor">
-          <div className="cardHead">
-            <h3>Invoice document HTML</h3>
-            <span className="pill p-cyan">PDF + dashboard view</span>
-          </div>
-          <div className="cardBody">
-            <p className="fieldHint" style={{ marginBottom: 14 }}>
-              Placeholders: <code>{'{{invoice_number}}'}</code>, <code>{'{{organisation_name}}'}</code>, <code>{'{{line_items_html}}'}</code>,{' '}
-              <code>{'{{subtotal}}'}</code>, <code>{'{{tax_amount}}'}</code>, <code>{'{{amount}}'}</code>.
-              Email notification: <Link to="/settings/email/templates/new_invoice/edit">new_invoice</Link>.
-            </p>
-
-            <div className="emailEditorSplit invoiceTemplateSplit">
-              <div className="emailEditorFields">
-                <label className="label">Subject (reference)</label>
-                <input
-                  className="input msgFieldSubjectBox"
-                  value={templateDraft.subject}
-                  onChange={(e) => setTemplateDraft((d) => ({ ...d, subject: e.target.value }))}
-                />
-                <label className="label emailBodyLabel">HTML body</label>
-                <textarea
-                  className="input msgFieldBodyBox invoiceTemplateEditor"
-                  value={templateDraft.body}
-                  onChange={(e) => setTemplateDraft((d) => ({ ...d, body: e.target.value }))}
-                  placeholder="<html>…</html>"
-                />
-              </div>
-
-              <div className="msgFieldBlock msgFieldBlockTight emailEditorPreviewCol">
-                <label className="label">
-                  <i className="ti ti-eye" style={{ marginRight: 6 }} />
-                  Live HTML preview
-                </label>
-                <div className="emailPreviewBox emailPreviewBoxTall invoiceDocPreviewBox">
-                  {previewHtml ? (
-                    <div className="emailPreviewInner invoiceDocPreviewInner" dangerouslySetInnerHTML={{ __html: previewHtml }} />
-                  ) : (
-                    <p className="muted" style={{ margin: 0 }}>HTML preview appears here.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="actions" style={{ marginTop: 16 }}>
-              <button type="button" className="btn primary" onClick={saveTemplate} disabled={templateSaving}>
-                <i className="ti ti-device-floppy" />
-                {templateSaving ? 'Saving…' : 'Save invoice template'}
-              </button>
-              {templateMsg ? <span className="muted" style={{ fontSize: 12 }}>{templateMsg}</span> : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {tab === 'vat' ? (
-        <>
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="cardHead"><h3>Add / update country VAT</h3></div>
-            <div className="cardBody invoiceFilterGrid">
-              <label className="msgFieldBlockTight">
-                <span className="label">Code</span>
-                <input className="input" maxLength={2} value={vatDraft.country_code} onChange={(e) => setVatDraft((d) => ({ ...d, country_code: e.target.value.toUpperCase() }))} placeholder="AE" />
-              </label>
-              <label className="msgFieldBlockTight">
-                <span className="label">Country</span>
-                <input className="input" value={vatDraft.country_name} onChange={(e) => setVatDraft((d) => ({ ...d, country_name: e.target.value }))} placeholder="United Arab Emirates" />
-              </label>
-              <label className="msgFieldBlockTight">
-                <span className="label">VAT %</span>
-                <input className="input" type="number" min="0" step="0.01" value={vatDraft.vat_rate_percent} onChange={(e) => setVatDraft((d) => ({ ...d, vat_rate_percent: e.target.value }))} />
-              </label>
-              <label className="msgFieldBlockTight">
-                <span className="label">Notes</span>
-                <input className="input" value={vatDraft.notes} onChange={(e) => setVatDraft((d) => ({ ...d, notes: e.target.value }))} placeholder="Optional" />
-              </label>
-              <button type="button" className="btn primary" disabled={busy === 'vat'} onClick={saveVat}>Save</button>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="cardHead"><h3>VAT rates</h3></div>
-            <div className="cardBody invoiceTableWrap">
-              {loading ? <div className="muted">Loading…</div> : null}
-              {!loading && vatRates.length ? (
-                <table className="table invoiceDenseTable">
-                  <thead>
-                    <tr>
-                      <th>Code</th>
-                      <th>Country</th>
-                      <th>VAT %</th>
-                      <th>Enabled</th>
-                      <th>Notes</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vatRates.map((row) => (
-                      <tr key={row.country_code}>
-                        <td><code>{row.country_code}</code></td>
-                        <td>{row.country_name}</td>
-                        <td>
-                          <input
-                            className="input"
-                            style={{ width: 90 }}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            defaultValue={row.vat_rate_percent}
-                            onBlur={(e) => updateVatRow({ ...row, vat_rate_percent: Number(e.target.value || 0) })}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="checkbox"
-                            defaultChecked={row.is_enabled !== false}
-                            onChange={(e) => updateVatRow({ ...row, is_enabled: e.target.checked })}
-                          />
-                        </td>
-                        <td className="muted" style={{ fontSize: 12 }}>{row.notes || '—'}</td>
-                        <td className="muted" style={{ fontSize: 11 }}>{row.updated_at ? dateText(row.updated_at) : '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : null}
-            </div>
-          </div>
+          </Panel>
         </>
       ) : null}
 
       {editInvoice ? (
         <div className="invoiceModalScrim" onClick={() => !editBusy && setEditInvoice(null)}>
-          <div className="invoiceModalCard" onClick={(e) => e.stopPropagation()}>
+          <div className="invoiceModalCard ds-scope" onClick={(e) => e.stopPropagation()}>
             <div className="invoiceModalHead">
               <h3>Edit invoice {editInvoice.invoice_number || editInvoice.id?.slice(0, 8)}</h3>
               <button type="button" className="invoiceIconBtn" onClick={() => setEditInvoice(null)} disabled={editBusy}><i className="ti ti-x" /></button>
             </div>
-            <div className="invoiceModalBody">
-              <label className="msgFieldBlockTight">
-                <span className="label">Amount ({editInvoice?.currency ? `${currencySymbol(editInvoice.currency)} ex VAT` : 'ex VAT'})</span>
-                <input className="input" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
+            <div className="invoiceModalBody space-y-3">
+              <label className="grid gap-1">
+                <Label className="text-[11px] text-muted-foreground">Amount ({editInvoice?.currency ? `${currencySymbol(editInvoice.currency)} ex VAT` : 'ex VAT'})</Label>
+                <Input className="h-8" type="number" min="0" step="0.01" value={editAmount} onChange={(e) => setEditAmount(e.target.value)} />
               </label>
-              <label className="msgFieldBlockTight">
-                <span className="label">Due date</span>
-                <input className="input" type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} />
+              <label className="grid gap-1">
+                <Label className="text-[11px] text-muted-foreground">Due date</Label>
+                <Input className="h-8" type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} />
               </label>
-              <label className="msgFieldBlockTight">
-                <span className="label">Description</span>
-                <input className="input" type="text" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+              <label className="grid gap-1">
+                <Label className="text-[11px] text-muted-foreground">Description</Label>
+                <Input className="h-8" type="text" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
               </label>
-              <div className="invoiceModalActions">
-                <button type="button" className="btn soft" onClick={() => setEditInvoice(null)} disabled={editBusy}>Close</button>
-                <button type="button" className="btn primary" onClick={saveEditInvoice} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save changes'}</button>
+              <div className="invoiceModalActions flex gap-2">
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setEditInvoice(null)} disabled={editBusy}>Close</Button>
+                <Button type="button" size="sm" className="h-8" onClick={saveEditInvoice} disabled={editBusy}>{editBusy ? 'Saving…' : 'Save changes'}</Button>
               </div>
             </div>
           </div>
@@ -943,7 +945,7 @@ export default function InvoicesAdmin() {
 
       {viewInvoice ? (
         <div className="invoiceModalScrim" onClick={() => setViewInvoice(null)}>
-          <div className="invoiceModalCard invoiceViewCard" onClick={(e) => e.stopPropagation()}>
+          <div className="invoiceModalCard invoiceViewCard ds-scope" onClick={(e) => e.stopPropagation()}>
             <div className="invoiceModalHead">
               <h3>{viewInvoice.invoice_number || viewInvoice.external_invoice_id || 'Invoice'}</h3>
               <button type="button" className="invoiceIconBtn" onClick={() => setViewInvoice(null)}><i className="ti ti-x" /></button>
@@ -957,20 +959,20 @@ export default function InvoicesAdmin() {
               <div><span className="label">Due</span><strong>{dateShort(viewInvoice.due_date)}</strong></div>
               <div className="invoiceViewFull"><span className="label">Description</span><strong>{viewInvoice.description || '—'}</strong></div>
               <div className="invoiceViewFull"><span className="label">Provider / method</span><strong>{[viewInvoice.provider, viewInvoice.payment_method].filter(Boolean).join(' · ') || '—'}</strong></div>
-              <div className="invoiceModalActions invoiceViewFull">
-                <button type="button" className="btn soft" onClick={() => viewHtml(viewInvoice.id)}><i className="ti ti-file-text" /> HTML</button>
-                <button type="button" className="btn soft" onClick={() => downloadPdf(viewInvoice.id, viewInvoice.invoice_number)}><i className="ti ti-download" /> PDF</button>
+              <div className="invoiceModalActions invoiceViewFull flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => viewHtml(viewInvoice.id)}><i className="ti ti-file-text" /> HTML</Button>
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => downloadPdf(viewInvoice.id, viewInvoice.invoice_number)}><i className="ti ti-download" /> PDF</Button>
                 {resolveInvoiceLifecycle(viewInvoice).can_edit ? (
-                  <button type="button" className="btn soft" onClick={() => { setViewInvoice(null); openEditInvoice(viewInvoice) }}><i className="ti ti-pencil" /> Edit</button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => { setViewInvoice(null); openEditInvoice(viewInvoice) }}><i className="ti ti-pencil" /> Edit</Button>
                 ) : null}
                 {resolveInvoiceLifecycle(viewInvoice).can_void ? (
-                  <button type="button" className="btn soft" onClick={() => { setViewInvoice(null); voidInvoice(viewInvoice) }}><i className="ti ti-x" /> Cancel</button>
+                  <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => { setViewInvoice(null); voidInvoice(viewInvoice) }}><i className="ti ti-x" /> Cancel</Button>
                 ) : null}
               </div>
             </div>
           </div>
         </div>
       ) : null}
-    </>
+    </div>
   )
 }
