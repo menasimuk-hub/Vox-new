@@ -5,7 +5,7 @@ import {
   ComposedChart, Line,
 } from "recharts";
 import {
-  ArrowUpRight, ArrowDownRight, Minus, Plus, Sparkles, Phone, Download,
+  ArrowUpRight, ArrowDownRight, Minus, Plus, Sparkles, Phone,
   PoundSterling, PhoneOutgoing, UserCheck, MessageCircle, ListChecks, Timer, Wallet, Target,
   Radio, PhoneCall, CheckCircle2, Users, BarChart3, MessagesSquare, PauseCircle, type LucideIcon,
   Activity, TrendingUp, Smile, Frown, Meh, Star, QrCode, MessageSquareText, HeartPulse, AlertTriangle, Clock3,
@@ -19,17 +19,14 @@ import { NewCampaignPicker } from "@/components/new-campaign-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useServices, type ServiceKey } from "@/lib/services";
 import { showRecoveryModules } from "@/lib/feature-flags";
 import { useConnections } from "@/lib/connections";
-import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
-import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import { orderToCampaign } from "@/lib/mappers/orders";
-import { useBillingUsage, useHomeSummary, useServiceOrders } from "@/lib/queries";
+import { useHomeSummary, useServiceOrders } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import type { HomeSummary } from "@/lib/types/api";
 import { apiFetch } from "@/lib/api";
@@ -50,7 +47,6 @@ function Dashboard() {
   const { session } = useSession();
   const [pickOpen, setPickOpen] = React.useState(false);
   const summaryQ = useHomeSummary();
-  const usageQ = useBillingUsage();
   const interviewOrdersQ = useServiceOrders("interview");
   const summary = summaryQ.data;
   const greetingName = session?.org?.name?.split(/\s+/)[0] || session?.profile?.email?.split("@")[0] || "there";
@@ -65,8 +61,6 @@ function Dashboard() {
     visible.campaigns ||
     visible.recovery ||
     visible.followup;
-  const showCoreHero =
-    visible.interviews || visible.surveys || visible.feedback || visible.campaigns;
   const loading = summaryQ.isLoading;
   const summaryReady = summaryQ.isSuccess;
   const summaryError = summaryQ.isError
@@ -112,10 +106,8 @@ function Dashboard() {
         </Card>
       )}
 
-      {anyService && summaryReady && <LiveStrip visible={visible} summary={summary} />}
-
-      {showCoreHero && summaryReady && (
-        <HeroRow visible={visible} summary={summary} usageLoading={usageQ.isLoading} />
+      {anyService && (summaryReady || visible.expo || visible.smartCard) && (
+        <ServiceKpiGroups visible={visible} summary={summary} />
       )}
 
       {(anyResponseService || visible.interviews) && summaryReady && (
@@ -152,7 +144,64 @@ function Dashboard() {
 
 type VisibleMap = Record<ServiceKey, boolean>;
 
-function LiveStrip({ visible, summary }: { visible: VisibleMap; summary?: HomeSummary }) {
+type ServiceKpi = { label: string; value: string; icon: LucideIcon };
+type ServiceQuickLink = { label: string; to: string };
+
+function ServiceKpiCard({
+  title,
+  icon: Icon,
+  tone,
+  iconBg,
+  ring,
+  kpis,
+  links,
+}: {
+  title: string;
+  icon: LucideIcon;
+  tone: string;
+  iconBg: string;
+  ring: string;
+  kpis: ServiceKpi[];
+  links: ServiceQuickLink[];
+}) {
+  return (
+    <Card className={cn("overflow-hidden border transition hover:shadow-md", ring)}>
+      <CardHeader className="flex flex-row items-center gap-3 space-y-0 pb-3">
+        <span className={cn("grid size-10 shrink-0 place-items-center rounded-xl", iconBg)}>
+          <Icon className={cn("size-5", tone)} />
+        </span>
+        <div className="min-w-0">
+          <CardTitle className="text-base">{title}</CardTitle>
+          <CardDescription className="text-xs">Live metrics for this product</CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className={cn("grid gap-2", kpis.length >= 3 ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2")}>
+          {kpis.map((k) => (
+            <div key={k.label} className="rounded-xl border bg-muted/20 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <k.icon className={cn("size-3.5 shrink-0", tone)} />
+                <span className="truncate">{k.label}</span>
+              </div>
+              <p className="mt-1 text-xl font-semibold tabular-nums leading-tight">{k.value}</p>
+            </div>
+          ))}
+        </div>
+        {links.length > 0 ? (
+          <div className="flex flex-wrap gap-2 border-t pt-3">
+            {links.map((l) => (
+              <Button key={l.to + l.label} asChild size="sm" variant="outline" className="h-7 text-xs">
+                <Link to={l.to as "/"}>{l.label}</Link>
+              </Button>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ServiceKpiGroups({ visible, summary }: { visible: VisibleMap; summary?: HomeSummary }) {
   const int = summary?.interview;
   const sur = summary?.survey;
   const fb = summary?.feedback;
@@ -161,163 +210,160 @@ function LiveStrip({ visible, summary }: { visible: VisibleMap; summary?: HomeSu
   const happyPct = sentimentTotal ? `${Math.round((happyTotal / sentimentTotal) * 100)}%` : "—";
 
   const expoQ = useQuery({
-    queryKey: ["expo", "results", "summary", "live-strip"],
-    queryFn: () => apiFetch<{ scans_today?: number }>("/expo/results/summary"),
+    queryKey: ["expo", "results", "summary", "home-kpi"],
+    queryFn: () =>
+      apiFetch<{
+        scans_today?: number;
+        scans?: number;
+        leads_today?: number;
+        completed_leads?: number;
+        booths_live?: number;
+      }>("/expo/results/summary"),
     enabled: visible.expo,
   });
   const smartCardQ = useQuery({
-    queryKey: ["smart-card", "results", "summary", "live-strip"],
-    queryFn: () => apiFetch<{ scans_today?: number }>("/smart-card/results/summary"),
+    queryKey: ["smart-card", "results", "summary", "home-kpi"],
+    queryFn: () =>
+      apiFetch<{ scans?: number; scans_today?: number; leads?: number; leads_today?: number }>(
+        "/smart-card/results/summary",
+      ),
+    enabled: visible.smartCard,
+  });
+  const entQ = useQuery({
+    queryKey: ["smart-card", "entitlement", "home-kpi"],
+    queryFn: () =>
+      apiFetch<{ seat_quantity?: number; active_reps?: number }>("/smart-card/entitlement"),
     enabled: visible.smartCard,
   });
 
-  const all = [
-    { key: "interviews", icon: PhoneCall, label: "AI interview calls live", value: String(int?.running ?? 0), tone: "text-blue-500", show: visible.interviews && (int?.running ?? 0) > 0 },
-    { key: "surveys", icon: Phone, label: "AI survey calls live", value: String(sur?.running ?? 0), tone: "text-violet-500", show: visible.surveys && (sur?.running ?? 0) > 0 },
-    { key: "surveys", icon: MessageCircle, label: "WA survey threads active", value: String(sur?.live ?? 0), tone: "text-emerald-500", show: visible.surveys && (sur?.live ?? 0) > 0 },
-    { key: "feedback", icon: QrCode, label: "QR scans today", value: String(fb?.qr_scans_today ?? 0), tone: "text-amber-500", show: visible.feedback && (fb?.qr_scans_today ?? 0) > 0 },
-    { key: "feedback", icon: Smile, label: "Happy customers", value: happyPct, tone: "text-emerald-500", show: visible.feedback && sentimentTotal > 0 },
-    { key: "expo", icon: QrCode, label: "Expo scans today", value: String(expoQ.data?.scans_today ?? 0), tone: "text-sky-500", show: visible.expo && (expoQ.data?.scans_today ?? 0) > 0 },
-    { key: "smartCard", icon: IdCard, label: "Smart card scans", value: String(smartCardQ.data?.scans_today ?? 0), tone: "text-indigo-500", show: visible.smartCard && (smartCardQ.data?.scans_today ?? 0) > 0 },
-  ];
-  const items = all.filter((i) => i.show).slice(0, 4);
-  if (items.length === 0) return null;
+  const cards: React.ReactNode[] = [];
+
+  if (visible.interviews) {
+    cards.push(
+      <ServiceKpiCard
+        key="interviews"
+        title="Interviews"
+        icon={PhoneCall}
+        tone="text-blue-600 dark:text-blue-400"
+        iconBg="bg-blue-500/15"
+        ring="ring-1 ring-blue-500/15"
+        kpis={[
+          { label: "Live AI calls", value: String(int?.running ?? int?.live ?? 0), icon: Radio },
+          { label: "Candidates screened", value: String(int?.candidates ?? 0), icon: Users },
+        ]}
+        links={[
+          { label: "New interview", to: "/interviews/new" },
+          { label: "Campaigns", to: "/interviews" },
+        ]}
+      />,
+    );
+  }
+  if (visible.surveys) {
+    cards.push(
+      <ServiceKpiCard
+        key="surveys"
+        title="Surveys"
+        icon={ListChecks}
+        tone="text-violet-600 dark:text-violet-400"
+        iconBg="bg-violet-500/15"
+        ring="ring-1 ring-violet-500/15"
+        kpis={[
+          { label: "Live AI calls", value: String(sur?.running ?? 0), icon: Phone },
+          { label: "WA threads", value: String(sur?.live ?? 0), icon: MessageCircle },
+          { label: "Responses", value: String(sur?.responses ?? 0), icon: MessagesSquare },
+        ]}
+        links={[
+          { label: "New survey", to: "/surveys/new" },
+          { label: "Results", to: "/surveys/results" },
+        ]}
+      />,
+    );
+  }
+  if (visible.feedback) {
+    cards.push(
+      <ServiceKpiCard
+        key="feedback"
+        title="Customer feedback"
+        icon={QrCode}
+        tone="text-emerald-600 dark:text-emerald-400"
+        iconBg="bg-emerald-500/15"
+        ring="ring-1 ring-emerald-500/15"
+        kpis={[
+          { label: "Scans today", value: String(fb?.qr_scans_today ?? 0), icon: QrCode },
+          { label: "Happy customers", value: happyPct, icon: Smile },
+          { label: "Total scans", value: String(fb?.total_scans ?? 0), icon: BarChart3 },
+        ]}
+        links={[
+          { label: "Locations", to: "/feedback" },
+          { label: "Results", to: "/feedback/results" },
+        ]}
+      />,
+    );
+  }
+  if (visible.expo) {
+    const expo = expoQ.data;
+    cards.push(
+      <ServiceKpiCard
+        key="expo"
+        title="Expo"
+        icon={Building2}
+        tone="text-sky-600 dark:text-sky-400"
+        iconBg="bg-sky-500/15"
+        ring="ring-1 ring-sky-500/15"
+        kpis={[
+          { label: "Scans today", value: String(expo?.scans_today ?? 0), icon: QrCode },
+          { label: "Leads today", value: String(expo?.leads_today ?? 0), icon: Users },
+          { label: "Booths live", value: String(expo?.booths_live ?? 0), icon: Building2 },
+        ]}
+        links={[
+          { label: "Create booth", to: "/expo/new" },
+          { label: "Lead results", to: "/expo/leads" },
+        ]}
+      />,
+    );
+  }
+  if (visible.smartCard) {
+    const sc = smartCardQ.data;
+    const seats = entQ.data?.seat_quantity ?? 0;
+    const active = entQ.data?.active_reps ?? 0;
+    cards.push(
+      <ServiceKpiCard
+        key="smartCard"
+        title="Smart Card QR"
+        icon={IdCard}
+        tone="text-indigo-600 dark:text-indigo-400"
+        iconBg="bg-indigo-500/15"
+        ring="ring-1 ring-indigo-500/15"
+        kpis={[
+          { label: "QR scanned", value: String(sc?.scans ?? 0), icon: QrCode },
+          { label: "Leads", value: String(sc?.leads ?? 0), icon: Users },
+          {
+            label: "Seats in use",
+            value: seats > 0 ? `${active}/${seats}` : String(active),
+            icon: IdCard,
+          },
+        ]}
+        links={[
+          { label: "Saved QR codes", to: "/smart-card" },
+          { label: "Lead results", to: "/smart-card/leads" },
+        ]}
+      />,
+    );
+  }
+
+  if (cards.length === 0) return null;
+
   return (
-    <div className={cn("grid gap-2 rounded-2xl border border-border bg-card/60 p-2 sm:grid-cols-2", items.length >= 4 ? "lg:grid-cols-4" : items.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-2")}>
-      {items.map((i, idx) => (
-        <div key={`${i.key}-${idx}`} className="flex items-center gap-3 rounded-xl bg-background/50 px-3 py-2">
-          <span className="relative grid size-9 place-items-center rounded-lg bg-muted">
-            <i.icon className={cn("size-4", i.tone)} />
-            <span className="absolute -top-0.5 -right-0.5 flex size-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
-              <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
-            </span>
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{i.label}</p>
-            <p className="text-lg font-semibold tabular-nums leading-tight">{i.value}</p>
-          </div>
-        </div>
-      ))}
+    <div className="space-y-3">
+      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+        Services · live KPIs
+      </p>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{cards}</div>
     </div>
   );
 }
 
-function HeroRow({
-  visible,
-  summary,
-  usageLoading,
-}: {
-  visible: VisibleMap;
-  summary?: HomeSummary;
-  usageLoading?: boolean;
-}) {
-  const int = summary?.interview;
-  const sur = summary?.survey;
-  const fb = summary?.feedback;
-  const allowancesState = useUsageAllowances();
-  const conversations =
-    (int?.calls_completed ?? int?.candidates ?? 0) + (sur?.responses ?? 0) + (fb?.total_scans ?? 0);
 
-  const unhappyCount = summary?.feedback?.unhappy?.length ?? 0;
-  const liveCampaigns = (int?.live ?? 0) + (sur?.live ?? 0);
-  const overageRisk = Boolean(allowancesState.usage?.billing_monitor?.status?.overage_risk);
-  const showAllowance =
-    (allowancesState.coreRows.length > 0 && visible.interviews) ||
-    (allowancesState.feedbackRows.length > 0 && visible.feedback);
-
-  const tiles: { show: boolean; label: string; value: string; tone: string }[] = [
-    { show: visible.interviews, label: "Candidates screened", value: String(int?.candidates ?? 0), tone: "text-blue-500" },
-    { show: visible.surveys, label: "Survey responses", value: String(sur?.responses ?? 0), tone: "text-violet-500" },
-    { show: visible.feedback, label: "QR feedback", value: String(fb?.total_scans ?? 0), tone: "text-emerald-500" },
-  ];
-  const visibleTiles = tiles.filter((t) => t.show);
-
-  return (
-    <div className={cn("grid gap-4", showAllowance ? "lg:grid-cols-[1.5fr_1fr]" : "grid-cols-1")}>
-      <div className="relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-card via-card to-accent/40 p-6">
-        <div className="absolute -right-24 -top-24 size-72 rounded-full bg-primary/20 blur-3xl" />
-        <h2 className="relative text-4xl font-semibold tracking-tight md:text-5xl">
-          Your AI ran <span className="text-primary">{conversations.toLocaleString()}</span> conversations
-        </h2>
-        <p className="mt-2 max-w-md text-sm text-muted-foreground">
-          Across phone, WhatsApp and QR — every customer touchpoint in one place.
-        </p>
-        {visibleTiles.length > 0 && (
-          <div className={cn("mt-5 grid gap-2", visibleTiles.length === 1 ? "grid-cols-1" : visibleTiles.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
-            {visibleTiles.map((t) => <RoiStat key={t.label} label={t.label} value={t.value} tone={t.tone} />)}
-          </div>
-        )}
-      </div>
-
-      {showAllowance ? (
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium">Allowance this period</p>
-            <Link to="/account/billing" className="text-xs font-medium text-primary hover:underline">
-              Billing →
-            </Link>
-          </div>
-          {usageLoading || allowancesState.loading ? (
-            <Skeleton className="mt-3 h-24 w-full" />
-          ) : (
-            <div className="mt-3 space-y-4">
-              {allowancesState.coreRows.length > 0 && visible.interviews ? (
-                <AllowanceProductPanel
-                  meta={allowancesState.coreMeta}
-                  rows={allowancesState.coreRows.filter((r) => r.key === "calls" || r.key === "whatsapp")}
-                  sharedPool={allowancesState.sharedPool}
-                  compact
-                  hideFooter
-                />
-              ) : null}
-              {allowancesState.feedbackRows.length > 0 && visible.feedback ? (
-                <AllowanceProductPanel
-                  meta={allowancesState.feedbackMeta}
-                  rows={allowancesState.feedbackRows}
-                  compact
-                  hideFooter
-                />
-              ) : null}
-            </div>
-          )}
-          <div className={cn("mt-4 grid gap-2 text-sm", (visible.feedback && unhappyCount > 0) && (overageRisk || liveCampaigns > 0) ? "grid-cols-2" : "grid-cols-1")}>
-            {visible.feedback && unhappyCount > 0 && (
-              <HeroAlert tone="warning" icon={AlertTriangle} title={`${unhappyCount} need follow-up`} detail="Review unhappy feedback today" />
-            )}
-            {overageRisk ? (
-              <HeroAlert tone="warning" icon={AlertTriangle} title="Approaching allowance" detail="Check billing before launching more" />
-            ) : liveCampaigns > 0 ? (
-              <HeroAlert tone="info" icon={Clock3} title={`${liveCampaigns} campaigns live`} detail="Running across your services" />
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function RoiStat({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-background/50 p-3">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 text-xl font-semibold tabular-nums", tone)}>{value}</p>
-    </div>
-  );
-}
-
-function HeroAlert({ tone, icon: Icon, title, detail }: { tone: "warning" | "info"; icon: LucideIcon; title: string; detail: string }) {
-  const cls = tone === "warning" ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400" : "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400";
-  return (
-    <div className={cn("flex items-start gap-2 rounded-lg border p-2", cls)}>
-      <Icon className="mt-0.5 size-3.5 shrink-0" />
-      <div className="min-w-0">
-        <p className="text-xs font-medium leading-tight">{title}</p>
-        <p className="text-[10px] opacity-80">{detail}</p>
-      </div>
-    </div>
-  );
-}
 
 type ActivityItem = NonNullable<HomeSummary["feedback"]>["recent"] extends (infer R)[] | undefined ? R : never;
 
@@ -497,7 +543,7 @@ function UnhappyCustomers({ visible, summary }: { visible: VisibleMap; summary?:
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2"><Frown className="size-4 text-red-500" /> Needs follow-up</CardTitle>
-          <CardDescription>Unhappy customers — reach out today</CardDescription>
+          <CardDescription>Unhappy customers — open results to follow up</CardDescription>
         </div>
         {unhappy.length > 0 && <Badge variant="destructive">{unhappy.length}</Badge>}
       </CardHeader>
@@ -507,7 +553,11 @@ function UnhappyCustomers({ visible, summary }: { visible: VisibleMap; summary?:
         ) : (
           <>
             {unhappy.slice(0, 4).map((u) => (
-              <div key={u.id || u.reason} className="rounded-lg border border-red-500/20 bg-red-500/5 p-2.5">
+              <Link
+                key={u.id || u.reason}
+                to={resultsTo}
+                className="block rounded-lg border border-red-500/20 bg-red-500/5 p-2.5 transition hover:border-red-500/40 hover:bg-red-500/10"
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -518,15 +568,7 @@ function UnhappyCustomers({ visible, summary }: { visible: VisibleMap; summary?:
                   </div>
                   <span className="text-[10px] text-muted-foreground">{formatWhen(u.when)}</span>
                 </div>
-                <div className="mt-2 flex gap-1.5">
-                  <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" asChild>
-                    <Link to={resultsTo}><Phone className="size-3" /> Call</Link>
-                  </Button>
-                  <Button size="sm" variant="ghost" className="h-7 gap-1 text-[11px]" asChild>
-                    <Link to={resultsTo}><MessageCircle className="size-3" /> WhatsApp</Link>
-                  </Button>
-                </div>
-              </div>
+              </Link>
             ))}
             <Button variant="ghost" size="sm" className="w-full justify-center gap-1 text-xs" asChild>
               <Link to={resultsTo}>See all unhappy customers <ArrowRight className="size-3" /></Link>
@@ -806,4 +848,3 @@ function sparkFor(label: string): number[] {
     return 50 + x * 35 + i * 1.4;
   });
 }
-void Download; void Progress; void Area; void MessageSquareText; void HeartPulse;

@@ -5,7 +5,9 @@ import { toast } from "sonner";
 
 import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
+import { ExpoPlansPanel } from "@/components/billing/expo-plans-panel";
 import { SERVICE_TINTS, ServicePackageShell } from "@/components/billing/service-package-shell";
+import { SmartCardPlansPanel } from "@/components/billing/smart-card-plans-panel";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
 import {
@@ -47,7 +49,6 @@ import {
 } from "@/lib/queries";
 import type { FeedbackPackage } from "@/lib/queries";
 import { useSession } from "@/lib/session";
-import { useServices } from "@/lib/services";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -72,7 +73,18 @@ export const Route = createFileRoute("/_app/account/packages")({
         : product === "feedback"
           ? ("feedback" as const)
           : undefined;
-    return { tab: resolvedTab, plan, product };
+    return {
+      tab: resolvedTab,
+      plan,
+      product,
+      billing: typeof search.billing === "string" ? search.billing : undefined,
+      payment_intent: typeof search.payment_intent === "string" ? search.payment_intent : undefined,
+      payment_intent_client_secret:
+        typeof search.payment_intent_client_secret === "string"
+          ? search.payment_intent_client_secret
+          : undefined,
+      redirect_flow_id: typeof search.redirect_flow_id === "string" ? search.redirect_flow_id : undefined,
+    };
   },
   component: PackagesPage,
 });
@@ -90,8 +102,8 @@ const CURRENCY_SYMBOL: Record<string, string> = {
 const SERVICE_TABS: Record<ServiceTab, { label: string; icon: React.ComponentType<{ className?: string }>; tint: string; ring: string; bg: string; chip: string; blurb: string; billing: string }> = {
   core: { label: "Interview & Survey", icon: Sparkles, tint: "text-primary", ring: "ring-primary/30", bg: "from-primary/10", chip: "bg-primary/15 text-primary", blurb: "AI interviews + outbound WA & AI-call surveys. Does not include Customer Feedback QR.", billing: "Subscription + top-up" },
   feedback: { label: "Customer Feedback", icon: Smile, tint: "text-success", ring: "ring-success/30", bg: "from-success/10", chip: "bg-success/15 text-success", blurb: "QR-driven inbound WhatsApp feedback. Separate subscription — not included in Core platform.", billing: "Subscription only" },
-  expo: { label: "Expo", icon: Building2, tint: "text-sky-600", ring: "ring-sky-500/30", bg: "from-sky-500/10", chip: "bg-sky-500/15 text-sky-700 dark:text-sky-400", blurb: "Trade-show booth QR capture — packages are managed on a dedicated page.", billing: "Event packages" },
-  smartCard: { label: "Smart Card QR", icon: QrCode, tint: "text-violet-600", ring: "ring-violet-500/30", bg: "from-violet-500/10", chip: "bg-violet-500/15 text-violet-700 dark:text-violet-400", blurb: "Personal Smart Card QR for reps — packages are managed on a dedicated page.", billing: "Subscription" },
+  expo: { label: "Expo", icon: Building2, tint: "text-sky-600", ring: "ring-sky-500/30", bg: "from-sky-500/10", chip: "bg-sky-500/15 text-sky-700 dark:text-sky-400", blurb: "Trade-show booth QR capture — pay per event, not per month.", billing: "Pay per show" },
+  smartCard: { label: "Smart Card QR", icon: QrCode, tint: "text-violet-600", ring: "ring-violet-500/30", bg: "from-violet-500/10", chip: "bg-violet-500/15 text-violet-700 dark:text-violet-400", blurb: "Personal Smart Card QR for reps — £5/seat/month.", billing: "Subscription" },
 };
 
 const CAMPAIGN_CREDIT_PACKS = [
@@ -226,7 +238,6 @@ function PackagesPage() {
   const [busyPlanId, setBusyPlanId] = React.useState<string | null>(null);
   const { session, refetch: refetchSession } = useSession();
   const qc = useQueryClient();
-  const { visible } = useServices();
   const orgQ = useOrganisation();
   const orgCountry = String(orgQ.data?.country || "").trim();
   const pricingQ = useBillingPricing("auto", orgCountry);
@@ -237,12 +248,8 @@ function PackagesPage() {
   const createTicketM = useCreateSupportTicket();
   const [topupOpen, setTopupOpen] = React.useState(false);
   const visibleTabs = React.useMemo((): ServiceTab[] => {
-    const tabs: ServiceTab[] = ["core"];
-    if (visible.feedback) tabs.push("feedback");
-    if (visible.expo) tabs.push("expo");
-    if (visible.smartCard) tabs.push("smartCard");
-    return tabs;
-  }, [visible.feedback, visible.expo, visible.smartCard]);
+    return ["core", "feedback", "expo", "smartCard"];
+  }, []);
   const resolveTab = React.useCallback(
     (tab: ServiceTab | undefined): ServiceTab => {
       if (tab && visibleTabs.includes(tab)) return tab;
@@ -541,32 +548,37 @@ function PackagesPage() {
               <span className="font-semibold tabular-nums">{walletBalance}</span>
             </button>
           ) : null}
-          <BillingIntervalToggle value={billingInterval} onChange={setBillingInterval} showSaveBadge />
         </div>
       </div>
 
       <Tabs value={packagesTab} onValueChange={(v) => setPackagesTab(v as ServiceTab)} className="w-full">
-        <div className="mb-4 flex justify-center">
-          <div className="inline-flex rounded-full border border-border bg-muted/40 p-1.5 text-xs shadow-sm">
-            {visibleTabs.map((key) => {
-              const s = SERVICE_TABS[key];
-              const Icon = s.icon;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  className={`inline-flex items-center gap-2 rounded-full px-4 py-2 transition-colors ${
-                    packagesTab === key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={() => setPackagesTab(key)}
-                >
+        <TabsList className="mb-4 grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border bg-muted/40 p-2 lg:grid-cols-4">
+          {visibleTabs.map((key) => {
+            const s = SERVICE_TABS[key];
+            const Icon = s.icon;
+            const on = packagesTab === key;
+            return (
+              <TabsTrigger
+                key={key}
+                value={key}
+                className={`group relative flex h-auto items-center gap-3 overflow-hidden rounded-xl border px-3 py-3 text-left transition-all duration-300 hover:-translate-y-0.5 ${
+                  on
+                    ? `border-transparent bg-background shadow-md ring-2 ${s.ring} bg-gradient-to-br ${s.bg} to-transparent`
+                    : "border-transparent bg-transparent hover:bg-background/70"
+                }`}
+              >
+                <span className={`grid size-9 shrink-0 place-items-center rounded-lg transition-transform duration-300 group-hover:scale-110 ${on ? `bg-background shadow-sm ${s.tint}` : `${s.chip}`}`}>
                   <Icon className="size-4" />
-                  <span className="font-medium">{s.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+                </span>
+                <span className="min-w-0">
+                  <span className={`block truncate text-[13px] font-semibold ${on ? "text-foreground" : "text-muted-foreground"}`}>{s.label}</span>
+                  <span className="block truncate text-[10px] text-muted-foreground">{s.billing}</span>
+                </span>
+                {on && <span className={`absolute inset-x-3 bottom-0 h-0.5 rounded-full ${s.tint.replace("text-", "bg-")}`} />}
+              </TabsTrigger>
+            );
+          })}
+        </TabsList>
 
         {visibleTabs.map((key) => {
           const s = SERVICE_TABS[key];
@@ -578,7 +590,15 @@ function PackagesPage() {
               className={`mt-4 space-y-6`}
             >
               <ServicePackageShell
-                tint={key === "core" ? SERVICE_TINTS.core : key === "feedback" ? SERVICE_TINTS.feedback : SERVICE_TINTS.expo}
+                tint={
+                  key === "core"
+                    ? SERVICE_TINTS.core
+                    : key === "feedback"
+                      ? SERVICE_TINTS.feedback
+                      : key === "smartCard"
+                        ? SERVICE_TINTS.smartCard
+                        : SERVICE_TINTS.expo
+                }
                 icon={Icon}
                 title={key === "core" ? "Interview + WA Survey" : s.label}
                 blurb={s.blurb}
@@ -929,37 +949,9 @@ function PackagesPage() {
                     </>
                   ) : null}
 
-                  {key === "expo" ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-base">Expo packages</CardTitle>
-                        <CardDescription>
-                          Browse booth packages, purchase or renew on the dedicated Expo billing page.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <Button asChild>
-                          <Link to="/account/expo/packages">Open Expo packages</Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ) : null}
+                  {key === "expo" ? <ExpoPlansPanel /> : null}
 
-                  {key === "smartCard" ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-base">Smart Card QR packages</CardTitle>
-                        <CardDescription>
-                          Manage Smart Card subscriptions and renewals on the dedicated packages page.
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <Button asChild>
-                          <Link to="/account/smart-card/packages">Open Smart Card packages</Link>
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ) : null}
+                  {key === "smartCard" ? <SmartCardPlansPanel /> : null}
                 </div>
               </ServicePackageShell>
             </TabsContent>

@@ -59,7 +59,7 @@ export async function startSmartCardSeatCheckout(
       currency: result.currency,
       environment: String(result.checkout?.environment || "demo"),
       pending: { flow: "smart_card_subscription", payment_intent_id: intentId },
-      returnPath: "/account/smart-card/packages",
+      returnPath: "/account/packages?tab=smartCard",
     });
     return result;
   }
@@ -73,7 +73,7 @@ export async function startSmartCardSeatCheckout(
   const { error } = await stripe.confirmPayment({
     clientSecret: result.client_secret,
     confirmParams: {
-      return_url: `${window.location.origin}/account/smart-card/packages?billing=card_success`,
+      return_url: `${window.location.origin}/account/packages?tab=smartCard&billing=card_success`,
     },
   });
   if (error) throw new Error(error.message || "Stripe payment failed");

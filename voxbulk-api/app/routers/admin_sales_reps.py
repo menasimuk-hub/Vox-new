@@ -452,6 +452,58 @@ def reset_sales_rep_password(rep_id: str, payload: dict, db: Session = Depends(g
     return {"ok": True}
 
 
+@router.post("/{rep_id}/test-mailbox")
+def test_sales_rep_mailbox(
+    rep_id: str, payload: dict, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)
+):
+    """Test SMTP + IMAP connection. If username+password provided, test those; else test stored rep credentials."""
+    body = payload or {}
+    username = str(body.get("username") or "").strip()
+    password = str(body.get("password") or "").strip()
+
+    if rep_id and rep_id != "test":
+        rep = _get_rep(db, rep_id)
+        if not username:
+            username = rep.smtp_username or ""
+        if not password:
+            from app.core.security import decrypt_str
+            password = decrypt_str(rep.smtp_password) if rep.smtp_password else ""
+    
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+    if not password:
+        raise HTTPException(status_code=400, detail="Password is required for testing")
+
+    smtp_ok = False
+    imap_ok = False
+    message = []
+
+    # Test SMTP
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        with smtplib.SMTP("mail.voxbulk.com", 587, timeout=10) as server:
+            server.starttls()
+            server.login(username, password)
+            smtp_ok = True
+            message.append("SMTP OK")
+    except Exception as e:
+        message.append(f"SMTP failed: {str(e)[:80]}")
+
+    # Test IMAP
+    try:
+        import imaplib
+        with imaplib.IMAP4_SSL("mail.voxbulk.com", 993, timeout=10) as mail:
+            mail.login(username, password)
+            imap_ok = True
+            message.append("IMAP OK")
+    except Exception as e:
+        message.append(f"IMAP failed: {str(e)[:80]}")
+
+    ok = smtp_ok and imap_ok
+    return {"ok": ok, "smtp_ok": smtp_ok, "imap_ok": imap_ok, "message": " · ".join(message)}
+
+
 @router.delete("/{rep_id}")
 def delete_sales_rep(rep_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     rep = _get_rep(db, rep_id)
