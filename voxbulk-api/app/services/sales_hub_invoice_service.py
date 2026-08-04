@@ -419,8 +419,16 @@ class SalesHubInvoiceService:
 
     @staticmethod
     def render_html(db: Session, inv: SalesHubInvoice, items: list[SalesHubInvoiceItem] | None = None) -> str:
-        from app.core.config import get_settings
-        from app.services.brand_assets import logo_data_uri
+        """Printable invoice HTML — same Admin `invoice_document` theme as billing invoices."""
+        from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY
+        from app.services.email_template_service import EmailTemplateService
+        from app.services.invoice_service import (
+            InvoiceDocumentService,
+            _invoice_template_body,
+            _line_items_html,
+            _money,
+        )
+        from app.services.transactional_email_service import substitute_placeholders
 
         if items is None:
             items = SalesHubInvoiceService.list_items(db, inv.id)
@@ -431,38 +439,74 @@ class SalesHubInvoiceService:
         disc_minor = int(round(sub * disc / 100.0))
         after = sub - disc_minor
         tax_minor = int(round(after * tax / 100.0))
-        logo = logo_data_uri(variant="logo-black") or ""
-        settings = get_settings()
-        company = getattr(settings, "invoice_company_name", None) or "Voxbulk Ltd"
-        company_email = getattr(settings, "invoice_company_email", None) or "sales@voxbulk.com"
-        addr = getattr(settings, "invoice_company_address", None) or ""
-        lines_html = "".join(
-            f"<tr><td>{it.description}</td><td style='text-align:right'>{int(it.quantity or 1)}</td>"
-            f"<td style='text-align:right'>{money_display(int(it.unit_price_minor or 0), inv.currency)}</td></tr>"
-            for it in items
-        )
-        logo_html = f'<img src="{logo}" alt="Voxbulk" style="height:40px;margin-bottom:12px"/>' if logo else ""
-        return f"""<!DOCTYPE html><html><head><meta charset="utf-8"/><title>{inv.number}</title>
-<style>body{{font-family:system-ui,sans-serif;color:#1e293b;margin:40px}} table{{width:100%;border-collapse:collapse;margin-top:24px}}
-th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}} .muted{{color:#64748b;font-size:13px}}
-.total{{font-size:18px;font-weight:700;margin-top:16px}}</style></head><body>
-{logo_html}
-<h1 style="margin:0 0 4px">Invoice {inv.number}</h1>
-<p class="muted">{str(inv.kind or '').capitalize()} · {inv.status}</p>
-<div style="display:flex;justify-content:space-between;gap:24px;margin-top:24px">
-  <div><strong>{company}</strong><div class="muted">{addr}<br/>{company_email}</div></div>
-  <div style="text-align:right"><strong>Bill to</strong><div>{inv.customer}</div>
-  <div class="muted">{inv.customer_email or ''}</div></div>
-</div>
-<table><thead><tr><th>Description</th><th style="text-align:right">Qty</th><th style="text-align:right">Amount</th></tr></thead>
-<tbody>{lines_html or '<tr><td colspan="3">Sales commission</td></tr>'}</tbody></table>
-<div style="margin-left:auto;max-width:240px;margin-top:16px">
-  <div>Subtotal {money_display(sub, inv.currency)}</div>
-  <div>Discount {disc:g}% (−{money_display(disc_minor, inv.currency)})</div>
-  <div>Tax {tax:g}% ({money_display(tax_minor, inv.currency)})</div>
-  <div class="total">Total {money_display(total, inv.currency)}</div>
-</div>
-</body></html>"""
+        currency = (inv.currency or "GBP").upper()
+
+        line_dicts = []
+        for it in items:
+            qty = max(1, int(it.quantity or 1))
+            unit = max(0, int(it.unit_price_minor or 0))
+            line_dicts.append(
+                {
+                    "description": (it.description or "Sales commission").strip() or "Sales commission",
+                    "quantity": qty,
+                    "unit_pence": unit,
+                    "total_pence": unit * qty,
+                }
+            )
+        if not line_dicts:
+            line_dicts = [
+                {
+                    "description": "Sales commission",
+                    "quantity": 1,
+                    "unit_pence": total,
+                    "total_pence": total,
+                }
+            ]
+
+        company = InvoiceDocumentService._company_defaults(db)
+        issued = inv.issued_at or inv.created_at
+        due = inv.due_at
+        notes_bits = []
+        if disc:
+            notes_bits.append(f"Discount {disc:g}% (−{_money(disc_minor, currency)})")
+        if inv.notes:
+            notes_bits.append(str(inv.notes))
+        if inv.kind:
+            notes_bits.append(f"Kind: {inv.kind}")
+
+        variables = {
+            **company,
+            "invoice_number": inv.number or "",
+            "invoice_date": issued.strftime("%d %b %Y") if issued else "—",
+            "due_date": due.strftime("%d %b %Y") if due else "—",
+            "invoice_status": str(inv.status or "new").replace("_", " ").title(),
+            "organisation_name": (inv.customer or "").strip() or "—",
+            "billing_address": "",
+            "client_email": (inv.customer_email or "").strip() or "—",
+            "country_name": "—",
+            "country_code": "—",
+            "payment_method": "Bank transfer / as agreed",
+            "payment_reference": inv.number or "—",
+            "currency": currency,
+            "line_items_html": _line_items_html(line_dicts, currency, vat_inclusive=False),
+            "notes": "\n".join(notes_bits) if notes_bits else "—",
+            "subtotal_label": "Subtotal (ex VAT)",
+            "subtotal": _money(after, currency),
+            "tax_rate": f"{tax:g}%",
+            "tax_amount": _money(tax_minor, currency),
+            "total_label": "Total due",
+            "amount": _money(total, currency),
+        }
+
+        try:
+            _, template_body, _enabled = EmailTemplateService.get_send_content(db, key="invoice_document")
+            template_body = _invoice_template_body(template_body)
+        except Exception:
+            template_body = INVOICE_DOCUMENT_BODY
+        html = substitute_placeholders(template_body, variables)
+        if "{{invoice_number}}" in html or "{{company_logo_html}}" in html:
+            html = substitute_placeholders(INVOICE_DOCUMENT_BODY, variables)
+        return html
 
     @staticmethod
     def render_pdf_bytes(db: Session, inv: SalesHubInvoice) -> bytes:
@@ -488,6 +532,10 @@ th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}} .muted{{col
         outbound = PlatformSenderEmailService.resolve_outbound(db, "sales")
         if outbound is None or not outbound.get("from_email"):
             raise SalesRepError("Configure sales@ in Messaging → Emails (purpose: sales, active).")
+        if not outbound.get("smtp_password"):
+            raise SalesRepError(
+                "Set the password for sales@ in Messaging → Emails, then use Test on that row before sending invoices."
+            )
         from_name = outbound["from_name"]
         from_email = outbound["from_email"]
         template_key = "sales_hub_invoice_reminder" if reminder else "sales_hub_invoice_sent"
@@ -532,7 +580,9 @@ th,td{{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}} .muted{{col
                 smtp_password=outbound.get("smtp_password"),
             )
         except SmtpMailerError as e:
-            raise SalesRepError(str(e)) from e
+            raise SalesRepError(
+                f"SMTP send failed: {e}. Check Messaging → SMTP host and Emails → sales@ password (use Test)."
+            ) from e
         if reminder:
             SalesHubInvoiceService.remind(db, inv=inv)
         else:

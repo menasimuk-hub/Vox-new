@@ -3537,6 +3537,172 @@ body.dark .salesDoneBadge {
   word-break: break-word;
 }
 
+/* Emails hub — Telnyx settings–style striped table */
+.emailsHubToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.emailsHubTestTo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted, #64748b);
+  min-width: 240px;
+}
+
+.emailsHubTestTo .input {
+  min-width: 260px;
+}
+
+.emailsHubCard {
+  overflow: hidden;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--card, #fff);
+}
+
+.emailsHubScroll {
+  overflow-x: auto;
+}
+
+.emailsHubTable {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.emailsHubTable thead {
+  background: var(--surface-muted, #f8fafc);
+}
+
+.emailsHubTable th {
+  height: 32px;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted, #64748b);
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  white-space: nowrap;
+}
+
+.emailsHubTable td {
+  height: 36px;
+  padding: 8px 12px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  color: var(--ink, #0f172a);
+}
+
+.emailsHubTable tbody tr:nth-child(even) {
+  background: rgba(248, 250, 252, 0.65);
+}
+
+.emailsHubTable tbody tr:hover {
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.emailsHubTable code {
+  font-size: 11.5px;
+  background: transparent;
+}
+
+.emailsHubName {
+  font-weight: 600;
+}
+
+.emailsHubPurpose {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.emailsHubNotes {
+  color: var(--muted, #64748b);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emailsHubBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border, #e2e8f0);
+  background: #fff;
+}
+
+.emailsHubBadge.ok {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.emailsHubBadge.warn {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
+.emailsHubBadge.muted {
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.emailsHubActionsCol {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.emailsHubActions {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.emailsHubLink {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+}
+
+.emailsHubLink:hover:not(:disabled) {
+  color: var(--ink, #0f172a);
+  text-decoration: underline;
+}
+
+.emailsHubLink:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.emailsHubLink.danger {
+  color: #b91c1c;
+}
+
+.emailsHubLink.danger:hover:not(:disabled) {
+  color: #991b1b;
+}
+
 .statusDot {
   display: inline-block;
   width: 10px;

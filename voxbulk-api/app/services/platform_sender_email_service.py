@@ -491,6 +491,11 @@ class PlatformSenderEmailService:
         to_addr = (to_addr or "").strip()
         if not to_addr or "@" not in to_addr:
             raise PlatformSenderEmailError("Enter a valid test recipient email")
+        pwd = PlatformSenderEmailService.get_decrypted_password(db, row)
+        if not pwd:
+            raise PlatformSenderEmailError(
+                "Save a password on this email first (Edit → Password → Save), then Test again."
+            )
         outbound = PlatformSenderEmailService.resolve_outbound(db, row.purpose) if row.purpose else None
         if outbound is None:
             # Allow test even without purpose using this row directly

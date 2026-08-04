@@ -1834,7 +1834,6 @@ export default function SalesTeam() {
             <table className='inv-lines'>
               <thead>
                 <tr>
-                  <th>Service</th>
                   <th>Description</th>
                   <th className='tabular'>Qty</th>
                   <th className='tabular'>Unit</th>
@@ -1844,8 +1843,7 @@ export default function SalesTeam() {
               <tbody>
                 {items.map((it) => (
                   <tr key={it.id || it.description}>
-                    <td>{SERVICE_LABELS[it.service_id] || it.service_id || '—'}</td>
-                    <td className='muted'>{it.description}</td>
+                    <td>{it.description || 'Sales commission'}</td>
                     <td className='tabular'>{it.quantity}</td>
                     <td className='tabular'>{it.unit_price_display || money(it.unit_price_minor, cur)}</td>
                     <td className='tabular'>{money(Number(it.unit_price_minor || 0) * Number(it.quantity || 0), cur)}</td>

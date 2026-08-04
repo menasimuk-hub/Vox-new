@@ -1511,36 +1511,88 @@ body.dark .sales-hub .hub-checkbox.on {
   gap: 16px;
 }
 
+.sales-hub .inv-document {
+  background: #fbf8f3;
+  border: 1px solid #e5e0d8;
+  color: #2a2824;
+  padding: 28px 24px;
+}
+
 .sales-hub .inv-doc-top {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 24px;
   font-size: 0.875rem;
+  margin-bottom: 20px;
+}
+
+.sales-hub .inv-from .muted,
+.sales-hub .inv-billto .muted {
+  color: #6b6560;
+  margin: 2px 0;
 }
 
 .sales-hub .inv-billto {
-  text-align: right;
+  text-align: left;
+  min-width: 220px;
+  padding: 14px;
+  background: #fbf8f3;
+  border: 1px solid #e5e0d8;
+  border-radius: 10px;
+}
+
+.sales-hub .inv-billto .banner-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b6560;
+  margin: 0 0 8px;
 }
 
 .sales-hub .strong {
   margin: 0;
-  font-weight: 600;
+  font-weight: 700;
+  color: #2a2824;
 }
 
 .sales-hub .inv-lines {
-  margin-top: 24px;
+  margin-top: 8px;
   width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
 }
 
-.sales-hub .inv-lines thead {
-  border-bottom: 1px solid var(--border);
+.sales-hub .inv-lines thead tr {
+  background: #d4a93a;
+  color: #fff;
 }
 
-.sales-hub .inv-lines th,
+.sales-hub .inv-lines th {
+  padding: 10px 12px;
+  font-weight: 600;
+  text-align: left;
+  border: none;
+}
+
+.sales-hub .inv-lines th:first-child {
+  border-radius: 8px 0 0 0;
+}
+
+.sales-hub .inv-lines th:last-child {
+  border-radius: 0 8px 0 0;
+  text-align: right;
+}
+
 .sales-hub .inv-lines td {
-  padding: 8px 0;
-  font-size: 0.875rem;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e0d8;
+  color: #2a2824;
+}
+
+.sales-hub .inv-lines td.tabular {
+  text-align: right;
 }
 
 .sales-hub .inv-totals {
@@ -1554,9 +1606,13 @@ body.dark .sales-hub .hub-checkbox.on {
 .sales-hub .inv-totals .total-row {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border);
+  border-top: 2px solid #2a2824;
   font-size: 1rem;
-  font-weight: 600;
+  font-weight: 800;
+}
+
+.sales-hub .inv-totals .total-row .v {
+  color: #d4a93a;
 }
 
 .sales-hub .empty-cell {

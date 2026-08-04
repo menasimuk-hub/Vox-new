@@ -1394,108 +1394,105 @@ export default function EmailSettings() {
                 Platform sender emails
               </div>
               <div className="note" style={{ marginBottom: 12 }}>
-                <strong>SMTP tab</strong> = mail server. This table = each mailbox login (From + password) used when the system sends.
-                Domain locked to <strong>@voxbulk.com</strong>. System rows (sales, billing, careers, support, expo, survey.codes, smartqr, noreply) are auto-seeded and copied from existing mailbox settings.
+                <strong>SMTP</strong> tab = mail server. This table = each mailbox (From + password).
+                Domain <strong>@voxbulk.com</strong> only. After changing passwords: Edit → save password → <strong>Test</strong> (not Save).
               </div>
-              <div className="field" style={{ maxWidth: 360, marginBottom: 12 }}>
-                <label>Test recipient</label>
-                <input
-                  className="input"
-                  type="email"
-                  value={testTo}
-                  onChange={(e) => setTestTo(e.target.value)}
-                  placeholder="you@company.com"
-                />
-              </div>
-              {senderErr ? <div className="note" style={{ color: 'var(--danger, #b42318)', marginBottom: 12 }}>{senderErr}</div> : null}
-              {senderMsg ? <div className="note" style={{ marginBottom: 12 }}>{senderMsg}</div> : null}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <div className="emailsHubToolbar">
+                <label className="emailsHubTestTo">
+                  <span>Test recipient</span>
+                  <input
+                    className="input"
+                    type="email"
+                    value={testTo}
+                    onChange={(e) => setTestTo(e.target.value)}
+                    placeholder="you@company.com"
+                  />
+                </label>
                 <button type="button" className="btn primary" onClick={openAddSender} disabled={senderBusy}>
                   Add email
                 </button>
               </div>
+              {senderErr ? <div className="note" style={{ color: 'var(--danger, #b42318)', marginBottom: 12 }}>{senderErr}</div> : null}
+              {senderMsg ? <div className="note" style={{ marginBottom: 12 }}>{senderMsg}</div> : null}
               {loading ? (
                 <div className="note">Loading…</div>
               ) : (
-                <div className="tableWrap">
-                  <table className="dataTable">
-                    <thead>
-                      <tr>
-                        <th>From name</th>
-                        <th>Address</th>
-                        <th>Purpose</th>
-                        <th>Password</th>
-                        <th>Status</th>
-                        <th>Notes</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {senderEmails.length === 0 ? (
+                <div className="emailsHubCard">
+                  <div className="emailsHubScroll">
+                    <table className="emailsHubTable">
+                      <thead>
                         <tr>
-                          <td colSpan={7} className="muted">No sender emails yet — they will appear after load/seed.</td>
+                          <th>From name</th>
+                          <th>Address</th>
+                          <th>Purpose</th>
+                          <th>Password</th>
+                          <th>Status</th>
+                          <th>Notes</th>
+                          <th className="emailsHubActionsCol">Actions</th>
                         </tr>
-                      ) : (
-                        senderEmails.map((row) => (
-                          <tr key={row.id}>
-                            <td>{row.from_name || '—'}</td>
-                            <td><code>{row.email || `${row.local_part}@voxbulk.com`}</code></td>
-                            <td>{row.purpose || '—'}</td>
-                            <td>
-                              <span className={`pill ${row.password_set ? 'ok' : 'warn'}`}>
-                                {row.password_set ? 'Set' : 'Not set'}
-                              </span>
-                            </td>
-                            <td>
-                              <span className={`pill ${row.is_active ? 'ok' : 'warn'}`}>
-                                {row.is_active ? 'Active' : 'Frozen'}
-                              </span>
-                            </td>
-                            <td className="muted">{row.notes || '—'}</td>
-                            <td>
-                              <div className="templateRowActions">
-                                <button type="button" className="emailIconBtn primary" title="Edit" onClick={() => openEditSender(row)}>
-                                  <i className="ti ti-pencil" />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="emailIconBtn"
-                                  title="Test send"
-                                  disabled={senderBusy || !row.is_active}
-                                  onClick={() => testSenderEmail(row)}
-                                >
-                                  <i className="ti ti-send" />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="emailIconBtn"
-                                  title={row.is_active ? 'Freeze' : 'Unfreeze'}
-                                  disabled={senderBusy}
-                                  onClick={() => freezeSenderEmail(row, row.is_active)}
-                                >
-                                  <i className={`ti ${row.is_active ? 'ti-player-pause' : 'ti-player-play'}`} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="emailIconBtn danger"
-                                  title="Delete"
-                                  disabled={senderBusy}
-                                  onClick={() => deleteSenderEmail(row)}
-                                >
-                                  <i className="ti ti-trash" />
-                                </button>
-                              </div>
-                            </td>
+                      </thead>
+                      <tbody>
+                        {senderEmails.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="muted">No sender emails yet — they appear after load/seed.</td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                        ) : (
+                          senderEmails.map((row) => (
+                            <tr key={row.id}>
+                              <td className="emailsHubName">{row.from_name || '—'}</td>
+                              <td><code>{row.email || `${row.local_part}@voxbulk.com`}</code></td>
+                              <td><span className="emailsHubPurpose">{row.purpose || '—'}</span></td>
+                              <td>
+                                <span className={`emailsHubBadge ${row.password_set ? 'ok' : 'warn'}`}>
+                                  {row.password_set ? 'Set' : 'Not set'}
+                                </span>
+                              </td>
+                              <td>
+                                <span className={`emailsHubBadge ${row.is_active ? 'ok' : 'muted'}`}>
+                                  {row.is_active ? 'Active' : 'Frozen'}
+                                </span>
+                              </td>
+                              <td className="emailsHubNotes">{row.notes || '—'}</td>
+                              <td className="emailsHubActionsCol">
+                                <div className="emailsHubActions">
+                                  <button type="button" className="emailsHubLink" onClick={() => openEditSender(row)}>Edit</button>
+                                  <button
+                                    type="button"
+                                    className="emailsHubLink"
+                                    disabled={senderBusy || !row.is_active}
+                                    onClick={() => testSenderEmail(row)}
+                                  >
+                                    Test
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="emailsHubLink"
+                                    disabled={senderBusy}
+                                    onClick={() => freezeSenderEmail(row, row.is_active)}
+                                  >
+                                    {row.is_active ? 'Freeze' : 'Unfreeze'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="emailsHubLink danger"
+                                    disabled={senderBusy}
+                                    onClick={() => deleteSenderEmail(row)}
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
               {senderModal ? (
                 <div className="modalOverlay" role="dialog" aria-modal="true" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 80 }}>
-                  <div className="card" style={{ width: 'min(480px, 92vw)', padding: 20 }}>
+                  <div className="card emailsHubModal" style={{ width: 'min(480px, 92vw)', padding: 20 }}>
                     <h3 style={{ marginTop: 0 }}>{senderModal.mode === 'edit' ? 'Edit sender' : 'Add sender'}</h3>
                     <div className="stack" style={{ gap: 12 }}>
                       <label>
@@ -1546,7 +1543,7 @@ export default function EmailSettings() {
                           type="password"
                           value={senderForm.password}
                           onChange={(e) => setSenderForm((s) => ({ ...s, password: e.target.value }))}
-                          placeholder={senderModal.mode === 'edit' ? 'Leave blank to keep' : 'Mailbox password'}
+                          placeholder={senderModal.mode === 'edit' ? 'Leave blank to keep current' : 'Mailbox password'}
                           autoComplete="new-password"
                         />
                       </label>
@@ -1573,6 +1570,9 @@ export default function EmailSettings() {
                           {senderBusy ? 'Saving…' : 'Save'}
                         </button>
                       </div>
+                      <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+                        Save stores the mailbox. Use <strong>Test</strong> in the table row to send a connectivity email.
+                      </p>
                     </div>
                   </div>
                 </div>

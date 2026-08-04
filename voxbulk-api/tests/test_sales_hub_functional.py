@@ -202,7 +202,7 @@ def test_hub_invoice_send_uses_sales_sender(db):
 
 
 def test_hub_invoice_send_falls_back_to_rep_email(db):
-    PlatformSenderEmailService.create(db, local_part="sales", from_name="Sales", purpose="sales")
+    PlatformSenderEmailService.create(db, local_part="sales", from_name="Sales", purpose="sales", password="spw")
     user = User(email="rep-fallback@test.com", password_hash=hash_password("x"), is_active=True)
     db.add(user)
     db.flush()
