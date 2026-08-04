@@ -23,7 +23,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/Table'
-import './orgControlCenter.css'
 import '../components/orderAdminBilling.css'
 
 const TABS = [
@@ -66,10 +65,10 @@ function ActivityTimeline({ events }) {
     return <div className="py-4 text-center text-sm text-muted-foreground">No activity events yet.</div>
   }
   return (
-    <ul className="order-activity-timeline space-y-2">
+    <ul className="order-activity-timeline">
       {events.map((ev, i) => (
-        <li key={`${ev.at}-${ev.code}-${i}`} className="flex gap-3 text-[12px]">
-          <span className="shrink-0 tabular-nums text-muted-foreground">{fmtWhen(ev.at)}</span>
+        <li key={`${ev.at}-${ev.code}-${i}`}>
+          <span className="order-activity-time tabular-nums">{fmtWhen(ev.at)}</span>
           <span>
             <strong className="text-foreground">{ev.label || ev.code}</strong>
             {ev.detail ? <span className="text-muted-foreground"> — {ev.detail}</span> : null}
@@ -167,11 +166,11 @@ export default function ServiceOrderDetail() {
   const estMin = order ? orderEstimatedDurationMin(order) : null
 
   return (
-    <div className="ds-scope occ space-y-4">
+    <div className="ds-scope mx-auto max-w-[1440px] space-y-4 px-1 pb-12 text-sm leading-relaxed">
       {error ? (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
+        <Panel className="border-destructive/40" bodyClassName="py-3">
+          <p className="text-sm text-destructive">{error}</p>
+        </Panel>
       ) : null}
 
       {loading ? (
@@ -299,7 +298,7 @@ export default function ServiceOrderDetail() {
                   </TableBody>
                 </StripeTable>
               </div>
-              <p className="order-billing-footnote mt-2 text-[11px] text-muted-foreground">
+              <p className="mt-2 text-[11px] text-muted-foreground">
                 R.cost = retail (billable min × rate + connection). O.cost = Telnyx operator (USD). Margin is not FX-adjusted.
               </p>
             </TabsContent>
@@ -347,7 +346,7 @@ export default function ServiceOrderDetail() {
                   })}
                 </>
               ) : (
-                <p className="order-billing-footnote text-[11px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   Per-candidate timelines are available for interview orders.
                 </p>
               )}

@@ -1,3 +1,5 @@
+/* Order billing panel + shared ops detail helpers — palette via --ds-* only */
+
 .order-billing {
   display: flex;
   flex-direction: column;
@@ -11,12 +13,12 @@
 }
 
 .order-billing-card {
-  background: #fff;
-  border: 1px solid var(--occ-border, var(--b1, #e4e3e0));
-  border-radius: 8px;
+  background: var(--ds-card, oklch(0.995 0.004 85));
+  border: 1px solid var(--ds-border, oklch(0.9 0.012 85));
+  border-radius: calc(var(--ds-radius, 0.625rem) - 2px);
   padding: 10px 12px;
   min-height: 0;
-  box-shadow: 0 1px 2px rgba(15, 15, 14, 0.04);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--ds-foreground, oklch(0.22 0.02 260)) 6%, transparent);
 }
 
 .order-billing-card-label {
@@ -24,7 +26,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--occ-text3, var(--t3, #9b9a96));
+  color: var(--ds-muted-foreground, oklch(0.5 0.02 260));
   line-height: 1.2;
   margin-bottom: 4px;
 }
@@ -32,28 +34,31 @@
 .order-billing-card-value {
   font-size: 14px;
   font-weight: 700;
-  color: var(--occ-text, var(--t1, #0f0f0e));
+  color: var(--ds-foreground, oklch(0.22 0.02 260));
   line-height: 1.35;
   word-break: break-word;
 }
 
-.order-billing-card-value.val-quote { color: #b45309; }
-.order-billing-card-value.val-retail { color: #15803d; }
-.order-billing-card-value.val-operator { color: #1d4ed8; }
-.order-billing-card-value.val-money { color: #0f766e; }
-.order-billing-card-value.val-ok { color: #15803d; }
-.order-billing-card-value.val-accent { color: #7c3aed; }
-.order-billing-card-value.val-muted { color: var(--occ-text2, var(--t2)); font-weight: 600; }
+.order-billing-card-value.val-quote { color: var(--ds-warning, oklch(0.62 0.13 65)); }
+.order-billing-card-value.val-retail { color: var(--ds-success, oklch(0.55 0.14 150)); }
+.order-billing-card-value.val-operator { color: var(--ds-info, oklch(0.52 0.1 250)); }
+.order-billing-card-value.val-money { color: var(--ds-info, oklch(0.52 0.1 250)); }
+.order-billing-card-value.val-ok { color: var(--ds-success, oklch(0.55 0.14 150)); }
+.order-billing-card-value.val-accent { color: var(--ds-primary, oklch(0.27 0.04 265)); }
+.order-billing-card-value.val-muted {
+  color: var(--ds-muted-foreground, oklch(0.5 0.02 260));
+  font-weight: 600;
+}
 
 .order-billing-card-value.mono {
-  font-family: var(--occ-mono, ui-monospace, monospace);
+  font-family: ui-monospace, 'Cascadia Code', 'Segoe UI Mono', monospace;
   font-size: 12px;
   font-weight: 500;
 }
 
 .order-billing-card-sub {
   font-size: 10px;
-  color: var(--occ-text2, var(--t2, #6b6a66));
+  color: var(--ds-muted-foreground, oklch(0.5 0.02 260));
   margin-top: 2px;
   line-height: 1.3;
 }
@@ -63,7 +68,7 @@
   padding-top: 4px;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--occ-text3, var(--t3, #9b9a96));
+  color: var(--ds-muted-foreground, oklch(0.5 0.02 260));
 }
 
 .order-billing-calls {
@@ -73,7 +78,7 @@
 .order-billing-calls .note {
   margin-top: 0;
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: calc(var(--ds-radius, 0.625rem) - 2px);
 }
 
 .order-billing-calls .tableWrap {
@@ -91,7 +96,7 @@
 
 .order-billing-legacy {
   font-size: 11px;
-  color: var(--occ-text2, var(--t2));
+  color: var(--ds-muted-foreground, oklch(0.5 0.02 260));
   padding: 6px 0 0;
 }
 
@@ -103,9 +108,9 @@
 }
 
 .order-billing-economics-block {
-  background: #fff;
-  border: 1px solid var(--occ-border, var(--b1, #e4e3e0));
-  border-radius: 8px;
+  background: var(--ds-card, oklch(0.995 0.004 85));
+  border: 1px solid var(--ds-border, oklch(0.9 0.012 85));
+  border-radius: calc(var(--ds-radius, 0.625rem) - 2px);
   padding: 10px 12px;
 }
 
@@ -114,7 +119,7 @@
   padding-left: 16px;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--occ-text, var(--t1));
+  color: var(--ds-foreground, oklch(0.22 0.02 260));
 }
 
 .order-activity-timeline {
@@ -129,7 +134,7 @@
   grid-template-columns: 140px 1fr;
   gap: 8px;
   padding: 6px 0;
-  border-bottom: 1px solid var(--occ-border, var(--b1));
+  border-bottom: 1px solid var(--ds-border, oklch(0.9 0.012 85));
 }
 
 .order-activity-timeline li:last-child {
@@ -137,66 +142,8 @@
 }
 
 .order-activity-time {
-  color: var(--occ-text3, var(--t3));
+  color: var(--ds-muted-foreground, oklch(0.5 0.02 260));
   font-size: 11px;
-}
-
-.order-detail-ref-search {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-
-.order-detail-ref-search input {
-  min-width: 220px;
-  padding: 6px 10px;
-  border: 1px solid var(--occ-border);
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.order-detail-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 12px 20px 16px;
-  border-top: 1px solid var(--occ-border);
-  background: var(--occ-surface2, #fafaf9);
-}
-
-.order-detail-header-compact {
-  padding: 16px 20px 12px;
-  border-bottom: 1px solid var(--occ-border);
-}
-
-.order-detail-header-compact .occ-detail-org-row {
-  padding-bottom: 0;
-}
-
-.order-detail-metrics {
-  padding: 0 20px 12px;
-}
-
-.order-detail-tabs-wrap {
-  border-top: 1px solid var(--occ-border);
-}
-
-.order-detail-tabs-wrap .occ-tabs {
-  border-top: none;
-  padding: 0 20px;
-}
-
-.order-detail-tabs-wrap .occ-tab-content {
-  padding: 14px 20px 16px;
-}
-
-.order-detail-info-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 10px;
 }
 
 @media (max-width: 1280px) {
@@ -209,10 +156,6 @@
   .order-billing-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-
-  .order-detail-info-row {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 640px) {
@@ -221,11 +164,12 @@
   }
 }
 
+/* Shared by Running Surveys / Interviews detail chrome (imported via billing panel) */
 .runningSurveyDetailCard--top {
   margin-bottom: 14px;
   scroll-margin-top: 12px;
-  border: 1px solid var(--b1);
-  box-shadow: 0 2px 8px rgba(15, 15, 14, 0.06);
+  border: 1px solid var(--ds-border, oklch(0.9 0.012 85));
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--ds-foreground, oklch(0.22 0.02 260)) 8%, transparent);
 }
 
 .runningSurveyDetailHeadActions {
@@ -240,7 +184,7 @@
 }
 
 .runningSurveyTable tbody tr.isClickable:hover {
-  background: var(--s2);
+  background: var(--ds-surface-muted, oklch(0.955 0.014 85));
 }
 
 .runningSurveyControlsLabel {
@@ -248,6 +192,6 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--t3);
+  color: var(--ds-muted-foreground, oklch(0.5 0.02 260));
   margin-bottom: 8px;
 }

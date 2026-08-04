@@ -47,9 +47,11 @@ Full `components/ui` chrome for remaining holdouts **except KEEP above**:
 |------|--------|
 | PendingSignups | Done (`b5be351`) |
 | Ops RunningSurveys / Interviews / WaSurveyInsights | Done (Phase 2 + ui) |
-| OCC + ServiceOrderDetail | In progress |
-| AI Team + Apify | In progress |
-| Promo offers, NewsBlog, SeoControl, Email, Products/Partners/Connection Profiles/Custom Org, etc. | Remaining |
+| OCC shell (list/KPIs/tabs chrome) | Done (`c4a046e`); tab forms/modals still hybrid |
+| ServiceOrderDetail + orderAdminBilling | Done (ui chrome + `--ds-*` CSS) |
+| PromoOffers + NewsBlog | Done (`17b9d0e`); PromoOfferCreate/Edit still remaining |
+| AI Team + Apify | In progress (ApifyReply `ce098b8`) |
+| SeoControl, Email, Products/Partners/Connection Profiles/Custom Org, etc. | Remaining |
 
 ## Rules for new / touched admin UI
 
