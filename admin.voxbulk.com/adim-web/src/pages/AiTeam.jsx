@@ -774,14 +774,14 @@ export default function AiTeam() {
                     ))}
                   </div>
                   <div style={{ padding: 12, borderTop: '1px solid var(--ait-border)' }}>
-                    <textarea className="ait-compose" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Write your reply…" />
+                    <Textarea className="ait-compose" value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Write your reply…" />
                     <div className="ait-btn-row" style={{ marginTop: 8 }}>
-                      <button type="button" className="ait-btn primary sm" disabled={!replyText.trim() || !!busy}
+                      <Button size="sm" disabled={!replyText.trim() || !!busy}
                         onClick={() => act('reply', async () => {
                           await apiFetch(`/admin/ai-team/replies/${selectedThread.id}/send`, { method: 'POST', body: JSON.stringify({ body: replyText }) })
                           setReplyText('')
                           await selectThread(selectedThread)
-                        })}>Send reply</button>
+                        })}>Send reply</Button>
                     </div>
                   </div>
                 </>
@@ -801,23 +801,32 @@ export default function AiTeam() {
                   Paste one email per line. Also accepts <code>Name &lt;email@x.com&gt;</code> or <code>email, first, last, company</code>.
                   Imports go to the approval queue with AI draft + promo, then follow-ups after send.
                 </p>
-                <div className="ait-field">
-                  <label>Emails</label>
-                  <textarea
-                    style={{ minHeight: 120 }}
-                    value={pasteEmails}
-                    onChange={(e) => setPasteEmails(e.target.value)}
-                    placeholder={'ops@exhibitor.com\nJane Doe <jane@brand.co.uk>\nhello@stand.io, Jane, Doe, Brand Ltd'}
-                  />
-                </div>
-                <div className="ait-fg-2">
-                  <div className="ait-field"><label>Default company (optional)</label><input value={pasteCompany} onChange={(e) => setPasteCompany(e.target.value)} /></div>
-                  <div className="ait-field"><label>Sector</label><input value={pasteSector} onChange={(e) => setPasteSector(e.target.value)} placeholder="expo" /></div>
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="paste-emails">Emails</Label>
+                    <Textarea
+                      id="paste-emails"
+                      className="min-h-[120px]"
+                      value={pasteEmails}
+                      onChange={(e) => setPasteEmails(e.target.value)}
+                      placeholder={'ops@exhibitor.com\nJane Doe <jane@brand.co.uk>\nhello@stand.io, Jane, Doe, Brand Ltd'}
+                    />
+                  </div>
+                  <div className="ait-fg-2">
+                    <div>
+                      <Label htmlFor="paste-company">Default company (optional)</Label>
+                      <Input id="paste-company" value={pasteCompany} onChange={(e) => setPasteCompany(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label htmlFor="paste-sector">Sector</Label>
+                      <Input id="paste-sector" value={pasteSector} onChange={(e) => setPasteSector(e.target.value)} placeholder="expo" />
+                    </div>
+                  </div>
                 </div>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" disabled={!!busy || !pasteEmails.trim()} onClick={importPasteEmails}>
+                  <Button disabled={!!busy || !pasteEmails.trim()} onClick={importPasteEmails}>
                     Import &amp; draft follow-ups
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -858,15 +867,16 @@ export default function AiTeam() {
                     <div className="section-lbl" style={{ marginTop: 16, fontSize: 10, fontWeight: 700, color: 'var(--ait-text3)', textTransform: 'uppercase' }}>Field mapping</div>
                     <div className="ait-fg-3">
                       {CSV_MAP_FIELDS.map((f) => (
-                        <div className="ait-field" key={f.key}>
-                          <label>{f.label}{f.required ? ' *' : ''}</label>
-                          <select
+                        <div key={f.key} className="space-y-1.5">
+                          <Label htmlFor={`csv-map-${f.key}`}>{f.label}{f.required ? ' *' : ''}</Label>
+                          <Select
+                            id={`csv-map-${f.key}`}
                             value={csvMapping[f.key] || ''}
                             onChange={(e) => setCsvMapping({ ...csvMapping, [f.key]: e.target.value })}
                           >
                             <option value="">— skip —</option>
                             {csvHeaders.map((h) => <option key={h} value={h}>{h}</option>)}
-                          </select>
+                          </Select>
                         </div>
                       ))}
                     </div>
@@ -888,9 +898,9 @@ export default function AiTeam() {
                     </div>
 
                     <div className="ait-btn-row" style={{ marginTop: 12 }}>
-                      <button type="button" className="ait-btn primary" disabled={!!busy || !csvMapping.email} onClick={importCsv}>
+                      <Button disabled={!!busy || !csvMapping.email} onClick={importCsv}>
                         Import {csvTotal} prospects
-                      </button>
+                      </Button>
                     </div>
                   </>
                 )}
@@ -901,26 +911,26 @@ export default function AiTeam() {
               <div className="ait-card-hdr"><span className="ait-card-title">Apollo.io — target profile</span></div>
               <div className="ait-card-body">
                 <div className="ait-fg-3">
-                  <div className="ait-field"><label>Sector</label><input value={settings.search_sector || ''} onChange={(e) => setSettings({ ...settings, search_sector: e.target.value })} /></div>
-                  <div className="ait-field"><label>Country</label><input value={settings.search_country || ''} onChange={(e) => setSettings({ ...settings, search_country: e.target.value })} /></div>
-                  <div className="ait-field"><label>Company size</label><input value={settings.search_company_size || ''} onChange={(e) => setSettings({ ...settings, search_company_size: e.target.value })} /></div>
+                  <div><Label htmlFor="search-sector">Sector</Label><Input id="search-sector" value={settings.search_sector || ''} onChange={(e) => setSettings({ ...settings, search_sector: e.target.value })} /></div>
+                  <div><Label htmlFor="search-country">Country</Label><Input id="search-country" value={settings.search_country || ''} onChange={(e) => setSettings({ ...settings, search_country: e.target.value })} /></div>
+                  <div><Label htmlFor="search-company-size">Company size</Label><Input id="search-company-size" value={settings.search_company_size || ''} onChange={(e) => setSettings({ ...settings, search_company_size: e.target.value })} /></div>
                 </div>
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>Job title keywords</label><input value={settings.search_title_keywords || ''} onChange={(e) => setSettings({ ...settings, search_title_keywords: e.target.value })} /></div>
-                  <div className="ait-field"><label>City / region</label><input value={settings.search_city_region || ''} onChange={(e) => setSettings({ ...settings, search_city_region: e.target.value })} /></div>
+                  <div><Label htmlFor="search-title-keywords">Job title keywords</Label><Input id="search-title-keywords" value={settings.search_title_keywords || ''} onChange={(e) => setSettings({ ...settings, search_title_keywords: e.target.value })} /></div>
+                  <div><Label htmlFor="search-city-region">City / region</Label><Input id="search-city-region" value={settings.search_city_region || ''} onChange={(e) => setSettings({ ...settings, search_city_region: e.target.value })} /></div>
                 </div>
                 <div className="ait-fg-4">
-                  <div className="ait-field"><label>Max per run</label><input type="number" value={settings.search_max_per_run || 20} onChange={(e) => setSettings({ ...settings, search_max_per_run: +e.target.value })} /></div>
-                  <div className="ait-field"><label>Min match score</label><input type="number" value={settings.search_min_score || 60} onChange={(e) => setSettings({ ...settings, search_min_score: +e.target.value })} /></div>
-                  <div className="ait-field"><label>Follow-up after (days)</label><input type="number" value={settings.followup_after_days || 3} onChange={(e) => setSettings({ ...settings, followup_after_days: +e.target.value })} /></div>
-                  <div className="ait-field"><label>Max follow-ups</label><input type="number" value={settings.max_followups || 2} onChange={(e) => setSettings({ ...settings, max_followups: +e.target.value })} /></div>
+                  <div><Label htmlFor="search-max-per-run">Max per run</Label><Input id="search-max-per-run" type="number" value={settings.search_max_per_run || 20} onChange={(e) => setSettings({ ...settings, search_max_per_run: +e.target.value })} /></div>
+                  <div><Label htmlFor="search-min-score">Min match score</Label><Input id="search-min-score" type="number" value={settings.search_min_score || 60} onChange={(e) => setSettings({ ...settings, search_min_score: +e.target.value })} /></div>
+                  <div><Label htmlFor="followup-after-days">Follow-up after (days)</Label><Input id="followup-after-days" type="number" value={settings.followup_after_days || 3} onChange={(e) => setSettings({ ...settings, followup_after_days: +e.target.value })} /></div>
+                  <div><Label htmlFor="max-followups">Max follow-ups</Label><Input id="max-followups" type="number" value={settings.max_followups || 2} onChange={(e) => setSettings({ ...settings, max_followups: +e.target.value })} /></div>
                 </div>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save search profile</button>
-                  <button type="button" className="ait-btn" disabled={!!busy}
+                  <Button onClick={() => saveSettings()}>Save search profile</Button>
+                  <Button variant="outline" disabled={!!busy}
                     onClick={() => act('preview', () => apiFetch('/admin/ai-team/search', { method: 'POST', body: JSON.stringify({ preview: true, limit: 5 }) }))}>
                     Preview — fetch 5 prospects
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -928,22 +938,24 @@ export default function AiTeam() {
               <div className="ait-card-hdr"><span className="ait-card-title">Email content — DeepSeek instructions</span></div>
               <div className="ait-card-body">
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>Sender name</label><input value={settings.sender_name || ''} onChange={(e) => setSettings({ ...settings, sender_name: e.target.value })} /></div>
-                  <div className="ait-field"><label>Reply-to</label><input value={settings.reply_to_email || ''} onChange={(e) => setSettings({ ...settings, reply_to_email: e.target.value })} /></div>
+                  <div><Label htmlFor="sender-name">Sender name</Label><Input id="sender-name" value={settings.sender_name || ''} onChange={(e) => setSettings({ ...settings, sender_name: e.target.value })} /></div>
+                  <div><Label htmlFor="reply-to-email">Reply-to</Label><Input id="reply-to-email" value={settings.reply_to_email || ''} onChange={(e) => setSettings({ ...settings, reply_to_email: e.target.value })} /></div>
                 </div>
-                <div className="ait-field"><label>Writing instruction</label>
-                  <textarea style={{ height: 100 }} value={settings.writing_instruction || ''} onChange={(e) => setSettings({ ...settings, writing_instruction: e.target.value })} />
+                <div>
+                  <Label htmlFor="writing-instruction">Writing instruction</Label>
+                  <Textarea id="writing-instruction" className="min-h-[100px]" value={settings.writing_instruction || ''} onChange={(e) => setSettings({ ...settings, writing_instruction: e.target.value })} />
                 </div>
-                <div className="ait-field"><label>Email signature</label>
-                  <textarea value={settings.email_signature || ''} onChange={(e) => setSettings({ ...settings, email_signature: e.target.value })} />
+                <div>
+                  <Label htmlFor="email-signature">Email signature</Label>
+                  <Textarea id="email-signature" value={settings.email_signature || ''} onChange={(e) => setSettings({ ...settings, email_signature: e.target.value })} />
                 </div>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save email settings</button>
-                  <button type="button" className="ait-btn" disabled={!!busy}
+                  <Button onClick={() => saveSettings()}>Save email settings</Button>
+                  <Button variant="outline" disabled={!!busy}
                     onClick={() => act('sample', async () => {
                       const r = await apiFetch('/admin/ai-team/test/deepseek-sample', { method: 'POST' })
                       showBanner('ok', `Sample: ${r.subject}`)
-                    })}>Generate sample</button>
+                    })}>Generate sample</Button>
                 </div>
               </div>
             </div>
@@ -954,44 +966,44 @@ export default function AiTeam() {
                 <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginBottom: 10 }}>
                   Placeholders: {'{{body}}'}, {'{{first_name}}'}, {'{{last_name}}'}, {'{{company}}'}, {'{{promo_code}}'}, {'{{job_title}}'}, {'{{email}}'}
                 </p>
-                <div className="ait-field">
-                  <label>HTML wrapper</label>
-                  <textarea
+                <div>
+                  <Label htmlFor="email-html-template">HTML wrapper</Label>
+                  <Textarea
+                    id="email-html-template"
                     className="ait-code-editor"
                     value={settings.email_html_template || settings.default_email_html_template || ''}
                     onChange={(e) => setSettings({ ...settings, email_html_template: e.target.value })}
                   />
                 </div>
                 <div className="ait-fg-2" style={{ marginTop: 12 }}>
-                  <div className="ait-field">
-                    <label>Send test to your inbox</label>
-                    <input
+                  <div>
+                    <Label htmlFor="search-test-email">Send test to your inbox</Label>
+                    <Input
+                      id="search-test-email"
                       type="email"
                       placeholder="you@company.com"
                       value={searchTestEmail}
                       onChange={(e) => setSearchTestEmail(e.target.value)}
                     />
                   </div>
-                  <div className="ait-field" style={{ justifyContent: 'flex-end' }}>
-                    <label>&nbsp;</label>
-                    <button type="button" className="ait-btn" disabled={!!busy} onClick={() => sendTestTemplate(searchTestEmail)}>
+                  <div style={{ justifyContent: 'flex-end', display: 'flex', alignItems: 'end' }}>
+                    <Button variant="outline" disabled={!!busy} onClick={() => sendTestTemplate(searchTestEmail)}>
                       Send test with sample data
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save template</button>
-                  <button type="button" className="ait-btn" disabled={!!busy} onClick={openTemplatePreview}>Live preview</button>
-                  <button
-                    type="button"
-                    className="ait-btn"
+                  <Button onClick={() => saveSettings()}>Save template</Button>
+                  <Button variant="outline" disabled={!!busy} onClick={openTemplatePreview}>Live preview</Button>
+                  <Button
+                    variant="outline"
                     onClick={() => setSettings({
                       ...settings,
                       email_html_template: settings.default_email_html_template || '',
                     })}
                   >
                     Reset to default
-                  </button>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -1005,23 +1017,24 @@ export default function AiTeam() {
               <div className="ait-card-hdr"><span className="ait-card-title">Default promo offer</span></div>
               <div className="ait-card-body">
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>Code prefix</label><input value={settings.promo_code_prefix || 'TRIAL'} onChange={(e) => setSettings({ ...settings, promo_code_prefix: e.target.value })} /></div>
-                  <div className="ait-field"><label>Offer type</label>
-                    <select value={settings.promo_offer_type || 'survey_credits'} onChange={(e) => setSettings({ ...settings, promo_offer_type: e.target.value })}>
+                  <div><Label htmlFor="promo-code-prefix">Code prefix</Label><Input id="promo-code-prefix" value={settings.promo_code_prefix || 'TRIAL'} onChange={(e) => setSettings({ ...settings, promo_code_prefix: e.target.value })} /></div>
+                  <div>
+                    <Label htmlFor="promo-offer-type">Offer type</Label>
+                    <Select id="promo-offer-type" value={settings.promo_offer_type || 'survey_credits'} onChange={(e) => setSettings({ ...settings, promo_offer_type: e.target.value })}>
                       <option value="survey_credits">Free survey contacts</option>
                       <option value="interview_credits">Free interviews</option>
                       <option value="expo">Expo free usage</option>
                       <option value="dental_trial">Subscription trial</option>
-                    </select>
+                    </Select>
                   </div>
                 </div>
                 <div className="ait-fg-4">
-                  <div className="ait-field"><label>Value</label><input type="number" value={settings.promo_value || 50} onChange={(e) => setSettings({ ...settings, promo_value: +e.target.value })} /></div>
-                  <div className="ait-field"><label>Expiry (days)</label><input type="number" value={settings.promo_expiry_days || 14} onChange={(e) => setSettings({ ...settings, promo_expiry_days: +e.target.value })} /></div>
-                  <div className="ait-field"><label>Max uses</label><input type="number" value={settings.promo_max_uses || 1} onChange={(e) => setSettings({ ...settings, promo_max_uses: +e.target.value })} /></div>
+                  <div><Label htmlFor="promo-value">Value</Label><Input id="promo-value" type="number" value={settings.promo_value || 50} onChange={(e) => setSettings({ ...settings, promo_value: +e.target.value })} /></div>
+                  <div><Label htmlFor="promo-expiry-days">Expiry (days)</Label><Input id="promo-expiry-days" type="number" value={settings.promo_expiry_days || 14} onChange={(e) => setSettings({ ...settings, promo_expiry_days: +e.target.value })} /></div>
+                  <div><Label htmlFor="promo-max-uses">Max uses</Label><Input id="promo-max-uses" type="number" value={settings.promo_max_uses || 1} onChange={(e) => setSettings({ ...settings, promo_max_uses: +e.target.value })} /></div>
                 </div>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save offer defaults</button>
+                  <Button onClick={() => saveSettings()}>Save offer defaults</Button>
                   <Link to="/marketing/promo-offers" className="ait-btn">All promo offers →</Link>
                 </div>
               </div>
@@ -1088,17 +1101,16 @@ export default function AiTeam() {
                   Checks Apify, email delivery (SMTP or Resend), From address, promo defaults, and DeepSeek.
                 </p>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" disabled={!!busy} onClick={runTestAll}>
+                  <Button disabled={!!busy} onClick={runTestAll}>
                     Test all connections
-                  </button>
-                  <button
-                    type="button"
-                    className="ait-btn"
+                  </Button>
+                  <Button
+                    variant="outline"
                     disabled={!!busy}
                     onClick={() => act('followups', () => apiFetch('/admin/ai-team/followups/run', { method: 'POST' }).then((d) => showBanner('ok', `Follow-ups sent: ${d.sent || 0}`)))}
                   >
                     Run due follow-ups now
-                  </button>
+                  </Button>
                 </div>
                 {connectionChecks && (
                   <div style={{ marginTop: 12 }}>
@@ -1120,14 +1132,14 @@ export default function AiTeam() {
                     <span className={`ait-dot ${settings.apollo_connected ? 'on' : 'off'}`} />
                     <div><strong>{settings.apollo_api_key_configured ? 'API key saved' : 'Not connected'}</strong></div>
                   </div>
-                  <button type="button" className="ait-btn sm" disabled={!!busy}
+                  <Button size="sm" variant="outline" disabled={!!busy}
                     onClick={() => act('test-apollo', () => apiFetch('/admin/ai-team/test/apollo', { method: 'POST', body: JSON.stringify({ api_key: apolloKey || undefined }) }))}>
                     Test connection
-                  </button>
+                  </Button>
                 </div>
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>API key</label><input type="password" placeholder={settings.apollo_api_key_configured ? '••••••••' : 'apollo_api_…'} value={apolloKey} onChange={(e) => setApolloKey(e.target.value)} /></div>
-                  <div className="ait-field"><label>Credit alert at</label><input type="number" value={settings.apollo_credit_alert_at || 800} onChange={(e) => setSettings({ ...settings, apollo_credit_alert_at: +e.target.value })} /></div>
+                  <div><Label htmlFor="apollo-api-key">API key</Label><Input id="apollo-api-key" type="password" placeholder={settings.apollo_api_key_configured ? '••••••••' : 'apollo_api_…'} value={apolloKey} onChange={(e) => setApolloKey(e.target.value)} /></div>
+                  <div><Label htmlFor="apollo-credit-alert">Credit alert at</Label><Input id="apollo-credit-alert" type="number" value={settings.apollo_credit_alert_at || 800} onChange={(e) => setSettings({ ...settings, apollo_credit_alert_at: +e.target.value })} /></div>
                 </div>
               </div>
             </div>
@@ -1139,30 +1151,30 @@ export default function AiTeam() {
                     <span className={`ait-dot ${settings.resend_connected ? 'on' : 'off'}`} />
                     <div><strong>{settings.resend_api_key_configured ? 'API key saved' : 'Not connected'}</strong></div>
                   </div>
-                  <button type="button" className="ait-btn sm" disabled={!!busy}
+                  <Button size="sm" variant="outline" disabled={!!busy}
                     onClick={() => act('test-resend', () => apiFetch('/admin/ai-team/test/resend', { method: 'POST', body: JSON.stringify({ api_key: resendKey || undefined }) }))}>
                     Test connection
-                  </button>
+                  </Button>
                 </div>
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>API key</label><input type="password" placeholder={settings.resend_api_key_configured ? '••••••••' : 're_…'} value={resendKey} onChange={(e) => setResendKey(e.target.value)} /></div>
-                  <div className="ait-field"><label>Sending domain</label><input value={settings.resend_sending_domain || ''} onChange={(e) => setSettings({ ...settings, resend_sending_domain: e.target.value })} placeholder="outreach.voxbulk.com" /></div>
+                  <div><Label htmlFor="resend-api-key">API key</Label><Input id="resend-api-key" type="password" placeholder={settings.resend_api_key_configured ? '••••••••' : 're_…'} value={resendKey} onChange={(e) => setResendKey(e.target.value)} /></div>
+                  <div><Label htmlFor="resend-sending-domain">Sending domain</Label><Input id="resend-sending-domain" value={settings.resend_sending_domain || ''} onChange={(e) => setSettings({ ...settings, resend_sending_domain: e.target.value })} placeholder="outreach.voxbulk.com" /></div>
                 </div>
                 <div className="ait-fg-2" style={{ marginTop: 4 }}>
-                  <div className="ait-field">
-                    <label>Send test email to</label>
-                    <input
+                  <div>
+                    <Label htmlFor="resend-test-email">Send test email to</Label>
+                    <Input
+                      id="resend-test-email"
                       type="email"
                       placeholder="you@company.com"
                       value={resendTestEmail}
                       onChange={(e) => setResendTestEmail(e.target.value)}
                     />
                   </div>
-                  <div className="ait-field" style={{ justifyContent: 'flex-end' }}>
-                    <label>&nbsp;</label>
-                    <button type="button" className="ait-btn primary" disabled={!!busy} onClick={() => sendTestTemplate(resendTestEmail)}>
+                  <div style={{ justifyContent: 'flex-end', display: 'flex', alignItems: 'end' }}>
+                    <Button disabled={!!busy} onClick={() => sendTestTemplate(resendTestEmail)}>
                       Send rendered template
-                    </button>
+                    </Button>
                   </div>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
@@ -1177,17 +1189,18 @@ export default function AiTeam() {
                   SMTP for campaigns also lives under the <strong>Apify</strong> sidebar page → Sending.
                 </p>
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>Delivery provider</label>
-                    <select
+                  <div>
+                    <Label htmlFor="email-delivery-provider">Delivery provider</Label>
+                    <Select
+                      id="email-delivery-provider"
                       value={settings.email_delivery_provider || 'smtp'}
                       onChange={(e) => setSettings({ ...settings, email_delivery_provider: e.target.value })}
                     >
                       <option value="smtp">SMTP (your mailbox)</option>
                       <option value="resend">Resend</option>
-                    </select>
+                    </Select>
                   </div>
-                  <div className="ait-field" style={{ justifyContent: 'flex-end' }}>
-                    <label>&nbsp;</label>
+                  <div style={{ justifyContent: 'flex-end', display: 'flex', alignItems: 'end' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span className={`ait-dot ${(settings.email_delivery_provider || 'smtp') === 'smtp' ? (settings.smtp_configured ? 'on' : 'off') : (settings.resend_connected ? 'on' : 'off')}`} />
                       <span style={{ fontSize: 12 }}>{(settings.email_delivery_provider || 'smtp') === 'smtp' ? 'SMTP' : 'Resend'}</span>
@@ -1195,29 +1208,29 @@ export default function AiTeam() {
                   </div>
                 </div>
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>From name</label><input value={settings.sender_name || ''} onChange={(e) => setSettings({ ...settings, sender_name: e.target.value })} /></div>
-                  <div className="ait-field"><label>From email (new outreach mailbox)</label><input value={settings.from_email || ''} onChange={(e) => setSettings({ ...settings, from_email: e.target.value })} /></div>
+                  <div><Label htmlFor="smtp-sender-name">From name</Label><Input id="smtp-sender-name" value={settings.sender_name || ''} onChange={(e) => setSettings({ ...settings, sender_name: e.target.value })} /></div>
+                  <div><Label htmlFor="smtp-from-email">From email (new outreach mailbox)</Label><Input id="smtp-from-email" value={settings.from_email || ''} onChange={(e) => setSettings({ ...settings, from_email: e.target.value })} /></div>
                 </div>
                 <div className="ait-fg-2">
-                  <div className="ait-field"><label>Reply-to / inbox email</label><input value={settings.reply_to_email || ''} onChange={(e) => setSettings({ ...settings, reply_to_email: e.target.value })} /></div>
-                  <div className="ait-field"><label>Inbox email (replies)</label><input value={settings.inbox_email || ''} onChange={(e) => setSettings({ ...settings, inbox_email: e.target.value })} /></div>
+                  <div><Label htmlFor="smtp-reply-to-email">Reply-to / inbox email</Label><Input id="smtp-reply-to-email" value={settings.reply_to_email || ''} onChange={(e) => setSettings({ ...settings, reply_to_email: e.target.value })} /></div>
+                  <div><Label htmlFor="smtp-inbox-email">Inbox email (replies)</Label><Input id="smtp-inbox-email" value={settings.inbox_email || ''} onChange={(e) => setSettings({ ...settings, inbox_email: e.target.value })} /></div>
                 </div>
                 <div className="ait-fg-3">
-                  <div className="ait-field"><label>SMTP host</label><input value={settings.smtp_host || ''} onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })} /></div>
-                  <div className="ait-field"><label>SMTP port</label><input type="number" value={settings.smtp_port || 587} onChange={(e) => setSettings({ ...settings, smtp_port: +e.target.value })} /></div>
-                  <div className="ait-field"><label>SMTP username</label><input value={settings.smtp_username || ''} onChange={(e) => setSettings({ ...settings, smtp_username: e.target.value })} /></div>
+                  <div><Label htmlFor="smtp-host">SMTP host</Label><Input id="smtp-host" value={settings.smtp_host || ''} onChange={(e) => setSettings({ ...settings, smtp_host: e.target.value })} /></div>
+                  <div><Label htmlFor="smtp-port">SMTP port</Label><Input id="smtp-port" type="number" value={settings.smtp_port || 587} onChange={(e) => setSettings({ ...settings, smtp_port: +e.target.value })} /></div>
+                  <div><Label htmlFor="smtp-username">SMTP username</Label><Input id="smtp-username" value={settings.smtp_username || ''} onChange={(e) => setSettings({ ...settings, smtp_username: e.target.value })} /></div>
                 </div>
-                <div className="ait-field"><label>SMTP password</label><input type="password" placeholder={settings.smtp_password_configured ? '••••••••' : ''} value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} /></div>
+                <div><Label htmlFor="smtp-password">SMTP password</Label><Input id="smtp-password" type="password" placeholder={settings.smtp_password_configured ? '••••••••' : ''} value={smtpPassword} onChange={(e) => setSmtpPassword(e.target.value)} /></div>
                 <div className="ait-btn-row">
-                  <button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save email account</button>
-                  <button type="button" className="ait-btn" disabled={!!busy}
+                  <Button onClick={() => saveSettings()}>Save email account</Button>
+                  <Button variant="outline" disabled={!!busy}
                     onClick={() => act('test-email', () => apiFetch('/admin/ai-team/test/email-account', { method: 'POST', body: JSON.stringify({ ...settings, smtp_password: smtpPassword || undefined, to_email: resendTestEmail || undefined }) }).then((d) => showBanner('ok', d.message || 'Test sent')))}>
                     Send test email
-                  </button>
-                  <button type="button" className="ait-btn" disabled={!!busy}
+                  </Button>
+                  <Button variant="outline" disabled={!!busy}
                     onClick={() => act('test-smtp', () => apiFetch('/admin/ai-team/test/smtp', { method: 'POST', body: JSON.stringify({ ...settings, smtp_password: smtpPassword || undefined, to_email: resendTestEmail || undefined }) }).then((d) => showBanner('ok', d.message || 'SMTP OK')))}>
                     Test SMTP
-                  </button>
+                  </Button>
                 </div>
                 <p style={{ fontSize: 11, color: 'var(--ait-text3)', marginTop: 8 }}>
                   Use your new dedicated outreach mailbox here. DeepSeek uses existing <Link to="/integrations/deepseek">Integrations → DeepSeek</Link>.
@@ -1228,12 +1241,13 @@ export default function AiTeam() {
               <div className="ait-card-hdr"><span className="ait-card-title">Agent behaviour</span></div>
               <div className="ait-card-body">
                 <div className="ait-fg-3">
-                  <div className="ait-field"><label>Max emails per day</label><input type="number" value={settings.max_emails_per_day || 10} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} /></div>
-                  <div className="ait-field"><label>Run schedule</label>
-                    <select value={settings.run_schedule || 'daily_08'} onChange={(e) => setSettings({ ...settings, run_schedule: e.target.value })}>
+                  <div><Label htmlFor="max-emails-per-day">Max emails per day</Label><Input id="max-emails-per-day" type="number" value={settings.max_emails_per_day || 10} onChange={(e) => setSettings({ ...settings, max_emails_per_day: +e.target.value })} /></div>
+                  <div>
+                    <Label htmlFor="run-schedule">Run schedule</Label>
+                    <Select id="run-schedule" value={settings.run_schedule || 'daily_08'} onChange={(e) => setSettings({ ...settings, run_schedule: e.target.value })}>
                       <option value="daily_08">Daily at 08:00</option>
                       <option value="manual">Manual only</option>
-                    </select>
+                    </Select>
                   </div>
                 </div>
                 {[
@@ -1251,7 +1265,7 @@ export default function AiTeam() {
                     <input type="checkbox" checked={!!settings[key]} onChange={(e) => setSettings({ ...settings, [key]: e.target.checked })} />
                   </div>
                 ))}
-                <div className="ait-btn-row"><button type="button" className="ait-btn primary" onClick={() => saveSettings()}>Save settings</button></div>
+                <div className="ait-btn-row"><Button onClick={() => saveSettings()}>Save settings</Button></div>
               </div>
             </div>
           </>
@@ -1262,14 +1276,16 @@ export default function AiTeam() {
         <div className="ait-drawer-overlay" onClick={() => setEditDraft(null)}>
           <div className="ait-drawer" onClick={(e) => e.stopPropagation()}>
             <h3>Edit draft</h3>
-            <div className="ait-field"><label>Subject</label><input value={editDraft.subject || ''} onChange={(e) => setEditDraft({ ...editDraft, subject: e.target.value })} /></div>
-            <div className="ait-field"><label>Body</label><textarea style={{ height: 200 }} value={editDraft.body || ''} onChange={(e) => setEditDraft({ ...editDraft, body: e.target.value })} /></div>
+            <div className="space-y-3">
+              <div><Label htmlFor="edit-subject">Subject</Label><Input id="edit-subject" value={editDraft.subject || ''} onChange={(e) => setEditDraft({ ...editDraft, subject: e.target.value })} /></div>
+              <div><Label htmlFor="edit-body">Body</Label><Textarea id="edit-body" className="min-h-[200px]" value={editDraft.body || ''} onChange={(e) => setEditDraft({ ...editDraft, body: e.target.value })} /></div>
+            </div>
             <div className="ait-btn-row">
-              <button type="button" className="ait-btn primary" onClick={() => act('edit', async () => {
+              <Button onClick={() => act('edit', async () => {
                 await apiFetch(`/admin/ai-team/prospects/${editDraft.id}/draft`, { method: 'PUT', body: JSON.stringify({ subject: editDraft.subject, body: editDraft.body }) })
                 setEditDraft(null)
-              })}>Save</button>
-              <button type="button" className="ait-btn" onClick={() => setEditDraft(null)}>Cancel</button>
+              })}>Save</Button>
+              <Button variant="outline" onClick={() => setEditDraft(null)}>Cancel</Button>
             </div>
           </div>
         </div>
@@ -1278,7 +1294,7 @@ export default function AiTeam() {
       {drawer && (
         <div className="ait-drawer-overlay" onClick={() => setDrawer(null)}>
           <div className="ait-drawer" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="ait-btn ghost sm" onClick={() => setDrawer(null)}>Close</button>
+            <Button variant="ghost" size="sm" onClick={() => setDrawer(null)}>Close</Button>
             <h3 style={{ marginTop: 12 }}>{drawer.full_name}</h3>
             <p style={{ fontSize: 11, color: 'var(--ait-text3)' }}>{drawer.job_title} · {drawer.company_name}</p>
             <p style={{ fontSize: 12, marginTop: 12 }}>{drawer.email}</p>
@@ -1313,9 +1329,8 @@ export default function AiTeam() {
               srcDoc={emailPreview.html || ''}
             />
             <div className="ait-btn-row" style={{ marginTop: 14 }}>
-              <button
-                type="button"
-                className="ait-btn success"
+              <Button
+                variant="success"
                 disabled={busy === emailPreview.prospect?.id}
                 onClick={() => act(emailPreview.prospect.id, async () => {
                   await apiFetch(`/admin/ai-team/prospects/${emailPreview.prospect.id}/approve`, { method: 'POST' })
@@ -1324,10 +1339,9 @@ export default function AiTeam() {
                 })}
               >
                 Approve & send
-              </button>
-              <button
-                type="button"
-                className="ait-btn"
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => {
                   const p = emailPreview.prospect
                   setEditDraft({ id: p.id, subject: p.draft_subject, body: p.draft_body })
@@ -1335,10 +1349,9 @@ export default function AiTeam() {
                 }}
               >
                 Edit
-              </button>
-              <button
-                type="button"
-                className="ait-btn"
+              </Button>
+              <Button
+                variant="outline"
                 disabled={busy === `rej-${emailPreview.prospect?.id}`}
                 onClick={() => act(`rej-${emailPreview.prospect.id}`, async () => {
                   await apiFetch(`/admin/ai-team/prospects/${emailPreview.prospect.id}/reject`, { method: 'POST' })
@@ -1347,15 +1360,14 @@ export default function AiTeam() {
                 })}
               >
                 Reject
-              </button>
-              <button
-                type="button"
-                className="ait-btn danger"
+              </Button>
+              <Button
+                variant="destructive"
                 disabled={busy === `del-${emailPreview.prospect?.id}`}
                 onClick={() => deleteProspect(emailPreview.prospect.id)}
               >
                 Delete
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1454,7 +1466,7 @@ export default function AiTeam() {
               srcDoc={templatePreview.html || ''}
             />
             <div className="ait-btn-row" style={{ marginTop: 14 }}>
-              <button type="button" className="ait-btn" onClick={() => setTemplatePreview(null)}>Close</button>
+              <Button variant="outline" onClick={() => setTemplatePreview(null)}>Close</Button>
             </div>
           </div>
         </div>
