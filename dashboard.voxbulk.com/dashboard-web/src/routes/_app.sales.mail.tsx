@@ -327,7 +327,15 @@ function SalesMailPage() {
     }
     setAiBusy(mode);
     try {
-      const ctx = replyContextRef.current || openMessage;
+      const ctx = replyContextRef.current || replyContext || openMessage;
+      const contextBody =
+        (ctx?.body_text || "").trim() ||
+        (ctx?.body_html || "").trim() ||
+        "";
+      if (mode === "write" && !contextBody && !body.trim()) {
+        toast.error("Open the email first so AI can read it, then click Reply with AI.");
+        return;
+      }
       const res = await apiFetch<{ polished: string }>("/sales/mail/polish", {
         method: "POST",
         body: JSON.stringify({
@@ -335,7 +343,7 @@ function SalesMailPage() {
           body,
           subject,
           from: ctx ? `${ctx.from_name || ""} <${ctx.from_email || ""}>` : "",
-          context_body: ctx?.body_text || "",
+          context_body: contextBody,
         }),
       });
       if (!res.polished) {

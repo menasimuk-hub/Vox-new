@@ -330,7 +330,10 @@ def benefit_summaries(benefits: dict[str, Any], *, currency: str = "GBP") -> lis
     lines: list[str] = []
     wv = benefits.get("wallet_voucher") or {}
     if wv.get("enabled"):
-        lines.append(f"Wallet voucher {money_display(int(wv.get('amount_minor') or 0), currency)}")
+        lines.append(
+            f"Customer signup wallet credit {money_display(int(wv.get('amount_minor') or 0), currency)} "
+            "(goes to the customer, not your commission)"
+        )
     for sid in SERVICE_IDS:
         svc = (benefits.get("services") or {}).get(sid) or {}
         if not svc.get("enabled"):
@@ -351,12 +354,28 @@ def benefit_summaries(benefits: dict[str, Any], *, currency: str = "GBP") -> lis
     return lines
 
 
-def commission_summary(tiers: list[dict[str, Any]], *, currency: str = "GBP", partner: bool = False, partner_terms: dict | None = None) -> str:
+def commission_summary(
+    tiers: list[dict[str, Any]],
+    *,
+    currency: str = "GBP",
+    partner: bool = False,
+    partner_terms: dict | None = None,
+    commission_mode: str | None = None,
+    one_time_bonus_minor: int | None = None,
+) -> str:
+    mode = (commission_mode or "commission_only").strip().lower()
+    bonus = int(one_time_bonus_minor or 0)
+    bonus_bit = ""
+    if mode in ("one_time_only", "one_time_plus_commission") and bonus > 0:
+        bonus_bit = f"One-time bonus {money_display(bonus, currency)}"
+
     enabled = [t for t in tiers if t.get("enabled")]
     if partner:
         pt = partner_terms or {}
         bits = []
-        if enabled:
+        if bonus_bit:
+            bits.append(bonus_bit)
+        if enabled and mode != "one_time_only":
             t = enabled[0]
             if t["kind"] == "fixed":
                 bits.append(f"Next payment · {money_display(int(round(t['value'])), currency)}")
@@ -365,9 +384,13 @@ def commission_summary(tiers: list[dict[str, Any]], *, currency: str = "GBP", pa
         if pt.get("discount_percent"):
             bits.append(f"Partner discount {float(pt['discount_percent']):g}%")
         return " · ".join(bits) or "No commission"
+    if mode == "one_time_only":
+        return bonus_bit or "One-time bonus only (amount not set)"
     if not enabled:
-        return "No commission tiers"
+        return bonus_bit or "No commission tiers"
     parts = []
+    if bonus_bit and mode == "one_time_plus_commission":
+        parts.append(bonus_bit)
     for t in enabled:
         if t["kind"] == "fixed":
             parts.append(f"M{t['month']} {money_display(int(round(t['value'])), currency)}")

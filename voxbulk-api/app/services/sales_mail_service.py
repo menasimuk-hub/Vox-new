@@ -587,40 +587,99 @@ def polish_body_with_ai(
     subject: str = "",
     from_line: str = "",
     context_body: str = "",
+    sales_rep_id: str | None = None,
 ) -> str:
     """AI write or polish an email draft using platform OpenAI/DeepSeek when configured."""
     mode_key = (mode or "fix").strip().lower()
     draft = (body or "").strip()
-    if mode_key == "write" and not draft and not (context_body or "").strip():
-        return ""
+    incoming = _plain_email_text(context_body)
+    if mode_key == "write" and not draft and not incoming:
+        raise SalesMailServiceError(
+            "Nothing to reply to — open the email first so AI can read it, or paste the incoming message."
+        )
     if mode_key != "write" and not draft:
         return draft
+
+    promo_bits = ""
+    package_bits = ""
+    rep_name = ""
+    if sales_rep_id:
+        try:
+            rep = db.scalar(select(SalesRep).where(SalesRep.id == str(sales_rep_id)))
+            if rep:
+                from app.services.sales_hub_benefits import (
+                    benefit_summaries,
+                    currency_of_rep,
+                    packages_for_currency,
+                    parse_promo_benefits,
+                )
+
+                rep_name = str(rep.name or "").strip()
+                currency = currency_of_rep(rep)
+                benefits = parse_promo_benefits(rep)
+                summaries = benefit_summaries(benefits, currency=currency)
+                if rep.promo_code:
+                    promo_bits = f"Promo code: {rep.promo_code}\n"
+                if summaries:
+                    promo_bits += "Customer promo benefits:\n- " + "\n- ".join(summaries[:8])
+                pkgs = packages_for_currency(db, currency)[:8]
+                if pkgs:
+                    package_bits = "\n".join(
+                        f"- {p.get('name')}: {p.get('list_price_display') or p.get('monthly_display') or 'price on request'}"
+                        for p in pkgs
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("sales mail AI context load skipped: %s", e)
 
     try:
         from app.services.agents.base import AgentMessage
         from app.services.providers.openai_service import OpenAIProviderService
 
+        product_brief = (
+            "VoxBulk is a B2B SaaS platform. Core products:\n"
+            "- AI Interview Screening — automated voice/video candidate interviews\n"
+            "- WA Survey / AI Call Survey — WhatsApp and voice surveys at scale\n"
+            "- Customer Feedback — QR / Smart Card feedback collection\n"
+            "- Voxbulk Expo — event / expo engagement packages\n"
+            "- Smart Card QR — physical NFC/QR cards linked to feedback\n"
+            "Be accurate, helpful, and sales-aware. Do not invent pricing not listed below. "
+            "Invite a short call or demo when appropriate. Use UK professional tone."
+        )
+
         if mode_key == "write":
             system = (
-                "You are an expert B2B sales email writer for VoxBulk. "
-                "Write a concise, professional reply the salesman can send. "
-                "Return only the email body plain text — no subject line, no markdown fences."
+                "You are a VoxBulk salesman writing a reply email. "
+                "Read the incoming message carefully and answer their points. "
+                f"{product_brief} "
+                "Return only the email body in plain text — no subject line, no markdown fences, no preamble like 'Here is a draft'."
             )
             user = (
+                f"Salesman name: {rep_name or '(sales team)'}\n"
                 f"Incoming subject: {subject or '(none)'}\n"
                 f"From: {from_line or '(unknown)'}\n\n"
-                f"Incoming message:\n{(context_body or '')[:4000]}\n\n"
-                "Write a polished reply."
+                f"Incoming message:\n{incoming[:5000] or '(empty — write a short proactive follow-up)'}\n\n"
+                f"{promo_bits}\n"
+                f"Price sheet to quote if relevant:\n{package_bits or '(use general product names only)'}\n\n"
+                "Write a complete reply that:\n"
+                "1) Acknowledges what they asked\n"
+                "2) Explains how VoxBulk helps for their case\n"
+                "3) Mentions relevant product(s) and promo code when useful\n"
+                "4) Ends with a clear next step (reply, book a demo, or try the promo)\n"
             )
+            if draft:
+                user += f"\nSalesman notes / partial draft to incorporate:\n{draft[:2000]}\n"
         else:
             system = (
-                "You are an expert editor for professional sales email. "
-                "Improve clarity, grammar, and tone while keeping the salesman intent. "
+                "You are an expert editor for professional VoxBulk sales email. "
+                "Improve clarity, grammar, and tone while keeping the salesman's intent and facts. "
+                f"{product_brief} "
                 "Return only the rewritten email body plain text — no commentary."
             )
             user = (
                 f"Subject context: {subject or '(none)'}\n"
                 f"Original thread from: {from_line or '(n/a)'}\n\n"
+                f"Incoming message (for context):\n{incoming[:3000] or '(none)'}\n\n"
+                f"{promo_bits}\n"
                 f"Draft to improve:\n{draft[:4000]}"
             )
 
@@ -628,13 +687,40 @@ def polish_body_with_ai(
             db,
             system_prompt=system,
             messages=[AgentMessage(role="user", content=user)],
-            max_tokens=800,
-            temperature=0.4,
+            max_tokens=1200,
+            temperature=0.45,
         )
-        text = str(getattr(result, "assistant_text", None) or "").strip()
+        text = str(getattr(result, "assistant_text", None) or getattr(result, "text", None) or "").strip()
+        # Some providers wrap content; strip common wrappers
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:\w+)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text).strip()
         if text:
             return text
+        raise SalesMailServiceError(
+            "AI returned an empty reply. Check Admin → Integrations → OpenAI/DeepSeek is configured, then try again."
+        )
+    except SalesMailServiceError:
+        raise
     except Exception as e:
         logger.warning("sales mail AI polish failed: %s", e)
+        raise SalesMailServiceError(
+            f"AI reply failed: {e}. Check OpenAI/DeepSeek is configured in Admin integrations."
+        ) from e
 
-    return draft
+
+def _plain_email_text(value: str | None) -> str:
+    """Prefer plain text; strip HTML tags when only HTML is available."""
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if "<" in raw and ">" in raw:
+        text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", raw)
+        text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+        text = re.sub(r"(?i)</p>", "\n", text)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = re.sub(r"[ \t]+\n", "\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        return text.strip()
+    return raw

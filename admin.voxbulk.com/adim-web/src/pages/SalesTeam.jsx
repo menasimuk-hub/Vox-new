@@ -1367,6 +1367,56 @@ export default function SalesTeam() {
         </div>
       </div>
 
+      <div className='field-row' style={{ marginTop: 8, marginBottom: 16, padding: 12, border: '1px solid var(--border, #e5e7eb)', borderRadius: 8 }}>
+        <div className='field' style={{ flex: 1 }}>
+          <div className='switch-row'>
+            <HubSwitch
+              checked={Boolean(form.promo_benefits.wallet_voucher?.enabled)}
+              onCheckedChange={(v) => setForm({
+                ...form,
+                promo_benefits: {
+                  ...form.promo_benefits,
+                  wallet_voucher: {
+                    ...form.promo_benefits.wallet_voucher,
+                    enabled: v,
+                    amount_major: form.promo_benefits.wallet_voucher?.amount_major || '20',
+                  },
+                },
+              })}
+            />
+            <span className='switch-label'>Customer signup wallet credit</span>
+          </div>
+          <p className='muted' style={{ marginTop: 6, fontSize: 12 }}>
+            Credits the <strong>customer’s</strong> org wallet after they sign up with this promo — not the salesman’s commission.
+            Turn off to remove. Change the amount to control the welcome credit (default £20).
+          </p>
+        </div>
+        {form.promo_benefits.wallet_voucher?.enabled ? (
+          <div className='field'>
+            <label>Credit amount ({currencySymbol(formCurrency)})</label>
+            <input
+              type='number'
+              min='0'
+              step='0.01'
+              value={form.promo_benefits.wallet_voucher.amount_major}
+              onChange={(e) => setForm({
+                ...form,
+                promo_benefits: {
+                  ...form.promo_benefits,
+                  wallet_voucher: {
+                    ...form.promo_benefits.wallet_voucher,
+                    amount_major: e.target.value,
+                  },
+                },
+              })}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <p className='muted' style={{ marginBottom: 8, fontSize: 12 }}>
+        Per-service promo benefits (discounts / free days) for customers using this code:
+      </p>
       <div className='promo-services-grid'>
         {SERVICE_IDS.map((sid) => {
           const svc = form.promo_benefits.services[sid]
@@ -1457,7 +1507,7 @@ export default function SalesTeam() {
       </div>
       {form.commission_mode !== 'commission_only' ? (
         <div className='field'>
-          <label>One-time bonus ({currencySymbol(formCurrency)})</label>
+          <label>One-time bonus ({currencySymbol(formCurrency)}) — salesman payout</label>
           <input
             type='number'
             min='0'
@@ -1465,6 +1515,10 @@ export default function SalesTeam() {
             value={form.one_time_bonus_major}
             onChange={(e) => setForm({ ...form, one_time_bonus_major: e.target.value })}
           />
+          <p className='muted' style={{ marginTop: 4, fontSize: 12 }}>
+            Accrues to the salesman wallet once when a linked customer’s first qualifying subscription invoice is paid.
+            Set to 0 or switch to “Commission only” to remove.
+          </p>
         </div>
       ) : null}
     </div>

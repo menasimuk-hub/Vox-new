@@ -45,14 +45,42 @@ type PackageRow = {
   monthly_display?: string | null;
 };
 
+type CommissionRow = {
+  id: string;
+  org_name?: string | null;
+  amount_minor: number;
+  currency?: string;
+  kind?: string;
+  status?: string;
+  note?: string | null;
+  created_at?: string | null;
+};
+
 type RepInfo = {
   payout?: Payout;
   promo_code?: string;
   currency?: string;
   commission_summary?: string;
+  commission_mode?: string | null;
+  one_time_bonus_minor?: number | null;
   commission_tiers?: { month: number; enabled: boolean; kind: string; value: number }[];
   promo_benefit_summaries?: string[];
   partner_terms?: { discount_percent?: number; billing?: string };
+};
+
+const MODE_LABELS: Record<string, string> = {
+  commission_only: "Commission only",
+  one_time_only: "One-time bonus only",
+  one_time_plus_commission: "One-time bonus + commission",
+};
+
+const KIND_LABELS: Record<string, string> = {
+  one_time_bonus: "One-time bonus",
+  month2: "Month commission",
+  monthly: "Monthly commission",
+  percent_invoice: "Percent commission",
+  fixed_invoice: "Fixed commission",
+  partner_invoice: "Partner commission",
 };
 
 const SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$", CAD: "CA$", AUD: "A$" };
@@ -69,6 +97,7 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
   const [invoices, setInvoices] = React.useState<InvoiceRow[]>([]);
   const [rep, setRep] = React.useState<RepInfo | null>(null);
   const [packages, setPackages] = React.useState<PackageRow[]>([]);
+  const [commissions, setCommissions] = React.useState<CommissionRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState("");
@@ -87,6 +116,7 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
           rep?: RepInfo;
           payout_invoices?: InvoiceRow[];
           packages?: PackageRow[];
+          commissions?: CommissionRow[];
           commission_summary?: string;
           promo_benefit_summaries?: string[];
           currency?: string;
@@ -102,6 +132,7 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
       setPayout(res.rep?.payout || { payout_method: "bank" });
       setInvoices(res.payout_invoices || []);
       setPackages(res.packages || []);
+      setCommissions(res.commissions || []);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Failed to load wallet");
     } finally {
@@ -203,11 +234,25 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Percent className="size-4" /> Commission limits
+              <Percent className="size-4" /> Your commission rules
             </CardTitle>
-            <CardDescription>As set by admin — your earning rules.</CardDescription>
+            <CardDescription>
+              What you earn when a customer you referred pays. One-time bonus lands after their first qualifying paid invoice.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
+            {rep?.commission_mode ? (
+              <p className="text-muted-foreground">
+                Mode: <span className="font-medium text-foreground">{MODE_LABELS[rep.commission_mode] || rep.commission_mode}</span>
+              </p>
+            ) : null}
+            {Number(rep?.one_time_bonus_minor || 0) > 0 && rep?.commission_mode !== "commission_only" ? (
+              <p>
+                Configured one-time bonus:{" "}
+                <span className="font-semibold tabular-nums">{money(rep?.one_time_bonus_minor, currency)}</span>
+                <span className="text-muted-foreground"> (earned once per converted company)</span>
+              </p>
+            ) : null}
             <p className="font-medium">{rep?.commission_summary || (loading ? "…" : "—")}</p>
             {(rep?.commission_tiers || [])
               .filter((t) => t.enabled)
@@ -231,9 +276,11 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Gift className="size-4" /> Your promo
+              <Gift className="size-4" /> Your promo code (for customers)
             </CardTitle>
-            <CardDescription>Code and what it can do for customers.</CardDescription>
+            <CardDescription>
+              Share this code at signup. Benefits below credit the <strong>customer</strong> — they are not your commission.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex items-center gap-2">
@@ -243,7 +290,7 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
               <span className="text-muted-foreground">{currency}</span>
             </div>
             {(rep?.promo_benefit_summaries || []).length === 0 ? (
-              <p className="text-muted-foreground">{loading ? "…" : "No benefits configured yet."}</p>
+              <p className="text-muted-foreground">{loading ? "…" : "No customer promo benefits configured yet."}</p>
             ) : (
               <ul className="list-inside list-disc space-y-1 text-muted-foreground">
                 {rep?.promo_benefit_summaries?.map((line) => (
@@ -253,7 +300,10 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
             )}
             {packages.length > 0 ? (
               <div className="mt-3 border-t pt-3">
-                <p className="mb-1 font-medium">Packages in your market</p>
+                <p className="mb-1 font-medium">Price sheet for your market</p>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  Live list prices you can quote when pitching ({currency}). Not a checkout page.
+                </p>
                 <ul className="space-y-1 text-muted-foreground">
                   {packages.map((p) => (
                     <li key={p.service_id || p.name} className="flex justify-between gap-2">
@@ -267,6 +317,59 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Commission ledger</CardTitle>
+          <CardDescription>
+            Every earning row — one-time bonuses and monthly commission. Empty until a referred customer pays.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Company</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-muted-foreground">
+                    Loading…
+                  </TableCell>
+                </TableRow>
+              ) : commissions.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-muted-foreground">
+                    No commission earned yet. Bonus and tiers appear here after a linked customer’s paid invoice.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                commissions.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {(c.created_at || "").slice(0, 10) || "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{KIND_LABELS[c.kind || ""] || c.kind || "—"}</Badge>
+                    </TableCell>
+                    <TableCell className="max-w-[12rem] truncate">{c.org_name || "—"}</TableCell>
+                    <TableCell className="tabular-nums">{money(c.amount_minor, c.currency || currency)}</TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{c.status || "—"}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

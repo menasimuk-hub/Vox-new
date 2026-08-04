@@ -185,16 +185,21 @@ def send_email(payload: dict, db: Session = Depends(get_db), principal: CurrentP
 
 @router.post("/polish")
 def polish_body(payload: dict, db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
-    _require_salesman(db, principal)
+    rep = _require_salesman(db, principal)
     body = payload or {}
     original = str(body.get("body", "")).strip()
     mode = str(body.get("mode", "fix") or "fix").strip().lower()
-    polished = sales_mail_service.polish_body_with_ai(
-        db,
-        body=original,
-        mode=mode,
-        subject=str(body.get("subject") or ""),
-        from_line=str(body.get("from") or body.get("from_line") or ""),
-        context_body=str(body.get("context_body") or ""),
-    )
+    context = str(body.get("context_body") or body.get("context_html") or "").strip()
+    try:
+        polished = sales_mail_service.polish_body_with_ai(
+            db,
+            body=original,
+            mode=mode,
+            subject=str(body.get("subject") or ""),
+            from_line=str(body.get("from") or body.get("from_line") or ""),
+            context_body=context,
+            sales_rep_id=str(rep.id),
+        )
+    except SalesMailServiceError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "polished": polished}

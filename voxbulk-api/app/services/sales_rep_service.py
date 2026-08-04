@@ -138,7 +138,12 @@ class SalesRepService:
             "one_time_bonus_minor": parse_one_time_bonus_minor(rep),
             "commission_tiers": tiers,
             "commission_summary": commission_summary(
-                tiers, currency=currency, partner=partner, partner_terms=partner_terms
+                tiers,
+                currency=currency,
+                partner=partner,
+                partner_terms=partner_terms,
+                commission_mode=parse_commission_mode(rep),
+                one_time_bonus_minor=parse_one_time_bonus_minor(rep),
             ),
             "promo_benefits": benefits,
             "promo_benefit_summaries": benefit_summaries(benefits, currency=currency),
@@ -766,9 +771,22 @@ class SalesRepService:
         promo = PromoOfferService.get_by_code(db, rep.promo_code)
         signup_url = PromoOfferService.signup_url(rep.promo_code)
         first_name = SalesOfferSendService._first_name(customer.full_name)
-        offer_line = "£20 welcome credit"
+        from app.services.billing_currency import money_display
+        from app.services.sales_hub_benefits import currency_of_rep, parse_promo_benefits
+
+        benefits = parse_promo_benefits(rep)
+        wv = benefits.get("wallet_voucher") or {}
+        if wv.get("enabled") and int(wv.get("amount_minor") or 0) > 0:
+            credit_disp = money_display(int(wv["amount_minor"]), currency_of_rep(rep))
+            offer_line = f"{credit_disp} welcome credit"
+            offer_summary = (
+                f"{offer_details}. Includes {credit_disp} wallet credit after signup "
+                "(not usable for campaign launches or Customer feedback promo sends)."
+            )
+        else:
+            offer_line = "Special welcome offer"
+            offer_summary = f"{offer_details}."
         promo_name = promo.name if promo else f"{rep.promo_code} — VoxBulk offer"
-        offer_summary = f"{offer_details}. Includes £20 wallet credit after signup (not usable for campaign launches or Customer feedback promo sends)."
         variables = {
             "first_name": first_name,
             "offer_line": offer_line,
@@ -1005,7 +1023,21 @@ class SalesRepService:
         promo = PromoOfferService.get_by_code(db, rep.promo_code)
         signup_url = PromoOfferService.signup_url(rep.promo_code)
         promo_name = promo.name if promo else f"{rep.promo_code} — VoxBulk offer"
-        offer_line = "£20 welcome credit"
+        from app.services.billing_currency import money_display
+        from app.services.sales_hub_benefits import currency_of_rep, parse_promo_benefits
+
+        benefits = parse_promo_benefits(rep)
+        wv = benefits.get("wallet_voucher") or {}
+        if wv.get("enabled") and int(wv.get("amount_minor") or 0) > 0:
+            credit_disp = money_display(int(wv["amount_minor"]), currency_of_rep(rep))
+            offer_line = f"{credit_disp} welcome credit"
+            credit_summary_suffix = (
+                f". Includes {credit_disp} wallet credit after signup "
+                "(not usable for campaign launches or Customer feedback promo sends)."
+            )
+        else:
+            offer_line = "Special welcome offer"
+            credit_summary_suffix = "."
 
         results: list[dict[str, Any]] = []
         sent = 0
@@ -1018,10 +1050,7 @@ class SalesRepService:
                 continue
             name = str(item.get("name") or "").strip() or None
             first_name = SalesOfferSendService._first_name(name)
-            offer_summary = (
-                f"{offer_details}. Includes £20 wallet credit after signup "
-                "(not usable for campaign launches or Customer feedback promo sends)."
-            )
+            offer_summary = f"{offer_details}{credit_summary_suffix}"
             variables = {
                 "first_name": first_name,
                 "offer_line": offer_line,
@@ -1690,7 +1719,9 @@ class SalesRepService:
             commission_summary,
             currency_of_rep,
             packages_for_currency,
+            parse_commission_mode,
             parse_commission_tiers,
+            parse_one_time_bonus_minor,
             parse_partner_terms,
             parse_promo_benefits,
         )
@@ -1699,18 +1730,24 @@ class SalesRepService:
         benefits = parse_promo_benefits(rep)
         tiers = parse_commission_tiers(rep)
         partner_terms = parse_partner_terms(rep)
+        mode = parse_commission_mode(rep)
+        bonus_minor = parse_one_time_bonus_minor(rep)
 
         return {
             "kind": SalesRepService.rep_kind(rep),
             "commission_pct": SalesRepService.commission_pct_of(rep),
             "commission_type": SalesPayoutService.commission_type_of(rep),
             "commission_fixed_minor": SalesPayoutService.fixed_minor_of(rep),
+            "commission_mode": mode,
+            "one_time_bonus_minor": bonus_minor,
             "commission_tiers": tiers,
             "commission_summary": commission_summary(
                 tiers,
                 currency=currency,
                 partner=SalesRepService.is_partner_channel(rep),
                 partner_terms=partner_terms,
+                commission_mode=mode,
+                one_time_bonus_minor=bonus_minor,
             ),
             "promo_code": rep.promo_code,
             "promo_benefits": benefits,
