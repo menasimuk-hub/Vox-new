@@ -89,15 +89,29 @@ def test_ensure_system_senders_seeds(db):
     assert len(rows2) >= len(rows)
 
 
-def test_test_send_uses_row_password(db):
+def test_test_connection_uses_row_password(db):
     row = PlatformSenderEmailService.create(
         db, local_part="noreply", purpose="noreply", password="npw", from_name="No Reply"
     )
-    with patch("app.services.smtp_mailer_service.SmtpMailerService.send_plain") as send:
-        send.return_value = None
-        PlatformSenderEmailService.test_send(db, row.id, to_addr="admin@example.com")
-        assert send.called
-        kwargs = send.call_args.kwargs
-        assert kwargs["from_email"] == "noreply@voxbulk.com"
+    with patch("app.services.smtp_mailer_service.SmtpMailerService.verify_login") as verify:
+        verify.return_value = {"ok": True, "detail": "SMTP connection OK.", "host": "smtp.example", "port": 465}
+        result = PlatformSenderEmailService.test_connection(db, row.id)
+        assert verify.called
+        kwargs = verify.call_args.kwargs
         assert kwargs["smtp_password"] == "npw"
-        assert kwargs["to_addr"] == "admin@example.com"
+        assert kwargs["smtp_username"] == "noreply@voxbulk.com"
+        assert result["ok"] is True
+        assert "Connection OK" in result["detail"]
+
+
+def test_test_connection_falls_back_to_platform_smtp(db):
+    row = PlatformSenderEmailService.create(
+        db, local_part="sales", purpose="sales", from_name="Sales"
+    )
+    with patch("app.services.smtp_mailer_service.SmtpMailerService.verify_login") as verify:
+        verify.return_value = {"ok": True, "detail": "SMTP connection OK.", "host": "smtp.example", "port": 587}
+        result = PlatformSenderEmailService.test_connection(db, row.id)
+        kwargs = verify.call_args.kwargs
+        assert kwargs["smtp_password"] is None
+        assert kwargs["smtp_username"] is None
+        assert "platform SMTP" in result["detail"]

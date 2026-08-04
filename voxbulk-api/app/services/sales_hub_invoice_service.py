@@ -532,16 +532,18 @@ class SalesHubInvoiceService:
         outbound = PlatformSenderEmailService.resolve_outbound(db, "sales")
         if outbound is None or not outbound.get("from_email"):
             raise SalesRepError("Configure sales@ in Messaging → Emails (purpose: sales, active).")
-        if not outbound.get("smtp_password"):
-            raise SalesRepError(
-                "Set the password for sales@ in Messaging → Emails, then use Test on that row before sending invoices."
-            )
         from_name = outbound["from_name"]
         from_email = outbound["from_email"]
+        # Prefer mailbox password when set; otherwise use Messaging → SMTP login (same as billing).
+        smtp_username = outbound.get("smtp_username")
+        smtp_password = outbound.get("smtp_password")
         template_key = "sales_hub_invoice_reminder" if reminder else "sales_hub_invoice_sent"
+        from app.services.email_template_service import EmailTemplateService
+
+        EmailTemplateService.ensure_system_templates(db)
         subject_tpl, body_tpl, enabled = TransactionalEmailService.load_template_fields(db, template_key=template_key)
         if not enabled:
-            raise SalesRepError(f"Email template '{template_key}' is disabled")
+            raise SalesRepError(f"Email template '{template_key}' is disabled in Admin → Email templates")
         items = SalesHubInvoiceService.list_items(db, inv.id)
         total = SalesHubInvoiceService.invoice_total_minor(inv, items)
         vars_map = {
@@ -576,12 +578,13 @@ class SalesHubInvoiceService:
                 from_email=from_email,
                 from_name=from_name,
                 attachments=attachments,
-                smtp_username=outbound.get("smtp_username"),
-                smtp_password=outbound.get("smtp_password"),
+                smtp_username=smtp_username,
+                smtp_password=smtp_password,
             )
         except SmtpMailerError as e:
             raise SalesRepError(
-                f"SMTP send failed: {e}. Check Messaging → SMTP host and Emails → sales@ password (use Test)."
+                f"SMTP send failed: {e}. "
+                "Check Messaging → SMTP (enabled + password), or Edit sales@ password and click Test (connection only)."
             ) from e
         if reminder:
             SalesHubInvoiceService.remind(db, inv=inv)

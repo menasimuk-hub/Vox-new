@@ -345,27 +345,17 @@ export default function EmailSettings() {
   }
 
   const testSenderEmail = async (row) => {
-    const to = String(testTo || supportTestTo || '').trim()
-    if (!to) {
-      setSenderErr('Set a test recipient (same as SMTP test To) before testing.')
-      return
-    }
     setSenderBusy(true)
     setSenderErr('')
     setSenderMsg('')
     try {
       const res = await apiFetch(`/admin/email/sender-emails/${encodeURIComponent(row.id)}/test`, {
         method: 'POST',
-        body: JSON.stringify({ to }),
+        body: '{}',
       })
-      setSenderMsg(res?.detail || `Test sent to ${to} from ${row.email || row.local_part}`)
-      try {
-        window.localStorage.setItem('voxbulk_admin_test_email_to', to)
-      } catch {
-        /* ignore */
-      }
+      setSenderMsg(res?.detail || `Connection OK for ${row.email || row.local_part}`)
     } catch (e) {
-      setSenderErr(e?.message || 'Test failed')
+      setSenderErr(e?.message || 'Connection test failed')
     } finally {
       setSenderBusy(false)
     }
@@ -1394,20 +1384,11 @@ export default function EmailSettings() {
                 Platform sender emails
               </div>
               <div className="note" style={{ marginBottom: 12 }}>
-                <strong>SMTP</strong> tab = mail server. This table = each mailbox (From + password).
-                Domain <strong>@voxbulk.com</strong> only. After changing passwords: Edit → save password → <strong>Test</strong> (not Save).
+                <strong>SMTP</strong> tab = mail server. This table = each From address (+ optional mailbox password).
+                Domain <strong>@voxbulk.com</strong> only. <strong>Save</strong> stores credentials.
+                Row <strong>Test</strong> checks SMTP connection only — it does not send an email.
               </div>
               <div className="emailsHubToolbar">
-                <label className="emailsHubTestTo">
-                  <span>Test recipient</span>
-                  <input
-                    className="input"
-                    type="email"
-                    value={testTo}
-                    onChange={(e) => setTestTo(e.target.value)}
-                    placeholder="you@company.com"
-                  />
-                </label>
                 <button type="button" className="btn primary" onClick={openAddSender} disabled={senderBusy}>
                   Add email
                 </button>
@@ -1462,7 +1443,7 @@ export default function EmailSettings() {
                                     disabled={senderBusy || !row.is_active}
                                     onClick={() => testSenderEmail(row)}
                                   >
-                                    Test
+                                    Test connection
                                   </button>
                                   <button
                                     type="button"
@@ -1571,7 +1552,7 @@ export default function EmailSettings() {
                         </button>
                       </div>
                       <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-                        Save stores the mailbox. Use <strong>Test</strong> in the table row to send a connectivity email.
+                        Save stores the mailbox. Use <strong>Test</strong> on the row to verify SMTP connection (no email sent).
                       </p>
                     </div>
                   </div>

@@ -194,14 +194,13 @@ def freeze_sender_email(row_id: str, payload: dict | None = None, db: Session = 
 
 @router.post("/sender-emails/{row_id}/test")
 def test_sender_email(row_id: str, payload: dict | None = None, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_EMAIL))):
+    """Test SMTP connection/login for this sender — does not send an email."""
     from app.services.platform_sender_email_service import PlatformSenderEmailError, PlatformSenderEmailService
 
-    body = payload or {}
     try:
-        result = PlatformSenderEmailService.test_send(db, row_id, to_addr=str(body.get("to") or ""))
+        return PlatformSenderEmailService.test_connection(db, row_id)
     except PlatformSenderEmailError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message) from e
-    return result
 
 
 @router.delete("/sender-emails/{row_id}")

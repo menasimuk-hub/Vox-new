@@ -29,30 +29,19 @@ class SmtpMailerError(RuntimeError):
 
 class SmtpMailerService:
     @staticmethod
-    def _send_message(
+    def _resolve_auth(
         db: Session,
         *,
-        to_addr: str,
-        subject: str,
-        body: str,
-        html: bool,
-        attachments: list[dict[str, Any]] | None = None,
-        from_email: str | None = None,
-        from_name: str | None = None,
-        reply_to: str | None = None,
         smtp_username: str | None = None,
         smtp_password: str | None = None,
-    ) -> None:
+    ) -> tuple[Any, str, int, str | None, str | None, ssl.SSLContext]:
+        """Return (smtp_settings_row, host, port, username, password, ssl_context)."""
         row = SmtpSettingsService.get_row(db)
         configured, missing = SmtpSettingsService.compute_status(row)
         if not configured:
             raise SmtpMailerError("SMTP is incomplete: missing " + ", ".join(missing))
         if not row.is_enabled:
             raise SmtpMailerError("SMTP is disabled; enable it in settings before sending.")
-
-        to_addr = (to_addr or "").strip()
-        if not to_addr or "@" not in to_addr:
-            raise SmtpMailerError("Invalid recipient email address.")
 
         host = (row.host or "").strip()
         port = int(row.port or 587)
@@ -69,6 +58,94 @@ class SmtpMailerService:
                 if not pwd:
                     raise SmtpMailerError("SMTP password is required but not configured.")
             username = (row.username or "").strip() or None
+
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        insecure = bool(settings.smtp_ssl_insecure)
+        if insecure:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        else:
+            try:
+                import truststore
+
+                ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            except Exception:
+                ctx = ssl.create_default_context()
+
+        return row, host, port, username, pwd, ctx
+
+    @staticmethod
+    def verify_login(
+        db: Session,
+        *,
+        smtp_username: str | None = None,
+        smtp_password: str | None = None,
+    ) -> dict[str, Any]:
+        """Connect to SMTP and authenticate only — does not send mail."""
+        row, host, port, username, pwd, ctx = SmtpMailerService._resolve_auth(
+            db, smtp_username=smtp_username, smtp_password=smtp_password
+        )
+        try:
+            if row.use_ssl:
+                with smtplib.SMTP_SSL(host, port, context=ctx, timeout=30) as server:
+                    if username and pwd is not None:
+                        server.login(username, pwd)
+                    elif username and pwd is None:
+                        raise SmtpMailerError("SMTP username is set but password is missing.")
+            else:
+                with smtplib.SMTP(host, port, timeout=30) as server:
+                    server.ehlo()
+                    if row.use_tls:
+                        server.starttls(context=ctx)
+                        server.ehlo()
+                    if username and pwd is not None:
+                        server.login(username, pwd)
+                    elif username and pwd is None:
+                        raise SmtpMailerError("SMTP username is set but password is missing.")
+        except SmtpMailerError:
+            raise
+        except smtplib.SMTPAuthenticationError as e:
+            raise SmtpMailerError(
+                f"SMTP authentication failed: {e.smtp_code} {e.smtp_error.decode(errors='replace')}"
+            ) from e
+        except smtplib.SMTPException as e:
+            raise SmtpMailerError(f"SMTP error: {e}") from e
+        except OSError as e:
+            raise SmtpMailerError(f"Network error contacting SMTP server: {e}") from e
+
+        return {
+            "ok": True,
+            "host": host,
+            "port": port,
+            "username": username or "",
+            "detail": f"SMTP connection OK ({host}:{port}" + (f", user {username}" if username else "") + ").",
+        }
+
+    @staticmethod
+    def _send_message(
+        db: Session,
+        *,
+        to_addr: str,
+        subject: str,
+        body: str,
+        html: bool,
+        attachments: list[dict[str, Any]] | None = None,
+        from_email: str | None = None,
+        from_name: str | None = None,
+        reply_to: str | None = None,
+        smtp_username: str | None = None,
+        smtp_password: str | None = None,
+    ) -> None:
+        row, host, port, username, pwd, ctx = SmtpMailerService._resolve_auth(
+            db, smtp_username=smtp_username, smtp_password=smtp_password
+        )
+
+        to_addr = (to_addr or "").strip()
+        if not to_addr or "@" not in to_addr:
+            raise SmtpMailerError("Invalid recipient email address.")
 
         from_email = str(from_email or row.from_email or "").strip()
         from_name = str(from_name if from_name is not None else row.from_name or "").strip()
@@ -96,22 +173,6 @@ class SmtpMailerService:
             maintype = str(attachment.get("maintype") or "application")
             subtype = str(attachment.get("subtype") or "octet-stream")
             msg.add_attachment(content, maintype=maintype, subtype=subtype, filename=filename)
-
-        from app.core.config import get_settings
-
-        settings = get_settings()
-        insecure = bool(settings.smtp_ssl_insecure)
-        if insecure:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-        else:
-            try:
-                import truststore
-
-                ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            except Exception:
-                ctx = ssl.create_default_context()
 
         try:
             if row.use_ssl:

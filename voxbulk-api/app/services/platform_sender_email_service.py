@@ -480,7 +480,8 @@ class PlatformSenderEmailService:
         return PlatformSenderEmailService.list_all(db)
 
     @staticmethod
-    def test_send(db: Session, row_id: str, *, to_addr: str) -> dict[str, Any]:
+    def test_connection(db: Session, row_id: str) -> dict[str, Any]:
+        """Verify SMTP host + login for this sender. Does not send any email."""
         from app.services.smtp_mailer_service import SmtpMailerError, SmtpMailerService
 
         row = PlatformSenderEmailService.get(db, row_id)
@@ -488,40 +489,35 @@ class PlatformSenderEmailService:
             raise PlatformSenderEmailError("Sender not found", status_code=404)
         if not row.is_active:
             raise PlatformSenderEmailError("Sender is frozen; unfreeze before testing")
-        to_addr = (to_addr or "").strip()
-        if not to_addr or "@" not in to_addr:
-            raise PlatformSenderEmailError("Enter a valid test recipient email")
         pwd = PlatformSenderEmailService.get_decrypted_password(db, row)
-        if not pwd:
-            raise PlatformSenderEmailError(
-                "Save a password on this email first (Edit → Password → Save), then Test again."
-            )
-        outbound = PlatformSenderEmailService.resolve_outbound(db, row.purpose) if row.purpose else None
-        if outbound is None:
-            # Allow test even without purpose using this row directly
-            pwd = PlatformSenderEmailService.get_decrypted_password(db, row)
-            outbound = {
-                "from_name": row.from_name or row.local_part,
-                "from_email": row.email,
-                "smtp_username": ((row.smtp_username or "").strip() or row.email) if pwd else None,
-                "smtp_password": pwd,
-            }
+        smtp_username = None
+        smtp_password = None
+        auth_mode = "platform SMTP"
+        if pwd:
+            smtp_username = (getattr(row, "smtp_username", None) or "").strip() or row.email
+            smtp_password = pwd
+            auth_mode = f"mailbox password ({smtp_username})"
         try:
-            SmtpMailerService.send_plain(
+            result = SmtpMailerService.verify_login(
                 db,
-                to_addr=to_addr,
-                subject=f"VOXBULK / Emails hub test ({row.email})",
-                body=(
-                    f"This is a connectivity test from Messaging → Emails.\n\n"
-                    f"From: {outbound['from_name']} <{outbound['from_email']}>\n"
-                    f"Purpose: {row.purpose or '(none)'}\n"
-                    f"Password on file: {'yes' if outbound.get('smtp_password') else 'no (using platform SMTP login)'}\n"
-                ),
-                from_email=outbound["from_email"],
-                from_name=outbound["from_name"],
-                smtp_username=outbound.get("smtp_username"),
-                smtp_password=outbound.get("smtp_password"),
+                smtp_username=smtp_username,
+                smtp_password=smtp_password,
             )
         except SmtpMailerError as e:
             raise PlatformSenderEmailError(str(e)) from e
-        return {"ok": True, "detail": f"Test email sent to {to_addr} from {outbound['from_email']}.", "from": outbound["from_email"], "to": to_addr}
+        return {
+            "ok": True,
+            "detail": (
+                f"Connection OK for {row.email} using {auth_mode}. "
+                f"{result.get('detail') or ''}"
+            ).strip(),
+            "from": row.email,
+            "auth_mode": auth_mode,
+            "host": result.get("host"),
+            "port": result.get("port"),
+        }
+
+    @staticmethod
+    def test_send(db: Session, row_id: str, *, to_addr: str | None = None) -> dict[str, Any]:
+        """Deprecated alias — Test is connection-only (no outbound email)."""
+        return PlatformSenderEmailService.test_connection(db, row_id)
