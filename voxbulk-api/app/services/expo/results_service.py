@@ -423,15 +423,23 @@ class ExpoResultsService:
                     ).scalars().all()
                     for job in jobs:
                         rid = str(job.response_id or "")
-                        url = str(job.media_url or "").strip()
-                        # Prefer authenticated local playback when we stored web audio on disk.
-                        local = str(getattr(job, "provider_media_id", None) or "").strip()
-                        if local.startswith("data/") or local.replace("\\", "/").startswith("data/"):
+                        local = str(getattr(job, "provider_media_id", None) or "").strip().replace("\\", "/")
+                        # Prefer authenticated local playback whenever we have a stored file.
+                        if local.startswith("data/"):
                             url = f"/expo/results/voice-notes/{job.id}/audio"
+                        else:
+                            raw_url = str(job.media_url or "").strip()
+                            # Only allow our API audio path — never raw Meta / CDN URLs.
+                            if raw_url.startswith("/expo/results/voice-notes/"):
+                                url = raw_url
+                            else:
+                                url = ""
                         if rid and url and rid not in voice_by_response:
                             voice_by_response[rid] = url
             for r in rows:
                 key = str(r.question_key or "")
+                src = str(r.answer_source or "").lower()
+                audio = voice_by_response.get(str(r.id))
                 answers.append(
                     {
                         "question_key": key,
@@ -442,7 +450,7 @@ class ExpoResultsService:
                         "answer_text_en": r.answer_text_en,
                         "answer_source": r.answer_source,
                         "step_order": r.step_order,
-                        "audio_url": voice_by_response.get(str(r.id)) if str(r.answer_source or "").lower() == "voice" else None,
+                        "audio_url": audio if (src == "voice" or audio) else None,
                     }
                 )
         data["answers"] = answers

@@ -99,7 +99,7 @@ class SmartCardResultsService:
             if scope is not None and rid not in scope:
                 return []
             stmt = stmt.where(SmartCardLead.representative_id == rid)
-        # Drop preview sessions
+        # Include preview test leads (tagged) so dashboard testing is visible.
         stmt = stmt.order_by(SmartCardLead.created_at.desc()).limit(500)
         leads = db.execute(stmt).scalars().all()
         preview_session_ids: set[str] = set()
@@ -118,9 +118,9 @@ class SmartCardResultsService:
             }
         out = []
         for lead in leads:
-            if lead.session_id and str(lead.session_id) in preview_session_ids:
-                continue
-            out.append(SmartCardResultsService._lead_row(db, lead))
+            row = SmartCardResultsService._lead_row(db, lead)
+            row["is_preview"] = bool(lead.session_id and str(lead.session_id) in preview_session_ids)
+            out.append(row)
         return out
 
     @staticmethod
@@ -139,6 +139,11 @@ class SmartCardResultsService:
             raise SmartCardResultsError("Lead not found")
         SmartCardResultsService._assert_rep_allowed(scope, lead.representative_id)
         data = SmartCardResultsService._lead_row(db, lead)
+        is_preview = False
+        if lead.session_id:
+            sess = db.get(SmartCardSession, lead.session_id)
+            is_preview = bool(sess and sess.is_preview)
+        data["is_preview"] = is_preview
         data["answers"] = SmartCardResultsService._answers_for_session(
             db, org_id=org_id, session_id=lead.session_id
         )
@@ -377,23 +382,7 @@ class SmartCardResultsService:
         else:
             leads = list(db.execute(base).scalars().all())
 
-        # Exclude preview
-        session_ids = [str(L.session_id) for L in leads if L.session_id]
-        preview_ids: set[str] = set()
-        if session_ids:
-            preview_ids = {
-                str(s.id)
-                for s in db.execute(
-                    select(SmartCardSession).where(
-                        SmartCardSession.id.in_(session_ids),
-                        SmartCardSession.is_preview.is_(True),
-                    )
-                )
-                .scalars()
-                .all()
-            }
-        leads = [L for L in leads if not L.session_id or str(L.session_id) not in preview_ids]
-
+        # Include preview test leads in KPIs so dashboard testing is visible.
         def _in_range(dt: datetime | None, start: datetime, end: datetime | None = None) -> bool:
             if dt is None:
                 return False
@@ -437,7 +426,6 @@ class SmartCardResultsService:
         sess_today = select(func.count()).select_from(SmartCardSession).where(
             SmartCardSession.org_id == org_id,
             SmartCardSession.created_at >= today_start,
-            SmartCardSession.is_preview.is_(False),
         )
         if scope is not None:
             sess_today = sess_today.where(SmartCardSession.representative_id.in_(scope))
@@ -463,7 +451,6 @@ class SmartCardResultsService:
                 SmartCardSession.org_id == org_id,
                 SmartCardSession.created_at >= day,
                 SmartCardSession.created_at < day_end,
-                SmartCardSession.is_preview.is_(False),
             ]
             if scope is not None:
                 sess_filters.append(SmartCardSession.representative_id.in_(scope))

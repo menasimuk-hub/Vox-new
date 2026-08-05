@@ -45,6 +45,58 @@ def _english_or_original(translated: dict[str, Any], original: str) -> str:
     return answer_en
 
 
+def _repo_root() -> "Path":
+    from pathlib import Path
+
+    return Path(__file__).resolve().parents[3]
+
+
+def _store_voice_bytes(*, org_id: str, job_id: str, audio_bytes: bytes, filename: str = "voice.ogg") -> str:
+    """Write audio under repo data/expo_voice and return relative path (data/...)."""
+    from pathlib import Path
+
+    root = _repo_root() / "data" / "expo_voice" / str(org_id)
+    root.mkdir(parents=True, exist_ok=True)
+    safe_name = (filename or "voice.ogg").replace("/", "_").replace("\\", "_")[:80]
+    path = root / f"{job_id}_{safe_name}"
+    path.write_bytes(audio_bytes)
+    rel = path.relative_to(_repo_root()).as_posix()
+    return rel
+
+
+def _persist_job_audio_from_url(db: Session, job: ExpoVoiceNoteJob, media_url: str) -> bool:
+    """Download remote (e.g. Meta) audio into local storage for dashboard playback."""
+    try:
+        from app.services.expo.business_card_ocr_service import download_image_bytes
+
+        raw, ctype = download_image_bytes(db, media_url=media_url, max_bytes=12_000_000)
+        if not raw:
+            return False
+        ext = "ogg"
+        ct = (ctype or "").lower()
+        if "mpeg" in ct or "mp3" in ct:
+            ext = "mp3"
+        elif "wav" in ct:
+            ext = "wav"
+        elif "mp4" in ct or "m4a" in ct:
+            ext = "m4a"
+        elif "webm" in ct:
+            ext = "webm"
+        rel = _store_voice_bytes(
+            org_id=str(job.org_id),
+            job_id=str(job.id),
+            audio_bytes=raw,
+            filename=f"voice.{ext}",
+        )
+        job.provider_media_id = rel
+        job.media_url = f"/expo/results/voice-notes/{job.id}/audio"
+        db.add(job)
+        return True
+    except Exception as exc:
+        logger.warning("%s persist_remote_audio_failed job=%s err=%s", LOG_PREFIX, job.id, exc)
+        return False
+
+
 def enqueue_expo_voice_job(job_id: str) -> None:
     try:
         from app.workers.expo_voice_note_tasks import transcribe_expo_voice_note
@@ -178,6 +230,12 @@ def process_expo_voice_job(db: Session, job_id: str) -> dict[str, Any]:
                 if resolved:
                     media_block["url"] = resolved
                     job.media_url = resolved
+
+            # Always try to keep a local copy for dashboard playback (WhatsApp Meta URLs expire / need auth).
+            local = str(job.provider_media_id or "").replace("\\", "/")
+            if media_block["url"] and not local.startswith("data/"):
+                _persist_job_audio_from_url(db, job, str(media_block["url"]))
+
             record = {"type": "audio", "audio": media_block, "media": [media_block]}
             text, ok, detected = transcribe_inbound(
                 db,
@@ -271,18 +329,16 @@ def process_web_voice_bytes(
     db.commit()
 
     try:
-        # Persist original recording for dashboard playback.
+        # Persist original recording for dashboard playback (repo-rooted path).
         try:
-            from pathlib import Path
-
-            root = Path("data") / "expo_voice" / str(session.org_id)
-            root.mkdir(parents=True, exist_ok=True)
-            safe_name = (filename or "voice.webm").replace("/", "_").replace("\\", "_")[:80]
-            path = root / f"{job.id}_{safe_name}"
-            path.write_bytes(audio_bytes)
-            # Store relative path in media_url for auth download endpoint.
+            rel = _store_voice_bytes(
+                org_id=str(session.org_id),
+                job_id=str(job.id),
+                audio_bytes=audio_bytes,
+                filename=filename or "voice.webm",
+            )
             job.media_url = f"/expo/results/voice-notes/{job.id}/audio"
-            job.provider_media_id = str(path).replace("\\", "/")
+            job.provider_media_id = rel
             db.add(job)
             db.commit()
         except Exception as store_exc:

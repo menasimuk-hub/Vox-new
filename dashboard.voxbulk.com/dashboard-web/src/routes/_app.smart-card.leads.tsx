@@ -69,6 +69,7 @@ type Lead = {
   channel?: string | null;
   business_card_url?: string | null;
   created_at?: string | null;
+  is_preview?: boolean;
   answers?: LeadAnswer[];
 };
 
@@ -447,6 +448,11 @@ function SmartCardLeadsPage() {
                   <td className="py-2.5 pr-3">
                     <p className="font-medium">{l.name || "Unknown"}</p>
                     <p className="text-[11px] text-muted-foreground">{l.interest || "—"}</p>
+                    {l.is_preview ? (
+                      <Badge variant="outline" className="mt-1 border-amber-500/40 text-[10px] text-amber-700 dark:text-amber-400">
+                        Preview test
+                      </Badge>
+                    ) : null}
                   </td>
                   <td className="py-2.5 pr-3 text-muted-foreground">{l.company || "—"}</td>
                   <td className="py-2.5 pr-3 text-muted-foreground">{l.representative_name || "—"}</td>
@@ -472,7 +478,7 @@ function SmartCardLeadsPage() {
               {!leadsQ.isLoading && rows.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-xs text-muted-foreground">
-                    No leads for the selected cards. Preview scans are hidden from results.
+                    No leads for the selected cards yet — complete a WhatsApp or web questionnaire after scanning.
                   </td>
                 </tr>
               ) : null}
@@ -494,8 +500,13 @@ function SmartCardLeadsPage() {
                     <SheetTitle className="mt-1 truncate text-xl font-semibold tracking-tight">
                       {detail.name || "Unnamed lead"}
                     </SheetTitle>
-                    <SheetDescription className="mt-2 flex flex-wrap items-center gap-2">
+                      <SheetDescription className="mt-2 flex flex-wrap items-center gap-2">
                       <ScoreBadge score={detail.lead_score} />
+                      {detail.is_preview ? (
+                        <Badge variant="outline" className="border-amber-500/40 text-[10px] text-amber-700 dark:text-amber-400">
+                          Preview test
+                        </Badge>
+                      ) : null}
                       <span className="text-sm text-muted-foreground">
                         {detail.representative_name || "Card"}
                       </span>

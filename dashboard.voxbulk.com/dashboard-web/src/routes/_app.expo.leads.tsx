@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  CheckCircle2,
   ChevronRight,
   Download,
   FileSpreadsheet,
@@ -15,6 +16,7 @@ import {
   Building2,
   User,
   Users,
+  XCircle,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -118,10 +120,12 @@ function countryOrBooth(lead: LeadRow): string {
 
 function AuthenticatedAudio({ src }: { src: string }) {
   const [blobUrl, setBlobUrl] = React.useState<string | null>(null);
+  const [failed, setFailed] = React.useState(false);
   React.useEffect(() => {
     let revoked: string | null = null;
     let cancelled = false;
     setBlobUrl(null);
+    setFailed(false);
     const path = String(src || "").trim();
     if (!path) return;
     if (path.startsWith("http://") || path.startsWith("https://")) {
@@ -132,14 +136,17 @@ function AuthenticatedAudio({ src }: { src: string }) {
       try {
         const base = getApiBaseUrl().replace(/\/+$/, "");
         const res = await fetch(`${base}${path}`, { headers: buildAuthHeaders() });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setFailed(true);
+          return;
+        }
         const blob = await res.blob();
         if (cancelled) return;
         const url = URL.createObjectURL(blob);
         revoked = url;
         setBlobUrl(url);
       } catch {
-        /* ignore */
+        if (!cancelled) setFailed(true);
       }
     })();
     return () => {
@@ -147,13 +154,40 @@ function AuthenticatedAudio({ src }: { src: string }) {
       if (revoked) URL.revokeObjectURL(revoked);
     };
   }, [src]);
+  if (failed) {
+    return <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">Recording unavailable</p>;
+  }
   if (!blobUrl) {
     return <p className="mt-3 text-xs text-muted-foreground">Loading recording…</p>;
   }
   return (
-    <audio controls preload="none" className="mt-3 w-full" src={blobUrl}>
+    <audio controls preload="metadata" className="mt-3 w-full" src={blobUrl}>
       Your browser does not support audio playback.
     </audio>
+  );
+}
+
+function CardCell({ on }: { on: boolean }) {
+  return on ? (
+    <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+      <ScanLine className="size-3.5" /> Scanned
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <XCircle className="size-3.5" /> None
+    </span>
+  );
+}
+
+function CatalogueCell({ downloaded }: { downloaded: boolean }) {
+  return downloaded ? (
+    <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+      <CheckCircle2 className="size-3.5" /> Downloaded
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <XCircle className="size-3.5" /> Not opened
+    </span>
   );
 }
 
@@ -281,25 +315,30 @@ function ExpoLeads() {
 
   const detail = detailQ.data?.item || selected;
   const [cardSrc, setCardSrc] = React.useState<string | null>(null);
+  const [cardFailed, setCardFailed] = React.useState(false);
 
   React.useEffect(() => {
     let revoked: string | null = null;
     let cancelled = false;
     setCardSrc(null);
+    setCardFailed(false);
     const path = detail?.business_card_url;
     if (!path) return;
     (async () => {
       try {
         const base = getApiBaseUrl().replace(/\/+$/, "");
         const res = await fetch(`${base}${path}`, { headers: buildAuthHeaders() });
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setCardFailed(true);
+          return;
+        }
         const blob = await res.blob();
         if (cancelled) return;
         const url = URL.createObjectURL(blob);
         revoked = url;
         setCardSrc(url);
       } catch {
-        /* ignore */
+        if (!cancelled) setCardFailed(true);
       }
     })();
     return () => {
@@ -518,13 +557,15 @@ function ExpoLeads() {
               {leadsQ.error instanceof Error ? leadsQ.error.message : "Unable to load leads."}
             </p>
           ) : (
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3">Lead</th>
                   <th className="py-2 pr-3">Company</th>
                   <th className="py-2 pr-3">Country / booth</th>
                   <th className="py-2 pr-3">Channel</th>
+                  <th className="py-2 pr-3">Card</th>
+                  <th className="py-2 pr-3">Catalogue</th>
                   <th className="py-2 pr-3">Score</th>
                   <th className="py-2 pr-3">Captured</th>
                   <th className="py-2" />
@@ -533,13 +574,14 @@ function ExpoLeads() {
               <tbody>
                 {leads.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-xs text-muted-foreground">
+                    <td colSpan={9} className="py-8 text-center text-xs text-muted-foreground">
                       No leads yet — share your Expo QR at the stand.
                     </td>
                   </tr>
                 ) : (
                   leads.map((lead) => {
                     const channel = inferChannel(lead);
+                    const catalogueDownloaded = Number(lead.assets_opened_count || 0) > 0;
                     return (
                       <tr
                         key={lead.id}
@@ -561,6 +603,12 @@ function ExpoLeads() {
                             )}
                             {channel.label}
                           </span>
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <CardCell on={Boolean(lead.business_card_url)} />
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <CatalogueCell downloaded={catalogueDownloaded} />
                         </td>
                         <td className="py-2.5 pr-3">
                           <ScoreBadge score={lead.lead_score} />
@@ -650,7 +698,49 @@ function ExpoLeads() {
                   </section>
                 ) : detail.business_card_url && detailQ.isLoading ? (
                   <Skeleton className="h-44 w-full rounded-xl" />
+                ) : detail.business_card_url && cardFailed ? (
+                  <section>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      Business card
+                    </p>
+                    <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">
+                      Card on file but image unavailable.
+                    </p>
+                  </section>
+                ) : detail.business_card_url ? (
+                  <Skeleton className="h-44 w-full rounded-xl" />
                 ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="gap-1 text-[10px]">
+                    {detail.catalogue_requested ? (
+                      <>
+                        <Download className="size-3 text-emerald-500" /> Catalogue requested
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="size-3 text-muted-foreground" /> Catalogue not requested
+                      </>
+                    )}
+                  </Badge>
+                  <Badge variant="outline" className="gap-1 text-[10px]">
+                    {Number(detail.assets_opened_count || 0) > 0 ? (
+                      <>
+                        <CheckCircle2 className="size-3 text-emerald-500" />{" "}
+                        {detail.assets_opened_count} file(s) downloaded
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="size-3 text-muted-foreground" /> No downloads yet
+                      </>
+                    )}
+                  </Badge>
+                  {detail.business_card_url ? (
+                    <Badge variant="outline" className="gap-1 text-[10px]">
+                      <ScanLine className="size-3 text-sky-500" /> Business card scanned
+                    </Badge>
+                  ) : null}
+                </div>
 
                 <section className="rounded-xl border bg-card p-4 shadow-sm">
                   <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
@@ -773,6 +863,10 @@ function ExpoLeads() {
                           ) : null}
                           {a.answer_source === "voice" && a.audio_url ? (
                             <AuthenticatedAudio src={a.audio_url} />
+                          ) : a.answer_source === "voice" ? (
+                            <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+                              Voice answer — recording not available for playback
+                            </p>
                           ) : null}
                           {showBoth ? (
                             <div className="mt-3 space-y-3">

@@ -1,6 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, Package, Pencil, Plus, QrCode, Search, Trash2 } from "lucide-react";
+import {
+  CreditCard,
+  Download,
+  ExternalLink,
+  Package,
+  Pencil,
+  Plus,
+  QrCode,
+  Search,
+  Trash2,
+} from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -22,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
+import { cn } from "@/lib/utils";
 
 type Rep = {
   id: string;
@@ -86,6 +97,10 @@ function SmartCardSavedQrsPage() {
   const seats = entQ.data?.seat_quantity || 0;
   const active = entQ.data?.active_reps || items.length;
   const canAdd = canEdit && (seats === 0 || active < seats || seats > 0);
+  const mode = entQ.data?.mode || "";
+  const needsPayActivate = Boolean(
+    canEdit && mode && mode !== "live",
+  );
 
   return (
     <div className="space-y-6">
@@ -96,12 +111,19 @@ function SmartCardSavedQrsPage() {
         actions={
           canEdit ? (
             <div className="flex flex-wrap gap-2">
+              {needsPayActivate ? (
+                <Button asChild size="sm" className="gap-1.5">
+                  <Link to="/account/packages" search={{ tab: "smartCard" }}>
+                    <CreditCard className="size-4" /> Pay &amp; Activate
+                  </Link>
+                </Button>
+              ) : null}
               <Button asChild variant="outline" size="sm">
                 <Link to="/smart-card/catalogue">
                   <Package className="size-4" /> Manage products
                 </Link>
               </Button>
-              <Button asChild size="sm" disabled={seats > 0 && active >= seats}>
+              <Button asChild size="sm" variant={needsPayActivate ? "outline" : "default"} disabled={seats > 0 && active >= seats}>
                 <Link to="/smart-card/qrs/new">
                   <QrCode className="size-4" /> Add QR
                 </Link>
@@ -117,8 +139,12 @@ function SmartCardSavedQrsPage() {
       />
 
       {entQ.data ? (
-        <Card>
-          <CardContent className="flex flex-wrap gap-4 p-4 text-sm">
+        <Card
+          className={cn(
+            needsPayActivate && "border-amber-500/40 bg-amber-500/5",
+          )}
+        >
+          <CardContent className="flex flex-wrap items-center gap-4 p-4 text-sm">
             <span>
               Status: <span className="font-medium capitalize">{entQ.data.mode.replace(/_/g, " ")}</span>
             </span>
@@ -137,9 +163,11 @@ function SmartCardSavedQrsPage() {
                 of {entQ.data.preview_tests_limit || 15} free scans left
               </span>
             ) : null}
-            {(entQ.data.mode === "expired" || seats < 1) && canEdit ? (
-              <Button asChild size="sm" variant="outline">
-                <Link to="/account/smart-card/packages">Buy seats</Link>
+            {needsPayActivate ? (
+              <Button asChild size="sm" className="gap-1.5">
+                <Link to="/account/packages" search={{ tab: "smartCard" }}>
+                  <CreditCard className="size-4" /> Pay &amp; Activate
+                </Link>
               </Button>
             ) : null}
           </CardContent>
