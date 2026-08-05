@@ -2,6 +2,8 @@
 
 Revision ID: 0230_platform_product_visibility
 Revises: 0229_support_ticket_email_fingerprint
+
+MySQL: TEXT columns must not use server_default (error 1101).
 """
 
 from __future__ import annotations
@@ -134,19 +136,20 @@ def _has_column(table: str, column: str) -> bool:
 
 def upgrade() -> None:
     if not _table_exists("platform_product_groups"):
+        # MySQL rejects DEFAULT on TEXT (error 1101). Values are set on INSERT / ORM default=.
         op.create_table(
             "platform_product_groups",
             sa.Column("id", sa.String(length=36), primary_key=True),
             sa.Column("key", sa.String(length=64), nullable=False),
             sa.Column("name", sa.String(length=160), nullable=False),
-            sa.Column("description", sa.Text(), nullable=False, server_default=""),
+            sa.Column("description", sa.Text(), nullable=False),
             sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
             sa.Column("always_visible", sa.Boolean(), nullable=False, server_default=sa.text("0")),
             sa.Column("is_system", sa.Boolean(), nullable=False, server_default=sa.text("0")),
             sa.Column("sort_order", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("routes_json", sa.Text(), nullable=False, server_default="[]"),
-            sa.Column("faq_category_slugs_json", sa.Text(), nullable=False, server_default="[]"),
-            sa.Column("pricing_kinds_json", sa.Text(), nullable=False, server_default="[]"),
+            sa.Column("routes_json", sa.Text(), nullable=False),
+            sa.Column("faq_category_slugs_json", sa.Text(), nullable=False),
+            sa.Column("pricing_kinds_json", sa.Text(), nullable=False),
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("updated_at", sa.DateTime(), nullable=False),
             sa.UniqueConstraint("key", name="uq_platform_product_groups_key"),
