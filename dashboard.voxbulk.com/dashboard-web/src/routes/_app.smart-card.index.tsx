@@ -129,8 +129,12 @@ function SmartCardSavedQrsPage() {
               <span>Expires: {new Date(entQ.data.period_end).toLocaleDateString()}</span>
             ) : null}
             {entQ.data.mode === "preview" || entQ.data.mode === "preview_exhausted" ? (
-              <span>
-                Preview tests: {entQ.data.preview_tests_used}/{entQ.data.preview_tests_limit}
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                {Math.max(
+                  0,
+                  (entQ.data.preview_tests_limit || 15) - (entQ.data.preview_tests_used || 0),
+                )}{" "}
+                of {entQ.data.preview_tests_limit || 15} free scans left
               </span>
             ) : null}
             {(entQ.data.mode === "expired" || seats < 1) && canEdit ? (
@@ -171,30 +175,47 @@ function SmartCardSavedQrsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {items.map((rep) => (
-            <Card key={rep.id} className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
-              <CardContent className="flex gap-3 p-3">
-                {rep.qr_image_url ? (
-                  <img
-                    src={rep.qr_image_url}
-                    alt=""
-                    className="size-14 shrink-0 rounded-lg border bg-white p-1"
-                  />
-                ) : (
-                  <div className="grid size-14 place-items-center rounded-lg border bg-muted/30">
-                    <QrCode className="size-5 text-muted-foreground" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((rep) => {
+            const previewLeft =
+              entQ.data && (entQ.data.mode === "preview" || entQ.data.mode === "preview_exhausted")
+                ? Math.max(0, (entQ.data.preview_tests_limit || 15) - (entQ.data.preview_tests_used || 0))
+                : null;
+            return (
+              <Card key={rep.id} className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
+                <CardContent className="flex flex-col gap-3 p-4">
+                  <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed bg-background/50 p-3">
+                    {rep.qr_image_url ? (
+                      <img
+                        src={rep.qr_image_url}
+                        alt={`QR for ${rep.name}`}
+                        className="size-44 shrink-0 rounded-lg border bg-white p-2 sm:size-48"
+                      />
+                    ) : (
+                      <div className="grid size-44 place-items-center rounded-lg border bg-muted/30 sm:size-48">
+                        <QrCode className="size-12 text-muted-foreground" />
+                      </div>
+                    )}
+                    {previewLeft !== null ? (
+                      <p className="text-center text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                        {previewLeft} of {entQ.data?.preview_tests_limit || 15} free scans left
+                      </p>
+                    ) : entQ.data?.mode === "live" ? (
+                      <p className="text-center text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                        Live
+                      </p>
+                    ) : null}
                   </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{rep.name}</p>
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {rep.email || rep.mobile || "Representative"}
-                  </p>
-                  <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
-                    {rep.scan_count || 0} scans
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1">
+                  <div className="min-w-0 text-center">
+                    <p className="truncate text-sm font-medium">{rep.name}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {rep.email || rep.mobile || "Representative"}
+                    </p>
+                    <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                      {rep.scan_count || 0} scans
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-1">
                     {rep.qr_image_url ? (
                       <Button asChild size="sm" variant="outline" className="h-7 px-2 text-xs">
                         <a
@@ -228,10 +249,10 @@ function SmartCardSavedQrsPage() {
                       </Button>
                     ) : null}
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 

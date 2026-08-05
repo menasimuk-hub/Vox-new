@@ -84,6 +84,32 @@ def get_card(token: str, db: Session = Depends(get_db)):
         except Exception:
             social = None
 
+    extra: dict = {}
+    if rep.extra_json:
+        try:
+            parsed_extra = json.loads(rep.extra_json)
+            if isinstance(parsed_extra, dict):
+                extra = parsed_extra
+        except Exception:
+            extra = {}
+
+    brand: dict = {}
+    if company.brand_defaults_json:
+        try:
+            parsed_brand = json.loads(company.brand_defaults_json)
+            if isinstance(parsed_brand, dict):
+                brand = parsed_brand
+        except Exception:
+            brand = {}
+
+    job_title = (
+        str(extra.get("job_title") or extra.get("title") or extra.get("role") or "").strip() or None
+    )
+    location = (
+        str(brand.get("address") or brand.get("location") or extra.get("location") or "").strip() or None
+    )
+    tagline = (str(company.description or "").strip() or None)
+
     return {
         "ok": True,
         "status": mode,
@@ -98,12 +124,15 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "mobile": rep.mobile,
             "landline": rep.landline,
             "extension": rep.extension,
+            "job_title": job_title,
             "social_links": social,
         },
         "company": {
             "name": company.name,
             "website": company.website,
             "description": company.description,
+            "tagline": tagline,
+            "location": location,
         },
         "qr_token": rep.qr_token,
         "whatsapp_url": wa_url,

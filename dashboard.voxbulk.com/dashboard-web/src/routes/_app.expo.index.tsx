@@ -439,8 +439,8 @@ function ExpoHub() {
                       </p>
                     ) : null}
                     {showPreviewQuota ? (
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        Preview tests left: {previewLeft}/{it.preview_tests_limit || 15}
+                      <p className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                        {previewLeft} of {it.preview_tests_limit || 15} free scans left
                       </p>
                     ) : null}
                   </div>
@@ -454,7 +454,7 @@ function ExpoHub() {
                       <img
                         src={qrSrc}
                         alt={`QR for ${it.name}`}
-                        className="size-36 rounded-md bg-white p-1"
+                        className="size-44 rounded-md bg-white p-2 sm:size-48"
                         loading="lazy"
                         referrerPolicy="no-referrer"
                       />

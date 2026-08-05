@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { PublicSmartCardLanding } from "@/components/smart-card/PublicSmartCardLanding";
 
-export const Route = createFileRoute("/smart-card/$token")({
+/** Alias for SoT path `/smartcard/{token}` — printed QRs still use `/smart-card/{token}`. */
+export const Route = createFileRoute("/smartcard/$token")({
   head: () => ({
     meta: [
       { title: "Digital Smart Card — tap to connect" },
@@ -13,10 +14,10 @@ export const Route = createFileRoute("/smart-card/$token")({
       },
     ],
   }),
-  component: PublicSmartCardTokenPage,
+  component: PublicSmartCardAliasPage,
 });
 
-function PublicSmartCardTokenPage() {
+function PublicSmartCardAliasPage() {
   const { token } = Route.useParams();
   return <PublicSmartCardLanding token={token} />;
 }

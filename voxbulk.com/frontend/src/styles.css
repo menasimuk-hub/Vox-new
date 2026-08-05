@@ -321,3 +321,50 @@ input[type="range"].premium-slider::-moz-range-thumb {
 @keyframes eq-bar { 0%,100%{transform:scaleY(0.35)} 50%{transform:scaleY(1)} }
 .eq-bar { transform-origin: bottom; animation: eq-bar 1.1s ease-in-out infinite; }
 
+/* Smart Card public scan page (SoT parity) */
+@keyframes sc-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes sc-float-blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, -20px) scale(1.08); }
+}
+@keyframes sc-float-blob-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-25px, 30px) scale(1.1); }
+}
+@keyframes sc-pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.6; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes sc-orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@utility animate-rise {
+  animation: sc-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@utility animate-float-blob {
+  animation: sc-float-blob 18s ease-in-out infinite;
+}
+@utility animate-float-blob-2 {
+  animation: sc-float-blob-2 22s ease-in-out infinite;
+}
+@utility animate-pulse-ring {
+  animation: sc-pulse-ring 1.8s ease-out infinite;
+}
+@utility animate-orbit-slow {
+  animation: sc-orbit 55s linear infinite;
+}
+@utility animate-orbit-rev {
+  animation: sc-orbit 70s linear infinite reverse;
+}
+@utility bg-smartcard-gradient {
+  background:
+    radial-gradient(110% 70% at 10% 0%, oklch(0.32 0.06 265) 0%, transparent 55%),
+    radial-gradient(110% 70% at 100% 100%, oklch(0.26 0.05 210) 0%, transparent 55%),
+    radial-gradient(90% 60% at 50% 40%, oklch(0.19 0.03 250) 0%, transparent 60%),
+    oklch(0.12 0.015 250);
+}
+

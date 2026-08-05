@@ -34,6 +34,7 @@ import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
 import { Route as SurveyPreviewThemeIdRouteImport } from './routes/survey.preview.$themeId'
 import { Route as ExpoTokenRouteImport } from './routes/expo.$token'
 import { Route as SmartCardTokenRouteImport } from './routes/smart-card.$token'
+import { Route as SmartcardTokenRouteImport } from './routes/smartcard.$token'
 import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as NewsSlugRouteImport } from './routes/news.$slug'
 import { Route as BlogIndexRouteImport } from './routes/blog.index'
@@ -193,6 +194,11 @@ const SmartCardTokenRoute = SmartCardTokenRouteImport.update({
   path: '/smart-card/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SmartcardTokenRoute = SmartcardTokenRouteImport.update({
+  id: '/smartcard/$token',
+  path: '/smartcard/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
   id: '/survey/preview/$themeId',
   path: '/survey/preview/$themeId',
@@ -266,6 +272,7 @@ export interface FileRoutesByFullPath {
   '/survey/$token': typeof SurveyTokenRoute
   '/expo/$token': typeof ExpoTokenRoute
   '/smart-card/$token': typeof SmartCardTokenRoute
+  '/smartcard/$token': typeof SmartcardTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -297,6 +304,7 @@ export interface FileRoutesByTo {
   '/survey/$token': typeof SurveyTokenRoute
   '/expo/$token': typeof ExpoTokenRoute
   '/smart-card/$token': typeof SmartCardTokenRoute
+  '/smartcard/$token': typeof SmartcardTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -329,6 +337,7 @@ export interface FileRoutesById {
   '/survey/$token': typeof SurveyTokenRoute
   '/expo/$token': typeof ExpoTokenRoute
   '/smart-card/$token': typeof SmartCardTokenRoute
+  '/smartcard/$token': typeof SmartcardTokenRoute
   '/survey/preview/$themeId': typeof SurveyPreviewThemeIdRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/news/$slug': typeof NewsSlugRoute
@@ -362,6 +371,7 @@ export interface FileRouteTypes {
     | '/survey/$token'
     | '/expo/$token'
     | '/smart-card/$token'
+    | '/smartcard/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -393,6 +403,7 @@ export interface FileRouteTypes {
     | '/survey/$token'
     | '/expo/$token'
     | '/smart-card/$token'
+    | '/smartcard/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -424,6 +435,7 @@ export interface FileRouteTypes {
     | '/survey/$token'
     | '/expo/$token'
     | '/smart-card/$token'
+    | '/smartcard/$token'
     | '/survey/preview/$themeId'
     | '/blog/$slug'
     | '/news/$slug'
@@ -459,6 +471,7 @@ export interface RootRouteChildren {
   SurveyTokenRoute: typeof SurveyTokenRoute
   ExpoTokenRoute: typeof ExpoTokenRoute
   SmartCardTokenRoute: typeof SmartCardTokenRoute
+  SmartcardTokenRoute: typeof SmartcardTokenRoute
   SurveyPreviewThemeIdRoute: typeof SurveyPreviewThemeIdRoute
 }
 
@@ -625,6 +638,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExpoTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/smart-card/$token': {
+      id: '/smart-card/$token'
+      path: '/smart-card/$token'
+      fullPath: '/smart-card/$token'
+      preLoaderRoute: typeof SmartCardTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/smartcard/$token': {
+      id: '/smartcard/$token'
+      path: '/smartcard/$token'
+      fullPath: '/smartcard/$token'
+      preLoaderRoute: typeof SmartcardTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/survey/preview/$themeId': {
       id: '/survey/preview/$themeId'
       path: '/survey/preview/$themeId'
@@ -741,6 +768,7 @@ const rootRouteChildren: RootRouteChildren = {
   SurveyTokenRoute: SurveyTokenRoute,
   ExpoTokenRoute: ExpoTokenRoute,
   SmartCardTokenRoute: SmartCardTokenRoute,
+  SmartcardTokenRoute: SmartcardTokenRoute,
   SurveyPreviewThemeIdRoute: SurveyPreviewThemeIdRoute,
 }
 export const routeTree = rootRouteImport
