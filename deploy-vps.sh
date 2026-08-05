@@ -67,12 +67,18 @@ preflight() {
 _clear_untracked_pull_conflicts() {
   local remote_ref="$GIT_REMOTE/$GIT_BRANCH"
   local prefix path
+  # Build-generated files the server recreates: safe to drop when git now tracks them.
   local prefixes=(
     voxbulk-api/logos
     admin.voxbulk.com/adim-web/public/brand
     dashboard.voxbulk.com/dashboard-web/public/brand
     voxbulk.com/frontend/public/brand
     voxbox.voxbulk.com/voxbox-web/public/brand
+    admin.voxbulk.com/adim-web/package-lock.json
+    dashboard.voxbulk.com/dashboard-web/package-lock.json
+    voxbulk.com/frontend/package-lock.json
+    voxbox.voxbulk.com/voxbox-web/package-lock.json
+    package-lock.json
   )
   for prefix in "${prefixes[@]}"; do
     while IFS= read -r path; do
