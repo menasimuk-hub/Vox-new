@@ -44,6 +44,7 @@ interface Props {
   onDeleteAccount: (id: string) => void;
   onSaveUser: (u: AppUser) => void;
   onTestAccount: (a: MailAccount) => Promise<{ ok: boolean; message: string; status?: string }>;
+  onSyncAfterConnect?: (accountName: string) => void | Promise<void>;
 }
 
 const PALETTE = ["var(--accent-1)", "var(--accent-2)", "var(--accent-3)"];
@@ -99,11 +100,13 @@ function AccountForm({
   onSave,
   onClose,
   onTestAccount,
+  onSyncAfterConnect,
 }: {
   account: MailAccount;
   onSave: (a: MailAccount) => void | Promise<MailAccount | void>;
   onClose: () => void;
   onTestAccount: (a: MailAccount) => Promise<{ ok: boolean; message: string; status?: string }>;
+  onSyncAfterConnect?: (accountName: string) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState<MailAccount>(account);
   const [testing, setTesting] = useState(false);
@@ -121,13 +124,16 @@ function AccountForm({
       const status = (res.status ?? (res.ok ? "ok" : "failed")) as MailAccount["status"];
       const next = { ...saved, status };
       setDraft(next);
-      toast[res.ok ? "success" : "error"](
-        res.ok
-          ? connect
-            ? res.message || `${draft.name} connected — syncing mail.`
-            : res.message || "IMAP and SMTP settings look valid."
-          : res.message || "Connection failed — check host names.",
-      );
+      if (res.ok && connect) {
+        toast.success(res.message || `${draft.name} connected — starting mail sync.`);
+        await onSyncAfterConnect?.(draft.name || draft.email || "Mailbox");
+      } else {
+        toast[res.ok ? "success" : "error"](
+          res.ok
+            ? res.message || "IMAP and SMTP settings look valid."
+            : res.message || "Connection failed — check host names.",
+        );
+      }
     } catch {
       toast.error("Connection test failed.");
     } finally {
@@ -258,6 +264,7 @@ export function SettingsView({
   onDeleteAccount,
   onSaveUser,
   onTestAccount,
+  onSyncAfterConnect,
 }: Props) {
   const [profile, setProfile] = useState(user);
   const [editing, setEditing] = useState<MailAccount | null>(null);
@@ -408,6 +415,7 @@ export function SettingsView({
             account={accounts.find((a) => a.id === editing.id) ?? editing}
             onSave={onSaveAccount}
             onTestAccount={onTestAccount}
+            onSyncAfterConnect={onSyncAfterConnect}
             onClose={() => setEditing(null)}
           />
         )}

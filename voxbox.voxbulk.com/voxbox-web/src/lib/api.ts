@@ -84,9 +84,10 @@ async function request<T>(
     method?: string;
     body?: unknown;
     auth?: boolean;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
-  const { method = "GET", body, auth = true } = options;
+  const { method = "GET", body, auth = true, signal } = options;
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (auth) {
@@ -98,6 +99,7 @@ async function request<T>(
     method,
     headers,
     body: body !== undefined ? JSON.stringify(toApi(body)) : undefined,
+    signal,
   });
 
   if (res.status === 401 && auth) {
@@ -183,9 +185,11 @@ export interface TestAccountResult {
 
 export interface SyncResult {
   ok: boolean;
+  partial?: boolean;
   syncedAccounts: number;
   fetched: number;
   message: string;
+  errors?: string[];
 }
 
 export interface AiReplyResult {
@@ -286,6 +290,7 @@ export async function fetchMessages(params: {
   folder?: string;
   tab?: string;
   q?: string;
+  signal?: AbortSignal;
 }): Promise<MailMessage[]> {
   const qs = new URLSearchParams();
   if (params.accountId && params.accountId !== "all") qs.set("account_id", params.accountId);
@@ -293,7 +298,9 @@ export async function fetchMessages(params: {
   if (params.tab) qs.set("tab", params.tab);
   if (params.q) qs.set("q", params.q);
   const suffix = qs.toString() ? `?${qs}` : "";
-  const rows = await request<Record<string, unknown>[]>(`/voxbox/messages${suffix}`);
+  const rows = await request<Record<string, unknown>[]>(`/voxbox/messages${suffix}`, {
+    signal: params.signal,
+  });
   return rows.map(mapMessage);
 }
 

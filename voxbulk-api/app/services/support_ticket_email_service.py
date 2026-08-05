@@ -98,9 +98,16 @@ def register_support_email_defaults() -> None:
 class SupportTicketEmailService:
     @staticmethod
     def customer_email(db: Session, ticket: SupportTicket) -> str | None:
-        from app.services.support_ticket_service import ticket_requester_email
+        from app.services.support_email_deliverability import resolve_ticket_customer_recipient
 
-        return ticket_requester_email(db, ticket)
+        email, _reason = resolve_ticket_customer_recipient(db, ticket)
+        return email
+
+    @staticmethod
+    def customer_email_or_skip(db: Session, ticket: SupportTicket) -> tuple[str | None, str | None]:
+        from app.services.support_email_deliverability import resolve_ticket_customer_recipient
+
+        return resolve_ticket_customer_recipient(db, ticket)
 
     @staticmethod
     def _variables(db: Session, ticket: SupportTicket, **extra: str) -> dict[str, str]:
@@ -115,13 +122,20 @@ class SupportTicketEmailService:
         if not name and requester:
             name = requester.split("@")[0]
         if not name and user is not None:
-            name = (getattr(user, "email", None) or "").split("@")[0]
+            from app.services.support_email_deliverability import (
+                is_reserved_invalid_placeholder,
+                normalize_recipient_email,
+            )
+
+            raw_user_em = normalize_recipient_email(getattr(user, "email", None))
+            if raw_user_em and not is_reserved_invalid_placeholder(raw_user_em):
+                name = raw_user_em.split("@")[0]
         vars_: dict[str, str] = {
             "public_ref": ref,
             "subject": ticket.subject or "",
             "status": ticket.status or "",
             "customer_name": name or "there",
-            "customer_email": requester or (getattr(user, "email", None) or ""),
+            "customer_email": requester,
             "organisation_name": (getattr(org, "name", None) or "your organisation"),
             "support_email": from_email or "support@voxbulk.com",
             "ticket_url": f"https://dashboard.voxbulk.com/account/support/tickets?ticket={ticket.id}",
@@ -134,6 +148,12 @@ class SupportTicketEmailService:
     @staticmethod
     def _deliver(db: Session, *, to_addr: str, subject: str, body: str) -> tuple[bool, str | None]:
         from app.services.platform_sender_email_service import PlatformSenderEmailService
+        from app.services.support_email_deliverability import recipient_suppression_reason
+
+        skip = recipient_suppression_reason(db, to_addr)
+        if skip:
+            logger.info("support_ticket_email_suppressed to=%s reason=%s", to_addr, skip)
+            return False, skip
 
         outbound = PlatformSenderEmailService.resolve_outbound(db, "support")
         if outbound and outbound.get("from_email"):
@@ -171,9 +191,15 @@ class SupportTicketEmailService:
     @staticmethod
     def send_template(db: Session, *, template_key: str, to_email: str, ticket: SupportTicket, **extra: str) -> dict[str, Any]:
         register_support_email_defaults()
-        em = (to_email or "").strip().lower()
-        if not em or "@" not in em:
-            return {"ok": False, "reason": "missing_recipient"}
+        from app.services.support_email_deliverability import normalize_recipient_email, recipient_suppression_reason
+
+        em = normalize_recipient_email(to_email)
+        if not em:
+            return {"ok": False, "reason": "missing_recipient", "skipped": True}
+        skip = recipient_suppression_reason(db, em)
+        if skip:
+            logger.info("support_ticket_email_skipped key=%s to=%s reason=%s", template_key, em, skip)
+            return {"ok": False, "reason": skip, "skipped": True, "to": em}
         try:
             EmailTemplateService.ensure_system_templates(db)
             from app.services.transactional_email_service import TransactionalEmailService
@@ -189,6 +215,18 @@ class SupportTicketEmailService:
             subject = substitute_placeholders(subject_tpl, variables)
             body = substitute_placeholders(body_tpl, variables)
             ok, err = SupportTicketEmailService._deliver(db, to_addr=em, subject=subject, body=body)
+            if not ok and err and err in {
+                "placeholder_domain",
+                "user_anonymized",
+                "user_archived",
+                "user_deleted",
+                "user_inactive",
+                "org_contact_anonymized",
+                "org_contact_archived",
+                "org_contact_deleted",
+                "missing_recipient",
+            }:
+                return {"ok": False, "reason": err, "skipped": True, "to": em}
             return {"ok": ok, "to": em, "error": err}
         except Exception as e:
             logger.exception("support_ticket_email_template_failed key=%s", template_key)
@@ -196,25 +234,25 @@ class SupportTicketEmailService:
 
     @staticmethod
     def notify_created(db: Session, ticket: SupportTicket) -> dict[str, Any]:
-        em = SupportTicketEmailService.customer_email(db, ticket)
+        em, skip = SupportTicketEmailService.customer_email_or_skip(db, ticket)
         if not em:
-            return {"ok": False, "reason": "missing_recipient"}
+            return {"ok": False, "reason": skip or "missing_recipient", "skipped": True}
         return SupportTicketEmailService.send_template(db, template_key=SUPPORT_TICKET_CREATED, to_email=em, ticket=ticket)
 
     @staticmethod
     def notify_reply(db: Session, ticket: SupportTicket, *, reply_body: str) -> dict[str, Any]:
-        em = SupportTicketEmailService.customer_email(db, ticket)
+        em, skip = SupportTicketEmailService.customer_email_or_skip(db, ticket)
         if not em:
-            return {"ok": False, "reason": "missing_recipient"}
+            return {"ok": False, "reason": skip or "missing_recipient", "skipped": True}
         return SupportTicketEmailService.send_template(
             db, template_key=SUPPORT_TICKET_REPLY, to_email=em, ticket=ticket, reply_body=reply_body
         )
 
     @staticmethod
     def notify_status(db: Session, ticket: SupportTicket) -> dict[str, Any]:
-        em = SupportTicketEmailService.customer_email(db, ticket)
+        em, skip = SupportTicketEmailService.customer_email_or_skip(db, ticket)
         if not em:
-            return {"ok": False, "reason": "missing_recipient"}
+            return {"ok": False, "reason": skip or "missing_recipient", "skipped": True}
         return SupportTicketEmailService.send_template(db, template_key=SUPPORT_TICKET_STATUS, to_email=em, ticket=ticket)
 
     @staticmethod

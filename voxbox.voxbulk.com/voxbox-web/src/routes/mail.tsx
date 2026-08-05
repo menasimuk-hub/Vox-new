@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   Archive,
@@ -55,6 +55,7 @@ import {
   updateAccount,
   updateCredentials,
   type KpiData,
+  type SyncResult,
 } from "@/lib/api";
 import {
   SESSION_KEY,
@@ -63,6 +64,7 @@ import {
   type MailAttachment,
   type MailMessage,
 } from "@/lib/mail-store";
+import { classifySyncOutcome, shouldApplyListResult, syncOutcomeToastMessage } from "@/lib/sync-ui";
 import { useTheme } from "@/lib/use-theme";
 import { cn } from "@/lib/utils";
 
@@ -114,6 +116,8 @@ function MailApp() {
   const [confirmDelete, setConfirmDelete] = useState<
     { kind: "single"; id: string } | { kind: "bulk" } | { kind: "empty-trash" } | null
   >(null);
+  const listGenerationRef = useRef(0);
+  const listAbortRef = useRef<AbortController | null>(null);
 
   function openCompose() {
     setComposeOpen(true);
@@ -150,6 +154,10 @@ function MailApp() {
   }, [account]);
 
   const refreshMessages = useCallback(async () => {
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+    const generation = ++listGenerationRef.current;
     setLoadingMessages(true);
     try {
       const q = tabToQuery(tab);
@@ -158,12 +166,18 @@ function MailApp() {
         folder: q.folder,
         tab: q.tab,
         q: query.trim() || undefined,
+        signal: controller.signal,
       });
+      if (!shouldApplyListResult(generation, listGenerationRef.current)) return;
       setMessages(rows);
     } catch (e) {
+      if (controller.signal.aborted) return;
+      if (!shouldApplyListResult(generation, listGenerationRef.current)) return;
       toast.error(e instanceof Error ? e.message : "Could not load messages.");
     } finally {
-      setLoadingMessages(false);
+      if (shouldApplyListResult(generation, listGenerationRef.current)) {
+        setLoadingMessages(false);
+      }
     }
   }, [account, tab, query]);
 
@@ -172,6 +186,20 @@ function MailApp() {
     setAccounts(rows);
     return rows;
   }, []);
+
+  const refreshAfterSync = useCallback(async () => {
+    await refreshAccounts();
+    await refreshMessages();
+    await refreshKpi();
+  }, [refreshAccounts, refreshMessages, refreshKpi]);
+
+  function showSyncToast(res: SyncResult) {
+    const kind = classifySyncOutcome(res);
+    const message = syncOutcomeToastMessage(res, kind);
+    if (kind === "success") toast.success(message);
+    else if (kind === "partial") toast.warning(message);
+    else toast.error(message);
+  }
 
   useEffect(() => {
     if (!window.localStorage.getItem(SESSION_KEY)) {
@@ -260,12 +288,37 @@ function MailApp() {
     setSyncing(true);
     try {
       const res = await syncMail();
-      await refreshAccounts();
-      await refreshMessages();
-      await refreshKpi();
-      toast.success(res.message || "All accounts synced.");
+      await refreshAfterSync();
+      showSyncToast(res);
     } catch (e) {
+      try {
+        await refreshAfterSync();
+      } catch {
+        /* still surface the sync failure */
+      }
       toast.error(e instanceof Error ? e.message : "Sync failed.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  async function syncAfterConnect(accountName: string) {
+    setSyncing(true);
+    try {
+      const res = await syncMail();
+      await refreshAfterSync();
+      showSyncToast(res);
+    } catch (e) {
+      try {
+        await refreshAfterSync();
+      } catch {
+        /* ignore refresh errors after connect sync */
+      }
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : `${accountName} connected, but mail sync failed.`,
+      );
     } finally {
       setSyncing(false);
     }
@@ -571,6 +624,7 @@ function MailApp() {
               onDeleteAccount={(id) => void removeAccount(id)}
               onSaveUser={(u) => void saveUser(u)}
               onTestAccount={(a) => testAccount(a.id)}
+              onSyncAfterConnect={(name) => void syncAfterConnect(name)}
             />
           ) : composeOpen ? (
             <ComposeView
