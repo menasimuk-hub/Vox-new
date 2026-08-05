@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 
@@ -31,6 +31,8 @@ type Rep = {
   extension?: string | null;
   website?: string | null;
   social_links?: SocialLinks | null;
+  extra?: { job_title?: string; title?: string; role?: string } | null;
+  photo_url?: string | null;
   qr_image_url?: string;
   web_url?: string;
   scan_count?: number;
@@ -60,6 +62,10 @@ function SmartCardEditQrPage() {
   const [fg, setFg] = React.useState("000000");
   const [bg, setBg] = React.useState("ffffff");
   const [transparent, setTransparent] = React.useState(false);
+  const [photoFile, setPhotoFile] = React.useState<File | null>(null);
+  const [photoLocalPreview, setPhotoLocalPreview] = React.useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = React.useState(false);
+  const [remotePhotoSrc, setRemotePhotoSrc] = React.useState<string | null>(null);
 
   const repQ = useQuery({
     queryKey: ["smart-card", "rep", repId],
@@ -72,11 +78,49 @@ function SmartCardEditQrPage() {
   });
 
   React.useEffect(() => {
+    if (!photoFile) {
+      setPhotoLocalPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(photoFile);
+    setPhotoLocalPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photoFile]);
+
+  React.useEffect(() => {
+    let revoked: string | null = null;
+    let cancelled = false;
+    setRemotePhotoSrc(null);
+    const path = repQ.data?.item?.photo_url;
+    if (!path || photoFile) return;
+    (async () => {
+      try {
+        const base = getApiBaseUrl().replace(/\/+$/, "");
+        const res = await fetch(`${base}${path}`, { headers: buildAuthHeaders() });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setRemotePhotoSrc(url);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [repQ.data?.item?.photo_url, photoFile]);
+
+  React.useEffect(() => {
     const r = repQ.data?.item;
     if (!r) return;
     const social = r.social_links || {};
+    const extra = r.extra || {};
     setRepForm({
       name: r.name || "",
+      job_title: String(extra.job_title || extra.title || extra.role || ""),
       email: r.email || "",
       mobile: r.mobile || "",
       landline: r.landline || "",
@@ -106,8 +150,8 @@ function SmartCardEditQrPage() {
   }, [categories]);
 
   const saveMut = useMutation({
-    mutationFn: () =>
-      apiFetch(`/smart-card/representatives/${repId}`, {
+    mutationFn: async () => {
+      await apiFetch(`/smart-card/representatives/${repId}`, {
         method: "PATCH",
         body: JSON.stringify({
           name: repForm.name.trim(),
@@ -117,12 +161,37 @@ function SmartCardEditQrPage() {
           extension: repForm.extension.trim() || null,
           website: repForm.website.trim() || null,
           social_links: socialLinksPayload(repForm.social_links),
+          extra: {
+            ...(repQ.data?.item?.extra || {}),
+            job_title: repForm.job_title.trim() || null,
+          },
           product_ids: productIds,
           qr_fg_color: fg,
           qr_bg_color: bg,
           qr_transparent: transparent,
         }),
-      }),
+      });
+      if (photoFile) {
+        setPhotoUploading(true);
+        try {
+          const form = new FormData();
+          form.append("file", photoFile);
+          const base = getApiBaseUrl().replace(/\/+$/, "");
+          const res = await fetch(`${base}/smart-card/representatives/${repId}/photo`, {
+            method: "POST",
+            headers: buildAuthHeaders(),
+            body: form,
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(typeof err?.detail === "string" ? err.detail : "Photo upload failed");
+          }
+          setPhotoFile(null);
+        } finally {
+          setPhotoUploading(false);
+        }
+      }
+    },
     onSuccess: async () => {
       toast.success("Saved");
       await qc.invalidateQueries({ queryKey: ["smart-card"] });
@@ -189,7 +258,14 @@ function SmartCardEditQrPage() {
               <CardTitle className="text-base">Representative</CardTitle>
             </CardHeader>
             <CardContent>
-              <RepresentativeFields value={repForm} onChange={setRepForm} disabled={!canEdit} />
+              <RepresentativeFields
+                value={repForm}
+                onChange={setRepForm}
+                disabled={!canEdit || saveMut.isPending || photoUploading}
+                photoPreviewUrl={photoLocalPreview || remotePhotoSrc}
+                photoFileName={photoFile?.name}
+                onPhotoChange={setPhotoFile}
+              />
             </CardContent>
           </Card>
 

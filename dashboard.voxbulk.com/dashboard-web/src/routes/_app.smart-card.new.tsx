@@ -33,7 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
 import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
 import { startSmartCardSeatCheckout } from "@/lib/billing/smart-card-subscription-payment";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { useOrganisation } from "@/lib/queries";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
@@ -100,7 +100,19 @@ function SmartCardNewWizard() {
   const [address, setAddress] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [rep, setRep] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
+  const [repPhotoFile, setRepPhotoFile] = React.useState<File | null>(null);
+  const [repPhotoPreview, setRepPhotoPreview] = React.useState<string | null>(null);
   const [notifyMobile, setNotifyMobile] = React.useState("");
+
+  React.useEffect(() => {
+    if (!repPhotoFile) {
+      setRepPhotoPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(repPhotoFile);
+    setRepPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [repPhotoFile]);
 
   const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
   const [selectedQKeys, setSelectedQKeys] = React.useState<string[]>([...DEFAULT_Q_KEYS]);
@@ -209,8 +221,26 @@ function SmartCardNewWizard() {
       extension: rep.extension.trim() || null,
       website: (rep.website || website).trim() || null,
       social_links: socialLinksPayload(rep.social_links),
+      ...(rep.job_title.trim()
+        ? { job_title: rep.job_title.trim(), extra: { job_title: rep.job_title.trim() } }
+        : {}),
     },
   });
+
+  const uploadRepPhoto = async (repId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const base = getApiBaseUrl().replace(/\/+$/, "");
+    const res = await fetch(`${base}/smart-card/representatives/${repId}/photo`, {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(typeof err?.detail === "string" ? err.detail : "Photo upload failed");
+    }
+  };
 
   const goNext = async () => {
     if (!canEdit) {
@@ -234,9 +264,18 @@ function SmartCardNewWizard() {
           body: JSON.stringify(buildPayload()),
         });
         setDraftRep(res.representative);
+        if (repPhotoFile && res.representative?.id) {
+          try {
+            await uploadRepPhoto(res.representative.id, repPhotoFile);
+            toast.success("Preview ready — profile photo uploaded");
+          } catch (photoErr) {
+            toast.error(photoErr instanceof Error ? photoErr.message : "Preview ready, but photo upload failed");
+          }
+        } else {
+          toast.success("Preview ready — scan the QR to test (up to 15 free tests)");
+        }
         await qc.invalidateQueries({ queryKey: ["smart-card"] });
         setStep(4);
-        toast.success("Preview ready — scan the QR to test (up to 15 free tests)");
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Could not create preview");
       } finally {
@@ -408,6 +447,9 @@ function SmartCardNewWizard() {
                     setNotifyMobile(next.mobile);
                   }}
                   mobileHint="Mobile (hot-lead WhatsApp)"
+                  photoPreviewUrl={repPhotoPreview}
+                  photoFileName={repPhotoFile?.name}
+                  onPhotoChange={setRepPhotoFile}
                 />
               </CardContent>
             </Card>

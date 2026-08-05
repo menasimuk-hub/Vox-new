@@ -15,7 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 
@@ -36,6 +36,18 @@ function SmartCardAddQrPage() {
   const [productIds, setProductIds] = React.useState<string[]>([]);
   const [fg, setFg] = React.useState("000000");
   const [bg, setBg] = React.useState("ffffff");
+  const [photoFile, setPhotoFile] = React.useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!photoFile) {
+      setPhotoPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(photoFile);
+    setPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photoFile]);
 
   const catalogueQ = useQuery({
     queryKey: ["smart-card", "catalogue"],
@@ -53,8 +65,8 @@ function SmartCardAddQrPage() {
   }, [catalogueQ.data]);
 
   const createMut = useMutation({
-    mutationFn: () =>
-      apiFetch<{ ok: boolean; item: { id: string } }>("/smart-card/representatives", {
+    mutationFn: async () => {
+      const res = await apiFetch<{ ok: boolean; item: { id: string } }>("/smart-card/representatives", {
         method: "POST",
         body: JSON.stringify({
           name: rep.name.trim(),
@@ -64,11 +76,28 @@ function SmartCardAddQrPage() {
           extension: rep.extension.trim() || null,
           website: rep.website.trim() || null,
           social_links: socialLinksPayload(rep.social_links),
+          extra: rep.job_title.trim() ? { job_title: rep.job_title.trim() } : {},
           product_ids: productIds,
           qr_fg_color: fg,
           qr_bg_color: bg,
         }),
-      }),
+      });
+      if (photoFile && res.item?.id) {
+        const form = new FormData();
+        form.append("file", photoFile);
+        const base = getApiBaseUrl().replace(/\/+$/, "");
+        const up = await fetch(`${base}/smart-card/representatives/${res.item.id}/photo`, {
+          method: "POST",
+          headers: buildAuthHeaders(),
+          body: form,
+        });
+        if (!up.ok) {
+          const err = await up.json().catch(() => ({}));
+          throw new Error(typeof err?.detail === "string" ? err.detail : "QR created but photo upload failed");
+        }
+      }
+      return res;
+    },
     onSuccess: async (res) => {
       toast.success("QR created");
       await qc.invalidateQueries({ queryKey: ["smart-card"] });
@@ -105,7 +134,13 @@ function SmartCardAddQrPage() {
           <CardDescription>One QR per representative.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <RepresentativeFields value={rep} onChange={setRep} />
+          <RepresentativeFields
+            value={rep}
+            onChange={setRep}
+            photoPreviewUrl={photoPreview}
+            photoFileName={photoFile?.name}
+            onPhotoChange={setPhotoFile}
+          />
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
               <Label>QR colour</Label>

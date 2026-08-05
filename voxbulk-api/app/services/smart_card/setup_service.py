@@ -246,6 +246,10 @@ class SmartCardSetupService:
         }
         if "social_links" in rep_payload:
             body["social_links"] = rep_payload.get("social_links") or {}
+        if "extra" in rep_payload and isinstance(rep_payload.get("extra"), dict):
+            body["extra"] = rep_payload.get("extra")
+        elif str(rep_payload.get("job_title") or "").strip():
+            body["extra"] = {"job_title": str(rep_payload.get("job_title")).strip()}
 
         try:
             if existing_reps:

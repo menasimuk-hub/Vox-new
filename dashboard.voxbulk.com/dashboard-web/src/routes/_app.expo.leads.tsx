@@ -1,19 +1,36 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
+  ChevronRight,
+  Download,
   FileSpreadsheet,
   Flame,
+  Globe,
   Mail,
+  MessageCircle,
+  MousePointerClick,
   Phone,
   QrCode,
-  Snowflake,
-  Thermometer,
+  ScanLine,
   Trash2,
   Building2,
   User,
+  Users,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { PageHeader } from "@/components/page-header";
 import {
@@ -28,12 +45,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, downloadAuthenticatedFile, getApiBaseUrl } from "@/lib/api";
+import { scoreBadgeClass, titleScore, type LeadScoreLabel } from "@/lib/lead-score";
 import { cn } from "@/lib/utils";
+
+const SCORE_COLORS: Record<LeadScoreLabel, string> = {
+  Hot: "#f43f5e",
+  Warm: "#f59e0b",
+  Cold: "#0ea5e9",
+};
 
 type LeadAnswer = {
   question_key?: string;
@@ -74,6 +98,24 @@ function displayAnswer(en?: string | null, original?: string | null, fallback?: 
   return english;
 }
 
+function inferChannel(lead: LeadRow): { label: string; isWhatsApp: boolean } {
+  const phone = String(lead.visitor_phone || "").trim();
+  const email = String(lead.visitor_email || "").trim().toLowerCase();
+  if (
+    phone.startsWith("web-pending-") ||
+    phone.startsWith("web-card-") ||
+    phone.startsWith("web:") ||
+    email.endsWith("@expo.local")
+  ) {
+    return { label: "Web", isWhatsApp: false };
+  }
+  return { label: "WhatsApp", isWhatsApp: true };
+}
+
+function countryOrBooth(lead: LeadRow): string {
+  return lead.country_hint || lead.booth_code || lead.booth_name || "—";
+}
+
 function AuthenticatedAudio({ src }: { src: string }) {
   const [blobUrl, setBlobUrl] = React.useState<string | null>(null);
   React.useEffect(() => {
@@ -82,7 +124,6 @@ function AuthenticatedAudio({ src }: { src: string }) {
     setBlobUrl(null);
     const path = String(src || "").trim();
     if (!path) return;
-    // External WhatsApp URLs — use directly; API paths need auth headers.
     if (path.startsWith("http://") || path.startsWith("https://")) {
       setBlobUrl(path);
       return;
@@ -150,6 +191,8 @@ type LeadRow = {
   booth_name?: string | null;
   booth_code?: string | null;
   offer_sent_at?: string | null;
+  email_sent_at?: string | null;
+  offer_interested?: boolean;
   follow_up_status?: string | null;
   assets_sent?: AssetSentItem[];
   assets_opened?: AssetOpenedItem[];
@@ -169,7 +212,7 @@ function assetLabel(item: AssetSentItem | AssetOpenedItem): string {
 }
 
 export const Route = createFileRoute("/_app/expo/leads")({
-  head: () => ({ meta: [{ title: "Expo leads — VoxBulk" }] }),
+  head: () => ({ meta: [{ title: "Leads & scoring — VoxBulk Expo" }] }),
   validateSearch: (search: Record<string, unknown>) => ({
     booth_id: typeof search.booth_id === "string" ? search.booth_id : undefined,
   }),
@@ -268,6 +311,15 @@ function ExpoLeads() {
   const summary = summaryQ.data;
   const leads = leadsQ.data?.items || [];
 
+  const mix = summary
+    ? (["Hot", "Warm", "Cold"] as LeadScoreLabel[]).map((name) => ({
+        name,
+        value: name === "Hot" ? summary.hot : name === "Warm" ? summary.warm : summary.cold,
+      }))
+    : [];
+
+  const dailyChart = summary?.daily?.length ? summary.daily : null;
+
   async function handleExport(scope: "all" | "lead" = "all") {
     try {
       const params = new URLSearchParams();
@@ -309,8 +361,8 @@ function ExpoLeads() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="VoxBulk Expo"
-        title="Lead results"
-        description="Exhibition leads from WhatsApp and web — filter, open a lead, export, or delete."
+        title="Leads & scoring"
+        description="Every scan, scored and sortable. Export to Excel or push straight to your sales team."
         actions={
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void handleExport("all")}>
@@ -337,16 +389,6 @@ function ExpoLeads() {
               {b.name}
             </option>
           ))}
-        </select>
-        <select
-          className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm"
-          value={score}
-          onChange={(e) => setScore(e.target.value)}
-        >
-          <option value="all">All scores</option>
-          <option value="hot">Hot</option>
-          <option value="warm">Warm</option>
-          <option value="cold">Cold</option>
         </select>
         <select
           className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm"
@@ -378,137 +420,175 @@ function ExpoLeads() {
       </div>
 
       {summaryQ.isLoading ? (
-        <Skeleton className="h-28 rounded-2xl" />
+        <Skeleton className="h-20 rounded-2xl" />
       ) : summary ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Kpi icon={ScanLine} label="Scans" value={String(summary.scans)} tone="text-sky-500" />
+          <Kpi icon={Users} label="Leads" value={String(summary.completed_leads)} tone="text-primary" />
+          <Kpi icon={Flame} label="Hot" value={String(summary.hot)} tone="text-rose-500" />
           <Kpi
-            title="Scans total"
-            value={summary.scans}
-            hint={`${summary.scans_today ?? 0} today`}
-            accent="from-sky-500/15 to-sky-500/5"
-            icon={<QrCode className="size-4 text-sky-600" />}
-          />
-          <Kpi
-            title="Completed leads"
-            value={summary.completed_leads}
-            hint={`${summary.leads_today ?? 0} today`}
-            accent="from-emerald-500/15 to-emerald-500/5"
-            icon={<User className="size-4 text-emerald-600" />}
-          />
-          <Kpi
-            title="Hot / Warm / Cold"
-            value={`${summary.hot} / ${summary.warm} / ${summary.cold}`}
-            accent="from-amber-500/15 to-orange-500/5"
-            icon={<Flame className="size-4 text-orange-600" />}
-          />
-          <Kpi
-            title="Emails sent"
-            value={summary.offers_sent}
-            accent="from-violet-500/15 to-violet-500/5"
-            icon={<Mail className="size-4 text-violet-600" />}
-          />
-          <Kpi
-            title="Catalogue requested"
-            value={summary.catalogue_requested ?? 0}
-            accent="from-teal-500/15 to-teal-500/5"
-            icon={<FileSpreadsheet className="size-4 text-teal-600" />}
-          />
-          <Kpi
-            title="Files opened"
-            value={summary.assets_opened ?? 0}
-            accent="from-rose-500/15 to-rose-500/5"
-            icon={<Thermometer className="size-4 text-rose-600" />}
+            icon={Download}
+            label="Catalogue downloads"
+            value={`${summary.catalogue_requested ?? 0}/${summary.completed_leads}`}
+            tone="text-violet-500"
           />
         </div>
       ) : null}
 
-      {leadsQ.isLoading ? (
-        <Skeleton className="h-96 rounded-2xl" />
-      ) : leadsQ.isError ? (
-        <Card>
-          <CardContent className="py-10 text-center text-sm text-destructive">
-            {leadsQ.error instanceof Error ? leadsQ.error.message : "Unable to load leads."}
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-left text-sm">
+      {summaryQ.isLoading ? (
+        <Skeleton className="h-[220px] rounded-2xl" />
+      ) : summary ? (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Lead quality mix</CardTitle>
+              <CardDescription>Hot, warm, and cold across filtered booths</CardDescription>
+            </CardHeader>
+            <CardContent className="h-[220px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={mix} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80} paddingAngle={3}>
+                    {mix.map((m) => (
+                      <Cell key={m.name} fill={SCORE_COLORS[m.name]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {dailyChart ? (
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-base">Leads per show day</CardTitle>
+                <CardDescription>Last 7 days — total vs hot</CardDescription>
+              </CardHeader>
+              <CardContent className="h-[220px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyChart}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+                    <XAxis dataKey="day" tickLine={false} axisLine={false} className="text-xs" />
+                    <YAxis tickLine={false} axisLine={false} className="text-xs" allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="leads" radius={[6, 6, 0, 0]} fill="#6366f1" />
+                    <Bar dataKey="hot" radius={[6, 6, 0, 0]} fill="#f43f5e" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          ) : null}
+        </div>
+      ) : null}
+
+      <Card>
+        <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-base">All leads</CardTitle>
+            <CardDescription className="flex items-center gap-1.5">
+              {leads.length} shown
+              <span className="inline-flex items-center gap-1 text-primary">
+                <MousePointerClick className="size-3" /> click a row for the full lead
+              </span>
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {(["all", "hot", "warm", "cold"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setScore(f)}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs capitalize transition",
+                  score === f
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/40",
+                )}
+              >
+                {f === "all" ? "All" : f}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          {leadsQ.isLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : leadsQ.isError ? (
+            <p className="py-10 text-center text-sm text-destructive">
+              {leadsQ.error instanceof Error ? leadsQ.error.message : "Unable to load leads."}
+            </p>
+          ) : (
+            <table className="w-full min-w-[860px] text-sm">
               <thead>
-                <tr className="border-b bg-muted/40 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Lead</th>
-                  <th className="px-4 py-3 font-medium">Interest</th>
-                  <th className="px-4 py-3 font-medium">Score</th>
-                  <th className="px-4 py-3 font-medium">Requested</th>
-                  <th className="px-4 py-3 font-medium">Sent</th>
-                  <th className="px-4 py-3 font-medium">Opened</th>
-                  <th className="px-4 py-3 font-medium">Booth</th>
-                  <th className="px-4 py-3 font-medium">When</th>
-                  <th className="px-4 py-3 font-medium text-right"> </th>
+                <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th className="py-2 pr-3">Lead</th>
+                  <th className="py-2 pr-3">Company</th>
+                  <th className="py-2 pr-3">Country / booth</th>
+                  <th className="py-2 pr-3">Channel</th>
+                  <th className="py-2 pr-3">Score</th>
+                  <th className="py-2 pr-3">Captured</th>
+                  <th className="py-2" />
                 </tr>
               </thead>
               <tbody>
                 {leads.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={7} className="py-8 text-center text-xs text-muted-foreground">
                       No leads yet — share your Expo QR at the stand.
                     </td>
                   </tr>
                 ) : (
                   leads.map((lead) => {
-                    const sentCount = Array.isArray(lead.assets_sent) ? lead.assets_sent.length : 0;
-                    const openedCount = Number(lead.assets_opened_count || 0);
-                    const requestedBits = [
-                      lead.catalogue_requested ? "Catalogue" : null,
-                      lead.price_list_requested ? "Price list" : null,
-                    ].filter(Boolean);
+                    const channel = inferChannel(lead);
                     return (
-                    <tr
-                      key={lead.id}
-                      className="cursor-pointer border-t transition hover:bg-muted/30"
-                      onClick={() => setSelected(lead)}
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-foreground">{lead.name || "Unknown"}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {[lead.company, displayPhone(lead.visitor_phone)].filter(Boolean).join(" · ") || "—"}
-                        </p>
-                      </td>
-                      <td className="max-w-[220px] truncate px-4 py-3 text-muted-foreground" title={displayInterest(lead.interest)}>
-                        {displayInterest(lead.interest)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <ScoreBadge score={lead.lead_score} />
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {requestedBits.length ? requestedBits.join(" · ") : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{sentCount > 0 ? `Yes (${sentCount})` : "No"}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {openedCount > 0 ? `Yes (${openedCount})` : "No"}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{lead.booth_code || lead.booth_name || "—"}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatTs(lead.created_at)}</td>
-                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-8 text-muted-foreground hover:text-destructive"
-                          onClick={() => setDeleteTarget(lead)}
-                          aria-label="Delete lead"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </td>
-                    </tr>
+                      <tr
+                        key={lead.id}
+                        className="group cursor-pointer border-b border-border/60 transition hover:bg-muted/50 last:border-0"
+                        onClick={() => setSelected(lead)}
+                      >
+                        <td className="py-2.5 pr-3">
+                          <p className="font-medium">{lead.name || "Unknown"}</p>
+                          <p className="text-[11px] text-muted-foreground">{displayInterest(lead.interest)}</p>
+                        </td>
+                        <td className="py-2.5 pr-3 text-muted-foreground">{lead.company || "—"}</td>
+                        <td className="py-2.5 pr-3 text-muted-foreground">{countryOrBooth(lead)}</td>
+                        <td className="py-2.5 pr-3">
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                            {channel.isWhatsApp ? (
+                              <MessageCircle className="size-3.5 text-emerald-500" />
+                            ) : (
+                              <Globe className="size-3.5 text-primary" />
+                            )}
+                            {channel.label}
+                          </span>
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          <ScoreBadge score={lead.lead_score} />
+                        </td>
+                        <td className="py-2.5 pr-3 text-xs text-muted-foreground">{formatTs(lead.created_at)}</td>
+                        <td className="py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-8 text-muted-foreground hover:text-destructive"
+                              onClick={() => setDeleteTarget(lead)}
+                              aria-label="Delete lead"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                            <ChevronRight className="size-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })
                 )}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       <Sheet open={selected != null} onOpenChange={(open) => !open && setSelected(null)}>
         <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
@@ -606,16 +686,17 @@ function ExpoLeads() {
                       label="Language"
                       value={detail.detected_language_label || detail.detected_language || detail.country_hint}
                     />
-                    <DetailRow label="Email sent" value={detail.email_sent_at || detail.offer_sent_at ? formatTs(detail.email_sent_at || detail.offer_sent_at) : "No"} />
+                    <DetailRow
+                      label="Email sent"
+                      value={
+                        detail.email_sent_at || detail.offer_sent_at
+                          ? formatTs(detail.email_sent_at || detail.offer_sent_at)
+                          : "No"
+                      }
+                    />
                     <DetailRow label="Offer interested" value={detail.offer_interested ? "Yes" : "No"} />
-                    <DetailRow
-                      label="Catalogue requested"
-                      value={detail.catalogue_requested ? "Yes" : "No"}
-                    />
-                    <DetailRow
-                      label="Price list requested"
-                      value={detail.price_list_requested ? "Yes" : "No"}
-                    />
+                    <DetailRow label="Catalogue requested" value={detail.catalogue_requested ? "Yes" : "No"} />
+                    <DetailRow label="Price list requested" value={detail.price_list_requested ? "Yes" : "No"} />
                     <DetailRow
                       label="Files opened"
                       value={
@@ -755,29 +836,26 @@ function ExpoLeads() {
 }
 
 function Kpi({
-  title,
+  icon: Icon,
+  label,
   value,
-  hint,
-  accent,
-  icon,
+  tone,
 }: {
-  title: string;
-  value: number | string;
-  hint?: string;
-  accent: string;
-  icon: React.ReactNode;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  tone: string;
 }) {
   return (
-    <Card className={cn("overflow-hidden border-0 shadow-sm ring-1 ring-border/60")}>
-      <CardContent className={cn("bg-gradient-to-br p-3", accent)}>
-        <div className="flex items-center justify-between">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
-          <div className="grid size-6 place-items-center rounded-lg bg-background/80 shadow-sm">{icon}</div>
+    <Card>
+      <CardContent className="flex items-center gap-3 p-4">
+        <div className={cn("grid size-10 place-items-center rounded-xl bg-background shadow-sm ring-1 ring-border", tone)}>
+          <Icon className="size-5" />
         </div>
-        <p className="mt-2 text-lg font-semibold tracking-tight tabular-nums">
-          {typeof value === "number" ? value.toLocaleString() : value}
-        </p>
-        {hint ? <p className="mt-1 text-xs font-medium text-foreground/70">{hint}</p> : null}
+        <div>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className={cn("text-xl font-semibold tabular-nums", tone)}>{value}</p>
+        </div>
       </CardContent>
     </Card>
   );
@@ -804,25 +882,11 @@ function DetailRow({
 }
 
 function ScoreBadge({ score }: { score?: string | null }) {
-  const s = String(score || "").toLowerCase();
-  if (!s) return <span className="text-muted-foreground">—</span>;
-  if (s === "hot") {
-    return (
-      <Badge className="gap-1 bg-orange-600 hover:bg-orange-600">
-        <Flame className="size-3" /> HOT
-      </Badge>
-    );
-  }
-  if (s === "warm") {
-    return (
-      <Badge variant="secondary" className="gap-1 text-amber-800">
-        <Thermometer className="size-3" /> WARM
-      </Badge>
-    );
-  }
+  const label = titleScore(score);
+  if (label === "Unscored") return <span className="text-muted-foreground">—</span>;
   return (
-    <Badge variant="outline" className="gap-1">
-      <Snowflake className="size-3" /> COLD
+    <Badge variant="outline" className={scoreBadgeClass(score)}>
+      {label}
     </Badge>
   );
 }

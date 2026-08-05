@@ -1,23 +1,27 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   Building2,
+  CheckCheck,
+  ChevronRight,
+  CreditCard,
+  Download,
   Flame,
+  Globe,
   Mail,
-  Minus,
+  MessageCircle,
+  MousePointerClick,
   Phone,
   QrCode,
-  Thermometer,
+  Search,
   User,
   Users,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
@@ -28,11 +32,13 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
+import { scoreBadgeClass, titleScore } from "@/lib/lead-score";
 import { cn } from "@/lib/utils";
 
 type LeadAnswer = {
@@ -108,11 +114,12 @@ function formatTs(value?: string | null): string {
 }
 
 function ScoreBadge({ score }: { score?: string | null }) {
-  const s = String(score || "").toLowerCase();
-  if (s === "hot") return <Badge className="bg-orange-500/15 text-orange-700 hover:bg-orange-500/15">Hot</Badge>;
-  if (s === "warm") return <Badge className="bg-amber-500/15 text-amber-800 hover:bg-amber-500/15">Warm</Badge>;
-  if (s === "cold") return <Badge className="bg-sky-500/15 text-sky-700 hover:bg-sky-500/15">Cold</Badge>;
-  return <Badge variant="secondary">Unscored</Badge>;
+  const label = titleScore(score);
+  return (
+    <Badge variant="outline" className={scoreBadgeClass(score)}>
+      {label}
+    </Badge>
+  );
 }
 
 function DetailRow({
@@ -188,33 +195,38 @@ export const Route = createFileRoute("/_app/smart-card/leads")({
 function SmartCardLeadsPage() {
   const qc = useQueryClient();
   const { representative_id: initialRepId } = Route.useSearch();
-  const [repId, setRepId] = React.useState(initialRepId || "all");
-  const [score, setScore] = React.useState("all");
+  const [q, setQ] = React.useState("");
   const [selected, setSelected] = React.useState<Lead | null>(null);
-
-  React.useEffect(() => {
-    if (initialRepId) setRepId(initialRepId);
-  }, [initialRepId]);
-
-  const qs = new URLSearchParams(
-    repId !== "all" ? { representative_id: repId } : undefined,
-  ).toString();
-
-  const summaryQ = useQuery({
-    queryKey: ["smart-card", "summary", repId],
-    queryFn: () =>
-      apiFetch<{ ok: boolean } & Summary>(`/smart-card/results/summary${qs ? `?${qs}` : ""}`),
-  });
 
   const repsQ = useQuery({
     queryKey: ["smart-card", "reps", "leads-page"],
     queryFn: () => apiFetch<{ ok: boolean; items: RepRow[] }>("/smart-card/representatives"),
   });
 
+  const activeReps = React.useMemo(
+    () => (repsQ.data?.items || []).filter((r) => r.status !== "archived"),
+    [repsQ.data],
+  );
+
+  const [selectedRepIds, setSelectedRepIds] = React.useState<string[]>([]);
+
+  React.useEffect(() => {
+    if (!activeReps.length) return;
+    if (initialRepId) {
+      setSelectedRepIds([initialRepId]);
+      return;
+    }
+    setSelectedRepIds((prev) => (prev.length ? prev : activeReps.map((r) => r.id)));
+  }, [activeReps, initialRepId]);
+
+  const summaryQ = useQuery({
+    queryKey: ["smart-card", "summary"],
+    queryFn: () => apiFetch<{ ok: boolean } & Summary>("/smart-card/results/summary"),
+  });
+
   const leadsQ = useQuery({
-    queryKey: ["smart-card", "leads", repId],
-    queryFn: () =>
-      apiFetch<{ ok: boolean; items: Lead[] }>(`/smart-card/results/leads${qs ? `?${qs}` : ""}`),
+    queryKey: ["smart-card", "leads"],
+    queryFn: () => apiFetch<{ ok: boolean; items: Lead[] }>("/smart-card/results/leads"),
   });
 
   const detailQ = useQuery({
@@ -241,259 +253,233 @@ function SmartCardLeadsPage() {
     onError: (e: Error) => toast.error(e.message || "Update failed"),
   });
 
+  const toggleRep = (id: string) =>
+    setSelectedRepIds((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const allSelected = activeReps.length > 0 && selectedRepIds.length === activeReps.length;
+
+  const scoped = (leadsQ.data?.items || []).filter((l) =>
+    selectedRepIds.includes(String(l.representative_id || "")),
+  );
+  const rows = scoped.filter(
+    (l) =>
+      q === "" ||
+      `${l.name} ${l.company} ${l.interest} ${l.representative_name} ${l.id}`
+        .toLowerCase()
+        .includes(q.toLowerCase()),
+  );
+
+  const hotCount = scoped.filter((l) => String(l.lead_score || "").toLowerCase() === "hot").length;
+
+  const perRep = activeReps
+    .filter((r) => selectedRepIds.includes(r.id))
+    .map((r) => {
+      const leadsFor = scoped.filter((l) => l.representative_id === r.id);
+      return {
+        name: (r.name || "").split(" ")[0] || r.name,
+        leads: leadsFor.length,
+        hot: leadsFor.filter((l) => String(l.lead_score || "").toLowerCase() === "hot").length,
+      };
+    });
+
   const summary = summaryQ.data;
-  const daily = summary?.daily || [];
-  const allLeads = leadsQ.data?.items || [];
-  const leads =
-    score === "all" ? allLeads : allLeads.filter((l) => String(l.lead_score || "").toLowerCase() === score);
-  const byRep =
-    summary?.by_representative ||
-    (repsQ.data?.items || [])
-      .filter((r) => r.status !== "archived")
-      .map((r) => ({
-        id: r.id,
-        name: r.name,
-        scan_count: r.scan_count || 0,
-        lead_count: 0,
-      }));
 
   return (
-    <div className="space-y-6">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Smart Card QR"
-        title="Lead results"
-        description="Owner/manager see all cards; linked members see only their own. Open a lead for answers, voice playback, and translations."
+        title="Leads by card"
+        description="Pick one card, a few, or all of them — every scan is attributed to the rep who owns the card."
         actions={
-          <Button asChild variant="outline" size="sm" className="gap-1.5">
-            <Link to="/smart-card">
-              <QrCode className="size-4" /> Saved cards
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Link to="/smart-card">
+                <QrCode className="size-4" /> Saved cards
+              </Link>
+            </Button>
+          </div>
         }
       />
 
-      <div className="flex flex-wrap gap-3">
-        <select
-          className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm"
-          value={repId}
-          onChange={(e) => setRepId(e.target.value)}
-        >
-          <option value="all">All cards</option>
-          {(repsQ.data?.items || [])
-            .filter((r) => r.status !== "archived")
-            .map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-        </select>
-        <select
-          className="h-9 rounded-lg border bg-background px-3 text-sm shadow-sm"
-          value={score}
-          onChange={(e) => setScore(e.target.value)}
-        >
-          <option value="all">All scores</option>
-          <option value="hot">Hot</option>
-          <option value="warm">Warm</option>
-          <option value="cold">Cold</option>
-        </select>
-      </div>
-
-      {summaryQ.isLoading ? (
-        <Skeleton className="h-32 rounded-2xl" />
-      ) : summary ? (
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <RichKpi
-              label="Scans total"
-              value={summary.scans}
-              sub={`${summary.active_reps ?? 0} representatives`}
-              trend={(summary.scans_today || 0) > 0 ? "up" : "flat"}
-              labelDelta={`${summary.scans_today || 0} today`}
-              todayLabel={`${summary.scans_today || 0} today`}
-              icon={<QrCode className="size-4" />}
-              spark={daily.map((d) => d.scans)}
-              accent="sky"
-            />
-            <RichKpi
-              label="Leads total"
-              value={summary.leads}
-              sub={`${summary.leads_this_week || 0} this week`}
-              trend={(summary.leads_today || 0) > 0 ? "up" : "flat"}
-              labelDelta={`${summary.leads_today || 0} today`}
-              todayLabel={`${summary.leads_today || 0} today`}
-              icon={<User className="size-4" />}
-              spark={daily.map((d) => d.leads)}
-              accent="emerald"
-            />
-            <RichKpi
-              label="Hot leads"
-              value={summary.hot}
-              sub={`${summary.warm} warm · ${summary.cold} cold`}
-              trend="up"
-              labelDelta={`${summary.need_follow_up || 0} need follow-up`}
-              todayLabel="Priority follow-up"
-              icon={<Flame className="size-4" />}
-              spark={daily.map((d) => d.hot)}
-              accent="orange"
-            />
-            <RichKpi
-              label="This month"
-              value={summary.leads_this_month || 0}
-              sub="Completed leads"
-              trend="flat"
-              labelDelta="Calendar month"
-              todayLabel={`${summary.leads_this_week || 0} this week`}
-              icon={<Thermometer className="size-4" />}
-              spark={daily.map((d) => d.leads)}
-              accent="violet"
-            />
+      <Card>
+        <CardHeader className="gap-2 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CreditCard className="size-4 text-primary" /> Select cards
+            </CardTitle>
+            <CardDescription>
+              {selectedRepIds.length} of {activeReps.length} cards included in the results below
+            </CardDescription>
           </div>
-
-          <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Last 7 days</CardTitle>
-                <p className="text-xs text-muted-foreground">Scans and leads (UK calendar days)</p>
-              </CardHeader>
-              <CardContent className="h-[220px]">
-                {daily.length === 0 ? (
-                  <p className="grid h-full place-items-center text-sm text-muted-foreground">No activity yet</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={daily} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="scScans" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="scLeads" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                      <Tooltip
-                        contentStyle={{
-                          background: "hsl(var(--card))",
-                          border: "1px solid hsl(var(--border))",
-                          borderRadius: 8,
-                          fontSize: 12,
-                        }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="scans"
-                        name="Scans"
-                        stroke="#0ea5e9"
-                        fill="url(#scScans)"
-                        strokeWidth={2}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="leads"
-                        name="Leads"
-                        stroke="#10b981"
-                        fill="url(#scLeads)"
-                        strokeWidth={2}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Users className="size-4" /> By card
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">Click a row to filter</p>
-              </CardHeader>
-              <CardContent className="max-h-[220px] overflow-auto p-0">
-                {byRep.length === 0 ? (
-                  <p className="grid h-[180px] place-items-center text-sm text-muted-foreground">No representatives</p>
-                ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="sticky top-0 border-b bg-muted/40 text-xs text-muted-foreground">
-                      <tr>
-                        <th className="px-4 py-2 font-medium">Name</th>
-                        <th className="px-3 py-2 font-medium tabular-nums">Scans</th>
-                        <th className="px-4 py-2 font-medium tabular-nums">Leads</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {byRep.map((r) => (
-                        <tr
-                          key={r.id}
-                          className={cn(
-                            "cursor-pointer border-b last:border-0 hover:bg-muted/40",
-                            repId === r.id && "bg-muted/50",
-                          )}
-                          onClick={() => setRepId(r.id)}
-                        >
-                          <td className="truncate px-4 py-2 font-medium">{r.name}</td>
-                          <td className="px-3 py-2 tabular-nums">{r.scan_count}</td>
-                          <td className="px-4 py-2 tabular-nums">{r.lead_count}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold tracking-tight">Recent leads</h2>
-        {leadsQ.isLoading ? <Skeleton className="h-24 rounded-xl" /> : null}
-        {leads.map((lead) => (
-          <Card
-            key={lead.id}
-            className="cursor-pointer transition hover:border-foreground/20 hover:shadow-sm"
-            onClick={() => setSelected(lead)}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1.5 text-xs"
+            onClick={() => setSelectedRepIds(allSelected ? [] : activeReps.map((r) => r.id))}
           >
-            <CardContent className="space-y-2 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="font-medium">
-                    {lead.name || "Unknown"} · {lead.company || "—"}
-                  </p>
-                  <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <ScoreBadge score={lead.lead_score} />
-                    <span>
-                      {lead.representative_name} · {lead.follow_up_status || "open"} · {formatTs(lead.created_at)}
-                    </span>
-                  </p>
-                </div>
-                {lead.follow_up_status === "open" ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      markMut.mutate({ id: lead.id, status: "done" });
-                    }}
-                  >
-                    Mark done
-                  </Button>
-                ) : null}
-              </div>
-              {lead.ai_summary ? <p className="text-sm text-muted-foreground">{lead.ai_summary}</p> : null}
-            </CardContent>
-          </Card>
-        ))}
-        {!leadsQ.isLoading && leads.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No leads yet
-            {repId !== "all" ? " for this card" : ""}. Preview scans are hidden from results.
-          </p>
-        ) : null}
+            <CheckCheck className="size-3.5" /> {allSelected ? "Clear all" : "Select all"}
+          </Button>
+        </CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {repsQ.isLoading ? <Skeleton className="h-12 w-40" /> : null}
+          {activeReps.map((r) => {
+            const on = selectedRepIds.includes(r.id);
+            const leadCount = (leadsQ.data?.items || []).filter((l) => l.representative_id === r.id).length;
+            const hot = (leadsQ.data?.items || []).filter(
+              (l) => l.representative_id === r.id && String(l.lead_score || "").toLowerCase() === "hot",
+            ).length;
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => toggleRep(r.id)}
+                className={cn(
+                  "flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition",
+                  on ? "border-primary bg-primary/10" : "border-border hover:border-primary/40",
+                )}
+              >
+                <span
+                  className={cn(
+                    "grid size-7 place-items-center rounded-lg text-[11px] font-semibold",
+                    on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {(r.name || "?")
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .slice(0, 2)}
+                </span>
+                <span>
+                  <span className="block text-xs font-medium">{r.name}</span>
+                  <span className="block text-[10px] text-muted-foreground">
+                    {leadCount} leads · {hot} hot
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Kpi icon={Users} label="Leads shown" value={String(scoped.length)} tone="text-primary" />
+        <Kpi icon={Flame} label="Hot leads" value={String(hotCount)} tone="text-rose-500" />
+        <Kpi
+          icon={CreditCard}
+          label="Cards selected"
+          value={`${selectedRepIds.length}/${activeReps.length || 0}`}
+          tone="text-violet-500"
+        />
+        <Kpi
+          icon={Download}
+          label="Scans (all)"
+          value={String(summary?.scans ?? "—")}
+          tone="text-emerald-500"
+        />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Leads per selected card</CardTitle>
+          <CardDescription>Total vs hot</CardDescription>
+        </CardHeader>
+        <CardContent className="h-[240px]">
+          {perRep.length === 0 ? (
+            <p className="grid h-full place-items-center text-sm text-muted-foreground">Select a card</p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={perRep}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} className="text-xs" />
+                <YAxis tickLine={false} axisLine={false} className="text-xs" allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="leads" radius={[6, 6, 0, 0]} fill="#8b5cf6" />
+                <Bar dataKey="hot" radius={[6, 6, 0, 0]} fill="#f43f5e" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="text-base">Recent leads</CardTitle>
+            <CardDescription className="flex items-center gap-1.5">
+              {rows.length} captured
+              <span className="inline-flex items-center gap-1 text-primary">
+                <MousePointerClick className="size-3" /> click a row to open the card scan and answers
+              </span>
+            </CardDescription>
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search leads, rep, company…"
+              className="h-8 w-56 pl-8 text-xs"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          {leadsQ.isLoading ? <Skeleton className="h-24 w-full" /> : null}
+          <table className="w-full min-w-[880px] text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                <th className="py-2 pr-3">Lead</th>
+                <th className="py-2 pr-3">Company</th>
+                <th className="py-2 pr-3">Rep</th>
+                <th className="py-2 pr-3">Channel</th>
+                <th className="py-2 pr-3">Score</th>
+                <th className="py-2 pr-3">Captured</th>
+                <th className="py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((l) => (
+                <tr
+                  key={l.id}
+                  onClick={() => setSelected(l)}
+                  className="group cursor-pointer border-b border-border/60 transition hover:bg-muted/50 last:border-0"
+                >
+                  <td className="py-2.5 pr-3">
+                    <p className="font-medium">{l.name || "Unknown"}</p>
+                    <p className="text-[11px] text-muted-foreground">{l.interest || "—"}</p>
+                  </td>
+                  <td className="py-2.5 pr-3 text-muted-foreground">{l.company || "—"}</td>
+                  <td className="py-2.5 pr-3 text-muted-foreground">{l.representative_name || "—"}</td>
+                  <td className="py-2.5 pr-3">
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      {String(l.channel || "").toLowerCase().includes("whatsapp") ? (
+                        <MessageCircle className="size-3.5 text-emerald-500" />
+                      ) : (
+                        <Globe className="size-3.5 text-primary" />
+                      )}
+                      {l.channel || "Web"}
+                    </span>
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <ScoreBadge score={l.lead_score} />
+                  </td>
+                  <td className="py-2.5 pr-3 text-xs text-muted-foreground">{formatTs(l.created_at)}</td>
+                  <td className="py-2.5 text-right">
+                    <ChevronRight className="ml-auto size-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                  </td>
+                </tr>
+              ))}
+              {!leadsQ.isLoading && rows.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-xs text-muted-foreground">
+                    No leads for the selected cards. Preview scans are hidden from results.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
 
       <Sheet open={selected != null} onOpenChange={(open) => !open && setSelected(null)}>
         <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
@@ -639,80 +625,31 @@ function SmartCardLeadsPage() {
   );
 }
 
-function RichKpi({
+function Kpi({
+  icon: Icon,
   label,
   value,
-  sub,
-  todayLabel,
-  trend,
-  labelDelta,
-  icon,
-  spark,
-  accent,
+  tone,
 }: {
+  icon: React.ComponentType<{ className?: string }>;
   label: string;
-  value: number;
-  sub?: string;
-  todayLabel: string;
-  trend: "up" | "down" | "flat";
-  labelDelta?: string;
-  icon: React.ReactNode;
-  spark: number[];
-  accent: "sky" | "emerald" | "orange" | "violet";
+  value: string;
+  tone: string;
 }) {
-  const meta =
-    trend === "up"
-      ? { Arrow: ArrowUpRight, cls: "text-emerald-700 bg-emerald-500/10 border-emerald-500/20", stroke: "#10b981" }
-      : trend === "down"
-        ? { Arrow: ArrowDownRight, cls: "text-rose-700 bg-rose-500/10 border-rose-500/20", stroke: "#f43f5e" }
-        : { Arrow: Minus, cls: "text-muted-foreground bg-muted border-border", stroke: "#94a3b8" };
-  const { Arrow } = meta;
-  const iconBg =
-    accent === "sky"
-      ? "bg-sky-500/10 text-sky-700"
-      : accent === "emerald"
-        ? "bg-emerald-500/10 text-emerald-700"
-        : accent === "orange"
-          ? "bg-orange-500/10 text-orange-700"
-          : "bg-violet-500/10 text-violet-700";
-  const deltaText = labelDelta || todayLabel;
-
   return (
-    <Card className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
-      <CardContent className="flex flex-col gap-3 p-3">
-        <div className="flex items-start justify-between gap-2">
-          <span className={cn("grid size-7 place-items-center rounded-lg", iconBg)}>{icon}</span>
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium tabular-nums",
-              meta.cls,
-            )}
-          >
-            <Arrow className="size-3" /> {deltaText}
-          </span>
+    <Card>
+      <CardContent className="flex items-center gap-3 p-4">
+        <div
+          className={cn(
+            "grid size-10 place-items-center rounded-xl bg-background shadow-sm ring-1 ring-border",
+            tone,
+          )}
+        >
+          <Icon className="size-5" />
         </div>
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className="mt-0.5 text-lg font-semibold tracking-tight tabular-nums">{value.toLocaleString()}</p>
-          {sub ? <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p> : null}
-          <p className="mt-1 text-xs font-medium text-foreground/80">{todayLabel}</p>
-        </div>
-        <div className="-mx-1 -mb-1 h-8">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={(spark.length ? spark : [0, 0, 0]).map((v, i) => ({ i, v }))}
-              margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
-            >
-              <Area
-                type="monotone"
-                dataKey="v"
-                stroke={meta.stroke}
-                strokeWidth={1.75}
-                fill={meta.stroke}
-                fillOpacity={0.12}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className={cn("text-xl font-semibold tabular-nums", tone)}>{value}</p>
         </div>
       </CardContent>
     </Card>

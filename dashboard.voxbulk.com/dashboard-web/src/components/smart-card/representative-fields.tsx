@@ -1,4 +1,4 @@
-import { Globe, Hash, Mail, Phone, PhoneCall, User } from "lucide-react";
+import { Briefcase, Globe, Hash, Mail, Phone, PhoneCall, User } from "lucide-react";
 import * as React from "react";
 
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ export type SocialLinks = {
 
 export type RepresentativeFormValue = {
   name: string;
+  job_title: string;
   email: string;
   mobile: string;
   landline: string;
@@ -26,6 +27,7 @@ export type RepresentativeFormValue = {
 export function emptyRepresentativeForm(): RepresentativeFormValue {
   return {
     name: "",
+    job_title: "",
     email: "",
     mobile: "",
     landline: "",
@@ -113,19 +115,71 @@ export function RepresentativeFields({
   disabled,
   nameRequired = true,
   mobileHint,
+  photoPreviewUrl,
+  photoFileName,
+  onPhotoChange,
 }: {
   value: RepresentativeFormValue;
   onChange: (next: RepresentativeFormValue) => void;
   disabled?: boolean;
   nameRequired?: boolean;
   mobileHint?: string;
+  /** Local or remote preview for the representative profile image */
+  photoPreviewUrl?: string | null;
+  photoFileName?: string | null;
+  onPhotoChange?: (file: File | null) => void;
 }) {
   const patch = (partial: Partial<RepresentativeFormValue>) => onChange({ ...value, ...partial });
   const patchSocial = (key: keyof SocialLinks, v: string) =>
     onChange({ ...value, social_links: { ...value.social_links, [key]: v } });
+  const fileRef = React.useRef<HTMLInputElement>(null);
 
   return (
     <div className="grid gap-3">
+      {onPhotoChange ? (
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border bg-muted/20 p-3">
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-muted text-lg font-semibold text-muted-foreground ring-1 ring-border">
+            {photoPreviewUrl ? (
+              <img src={photoPreviewUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              (value.name || "?").slice(0, 1).toUpperCase()
+            )}
+          </div>
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Label className="text-xs">Profile photo</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Shown on the public smart card next to the company logo. Square or rectangular — both work.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                ref={fileRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={disabled}
+                className="max-w-xs text-xs"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  onPhotoChange(file);
+                }}
+              />
+              {photoFileName || photoPreviewUrl ? (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  disabled={disabled}
+                  onClick={() => {
+                    onPhotoChange(null);
+                    if (fileRef.current) fileRef.current.value = "";
+                  }}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label className="text-xs">
@@ -142,6 +196,18 @@ export function RepresentativeFields({
           </FieldIcon>
         </div>
         <div className="space-y-1.5">
+          <Label className="text-xs">Job title</Label>
+          <FieldIcon icon={Briefcase}>
+            <Input
+              className="pl-8"
+              value={value.job_title}
+              disabled={disabled}
+              onChange={(e) => patch({ job_title: e.target.value })}
+              placeholder="Sales Manager"
+            />
+          </FieldIcon>
+        </div>
+        <div className="space-y-1.5">
           <Label className="text-xs">Email</Label>
           <FieldIcon icon={Mail}>
             <Input
@@ -154,6 +220,9 @@ export function RepresentativeFields({
             />
           </FieldIcon>
         </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label className="text-xs">{mobileHint || "Mobile"}</Label>
           <FieldIcon icon={Phone}>
@@ -166,10 +235,7 @@ export function RepresentativeFields({
             />
           </FieldIcon>
         </div>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="grid grid-cols-[1fr_5.5rem] gap-2">
+        <div className="grid grid-cols-[1fr_5.5rem] gap-2 sm:col-span-2">
           <div className="space-y-1.5">
             <Label className="text-xs">Landline</Label>
             <FieldIcon icon={PhoneCall}>
@@ -195,6 +261,9 @@ export function RepresentativeFields({
             </FieldIcon>
           </div>
         </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5">
           <Label className="text-xs">Website</Label>
           <FieldIcon icon={Globe}>
@@ -207,7 +276,7 @@ export function RepresentativeFields({
             />
           </FieldIcon>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 sm:col-span-2">
           <Label className="text-xs">X (Twitter)</Label>
           <FieldIcon icon={XIcon}>
             <Input

@@ -360,6 +360,20 @@ input[type="range"].premium-slider::-moz-range-thumb {
 @utility animate-orbit-rev {
   animation: sc-orbit 70s linear infinite reverse;
 }
+@keyframes sc-drift-slow {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(10px, -8px); }
+}
+@keyframes sc-drift-slower {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  50% { transform: translate(-12px, 10px) rotate(6deg); }
+}
+@utility animate-drift-slow {
+  animation: sc-drift-slow 9s ease-in-out infinite;
+}
+@utility animate-drift-slower {
+  animation: sc-drift-slower 14s ease-in-out infinite;
+}
 @utility bg-smartcard-gradient {
   background:
     radial-gradient(110% 70% at 10% 0%, oklch(0.32 0.06 265) 0%, transparent 55%),

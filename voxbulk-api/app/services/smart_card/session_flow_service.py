@@ -29,17 +29,11 @@ DEFAULT_STEPS = ("contact", "interest", "role", "timeline", "follow_up", "consen
 
 
 def _score_lead(*, interest: str | None, timeline: str | None, consent: str | None) -> str:
-    c = (consent or "").lower()
-    if c in {"no", "n"}:
-        return "cold"
-    t = (timeline or "").lower()
-    if any(x in t for x in ("asap", "this week", "week", "soon", "immediate")):
-        return "hot"
-    if any(x in t for x in ("month", "this month")):
-        return "warm"
-    if interest and len(interest.strip()) > 40:
-        return "warm"
-    return "cold"
+    from app.services.expo.scoring_service import score_lead
+
+    c = (consent or "").strip().lower()
+    consented = c not in {"no", "n", "false", "0"}
+    return score_lead(interest=interest, timeline=timeline, consent=consented)
 
 
 def _ai_summary(lead: SmartCardLead, rep_name: str) -> str:
