@@ -493,9 +493,6 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
         </nav>
 
         <div className="animate-rise mt-5 flex flex-col gap-3" style={{ animationDelay: "280ms" }}>
-          <p className="text-center text-[11px] font-medium uppercase tracking-[0.16em]" style={{ color: SUB }}>
-            Leave feedback
-          </p>
           {meta.whatsapp_url ? (
             <a
               href={meta.whatsapp_url}

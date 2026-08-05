@@ -11,6 +11,25 @@ if [[ ! -d dist/client ]]; then
   exit 1
 fi
 
+# Vite preview loads vite.config.ts via a temp write under node_modules/.vite-temp.
+# Root-owned leftovers from a prior sudo deploy cause EACCES crash-loops under systemd (User=qusay).
+_vite_temp="$PUBLIC_DIR/node_modules/.vite-temp"
+if [[ -d "$PUBLIC_DIR/node_modules" ]]; then
+  mkdir -p "$_vite_temp" 2>/dev/null || true
+  if [[ ! -w "$_vite_temp" ]]; then
+    echo "[voxbulk-public] $_vite_temp not writable — fixing ownership …" >&2
+    if command -v sudo >/dev/null 2>&1; then
+      sudo chown -R "$(id -un):$(id -gn)" "$_vite_temp" 2>/dev/null \
+        || sudo chown -R "$(id -un):$(id -gn)" "$PUBLIC_DIR/node_modules" 2>/dev/null \
+        || true
+    fi
+    if [[ ! -w "$_vite_temp" ]]; then
+      echo "[voxbulk-public] FAIL: cannot write $_vite_temp (EACCES). Run: sudo chown -R $(whoami) $PUBLIC_DIR/node_modules" >&2
+      exit 1
+    fi
+  fi
+fi
+
 # Free :5173 if an orphan nohup/vite preview still holds it (systemd would otherwise
 # crash-loop with "Port 5173 is already in use" and Sign in can look broken).
 if command -v fuser >/dev/null 2>&1; then
