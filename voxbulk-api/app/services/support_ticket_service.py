@@ -107,6 +107,13 @@ def admin_can_access_ticket(role: str, ticket: SupportTicket) -> bool:
 
 class SupportTicketService:
     @staticmethod
+    def find_by_email_fingerprint(db: Session, fingerprint: str | None) -> SupportTicket | None:
+        fp = (fingerprint or "").strip().lower()
+        if not fp:
+            return None
+        return db.scalar(select(SupportTicket).where(SupportTicket.email_fingerprint == fp).limit(1))
+
+    @staticmethod
     def create_ticket(
         db: Session,
         *,
@@ -122,12 +129,18 @@ class SupportTicketService:
         staff_note: str | None = None,
         requester_email: str | None = None,
         requester_name: str | None = None,
+        email_fingerprint: str | None = None,
     ) -> SupportTicket:
         cat = normalize_category(category)
         if branch_id:
             ok = db.execute(select(Branch.id).where(Branch.id == branch_id, Branch.org_id == org_id)).scalar_one_or_none()
             if ok is None:
                 raise ValueError("Invalid branch for organisation")
+        fp = (email_fingerprint or "").strip().lower() or None
+        if fp:
+            existing = SupportTicketService.find_by_email_fingerprint(db, fp)
+            if existing is not None:
+                return existing
         now = datetime.utcnow()
         req_email = _normalize_requester_email(requester_email)
         req_name = _normalize_requester_name(requester_name)
@@ -142,6 +155,7 @@ class SupportTicketService:
             status="open",
             priority=normalize_priority(priority) or "normal",
             channel=normalize_channel(channel),
+            email_fingerprint=fp,
             customer_unread=False,
             admin_unread=True,
             last_message_at=now,
@@ -731,6 +745,7 @@ def ticket_to_dict(db: Session, t: SupportTicket) -> dict:
         "status": t.status,
         "priority": t.priority or "normal",
         "channel": getattr(t, "channel", None) or "web",
+        "email_fingerprint": getattr(t, "email_fingerprint", None) or None,
         "assigned_admin_user_id": t.assigned_admin_user_id,
         "assigned_admin_email": assigned,
         "customer_unread": bool(t.customer_unread),

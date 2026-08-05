@@ -53,6 +53,12 @@ export const Route = createFileRoute("/_app/sales/mail")({
 type TabKey = "inbox" | "sent" | "starred" | "trash" | "contacts";
 type ViewMode = "list" | "read" | "compose";
 type ComposeMode = "new" | "reply" | "replyAll" | "forward";
+type EscalateTarget = "support" | "billing";
+
+const ESCALATE_ADDRESSES: Record<EscalateTarget, string> = {
+  support: "support@voxbulk.com",
+  billing: "billing@voxbulk.com",
+};
 
 type MailStatus = {
   configured?: boolean;
@@ -148,6 +154,7 @@ function SalesMailPage() {
   const [confirmDelete, setConfirmDelete] = React.useState<"bulk" | "empty-trash" | null>(null);
 
   const [composeMode, setComposeMode] = React.useState<ComposeMode>("new");
+  const [escalateTarget, setEscalateTarget] = React.useState<EscalateTarget | null>(null);
   const [to, setTo] = React.useState("");
   const [cc, setCc] = React.useState("");
   const [showCc, setShowCc] = React.useState(false);
@@ -219,10 +226,16 @@ function SalesMailPage() {
     }
   };
 
-  const openCompose = (mode: ComposeMode = "new", msg?: MailDetail | null, prefillTo?: string) => {
+  const openCompose = (
+    mode: ComposeMode = "new",
+    msg?: MailDetail | null,
+    prefillTo?: string,
+    escalate?: EscalateTarget | null,
+  ) => {
     replyContextRef.current = mode === "new" ? null : msg || null;
     setReplyContext(mode === "new" ? null : msg || null);
     setComposeMode(mode);
+    setEscalateTarget(mode === "forward" ? escalate || null : null);
     setAttachments([]);
     setAiBusy(null);
     setBodyFormat("text");
@@ -253,7 +266,7 @@ function SalesMailPage() {
         setSubject((msg.subject || "").toLowerCase().startsWith("re:") ? msg.subject || "" : `Re: ${msg.subject || ""}`);
         setBody("");
       } else {
-        setTo("");
+        setTo(prefillTo || "");
         setCc("");
         setShowCc(false);
         setSubject((msg.subject || "").toLowerCase().startsWith("fw:") || (msg.subject || "").toLowerCase().startsWith("fwd:")
@@ -384,7 +397,9 @@ function SalesMailPage() {
   };
 
   const send = async () => {
-    if (!to.trim() || !subject.trim() || !body.trim()) return;
+    if (!to.trim() || !subject.trim()) return;
+    const hasQuotedOriginal = composeMode !== "new" && Boolean(replyContext);
+    if (!body.trim() && !hasQuotedOriginal) return;
     setSending(true);
     try {
       let bodyText = bodyFormat === "html" ? body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : body;
@@ -392,7 +407,8 @@ function SalesMailPage() {
         bodyFormat === "html" ? (body.trim().includes("<") ? body : textToHtml(body)) : textToHtml(body);
 
       // Gmail-style: append the original / forwarded message under the new reply
-      if (composeMode !== "new" && replyContext) {
+      // Escalation path builds the quoted original server-side from source_message_id.
+      if (composeMode !== "new" && replyContext && !escalateTarget) {
         const quoteHeader = [
           "",
           "---------- Original message ----------",
@@ -414,25 +430,46 @@ function SalesMailPage() {
         }<br/>To: ${replyContext.to_email || ""}</p>${quoteHtml}`;
       }
 
-      await apiFetch("/sales/mail/send", {
+      const payload: Record<string, unknown> = {
+        to: to.trim(),
+        cc: cc.trim() || undefined,
+        subject: subject.trim(),
+        body_html: bodyHtml,
+        body_text: bodyText,
+        attachments: attachments.map((a) => ({
+          filename: a.name,
+          content_type: a.contentType,
+          data_base64: a.dataBase64,
+        })),
+      };
+      if (escalateTarget && replyContext?.id) {
+        payload.escalate_target = escalateTarget;
+        payload.source_message_id = replyContext.id;
+        payload.to = ESCALATE_ADDRESSES[escalateTarget];
+      }
+
+      const res = await apiFetch<{
+        ok?: boolean;
+        ticket_ref?: string;
+        duplicate?: boolean;
+        message?: string;
+      }>("/sales/mail/send", {
         method: "POST",
-        body: JSON.stringify({
-          to: to.trim(),
-          cc: cc.trim() || undefined,
-          subject: subject.trim(),
-          body_html: bodyHtml,
-          body_text: bodyText,
-          attachments: attachments.map((a) => ({
-            filename: a.name,
-            content_type: a.contentType,
-            data_base64: a.dataBase64,
-          })),
-        }),
+        body: JSON.stringify(payload),
       });
-      toast.success("Message sent");
+      if (escalateTarget) {
+        if (res.duplicate) {
+          toast.success(res.ticket_ref ? `Already escalated (${res.ticket_ref})` : "Already escalated");
+        } else {
+          toast.success(res.ticket_ref ? `Escalated — ticket ${res.ticket_ref}` : "Escalated to Support/Billing");
+        }
+      } else {
+        toast.success("Message sent");
+      }
       setView("list");
       setTab("sent");
       setAttachments([]);
+      setEscalateTarget(null);
       setReplyContext(null);
       replyContextRef.current = null;
       await loadMessages("Sent");
@@ -519,6 +556,7 @@ function SalesMailPage() {
             variant="ghost"
             size="sm"
             onClick={() => {
+              setEscalateTarget(null);
               if (replyContext) {
                 setOpenMessage(replyContext);
                 setView("read");
@@ -532,11 +570,15 @@ function SalesMailPage() {
           <h1 className="text-xl font-semibold tracking-tight">
             {composeMode === "new"
               ? "New message"
-              : composeMode === "forward"
-                ? "Forward"
-                : composeMode === "replyAll"
-                  ? "Reply all"
-                  : "Reply"}
+              : escalateTarget === "support"
+                ? "Forward to Support"
+                : escalateTarget === "billing"
+                  ? "Forward to Billing"
+                  : composeMode === "forward"
+                    ? "Forward"
+                    : composeMode === "replyAll"
+                      ? "Reply all"
+                      : "Reply"}
           </h1>
           <div className="ml-auto flex flex-wrap gap-1">
             {(composeMode === "reply" || composeMode === "replyAll") && (
@@ -549,8 +591,17 @@ function SalesMailPage() {
               <Wand2 className={cn("size-4", aiBusy === "fix" && "animate-pulse")} />
               {aiBusy === "fix" ? "Fixing…" : "Fix with AI"}
             </Button>
-            <Button size="sm" disabled={sending || !to.trim() || !subject.trim() || !body.trim()} onClick={() => void send()}>
-              <Send className="size-4" /> {sending ? "Sending…" : "Send"}
+            <Button
+              size="sm"
+              disabled={
+                sending ||
+                !to.trim() ||
+                !subject.trim() ||
+                (!body.trim() && !(composeMode !== "new" && replyContext))
+              }
+              onClick={() => void send()}
+            >
+              <Send className="size-4" /> {sending ? "Sending…" : escalateTarget ? "Send & create ticket" : "Send"}
             </Button>
           </div>
         </div>
@@ -579,8 +630,15 @@ function SalesMailPage() {
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 placeholder="name@company.com"
+                readOnly={Boolean(escalateTarget)}
                 className="border-neutral-200 bg-white text-neutral-900"
               />
+              {escalateTarget ? (
+                <p className="text-xs text-neutral-500">
+                  Sending creates a {escalateTarget === "billing" ? "Billing (invoices)" : "Support (technical)"} ticket for
+                  your organisation and keeps an SMTP copy in this mailbox.
+                </p>
+              ) : null}
             </div>
             {showCc ? (
               <div className="space-y-1.5">
@@ -786,6 +844,18 @@ function SalesMailPage() {
           <Button variant="secondary" onClick={() => openCompose("forward", msg)}>
             <Forward className="size-4" /> Forward
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => openCompose("forward", msg, ESCALATE_ADDRESSES.support, "support")}
+          >
+            Support
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => openCompose("forward", msg, ESCALATE_ADDRESSES.billing, "billing")}
+          >
+            Billing
+          </Button>
           <Button variant="outline" onClick={() => openCompose("new")}>
             <PenSquare className="size-4" /> Compose new
           </Button>
@@ -923,6 +993,26 @@ function SalesMailPage() {
                         }}
                       >
                         <Forward className="size-3.5" /> Forward
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const res = await apiFetch<{ message: MailDetail }>(`/sales/mail/messages/${singleSelected.id}`);
+                          openCompose("forward", res.message, ESCALATE_ADDRESSES.support, "support");
+                        }}
+                      >
+                        Support
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const res = await apiFetch<{ message: MailDetail }>(`/sales/mail/messages/${singleSelected.id}`);
+                          openCompose("forward", res.message, ESCALATE_ADDRESSES.billing, "billing");
+                        }}
+                      >
+                        Billing
                       </Button>
                     </>
                   ) : null}

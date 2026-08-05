@@ -26,6 +26,8 @@ class SupportTicket(Base):
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="open", index=True)
     priority: Mapped[str | None] = mapped_column(String(30), nullable=True)
     channel: Mapped[str] = mapped_column(String(30), nullable=False, default="web", index=True)
+    # Stable id for salesman-mail escalation / IMAP Message-ID dedupe (nullable for legacy tickets)
+    email_fingerprint: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True, index=True)
 
     assigned_admin_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("admin_users.id"), nullable=True, index=True)
 

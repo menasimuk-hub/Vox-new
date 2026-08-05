@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import CurrentPrincipal, get_current_principal
 from app.models.sales_rep import SalesRep
+from app.schemas.sales_mail import SalesMailEscalateIn, SalesMailSendIn
 from app.services import sales_mail_service
 from app.services.sales_mail_service import SalesMailServiceError
 from app.services.sales_rep_service import SalesRepService
@@ -22,6 +23,16 @@ def _require_salesman(db: Session, principal: CurrentPrincipal) -> SalesRep:
     if not SalesRepService.is_salesman(rep):
         raise HTTPException(status_code=403, detail="Mail is only available to salesmen.")
     return rep
+
+
+def _attachments_as_dicts(attachments) -> list[dict]:
+    out: list[dict] = []
+    for item in attachments or []:
+        if hasattr(item, "model_dump"):
+            out.append(item.model_dump())
+        elif isinstance(item, dict):
+            out.append(item)
+    return out
 
 
 @router.get("/status")
@@ -148,17 +159,43 @@ def empty_trash(db: Session = Depends(get_db), principal: CurrentPrincipal = Dep
 
 
 @router.post("/send")
-def send_email(payload: dict, db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+def send_email(
+    payload: SalesMailSendIn,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
     rep = _require_salesman(db, principal)
-    body = payload or {}
-    to = str(body.get("to", "")).strip()
-    subject = str(body.get("subject", "")).strip()
-    body_html = str(body.get("body_html", "")).strip()
-    body_text = str(body.get("body_text", "")).strip() if body.get("body_text") else None
-    insert_promo = bool(body.get("insert_promo", False))
-    cc = str(body.get("cc", "")).strip() or None
-    attachments = body.get("attachments") if isinstance(body.get("attachments"), list) else []
+    attachments = _attachments_as_dicts(payload.attachments)
+    body_html = (payload.body_html or "").strip()
+    body_text = (payload.body_text or "").strip() or None
+    cc = (payload.cc or "").strip() or None
+    subject = (payload.subject or "").strip()
 
+    if payload.escalate_target:
+        source_message_id = (payload.source_message_id or "").strip()
+        if not source_message_id:
+            raise HTTPException(status_code=400, detail="source_message_id is required for escalation")
+        try:
+            result = sales_mail_service.send_escalation(
+                db,
+                sales_rep_id=rep.id,
+                org_id=principal.org_id,
+                user_id=principal.user_id,
+                escalate_target=payload.escalate_target,
+                source_message_id=source_message_id,
+                subject=subject or None,
+                body_html=body_html or None,
+                body_text=body_text,
+                cc=cc,
+                attachments=attachments,
+            )
+        except SalesMailServiceError as e:
+            detail = str(e)
+            status = 404 if "not found" in detail.lower() else 400
+            raise HTTPException(status_code=status, detail=detail) from e
+        return {"ok": True, **result}
+
+    to = (payload.to or "").strip()
     if not to:
         raise HTTPException(status_code=400, detail="Recipient email is required")
     if not subject:
@@ -174,12 +211,41 @@ def send_email(payload: dict, db: Session = Depends(get_db), principal: CurrentP
             subject,
             body_html,
             body_text,
-            insert_promo,
+            bool(payload.insert_promo),
             cc=cc,
             attachments=attachments,
         )
     except SalesMailServiceError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **result}
+
+
+@router.post("/escalate")
+def escalate_email(
+    payload: SalesMailEscalateIn,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    """Forward a stored message to Support/Billing and create a support ticket."""
+    rep = _require_salesman(db, principal)
+    try:
+        result = sales_mail_service.send_escalation(
+            db,
+            sales_rep_id=rep.id,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            escalate_target=payload.escalate_target,
+            source_message_id=payload.source_message_id,
+            subject=(payload.subject or "").strip() or None,
+            body_html=(payload.body_html or "").strip() or None,
+            body_text=(payload.body_text or "").strip() or None,
+            cc=(payload.cc or "").strip() or None,
+            attachments=_attachments_as_dicts(payload.attachments),
+        )
+    except SalesMailServiceError as e:
+        detail = str(e)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail) from e
     return {"ok": True, **result}
 
 

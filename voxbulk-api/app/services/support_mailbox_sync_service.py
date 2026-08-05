@@ -26,10 +26,18 @@ from app.services.support_mailbox_settings_service import (
     SupportMailboxSettingsService,
 )
 from app.services.support_ticket_service import SupportTicketService
+from app.services.sales_mail_service import (
+    ESCALATE_HEADER,
+    fingerprint_from_rfc_message_id,
+)
 
 logger = logging.getLogger(__name__)
 
 _PROCESSED_UID_RE = re.compile(r"uids=\[([^\]]*)\]")
+_ESCALATION_FP_RE = re.compile(
+    rf"(?:{re.escape(ESCALATE_HEADER)}|Escalation-Fingerprint)\s*:\s*([a-f0-9]{{32,64}})",
+    re.IGNORECASE,
+)
 
 
 def _decode_mime(value: str | None) -> str:
@@ -90,6 +98,21 @@ def _format_sync_message(*, processed: int, tickets: int, uids: list[str], extra
     if extra:
         return f"{base} {extra}"[:500]
     return base[:500]
+
+
+def _extract_escalation_fingerprint(msg: Message, body_text: str) -> str | None:
+    """Detect salesman-mail escalation fingerprints to avoid duplicate IMAP tickets."""
+    header_fp = (msg.get(ESCALATE_HEADER) or "").strip().lower()
+    if header_fp and len(header_fp) >= 32:
+        return header_fp
+    mid_fp = fingerprint_from_rfc_message_id(msg.get("Message-ID"))
+    if mid_fp:
+        return mid_fp
+    for candidate in (body_text or "", msg.get("Subject") or ""):
+        m = _ESCALATION_FP_RE.search(candidate)
+        if m:
+            return m.group(1).strip().lower()
+    return None
 
 
 def _resolve_actor_for_sender(db: Session, from_addr: str) -> tuple[str, str]:
@@ -320,6 +343,21 @@ def sync_support_mailbox(db: Session) -> dict[str, Any]:
             from_hdr = _decode_mime(msg.get("From"))
             from_addr = email.utils.parseaddr(from_hdr)[1] if from_hdr else ""
             body_text = _collect_text(msg) or "(empty body)"
+            escalate_fp = _extract_escalation_fingerprint(msg, body_text)
+            if escalate_fp and SupportTicketService.find_by_email_fingerprint(db, escalate_fp):
+                logger.info(
+                    "support_mailbox_skip_escalation_duplicate uid=%s fingerprint=%s",
+                    uid,
+                    escalate_fp,
+                )
+                processed += 1
+                new_uids.append(uid)
+                already.add(uid)
+                try:
+                    conn.uid("store", num, "+FLAGS", "\\Seen")
+                except Exception:
+                    logger.warning("support_mailbox_mark_seen_failed uid=%s", uid)
+                continue
             ticket_body = (
                 f"From: {from_hdr or from_addr or 'unknown'}\n"
                 f"Subject: {subject}\n"
@@ -341,6 +379,7 @@ def sync_support_mailbox(db: Session) -> dict[str, Any]:
                     staff_note=staff_note,
                     requester_email=from_addr or None,
                     requester_name=(from_hdr.split("<")[0].strip().strip('"') if from_hdr else None) or None,
+                    email_fingerprint=escalate_fp,
                 )
                 tickets += 1
             except Exception:

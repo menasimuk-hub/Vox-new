@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import email.utils
+import hashlib
 import imaplib
 import json
 import logging
@@ -19,7 +20,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email import encoders
 import base64
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -29,6 +30,15 @@ from app.models.sales_mail import SalesMailContact, SalesMailLabel, SalesMailMes
 from app.models.sales_rep import SalesRep
 
 logger = logging.getLogger(__name__)
+
+SalesMailEscalateTarget = Literal["support", "billing"]
+
+ESCALATE_TARGETS: dict[str, dict[str, str]] = {
+    "support": {"to": "support@voxbulk.com", "category": "technical", "label": "Support"},
+    "billing": {"to": "billing@voxbulk.com", "category": "invoices", "label": "Billing"},
+}
+ESCALATE_MESSAGE_ID_DOMAIN = "escalate.voxbulk.com"
+ESCALATE_HEADER = "X-Voxbulk-Escalation"
 
 
 class SalesMailServiceError(RuntimeError):
@@ -456,6 +466,35 @@ def empty_trash(db: Session, sales_rep_id: str) -> dict[str, Any]:
     return {"deleted": len(rows)}
 
 
+def normalize_escalate_target(target: str | None) -> SalesMailEscalateTarget:
+    key = (target or "").strip().lower()
+    if key not in ESCALATE_TARGETS:
+        raise SalesMailServiceError("escalate_target must be 'support' or 'billing'")
+    return key  # type: ignore[return-value]
+
+
+def escalation_fingerprint(*, target: str, sales_rep_id: str, source_message_id: str) -> str:
+    raw = f"salesmail:{target}:{sales_rep_id}:{source_message_id}".strip().lower()
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def escalation_message_id(fingerprint: str) -> str:
+    fp = (fingerprint or "").strip().lower()
+    return f"<{fp}@{ESCALATE_MESSAGE_ID_DOMAIN}>"
+
+
+def fingerprint_from_rfc_message_id(message_id: str | None) -> str | None:
+    mid = (message_id or "").strip()
+    if not mid:
+        return None
+    if mid.startswith("<") and mid.endswith(">"):
+        mid = mid[1:-1]
+    mid = mid.strip().lower()
+    if mid.endswith(f"@{ESCALATE_MESSAGE_ID_DOMAIN}"):
+        return mid[: -len(f"@{ESCALATE_MESSAGE_ID_DOMAIN}")] or None
+    return None
+
+
 def send_email(
     db: Session,
     sales_rep_id: str,
@@ -467,6 +506,8 @@ def send_email(
     *,
     cc: str | None = None,
     attachments: list[dict[str, Any]] | None = None,
+    message_id_override: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Send an email via SMTP for a salesman (optional CC + base64 attachments)."""
     rep = db.scalar(select(SalesRep).where(SalesRep.id == sales_rep_id))
@@ -531,7 +572,13 @@ def send_email(
     if cc:
         msg["Cc"] = cc
     msg["Subject"] = subject
-    msg["Message-ID"] = email.utils.make_msgid()
+    rfc_message_id = (message_id_override or "").strip() or email.utils.make_msgid()
+    msg["Message-ID"] = rfc_message_id
+    for hk, hv in (extra_headers or {}).items():
+        key = str(hk or "").strip()
+        val = str(hv or "").strip()
+        if key and val:
+            msg[key] = val
 
     recipients = [p.strip() for p in to.split(",") if p.strip()]
     if cc:
@@ -552,7 +599,7 @@ def send_email(
             id=str(uuid.uuid4()),
             sales_rep_id=sales_rep_id,
             folder="Sent",
-            message_id=msg["Message-ID"],
+            message_id=rfc_message_id,
             from_email=rep.smtp_username,
             from_name=rep.name,
             to_email=to,
@@ -572,11 +619,196 @@ def send_email(
         db.add(sent_msg)
         db.commit()
 
-        return {"id": sent_msg.id, "message": "Email sent successfully"}
+        return {
+            "id": sent_msg.id,
+            "message": "Email sent successfully",
+            "message_id": rfc_message_id,
+        }
     except smtplib.SMTPException as e:
         raise SalesMailServiceError(f"SMTP error: {e}") from e
     except Exception as e:
         raise SalesMailServiceError(f"Failed to send email: {e}") from e
+
+
+def send_escalation(
+    db: Session,
+    *,
+    sales_rep_id: str,
+    org_id: str,
+    user_id: str,
+    escalate_target: str,
+    source_message_id: str,
+    subject: str | None = None,
+    body_html: str | None = None,
+    body_text: str | None = None,
+    cc: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Forward a salesman mail message to Support/Billing and create a ticket (idempotent)."""
+    target = normalize_escalate_target(escalate_target)
+    meta = ESCALATE_TARGETS[target]
+    src_id = str(source_message_id or "").strip()
+    if not src_id:
+        raise SalesMailServiceError("source_message_id is required")
+
+    source = db.scalar(
+        select(SalesMailMessage).where(
+            SalesMailMessage.id == src_id,
+            SalesMailMessage.sales_rep_id == sales_rep_id,
+        )
+    )
+    if source is None:
+        raise SalesMailServiceError("Message not found")
+
+    org = str(org_id or "").strip()
+    actor = str(user_id or "").strip()
+    if not org or not actor:
+        raise SalesMailServiceError("Organisation and user are required for escalation")
+
+    fingerprint = escalation_fingerprint(target=target, sales_rep_id=sales_rep_id, source_message_id=src_id)
+    rfc_mid = escalation_message_id(fingerprint)
+
+    from app.services.support_ticket_service import SupportTicketService
+
+    existing = SupportTicketService.find_by_email_fingerprint(db, fingerprint)
+    if existing is not None:
+        return {
+            "id": None,
+            "message": "Already escalated",
+            "message_id": rfc_mid,
+            "ticket_id": existing.id,
+            "ticket_ref": existing.public_ref or f"TKT-{existing.id:06d}",
+            "email_fingerprint": fingerprint,
+            "duplicate": True,
+            "sent": False,
+        }
+
+    intro_text = (body_text or "").strip() or _strip_html(body_html or "")
+    intro_html = (body_html or "").strip()
+    if not intro_html and intro_text:
+        intro_html = f"<p>{intro_text.replace(chr(10), '<br/>')}</p>"
+
+    quote_lines = [
+        "",
+        "---------- Original message ----------",
+        f"From: {source.from_name or source.from_email or ''} <{source.from_email or ''}>",
+        f"Subject: {source.subject or ''}",
+        f"To: {source.to_email or ''}",
+        f"Date: {source.date.isoformat() if source.date else ''}",
+        "",
+        (source.body_text or _strip_html(source.body_html or "") or "(empty body)"),
+    ]
+    if source.has_attachments and not (attachments or []):
+        quote_lines.append("")
+        quote_lines.append(
+            "[Note: the original message had attachments. Attachment bytes are not stored in Salesman Mail; "
+            "only this quoted body was escalated.]"
+        )
+
+    quote_text = "\n".join(quote_lines)
+    final_text = f"{intro_text}\n{quote_text}".strip() if intro_text else quote_text.strip()
+    quote_html = source.body_html or f"<pre>{_strip_html(source.body_html or source.body_text or '')}</pre>"
+    att_note_html = (
+        "<p><em>Note: the original message had attachments. Attachment bytes are not stored in Salesman Mail; "
+        "only this quoted body was escalated.</em></p>"
+        if source.has_attachments and not (attachments or [])
+        else ""
+    )
+    final_html = (
+        f"{intro_html}<br/><hr/>"
+        f"<p style='color:#666;font-size:12px'>---------- Original message ----------<br/>"
+        f"From: {source.from_name or source.from_email or ''} &lt;{source.from_email or ''}&gt;<br/>"
+        f"Subject: {source.subject or ''}<br/>"
+        f"To: {source.to_email or ''}</p>"
+        f"{quote_html}{att_note_html}"
+    )
+    if ESCALATE_HEADER.lower() not in final_text.lower():
+        final_text = f"{final_text}\n\n{ESCALATE_HEADER}: {fingerprint}"
+        final_html = f"{final_html}<p style='display:none'>{ESCALATE_HEADER}: {fingerprint}</p>"
+
+    fwd_subject = (subject or "").strip()
+    if not fwd_subject:
+        subj = source.subject or "(no subject)"
+        if subj.lower().startswith("fw:") or subj.lower().startswith("fwd:"):
+            fwd_subject = subj
+        else:
+            fwd_subject = f"Fwd: {subj}"
+
+    send_result = send_email(
+        db,
+        sales_rep_id,
+        meta["to"],
+        fwd_subject,
+        final_html,
+        final_text,
+        False,
+        cc=cc,
+        attachments=attachments,
+        message_id_override=rfc_mid,
+        extra_headers={ESCALATE_HEADER: fingerprint},
+    )
+
+    ticket_body = (
+        f"Escalated from Salesman Mail → {meta['label']}\n"
+        f"Original From: {source.from_name or ''} <{source.from_email or ''}>\n"
+        f"Original Subject: {source.subject or ''}\n"
+        f"Original To: {source.to_email or ''}\n"
+        f"Sales message id: {source.id}\n"
+        f"{ESCALATE_HEADER}: {fingerprint}\n\n"
+        f"{final_text}"
+    )[:8000]
+    staff_note = (
+        f"Salesman Mail escalation to {meta['to']} "
+        f"(target={target}, fingerprint={fingerprint}, message-id={rfc_mid})"
+    )
+    ticket_atts: list[dict[str, Any]] = []
+    for att in attachments or []:
+        name = str(att.get("filename") or att.get("name") or "attachment").strip() or "attachment"
+        ctype = str(att.get("content_type") or "application/octet-stream").strip()
+        raw_b64 = str(att.get("data_base64") or att.get("dataBase64") or "")
+        if "," in raw_b64 and raw_b64.strip().startswith("data:"):
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            payload = base64.b64decode(raw_b64, validate=False)
+        except Exception:
+            continue
+        if not payload or len(payload) > 8_000_000:
+            continue
+        ticket_atts.append(
+            {
+                "filename": name,
+                "content_type": ctype,
+                "size_bytes": len(payload),
+                "data": payload,
+            }
+        )
+
+    ticket = SupportTicketService.create_ticket(
+        db,
+        org_id=org,
+        user_id=actor,
+        category=meta["category"],
+        subject=fwd_subject[:240],
+        message=ticket_body,
+        priority="normal",
+        channel="email",
+        attachments=ticket_atts or None,
+        staff_note=staff_note,
+        requester_email=source.from_email or None,
+        requester_name=source.from_name or None,
+        email_fingerprint=fingerprint,
+    )
+
+    return {
+        **send_result,
+        "ticket_id": ticket.id,
+        "ticket_ref": ticket.public_ref or f"TKT-{ticket.id:06d}",
+        "email_fingerprint": fingerprint,
+        "duplicate": False,
+        "sent": True,
+        "category": meta["category"],
+        "escalate_target": target,
+    }
 
 
 def polish_body_with_ai(
