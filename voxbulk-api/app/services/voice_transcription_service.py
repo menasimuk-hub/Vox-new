@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,87 @@ _LAUGHTER_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _REPEATED_CHAR_PATTERN = re.compile(r"(.)\1{4,}")
+
+# Whisper invents fluent speech from silence/noise. Below these thresholds we never call STT.
+MIN_SPEECH_SECONDS = 0.8
+SILENCE_MEAN_DB = -45.0
+
+_MEAN_VOLUME_RE = re.compile(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB")
+
+# Turkish letters that NFKD cannot fold on their own.
+_FOLD_MAP = str.maketrans(
+    {"ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "Ğ": "g", "ü": "u", "ö": "o", "ç": "c"}
+)
+
+# Stock phrases Whisper-family models emit on silence, music or clipped audio. These are
+# never real survey answers, so a transcript containing one is flagged as low confidence.
+_HALLUCINATION_MARKERS = (
+    "her sey yolunda mi",
+    "bizimkiler surer",
+    "altyazi m k",
+    "altyazi mk",
+    "amara org",
+    "abone ol",
+    "abone olmayi unutmayin",
+    "thanks for watching",
+    "thank you for watching",
+    "subscribe to my channel",
+    "please subscribe",
+    "translated by",
+    "subtitles by",
+    "trascrizione e sottotitoli",
+    "sottotitoli e revisione",
+    "ترجمة نانسي قنقر",
+)
+
+
+def _fold_for_match(text: str) -> str:
+    """Lowercase, strip accents/punctuation so hallucination markers match across spellings."""
+    lowered = str(text or "").strip().lower().translate(_FOLD_MAP)
+    decomposed = unicodedata.normalize("NFKD", lowered)
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    cleaned = re.sub(r"[^\w\s]+", " ", stripped, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def looks_like_hallucination(text: str) -> bool:
+    folded = _fold_for_match(text)
+    if not folded:
+        return False
+    return any(marker in folded for marker in _HALLUCINATION_MARKERS)
+
+
+def _mean_volume_db(audio_path: Path) -> float | None:
+    """Average loudness via ffmpeg volumedetect; None when ffmpeg is unavailable."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return None
+    try:
+        proc = subprocess.run(
+            [ffmpeg, "-hide_banner", "-i", str(audio_path), "-af", "volumedetect", "-f", "null", "-"],
+            capture_output=True,
+            timeout=20,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = _MEAN_VOLUME_RE.search((proc.stderr or b"").decode("utf-8", "ignore"))
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except ValueError:
+        return None
+
+
+def no_speech_reason(audio_path: Path, duration_seconds: float | None) -> str | None:
+    """Reject empty recordings before STT so the model cannot hallucinate an answer."""
+    if duration_seconds is not None and duration_seconds < MIN_SPEECH_SECONDS:
+        return "audio_too_short"
+    mean_db = _mean_volume_db(audio_path)
+    if mean_db is not None and mean_db <= SILENCE_MEAN_DB:
+        return "audio_silent"
+    return None
 
 
 def stt_provider_order() -> tuple[str, ...]:
@@ -93,6 +175,7 @@ class VoiceTranscriptionResult:
     detected_language: str | None = None
     stt_provider: str | None = None
     transcode_ok: bool | None = None
+    low_confidence: bool = False
 
 
 def _duration_from_record(record: dict[str, Any] | None) -> float | None:
@@ -263,6 +346,26 @@ class VoiceTranscriptionService:
                 raise ValueError(str(last_dl_error) if last_dl_error else "Media download failed")
 
             duration_seconds = _duration_from_record(record) or _duration_from_file(path)
+            silent = no_speech_reason(path, duration_seconds)
+            if silent:
+                logger.info(
+                    "voice_transcription_no_speech phone=%s reason=%s duration=%s",
+                    customer_phone,
+                    silent,
+                    duration_seconds,
+                )
+                return VoiceTranscriptionResult(
+                    ok=False,
+                    transcript="",
+                    confidence=0.0,
+                    media_url=media_url,
+                    content_type=resolved_type or content_type,
+                    storage_path=str(path),
+                    error=silent,
+                    file_size_bytes=file_size,
+                    duration_seconds=duration_seconds,
+                    transcode_ok=True,
+                )
             stt = VoiceTranscriptionService._transcribe_file(
                 main_db,
                 path,
@@ -271,13 +374,16 @@ class VoiceTranscriptionService:
             transcript = stt.text.strip()
             confidence = _estimate_confidence(transcript)
             ok = bool(transcript) and not is_low_quality_transcript(transcript)
+            low_confidence = looks_like_hallucination(transcript)
 
             logger.info(
-                "voice_transcription_ok phone=%s chars=%s confidence=%.2f ok=%s stt_provider=%s stt_language=%s",
+                "voice_transcription_ok phone=%s chars=%s confidence=%.2f ok=%s low_confidence=%s "
+                "stt_provider=%s stt_language=%s",
                 customer_phone,
                 len(transcript),
                 confidence,
                 ok,
+                low_confidence,
                 stt.stt_provider,
                 stt.detected_language,
             )
@@ -295,6 +401,7 @@ class VoiceTranscriptionService:
                 detected_language=stt.detected_language,
                 stt_provider=stt.stt_provider,
                 transcode_ok=True,
+                low_confidence=low_confidence,
             )
         except Exception as exc:
             logger.warning(
@@ -380,6 +487,25 @@ class VoiceTranscriptionService:
             dest.write_bytes(audio_bytes)
             audio_path, transcode_ok = VoiceTranscriptionService._transcode_to_ogg(dest)
             duration_seconds = _duration_from_file(audio_path)
+            silent = no_speech_reason(audio_path, duration_seconds)
+            if silent:
+                logger.info(
+                    "voice_web_transcription_no_speech reason=%s duration=%s transcode_ok=%s",
+                    silent,
+                    duration_seconds,
+                    transcode_ok,
+                )
+                return VoiceTranscriptionResult(
+                    ok=False,
+                    transcript="",
+                    confidence=0.0,
+                    content_type=_audio_content_type(audio_path),
+                    storage_path=str(audio_path),
+                    error=silent,
+                    file_size_bytes=len(audio_bytes),
+                    duration_seconds=duration_seconds,
+                    transcode_ok=transcode_ok,
+                )
             stt = VoiceTranscriptionService._transcribe_file(
                 main_db,
                 audio_path,
@@ -389,11 +515,14 @@ class VoiceTranscriptionService:
             transcript = stt.text.strip()
             confidence = _estimate_confidence(transcript)
             ok = bool(transcript) and not is_low_quality_transcript(transcript)
+            low_confidence = looks_like_hallucination(transcript) or not transcode_ok
             logger.info(
-                "voice_web_transcription chars=%s confidence=%.2f ok=%s transcode_ok=%s stt_provider=%s stt_language=%s",
+                "voice_web_transcription chars=%s confidence=%.2f ok=%s low_confidence=%s "
+                "transcode_ok=%s stt_provider=%s stt_language=%s",
                 len(transcript),
                 confidence,
                 ok,
+                low_confidence,
                 transcode_ok,
                 stt.stt_provider,
                 stt.detected_language,
@@ -410,6 +539,7 @@ class VoiceTranscriptionService:
                 detected_language=stt.detected_language,
                 stt_provider=stt.stt_provider,
                 transcode_ok=transcode_ok,
+                low_confidence=low_confidence,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("voice_web_transcription_failed err=%s", exc, exc_info=True)

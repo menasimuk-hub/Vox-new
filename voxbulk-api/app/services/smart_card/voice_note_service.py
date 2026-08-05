@@ -23,7 +23,10 @@ from app.services.expo.voice_note_service import (
     extract_audio_media,
     is_audio_inbound,
 )
-from app.services.voice_transcription_service import is_low_quality_transcript
+from app.services.voice_transcription_service import (
+    is_low_quality_transcript,
+    looks_like_hallucination,
+)
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[smart-card-voice]"
@@ -103,8 +106,11 @@ def process_voice_for_session(
         )
         original = str(translated.get("original_text") or text).strip()
         answer_en = _english_or_original(translated, original)
+        low_confidence = looks_like_hallucination(original)
 
         job.transcript = original
+        job.detected_language = (str(detected)[:32] if detected else None)
+        job.low_confidence = low_confidence
         job.status = "completed"
         job.error = None
         job.updated_at = datetime.utcnow()
@@ -112,11 +118,12 @@ def process_voice_for_session(
         db.commit()
 
         logger.info(
-            "%s completed job=%s chars=%s lang=%s",
+            "%s completed job=%s chars=%s lang=%s low_confidence=%s",
             LOG_PREFIX,
             job.id,
             len(original),
             detected,
+            low_confidence,
         )
         return {
             "ok": True,
@@ -124,6 +131,7 @@ def process_voice_for_session(
             "original_text": original,
             "answer_text_en": answer_en,
             "detected_language": detected,
+            "low_confidence": low_confidence,
         }
     except Exception as exc:
         job.status = "failed"
@@ -187,7 +195,7 @@ def process_web_voice_bytes(
         text = str(getattr(stt, "transcript", None) or getattr(stt, "text", None) or "").strip()
         detected = getattr(stt, "detected_language", None)
         if not getattr(stt, "ok", False) or not text or is_low_quality_transcript(text):
-            raise RuntimeError("empty_transcript")
+            raise RuntimeError(str(getattr(stt, "error", None) or "empty_transcript"))
 
         detected = correct_detected_language(text, detected)
         translated = translate_answer_to_english(
@@ -199,19 +207,35 @@ def process_web_voice_bytes(
         )
         original = str(translated.get("original_text") or text).strip()
         answer_en = _english_or_original(translated, original)
+        low_confidence = bool(getattr(stt, "low_confidence", False)) or looks_like_hallucination(original)
+        provider = str(getattr(stt, "stt_provider", None) or "") or None
 
         job.transcript = original
+        job.detected_language = (str(detected)[:32] if detected else None)
+        job.stt_provider = (provider[:32] if provider else None)
+        job.low_confidence = low_confidence
         job.status = "completed"
         job.error = None
         job.updated_at = datetime.utcnow()
         db.add(job)
         db.commit()
+        logger.info(
+            "%s web_completed job=%s chars=%s lang=%s provider=%s low_confidence=%s",
+            LOG_PREFIX,
+            job.id,
+            len(original),
+            detected,
+            provider,
+            low_confidence,
+        )
         return {
             "ok": True,
             "job_id": job.id,
             "original_text": original,
             "answer_text_en": answer_en,
             "detected_language": detected,
+            "stt_provider": provider,
+            "low_confidence": low_confidence,
         }
     except Exception as exc:
         job.status = "failed"

@@ -690,10 +690,42 @@ class SmartCardSessionFlowService:
         db.add(session)
         db.flush()
 
+        # Catalogue delivery for the products the visitor picked — links for every channel,
+        # attachments for the visitor email. Never blocks completion.
+        delivery: list[dict[str, Any]] = []
+        if selected_products:
+            try:
+                from app.services.smart_card.asset_delivery_service import (
+                    build_delivery_rows,
+                    mark_lead_assets_sent,
+                )
+
+                delivery = build_delivery_rows(
+                    db,
+                    org_id=session.org_id,
+                    qr_token=rep.qr_token,
+                    lead_id=lead.id,
+                    product_ids=[str(p.get("id")) for p in selected_products if p.get("id")],
+                )
+                if delivery:
+                    mark_lead_assets_sent(db, lead=lead, assets=delivery)
+                    db.flush()
+            except Exception:
+                logger.exception("smart_card_asset_delivery_failed lead=%s", lead.id)
+                delivery = []
+
         try:
             SmartCardEmailService.notify_rep_lead(db, rep=rep, lead=lead)
         except Exception:
             logger.exception("smart_card_lead_email_failed")
+
+        if delivery and (lead.visitor_email or "").strip():
+            try:
+                SmartCardEmailService.send_visitor_catalogue(
+                    db, rep=rep, lead=lead, assets=delivery
+                )
+            except Exception:
+                logger.exception("smart_card_visitor_catalogue_failed lead=%s", lead.id)
 
         # Hot-lead WhatsApp alert only for WhatsApp sessions — web completions stay email-only.
         score = str(lead.lead_score or "").lower()
@@ -714,4 +746,14 @@ class SmartCardSessionFlowService:
             "lead_score": lead.lead_score,
             "message": "Thank you — we have shared your details with the representative.",
             "suggested_follow_up": lead.suggested_follow_up,
+            "assets": [
+                {
+                    "id": a.get("id"),
+                    "title": a.get("title"),
+                    "url": a.get("url"),
+                    "filename": a.get("filename"),
+                    "purpose": a.get("purpose"),
+                }
+                for a in delivery
+            ],
         }

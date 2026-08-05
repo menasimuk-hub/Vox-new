@@ -600,6 +600,21 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             badge="Smart Card QR",
         ),
     },
+    "smart_card_visitor_catalogue": {
+        "title": "Smart Card QR visitor catalogue",
+        "subject": "Your requested documents from {{rep_name}}",
+        "body": wrap_brand_email(
+            title="Here are your documents",
+            inner_html="""<p>Hi <strong>{{visitor_name}}</strong>,</p>
+  <p>Thanks for scanning {{rep_name}}'s Smart Card QR. The documents you selected are attached,
+  and you can also download them here:</p>
+  {{asset_links}}
+  <p>Reply to this email if you'd like anything else.</p>
+  """,
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
     "smart_card_rep_invite": {
         "title": "Smart Card QR representative invite",
         "subject": "You're invited to Smart Card QR — {{org_name}}",

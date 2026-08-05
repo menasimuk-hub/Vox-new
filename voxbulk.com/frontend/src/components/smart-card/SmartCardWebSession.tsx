@@ -26,10 +26,12 @@ const SC_THEME: Theme = {
 type Props = {
   token: string;
   companyName: string;
-  onDone: (message: string) => void;
+  onDone: (message: string, assets?: DeliveredAsset[]) => void;
   onBlocked: (status: string, message?: string) => void;
   onBack: () => void;
 };
+
+export type DeliveredAsset = { id: string; title?: string; url?: string; filename?: string };
 
 type ChoiceOption = { value: string; label?: string; category?: string };
 
@@ -94,7 +96,10 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
 
   const applyAdvance = (data: any) => {
     if (data.done) {
-      onDone(data.message || "Thank you — we appreciate your feedback.");
+      const assets: DeliveredAsset[] = Array.isArray(data.assets)
+        ? data.assets.filter((a: DeliveredAsset) => a && a.url)
+        : [];
+      onDone(data.message || "Thank you — we appreciate your feedback.", assets);
       return;
     }
     applyStep(data);

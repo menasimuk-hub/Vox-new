@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -196,6 +196,59 @@ def get_card_photo(token: str, db: Session = Depends(get_db)):
     elif suffix == ".webp":
         media = "image/webp"
     return FileResponse(abs_path, media_type=media)
+
+
+@router.get("/{token}/assets/{asset_id}")
+def get_card_asset(
+    token: str,
+    asset_id: str,
+    lead_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Public catalogue download for a scanned Smart Card, with first-open tracking."""
+    from fastapi.responses import FileResponse, RedirectResponse
+
+    from app.models.smart_card import SmartCardAsset, SmartCardLead
+    from app.services.smart_card.asset_delivery_service import mark_lead_asset_opened
+    from app.services.smart_card.asset_storage_service import resolve_storage_abs_path
+
+    rep = _get_rep(db, token)
+    asset = db.execute(
+        select(SmartCardAsset).where(
+            SmartCardAsset.id == asset_id,
+            SmartCardAsset.org_id == rep.org_id,
+        )
+    ).scalar_one_or_none()
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if lead_id:
+        lead = db.execute(
+            select(SmartCardLead).where(
+                SmartCardLead.id == str(lead_id).strip(),
+                SmartCardLead.representative_id == rep.id,
+                SmartCardLead.org_id == rep.org_id,
+            )
+        ).scalar_one_or_none()
+        if lead is not None:
+            try:
+                if mark_lead_asset_opened(db, lead=lead, asset_id=asset_id):
+                    db.commit()
+            except Exception:
+                db.rollback()
+
+    if asset.external_url:
+        return RedirectResponse(asset.external_url)
+    abs_path = resolve_storage_abs_path(asset.storage_path)
+    if abs_path is None:
+        raise HTTPException(status_code=404, detail="Document not available yet")
+    media = {
+        ".pdf": "application/pdf",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".csv": "text/csv",
+    }.get(abs_path.suffix.lower())
+    return FileResponse(abs_path, filename=abs_path.name, media_type=media)
 
 
 @router.post("/{token}/start")

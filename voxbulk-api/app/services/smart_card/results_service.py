@@ -267,10 +267,15 @@ class SmartCardResultsService:
                     if not original and matched.transcript:
                         original = str(matched.transcript).strip()
             audio_url = None
+            detected_language = None
+            low_confidence = False
             if src == "voice" and job_id:
                 job = jobs.get(job_id)
-                if job and str(job.storage_path or "").strip():
-                    audio_url = f"/smart-card/results/voice-notes/{job_id}/audio"
+                if job:
+                    if str(job.storage_path or "").strip():
+                        audio_url = f"/smart-card/results/voice-notes/{job_id}/audio"
+                    detected_language = str(getattr(job, "detected_language", None) or "") or None
+                    low_confidence = bool(getattr(job, "low_confidence", False))
             answers.append(
                 {
                     "question_key": key,
@@ -281,6 +286,8 @@ class SmartCardResultsService:
                     "answer_text_en": english or r.answer_text,
                     "answer_source": src,
                     "audio_url": audio_url,
+                    "detected_language": detected_language,
+                    "low_confidence": low_confidence,
                 }
             )
         return answers

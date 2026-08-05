@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Building2,
   CheckCheck,
   CheckCircle2,
@@ -53,6 +54,8 @@ type LeadAnswer = {
   answer_text_en?: string | null;
   answer_source?: string | null;
   audio_url?: string | null;
+  detected_language?: string | null;
+  low_confidence?: boolean;
 };
 
 type Lead = {
@@ -292,6 +295,11 @@ function SmartCardLeadsPage() {
 
   const detail = detailQ.data?.item || selected;
   const cardSrc = useAuthenticatedMediaUrl(detail?.business_card_url);
+  const [cardOpen, setCardOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    setCardOpen(false);
+  }, [detail?.id]);
 
   const markMut = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
@@ -598,11 +606,15 @@ function SmartCardLeadsPage() {
                     <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                       Business card
                     </p>
-                    <img
-                      src={cardSrc}
-                      alt="Business card"
-                      className="mt-2 w-full rounded-xl border bg-background object-contain shadow-sm"
-                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 gap-1.5"
+                      onClick={() => setCardOpen(true)}
+                    >
+                      <ScanLine className="size-3.5" /> Show business card
+                    </Button>
                   </section>
                 ) : null}
 
@@ -682,8 +694,21 @@ function SmartCardLeadsPage() {
                           ) : null}
                           <div className="mt-3 space-y-3">
                             <div>
-                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                              <p className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground">
                                 Original{differs ? "" : " · English"}
+                                {a.detected_language ? (
+                                  <Badge variant="outline" className="px-1.5 py-0 text-[9px] font-medium">
+                                    {languageLabel(a.detected_language)}
+                                  </Badge>
+                                ) : null}
+                                {a.low_confidence ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="gap-1 border-amber-500/40 bg-amber-500/10 px-1.5 py-0 text-[9px] font-medium text-amber-700 dark:text-amber-400"
+                                  >
+                                    <AlertTriangle className="size-2.5" /> Check audio
+                                  </Badge>
+                                ) : null}
                               </p>
                               <p className="mt-0.5 whitespace-pre-wrap leading-relaxed" dir="auto">
                                 {original || displayAnswer(englishRaw, original, a.answer_text)}
@@ -715,8 +740,44 @@ function SmartCardLeadsPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      {cardOpen && cardSrc ? (
+        <div
+          role="presentation"
+          onClick={() => setCardOpen(false)}
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm"
+        >
+          <img
+            src={cardSrc}
+            alt="Business card"
+            className="max-h-[85vh] w-auto max-w-3xl rounded-xl bg-background object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </div>
   );
+}
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  ar: "Arabic",
+  de: "German",
+  en: "English",
+  es: "Spanish",
+  fr: "French",
+  it: "Italian",
+  nl: "Dutch",
+  pl: "Polish",
+  pt: "Portuguese",
+  ro: "Romanian",
+  ru: "Russian",
+  tr: "Turkish",
+  ur: "Urdu",
+};
+
+function languageLabel(code?: string | null): string {
+  const key = String(code || "").trim().toLowerCase().slice(0, 2);
+  return LANGUAGE_LABELS[key] || String(code || "").trim().toUpperCase();
 }
 
 function Kpi({

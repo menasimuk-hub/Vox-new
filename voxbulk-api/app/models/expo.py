@@ -327,6 +327,8 @@ class ExpoVoiceNoteJob(Base):
     original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     translated_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     detected_language: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    stt_provider: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    low_confidence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 

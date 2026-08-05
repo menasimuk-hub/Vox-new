@@ -1,6 +1,9 @@
 import * as React from "react";
 
-import { SmartCardWebSession } from "@/components/smart-card/SmartCardWebSession";
+import {
+  SmartCardWebSession,
+  type DeliveredAsset,
+} from "@/components/smart-card/SmartCardWebSession";
 
 const API = (import.meta as any).env?.VITE_API_URL || "https://api.voxbulk.com";
 
@@ -317,6 +320,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
   const [phase, setPhase] = React.useState<Phase>("card");
   const [saved, setSaved] = React.useState(false);
   const [doneMsg, setDoneMsg] = React.useState("Thank you");
+  const [doneAssets, setDoneAssets] = React.useState<DeliveredAsset[]>([]);
   const [blockMessage, setBlockMessage] = React.useState<string | undefined>();
   const [webRunId, setWebRunId] = React.useState(0);
 
@@ -459,6 +463,32 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
           <p className="mt-2 text-[14px] leading-relaxed" style={{ color: SUB }}>
             {doneMsg}
           </p>
+          {doneAssets.length ? (
+            <div className="mt-6 w-full max-w-sm">
+              <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: SUB }}>
+                Your documents
+              </p>
+              <div className="mt-3 grid gap-2.5">
+                {doneAssets.map((asset) => (
+                  <a
+                    key={asset.id}
+                    href={asset.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    download={asset.filename}
+                    className="flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[14px] font-medium"
+                    style={{ background: CARD_BG, border: `1px solid ${BORDER}`, color: INK }}
+                  >
+                    <span aria-hidden>📄</span>
+                    {asset.title || "Download"}
+                  </a>
+                ))}
+              </div>
+              <p className="mt-3 text-[12px]" style={{ color: SUB }}>
+                We have emailed these to you as attachments too.
+              </p>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => setPhase("card")}
@@ -478,8 +508,9 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
         key={webRunId}
         token={token}
         companyName={companyName}
-        onDone={(msg) => {
+        onDone={(msg, assets) => {
           setDoneMsg(msg);
+          setDoneAssets(assets || []);
           setPhase("done");
         }}
         onBlocked={(status, message) => {

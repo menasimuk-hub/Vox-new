@@ -14,6 +14,7 @@ from app.services.transactional_email_service import TransactionalEmailService
 logger = logging.getLogger(__name__)
 
 LEAD_TEMPLATE = "smart_card_lead_notify"
+VISITOR_CATALOGUE_TEMPLATE = "smart_card_visitor_catalogue"
 INVITE_TEMPLATE = "smart_card_rep_invite"
 RENEWAL_TEMPLATES = {
     "30d": "smart_card_renewal_reminder_30d",
@@ -76,6 +77,52 @@ class SmartCardEmailService:
             smtp_username=smtp["smtp_username"],
             smtp_password=smtp["smtp_password"],
         )
+        return bool(ok)
+
+    @staticmethod
+    def send_visitor_catalogue(
+        db: Session,
+        *,
+        rep: SmartCardRepresentative,
+        lead: SmartCardLead,
+        assets: list[dict[str, Any]],
+    ) -> bool:
+        """Email the visitor the products they picked — files attached plus download links."""
+        to_email = (lead.visitor_email or "").strip()
+        if not to_email or not assets:
+            return False
+
+        from app.services.smart_card.asset_delivery_service import email_attachments
+
+        links_html = "".join(
+            f'<p><a href="{a.get("url")}">{a.get("title") or "Download"}</a></p>'
+            for a in assets
+            if a.get("url")
+        )
+        list_text = "\n".join(
+            f"- {a.get('title') or 'Document'}: {a.get('url')}" for a in assets if a.get("url")
+        )
+        attachments = email_attachments(assets)
+        smtp = SmartCardEmailService._smtp(db)
+        variables = {
+            "visitor_name": (lead.name or "there").split()[0] if lead.name else "there",
+            "rep_name": rep.name or "our team",
+            "asset_links": links_html,
+            "asset_list": list_text,
+        }
+        ok, error = TransactionalEmailService.send_templated_optional(
+            db,
+            template_key=VISITOR_CATALOGUE_TEMPLATE,
+            to_email=to_email,
+            variables=variables,
+            attachments=attachments or None,
+            from_email=smtp["from_email"],
+            from_name=smtp["from_name"],
+            smtp_username=smtp["smtp_username"],
+            smtp_password=smtp["smtp_password"],
+        )
+        if not ok:
+            logger.warning("smart_card_visitor_catalogue_email_failed lead=%s err=%s", lead.id, error)
         return bool(ok)
 
     @staticmethod

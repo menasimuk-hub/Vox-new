@@ -213,6 +213,14 @@ class SmartCardWhatsappService:
                         org_id=voice_session.org_id,
                         from_number=reply_from,
                     )
+                if result.get("done") and result.get("assets"):
+                    SmartCardWhatsappService._send_assets(
+                        db,
+                        to_number=phone,
+                        assets=list(result.get("assets") or []),
+                        org_id=voice_session.org_id,
+                        from_number=reply_from,
+                    )
                 return {
                     "handled": True,
                     "reason": "voice_completed" if result.get("done") else "voice_advanced",
@@ -313,6 +321,14 @@ class SmartCardWhatsappService:
                     org_id=active.org_id,
                     from_number=reply_from,
                 )
+            if result.get("done") and result.get("assets"):
+                SmartCardWhatsappService._send_assets(
+                    db,
+                    to_number=phone,
+                    assets=list(result.get("assets") or []),
+                    org_id=active.org_id,
+                    from_number=reply_from,
+                )
             return {
                 "handled": True,
                 "reason": "completed" if result.get("done") else "advanced",
@@ -339,6 +355,47 @@ class SmartCardWhatsappService:
             return {"handled": False, "reason": "error"}
 
     @staticmethod
+    def _send_assets(
+        db: Session,
+        *,
+        to_number: str,
+        assets: list[dict[str, Any]],
+        org_id: str | None,
+        from_number: str | None = None,
+    ) -> int:
+        """Send each selected catalogue file as a WhatsApp document, link fallback on failure."""
+        from app.services.smart_card.asset_delivery_service import supports_document_send
+
+        sent = 0
+        for asset in assets or []:
+            url = str(asset.get("url") or "").strip()
+            if not url.startswith("http"):
+                continue
+            title = str(asset.get("title") or "Document").strip()
+            if supports_document_send(asset):
+                ok = SmartCardWhatsappService._send(
+                    db,
+                    to_number=to_number,
+                    body=title,
+                    org_id=org_id,
+                    from_number=from_number,
+                    document_link=url,
+                    document_filename=str(asset.get("filename") or f"{title}.pdf"),
+                )
+                if ok:
+                    sent += 1
+                    continue
+            if SmartCardWhatsappService._send(
+                db,
+                to_number=to_number,
+                body=f"{title}\n{url}",
+                org_id=org_id,
+                from_number=from_number,
+            ):
+                sent += 1
+        return sent
+
+    @staticmethod
     def _send(
         db: Session,
         *,
@@ -346,9 +403,11 @@ class SmartCardWhatsappService:
         body: str,
         org_id: str | None,
         from_number: str | None = None,
+        document_link: str | None = None,
+        document_filename: str | None = None,
     ) -> bool:
         clean = str(body or "").strip()
-        if not clean:
+        if not clean and not document_link:
             return False
         for code in ("smart_card", "customer_feedback", None):
             result = TelnyxMessagingService.send_whatsapp(
@@ -363,6 +422,8 @@ class SmartCardWhatsappService:
                 template_id=None,
                 template_language=None,
                 template_components=None,
+                document_link=document_link,
+                document_filename=document_filename,
             )
             if result.ok:
                 logger.info(
