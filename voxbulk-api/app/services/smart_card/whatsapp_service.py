@@ -10,7 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.smart_card import SmartCardRepresentative, SmartCardSession
-from app.services.smart_card.session_flow_service import SmartCardSessionError, SmartCardSessionFlowService
+from app.services.smart_card.session_flow_service import (
+    CONTACT_STEPS,
+    SmartCardSessionError,
+    SmartCardSessionFlowService,
+)
 from app.services.telnyx_messaging_service import TelnyxMessagingService
 
 logger = logging.getLogger(__name__)
@@ -259,7 +263,7 @@ class SmartCardWhatsappService:
             if active is None:
                 return {"handled": False, "reason": "no_session"}
 
-            if SmartCardWhatsappService._is_image_inbound(record) and (active.current_step or "") == "contact":
+            if SmartCardWhatsappService._is_image_inbound(record) and (active.current_step or "") in CONTACT_STEPS:
                 from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
 
                 fields, card_path = ExpoBusinessCardService.save_inbound_image(

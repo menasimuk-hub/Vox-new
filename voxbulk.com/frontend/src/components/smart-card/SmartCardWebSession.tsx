@@ -31,6 +31,12 @@ type Props = {
   onBack: () => void;
 };
 
+type ChoiceOption = { value: string; label?: string; category?: string };
+
+type InputKind = "contact" | "choice" | "multi_choice" | "text";
+
+const NO_THANKS = "No thanks";
+
 export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onBack }: Props) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -40,27 +46,58 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
   const [stepIndex, setStepIndex] = React.useState(0);
   const [stepTotal, setStepTotal] = React.useState(1);
   const [allowVoice, setAllowVoice] = React.useState(false);
+  const [inputKind, setInputKind] = React.useState<InputKind>("contact");
+  const [options, setOptions] = React.useState<ChoiceOption[]>([]);
+  const [selected, setSelected] = React.useState<string[]>([]);
   const [contactCapture, setContactCapture] = React.useState("offer_both");
   const [answer, setAnswer] = React.useState("");
   const [contact, setContact] = React.useState({ name: "", company: "", email: "", mobile: "" });
   const [cardPreview, setCardPreview] = React.useState<string | null>(null);
+  const [hasCard, setHasCard] = React.useState(false);
   const cardInputRef = React.useRef<HTMLInputElement>(null);
   const voiceRef = React.useRef<VoiceDetailHandle>(null);
 
-  const isContact = stepKey.startsWith("contact");
+  const isContact = inputKind === "contact" || stepKey.startsWith("contact");
+  const isChoice = inputKind === "choice" || inputKind === "multi_choice";
+
+  const applyContact = (payload: any) => {
+    if (!payload || typeof payload !== "object") return;
+    setContact((c) => ({
+      name: String(payload.name ?? c.name ?? ""),
+      company: String(payload.company ?? c.company ?? ""),
+      email: String(payload.email ?? c.email ?? ""),
+      mobile: String(payload.mobile ?? c.mobile ?? ""),
+    }));
+    if (payload.has_business_card) setHasCard(true);
+  };
+
+  const applyStep = (data: any) => {
+    setPrompt(data.prompt || "");
+    setStepKey(String(data.step || ""));
+    if (typeof data.step_index === "number") setStepIndex(data.step_index);
+    if (typeof data.step_total === "number") setStepTotal(data.step_total);
+    setAllowVoice(Boolean(data.allow_voice));
+    setInputKind((data.input as InputKind) || "text");
+    setOptions(Array.isArray(data.options) ? data.options : []);
+    const saved = typeof data.saved_answer === "string" ? data.saved_answer : "";
+    setAnswer(saved);
+    setSelected(
+      saved
+        ? saved
+            .split(",")
+            .map((s: string) => s.trim())
+            .filter(Boolean)
+        : [],
+    );
+    applyContact(data.contact);
+  };
 
   const applyAdvance = (data: any) => {
     if (data.done) {
       onDone(data.message || "Thank you — we appreciate your feedback.");
       return;
     }
-    setPrompt(data.prompt || "");
-    setStepKey(String(data.step || ""));
-    if (typeof data.step_index === "number") setStepIndex(data.step_index);
-    else setStepIndex((i) => i + 1);
-    if (typeof data.step_total === "number") setStepTotal(data.step_total);
-    setAllowVoice(Boolean(data.allow_voice));
-    setAnswer("");
+    applyStep(data);
   };
 
   React.useEffect(() => {
@@ -83,13 +120,10 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
           throw new Error(detail);
         }
         setSessionId(data.session_id);
-        setPrompt(data.prompt || "Please continue.");
-        setStepKey(String(data.step || "contact"));
         setContactCapture(String(data.contact_capture || "offer_both"));
         const steps: string[] = Array.isArray(data.steps) ? data.steps : [];
+        applyStep({ ...data, prompt: data.prompt || "Please continue.", step: data.step || "contact" });
         setStepTotal(Math.max(1, data.step_total || steps.length || 1));
-        setStepIndex(typeof data.step_index === "number" ? data.step_index : 0);
-        setAllowVoice(Boolean(data.allow_voice));
       } catch (e: any) {
         setError(e?.message || "Could not start");
       } finally {
@@ -118,6 +152,49 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleBack = async () => {
+    if (!sessionId || stepIndex <= 0) {
+      onBack();
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${API}/public/smart-card/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sessionId)}/back`,
+        { method: "POST" },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : "Could not go back");
+      applyStep(data);
+    } catch (e: any) {
+      setError(e?.message || "Could not go back");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleOption = (value: string) => {
+    if (inputKind !== "multi_choice") {
+      setSelected([value]);
+      return;
+    }
+    setSelected((prev) => {
+      if (value === NO_THANKS) return prev.includes(NO_THANKS) ? [] : [NO_THANKS];
+      const next = prev.filter((v) => v !== NO_THANKS);
+      return next.includes(value) ? next.filter((v) => v !== value) : [...next, value];
+    });
+  };
+
+  const submitChoice = async (value?: string) => {
+    const picked = value ? [value] : selected;
+    if (!picked.length) {
+      setError("Please choose an option to continue.");
+      return;
+    }
+    await sendAnswer(picked.join(", "));
   };
 
   const submitContact = async () => {
@@ -157,6 +234,7 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
         email: String(ex.email || c.email || ""),
         mobile: String(ex.phone || c.mobile || ""),
       }));
+      setHasCard(true);
       if (data.prompt) setPrompt(data.prompt);
     } catch (e: any) {
       setError(e?.message || "Could not read card");
@@ -218,8 +296,9 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
           </div>
           <button
             type="button"
-            onClick={onBack}
-            className="text-[12px]"
+            disabled={busy}
+            onClick={() => void handleBack()}
+            className="text-[12px] disabled:opacity-50"
             style={{ color: SC_THEME.sub }}
           >
             Back
@@ -286,6 +365,13 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
                   alt="Business card preview"
                   className="h-36 w-full rounded-xl object-cover"
                 />
+              ) : hasCard ? (
+                <p
+                  className="rounded-xl px-3 py-2 text-[12px]"
+                  style={{ background: SC_THEME.card, color: SC_THEME.sub }}
+                >
+                  ✅ Business card saved — no need to scan it again.
+                </p>
               ) : null}
               {contactCapture !== "card_only" ? (
                 <div className="grid gap-2.5">
@@ -325,6 +411,70 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
               >
                 {busy ? "Sending…" : "Continue"}
               </button>
+            </div>
+          ) : isChoice ? (
+            <div className="animate-rise flex flex-1 flex-col">
+              <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: SC_THEME.sub }}>
+                Question
+              </p>
+              <h1 className="mt-2 text-[22px] font-semibold leading-snug" style={{ color: SC_THEME.ink }}>
+                {prompt || "Please choose an option."}
+              </h1>
+              <p className="mt-1 text-[12px]" style={{ color: SC_THEME.sub }}>
+                {inputKind === "multi_choice" ? "Pick as many as you like." : "Tap an option to continue."}
+              </p>
+              <div className="mt-4 grid gap-2.5">
+                {options.map((opt, i) => {
+                  const value = String(opt.value ?? "");
+                  const active = selected.includes(value);
+                  const prevCategory = i > 0 ? String(options[i - 1]?.category || "") : "";
+                  const category = String(opt.category || "");
+                  return (
+                    <React.Fragment key={`${value}-${i}`}>
+                      {category && category !== prevCategory ? (
+                        <p
+                          className="mt-1 text-[11px] font-medium uppercase tracking-[0.16em]"
+                          style={{ color: SC_THEME.sub }}
+                        >
+                          {category}
+                        </p>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          if (inputKind === "multi_choice") {
+                            toggleOption(value);
+                            return;
+                          }
+                          setSelected([value]);
+                          void submitChoice(value);
+                        }}
+                        className="w-full rounded-2xl px-4 py-3 text-left text-[14px] font-medium transition disabled:opacity-60"
+                        style={{
+                          background: active ? "rgba(56,189,248,0.16)" : SC_THEME.card,
+                          border: `1px solid ${active ? SC_THEME.accent : SC_THEME.border}`,
+                          color: SC_THEME.ink,
+                          boxShadow: active ? SC_THEME.selectedShadow : undefined,
+                        }}
+                      >
+                        {opt.label || value}
+                      </button>
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+              {inputKind === "multi_choice" ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void submitChoice()}
+                  className="mt-4 w-full rounded-2xl px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
+                  style={{ background: SC_THEME.gradientButton, color: "#06121f" }}
+                >
+                  {busy ? "Sending…" : "Continue"}
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="animate-rise flex flex-1 flex-col">

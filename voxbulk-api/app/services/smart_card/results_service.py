@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -60,7 +61,21 @@ class SmartCardResultsService:
     def _lead_row(db: Session, lead: SmartCardLead) -> dict[str, Any]:
         rep = db.get(SmartCardRepresentative, lead.representative_id)
         consent = str(lead.consent or "").strip().lower()
-        catalogue_requested = bool(consent) and consent not in {"no", "n", "false", "0"}
+        catalogue_requested = bool(consent) and consent not in {"no", "n", "false", "0", "no thanks"}
+        products: list[str] = []
+        if lead.assets_sent_json:
+            try:
+                parsed = json.loads(lead.assets_sent_json)
+                if isinstance(parsed, dict):
+                    products = [
+                        str(p.get("name") or "").strip()
+                        for p in (parsed.get("products") or [])
+                        if isinstance(p, dict) and str(p.get("name") or "").strip()
+                    ]
+            except (TypeError, ValueError):
+                products = []
+        if products:
+            catalogue_requested = True
         return {
             "id": lead.id,
             "representative_id": lead.representative_id,
@@ -77,6 +92,7 @@ class SmartCardResultsService:
             "follow_up_status": lead.follow_up_status,
             "channel": lead.channel,
             "catalogue_requested": catalogue_requested,
+            "catalogue_products": products,
             "business_card_url": (
                 f"/smart-card/results/leads/{lead.id}/card-image" if lead.business_card_path else None
             ),

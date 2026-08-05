@@ -241,6 +241,21 @@ def answer_session(token: str, payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.post("/{token}/sessions/{session_id}/back")
+def step_back(token: str, session_id: str, db: Session = Depends(get_db)):
+    """Rewind one question without losing the scanned business card or typed contact details."""
+    rep = _get_rep(db, token)
+    session = db.get(SmartCardSession, session_id)
+    if session is None or session.representative_id != rep.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        result = SmartCardSessionFlowService.go_back(db, session=session)
+        db.commit()
+        return result
+    except SmartCardSessionError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @router.post("/{token}/card")
 async def upload_card(
     token: str,

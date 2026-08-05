@@ -32,14 +32,19 @@ from app.services.expo.question_bank import (
     CONTACT_MOBILE_PROMPT,
     CONTACT_STEP_KEY,
     DEFAULT_COMPANY_CARD,
+    NO_WORDS,
     OPEN_FEEDBACK_KEY,
     WEB_CHOICE_OPTIONS,
+    YES_WORDS,
     build_company_card_text,
     build_thank_you_message,
     contact_prompt_for_mode,
+    emoji_digit,
     enrich_step_payload,
     get_template_prompt,
+    looks_affirmative,
     parse_contact_capture,
+    parse_pick_numbers,
     parse_question_config,
     parse_representative_contacts,
     with_topic_emoji,
@@ -55,27 +60,10 @@ from app.services.expo.scoring_service import score_lead
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
 CONTACT_CONFIRM_PROMPT = "✅ Please check your details and continue."
 
-_YES_WORDS = frozenset({"yes", "y", "yeah", "yep", "sure", "ok", "okay", "please", "affirmative"})
-_NO_WORDS = frozenset({"no", "n", "nope", "nah", "negative", "not interested", "no thanks"})
-
-_EMOJI_DIGITS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
-
-
-def _emoji_digit(n: int) -> str:
-    if 1 <= n <= len(_EMOJI_DIGITS):
-        return _EMOJI_DIGITS[n - 1]
-    return f"{n}."
-
-
-def _looks_affirmative(text: str) -> bool:
-    lower = str(text or "").strip().lower()
-    if not lower:
-        return False
-    if lower in _NO_WORDS:
-        return False
-    if lower in _YES_WORDS:
-        return True
-    return lower.startswith("yes")
+_YES_WORDS = YES_WORDS
+_NO_WORDS = NO_WORDS
+_emoji_digit = emoji_digit
+_looks_affirmative = looks_affirmative
 
 
 def _empty_step_result(
@@ -111,43 +99,7 @@ _PURPOSE_SORT = {
     "other": 50,
 }
 
-# WhatsApp keycap digits users often tap/copy from the prompt.
-_KEYCAP_DIGIT_MAP = {
-    "1️⃣": "1",
-    "2️⃣": "2",
-    "3️⃣": "3",
-    "4️⃣": "4",
-    "5️⃣": "5",
-    "6️⃣": "6",
-    "7️⃣": "7",
-    "8️⃣": "8",
-    "9️⃣": "9",
-    "🔟": "10",
-}
-
-
-def _parse_pick_numbers(text: str) -> list[int]:
-    """Extract 1-based option numbers from replies like 1, 1. 1️⃣, 1) or 1,2."""
-    raw = str(text or "").strip()
-    if not raw:
-        return []
-    normalized = raw
-    for emoji, digit in _KEYCAP_DIGIT_MAP.items():
-        normalized = normalized.replace(emoji, digit)
-    # Strip variation selectors / RTL marks that WhatsApp sometimes inserts.
-    normalized = re.sub(r"[\u200e\u200f\ufe0f\u20e3]", "", normalized)
-    found: list[int] = []
-    seen: set[int] = set()
-    for match in re.finditer(r"\d+", normalized):
-        try:
-            n = int(match.group(0))
-        except ValueError:
-            continue
-        if n < 1 or n in seen:
-            continue
-        seen.add(n)
-        found.append(n)
-    return found
+_parse_pick_numbers = parse_pick_numbers
 
 
 def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:

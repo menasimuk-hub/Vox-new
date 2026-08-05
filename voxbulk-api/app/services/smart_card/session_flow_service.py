@@ -13,12 +13,23 @@ from sqlalchemy.orm import Session
 
 from app.models.smart_card import (
     SMART_CARD_PREVIEW_TESTS_LIMIT,
+    SmartCardCategory,
     SmartCardCompany,
     SmartCardLead,
+    SmartCardProduct,
     SmartCardQuestionTemplate,
     SmartCardRepresentative,
+    SmartCardRepresentativeProduct,
     SmartCardResponse,
     SmartCardSession,
+)
+from app.services.expo.question_bank import (
+    NO_WORDS,
+    WEB_CHOICE_OPTIONS,
+    WEB_MULTI_CHOICE_KEYS,
+    format_numbered_prompt,
+    looks_affirmative,
+    parse_pick_numbers,
 )
 from app.services.smart_card.company_service import SmartCardCompanyService, SmartCardEntitlementService
 from app.services.smart_card.email_service import SmartCardEmailService
@@ -26,6 +37,14 @@ from app.services.smart_card.email_service import SmartCardEmailService
 logger = logging.getLogger(__name__)
 
 DEFAULT_STEPS = ("contact", "interest", "role", "timeline", "follow_up", "consent_info", "open_feedback")
+
+CONTACT_STEPS = frozenset({"contact", "contact_web", "contact_card_only", "contact_manual"})
+
+# Steps that offer the representative's assigned catalogue products instead of a plain Yes/No.
+PRODUCT_MENU_STEPS = frozenset({"consent_info", "products_wanted", "need_catalogue"})
+
+NO_THANKS_VALUE = "No thanks"
+NO_THANKS_LABEL = "🙅 No thanks"
 
 
 def _score_lead(*, interest: str | None, timeline: str | None, consent: str | None) -> str:
@@ -67,6 +86,230 @@ class SmartCardSessionFlowService:
     def _prompts(db: Session) -> dict[str, str]:
         rows = db.execute(select(SmartCardQuestionTemplate)).scalars().all()
         return {r.question_key: r.prompt for r in rows}
+
+    @staticmethod
+    def _prompt_for(prompts: dict[str, str], step: str, channel: str) -> str:
+        """Resolve the Admin-editable prompt, preferring the web variant for browser sessions."""
+        if channel == "web" and step == "contact":
+            web = str(prompts.get("contact_web") or "").strip()
+            if web:
+                return web
+        return str(prompts.get(step) or "").strip() or "Please continue."
+
+    @staticmethod
+    def _rep_products(db: Session, *, representative_id: str) -> list[dict[str, str]]:
+        """Catalogue products assigned to this representative, in category then product order."""
+        rows = db.execute(
+            select(SmartCardProduct, SmartCardCategory)
+            .join(
+                SmartCardRepresentativeProduct,
+                SmartCardRepresentativeProduct.product_id == SmartCardProduct.id,
+            )
+            .join(SmartCardCategory, SmartCardCategory.id == SmartCardProduct.category_id)
+            .where(SmartCardRepresentativeProduct.representative_id == representative_id)
+            .order_by(
+                SmartCardCategory.sort_order.asc(),
+                SmartCardCategory.name.asc(),
+                SmartCardProduct.sort_order.asc(),
+                SmartCardProduct.name.asc(),
+            )
+        ).all()
+        out: list[dict[str, str]] = []
+        for product, category in rows:
+            name = str(product.name or "").strip()
+            if not name:
+                continue
+            out.append(
+                {
+                    "id": str(product.id),
+                    "name": name,
+                    "description": str(product.short_description or "").strip(),
+                    "category_name": str(category.name or "").strip(),
+                }
+            )
+        return out
+
+    @staticmethod
+    def _products_by_ids(db: Session, ids: list[str]) -> list[dict[str, str]]:
+        """Rebuild a stored menu in its original order so reply numbers stay stable."""
+        wanted = [str(i) for i in ids if str(i or "").strip()]
+        if not wanted:
+            return []
+        rows = db.execute(
+            select(SmartCardProduct, SmartCardCategory)
+            .join(SmartCardCategory, SmartCardCategory.id == SmartCardProduct.category_id)
+            .where(SmartCardProduct.id.in_(wanted))
+        ).all()
+        by_id = {
+            str(product.id): {
+                "id": str(product.id),
+                "name": str(product.name or "").strip(),
+                "description": str(product.short_description or "").strip(),
+                "category_name": str(category.name or "").strip(),
+            }
+            for product, category in rows
+        }
+        return [by_id[i] for i in wanted if i in by_id and by_id[i]["name"]]
+
+    @staticmethod
+    def _product_option_label(product: dict[str, str]) -> str:
+        name = product.get("name") or "Product"
+        desc = (product.get("description") or "").strip()
+        if desc:
+            return f"{name} — {desc[:80]}"
+        return name
+
+    @staticmethod
+    def _product_options(products: list[dict[str, str]]) -> list[dict[str, str]]:
+        options = [
+            {
+                "value": p["name"],
+                "label": SmartCardSessionFlowService._product_option_label(p),
+                "product_id": p["id"],
+                "category": p.get("category_name") or "",
+            }
+            for p in products
+        ]
+        options.append({"value": NO_THANKS_VALUE, "label": NO_THANKS_LABEL, "product_id": "", "category": ""})
+        return options
+
+    @staticmethod
+    def _question_ui(
+        db: Session,
+        *,
+        session: SmartCardSession,
+        state: dict[str, Any],
+        step: str,
+        channel: str,
+    ) -> dict[str, Any]:
+        """Input kind + closed choices for one step. Mutates ``state`` to pin the product menu order."""
+        if step in CONTACT_STEPS:
+            return {"input": "contact", "options": [], "allow_voice": False}
+
+        if step in PRODUCT_MENU_STEPS:
+            products = SmartCardSessionFlowService._rep_products(
+                db, representative_id=session.representative_id
+            )
+            if products:
+                state["product_menu_ids"] = [p["id"] for p in products]
+                return {
+                    "input": "multi_choice",
+                    "options": SmartCardSessionFlowService._product_options(products),
+                    "allow_voice": False,
+                }
+            state.pop("product_menu_ids", None)
+
+        options = WEB_CHOICE_OPTIONS.get(step)
+        if options:
+            return {
+                "input": "multi_choice" if step in WEB_MULTI_CHOICE_KEYS else "choice",
+                "options": [dict(o) for o in options],
+                "allow_voice": False,
+            }
+        return {"input": "text", "options": [], "allow_voice": True}
+
+    @staticmethod
+    def _step_payload(
+        db: Session,
+        *,
+        session: SmartCardSession,
+        state: dict[str, Any],
+        steps: list[str],
+        idx: int,
+        channel: str,
+        prompts: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        step = steps[idx] if 0 <= idx < len(steps) else (steps[0] if steps else "contact")
+        chan = str(channel or "web").strip().lower() or "web"
+        prompts = prompts if prompts is not None else SmartCardSessionFlowService._prompts(db)
+        base_prompt = SmartCardSessionFlowService._prompt_for(prompts, step, chan)
+        ui = SmartCardSessionFlowService._question_ui(
+            db, session=session, state=state, step=step, channel=chan
+        )
+        prompt = base_prompt
+        if chan == "whatsapp" and ui["options"]:
+            hint = (
+                "Reply with the number(s), e.g. 1 or 1,2"
+                if ui["input"] == "multi_choice"
+                else "Reply with the number, e.g. 1"
+            )
+            prompt = format_numbered_prompt(
+                base_prompt, [str(o.get("label") or o.get("value")) for o in ui["options"]], hint=hint
+            )
+        return {
+            "step": step,
+            "question_key": step,
+            "prompt": prompt,
+            "input": ui["input"],
+            "options": ui["options"],
+            "allow_voice": ui["allow_voice"],
+            "step_index": idx,
+            "step_total": len(steps),
+        }
+
+    @staticmethod
+    def _contact_snapshot(state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "name": state.get("name") or "",
+            "company": state.get("company") or "",
+            "email": state.get("visitor_email") or "",
+            "mobile": state.get("visitor_phone") or "",
+            "has_business_card": bool(state.get("business_card_path")),
+        }
+
+    @staticmethod
+    def _resolve_product_reply(
+        text: str, menu: list[dict[str, str]]
+    ) -> tuple[list[dict[str, str]], bool]:
+        """Map "1", "1,2", "1️⃣" or product names to menu entries. Returns (chosen, declined)."""
+        raw = str(text or "").strip()
+        lower = raw.lower()
+        if not raw or not menu:
+            return [], False
+        picks = parse_pick_numbers(raw)
+        no_index = len(menu) + 1
+        if lower in NO_WORDS or lower == NO_THANKS_VALUE.lower() or picks == [no_index]:
+            return [], True
+
+        chosen: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        def _add(item: dict[str, str]) -> None:
+            if item["id"] not in seen:
+                seen.add(item["id"])
+                chosen.append(item)
+
+        for n in picks:
+            if 1 <= n <= len(menu):
+                _add(menu[n - 1])
+        if not chosen:
+            for item in menu:
+                name = item["name"].strip().lower()
+                if name and name in lower:
+                    _add(item)
+        if not chosen and lower in {"all", "everything", "all of them", "both"}:
+            for item in menu:
+                _add(item)
+        return chosen, False
+
+    @staticmethod
+    def _remap_choice_reply(text: str, options: list[dict[str, Any]]) -> str:
+        """Turn a numbered WhatsApp reply into the option value(s); pass text through otherwise."""
+        raw = str(text or "").strip()
+        if not raw or not options:
+            return raw
+        lower = raw.lower()
+        for opt in options:
+            if lower == str(opt.get("value") or "").strip().lower():
+                return raw
+        picks = parse_pick_numbers(raw)
+        chosen: list[str] = []
+        for n in picks:
+            if 1 <= n <= len(options):
+                value = str(options[n - 1].get("value") or "").strip()
+                if value and value not in chosen:
+                    chosen.append(value)
+        return ", ".join(chosen) if chosen else raw
 
     @staticmethod
     def _contact_capture(company: SmartCardCompany) -> str:
@@ -175,20 +418,20 @@ class SmartCardSessionFlowService:
         db.add(rep)
         db.flush()
 
-        prompts = SmartCardSessionFlowService._prompts(db)
-        first = steps[0] if steps else "contact"
-        prompt = prompts.get(first) or prompts.get("contact") or "Please continue."
+        payload = SmartCardSessionFlowService._step_payload(
+            db, session=session, state=state, steps=steps, idx=0, channel=channel
+        )
+        session.state_json = json.dumps(state)
+        db.add(session)
+        db.flush()
         return {
             "ok": True,
             "session_id": session.id,
             "is_preview": is_preview,
             "contact_capture": SmartCardSessionFlowService._contact_capture(company),
-            "step": session.current_step,
-            "prompt": prompt,
             "steps": steps,
-            "step_index": 0,
-            "step_total": len(steps),
-            "allow_voice": False,
+            "contact": SmartCardSessionFlowService._contact_snapshot(state),
+            **payload,
         }
 
     @staticmethod
@@ -225,19 +468,50 @@ class SmartCardSessionFlowService:
             if not en:
                 en = text or None
 
-        if step in {"contact", "contact_card_only", "contact_manual", "contact_web"}:
-            # Accept "Name | Company | email | phone" or plain name
-            parts = [p.strip() for p in text.replace("\n", "|").split("|") if p.strip()]
-            if parts:
-                state["name"] = parts[0]
-            if len(parts) > 1:
-                state["company"] = parts[1]
-            if len(parts) > 2 and "@" in parts[2]:
-                state["visitor_email"] = parts[2]
-            if len(parts) > 3:
-                state["visitor_phone"] = parts[3]
-            elif len(parts) > 2 and "@" not in parts[2]:
-                state["visitor_phone"] = parts[2]
+        channel = str(session.channel or "web").strip().lower() or "web"
+        consent_value: str | None = None
+
+        if step in PRODUCT_MENU_STEPS and state.get("product_menu_ids"):
+            menu = SmartCardSessionFlowService._products_by_ids(
+                db, list(state.get("product_menu_ids") or [])
+            )
+            chosen, declined = SmartCardSessionFlowService._resolve_product_reply(text, menu)
+            if chosen:
+                state["selected_products"] = [{"id": p["id"], "name": p["name"]} for p in chosen]
+                text = ", ".join(p["name"] for p in chosen)
+                consent_value = "Yes"
+            elif declined:
+                state["selected_products"] = []
+                text = NO_THANKS_VALUE
+                consent_value = "No"
+        elif step and step not in CONTACT_STEPS and WEB_CHOICE_OPTIONS.get(step):
+            text = SmartCardSessionFlowService._remap_choice_reply(
+                text, [dict(o) for o in WEB_CHOICE_OPTIONS[step]]
+            )
+
+        if step in CONTACT_STEPS:
+            saved = [
+                state.get("name"),
+                state.get("company"),
+                state.get("visitor_email"),
+                state.get("visitor_phone"),
+            ]
+            # A bare "Yes" confirms scanned card details — never overwrite the name with it.
+            if any(saved) and looks_affirmative(text):
+                text = " | ".join(str(v).strip() for v in saved if str(v or "").strip()) or "Confirmed"
+            else:
+                # Accept "Name | Company | email | phone" or plain name
+                parts = [p.strip() for p in text.replace("\n", "|").split("|") if p.strip()]
+                if parts:
+                    state["name"] = parts[0]
+                if len(parts) > 1:
+                    state["company"] = parts[1]
+                if len(parts) > 2 and "@" in parts[2]:
+                    state["visitor_email"] = parts[2]
+                if len(parts) > 3:
+                    state["visitor_phone"] = parts[3]
+                elif len(parts) > 2 and "@" not in parts[2]:
+                    state["visitor_phone"] = parts[2]
         else:
             state.setdefault("answers", {})[step or "unknown"] = text
             if step == "interest":
@@ -245,7 +519,7 @@ class SmartCardSessionFlowService:
             if step == "timeline":
                 state["timeline"] = text
             if step == "consent_info":
-                state["consent"] = text
+                state["consent"] = (consent_value or text)[:64]
 
         db.add(
             SmartCardResponse(
@@ -265,24 +539,67 @@ class SmartCardSessionFlowService:
         if idx >= len(steps):
             return SmartCardSessionFlowService._complete(db, session=session, state=state)
 
-        next_step = steps[idx]
-        session.current_step = next_step
+        payload = SmartCardSessionFlowService._step_payload(
+            db, session=session, state=state, steps=steps, idx=idx, channel=channel
+        )
+        session.current_step = payload["step"]
         session.state_json = json.dumps(state)
         session.updated_at = datetime.utcnow()
         db.add(session)
         db.flush()
-        prompts = SmartCardSessionFlowService._prompts(db)
-        contactish = str(next_step).startswith("contact")
         return {
             "ok": True,
             "session_id": session.id,
             "done": False,
-            "step": next_step,
-            "prompt": prompts.get(next_step, "Please continue."),
             "answer_source": answer_source,
-            "step_index": idx,
-            "step_total": len(steps),
-            "allow_voice": (not contactish) and next_step not in {"consent_info"},
+            "contact": SmartCardSessionFlowService._contact_snapshot(state),
+            **payload,
+        }
+
+    @staticmethod
+    def go_back(db: Session, *, session: SmartCardSession) -> dict[str, Any]:
+        """Rewind one step inside the same session, keeping scanned card and contact details."""
+        if session.status != "active":
+            raise SmartCardSessionError("Session is not active")
+        state = SmartCardSessionFlowService._load_state(session)
+        steps: list[str] = list(state.get("steps") or DEFAULT_STEPS)
+        idx = int(state.get("step_index") or 0)
+        channel = str(session.channel or "web").strip().lower() or "web"
+        at_start = idx <= 0
+
+        if not at_start:
+            idx -= 1
+            prev_step = steps[idx]
+            row = db.execute(
+                select(SmartCardResponse)
+                .where(
+                    SmartCardResponse.session_id == session.id,
+                    SmartCardResponse.question_key == prev_step,
+                )
+                .order_by(SmartCardResponse.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if row is not None:
+                db.delete(row)
+            state["step_index"] = idx
+
+        saved_answer = (state.get("answers") or {}).get(steps[idx] if 0 <= idx < len(steps) else "")
+        payload = SmartCardSessionFlowService._step_payload(
+            db, session=session, state=state, steps=steps, idx=idx, channel=channel
+        )
+        session.current_step = payload["step"]
+        session.state_json = json.dumps(state)
+        session.updated_at = datetime.utcnow()
+        db.add(session)
+        db.flush()
+        return {
+            "ok": True,
+            "session_id": session.id,
+            "done": False,
+            "at_start": at_start,
+            "saved_answer": saved_answer,
+            "contact": SmartCardSessionFlowService._contact_snapshot(state),
+            **payload,
         }
 
     @staticmethod
@@ -319,8 +636,13 @@ class SmartCardSessionFlowService:
                 "email": state.get("visitor_email"),
                 "phone": state.get("visitor_phone"),
             },
+            "contact": SmartCardSessionFlowService._contact_snapshot(state),
             "prompt": "Please confirm these details are correct (Yes), or type corrections as Name | Company | email | phone.",
-            "step": "contact",
+            "step": session.current_step or "contact",
+            "question_key": session.current_step or "contact",
+            "input": "contact",
+            "options": [],
+            "allow_voice": False,
         }
 
     @staticmethod
@@ -352,6 +674,9 @@ class SmartCardSessionFlowService:
             timeline=lead.buying_timeline,
             consent=lead.consent,
         )
+        selected_products = state.get("selected_products") or []
+        if selected_products:
+            lead.assets_sent_json = json.dumps({"products": selected_products}, ensure_ascii=False)
         lead.ai_summary = _ai_summary(lead, rep.name)
         lead.suggested_follow_up = _follow_up_draft(lead)
         db.add(lead)
@@ -370,9 +695,10 @@ class SmartCardSessionFlowService:
         except Exception:
             logger.exception("smart_card_lead_email_failed")
 
-        # Hot-lead alert to the rep's mobile — best-effort, never blocks completion.
+        # Hot-lead WhatsApp alert only for WhatsApp sessions — web completions stay email-only.
         score = str(lead.lead_score or "").lower()
-        if score in {"hot", "high"} and getattr(rep, "mobile", None):
+        is_whatsapp = str(session.channel or "").strip().lower() == "whatsapp"
+        if is_whatsapp and score in {"hot", "high"} and getattr(rep, "mobile", None):
             try:
                 from app.services.smart_card.hot_lead_notify_service import notify_hot_lead
 
