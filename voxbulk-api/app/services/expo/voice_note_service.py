@@ -254,7 +254,7 @@ def process_web_voice_bytes(
         return {"ok": False, "error": "empty_upload"}
 
     now = datetime.utcnow()
-        job = ExpoVoiceNoteJob(
+    job = ExpoVoiceNoteJob(
         id=str(uuid.uuid4()),
         org_id=session.org_id,
         session_id=session.id,
