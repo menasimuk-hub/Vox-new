@@ -92,7 +92,7 @@ function SmartCardSavedQrsPage() {
       <PageHeader
         eyebrow="Smart Card QR"
         title="Saved QR codes"
-        description="Your representative QR codes — download, open, edit, or manage the product catalogue."
+        description="Your representative QR codes — scan opens the digital card, then Leave feedback (WhatsApp or web). Download, open, edit, or manage the product catalogue."
         actions={
           canEdit ? (
             <div className="flex flex-wrap gap-2">

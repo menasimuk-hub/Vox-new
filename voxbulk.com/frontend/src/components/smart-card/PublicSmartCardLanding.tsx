@@ -24,6 +24,7 @@ type CardMeta = {
   renew_url?: string;
   preview_tests_remaining?: number | null;
   whatsapp_url?: string | null;
+  feedback_whatsapp_url?: string | null;
   representative?: {
     name?: string;
     email?: string;
@@ -172,6 +173,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
   const [saved, setSaved] = React.useState(false);
   const [doneMsg, setDoneMsg] = React.useState("Thank you");
   const [blockMessage, setBlockMessage] = React.useState<string | undefined>();
+  const [webRunId, setWebRunId] = React.useState(0);
 
   React.useEffect(() => {
     void (async () => {
@@ -246,6 +248,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
   const startWeb = () => {
     setPickerOpen(false);
     setError(null);
+    setWebRunId((n) => n + 1);
     setPhase("web");
   };
 
@@ -328,6 +331,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
   if (phase === "web") {
     return (
       <SmartCardWebSession
+        key={webRunId}
         token={token}
         companyName={companyName}
         onDone={(msg) => {
@@ -559,9 +563,9 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
                 Pick whichever is easier for you.
               </p>
               <div className="mt-5 flex flex-col gap-3">
-                {meta.whatsapp_url ? (
+                {meta.feedback_whatsapp_url || meta.whatsapp_url ? (
                   <a
-                    href={meta.whatsapp_url}
+                    href={meta.feedback_whatsapp_url || meta.whatsapp_url || "#"}
                     target="_blank"
                     rel="noreferrer"
                     onClick={() => setPickerOpen(false)}

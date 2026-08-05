@@ -544,7 +544,8 @@ function SmartCardNewWizard() {
                 <QrCode className="size-4" /> Preview QR
               </CardTitle>
               <CardDescription>
-                Scan to test the questionnaire. Preview uses up to 15 free tests before a paid seat package.
+                Scan opens the digital smart card first. Then tap Leave feedback to choose WhatsApp or the web
+                questionnaire (card photo, questions, voice). Up to 15 free preview tests before a paid seat.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
@@ -565,7 +566,7 @@ function SmartCardNewWizard() {
                 </p>
                 {draftRep?.web_url ? (
                   <a className="text-primary underline" href={draftRep.web_url} target="_blank" rel="noreferrer">
-                    Open web questionnaire
+                    Open digital card (scan landing)
                   </a>
                 ) : null}
                 <p className="text-muted-foreground">

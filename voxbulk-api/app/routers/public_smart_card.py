@@ -76,6 +76,12 @@ def get_card(token: str, db: Session = Depends(get_db)):
     wa_digits = "".join(c for c in wa_phone if c.isdigit())
     trigger = f"Hi — scanned Smart Card QR for {rep.name}. Token {rep.qr_token}"
     wa_url = f"https://wa.me/{wa_digits}?text={trigger.replace(' ', '%20')}" if wa_digits else None
+    feedback_trigger = (
+        f"Hi — I'd like to leave feedback after scanning {rep.name}'s Smart Card. Token {rep.qr_token}"
+    )
+    feedback_wa_url = (
+        f"https://wa.me/{wa_digits}?text={feedback_trigger.replace(' ', '%20')}" if wa_digits else None
+    )
 
     social = None
     if rep.social_links_json:
@@ -136,6 +142,7 @@ def get_card(token: str, db: Session = Depends(get_db)):
         },
         "qr_token": rep.qr_token,
         "whatsapp_url": wa_url,
+        "feedback_whatsapp_url": feedback_wa_url or wa_url,
     }
 
 

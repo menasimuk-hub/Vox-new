@@ -46,7 +46,6 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
   const [cardPreview, setCardPreview] = React.useState<string | null>(null);
   const cardInputRef = React.useRef<HTMLInputElement>(null);
   const voiceRef = React.useRef<VoiceDetailHandle>(null);
-  const startedRef = React.useRef(false);
 
   const isContact = stepKey.startsWith("contact");
 
@@ -65,8 +64,6 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
   };
 
   React.useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
     void (async () => {
       setBusy(true);
       setError(null);
@@ -99,7 +96,9 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
         setBusy(false);
       }
     })();
-  }, [token, onBlocked]);
+    // Fresh mount (keyed by parent) starts a new session once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const sendAnswer = async (text: string, answerSource = "text") => {
     if (!sessionId) return;

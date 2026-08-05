@@ -200,7 +200,7 @@ function ExpoHub() {
       <PageHeader
         eyebrow="VoxBulk Expo"
         title="Saved booths"
-        description="Print these QR codes at your stand — visitors scan, choose WhatsApp or web, and leads are captured automatically. Paid stands can create another QR anytime; each new QR needs its own package."
+        description="Print these QR codes at your stand — visitors scan and choose WhatsApp or web first; leads are captured automatically. Paid stands can create another QR anytime; each new QR needs its own package."
         actions={
           <Button asChild className="gap-1.5">
             <Link to="/expo/new">
