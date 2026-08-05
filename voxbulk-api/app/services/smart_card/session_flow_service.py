@@ -192,6 +192,9 @@ class SmartCardSessionFlowService:
             "step": session.current_step,
             "prompt": prompt,
             "steps": steps,
+            "step_index": 0,
+            "step_total": len(steps),
+            "allow_voice": False,
         }
 
     @staticmethod
@@ -260,6 +263,7 @@ class SmartCardSessionFlowService:
         db.add(session)
         db.flush()
         prompts = SmartCardSessionFlowService._prompts(db)
+        contactish = str(next_step).startswith("contact")
         return {
             "ok": True,
             "session_id": session.id,
@@ -267,6 +271,9 @@ class SmartCardSessionFlowService:
             "step": next_step,
             "prompt": prompts.get(next_step, "Please continue."),
             "answer_source": answer_source,
+            "step_index": idx,
+            "step_total": len(steps),
+            "allow_voice": (not contactish) and next_step not in {"consent_info"},
         }
 
     @staticmethod

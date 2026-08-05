@@ -33,6 +33,7 @@ __all__ = (
     "extract_audio_media",
     "is_audio_inbound",
     "process_voice_for_session",
+    "process_web_voice_bytes",
 )
 
 
@@ -131,4 +132,92 @@ def process_voice_for_session(
         db.add(job)
         db.commit()
         logger.warning("%s failed job=%s err=%s", LOG_PREFIX, job.id, exc)
+        return {"ok": False, "error": str(exc)[:500], "job_id": job.id}
+
+
+def process_web_voice_bytes(
+    db: Session,
+    *,
+    session: SmartCardSession,
+    audio_bytes: bytes,
+    filename: str = "voice.webm",
+    content_type: str = "audio/webm",
+) -> dict[str, Any]:
+    """Browser voice upload — store original audio, Whisper STT + English for the answer text."""
+    if not audio_bytes:
+        return {"ok": False, "error": "empty_upload"}
+
+    now = datetime.utcnow()
+    job = SmartCardVoiceNoteJob(
+        id=str(uuid.uuid4()),
+        org_id=session.org_id,
+        session_id=session.id,
+        status="transcribing",
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(job)
+    db.commit()
+
+    try:
+        # Keep the original recording (no re-encode) for playback / audit.
+        try:
+            from pathlib import Path
+
+            root = Path("data") / "smart_card_voice" / str(session.org_id)
+            root.mkdir(parents=True, exist_ok=True)
+            safe_name = (filename or "voice.webm").replace("/", "_").replace("\\", "_")[:80]
+            path = root / f"{job.id}_{safe_name}"
+            path.write_bytes(audio_bytes)
+            job.storage_path = str(path).replace("\\", "/")
+            db.add(job)
+            db.commit()
+        except Exception as store_exc:
+            logger.warning("%s store_audio_failed job=%s err=%s", LOG_PREFIX, job.id, store_exc)
+
+        from app.services.voice_transcription_service import VoiceTranscriptionService
+
+        stt = VoiceTranscriptionService.transcribe_uploaded_audio(
+            db,
+            audio_bytes=audio_bytes,
+            filename=filename or "voice.webm",
+            content_type=content_type or "audio/webm",
+            language="auto",
+        )
+        text = str(getattr(stt, "transcript", None) or getattr(stt, "text", None) or "").strip()
+        detected = getattr(stt, "detected_language", None)
+        if not getattr(stt, "ok", False) or not text or is_low_quality_transcript(text):
+            raise RuntimeError("empty_transcript")
+
+        detected = correct_detected_language(text, detected)
+        translated = translate_answer_to_english(
+            db,
+            answer=text,
+            detected_language=detected,
+            tpl=None,
+            source_language=detected,
+        )
+        original = str(translated.get("original_text") or text).strip()
+        answer_en = _english_or_original(translated, original)
+
+        job.transcript = original
+        job.status = "completed"
+        job.error = None
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        db.commit()
+        return {
+            "ok": True,
+            "job_id": job.id,
+            "original_text": original,
+            "answer_text_en": answer_en,
+            "detected_language": detected,
+        }
+    except Exception as exc:
+        job.status = "failed"
+        job.error = str(exc)[:2000]
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        db.commit()
+        logger.warning("%s web_failed job=%s err=%s", LOG_PREFIX, job.id, exc)
         return {"ok": False, "error": str(exc)[:500], "job_id": job.id}

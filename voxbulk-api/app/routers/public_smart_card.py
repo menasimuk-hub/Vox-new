@@ -219,3 +219,54 @@ async def upload_card(
     )
     db.commit()
     return result
+
+
+@router.post("/{token}/sessions/{session_id}/voice")
+async def upload_voice_answer(
+    token: str,
+    session_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Web voice note — store original audio, STT for answer text, advance session."""
+    from app.services.smart_card.voice_note_service import process_web_voice_bytes
+
+    rep = _get_rep(db, token)
+    session = db.get(SmartCardSession, session_id)
+    if session is None or session.representative_id != rep.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.status != "active":
+        return {"ok": True, "done": True, "message": "Thank you"}
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty audio upload")
+    voice = process_web_voice_bytes(
+        db,
+        session=session,
+        audio_bytes=raw,
+        filename=file.filename or "voice.webm",
+        content_type=str(file.content_type or "audio/webm"),
+    )
+    if not voice.get("ok"):
+        raise HTTPException(
+            status_code=400,
+            detail="Sorry — I couldn't hear that clearly. Please type your answer, or record again.",
+        )
+
+    session = db.get(SmartCardSession, session_id) or session
+    try:
+        result = SmartCardSessionFlowService.advance(
+            db,
+            session=session,
+            answer=str(voice.get("answer_text_en") or voice.get("original_text") or ""),
+            answer_source="voice",
+        )
+        db.commit()
+    except SmartCardSessionError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    result["original_text"] = voice.get("original_text")
+    result["answer_text_en"] = voice.get("answer_text_en")
+    result["voice_job_id"] = voice.get("job_id")
+    return result

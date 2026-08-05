@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { SmartCardWebSession } from "@/components/smart-card/SmartCardWebSession";
+
 const API = (import.meta as any).env?.VITE_API_URL || "https://api.voxbulk.com";
 
 const INK = "#eaf2ff";
@@ -40,7 +42,7 @@ type CardMeta = {
   };
 };
 
-type Phase = "card" | "web_contact" | "web_ask" | "done" | "blocked";
+type Phase = "card" | "web" | "done" | "blocked";
 
 function Art() {
   return (
@@ -168,21 +170,8 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
   const [phase, setPhase] = React.useState<Phase>("card");
   const [pickerOpen, setPickerOpen] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-
-  const [sessionId, setSessionId] = React.useState<string | null>(null);
-  const [prompt, setPrompt] = React.useState("");
-  const [stepKey, setStepKey] = React.useState("");
-  const [stepIndex, setStepIndex] = React.useState(0);
-  const [stepTotal, setStepTotal] = React.useState(1);
   const [doneMsg, setDoneMsg] = React.useState("Thank you");
-
-  const [contactName, setContactName] = React.useState("");
-  const [contactCompany, setContactCompany] = React.useState("");
-  const [contactEmail, setContactEmail] = React.useState("");
-  const [contactPhone, setContactPhone] = React.useState("");
-  const [answer, setAnswer] = React.useState("");
-  const cardInputRef = React.useRef<HTMLInputElement>(null);
+  const [blockMessage, setBlockMessage] = React.useState<string | undefined>();
 
   React.useEffect(() => {
     void (async () => {
@@ -254,122 +243,10 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
     }
   };
 
-  const startWeb = async (prefill?: { name?: string; company?: string; email?: string; mobile?: string }) => {
-    setBusy(true);
+  const startWeb = () => {
+    setPickerOpen(false);
     setError(null);
-    try {
-      const res = await fetch(`${API}/public/smart-card/${encodeURIComponent(token)}/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: prefill?.name || undefined,
-          company: prefill?.company || undefined,
-          email: prefill?.email || undefined,
-          mobile: prefill?.mobile || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        const detail = typeof data?.detail === "string" ? data.detail : "Could not start";
-        if (detail === "preview_exhausted" || detail === "expired") {
-          setPhase("blocked");
-          setMeta((m) => (m ? { ...m, status: detail, message: detail === "preview_exhausted" ? "Preview tests are used up (15)." : m.message } : m));
-        }
-        throw new Error(detail);
-      }
-      setSessionId(data.session_id);
-      setPrompt(data.prompt || "Please continue.");
-      setStepKey(String(data.step || "contact"));
-      const steps: string[] = Array.isArray(data.steps) ? data.steps : [];
-      setStepTotal(Math.max(1, steps.length));
-      setStepIndex(0);
-      const contactish = String(data.step || "").startsWith("contact");
-      setPhase(contactish ? "web_contact" : "web_ask");
-      setPickerOpen(false);
-      if (typeof data.preview_tests_remaining === "number" && meta) {
-        setMeta({ ...meta, preview_tests_remaining: data.preview_tests_remaining });
-      }
-    } catch (e: any) {
-      setError(e?.message || "Could not start");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const sendAnswer = async (text: string) => {
-    if (!sessionId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API}/public/smart-card/${encodeURIComponent(token)}/answer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, answer: text }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : "Answer failed");
-      setAnswer("");
-      if (data.done) {
-        setDoneMsg(data.message || "Thank you — we appreciate your feedback.");
-        setPhase("done");
-        return;
-      }
-      setPrompt(data.prompt || "");
-      setStepKey(String(data.step || ""));
-      setStepIndex((i) => i + 1);
-      const nextContact = String(data.step || "").startsWith("contact");
-      setPhase(nextContact ? "web_contact" : "web_ask");
-    } catch (e: any) {
-      setError(e?.message || "Answer failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitContact = async () => {
-    const packed = [contactName, contactCompany, contactEmail, contactPhone]
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(" | ");
-    if (!packed) {
-      setError("Please enter your details or upload a business card.");
-      return;
-    }
-    await sendAnswer(packed);
-  };
-
-  const onCardPicked = async (file: File | null) => {
-    if (!file || !sessionId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(
-        `${API}/public/smart-card/${encodeURIComponent(token)}/card?session_id=${encodeURIComponent(sessionId)}`,
-        { method: "POST", body: fd },
-      );
-      const data = await res.json();
-      if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : "OCR failed");
-      const ex = data.extracted || {};
-      if (ex.name) setContactName(String(ex.name));
-      if (ex.company) setContactCompany(String(ex.company));
-      if (ex.email) setContactEmail(String(ex.email));
-      if (ex.phone) setContactPhone(String(ex.phone));
-      if (data.prompt) setPrompt(data.prompt);
-      if (data.done) {
-        setDoneMsg(data.message || "Thank you");
-        setPhase("done");
-      } else if (data.step && !String(data.step).startsWith("contact")) {
-        setStepKey(String(data.step));
-        setPhase("web_ask");
-      }
-    } catch (e: any) {
-      setError(e?.message || "Could not read card");
-    } finally {
-      setBusy(false);
-      if (cardInputRef.current) cardInputRef.current.value = "";
-    }
+    setPhase("web");
   };
 
   if (error && !meta) {
@@ -397,7 +274,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
             {companyName}
           </h1>
           <p className="mt-3 text-[14px] leading-relaxed" style={{ color: SUB }}>
-            {meta.message || "This Smart Card QR is unavailable."}
+            {blockMessage || meta.message || "This Smart Card QR is unavailable."}
           </p>
           {meta.renew_url ? (
             <a
@@ -448,120 +325,27 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
     );
   }
 
-  if (phase === "web_contact" || phase === "web_ask") {
-    const progressPct = Math.round(((stepIndex + 1) / Math.max(1, stepTotal)) * 100);
+  if (phase === "web") {
     return (
-      <main className="bg-smartcard-gradient relative min-h-dvh overflow-hidden">
-        <Art />
-        <div className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 pb-8 pt-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: SUB }}>
-                Feedback
-              </p>
-              <p className="text-[14px] font-semibold" style={{ color: INK }}>
-                {companyName}
-              </p>
-            </div>
-            <span className="text-[11px]" style={{ color: SUB }}>
-              {Math.min(stepIndex + 1, stepTotal)} / {stepTotal}
-            </span>
-          </div>
-          <div className="mt-3 h-1 w-full overflow-hidden rounded-full" style={{ background: BORDER }}>
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{ width: `${progressPct}%`, background: "linear-gradient(90deg,#38bdf8,#6366f1)" }}
-            />
-          </div>
-
-          <div className="mt-6 flex flex-1 flex-col">
-            <h1 className="animate-rise text-[22px] font-semibold leading-snug" style={{ color: INK }}>
-              {prompt}
-            </h1>
-            {error ? <p className="mt-2 text-[13px] text-rose-300">{error}</p> : null}
-
-            {phase === "web_contact" ? (
-              <div className="animate-rise mt-5 space-y-3" style={{ animationDelay: "80ms" }}>
-                <input
-                  ref={cardInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => void onCardPicked(e.target.files?.[0] || null)}
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => cardInputRef.current?.click()}
-                  className="flex w-full flex-col items-center gap-1 rounded-2xl border-2 border-dashed px-4 py-5 text-[14px] font-semibold"
-                  style={{ borderColor: "rgba(56,189,248,0.35)", color: INK, background: "rgba(56,189,248,0.08)" }}
-                >
-                  Upload business card photo
-                  <span className="text-[11px] font-normal" style={{ color: SUB }}>
-                    Optional — we’ll fill the fields for you
-                  </span>
-                </button>
-                {(
-                  [
-                    ["Your name", contactName, setContactName],
-                    ["Company", contactCompany, setContactCompany],
-                    ["Email", contactEmail, setContactEmail],
-                    ["Phone", contactPhone, setContactPhone],
-                  ] as const
-                ).map(([label, value, setter]) => (
-                  <label key={label} className="block">
-                    <span className="mb-1 block text-[11px] uppercase tracking-wide" style={{ color: SUB }}>
-                      {label}
-                    </span>
-                    <input
-                      value={value}
-                      onChange={(e) => setter(e.target.value)}
-                      className="w-full rounded-xl px-3 py-2.5 text-[14px] outline-none"
-                      style={{ background: CARD_BG, border: `1px solid ${BORDER}`, color: INK }}
-                    />
-                  </label>
-                ))}
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void submitContact()}
-                  className="mt-2 w-full rounded-2xl px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
-                  style={{
-                    background: "linear-gradient(135deg,#38bdf8,#6366f1)",
-                    color: "#06121f",
-                  }}
-                >
-                  {busy ? "Sending…" : "Continue"}
-                </button>
-              </div>
-            ) : (
-              <div className="animate-rise mt-5 space-y-3" style={{ animationDelay: "80ms" }}>
-                <textarea
-                  value={answer}
-                  onChange={(e) => setAnswer(e.target.value)}
-                  rows={5}
-                  placeholder="Type your answer…"
-                  className="w-full rounded-2xl px-3 py-3 text-[14px] outline-none"
-                  style={{ background: CARD_BG, border: `1px solid ${BORDER}`, color: INK }}
-                />
-                <button
-                  type="button"
-                  disabled={busy || !answer.trim()}
-                  onClick={() => void sendAnswer(answer.trim())}
-                  className="w-full rounded-2xl px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
-                  style={{
-                    background: "linear-gradient(135deg,#38bdf8,#6366f1)",
-                    color: "#06121f",
-                  }}
-                >
-                  {busy ? "Sending…" : "Send"}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </main>
+      <SmartCardWebSession
+        token={token}
+        companyName={companyName}
+        onDone={(msg) => {
+          setDoneMsg(msg);
+          setPhase("done");
+        }}
+        onBlocked={(status, message) => {
+          setBlockMessage(
+            message ||
+              (status === "preview_exhausted"
+                ? "Preview tests are used up (15)."
+                : "This Smart Card QR is unavailable."),
+          );
+          setMeta((m) => (m ? { ...m, status } : m));
+          setPhase("blocked");
+        }}
+        onBack={() => setPhase("card")}
+      />
     );
   }
 
@@ -807,8 +591,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
                 ) : null}
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void startWeb()}
+                  onClick={() => startWeb()}
                   className="group flex items-center gap-4 rounded-2xl px-4 py-3.5 text-left transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
                   style={{
                     background: "linear-gradient(120deg, rgba(56,189,248,0.16), rgba(255,255,255,0.03))",
@@ -826,10 +609,10 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[15px] font-semibold" style={{ color: INK }}>
-                      {busy ? "Starting…" : "Web survey"}
+                      Web survey
                     </span>
                     <span className="block truncate text-[12px]" style={{ color: SUB }}>
-                      Quick questions on this page
+                      Card photo · questions · voice note
                     </span>
                   </span>
                 </button>
