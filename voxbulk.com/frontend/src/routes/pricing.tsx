@@ -10,6 +10,7 @@ import { useCurrency, SYM, FX, MARKETS } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, usePublicPricing, usePublicExpoPricing, type PublicFeedbackPlan, type PublicPlan, type PublicExpoPlan } from "@/hooks/usePricing";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
+import { isPricingKindEnabled, useProductVisibility } from "@/lib/product-visibility";
 
 export const Route = createFileRoute("/pricing")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -309,6 +310,11 @@ function PricingPage() {
   const corePricing = usePublicPricing();
   const feedbackPricing = usePublicFeedbackPricing();
   const expoPricing = usePublicExpoPricing();
+  const productVis = useProductVisibility();
+  const showCore = isPricingKindEnabled(productVis, "core");
+  const showFeedback = isPricingKindEnabled(productVis, "feedback");
+  const showExpo = isPricingKindEnabled(productVis, "expo");
+  const showSmartCard = isPricingKindEnabled(productVis, "smart_card");
   const s = SYM[cur];
   const fx = FX[cur];
   const [topup, setTopup] = useState(50);
@@ -395,6 +401,7 @@ function PricingPage() {
         </section>
 
         {/* Group 1 — AI Interview Screening + WhatsApp Surveys (shared package) */}
+        {showCore ? (
         <section className="py-16 bg-beige">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">AI Interview Screening &amp; WhatsApp Surveys</div>
@@ -508,8 +515,10 @@ function PricingPage() {
             </div>
           </div>
         </section>
+        ) : null}
 
         {/* Group 3 — Feedback */}
+        {showFeedback ? (
         <section className="py-16 bg-beige">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">Customer Feedback</div>
@@ -538,8 +547,10 @@ function PricingPage() {
             </p>
           </div>
         </section>
+        ) : null}
 
         {/* Group 4 — Expo (one-off) */}
+        {showExpo ? (
         <section className="py-16 bg-white">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">VoxBulk Expo · one-off per exhibition</div>
@@ -593,8 +604,10 @@ function PricingPage() {
             </div>
           </div>
         </section>
+        ) : null}
 
         {/* Group 5 — Smart Card QR (subscription per seat) */}
+        {showSmartCard ? (
         <section className="py-16 bg-beige">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">Smart Card QR · per seat</div>
@@ -634,6 +647,7 @@ function PricingPage() {
             </div>
           </div>
         </section>
+        ) : null}
 
         {/* Security / trust */}
         <section className="py-16 bg-white">
@@ -687,6 +701,7 @@ function PricingPage() {
         </section>
 
         {/* What each service costs */}
+        {showCore ? (
         <section className="py-16 bg-beige">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text mb-4">What each service costs</div>
@@ -723,6 +738,7 @@ function PricingPage() {
             </div>
           </div>
         </section>
+        ) : null}
 
         <BottomCTA />
       </main>

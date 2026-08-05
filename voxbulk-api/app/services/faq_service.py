@@ -68,6 +68,9 @@ class FAQService:
 
             for question, answer, slug, sort_order, featured in faqs:
                 linked = "zoho_recruit" if cat_slug == "zoho-recruit" else None
+                from app.services.platform_product_visibility_service import FAQ_CATEGORY_SLUG_TO_SERVICE
+
+                linked_svc = FAQ_CATEGORY_SLUG_TO_SERVICE.get(cat_slug)
                 row = db.execute(select(FAQItem).where(FAQItem.slug == slug)).scalar_one_or_none()
                 if row is None:
                     row = db.execute(select(FAQItem).where(FAQItem.question == question)).scalar_one_or_none()
@@ -86,6 +89,7 @@ class FAQService:
                         meta_description=answer[:155].rstrip() + ("…" if len(answer) > 155 else ""),
                         focus_keyword="voxbulk help",
                         linked_provider=linked,
+                        linked_service=linked_svc,
                         index_status="pending",
                         created_at=now,
                         updated_at=now,
@@ -98,6 +102,9 @@ class FAQService:
                 dirty = False
                 if linked and not str(getattr(row, "linked_provider", None) or "").strip():
                     row.linked_provider = linked
+                    dirty = True
+                if linked_svc and not str(getattr(row, "linked_service", None) or "").strip():
+                    row.linked_service = linked_svc
                     dirty = True
                 if not str(row.slug or "").strip():
                     row.slug = slug
@@ -232,6 +239,7 @@ class FAQService:
         is_published: bool,
         sort_order: int,
         linked_provider: str | None = None,
+        linked_service: str | None = None,
         surface: str = "frontend",
     ) -> FAQItem:
         now = datetime.utcnow()
@@ -253,6 +261,9 @@ class FAQService:
         if linked_provider is not None:
             link = str(linked_provider or "").strip().lower() or None
             row.linked_provider = link
+        if linked_service is not None:
+            svc = str(linked_service or "").strip().lower().replace("-", "_") or None
+            row.linked_service = svc
         row.updated_at = now
         if not (row.slug or "").strip():
             base = slugify(row.question)
@@ -310,6 +321,7 @@ def item_to_dict(db: Session, item: FAQItem) -> dict:
         "is_published": bool(item.is_published),
         "sort_order": item.sort_order,
         "linked_provider": getattr(item, "linked_provider", None),
+        "linked_service": getattr(item, "linked_service", None),
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }

@@ -7,7 +7,11 @@ import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/surveys")({
-  loader: async () => ({ settings: await fetchSeoSettings() }),
+  loader: async () => {
+    const { requireEnabledProductRoute } = await import("@/lib/product-visibility");
+    await requireEnabledProductRoute("/surveys");
+    return { settings: await fetchSeoSettings() };
+  },
   head: ({ loaderData }) => ({
     meta: pageMeta("surveys", { override: loaderData?.settings?.marketing_pages?.surveys }),
     links: [{ rel: "canonical", href: "https://voxbulk.com/surveys" }],

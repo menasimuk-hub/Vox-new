@@ -190,6 +190,7 @@ from app.models.smart_card import (  # noqa: F401
 from app.models.smart_card_mailbox_settings import SmartCardMailboxSettings  # noqa: F401
 from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob  # noqa: F401
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401
+from app.models.platform_product_group import PlatformProductGroup  # noqa: F401
 from app.models.disabled_wa_template import DisabledWaTemplate  # noqa: F401
 from app.models.partner import PartnerApiKey, PartnerProvider, PartnerScreening  # noqa: F401
 from app.models.integration_tester import IntegrationTester  # noqa: F401

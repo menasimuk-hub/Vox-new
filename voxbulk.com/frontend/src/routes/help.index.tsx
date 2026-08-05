@@ -19,6 +19,11 @@ import {
 } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { frontpageApiFetch } from "@/lib/api";
+import {
+  fetchProductVisibility,
+  isFaqCategoryEnabled,
+  type ProductVisibilityPayload,
+} from "@/lib/product-visibility";
 
 type FaqItem = {
   slug: string;
@@ -192,6 +197,12 @@ export const Route = createFileRoute("/help/")({
   }),
   loader: async () => {
     let zohoVisible = false;
+    let productVis: ProductVisibilityPayload | null = null;
+    try {
+      productVis = await fetchProductVisibility();
+    } catch {
+      productVis = null;
+    }
     try {
       const vis = await frontpageApiFetch<{ visible?: boolean }>(
         "/frontpage/integration-visibility/zoho_recruit",
@@ -210,6 +221,9 @@ export const Route = createFileRoute("/help/")({
             !String(i.slug || "").startsWith("zoho-recruit"),
         );
       }
+      if (productVis) {
+        items = items.filter((i) => isFaqCategoryEnabled(productVis!, i.category_slug || ""));
+      }
       return { items, categories: buildCategories(items), zohoVisible };
     } catch {
       let items = FALLBACK_ITEMS;
@@ -219,6 +233,9 @@ export const Route = createFileRoute("/help/")({
             i.category_slug !== "zoho-recruit" &&
             !String(i.slug || "").startsWith("zoho-recruit"),
         );
+      }
+      if (productVis) {
+        items = items.filter((i) => isFaqCategoryEnabled(productVis!, i.category_slug || ""));
       }
       return { items, categories: buildCategories(items), zohoVisible };
     }

@@ -453,6 +453,13 @@ def public_faq_list(db: Session = Depends(get_db)):
     return {"items": svc.public_faq_list(db)}
 
 
+@public_router.get("/product-visibility")
+def public_product_visibility(db: Session = Depends(get_db)):
+    from app.services.platform_product_visibility_service import PlatformProductVisibilityService
+
+    return PlatformProductVisibilityService.public_payload(db)
+
+
 @public_router.get("/faq/{slug}")
 def public_faq_item(slug: str, db: Session = Depends(get_db)):
     return svc.public_faq_by_slug(db, slug)

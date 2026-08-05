@@ -9,7 +9,11 @@ import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
 export const Route = createFileRoute("/recruitment")({
-  loader: async () => ({ settings: await fetchSeoSettings() }),
+  loader: async () => {
+    const { requireEnabledProductRoute } = await import("@/lib/product-visibility");
+    await requireEnabledProductRoute("/recruitment");
+    return { settings: await fetchSeoSettings() };
+  },
   head: ({ loaderData }) => ({
     meta: pageMeta("recruitment", { override: loaderData?.settings?.marketing_pages?.recruitment }),
     links: [{ rel: "canonical", href: "https://voxbulk.com/recruitment" }],

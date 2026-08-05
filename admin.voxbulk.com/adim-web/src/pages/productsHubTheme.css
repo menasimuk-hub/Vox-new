@@ -646,3 +646,119 @@
     display: none;
   }
 }
+
+.phHub .phVisibility {
+  background: var(--ph-white);
+  border: 1px solid var(--ph-line);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--ph-shadow);
+}
+
+.phHub .phVisibilityHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.phHub .phVisibilityHead h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.phHub .phVisibilityHead p {
+  margin: 0;
+  color: var(--ph-ink-soft);
+  font-size: 0.85rem;
+  max-width: 52rem;
+}
+
+.phHub .phVisibilityList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.phHub .phVisibilityRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  border: 1px solid var(--ph-line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--ph-bg);
+}
+
+.phHub .phVisibilityRow.off {
+  opacity: 0.72;
+}
+
+.phHub .phVisibilityMain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+.phHub .phVisibilityMeta {
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--ph-ink-faint);
+}
+
+.phHub .phVisibilityActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.phHub .phVisibilityEmpty {
+  color: var(--ph-ink-soft);
+  font-size: 0.9rem;
+}
+
+.phHub .phVisibilityEditor {
+  margin-top: 14px;
+  border-top: 1px solid var(--ph-line);
+  padding-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.phHub .phVisibilityEditor h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.phHub .phVisibilityEditor label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--ph-ink-soft);
+  margin-bottom: 4px;
+}
+
+.phHub .phVisibilityEditor input,
+.phHub .phVisibilityEditor textarea {
+  width: 100%;
+  border: 1px solid var(--ph-line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--ph-white);
+  color: var(--ph-ink);
+}
+
+.phHub .phVisibilityEditorFoot {
+  display: flex;
+  gap: 8px;
+}

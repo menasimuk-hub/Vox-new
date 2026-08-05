@@ -14,6 +14,7 @@ import { useTalkModal } from "@/components/TalkModal";
 import { useCurrency, FX, SYM } from "@/components/CurrencyContext";
 import { usePublicPricing, type PublicPlan } from "@/hooks/usePricing";
 import { frontpageApiFetch } from "@/lib/api";
+import { isRouteEnabled, useProductVisibility } from "@/lib/product-visibility";
 
 
 /* ---------------- HERO ---------------- */
@@ -1379,6 +1380,7 @@ export function PlatformIntro() {
 }
 
 export function ProductCards() {
+  const vis = useProductVisibility();
   const products = [
     {
       icon: Sparkles,
@@ -1415,7 +1417,8 @@ export function ProductCards() {
       body: "One personal QR per sales rep. Prospects scan, chat, get your catalogue — every lead scored and attributed.",
       href: "/smart-card",
     },
-  ];
+  ].filter((p) => isRouteEnabled(vis, p.href));
+  if (!products.length) return null;
   return (
     <section id="products" className="py-20 md:py-24 bg-beige">
       <div className="max-w-[1180px] mx-auto px-5 md:px-10">

@@ -39,6 +39,8 @@ class FAQItem(Base):
     tags: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     # When set (e.g. calendly, zoho_recruit), FAQ follows that integration's Testing/Live gate.
     linked_provider: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    # Platform product group key (catalogue visibility) — separate from integration linked_provider.
+    linked_service: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     social_title: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     social_description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     social_image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)

@@ -11,6 +11,10 @@ import { BottomCTA } from "@/components/VOXBULKHome";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
 
 export const Route = createFileRoute("/smart-card/")({
+  loader: async () => {
+    const { requireEnabledProductRoute } = await import("@/lib/product-visibility");
+    await requireEnabledProductRoute("/smart-card");
+  },
   head: () => ({
     meta: [
       { title: "Smart Card QR — A Personal Lead-Capture QR for Every Rep" },

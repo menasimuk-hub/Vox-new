@@ -1014,7 +1014,17 @@ def _is_indexable_robots(robots: str) -> bool:
 
 
 def build_sitemap_entries(db: Session) -> list[dict[str, str]]:
-    entries: list[dict[str, str]] = [{"path": p, "changefreq": "weekly", "priority": "0.8"} for p in STATIC_SITEMAP_PATHS]
+    from app.services.platform_product_visibility_service import PlatformProductVisibilityService
+
+    static_paths = PlatformProductVisibilityService.filter_static_sitemap_paths(db, list(STATIC_SITEMAP_PATHS))
+    # Include product routes that exist in registry but were missing from the static list (expo, smart-card).
+    for path in sorted(PlatformProductVisibilityService.enabled_routes(db)):
+        if path not in static_paths and path not in ("/",):
+            # Only add known marketing product paths; avoid inventing arbitrary admin-added routes into sitemap
+            # unless they look like top-level marketing pages.
+            if path.count("/") == 1:
+                static_paths.append(path)
+    entries: list[dict[str, str]] = [{"path": p, "changefreq": "weekly", "priority": "0.8"} for p in static_paths]
     for row in db.execute(select(SiteBlogNewsItem).where(SiteBlogNewsItem.is_visible.is_(True))).scalars().all():
         if not _is_indexable_robots(row.robots):
             continue
@@ -1026,8 +1036,16 @@ def build_sitemap_entries(db: Session) -> list[dict[str, str]]:
                 "lastmod": row.published_at.isoformat() if row.published_at else "",
             }
         )
+    faq_cats = _faq_category_map(db)
     for row in db.execute(select(FAQItem).where(FAQItem.is_published.is_(True))).scalars().all():
         if not row.slug or not _is_indexable_robots(row.robots):
+            continue
+        cat_slug = faq_cats.get(int(row.category_id), ("", ""))[1] if row.category_id else ""
+        if not PlatformProductVisibilityService.is_faq_visible(
+            db,
+            category_slug=cat_slug,
+            linked_service=getattr(row, "linked_service", None),
+        ):
             continue
         entries.append(
             {
@@ -1420,8 +1438,10 @@ def submit_sitemap_to_google(db: Session) -> dict[str, Any]:
 def public_faq_list(db: Session) -> list[dict[str, Any]]:
     from app.services.faq_service import FAQService
     from app.services.integration_release_service import IntegrationReleaseService
+    from app.services.platform_product_visibility_service import PlatformProductVisibilityService
 
     FAQService.ensure_marketing_faqs(db)
+    PlatformProductVisibilityService.ensure_defaults(db)
     cats = _faq_category_map(db)
     rows = (
         db.execute(
@@ -1443,12 +1463,22 @@ def public_faq_list(db: Session) -> list[dict[str, Any]]:
             db, linked_provider=getattr(r, "linked_provider", None), viewer_email=None
         ):
             continue
-        out.append(_faq_row_to_seo(r, cats))
+        cat_slug = cats.get(int(r.category_id), ("", ""))[1] if r.category_id else ""
+        if not PlatformProductVisibilityService.is_faq_visible(
+            db,
+            category_slug=cat_slug,
+            linked_service=getattr(r, "linked_service", None),
+        ):
+            continue
+        payload = _faq_row_to_seo(r, cats)
+        payload["linked_service"] = getattr(r, "linked_service", None)
+        out.append(payload)
     return out
 
 
 def public_faq_by_slug(db: Session, slug: str) -> dict[str, Any]:
     from app.services.integration_release_service import IntegrationReleaseService
+    from app.services.platform_product_visibility_service import PlatformProductVisibilityService
 
     row = db.execute(
         select(FAQItem).where(
@@ -1464,7 +1494,16 @@ def public_faq_by_slug(db: Session, slug: str) -> dict[str, Any]:
     ):
         raise HTTPException(status_code=404, detail="FAQ not found")
     cats = _faq_category_map(db)
-    return _faq_row_to_seo(row, cats)
+    cat_slug = cats.get(int(row.category_id), ("", ""))[1] if row.category_id else ""
+    if not PlatformProductVisibilityService.is_faq_visible(
+        db,
+        category_slug=cat_slug,
+        linked_service=getattr(row, "linked_service", None),
+    ):
+        raise HTTPException(status_code=404, detail="FAQ not found")
+    payload = _faq_row_to_seo(row, cats)
+    payload["linked_service"] = getattr(row, "linked_service", None)
+    return payload
 
 
 def public_content_seo(db: Session, kind: str, slug: str) -> dict[str, Any]:

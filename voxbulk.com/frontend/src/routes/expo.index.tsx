@@ -11,6 +11,10 @@ import { BottomCTA } from "@/components/VOXBULKHome";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
 
 export const Route = createFileRoute("/expo/")({
+  loader: async () => {
+    const { requireEnabledProductRoute } = await import("@/lib/product-visibility");
+    await requireEnabledProductRoute("/expo");
+  },
   head: () => ({
     meta: [
       { title: "VoxBulk Expo — Exhibition Lead Capture by QR" },

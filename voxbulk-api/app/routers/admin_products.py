@@ -136,3 +136,89 @@ def delete_subscription_plan(plan_id: str, db: Session = Depends(get_db), _admin
 def rollover_usage_periods(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
     """Manually close expired usage periods and open fresh monthly wallets."""
     return {"ok": True, **UsageWalletService.rollover_due_periods(db)}
+
+
+# --- Platform public product visibility (catalogue; does not revoke org grants) ---
+
+
+@router.get("/visibility")
+def list_product_visibility(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    from app.services.platform_product_visibility_service import (
+        PlatformProductVisibilityService,
+        group_to_dict,
+    )
+
+    groups = PlatformProductVisibilityService.list_groups(db)
+    return {
+        "ok": True,
+        "groups": [group_to_dict(g) for g in groups],
+        "public": PlatformProductVisibilityService.public_payload(db),
+    }
+
+
+@router.post("/visibility")
+def create_product_visibility_group(
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.schemas.platform_product_visibility import PlatformProductGroupIn
+    from app.services.platform_product_visibility_service import (
+        PlatformProductVisibilityError,
+        PlatformProductVisibilityService,
+        group_to_dict,
+    )
+
+    try:
+        data = PlatformProductGroupIn.model_validate(payload)
+        row = PlatformProductVisibilityService.create_group(db, **data.model_dump())
+    except PlatformProductVisibilityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return group_to_dict(row)
+
+
+@router.put("/visibility/{group_id}")
+def update_product_visibility_group(
+    group_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.schemas.platform_product_visibility import PlatformProductGroupUpdateIn
+    from app.services.platform_product_visibility_service import (
+        PlatformProductVisibilityError,
+        PlatformProductVisibilityService,
+        group_to_dict,
+    )
+
+    try:
+        data = PlatformProductGroupUpdateIn.model_validate(payload)
+        dumped = data.model_dump(exclude_unset=True)
+        row = PlatformProductVisibilityService.update_group(db, group_id, **dumped)
+    except PlatformProductVisibilityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return group_to_dict(row)
+
+
+@router.patch("/visibility/{group_id}/enabled")
+def toggle_product_visibility_group(
+    group_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.platform_product_visibility_service import (
+        PlatformProductVisibilityError,
+        PlatformProductVisibilityService,
+        group_to_dict,
+    )
+
+    if "enabled" not in payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="enabled is required")
+    try:
+        row = PlatformProductVisibilityService.set_enabled(db, group_id, bool(payload.get("enabled")))
+    except PlatformProductVisibilityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return group_to_dict(row)

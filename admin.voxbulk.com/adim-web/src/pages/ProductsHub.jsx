@@ -248,6 +248,256 @@ function DetailPanel({ row, draft, setDraft, onClose, onSave, saving, isMobile }
   return panel
 }
 
+function VisibilityPanel({ toast }) {
+  const [groups, setGroups] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [editing, setEditing] = useState(null)
+  const [draft, setDraft] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [creating, setCreating] = useState(false)
+
+  const load = useCallback(async () => {
+    setError('')
+    const data = await apiFetch('/admin/products/visibility')
+    setGroups(Array.isArray(data?.groups) ? data.groups : [])
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        await load()
+      } catch (e) {
+        if (!cancelled) setError(e?.message || 'Could not load visibility')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [load])
+
+  const openEdit = (g) => {
+    setCreating(false)
+    setEditing(g.id)
+    setDraft({
+      name: g.name,
+      description: g.description || '',
+      sort_order: g.sort_order,
+      routesText: (g.routes || []).join('\n'),
+      faqText: (g.faq_category_slugs || []).join('\n'),
+      pricingText: (g.pricing_kinds || []).join(', '),
+    })
+  }
+
+  const openCreate = () => {
+    setCreating(true)
+    setEditing('new')
+    setDraft({
+      key: '',
+      name: '',
+      description: '',
+      sort_order: 200,
+      routesText: '',
+      faqText: '',
+      pricingText: '',
+    })
+  }
+
+  const lines = (text) =>
+    String(text || '')
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+
+  const saveDraft = async () => {
+    if (!draft) return
+    setSaving(true)
+    setError('')
+    try {
+      const body = {
+        name: draft.name,
+        description: draft.description,
+        sort_order: Number(draft.sort_order || 0),
+        routes: lines(draft.routesText),
+        faq_category_slugs: lines(draft.faqText),
+        pricing_kinds: lines(draft.pricingText),
+      }
+      if (creating) {
+        await apiFetch('/admin/products/visibility', {
+          method: 'POST',
+          body: { ...body, key: draft.key, enabled: true },
+        })
+        toast?.('Product group created (enabled)')
+      } else {
+        await apiFetch(`/admin/products/visibility/${editing}`, { method: 'PUT', body })
+        toast?.('Visibility bindings saved')
+      }
+      setEditing(null)
+      setDraft(null)
+      setCreating(false)
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const toggle = async (g) => {
+    if (g.always_visible) return
+    setError('')
+    try {
+      await apiFetch(`/admin/products/visibility/${g.id}/enabled`, {
+        method: 'PATCH',
+        body: { enabled: !g.enabled },
+      })
+      toast?.(g.enabled ? `${g.name} hidden on public site` : `${g.name} visible on public site`)
+      await load()
+    } catch (e) {
+      setError(e?.message || 'Toggle failed')
+    }
+  }
+
+  return (
+    <div className="phVisibility">
+      <div className="phVisibilityHead">
+        <div>
+          <h2>Public site visibility</h2>
+          <p>
+            Platform catalogue only — enabling or disabling a group shows or hides its bound public pages, nav, help
+            FAQ, and pricing. Organisation dashboard grants are not revoked.
+          </p>
+        </div>
+        <button type="button" className="phBtn phBtnSolid" onClick={openCreate}>
+          New group
+        </button>
+      </div>
+      {error ? (
+        <div className="note noteWarn" style={{ marginBottom: 10 }}>
+          {error}
+        </div>
+      ) : null}
+      {loading ? (
+        <div className="phVisibilityEmpty">Loading…</div>
+      ) : (
+        <ul className="phVisibilityList">
+          {groups.map((g) => (
+            <li key={g.id} className={`phVisibilityRow ${g.enabled ? 'on' : 'off'}`}>
+              <div className="phVisibilityMain">
+                <strong>{g.name}</strong>
+                <span className="phCode">{g.key}</span>
+                {g.always_visible ? <span className="phTierChip">always on</span> : null}
+                <div className="phVisibilityMeta">
+                  {(g.routes || []).length ? `Routes: ${(g.routes || []).join(', ')}` : 'No routes'}
+                  {(g.faq_category_slugs || []).length
+                    ? ` · FAQ: ${(g.faq_category_slugs || []).join(', ')}`
+                    : ''}
+                  {(g.pricing_kinds || []).length ? ` · Pricing: ${(g.pricing_kinds || []).join(', ')}` : ''}
+                </div>
+              </div>
+              <div className="phVisibilityActions">
+                <button type="button" className="phBtn phBtnGhost" onClick={() => openEdit(g)}>
+                  Bindings
+                </button>
+                <button
+                  type="button"
+                  className={`phStatusOpt ${g.enabled ? 'on-active' : 'on-stopped'}`}
+                  disabled={g.always_visible}
+                  onClick={() => toggle(g)}
+                  title={g.always_visible ? 'Shared FAQ group stays visible' : 'Toggle public visibility'}
+                >
+                  {g.enabled ? 'Enabled' : 'Disabled'}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {editing && draft ? (
+        <div className="phVisibilityEditor">
+          <h3>{creating ? 'New product group' : 'Edit bindings'}</h3>
+          {creating ? (
+            <div>
+              <label htmlFor="phVisKey">Key</label>
+              <input
+                id="phVisKey"
+                value={draft.key}
+                onChange={(e) => setDraft((d) => ({ ...d, key: e.target.value }))}
+                placeholder="e.g. appointments"
+              />
+            </div>
+          ) : null}
+          <div>
+            <label htmlFor="phVisName">Name</label>
+            <input
+              id="phVisName"
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label htmlFor="phVisDesc">Description</label>
+            <textarea
+              id="phVisDesc"
+              rows={2}
+              value={draft.description}
+              onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label htmlFor="phVisRoutes">Public routes (one per line)</label>
+            <textarea
+              id="phVisRoutes"
+              rows={3}
+              value={draft.routesText}
+              onChange={(e) => setDraft((d) => ({ ...d, routesText: e.target.value }))}
+              placeholder="/recruitment"
+            />
+          </div>
+          <div>
+            <label htmlFor="phVisFaq">FAQ category slugs (one per line)</label>
+            <textarea
+              id="phVisFaq"
+              rows={3}
+              value={draft.faqText}
+              onChange={(e) => setDraft((d) => ({ ...d, faqText: e.target.value }))}
+              placeholder="recruitment"
+            />
+          </div>
+          <div>
+            <label htmlFor="phVisPricing">Pricing kinds (comma-separated: core, feedback, expo, smart_card, campaign)</label>
+            <input
+              id="phVisPricing"
+              value={draft.pricingText}
+              onChange={(e) => setDraft((d) => ({ ...d, pricingText: e.target.value }))}
+            />
+          </div>
+          <div className="phVisibilityEditorFoot">
+            <button type="button" className="phBtn phBtnSolid" disabled={saving} onClick={saveDraft}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              className="phBtn phBtnGhost"
+              onClick={() => {
+                setEditing(null)
+                setDraft(null)
+                setCreating(false)
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function ProductsHub() {
   const [searchParams] = useSearchParams()
   const [rows, setRows] = useState([])
@@ -483,6 +733,8 @@ export default function ProductsHub() {
           {error}
         </div>
       ) : null}
+
+      <VisibilityPanel toast={(msg) => setToast(msg)} />
 
       <div className="phLegend">
         <span>

@@ -20,6 +20,7 @@ class FAQItemIn(BaseModel):
     is_published: bool = True
     sort_order: int = 0
     linked_provider: str | None = Field(default=None, max_length=50)
+    linked_service: str | None = Field(default=None, max_length=64)
     surface: str = Field(default="frontend", max_length=20)
 
 

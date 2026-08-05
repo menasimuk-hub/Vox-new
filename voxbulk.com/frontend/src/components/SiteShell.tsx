@@ -7,6 +7,7 @@ import { useAuthModal } from "@/components/AuthModal";
 import { useCurrency, MARKETS } from "@/components/CurrencyContext";
 import { CookieConsentBanner, openCookiePreferences } from "@/components/CookieConsentBanner";
 import { ConsentTrackingScripts } from "@/components/ConsentTrackingScripts";
+import { isRouteEnabled, useProductVisibility } from "@/lib/product-visibility";
 
 const productLinks = [
   { label: "Recruitment Automation", to: "/recruitment", desc: "AI screening, scheduling & voice interviews", Icon: Sparkles, tone: "blue" as const },
@@ -16,11 +17,16 @@ const productLinks = [
   { label: "Smart Card QR", to: "/smart-card", desc: "One personal lead-capture QR per sales rep", Icon: IdCard, tone: "teal" as const },
 ];
 
+function useVisibleProductLinks() {
+  const vis = useProductVisibility();
+  return productLinks.filter((l) => isRouteEnabled(vis, l.to));
+}
 
 export function SiteHeader() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
   const auth = useAuthModal();
+  const visibleProducts = useVisibleProductLinks();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -67,7 +73,9 @@ export function SiteHeader() {
             >
               What we do
             </Link>
-            <ProductsDropdown linkColor={linkColor} scrolled={scrolled} />
+            {visibleProducts.length ? (
+              <ProductsDropdown linkColor={linkColor} scrolled={scrolled} products={visibleProducts} />
+            ) : null}
             <Link
               to="/pricing"
               className={`text-[14.5px] font-semibold transition-all px-4 py-2 rounded-lg ${linkColor}`}
@@ -131,14 +139,18 @@ export function SiteHeader() {
             </button>
           </div>
           <div className="flex-1 px-5 py-4 overflow-y-auto">
-            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-text mt-2 mb-1">Services</div>
-            {productLinks.map((l) => (
-              <Link key={l.to} to={l.to} onClick={() => setOpen(false)}
-                className="flex items-center justify-between h-14 border-b border-border text-[16px] font-medium text-heading">
-                {l.label}
-                <ArrowRight size={18} className="text-muted-text" />
-              </Link>
-            ))}
+            {visibleProducts.length ? (
+              <>
+                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-text mt-2 mb-1">Services</div>
+                {visibleProducts.map((l) => (
+                  <Link key={l.to} to={l.to} onClick={() => setOpen(false)}
+                    className="flex items-center justify-between h-14 border-b border-border text-[16px] font-medium text-heading">
+                    {l.label}
+                    <ArrowRight size={18} className="text-muted-text" />
+                  </Link>
+                ))}
+              </>
+            ) : null}
             <Link to="/pricing" onClick={() => setOpen(false)} className="flex items-center justify-between h-14 border-b border-border text-[17px] font-medium text-heading">
               Pricing <ArrowRight size={18} className="text-muted-text" />
             </Link>
@@ -158,7 +170,15 @@ export function SiteHeader() {
   );
 }
 
-function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled: boolean }) {
+function ProductsDropdown({
+  linkColor,
+  scrolled,
+  products,
+}: {
+  linkColor: string;
+  scrolled: boolean;
+  products: typeof productLinks;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -181,7 +201,7 @@ function ProductsDropdown({ linkColor, scrolled }: { linkColor: string; scrolled
       {open && (
         <div className={`absolute top-full left-1/2 -translate-x-1/2 pt-2 w-[380px]`}>
           <div className={`rounded-xl border ${scrolled ? "border-white/10 bg-[#0E1A2E]" : "border-navy/10 bg-white"} shadow-[0_20px_50px_-15px_rgba(10,22,40,0.35)] overflow-hidden`}>
-            {productLinks.map((p) => {
+            {products.map((p) => {
               const toneBg =
                 p.tone === "blue" ? "bg-primary/10 text-primary" :
                 p.tone === "teal" ? "bg-teal/15 text-teal" :
@@ -239,6 +259,15 @@ export function SiteFooter() {
   const { currency, setCurrency } = useCurrency();
   const [open, setOpen] = useState(false);
   const active = MARKETS.find((m) => m.code === currency) ?? MARKETS[0];
+  const vis = useProductVisibility();
+  const cols = footerCols.map((c) =>
+    c.title !== "Product"
+      ? c
+      : {
+          ...c,
+          links: c.links.filter(([_, href]) => !href || href === "/pricing" || isRouteEnabled(vis, href)),
+        },
+  );
   return (
     <footer className="bg-dark text-white pt-20 pb-10">
       <div className="max-w-[1180px] mx-auto px-5 md:px-10">
@@ -282,7 +311,7 @@ export function SiteFooter() {
               )}
             </div>
           </div>
-          {footerCols.map((c) => (
+          {cols.map((c) => (
             <div key={c.title}>
               <div className="text-[12px] font-semibold uppercase tracking-[0.1em] text-white mb-4">{c.title}</div>
               <ul className="space-y-2.5">
