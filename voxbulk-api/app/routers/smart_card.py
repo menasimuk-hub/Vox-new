@@ -291,6 +291,55 @@ def patch_rep(rep_id: str, payload: dict, db: Session = Depends(get_db), princip
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.post("/representatives/{rep_id}/photo")
+async def upload_rep_photo(
+    rep_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_smart_card_enabled(db, principal.org_id)
+    _require_manage(db, principal)
+    from pathlib import Path
+
+    rep = SmartCardRepresentativeService.get(db, org_id=principal.org_id, rep_id=rep_id)
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Representative not found")
+    raw = await file.read()
+    if not raw or len(raw) > 3 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Photo must be under 3 MB")
+    ext = Path(file.filename or "photo.jpg").suffix.lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="Photo must be PNG, JPG, or WEBP")
+    rel = f"data/smart_card_photos/{principal.org_id}/{rep.id}{ext}"
+    abs_path = Path(__file__).resolve().parents[2] / rel
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_bytes(raw)
+    rep.photo_storage_path = rel.replace("\\", "/")
+    db.add(rep)
+    db.commit()
+    return {"ok": True, "item": SmartCardRepresentativeService.serialize(db, rep)}
+
+
+@router.get("/representatives/{rep_id}/photo")
+def get_rep_photo(rep_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    _require_smart_card_enabled(db, principal.org_id)
+    rep = SmartCardRepresentativeService.get(db, org_id=principal.org_id, rep_id=rep_id)
+    if rep is None or not rep.photo_storage_path:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    role = OrgRbacService.role_for(db, org_id=principal.org_id, user_id=principal.user_id)
+    if not can_view_all_campaigns(role) and rep.linked_user_id != principal.user_id:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    abs_path = (Path(__file__).resolve().parents[2] / str(rep.photo_storage_path)).resolve()
+    if not abs_path.is_file():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return FileResponse(abs_path)
+
+
 # --- Catalogue ---
 
 

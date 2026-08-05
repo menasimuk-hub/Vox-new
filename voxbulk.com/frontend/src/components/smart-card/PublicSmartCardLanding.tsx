@@ -33,6 +33,7 @@ type CardMeta = {
     landline?: string;
     job_title?: string | null;
     social_links?: SocialLinks | null;
+    photo_url?: string | null;
   };
   company?: {
     name?: string;
@@ -40,6 +41,7 @@ type CardMeta = {
     description?: string;
     tagline?: string | null;
     location?: string | null;
+    logo_url?: string | null;
   };
 };
 
@@ -169,7 +171,6 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
   const [meta, setMeta] = React.useState<CardMeta | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [phase, setPhase] = React.useState<Phase>("card");
-  const [pickerOpen, setPickerOpen] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
   const [doneMsg, setDoneMsg] = React.useState("Thank you");
   const [blockMessage, setBlockMessage] = React.useState<string | undefined>();
@@ -246,7 +247,6 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
   };
 
   const startWeb = () => {
-    setPickerOpen(false);
     setError(null);
     setWebRunId((n) => n + 1);
     setPhase("web");
@@ -362,7 +362,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
       <div className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 pb-8 pt-9">
         <section className="animate-rise flex flex-col items-center text-center">
           <div
-            className="relative flex h-20 w-20 items-center justify-center rounded-2xl text-2xl font-semibold"
+            className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl text-2xl font-semibold"
             style={{
               background: "linear-gradient(135deg,#38bdf8,#6366f1)",
               color: "#06121f",
@@ -370,8 +370,21 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
             }}
           >
             <span className="animate-pulse-ring absolute inset-0 rounded-2xl" style={{ border: "1px solid rgba(56,189,248,0.45)" }} />
-            {(personName || "V").slice(0, 1).toUpperCase()}
+            {rep?.photo_url || company?.logo_url ? (
+              <img
+                src={`${API}${rep?.photo_url || company?.logo_url}`}
+                alt=""
+                className="relative h-full w-full object-cover"
+              />
+            ) : (
+              <span className="relative">{(personName || "V").slice(0, 1).toUpperCase()}</span>
+            )}
           </div>
+          {company?.logo_url && rep?.photo_url ? (
+            <div className="mt-3 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl" style={{ background: CARD_BG, border: `1px solid ${BORDER}` }}>
+              <img src={`${API}${company.logo_url}`} alt={companyName} className="h-full w-full object-contain p-1" />
+            </div>
+          ) : null}
           <h1 className="mt-4 text-[26px] font-semibold leading-tight" style={{ color: INK }}>
             {personName}
           </h1>
@@ -414,21 +427,6 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
         </div>
 
         <nav className="mt-4 flex flex-col gap-2.5">
-          {meta.whatsapp_url ? (
-            <Action
-              href={meta.whatsapp_url}
-              label="WhatsApp"
-              sub="Message on WhatsApp"
-              tint="rgba(37,211,102,0.18)"
-              glow="rgba(37,211,102,0.55)"
-              delay="120ms"
-              icon={
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M12.04 2A9.9 9.9 0 002.1 11.9c0 1.75.46 3.45 1.32 4.95L2 22l5.3-1.38a9.9 9.9 0 0014.74-8.72A9.9 9.9 0 0012.04 2zm5.8 14.05c-.24.68-1.4 1.3-1.94 1.34-.5.04-1.12.06-1.81-.11a15.5 15.5 0 01-6.6-4.6c-.44-.58-1.17-1.68-1.17-3.2 0-1.52.8-2.27 1.08-2.58.28-.31.6-.39.8-.39l.58.01c.19 0 .44-.07.68.52.25.6.85 2.08.93 2.23.07.15.12.33.02.53-.1.2-.15.32-.3.5l-.44.51c-.15.15-.3.32-.13.62.17.3.76 1.25 1.63 2.03 1.12 1 2.07 1.31 2.37 1.46.3.15.47.13.65-.08.17-.2.75-.87.95-1.17.2-.3.4-.25.67-.15.27.1 1.72.81 2.02.96.3.15.5.22.57.35.07.13.07.74-.17 1.42z" />
-                </svg>
-              }
-            />
-          ) : null}
           {phone ? (
             <Action
               href={`tel:${phone}`}
@@ -436,7 +434,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
               sub={phone}
               tint="rgba(56,189,248,0.18)"
               glow="rgba(56,189,248,0.55)"
-              delay="170ms"
+              delay="120ms"
               icon={
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                   <path d="M6.5 3h3l1.5 4-2 1.5a12 12 0 006.5 6.5l1.5-2 4 1.5v3a2 2 0 01-2.2 2A17 17 0 014.5 5.2 2 2 0 016.5 3z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -451,7 +449,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
               sub={email}
               tint="rgba(167,139,250,0.18)"
               glow="rgba(167,139,250,0.55)"
-              delay="220ms"
+              delay="170ms"
               icon={
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                   <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
@@ -467,7 +465,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
               sub={website.replace(/^https?:\/\//i, "")}
               tint="rgba(99,102,241,0.18)"
               glow="rgba(99,102,241,0.55)"
-              delay="270ms"
+              delay="220ms"
               icon={
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                   <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
@@ -483,7 +481,7 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
               sub={location}
               tint="rgba(244,114,182,0.16)"
               glow="rgba(244,114,182,0.5)"
-              delay="320ms"
+              delay="270ms"
               icon={
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                   <path d="M12 21s7-5.5 7-11a7 7 0 10-14 0c0 5.5 7 11 7 11z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -494,8 +492,72 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
           ) : null}
         </nav>
 
+        <div className="animate-rise mt-5 flex flex-col gap-3" style={{ animationDelay: "280ms" }}>
+          <p className="text-center text-[11px] font-medium uppercase tracking-[0.16em]" style={{ color: SUB }}>
+            Leave feedback
+          </p>
+          {meta.whatsapp_url ? (
+            <a
+              href={meta.whatsapp_url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-4 rounded-2xl px-4 py-3.5 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+              style={{
+                background: "linear-gradient(120deg, rgba(37,211,102,0.16), rgba(255,255,255,0.03))",
+                border: "1px solid rgba(37,211,102,0.35)",
+              }}
+            >
+              <span
+                className="flex h-11 w-11 items-center justify-center rounded-2xl"
+                style={{ background: "rgba(37,211,102,0.22)", color: INK }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12.04 2A9.9 9.9 0 002.1 11.9c0 1.75.46 3.45 1.32 4.95L2 22l5.3-1.38a9.9 9.9 0 0014.74-8.72A9.9 9.9 0 0012.04 2zm5.8 14.05c-.24.68-1.4 1.3-1.94 1.34-.5.04-1.12.06-1.81-.11a15.5 15.5 0 01-6.6-4.6c-.44-.58-1.17-1.68-1.17-3.2 0-1.52.8-2.27 1.08-2.58.28-.31.6-.39.8-.39l.58.01c.19 0 .44-.07.68.52.25.6.85 2.08.93 2.23.07.15.12.33.02.53-.1.2-.15.32-.3.5l-.44.51c-.15.15-.3.32-.13.62.17.3.76 1.25 1.63 2.03 1.12 1 2.07 1.31 2.37 1.46.3.15.47.13.65-.08.17-.2.75-.87.95-1.17.2-.3.4-.25.67-.15.27.1 1.72.81 2.02.96.3.15.5.22.57.35.07.13.07.74-.17 1.42z" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block text-[15px] font-semibold" style={{ color: INK }}>
+                  WhatsApp questionnaire
+                </span>
+                <span className="block text-[12px]" style={{ color: SUB }}>
+                  Chat with us on WhatsApp
+                </span>
+              </span>
+            </a>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => startWeb()}
+            className="flex items-center gap-4 rounded-2xl px-4 py-3.5 text-left transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
+            style={{
+              background: "linear-gradient(120deg, rgba(56,189,248,0.16), rgba(255,255,255,0.03))",
+              border: "1px solid rgba(56,189,248,0.35)",
+            }}
+          >
+            <span
+              className="flex h-11 w-11 items-center justify-center rounded-2xl"
+              style={{ background: "rgba(56,189,248,0.22)", color: INK }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" stroke="currentColor" strokeWidth="1.4" />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[15px] font-semibold" style={{ color: INK }}>
+                Web questionnaire
+              </span>
+              <span className="block text-[12px]" style={{ color: SUB }}>
+                Card photo · questions · voice note
+              </span>
+            </span>
+          </button>
+        </div>
+
+        {error ? <p className="mt-3 text-center text-[13px] text-rose-300">{error}</p> : null}
+
         {socialEntries.length > 0 ? (
-          <div className="animate-rise mt-5 flex flex-wrap items-center justify-center gap-3" style={{ animationDelay: "360ms" }}>
+          <div className="mt-6 flex flex-wrap justify-center gap-2.5">
             {socialEntries.map(([key, href]) => {
               const metaS = SOCIAL_META[key] || { label: key, char: key.slice(0, 1).toUpperCase() };
               return (
@@ -512,124 +574,6 @@ export function PublicSmartCardLanding({ token }: { token: string }) {
                 </a>
               );
             })}
-          </div>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={() => setPickerOpen(true)}
-          className="animate-rise group mt-5 flex w-full items-center justify-between rounded-2xl px-4 py-3.5 text-left transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
-          style={{
-            background: "rgba(56,189,248,0.08)",
-            border: "1px solid rgba(56,189,248,0.28)",
-            animationDelay: "400ms",
-          }}
-        >
-          <span>
-            <span className="block text-[14px] font-semibold" style={{ color: INK }}>
-              Leave us feedback
-            </span>
-            <span className="block text-[12px]" style={{ color: SUB }}>
-              60 seconds — it really helps us
-            </span>
-          </span>
-          <span className="text-lg transition-transform duration-300 group-hover:scale-110">💬</span>
-        </button>
-
-        {error ? <p className="mt-3 text-center text-[13px] text-rose-300">{error}</p> : null}
-
-        {pickerOpen ? (
-          <div className="fixed inset-0 z-50 flex items-end justify-center px-4 pb-5 sm:items-center sm:pb-0">
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={() => setPickerOpen(false)}
-              className="absolute inset-0"
-              style={{ background: "rgba(3,10,20,0.72)", backdropFilter: "blur(6px)" }}
-            />
-            <div
-              className="animate-rise relative w-full max-w-md rounded-3xl p-5"
-              style={{
-                background: "linear-gradient(160deg, rgba(18,28,46,0.96), rgba(10,16,28,0.96))",
-                border: `1px solid ${BORDER}`,
-                boxShadow: "0 30px 70px -30px rgba(56,189,248,0.5)",
-              }}
-            >
-              <div className="mx-auto mb-4 h-1 w-10 rounded-full" style={{ background: BORDER }} />
-              <h2 className="text-center text-[18px] font-semibold" style={{ color: INK }}>
-                How would you like to share it?
-              </h2>
-              <p className="mt-1 text-center text-[12.5px]" style={{ color: SUB }}>
-                Pick whichever is easier for you.
-              </p>
-              <div className="mt-5 flex flex-col gap-3">
-                {meta.feedback_whatsapp_url || meta.whatsapp_url ? (
-                  <a
-                    href={meta.feedback_whatsapp_url || meta.whatsapp_url || "#"}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => setPickerOpen(false)}
-                    className="group flex items-center gap-4 rounded-2xl px-4 py-3.5 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
-                    style={{
-                      background: "linear-gradient(120deg, rgba(37,211,102,0.16), rgba(255,255,255,0.03))",
-                      border: "1px solid rgba(37,211,102,0.35)",
-                    }}
-                  >
-                    <span
-                      className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                      style={{ background: "rgba(37,211,102,0.22)", color: INK }}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12.04 2A9.9 9.9 0 002.1 11.9c0 1.75.46 3.45 1.32 4.95L2 22l5.3-1.38a9.9 9.9 0 0014.74-8.72A9.9 9.9 0 0012.04 2zm5.8 14.05c-.24.68-1.4 1.3-1.94 1.34-.5.04-1.12.06-1.81-.11a15.5 15.5 0 01-6.6-4.6c-.44-.58-1.17-1.68-1.17-3.2 0-1.52.8-2.27 1.08-2.58.28-.31.6-.39.8-.39l.58.01c.19 0 .44-.07.68.52.25.6.85 2.08.93 2.23.07.15.12.33.02.53-.1.2-.15.32-.3.5l-.44.51c-.15.15-.3.32-.13.62.17.3.76 1.25 1.63 2.03 1.12 1 2.07 1.31 2.37 1.46.3.15.47.13.65-.08.17-.2.75-.87.95-1.17.2-.3.4-.25.67-.15.27.1 1.72.81 2.02.96.3.15.5.22.57.35.07.13.07.74-.17 1.42z" />
-                      </svg>
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] font-semibold" style={{ color: INK }}>
-                        Send on WhatsApp
-                      </span>
-                      <span className="block truncate text-[12px]" style={{ color: SUB }}>
-                        Chat with us directly
-                      </span>
-                    </span>
-                  </a>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => startWeb()}
-                  className="group flex items-center gap-4 rounded-2xl px-4 py-3.5 text-left transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]"
-                  style={{
-                    background: "linear-gradient(120deg, rgba(56,189,248,0.16), rgba(255,255,255,0.03))",
-                    border: "1px solid rgba(56,189,248,0.35)",
-                  }}
-                >
-                  <span
-                    className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                    style={{ background: "rgba(56,189,248,0.22)", color: INK }}
-                  >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
-                      <path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" stroke="currentColor" strokeWidth="1.4" />
-                    </svg>
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] font-semibold" style={{ color: INK }}>
-                      Web survey
-                    </span>
-                    <span className="block truncate text-[12px]" style={{ color: SUB }}>
-                      Card photo · questions · voice note
-                    </span>
-                  </span>
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPickerOpen(false)}
-                className="mt-4 w-full rounded-2xl py-2.5 text-[13px] font-medium"
-                style={{ background: CARD_BG, border: `1px solid ${BORDER}`, color: SUB }}
-              >
-                Maybe later
-              </button>
-            </div>
           </div>
         ) : null}
 

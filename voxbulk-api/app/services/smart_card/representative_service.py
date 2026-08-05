@@ -278,6 +278,10 @@ class SmartCardRepresentativeService:
             "qr_fg_color": rep.qr_fg_color,
             "qr_bg_color": rep.qr_bg_color,
             "qr_transparent": bool(rep.qr_transparent),
+            "photo_storage_path": rep.photo_storage_path,
+            "photo_url": (
+                f"/smart-card/representatives/{rep.id}/photo" if rep.photo_storage_path else None
+            ),
             "qr_image_url": SmartCardCompanyService.qr_image_url(rep),
             "web_url": web_url,
             "status": rep.status,

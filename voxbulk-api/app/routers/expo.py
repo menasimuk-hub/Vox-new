@@ -580,6 +580,49 @@ def get_lead_card_image(lead_id: str, db: Session = Depends(get_db), principal=D
     return FileResponse(path, media_type=media, filename=path.name)
 
 
+@router.get("/results/voice-notes/{job_id}/audio")
+def get_expo_voice_audio(job_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    from app.models.expo import ExpoVoiceNoteJob
+
+    _require_expo_enabled(db, principal.org_id)
+    owner_filter = _campaign_owner_user_id(db, principal)
+    job = db.get(ExpoVoiceNoteJob, job_id)
+    if job is None or job.org_id != principal.org_id:
+        raise HTTPException(status_code=404, detail="Audio not found")
+    if owner_filter:
+        from app.models.expo import ExpoBooth
+
+        booth = db.get(ExpoBooth, job.booth_id) if job.booth_id else None
+        if booth is None or (booth.created_by_user_id and booth.created_by_user_id != owner_filter):
+            raise HTTPException(status_code=404, detail="Audio not found")
+    rel = str(job.provider_media_id or "").strip().replace("\\", "/")
+    if not rel.startswith("data/") or ".." in rel.split("/"):
+        raise HTTPException(status_code=404, detail="Audio not found")
+    root = Path(__file__).resolve().parents[2]
+    abs_path = (root / rel).resolve()
+    try:
+        abs_path.relative_to((root / "data").resolve())
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Audio not found") from None
+    if not abs_path.is_file():
+        raise HTTPException(status_code=404, detail="Audio not found")
+    media = "audio/webm"
+    suffix = abs_path.suffix.lower()
+    if suffix in {".ogg", ".oga"}:
+        media = "audio/ogg"
+    elif suffix in {".mp3", ".mpeg"}:
+        media = "audio/mpeg"
+    elif suffix == ".wav":
+        media = "audio/wav"
+    elif suffix in {".m4a", ".mp4"}:
+        media = "audio/mp4"
+    return FileResponse(abs_path, media_type=media)
+
+
 @router.get("/results/export.csv")
 def results_export_csv(
     booth_id: str | None = None,

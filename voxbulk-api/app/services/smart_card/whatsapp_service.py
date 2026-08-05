@@ -19,15 +19,50 @@ _TOKEN_RE = re.compile(r"\b([a-z0-9]+-[a-z0-9]+-[a-f0-9]{16})\b", re.I)
 STOP_WORDS = frozenset({"stop", "unsubscribe", "cancel", "opt out", "opt-out", "end", "quit"})
 
 
+def looks_like_smart_card_message(text: str) -> bool:
+    lower = str(text or "").lower()
+    return "smart card" in lower or "smart-card" in lower or "smartcard" in lower
+
+
 def find_smart_card_token_in_text(db: Session, text: str) -> str | None:
-    for m in _TOKEN_RE.finditer(text or ""):
-        token = m.group(1)
+    """Return an active Smart Card qr_token present in the inbound message."""
+    raw = str(text or "")
+    candidates: list[str] = []
+    for m in _TOKEN_RE.finditer(raw):
+        tok = m.group(1)
+        if tok not in candidates:
+            candidates.append(tok)
+    # Also accept "Ref: token" without word-boundary quirks
+    m_ref = re.search(r"(?i)\bref\s*[:#]?\s*([a-z0-9]+-[a-z0-9]+-[a-f0-9]{16})\b", raw)
+    if m_ref:
+        tok = m_ref.group(1)
+        if tok not in candidates:
+            candidates.insert(0, tok)
+    for token in candidates:
         rep = db.execute(
             select(SmartCardRepresentative).where(SmartCardRepresentative.qr_token == token)
         ).scalar_one_or_none()
         if rep is not None and str(rep.status or "") == "active":
             return token
+    # Slow path: known tokens contained in message
+    if looks_like_smart_card_message(raw):
+        rows = db.execute(select(SmartCardRepresentative.qr_token).where(SmartCardRepresentative.status == "active")).scalars().all()
+        lower = raw.lower()
+        for tok in rows:
+            t = str(tok or "").strip()
+            if t and t.lower() in lower:
+                return t
     return None
+
+
+def build_smart_card_wa_trigger(*, rep_name: str, qr_token: str) -> str:
+    """Friendly prefilled WhatsApp text — token kept as Ref: for routing."""
+    name = str(rep_name or "our team").strip() or "our team"
+    token = str(qr_token or "").strip()
+    return (
+        f"Hi — I scanned {name}'s Smart Card and would like to connect.\n"
+        f"Ref: {token}"
+    )
 
 
 class SmartCardWhatsappService:

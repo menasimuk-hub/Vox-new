@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 
@@ -26,6 +26,7 @@ type Rep = {
   qr_fg_color?: string;
   qr_bg_color?: string;
   qr_transparent?: boolean;
+  photo_url?: string | null;
 };
 
 type Product = { id: string; name: string };
@@ -220,6 +221,39 @@ function RepEditPanel({
 
   return (
     <div className="space-y-2 text-sm">
+      <div className="space-y-1">
+        <Label className="text-xs">Profile photo</Label>
+        <p className="text-[11px] text-muted-foreground">Shown on the public card (falls back to company logo).</p>
+        <Input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          disabled={busy}
+          onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            try {
+              const form = new FormData();
+              form.append("file", file);
+              const base = getApiBaseUrl().replace(/\/+$/, "");
+              const res = await fetch(`${base}/smart-card/representatives/${rep.id}/photo`, {
+                method: "POST",
+                headers: buildAuthHeaders(),
+                body: form,
+              });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(typeof err?.detail === "string" ? err.detail : "Upload failed");
+              }
+              toast.success("Photo uploaded");
+              window.location.reload();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Upload failed");
+            } finally {
+              e.target.value = "";
+            }
+          }}
+        />
+      </div>
       <p className="text-xs font-medium text-muted-foreground">Assigned products</p>
       <div className="max-h-28 space-y-1 overflow-y-auto rounded border p-2">
         {products.length ? (

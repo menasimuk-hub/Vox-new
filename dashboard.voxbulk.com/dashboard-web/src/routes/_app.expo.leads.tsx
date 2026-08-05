@@ -74,6 +74,48 @@ function displayAnswer(en?: string | null, original?: string | null, fallback?: 
   return english;
 }
 
+function AuthenticatedAudio({ src }: { src: string }) {
+  const [blobUrl, setBlobUrl] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    let revoked: string | null = null;
+    let cancelled = false;
+    setBlobUrl(null);
+    const path = String(src || "").trim();
+    if (!path) return;
+    // External WhatsApp URLs — use directly; API paths need auth headers.
+    if (path.startsWith("http://") || path.startsWith("https://")) {
+      setBlobUrl(path);
+      return;
+    }
+    (async () => {
+      try {
+        const base = getApiBaseUrl().replace(/\/+$/, "");
+        const res = await fetch(`${base}${path}`, { headers: buildAuthHeaders() });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setBlobUrl(url);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [src]);
+  if (!blobUrl) {
+    return <p className="mt-3 text-xs text-muted-foreground">Loading recording…</p>;
+  }
+  return (
+    <audio controls preload="none" className="mt-3 w-full" src={blobUrl}>
+      Your browser does not support audio playback.
+    </audio>
+  );
+}
+
 type AssetSentItem =
   | string
   | {
@@ -649,9 +691,7 @@ function ExpoLeads() {
                             <p className="mt-1.5 text-[13px] font-medium text-foreground">{a.question_prompt}</p>
                           ) : null}
                           {a.answer_source === "voice" && a.audio_url ? (
-                            <audio controls preload="none" className="mt-3 w-full" src={a.audio_url}>
-                              Your browser does not support audio playback.
-                            </audio>
+                            <AuthenticatedAudio src={a.audio_url} />
                           ) : null}
                           {showBoth ? (
                             <div className="mt-3 space-y-3">

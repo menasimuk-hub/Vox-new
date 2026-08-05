@@ -424,6 +424,10 @@ class ExpoResultsService:
                     for job in jobs:
                         rid = str(job.response_id or "")
                         url = str(job.media_url or "").strip()
+                        # Prefer authenticated local playback when we stored web audio on disk.
+                        local = str(getattr(job, "provider_media_id", None) or "").strip()
+                        if local.startswith("data/") or local.replace("\\", "/").startswith("data/"):
+                            url = f"/expo/results/voice-notes/{job.id}/audio"
                         if rid and url and rid not in voice_by_response:
                             voice_by_response[rid] = url
             for r in rows:

@@ -53,6 +53,14 @@ function MicGlyph() {
   );
 }
 
+function StopGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-7 w-7" fill="currentColor" aria-hidden>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
 function Waveform({ color }: { color: string }) {
   const style = (i: number): CSSProperties => ({
     background: color,
@@ -398,7 +406,7 @@ export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(funct
                     </>
                   )}
                   <span className={recState === "recording" ? "animate-mic-pulse" : ""}>
-                    <MicGlyph />
+                    {recState === "recording" ? <StopGlyph /> : <MicGlyph />}
                   </span>
                 </button>
               ) : (
@@ -414,10 +422,16 @@ export const VoiceDetail = forwardRef<VoiceDetailHandle, VoiceDetailProps>(funct
                 <div className="mt-3 flex flex-col items-center gap-1.5">
                   <Waveform color={theme.accent} />
                   <div className="font-display text-sm tabular-nums" style={{ color: theme.ink }}>{fmt(recSeconds)}</div>
+                  <p className="text-[11px] font-medium" style={{ color: theme.sub }}>
+                    Tap stop to finish, then Continue
+                  </p>
                 </div>
               )}
               {recState === "idle" && (
                 <p className="mt-2 text-[11px]" style={{ color: theme.sub }}>Tap to record</p>
+              )}
+              {recState === "recorded" && (
+                <p className="mt-2 text-[11px]" style={{ color: theme.sub }}>Ready — tap Continue to send</p>
               )}
               {recError ? (
                 <p className="mt-2 text-center text-[11px] text-red-600">{recError}</p>

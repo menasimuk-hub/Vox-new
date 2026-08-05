@@ -188,6 +188,46 @@ def _route_inbound_handlers(
     }
     reply_from = str(business_number or "").strip() or None
 
+    # Smart Card before Expo — shared WA line (Meta path previously had no SC handler).
+    handled_smart_card = False
+    smart_card_result: dict[str, Any] | None = None
+    try:
+        from app.services.smart_card.whatsapp_service import (
+            SmartCardWhatsappService,
+            find_smart_card_token_in_text,
+            looks_like_smart_card_message,
+        )
+
+        sc_token = find_smart_card_token_in_text(db, inbound_text)
+        sc_active = SmartCardWhatsappService.find_active_session(db, visitor_phone=from_phone)
+        if sc_token or sc_active is not None or looks_like_smart_card_message(inbound_text):
+            if sc_token or sc_active is not None:
+                smart_card_result = SmartCardWhatsappService.try_handle_inbound(
+                    db,
+                    from_phone=from_phone,
+                    body=inbound_text,
+                    org_id=org_id,
+                    record=record if isinstance(record, dict) else None,
+                    business_number=reply_from,
+                )
+                handled_smart_card = bool((smart_card_result or {}).get("handled"))
+                result["handled_smart_card"] = handled_smart_card
+                result["smart_card_result"] = smart_card_result
+                logger.info(
+                    "meta_smart_card_wa_inbound_result handled=%s reason=%s sent=%s token=%s from=%r",
+                    handled_smart_card,
+                    (smart_card_result or {}).get("reason"),
+                    (smart_card_result or {}).get("sent"),
+                    sc_token,
+                    from_phone,
+                )
+    except Exception:
+        logger.exception(
+            "meta_smart_card_wa_inbound_handler_failed body_len=%s from_hash=%s",
+            len(inbound_text or ""),
+            hashlib.sha256((from_phone or "").encode()).hexdigest()[:12] if from_phone else "",
+        )
+
     # Expo before Feedback — same QR WhatsApp line; Expo replies are plain session text (no Meta HSM).
     handled_expo = False
     try:
@@ -195,7 +235,7 @@ def _route_inbound_handlers(
         from app.services.expo.whatsapp_service import ExpoWhatsappService
 
         expo_trigger_token = find_expo_token_in_text(db, inbound_text)
-        if expo_trigger_token:
+        if expo_trigger_token and not handled_smart_card:
             expo_result = ExpoWhatsappService.try_handle_inbound(
                 db,
                 from_phone=from_phone,
@@ -228,7 +268,7 @@ def _route_inbound_handlers(
     from app.services.customer_feedback.location_service import FeedbackLocationService
 
     feedback_trigger_token = FeedbackLocationService.parse_trigger_ref(inbound_text)
-    if not handled_expo and feedback_trigger_token:
+    if not handled_expo and not handled_smart_card and feedback_trigger_token:
         try:
             from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -250,7 +290,7 @@ def _route_inbound_handlers(
 
     handled_survey = False
     survey_session_bug = False
-    if not handled_expo and not handled_feedback:
+    if not handled_expo and not handled_smart_card and not handled_feedback:
         try:
             from app.services.survey_whatsapp_conversation_service import try_handle_survey_whatsapp_inbound
 
@@ -272,7 +312,7 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_survey_wa_inbound_handler_failed log_id=%s from=%r", log_id, from_phone)
 
-    if not handled_expo and not handled_feedback and not handled_survey:
+    if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
         try:
             from app.services.expo.whatsapp_service import ExpoWhatsappService
 
@@ -298,7 +338,25 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_expo_wa_session_handler_failed from=%r", from_phone)
 
-    if not handled_expo and not handled_feedback and not handled_survey:
+    if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
+        try:
+            from app.services.smart_card.whatsapp_service import SmartCardWhatsappService
+
+            smart_card_result = SmartCardWhatsappService.try_handle_inbound(
+                db,
+                from_phone=from_phone,
+                body=inbound_text,
+                org_id=org_id,
+                record=record if isinstance(record, dict) else None,
+                business_number=reply_from,
+            )
+            handled_smart_card = bool((smart_card_result or {}).get("handled"))
+            result["handled_smart_card"] = handled_smart_card
+            result["smart_card_result"] = smart_card_result
+        except Exception:
+            logger.exception("meta_smart_card_wa_session_handler_failed from=%r", from_phone)
+
+    if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
         try:
             from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
 
@@ -314,7 +372,7 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_feedback_wa_session_handler_failed from=%r", from_phone)
 
-    if not handled_expo and not handled_feedback and not handled_survey:
+    if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
         try:
             from app.services.appointment_wa_inbound_service import try_handle_inbound as try_handle_appointment_inbound
 
@@ -322,7 +380,7 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_appointment_wa_inbound_handler_failed from=%r", from_phone)
 
-    if not handled_survey and not survey_session_bug and not handled_expo:
+    if not handled_survey and not survey_session_bug and not handled_expo and not handled_smart_card:
         try:
             from app.services.interview_whatsapp_inbound_service import (
                 find_active_booking_context,

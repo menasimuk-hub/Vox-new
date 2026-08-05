@@ -159,6 +159,7 @@ class SmartCardRepresentative(Base):
     qr_fg_color: Mapped[str] = mapped_column(String(16), nullable=False, default="000000")
     qr_bg_color: Mapped[str] = mapped_column(String(16), nullable=False, default="ffffff")
     qr_transparent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    photo_storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
     scan_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     linked_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)

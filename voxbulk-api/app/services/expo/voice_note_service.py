@@ -254,7 +254,7 @@ def process_web_voice_bytes(
         return {"ok": False, "error": "empty_upload"}
 
     now = datetime.utcnow()
-    job = ExpoVoiceNoteJob(
+        job = ExpoVoiceNoteJob(
         id=str(uuid.uuid4()),
         org_id=session.org_id,
         session_id=session.id,
@@ -271,6 +271,23 @@ def process_web_voice_bytes(
     db.commit()
 
     try:
+        # Persist original recording for dashboard playback.
+        try:
+            from pathlib import Path
+
+            root = Path("data") / "expo_voice" / str(session.org_id)
+            root.mkdir(parents=True, exist_ok=True)
+            safe_name = (filename or "voice.webm").replace("/", "_").replace("\\", "_")[:80]
+            path = root / f"{job.id}_{safe_name}"
+            path.write_bytes(audio_bytes)
+            # Store relative path in media_url for auth download endpoint.
+            job.media_url = f"/expo/results/voice-notes/{job.id}/audio"
+            job.provider_media_id = str(path).replace("\\", "/")
+            db.add(job)
+            db.commit()
+        except Exception as store_exc:
+            logger.warning("%s store_audio_failed job=%s err=%s", LOG_PREFIX, job.id, store_exc)
+
         from app.services.voice_transcription_service import VoiceTranscriptionService
 
         stt = VoiceTranscriptionService.transcribe_uploaded_audio(

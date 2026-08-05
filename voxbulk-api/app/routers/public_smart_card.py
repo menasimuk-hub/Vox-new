@@ -73,15 +73,14 @@ def get_card(token: str, db: Session = Depends(get_db)):
             wa_phone = resolve_feedback_wa_phone_for_qr(db, "gb", org_id=rep.org_id) or ""
         except Exception:
             wa_phone = ""
+    from urllib.parse import quote
+
+    from app.services.smart_card.whatsapp_service import build_smart_card_wa_trigger
+
     wa_digits = "".join(c for c in wa_phone if c.isdigit())
-    trigger = f"Hi — scanned Smart Card QR for {rep.name}. Token {rep.qr_token}"
-    wa_url = f"https://wa.me/{wa_digits}?text={trigger.replace(' ', '%20')}" if wa_digits else None
-    feedback_trigger = (
-        f"Hi — I'd like to leave feedback after scanning {rep.name}'s Smart Card. Token {rep.qr_token}"
-    )
-    feedback_wa_url = (
-        f"https://wa.me/{wa_digits}?text={feedback_trigger.replace(' ', '%20')}" if wa_digits else None
-    )
+    trigger = build_smart_card_wa_trigger(rep_name=rep.name, qr_token=rep.qr_token)
+    wa_url = f"https://wa.me/{wa_digits}?text={quote(trigger)}" if wa_digits else None
+    feedback_wa_url = wa_url
 
     social = None
     if rep.social_links_json:
@@ -116,6 +115,11 @@ def get_card(token: str, db: Session = Depends(get_db)):
     )
     tagline = (str(company.description or "").strip() or None)
 
+    from app.models.organisation import Organisation
+
+    org = db.get(Organisation, rep.org_id)
+    has_logo = bool(org and getattr(org, "logo_storage_key", None))
+
     return {
         "ok": True,
         "status": mode,
@@ -132,6 +136,9 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "extension": rep.extension,
             "job_title": job_title,
             "social_links": social,
+            "photo_url": (
+                f"/public/smart-card/{token}/photo" if rep.photo_storage_path else None
+            ),
         },
         "company": {
             "name": company.name,
@@ -139,11 +146,56 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "description": company.description,
             "tagline": tagline,
             "location": location,
+            "logo_url": f"/public/smart-card/{token}/logo" if has_logo else None,
         },
         "qr_token": rep.qr_token,
         "whatsapp_url": wa_url,
         "feedback_whatsapp_url": feedback_wa_url or wa_url,
     }
+
+
+@router.get("/{token}/logo")
+def get_card_logo(token: str, db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+
+    from app.models.organisation import Organisation
+    from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
+
+    rep = _get_rep(db, token)
+    org = db.get(Organisation, rep.org_id)
+    storage_key = getattr(org, "logo_storage_key", None) if org else None
+    if not storage_key:
+        raise HTTPException(status_code=404, detail="Logo not found")
+    path = resolve_logo_path(str(storage_key))
+    if path is None:
+        raise HTTPException(status_code=404, detail="Logo not found")
+    return FileResponse(path, media_type=media_type_for_key(str(storage_key)))
+
+
+@router.get("/{token}/photo")
+def get_card_photo(token: str, db: Session = Depends(get_db)):
+    from pathlib import Path
+
+    from fastapi.responses import FileResponse
+
+    rep = _get_rep(db, token)
+    if not rep.photo_storage_path:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    root = Path(__file__).resolve().parents[2]
+    abs_path = (root / str(rep.photo_storage_path)).resolve()
+    try:
+        abs_path.relative_to((root / "data").resolve())
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Photo not found") from None
+    if not abs_path.is_file():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    suffix = abs_path.suffix.lower()
+    media = "image/jpeg"
+    if suffix == ".png":
+        media = "image/png"
+    elif suffix == ".webp":
+        media = "image/webp"
+    return FileResponse(abs_path, media_type=media)
 
 
 @router.post("/{token}/start")

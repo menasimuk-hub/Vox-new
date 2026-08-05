@@ -76,6 +76,12 @@ UNKNOWN_QR_MESSAGE = (
 )
 
 
+def _looks_like_smart_card_inbound(text: str) -> bool:
+    """Shared WA line — never treat Smart Card QR opens as Expo."""
+    lower = str(text or "").lower()
+    return "smart card" in lower or "smart-card" in lower or "smartcard" in lower
+
+
 class ExpoWhatsappService:
     @staticmethod
     def _is_image_inbound(record: dict[str, Any] | None) -> bool:
@@ -116,6 +122,10 @@ class ExpoWhatsappService:
         reply_from = str(business_number or "").strip() or None
         if not phone:
             return {"handled": False, "reason": "missing_from"}
+
+        # Smart Card shares this WA line — leave those messages for SmartCardWhatsappService.
+        if _looks_like_smart_card_inbound(text):
+            return {"handled": False, "reason": "smart_card_message"}
 
         # Voice note while in an active Expo session
         from app.services.expo.voice_note_service import is_audio_inbound, process_voice_for_session
