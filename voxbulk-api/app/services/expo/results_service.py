@@ -123,7 +123,15 @@ class ExpoResultsService:
         if booth_id:
             q = q.where(ExpoBooth.id == booth_id)
         if created_by_user_id:
-            q = q.where(ExpoBooth.created_by_user_id == created_by_user_id)
+            # Members: own booths + legacy rows with no owner stamp (same as booth list)
+            from sqlalchemy import or_
+
+            q = q.where(
+                or_(
+                    ExpoBooth.created_by_user_id == created_by_user_id,
+                    ExpoBooth.created_by_user_id.is_(None),
+                )
+            )
         return [row[0] for row in db.execute(q).all()]
 
     @staticmethod
@@ -337,7 +345,7 @@ class ExpoResultsService:
         booth = db.get(ExpoBooth, lead.booth_id)
         if booth is None or booth.org_id != org_id:
             raise ValueError("Lead not found")
-        if created_by_user_id and booth.created_by_user_id != created_by_user_id:
+        if created_by_user_id and booth.created_by_user_id and booth.created_by_user_id != created_by_user_id:
             raise ValueError("Lead not found")
         session_id = lead.session_id
         db.delete(lead)
@@ -369,7 +377,7 @@ class ExpoResultsService:
         booth = db.get(ExpoBooth, lead.booth_id)
         if booth is None or booth.org_id != org_id:
             raise ValueError("Lead not found")
-        if created_by_user_id and booth.created_by_user_id != created_by_user_id:
+        if created_by_user_id and booth.created_by_user_id and booth.created_by_user_id != created_by_user_id:
             raise ValueError("Lead not found")
         data = ExpoResultsService._lead_to_dict(lead, booth)
         answers: list[dict[str, Any]] = []
@@ -454,7 +462,7 @@ class ExpoResultsService:
         booth = db.get(ExpoBooth, lead.booth_id)
         if booth is None or booth.org_id != org_id:
             return None
-        if created_by_user_id and booth.created_by_user_id != created_by_user_id:
+        if created_by_user_id and booth.created_by_user_id and booth.created_by_user_id != created_by_user_id:
             return None
         rel = str(lead.business_card_path).strip().replace("\\", "/")
         if not rel or ".." in rel.split("/"):

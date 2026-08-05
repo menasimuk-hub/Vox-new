@@ -437,22 +437,104 @@ def delete_asset(asset_id: str, db: Session = Depends(get_db), principal=Depends
 
 
 @router.get("/results/summary")
-def results_summary(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    _require_smart_card_enabled(db, principal.org_id)
-    from app.services.smart_card.results_service import SmartCardResultsService
-
-    return {"ok": True, **SmartCardResultsService.customer_summary(db, org_id=principal.org_id, user_id=principal.user_id)}
-
-
-@router.get("/results/leads")
-def list_leads(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def results_summary(
+    representative_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
     _require_smart_card_enabled(db, principal.org_id)
     from app.services.smart_card.results_service import SmartCardResultsService
 
     return {
         "ok": True,
-        "items": SmartCardResultsService.list_leads(db, org_id=principal.org_id, user_id=principal.user_id),
+        **SmartCardResultsService.customer_summary(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            representative_id=representative_id,
+        ),
     }
+
+
+@router.get("/results/leads")
+def list_leads(
+    representative_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_smart_card_enabled(db, principal.org_id)
+    from app.services.smart_card.results_service import SmartCardResultsService
+
+    return {
+        "ok": True,
+        "items": SmartCardResultsService.list_leads(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            representative_id=representative_id,
+        ),
+    }
+
+
+@router.get("/results/leads/{lead_id}")
+def get_lead(lead_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    from app.services.smart_card.results_service import SmartCardResultsError, SmartCardResultsService
+
+    try:
+        item = SmartCardResultsService.get_lead(
+            db, org_id=principal.org_id, user_id=principal.user_id, lead_id=lead_id
+        )
+        return {"ok": True, "item": item}
+    except SmartCardResultsError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/results/leads/{lead_id}/card-image")
+def get_lead_card_image(
+    lead_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    _require_smart_card_enabled(db, principal.org_id)
+    from fastapi.responses import FileResponse
+
+    from app.services.smart_card.results_service import SmartCardResultsError, SmartCardResultsService
+
+    try:
+        path = SmartCardResultsService.resolve_lead_card_path(
+            db, org_id=principal.org_id, user_id=principal.user_id, lead_id=lead_id
+        )
+    except SmartCardResultsError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    if path is None:
+        raise HTTPException(status_code=404, detail="Card image not found")
+    return FileResponse(path)
+
+
+@router.get("/results/voice-notes/{job_id}/audio")
+def get_voice_note_audio(
+    job_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    _require_smart_card_enabled(db, principal.org_id)
+    from fastapi.responses import FileResponse
+
+    from app.services.smart_card.results_service import SmartCardResultsService
+
+    path = SmartCardResultsService.resolve_voice_audio_path(
+        db, org_id=principal.org_id, user_id=principal.user_id, job_id=job_id
+    )
+    if path is None:
+        raise HTTPException(status_code=404, detail="Audio not found")
+    media = "audio/webm"
+    suffix = path.suffix.lower()
+    if suffix in {".ogg", ".oga"}:
+        media = "audio/ogg"
+    elif suffix in {".mp3", ".mpeg"}:
+        media = "audio/mpeg"
+    elif suffix in {".wav"}:
+        media = "audio/wav"
+    elif suffix in {".m4a", ".mp4"}:
+        media = "audio/mp4"
+    return FileResponse(path, media_type=media)
 
 
 @router.patch("/results/leads/{lead_id}")

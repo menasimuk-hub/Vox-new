@@ -235,6 +235,10 @@ class SmartCardResponse(Base):
     session_id: Mapped[str] = mapped_column(String(36), ForeignKey("smart_card_sessions.id"), nullable=False, index=True)
     question_key: Mapped[str] = mapped_column(String(64), nullable=False)
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    original_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_text_en: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_source: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    voice_job_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 

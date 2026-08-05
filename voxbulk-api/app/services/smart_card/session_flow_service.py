@@ -211,6 +211,9 @@ class SmartCardSessionFlowService:
         session: SmartCardSession,
         answer: str,
         answer_source: str = "text",
+        original_text: str | None = None,
+        answer_text_en: str | None = None,
+        voice_job_id: str | None = None,
     ) -> dict[str, Any]:
         if session.status != "active":
             raise SmartCardSessionError("Session is not active")
@@ -219,6 +222,14 @@ class SmartCardSessionFlowService:
         idx = int(state.get("step_index") or 0)
         step = steps[idx] if 0 <= idx < len(steps) else None
         text = str(answer or "").strip()
+        src = str(answer_source or "text").strip().lower() or "text"
+        orig = (str(original_text).strip() if original_text is not None else "") or None
+        en = (str(answer_text_en).strip() if answer_text_en is not None else "") or None
+        if src == "voice":
+            if not orig:
+                orig = text or None
+            if not en:
+                en = text or None
 
         if step in {"contact", "contact_card_only", "contact_manual", "contact_web"}:
             # Accept "Name | Company | email | phone" or plain name
@@ -248,6 +259,10 @@ class SmartCardSessionFlowService:
                 session_id=session.id,
                 question_key=step or "unknown",
                 answer_text=text[:8000],
+                original_text=(orig[:8000] if orig else None),
+                answer_text_en=(en[:8000] if en else None),
+                answer_source=src[:16],
+                voice_job_id=(str(voice_job_id).strip() or None) if voice_job_id else None,
             )
         )
 

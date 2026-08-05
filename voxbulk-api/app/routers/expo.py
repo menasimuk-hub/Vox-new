@@ -38,7 +38,9 @@ def _campaign_owner_user_id(db: Session, principal) -> str | None:
 
 def _get_owned_booth(db: Session, *, org_id: str, booth_id: str, owner_user_id: str | None) -> ExpoBooth:
     booth = ExpoBoothService.get_booth(db, org_id=org_id, booth_id=booth_id)
-    if booth is None or (owner_user_id and booth.created_by_user_id != owner_user_id):
+    if booth is None or (
+        owner_user_id and booth.created_by_user_id and booth.created_by_user_id != owner_user_id
+    ):
         raise HTTPException(status_code=404, detail="Booth not found")
     return booth
 

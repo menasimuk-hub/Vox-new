@@ -268,6 +268,9 @@ async def upload_voice_answer(
             session=session,
             answer=str(voice.get("answer_text_en") or voice.get("original_text") or ""),
             answer_source="voice",
+            original_text=str(voice.get("original_text") or "") or None,
+            answer_text_en=str(voice.get("answer_text_en") or "") or None,
+            voice_job_id=str(voice.get("job_id") or "") or None,
         )
         db.commit()
     except SmartCardSessionError as e:
