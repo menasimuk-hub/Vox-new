@@ -407,23 +407,126 @@ class BillingService:
 
     @staticmethod
     def test_gocardless_connection(db: Session) -> dict[str, Any]:
+        """Verify token can read creditors and create a redirect flow (write scope).
+
+        A read-only access token passes GET /creditors but fails checkout with
+        403 insufficient_permissions — so we probe POST /redirect_flows too.
+        """
         config = BillingService._get_gocardless_config(db)
+        headers = BillingService._gocardless_headers(config["access_token"])
         with httpx.Client(timeout=20) as client:
-            response = client.get(
-                f"{config['api_base']}/creditors",
-                headers=BillingService._gocardless_headers(config["access_token"]),
-            )
+            response = client.get(f"{config['api_base']}/creditors", headers=headers)
         BillingService._raise_for_gocardless_error(response)
         body = response.json()
         creditors = body.get("creditors") or []
         first = creditors[0] if creditors else {}
+
+        # Write probe: Redirect Flows power dashboard Direct Debit signup.
+        success_url = BillingService._gocardless_browser_return_url(
+            secrets.token_urlsafe(16), billing="gc_probe"
+        )
+        if not str(success_url).lower().startswith("https://"):
+            success_url = "https://dashboard.voxbulk.com/account/billing?billing=gc_probe"
+        probe_payload = {
+            "redirect_flows": {
+                "description": "VoxBulk GoCardless write-permission probe",
+                "session_token": secrets.token_urlsafe(24),
+                "success_redirect_url": success_url,
+            }
+        }
+        write_ok = False
+        write_error: str | None = None
+        with httpx.Client(timeout=20) as client:
+            probe = client.post(
+                f"{config['api_base']}/redirect_flows",
+                headers=headers,
+                json=probe_payload,
+            )
+        if probe.status_code < 400:
+            write_ok = True
+            flow = (probe.json() or {}).get("redirect_flows") or {}
+            flow_id = str(flow.get("id") or "").strip()
+            # Best-effort: leave orphaned sandbox flow; no cancel endpoint for incomplete flows.
+            _ = flow_id
+        else:
+            write_error = BillingService._gocardless_error_detail(probe)
+            reason = BillingService._gocardless_error_reason(probe)
+            if reason == "insufficient_permissions" or probe.status_code == 403:
+                raise GoCardlessProviderError(
+                    "GoCardless token can read creditors but cannot create Redirect Flows "
+                    "(403 insufficient_permissions). In the GoCardless dashboard create a new "
+                    f"{config['environment']} Access Token with Read-write permissions and paste it "
+                    "in Admin → Integrations → GoCardless (do not use a read-only token). "
+                    f"Detail: {write_error}"
+                )
+            raise GoCardlessProviderError(
+                f"GoCardless write probe failed ({probe.status_code}): {write_error}. "
+                "Checkout will fail until Redirect Flows work for this token."
+            )
+
         return {
             "ok": True,
             "environment": config["environment"],
             "creditor_count": len(creditors),
             "creditor_name": str(first.get("name") or "").strip() or None,
             "creditor_id": str(first.get("id") or "").strip() or None,
+            "write_ok": write_ok,
+            "redirect_flows_ok": write_ok,
         }
+
+    @staticmethod
+    def _gocardless_error_payload(response: httpx.Response) -> dict[str, Any]:
+        try:
+            raw = response.json()
+        except Exception:
+            return {"message": (response.text or "")[:500]}
+        if not isinstance(raw, dict):
+            return {"message": str(raw)[:500]}
+        nested = raw.get("error")
+        if isinstance(nested, dict):
+            return nested
+        return raw
+
+    @staticmethod
+    def _gocardless_error_reason(response: httpx.Response) -> str:
+        payload = BillingService._gocardless_error_payload(response)
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors:
+            first = errors[0]
+            if isinstance(first, dict):
+                return str(first.get("reason") or "").strip().lower()
+        return str(payload.get("type") or "").strip().lower()
+
+    @staticmethod
+    def _gocardless_error_detail(response: httpx.Response) -> str:
+        payload = BillingService._gocardless_error_payload(response)
+        message = str(payload.get("message") or "").strip()
+        errors = payload.get("errors")
+        if isinstance(errors, list) and errors:
+            first = errors[0]
+            if isinstance(first, dict):
+                field = str(first.get("field") or "").strip()
+                err_msg = str(first.get("message") or "").strip()
+                reason = str(first.get("reason") or "").strip()
+                if err_msg:
+                    bits = [p for p in (reason, field, err_msg) if p]
+                    return " — ".join(bits) if bits else err_msg
+        return message or str(payload)[:500]
+
+    @staticmethod
+    def _raise_for_gocardless_error(response: httpx.Response) -> None:
+        if response.status_code < 400:
+            return
+        detail = BillingService._gocardless_error_detail(response)
+        reason = BillingService._gocardless_error_reason(response)
+        if reason == "insufficient_permissions" or response.status_code == 403:
+            raise GoCardlessProviderError(
+                "GoCardless API 403 insufficient_permissions — the access token lacks write scope "
+                "for this action (often a read-only token). Create a Read-write sandbox/live Access "
+                f"Token in the GoCardless dashboard and update Admin → Integrations → GoCardless. "
+                f"Detail: {detail}"
+            )
+        raise GoCardlessProviderError(f"GoCardless API error {response.status_code}: {detail}")
 
     @staticmethod
     def assign_plan_cash(
@@ -714,25 +817,6 @@ class BillingService:
             if len(out) >= 3:
                 break
         return out
-
-    @staticmethod
-    def _raise_for_gocardless_error(response: httpx.Response) -> None:
-        if response.status_code < 400:
-            return
-        try:
-            payload = response.json()
-        except Exception:
-            payload = {"error": response.text[:500]}
-        message = payload.get("message") if isinstance(payload, dict) else None
-        if not message and isinstance(payload, dict):
-            errors = payload.get("errors")
-            if isinstance(errors, list) and errors:
-                first = errors[0]
-                if isinstance(first, dict) and first.get("message"):
-                    field = str(first.get("field") or "").strip()
-                    message = f"{field}: {first['message']}" if field else str(first["message"])
-        detail = message or str(payload)
-        raise GoCardlessProviderError(f"GoCardless API error {response.status_code}: {detail}")
 
     @staticmethod
     def resolve_org_mandate_id(db: Session, org_id: str) -> str | None:

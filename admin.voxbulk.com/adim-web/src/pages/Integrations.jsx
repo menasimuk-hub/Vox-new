@@ -1374,7 +1374,8 @@ export default function Integrations() {
     try {
       const result = await apiFetch('/admin/integrations/gocardless/test', { method: 'POST' })
       const name = result.creditor_name || result.creditor_id || 'creditor'
-      setGocardlessTestResult(`GoCardless OK (${result.environment || 'sandbox'}) — ${name}`)
+      const write = result.redirect_flows_ok || result.write_ok ? ' · Redirect Flows OK' : ''
+      setGocardlessTestResult(`GoCardless OK (${result.environment || 'sandbox'}) — ${name}${write}`)
     } catch (e) {
       setGocardlessTestResult('')
       setProviderError(e?.message || 'GoCardless test failed')
@@ -3030,7 +3031,9 @@ export default function Integrations() {
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Access token</label>
                       <input className='input' type='password' value={String(activeDraft.access_token_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, gocardless: { ...(s.gocardless || {}), access_token_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.access_token ? 'Leave blank to keep current token' : 'Paste sandbox access token'} />
-                      <div className='muted' style={{ fontSize: 12 }}>Token is encrypted in the backend and never returned to the browser.</div>
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        Must be a <strong>Read-write</strong> Access Token (Developers → Create). A read-only token passes “Test” for creditors but fails Direct Debit checkout with 403 insufficient_permissions.
+                      </div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Webhook endpoint URL</label>

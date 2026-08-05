@@ -129,11 +129,17 @@ def test_gocardless_test_connection(app_client, monkeypatch):
         headers=headers,
     )
 
-    class _FakeResponse:
+    class _FakeCreditorsResponse:
         status_code = 200
 
         def json(self):
             return {"creditors": [{"id": "CR123", "name": "Sandbox Creditor"}]}
+
+    class _FakeRedirectResponse:
+        status_code = 201
+
+        def json(self):
+            return {"redirect_flows": {"id": "RE_PROBE", "redirect_url": "https://pay-sandbox.gocardless.com/flow/RE_PROBE"}}
 
     class _FakeClient:
         def __init__(self, *args, **kwargs):
@@ -147,7 +153,11 @@ def test_gocardless_test_connection(app_client, monkeypatch):
 
         def get(self, url, **kwargs):
             assert url.endswith("/creditors")
-            return _FakeResponse()
+            return _FakeCreditorsResponse()
+
+        def post(self, url, **kwargs):
+            assert "/redirect_flows" in url
+            return _FakeRedirectResponse()
 
     monkeypatch.setattr("app.services.gocardless_service.httpx.Client", _FakeClient)
     res = app_client.post("/admin/integrations/gocardless/test", headers=headers)
@@ -156,6 +166,7 @@ def test_gocardless_test_connection(app_client, monkeypatch):
     assert body["ok"] is True
     assert body["environment"] == "sandbox"
     assert body["creditor_name"] == "Sandbox Creditor"
+    assert body["redirect_flows_ok"] is True
 
 
 def test_cash_subscription_requires_admin_approval(app_client):
