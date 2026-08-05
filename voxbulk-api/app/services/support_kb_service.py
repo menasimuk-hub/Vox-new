@@ -23,6 +23,9 @@ def _slugify(value: str) -> str:
 class SupportKbService:
     @staticmethod
     def list_categories(db: Session, *, kind: str | None = "article") -> list[SupportKbCategory]:
+        from app.services.support_content_seed_service import SupportContentSeedService
+
+        SupportContentSeedService.ensure_defaults(db)
         stmt = select(SupportKbCategory)
         if kind:
             stmt = stmt.where(SupportKbCategory.kind == kind)
@@ -64,19 +67,32 @@ class SupportKbService:
 
     @staticmethod
     def list_articles(db: Session, *, kind: str | None = "article", published_only: bool = False) -> list[SupportKbArticle]:
+        from app.services.support_content_seed_service import SupportContentSeedService, is_support_content_visible
+
+        SupportContentSeedService.ensure_defaults(db)
         stmt = select(SupportKbArticle)
         if kind:
             stmt = stmt.where(SupportKbArticle.kind == kind)
         if published_only:
             stmt = stmt.where(SupportKbArticle.state == "published")
-        return list(db.execute(stmt.order_by(SupportKbArticle.updated_at.desc())).scalars())
+        rows = list(db.execute(stmt.order_by(SupportKbArticle.updated_at.desc())).scalars())
+        if published_only:
+            rows = [r for r in rows if is_support_content_visible(db, getattr(r, "linked_service", None))]
+        return rows
 
     @staticmethod
     def get_by_slug(db: Session, slug: str, *, published_only: bool = True) -> SupportKbArticle | None:
+        from app.services.support_content_seed_service import is_support_content_visible
+
         stmt = select(SupportKbArticle).where(SupportKbArticle.slug == (slug or "").strip())
         if published_only:
             stmt = stmt.where(SupportKbArticle.state == "published")
-        return db.execute(stmt).scalar_one_or_none()
+        row = db.execute(stmt).scalar_one_or_none()
+        if row is None:
+            return None
+        if published_only and not is_support_content_visible(db, getattr(row, "linked_service", None)):
+            return None
+        return row
 
     @staticmethod
     def upsert_article(
@@ -135,8 +151,10 @@ class SupportKbService:
             "id": c.id,
             "kind": c.kind,
             "name": c.name,
+            "slug": getattr(c, "slug", None),
             "description": c.description,
             "colour": c.colour,
+            "linked_service": getattr(c, "linked_service", None),
             "sort_order": c.sort_order,
             "created_at": c.created_at,
             "updated_at": c.updated_at,
@@ -156,6 +174,7 @@ class SupportKbService:
             "views": a.views,
             "author": a.author,
             "version": a.version,
+            "linked_service": getattr(a, "linked_service", None),
             "url": f"{base}/help/articles/{a.slug}",
             "created_at": a.created_at,
             "updated_at": a.updated_at,
@@ -165,10 +184,16 @@ class SupportKbService:
 class SupportHelpLinkService:
     @staticmethod
     def list_links(db: Session, *, active_only: bool = False) -> list[SupportHelpLink]:
+        from app.services.support_content_seed_service import SupportContentSeedService, is_support_content_visible
+
+        SupportContentSeedService.ensure_defaults(db)
         stmt = select(SupportHelpLink)
         if active_only:
             stmt = stmt.where(SupportHelpLink.is_active == True)  # noqa: E712
-        return list(db.execute(stmt.order_by(SupportHelpLink.sort_order.asc(), SupportHelpLink.title.asc())).scalars())
+        rows = list(db.execute(stmt.order_by(SupportHelpLink.sort_order.asc(), SupportHelpLink.title.asc())).scalars())
+        if active_only:
+            rows = [r for r in rows if is_support_content_visible(db, getattr(r, "linked_service", None))]
+        return rows
 
     @staticmethod
     def upsert(
@@ -214,6 +239,8 @@ class SupportHelpLinkService:
             "url": row.url,
             "category": row.category,
             "description": row.description,
+            "seed_key": getattr(row, "seed_key", None),
+            "linked_service": getattr(row, "linked_service", None),
             "is_active": bool(row.is_active),
             "sort_order": row.sort_order,
             "created_at": row.created_at,

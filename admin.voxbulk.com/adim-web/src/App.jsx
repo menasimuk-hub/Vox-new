@@ -176,6 +176,7 @@ export default function App() {
 
         <Route path='/support/inbox' element={<P.SupportInbox />} />
         <Route path='/support/tickets' element={<P.SupportTickets />} />
+        <Route path='/support/archive' element={<P.SupportArchive />} />
         <Route path='/support/tickets/:ticketId' element={<P.SupportTicketDetail />} />
         <Route path='/support/help-centre' element={<P.SupportHelpCentre />} />
         <Route path='/support/faq-frontend' element={<P.SupportFaqFrontend />} />

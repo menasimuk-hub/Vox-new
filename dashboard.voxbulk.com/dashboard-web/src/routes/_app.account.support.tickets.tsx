@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { ArrowLeft, Plus, Send, CheckCircle2, Search, Mail, Clock, AlertTriangle, MessageSquare } from "lucide-react";
+import { ArrowLeft, Plus, Send, CheckCircle2, Search, Mail, Clock, AlertTriangle, MessageSquare, Archive } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -73,12 +73,14 @@ function normalizeStatus(status: string): TicketStatus {
 function TicketsPage() {
   const { highlight } = useAssistantHighlight();
   const { ticket: ticketFromSearch } = Route.useSearch();
-  const [filter, setFilter] = React.useState<TicketStatus | "all">("all");
+  const [filter, setFilter] = React.useState<"active" | TicketStatus | "all">("active");
   const [search, setSearch] = React.useState("");
   const [newOpen, setNewOpen] = React.useState(false);
   const [reply, setReply] = React.useState("");
 
-  const ticketsQ = useSupportTickets(filter === "all" ? undefined : filter);
+  const ticketsQ = useSupportTickets(
+    filter === "active" || filter === "all" ? undefined : filter,
+  );
   const tickets = (ticketsQ.data || []) as Array<Record<string, unknown>>;
 
   const [activeId, setActiveId] = React.useState<string>("");
@@ -99,14 +101,21 @@ function TicketsPage() {
   const detail = ticketDetailQ.data as { ticket?: Record<string, unknown>; messages?: Array<Record<string, unknown>> } | undefined;
   const messages = detail?.messages || [];
 
-  const list = tickets.filter((t) =>
-    (filter === "all" || normalizeStatus(String(t.status || "open")) === filter) &&
-    (String(t.subject || "").toLowerCase().includes(search.toLowerCase()) ||
-      String(t.public_ref || t.id || "").toLowerCase().includes(search.toLowerCase())),
-  );
+  const list = tickets.filter((t) => {
+    const st = normalizeStatus(String(t.status || "open"));
+    const statusOk =
+      filter === "all" ||
+      (filter === "active" && st !== "closed") ||
+      (filter !== "active" && filter !== "all" && st === filter);
+    return (
+      statusOk &&
+      (String(t.subject || "").toLowerCase().includes(search.toLowerCase()) ||
+        String(t.public_ref || t.id || "").toLowerCase().includes(search.toLowerCase()))
+    );
+  });
 
   const counts = {
-    all: tickets.length,
+    active: tickets.filter((t) => normalizeStatus(String(t.status || "")) !== "closed").length,
     open: tickets.filter((t) => normalizeStatus(String(t.status || "")) === "open").length,
     pending: tickets.filter((t) => normalizeStatus(String(t.status || "")) === "pending").length,
     closed: tickets.filter((t) => normalizeStatus(String(t.status || "")) === "closed").length,
@@ -161,10 +170,10 @@ function TicketsPage() {
       />
 
       <div className="grid gap-3 md:grid-cols-4">
-        <KpiTile icon={Mail} label="All tickets" value={counts.all} active={filter === "all"} onClick={() => setFilter("all")} />
+        <KpiTile icon={Mail} label="Active" value={counts.active} active={filter === "active"} onClick={() => setFilter("active")} />
         <KpiTile icon={AlertTriangle} label="Open" value={counts.open} tone="success" active={filter === "open"} onClick={() => setFilter("open")} />
         <KpiTile icon={Clock} label="Pending" value={counts.pending} tone="warning" active={filter === "pending"} onClick={() => setFilter("pending")} />
-        <KpiTile icon={CheckCircle2} label="Closed" value={counts.closed} tone="muted" active={filter === "closed"} onClick={() => setFilter("closed")} />
+        <KpiTile icon={Archive} label="Archive" value={counts.closed} tone="muted" active={filter === "closed"} onClick={() => setFilter("closed")} />
       </div>
 
       <Card>
@@ -262,20 +271,18 @@ function TicketsPage() {
 
                 <div className="border-t border-border p-3">
                   {activeStatus === "closed" ? (
-                    <div className="flex items-center justify-between rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
-                      <span><MessageSquare className="mr-1 inline size-3" /> This ticket is closed.</span>
-                    </div>
-                  ) : (
-                    <>
-                      <Textarea rows={3} value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Write a reply…" />
-                      <div className="mt-2 flex items-center justify-between">
-                        <p className="text-[11px] text-muted-foreground">Replies are emailed to our support team.</p>
-                        <Button onClick={() => void sendReply()} disabled={!reply.trim() || replyM.isPending} className="gap-1.5">
-                          <Send className="size-4" /> {replyM.isPending ? "Sending…" : "Send reply"}
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                    <p className="mb-2 text-[11px] text-muted-foreground">
+                      <MessageSquare className="mr-1 inline size-3" />
+                      This ticket is archived. Sending a reply will reopen it.
+                    </p>
+                  ) : null}
+                  <Textarea rows={3} value={reply} onChange={(e) => setReply(e.target.value)} placeholder={activeStatus === "closed" ? "Reply to reopen…" : "Write a reply…"} />
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-[11px] text-muted-foreground">Replies are emailed to our support team.</p>
+                    <Button onClick={() => void sendReply()} disabled={!reply.trim() || replyM.isPending} className="gap-1.5">
+                      <Send className="size-4" /> {replyM.isPending ? "Sending…" : activeStatus === "closed" ? "Reply & reopen" : "Send reply"}
+                    </Button>
+                  </div>
                 </div>
               </>
             )}

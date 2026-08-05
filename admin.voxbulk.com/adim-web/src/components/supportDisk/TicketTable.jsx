@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { ArrowUpDown, Filter, MoreHorizontal, Search, Tag, Trash2, UserPlus, X, Zap } from 'lucide-react'
+import { Archive, ArrowUpDown, Filter, MoreHorizontal, Search, Tag, UserPlus, X, Zap } from 'lucide-react'
 import { Button } from './Button'
 import { Checkbox } from './ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
@@ -10,7 +10,7 @@ import { cn, dateLabel } from './utils'
 
 const priorities = ['urgent', 'high', 'normal', 'low']
 
-export default function TicketTable({ tickets = [], onOpen, onBulkStatus, onBulkAssign, onDelete, admins = [], cannedReplies = [], loading }) {
+export default function TicketTable({ tickets = [], onOpen, onBulkStatus, onBulkAssign, onArchive, hideArchiveAction = false, admins = [], cannedReplies = [], loading }) {
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState('all')
   const [priority, setPriority] = useState('all')
@@ -45,7 +45,7 @@ export default function TicketTable({ tickets = [], onOpen, onBulkStatus, onBulk
       <DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" variant="outline" className="h-7 bg-surface text-xs"><Zap className="size-3.5" /> Canned reply</Button></DropdownMenuTrigger><DropdownMenuContent align="start" className="w-64"><DropdownMenuLabel>Send to {selected.length} tickets</DropdownMenuLabel>{cannedReplies.slice(0, 4).map((c) => <DropdownMenuItem key={c.id}>{c.title}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
       <DropdownMenu><DropdownMenuTrigger asChild><Button size="sm" variant="outline" className="h-7 bg-surface text-xs"><UserPlus className="size-3.5" /> Assign</Button></DropdownMenuTrigger><DropdownMenuContent align="start">{admins.map((a) => <DropdownMenuItem key={a.id} onSelect={() => run(onBulkAssign, a.id)}>{a.email}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
       <Button size="sm" variant="outline" className="h-7 bg-surface text-xs"><Tag className="size-3.5" /> Tag</Button>
-      <Button size="sm" variant="outline" className="h-7 bg-surface text-xs text-destructive" onClick={() => setConfirm(selected)}><Trash2 className="size-3.5" /> Delete</Button>
+      {!hideArchiveAction ? <Button size="sm" variant="outline" className="h-7 bg-surface text-xs" onClick={() => setConfirm(selected)}><Archive className="size-3.5" /> Archive</Button> : null}
       <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={() => setSelected([])}>Cancel</Button>
     </div> : null}
     <div className="min-h-0 flex-1 overflow-auto"><table className="w-full min-w-[820px] border-collapse text-sm">
@@ -55,9 +55,9 @@ export default function TicketTable({ tickets = [], onOpen, onBulkStatus, onBulk
         <td className="max-w-44 px-2 py-2.5"><div className="flex items-center gap-2"><InitialsAvatar name={t.requester_email || t.created_by_email || t.organisation_name || 'Unknown'} className="size-7" /><div className="min-w-0"><p className={cn('truncate', t.admin_unread ? 'font-bold' : 'font-medium')}>{t.requester_email || t.created_by_email || 'Unknown'}</p><p className="truncate text-[11px] text-muted-foreground">{t.public_ref} · {t.channel || 'email'}</p></div></div></td>
         <td className="max-w-[26rem] px-2 py-2.5"><p className="truncate font-medium">{t.subject}</p><p className="truncate text-xs text-muted-foreground">{t.organisation_name || 'No organisation'}</p><div className="mt-1 flex flex-wrap items-center gap-1.5">{t.category ? <span className="rounded-md bg-secondary px-1.5 py-px text-[11px] text-muted-foreground">{t.category}</span> : null}</div></td>
         <td className="px-2 py-2.5"><StatusPill status={t.status} /></td><td className="px-2 py-2.5"><PriorityMark priority={t.priority || 'normal'} /></td><td className="px-2 py-2.5 text-xs whitespace-nowrap text-muted-foreground">{dateLabel(t.last_message_at || t.updated_at)}</td><td className="px-2 py-2.5 text-xs whitespace-nowrap">{t.assigned_admin_email || 'Unassigned'}</td>
-        <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}><DropdownMenu><DropdownMenuTrigger asChild><Button size="icon" variant="ghost" className="size-7"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-48"><DropdownMenuItem onSelect={() => onOpen?.(t.id)}>Open ticket</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuLabel className="text-[11px] uppercase">Status</DropdownMenuLabel>{Object.entries(STATUS_META).map(([s, m]) => <DropdownMenuItem key={s} onSelect={() => onBulkStatus?.([t.id], s)}>{m.label}</DropdownMenuItem>)}<DropdownMenuSeparator /><DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setConfirm([t.id])}><Trash2 className="size-4" /> Delete ticket</DropdownMenuItem></DropdownMenuContent></DropdownMenu></td>
+        <td className="px-2 py-2.5 text-right" onClick={(e) => e.stopPropagation()}><DropdownMenu><DropdownMenuTrigger asChild><Button size="icon" variant="ghost" className="size-7"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-48"><DropdownMenuItem onSelect={() => onOpen?.(t.id)}>Open ticket</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuLabel className="text-[11px] uppercase">Status</DropdownMenuLabel>{Object.entries(STATUS_META).map(([s, m]) => <DropdownMenuItem key={s} onSelect={() => onBulkStatus?.([t.id], s)}>{m.label}</DropdownMenuItem>)}{!hideArchiveAction ? <><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setConfirm([t.id])}><Archive className="size-4" /> Archive ticket</DropdownMenuItem></> : null}</DropdownMenuContent></DropdownMenu></td>
       </tr>)}{!loading && filtered.length === 0 ? <tr><td colSpan="8" className="p-10 text-center text-sm text-muted-foreground">No tickets match these filters.</td></tr> : null}</tbody>
     </table></div>
-    <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete {confirm?.length === 1 ? 'this ticket' : `${confirm?.length} tickets`}?</AlertDialogTitle><AlertDialogDescription>The tickets will be closed and removed from active queues.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { onDelete?.(confirm || []); setSelected([]); setConfirm(null) }}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Archive {confirm?.length === 1 ? 'this ticket' : `${confirm?.length} tickets`}?</AlertDialogTitle><AlertDialogDescription>The tickets will be closed and moved to the Archive. Nothing is permanently deleted.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => { onArchive?.(confirm || []); setSelected([]); setConfirm(null) }}>Archive</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </section>
 }

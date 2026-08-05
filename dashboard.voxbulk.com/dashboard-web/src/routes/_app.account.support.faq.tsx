@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { ArrowLeft, ArrowUpRight, ChevronDown, Search, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ChevronDown, LifeBuoy, Search, type LucideIcon } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,24 +22,116 @@ export const Route = createFileRoute("/_app/account/support/faq")({
   component: FaqPage,
 });
 
-type ApiFaqItem = { id: number | string; question: string; answer: string };
-type ApiFaqCategory = { id: number | string | null; name: string; items: ApiFaqItem[] };
+type ApiFaqItem = { id: number | string; question: string; answer: string; linked_service?: string | null };
+type ApiFaqCategory = {
+  id: number | string | null;
+  name: string;
+  slug?: string | null;
+  items: ApiFaqItem[];
+};
 
-/** Fold every API-published FAQ item into the built-in Support tile, grouped by its API category name. */
+/** Map API FAQ category slug / linked_service → built-in docs card id. */
+const API_SLUG_TO_DOCS_ID: Record<string, string> = {
+  recruitment: "interviews",
+  "ai-calling": "interviews",
+  interview: "interviews",
+  interviews: "interviews",
+  "whatsapp-surveys": "wa-survey",
+  survey: "wa-survey",
+  surveys: "wa-survey",
+  "wa-survey": "wa-survey",
+  "customer-feedback": "feedback",
+  feedback: "feedback",
+  customer_feedback: "feedback",
+  expo: "expo",
+  campaigns: "campaigns",
+  campaign: "campaigns",
+  "smart-card": "smart-card",
+  smart_card: "smart-card",
+  billing: "billing",
+  account: "settings",
+  settings: "settings",
+  "getting-started": "overview",
+  overview: "overview",
+  support: "support",
+  troubleshooting: "support",
+  security: "support",
+  integrations: "settings",
+  appointments: "appointments",
+  recovery: "recovery",
+  follow_up: "follow-up",
+  "follow-up": "follow-up",
+  followup: "follow-up",
+  shared: "support",
+};
+
+const SERVICE_TO_DOCS_ID: Record<string, string> = {
+  interview: "interviews",
+  survey: "wa-survey",
+  customer_feedback: "feedback",
+  expo: "expo",
+  campaigns: "campaigns",
+  smart_card: "smart-card",
+  shared: "support",
+  appointments: "appointments",
+  recovery: "recovery",
+  follow_up: "follow-up",
+};
+
+function resolveDocsCategoryId(cat: ApiFaqCategory): string {
+  const slug = String(cat.slug || "").trim().toLowerCase();
+  if (slug && API_SLUG_TO_DOCS_ID[slug]) return API_SLUG_TO_DOCS_ID[slug];
+  const svc = String(cat.items[0]?.linked_service || "").trim().toLowerCase();
+  if (svc && SERVICE_TO_DOCS_ID[svc]) return SERVICE_TO_DOCS_ID[svc];
+  const name = String(cat.name || "").trim().toLowerCase();
+  for (const [key, id] of Object.entries(API_SLUG_TO_DOCS_ID)) {
+    if (name.includes(key.replace(/-/g, " ")) || name.includes(key)) return id;
+  }
+  return `api-${slug || cat.id || "other"}`;
+}
+
+/** Fold API FAQ items into the matching service/category card (not dumped into Support). */
 function mergeWithApi(apiCategories: ApiFaqCategory[]): DocsCategory[] {
   if (apiCategories.length === 0) return BUILT_IN_DOCS;
-  const supportExtras: DocsArticle[] = apiCategories.flatMap((cat) =>
-    cat.items.map((item) => ({
+
+  const byId = new Map<string, DocsCategory>(BUILT_IN_DOCS.map((c) => [c.id, { ...c, articles: [...c.articles] }]));
+
+  for (const cat of apiCategories) {
+    const docsId = resolveDocsCategoryId(cat);
+    const extras: DocsArticle[] = cat.items.map((item) => ({
       id: `api-${cat.id ?? "x"}-${item.id}`,
-      group: cat.name || "Articles",
+      group: cat.name || "From help centre",
       title: item.question,
       body: item.answer,
-    })),
-  );
-  if (supportExtras.length === 0) return BUILT_IN_DOCS;
-  return BUILT_IN_DOCS.map((c) =>
-    c.id === "support" ? { ...c, articles: [...c.articles, ...supportExtras] } : c,
-  );
+    }));
+    if (extras.length === 0) continue;
+
+    const existing = byId.get(docsId);
+    if (existing) {
+      byId.set(docsId, { ...existing, articles: [...existing.articles, ...extras] });
+      continue;
+    }
+    byId.set(docsId, {
+      id: docsId,
+      name: cat.name || "Help",
+      shortName: cat.name || "Help",
+      description: "Answers published for your organisation.",
+      Icon: LifeBuoy,
+      articles: extras,
+      serviceKey: undefined,
+    });
+  }
+
+  const builtInOrder = BUILT_IN_DOCS.map((c) => c.id);
+  const ordered: DocsCategory[] = [];
+  for (const id of builtInOrder) {
+    const row = byId.get(id);
+    if (row) ordered.push(row);
+  }
+  for (const [id, row] of byId) {
+    if (!builtInOrder.includes(id)) ordered.push(row);
+  }
+  return ordered;
 }
 
 function groupArticles(articles: DocsArticle[]): { group: string; items: DocsArticle[] }[] {
@@ -73,10 +165,12 @@ function FaqPage() {
     return raw.map((cat) => ({
       id: cat.id as number | string | null,
       name: String(cat.name || "General"),
+      slug: cat.slug != null ? String(cat.slug) : null,
       items: ((cat.items || []) as Array<Record<string, unknown>>).map((item) => ({
         id: item.id as number | string,
         question: String(item.question || ""),
         answer: String(item.answer || ""),
+        linked_service: item.linked_service != null ? String(item.linked_service) : null,
       })),
     }));
   }, [faqQ.data]);
@@ -90,6 +184,7 @@ function FaqPage() {
         feedbackCampaigns: visible.feedbackCampaigns,
         expo: visible.expo,
         campaigns: visible.campaigns,
+        smartCard: visible.smartCard,
       }) satisfies Record<DocsServiceKey, boolean>,
     [visible],
   );

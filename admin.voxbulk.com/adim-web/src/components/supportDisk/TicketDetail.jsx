@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Bold, Check, Italic, Link2, List, Lock, MoreHorizontal, Paperclip, Plus, Search, Send, Sparkles, Trash2, Zap } from 'lucide-react'
+import { Archive, ArrowLeft, Bold, Check, Italic, Link2, List, Lock, MoreHorizontal, Paperclip, Plus, Search, Send, Sparkles, Zap } from 'lucide-react'
 import { Button } from './Button'
 import { Textarea } from './ui/textarea'
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs'
@@ -11,13 +11,13 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { InitialsAvatar, STATUS_META, StatusPill, TagChip } from './bits'
 import { cn, dateLabel } from './utils'
 
-export default function TicketDetail({ ticket, messages = [], admins = [], cannedReplies = [], helpLinks = [], faqs = [], onBack, onStatusChange, onAssign, onSend, onPolish, onWriteAi, onDelete }) {
+export default function TicketDetail({ ticket, messages = [], admins = [], cannedReplies = [], helpLinks = [], faqs = [], onBack, onStatusChange, onAssign, onSend, onPolish, onWriteAi, onArchive }) {
   const [mode, setMode] = useState('reply')
   const [draft, setDraft] = useState('')
   const [cannedQuery, setCannedQuery] = useState('')
   const [linkQuery, setLinkQuery] = useState('')
   const [aiOpen, setAiOpen] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
   const [aiSuggestion, setAiSuggestion] = useState('')
   const [tags, setTags] = useState(ticket.category ? [ticket.category] : ['support'])
   const [busy, setBusy] = useState(false)
@@ -38,7 +38,7 @@ export default function TicketDetail({ ticket, messages = [], admins = [], canne
         <div className="flex shrink-0 items-center gap-1.5">
           <Select value={ticket.status} onValueChange={onStatusChange}><SelectTrigger className="h-8 w-[190px] text-xs"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(STATUS_META).map(([s, m]) => <SelectItem key={s} value={s}>{m.label}</SelectItem>)}</SelectContent></Select>
           <Select value={String(ticket.assigned_admin_user_id || 'unassigned')} onValueChange={(v) => onAssign(v === 'unassigned' ? '' : v)}><SelectTrigger className="h-8 w-[190px] text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="unassigned">Unassigned</SelectItem>{admins.map((a) => <SelectItem key={a.id} value={String(a.id)}>{a.email}</SelectItem>)}</SelectContent></Select>
-          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-8"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-52"><DropdownMenuLabel className="text-[11px] uppercase">Ticket actions</DropdownMenuLabel><DropdownMenuItem>Mark as spam</DropdownMenuItem><DropdownMenuItem>Export conversation</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem className="text-destructive" onSelect={() => setConfirmDelete(true)}><Trash2 className="size-4" /> Delete ticket</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
+          <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="size-8"><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="w-52"><DropdownMenuLabel className="text-[11px] uppercase">Ticket actions</DropdownMenuLabel><DropdownMenuItem>Mark as spam</DropdownMenuItem><DropdownMenuItem>Export conversation</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem onSelect={() => setConfirmArchive(true)}><Archive className="size-4" /> Archive ticket</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5"><StatusPill status={ticket.status} />{tags.map((tag) => <TagChip key={tag} label={tag} />)}<Popover><PopoverTrigger asChild><button className="inline-flex items-center gap-1 rounded-md border border-dashed border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary"><Plus className="size-3" /> Tag</button></PopoverTrigger><PopoverContent align="start" className="w-48 p-1">{['billing', 'technical', 'refund', 'how-to', 'escalation'].filter((tag) => !tags.includes(tag)).map((tag) => <button key={tag} onClick={() => setTags((prev) => [...prev, tag])} className="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-secondary">{tag}</button>)}</PopoverContent></Popover><span className="ml-auto text-[11px] text-muted-foreground">Assigned to <span className="font-medium text-foreground">{ticket.assigned_admin_email || 'Unassigned'}</span></span></div>
@@ -59,6 +59,6 @@ export default function TicketDetail({ ticket, messages = [], admins = [], canne
       </div>
     </footer>
     <Dialog open={aiOpen} onOpenChange={setAiOpen}><DialogContent className="max-w-3xl"><DialogHeader><DialogTitle className="flex items-center gap-2"><Sparkles className="size-4 text-primary" /> AI-polished reply</DialogTitle><DialogDescription>Grammar, tone and clarity improved. Review the changes before applying.</DialogDescription></DialogHeader><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-lg border border-border bg-surface-subtle p-3"><p className="mb-1.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">Before</p><p className="text-sm whitespace-pre-wrap">{draft}</p></div><div className="rounded-lg border border-primary/30 bg-accent p-3"><p className="mb-1.5 text-[11px] font-semibold tracking-wider text-accent-foreground uppercase">After</p><p className="text-sm whitespace-pre-wrap">{aiSuggestion}</p></div></div><DialogFooter><Button variant="ghost" onClick={() => setAiOpen(false)}>Keep original</Button><Button onClick={() => { setDraft(aiSuggestion); setAiOpen(false) }}><Check className="size-4" /> Use this version</Button></DialogFooter></DialogContent></Dialog>
-    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Delete ticket {ticket.public_ref}?</AlertDialogTitle><AlertDialogDescription>The ticket will be closed and removed from active queues.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={onDelete}>Delete</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+    <AlertDialog open={confirmArchive} onOpenChange={setConfirmArchive}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Archive ticket {ticket.public_ref}?</AlertDialogTitle><AlertDialogDescription>The ticket will be closed and moved to the Archive. Nothing is permanently deleted.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={onArchive}>Archive</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
   </section>
 }

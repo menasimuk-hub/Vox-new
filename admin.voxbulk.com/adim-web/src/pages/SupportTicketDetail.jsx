@@ -17,18 +17,23 @@ export default function SupportTicketDetail() {
   const load = useCallback(async () => {
     setError('')
     try {
-      const [d, a, c, h, f] = await Promise.all([
+      const [d, a, c, h, f, kb] = await Promise.all([
         apiFetch(`/admin/support/tickets/${ticketId}`),
         apiFetch('/admin/support/admins').catch(() => []),
         apiFetch('/admin/support/canned/replies?active_only=true').catch(() => []),
-        apiFetch('/admin/support/help-links').catch(() => []),
-        apiFetch('/admin/faq/items?limit=200').catch(() => []),
+        apiFetch('/admin/support/help-links?active_only=true').catch(() => []),
+        apiFetch('/admin/faq/items?surface=dashboard&visible_only=true&limit=200').catch(() => []),
+        apiFetch('/admin/support/kb/articles?kind=article&published_only=true').catch(() => []),
       ])
       setDetail(d)
       setAdmins(Array.isArray(a) ? a : [])
       setCanned(Array.isArray(c) ? c : [])
       setLinks(Array.isArray(h) ? h : [])
-      setFaqs(Array.isArray(f) ? f : [])
+      const faqRows = Array.isArray(f) ? f.filter((x) => x.is_published !== false) : []
+      const kbRows = Array.isArray(kb)
+        ? kb.map((x) => ({ id: `kb-${x.id}`, question: x.title, answer: `${x.body || ''}\n\n${x.url || ''}`.trim() }))
+        : []
+      setFaqs([...faqRows, ...kbRows])
     } catch (e) {
       setError(e?.message || 'Could not load ticket')
     }
@@ -62,14 +67,14 @@ export default function SupportTicketDetail() {
     const prompt = `Write a concise, professional customer support reply. Return only the reply text.\n\nTicket: ${detail?.ticket?.subject || ''}\nRequester: ${detail?.ticket?.requester_email || detail?.ticket?.created_by_email || 'Customer'}\nConversation:\n${recent}`
     return polishReply(prompt)
   }
-  const closeTicket = async () => {
+  const archiveTicket = async () => {
     await apiFetch(`/admin/support/tickets/${ticketId}/status`, { method: 'POST', body: { status: 'closed' } })
-    navigate('/support/tickets')
+    navigate('/support/archive')
   }
   const t = detail?.ticket
   return <SupportDiskShell title={t?.public_ref || 'Ticket detail'} subtitle={t?.organisation_name || 'Support Disk conversation'}>
     {error ? <div className="m-4 rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{error}</div> : null}
-    {!t ? <div className="p-10 text-center text-muted-foreground">Loading ticket…</div> : <div className="h-[calc(100vh-120px)]"><TicketDetail ticket={t} messages={detail.messages || []} admins={admins} cannedReplies={canned} helpLinks={links} faqs={faqs} onBack={() => navigate('/support/tickets')} onStatusChange={updateStatus} onAssign={assign} onSend={sendReply} onPolish={polishReply} onWriteAi={writeReply} onDelete={closeTicket} /></div>}
+    {!t ? <div className="p-10 text-center text-muted-foreground">Loading ticket…</div> : <div className="h-[calc(100vh-120px)]"><TicketDetail ticket={t} messages={detail.messages || []} admins={admins} cannedReplies={canned} helpLinks={links} faqs={faqs} onBack={() => navigate('/support/tickets')} onStatusChange={updateStatus} onAssign={assign} onSend={sendReply} onPolish={polishReply} onWriteAi={writeReply} onArchive={archiveTicket} /></div>}
   </SupportDiskShell>
 }
 

@@ -659,6 +659,9 @@ class SupportTicketService:
 class CannedReplyService:
     @staticmethod
     def list_categories(db: Session):
+        from app.services.support_content_seed_service import SupportContentSeedService
+
+        SupportContentSeedService.ensure_defaults(db)
         return list(db.execute(select(CannedReplyCategory).order_by(CannedReplyCategory.name.asc())).scalars())
 
     @staticmethod
@@ -686,6 +689,9 @@ class CannedReplyService:
 
     @staticmethod
     def list_replies(db: Session, *, search: str | None = None, category_id: int | None = None, active_only: bool = False):
+        from app.services.support_content_seed_service import SupportContentSeedService, is_support_content_visible
+
+        SupportContentSeedService.ensure_defaults(db)
         stmt = select(CannedReply)
         if active_only:
             stmt = stmt.where(CannedReply.is_active == True)  # noqa: E712
@@ -694,7 +700,10 @@ class CannedReplyService:
         if search:
             q = f"%{search.strip()}%"
             stmt = stmt.where(or_(CannedReply.title.ilike(q), CannedReply.question.ilike(q), CannedReply.answer.ilike(q)))
-        return list(db.execute(stmt.order_by(CannedReply.updated_at.desc()).limit(200)).scalars())
+        rows = list(db.execute(stmt.order_by(CannedReply.updated_at.desc()).limit(200)).scalars())
+        if active_only:
+            rows = [r for r in rows if is_support_content_visible(db, getattr(r, "linked_service", None))]
+        return rows
 
     @staticmethod
     def upsert_reply(db: Session, *, reply_id: int | None, category_id: int | None, title: str, question: str, answer: str, is_active: bool):
@@ -796,7 +805,15 @@ def attachment_to_dict(a: SupportTicketAttachment) -> dict:
 
 
 def canned_category_to_dict(c: CannedReplyCategory) -> dict:
-    return {"id": c.id, "name": c.name, "description": c.description, "created_at": c.created_at, "updated_at": c.updated_at}
+    return {
+        "id": c.id,
+        "name": c.name,
+        "slug": getattr(c, "slug", None),
+        "description": c.description,
+        "linked_service": getattr(c, "linked_service", None),
+        "created_at": c.created_at,
+        "updated_at": c.updated_at,
+    }
 
 
 def canned_reply_to_dict(db: Session, r: CannedReply) -> dict:
@@ -808,6 +825,8 @@ def canned_reply_to_dict(db: Session, r: CannedReply) -> dict:
         "title": r.title,
         "question": r.question,
         "answer": r.answer,
+        "seed_key": getattr(r, "seed_key", None),
+        "linked_service": getattr(r, "linked_service", None),
         "is_active": bool(r.is_active),
         "created_at": r.created_at,
         "updated_at": r.updated_at,

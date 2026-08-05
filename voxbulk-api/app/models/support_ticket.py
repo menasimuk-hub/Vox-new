@@ -85,7 +85,9 @@ class CannedReplyCategory(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True, index=True)
+    slug: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    linked_service: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -98,6 +100,8 @@ class CannedReply(Base):
     title: Mapped[str] = mapped_column(String(180), nullable=False, index=True)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
+    seed_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True, index=True)
+    linked_service: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

@@ -455,15 +455,6 @@ function CategoryDetail({
                   {open && (
                     <div className="px-6 md:px-8 pb-6 -mt-1 animate-fade-in">
                       <p className="text-[14.5px] text-body leading-[1.7] max-w-[720px] whitespace-pre-wrap">{f.a}</p>
-                      {f.slug ? (
-                        <Link
-                          to="/faq/$slug"
-                          params={{ slug: f.slug }}
-                          className="inline-block mt-3 text-[13px] font-semibold text-primary hover:underline underline-offset-2"
-                        >
-                          Open shareable page →
-                        </Link>
-                      ) : null}
                     </div>
                   )}
                 </li>

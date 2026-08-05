@@ -15,7 +15,11 @@ router = APIRouter(tags=["faq"])
 
 @router.get("/faq")
 def public_faq(search: str | None = None, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
-    """Authenticated dashboard FAQ — surface=dashboard (falls back to frontend until dashboard content exists)."""
+    """Authenticated dashboard FAQ — surface=dashboard only (no frontend fallback)."""
+    from app.services.platform_product_visibility_service import PlatformProductVisibilityService
+    from app.services.support_content_seed_service import SupportContentSeedService
+
+    SupportContentSeedService.ensure_defaults(db)
     user = db.get(User, principal.user_id)
     viewer_email = getattr(user, "email", None) if user else None
     surface = "dashboard"
@@ -29,26 +33,22 @@ def public_faq(search: str | None = None, db: Session = Depends(get_db), princip
         apply_integration_release_gate=True,
         surface=surface,
     )
-    # Compat: surface split emptied dashboard until admins create dashboard FAQs —
-    # fall back to the previous shared catalogue (frontend) so Documentation & FAQ is not blank.
-    if not items:
-        surface = "frontend"
-        cats = FAQService.list_categories(db, surface=surface)
-        items = FAQService.list_items(
+    cat_slug_by_id = {int(c.id): str(c.slug or "") for c in cats if c.id is not None}
+    visible_items = [
+        i
+        for i in items
+        if PlatformProductVisibilityService.is_faq_visible(
             db,
-            search=search,
-            published_only=True,
-            limit=200,
-            viewer_email=viewer_email,
-            apply_integration_release_gate=True,
-            surface=surface,
+            category_slug=cat_slug_by_id.get(int(i.category_id), None) if i.category_id else None,
+            linked_service=getattr(i, "linked_service", None),
         )
+    ]
     grouped = []
     for c in cats:
-        rows = [item_to_dict(db, i) for i in items if i.category_id == c.id]
+        rows = [item_to_dict(db, i) for i in visible_items if i.category_id == c.id]
         if rows:
             grouped.append({**category_to_dict(c), "items": rows})
-    uncategorised = [item_to_dict(db, i) for i in items if i.category_id is None]
+    uncategorised = [item_to_dict(db, i) for i in visible_items if i.category_id is None]
     if uncategorised:
         grouped.append(
             {
@@ -90,15 +90,30 @@ def admin_faq_items(
     search: str | None = None,
     category_id: int | None = None,
     surface: str | None = None,
+    visible_only: bool = False,
     limit: int = 50,
     offset: int = 0,
     db: Session = Depends(get_db),
     _admin: User = Depends(require_platform_admin),
 ):
-    return [
-        item_to_dict(db, i)
-        for i in FAQService.list_items(db, search=search, category_id=category_id, surface=surface, limit=limit, offset=offset)
-    ]
+    from app.services.platform_product_visibility_service import PlatformProductVisibilityService
+    from app.services.support_content_seed_service import SupportContentSeedService
+
+    if surface == "dashboard" or visible_only:
+        SupportContentSeedService.ensure_defaults(db)
+    rows = FAQService.list_items(db, search=search, category_id=category_id, surface=surface, limit=limit, offset=offset)
+    if visible_only:
+        cats = {c.id: c for c in FAQService.list_categories(db, surface=surface)}
+        rows = [
+            i
+            for i in rows
+            if PlatformProductVisibilityService.is_faq_visible(
+                db,
+                category_slug=getattr(cats.get(i.category_id), "slug", None) if i.category_id else None,
+                linked_service=getattr(i, "linked_service", None),
+            )
+        ]
+    return [item_to_dict(db, i) for i in rows]
 
 
 @router.post("/admin/faq/items")

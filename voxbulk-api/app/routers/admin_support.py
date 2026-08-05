@@ -331,8 +331,16 @@ def admin_kb_delete_category(category_id: int, db: Session = Depends(get_db), _a
 
 
 @router.get("/kb/articles")
-def admin_kb_articles(kind: str = "article", db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
-    return [SupportKbService.article_to_dict(a) for a in SupportKbService.list_articles(db, kind=kind)]
+def admin_kb_articles(
+    kind: str = "article",
+    published_only: bool = False,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_SUPPORT)),
+):
+    return [
+        SupportKbService.article_to_dict(a)
+        for a in SupportKbService.list_articles(db, kind=kind, published_only=published_only)
+    ]
 
 
 @router.post("/kb/articles")
@@ -352,8 +360,12 @@ def admin_kb_delete_article(article_id: int, db: Session = Depends(get_db), _adm
 
 
 @router.get("/help-links")
-def admin_help_links(db: Session = Depends(get_db), _admin: User = Depends(require_cap(CAP_SUPPORT))):
-    return [SupportHelpLinkService.to_dict(r) for r in SupportHelpLinkService.list_links(db)]
+def admin_help_links(
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_cap(CAP_SUPPORT)),
+):
+    return [SupportHelpLinkService.to_dict(r) for r in SupportHelpLinkService.list_links(db, active_only=active_only)]
 
 
 @router.post("/help-links")

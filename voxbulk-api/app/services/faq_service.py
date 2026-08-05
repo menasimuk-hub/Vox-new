@@ -137,8 +137,15 @@ class FAQService:
 
     @staticmethod
     def seed_defaults(db: Session) -> None:
-        """Ensure public marketing FAQs exist (replaces legacy demo support seeds)."""
+        """Ensure public marketing FAQs and dashboard support defaults exist."""
         FAQService.ensure_marketing_faqs(db)
+        try:
+            from app.services.support_content_seed_service import SupportContentSeedService
+
+            SupportContentSeedService.ensure_defaults(db)
+        except Exception:
+            # Support seed is best-effort on FAQ reads (migration may lag).
+            pass
 
     @staticmethod
     def list_categories(db: Session, *, surface: str | None = None) -> list[FAQCategory]:

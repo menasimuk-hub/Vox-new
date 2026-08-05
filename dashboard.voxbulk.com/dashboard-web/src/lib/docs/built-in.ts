@@ -9,6 +9,7 @@ import {
   Settings as SettingsIcon,
   Megaphone,
   CalendarDays,
+  IdCard,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,7 +20,8 @@ export type DocsServiceKey =
   | "feedback"
   | "feedbackCampaigns"
   | "expo"
-  | "campaigns";
+  | "campaigns"
+  | "smartCard";
 
 export type DocsArticle = {
   id: string;
@@ -307,6 +309,29 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         group: "How to use",
         title: "Step-by-step: create an Expo campaign",
         body: "1. Open Expo → New (/expo/new).\n2. Enter event name, capture fields and branding.\n3. Publish and print/display the QR or share the link on the stand.\n4. Watch leads arrive under Expo → Leads.\n5. Use packages under Account → Expo packages if your plan needs more capacity.\n\nExpo only shows in the sidebar when the Expo module is enabled for your organisation.",
+      },
+    ],
+  },
+  {
+    id: "smart-card",
+    name: "Smart Card QR",
+    shortName: "Smart Card",
+    description: "Personal lead-capture QR codes for sales representatives.",
+    Icon: IdCard,
+    serviceKey: "smartCard",
+    articles: [
+      {
+        id: "smart-card-purpose",
+        group: "What is it for",
+        title: "What Smart Card QR is for",
+        routes: ["/smart-card"],
+        body: "Smart Card gives each sales representative a personal QR code. When a prospect scans it, they submit contact details and optional product interest — leads land in your Smart Card workspace for follow-up.",
+      },
+      {
+        id: "smart-card-how-to",
+        group: "How to use",
+        title: "Step-by-step: create a Smart Card QR",
+        body: "1. Open Smart Card (/smart-card).\n2. Add a representative (name, role, photo optional).\n3. Configure catalogue / questions if needed.\n4. Download or print the QR from the representative detail page.\n5. Manage packages under Account → Smart Card packages when you need more capacity.",
       },
     ],
   },

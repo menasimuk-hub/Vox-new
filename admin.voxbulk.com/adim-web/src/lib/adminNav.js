@@ -199,6 +199,7 @@ export const NAV = [
     [
       ['Support Inbox', '/support/inbox'],
       ['Open Tickets', '/support/tickets'],
+      ['Archive', '/support/archive'],
       ['Help Centre', '/support/help-centre'],
       ['FAQ (Frontend)', '/support/faq-frontend'],
       ['FAQ (User dashboard)', '/support/faq-dashboard'],
