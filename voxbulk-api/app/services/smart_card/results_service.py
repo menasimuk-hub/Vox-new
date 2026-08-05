@@ -59,6 +59,8 @@ class SmartCardResultsService:
     @staticmethod
     def _lead_row(db: Session, lead: SmartCardLead) -> dict[str, Any]:
         rep = db.get(SmartCardRepresentative, lead.representative_id)
+        consent = str(lead.consent or "").strip().lower()
+        catalogue_requested = bool(consent) and consent not in {"no", "n", "false", "0"}
         return {
             "id": lead.id,
             "representative_id": lead.representative_id,
@@ -74,6 +76,7 @@ class SmartCardResultsService:
             "suggested_follow_up": lead.suggested_follow_up,
             "follow_up_status": lead.follow_up_status,
             "channel": lead.channel,
+            "catalogue_requested": catalogue_requested,
             "business_card_url": (
                 f"/smart-card/results/leads/{lead.id}/card-image" if lead.business_card_path else None
             ),

@@ -1490,6 +1490,7 @@ export function PublicExpoLanding({
                     </>
                     ) : (
                       <VoiceDetail
+                        key={`expo-voice-${liveQ.key}`}
                         ref={voiceRef}
                         theme={theme}
                         eyebrow="Question"
@@ -1508,6 +1509,7 @@ export function PublicExpoLanding({
                     )
                   ) : (
                     <VoiceDetail
+                      key={`expo-voice-${liveQ.key}`}
                       ref={voiceRef}
                       theme={theme}
                       eyebrow="Question"

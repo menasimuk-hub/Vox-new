@@ -71,21 +71,26 @@ class ExpoBoothPaymentService:
     @staticmethod
     def pay_options(db: Session, *, org: Organisation, booth: ExpoBooth) -> dict[str, Any]:
         from app.services.airwallex_payment_service import AirwallexPaymentService
+        from app.services.checkout_quote_service import CheckoutQuoteService
         from app.services.stripe_payment_service import StripePaymentService
 
         currency = resolve_org_currency(db, org, persist=True)
+        catalog = ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        if ExpoSignupTrialService.has_usable_trial(db, org_id=org.id, booth=booth):
+            catalog = 0
         amount = ExpoBoothPaymentService.effective_amount_minor(db, org=org, booth=booth, currency=currency)
         providers = []
         if amount > 0 and StripePaymentService.is_available(db):
             providers.append(
                 {
                     "id": "stripe",
-                    "label": "Card (Stripe)",
+                    "label": "Pay with card",
                     "publishable_key": StripePaymentService.publishable_key(db),
                 }
             )
-        if amount > 0 and AirwallexPaymentService.is_available(db):
-            providers.append({"id": "airwallex", "label": "Card (Airwallex)"})
+        elif amount > 0 and AirwallexPaymentService.is_available(db):
+            providers.append({"id": "airwallex", "label": "Pay with card"})
+        quote = CheckoutQuoteService.quote(db, org=org, service_kind="expo", amount_minor=catalog)
         return {
             "ok": True,
             "booth_id": booth.id,
@@ -95,6 +100,7 @@ class ExpoBoothPaymentService:
             "amount_display": money_display(amount, currency),
             "currency": currency,
             "providers": providers,
+            "quote": quote,
             "booth": ExpoBoothService.serialize_booth(db, booth),
         }
 
@@ -125,7 +131,14 @@ class ExpoBoothPaymentService:
             discount_meta = PromoDiscountService.peek_amount(
                 db, org_id=org.id, service_kind="expo", amount_minor=catalog
             )
-            amount = int(discount_meta["amount_minor"])
+            from app.services.checkout_quote_service import CheckoutQuoteService
+
+            quote = CheckoutQuoteService.quote(db, org=org, service_kind="expo", amount_minor=catalog)
+            amount = int(quote.get("total_minor") or discount_meta["amount_minor"])
+            discount_meta = {
+                **discount_meta,
+                "discount_applied": bool(quote.get("discount_applied")),
+            }
         if amount <= 0:
             provider_label = SIGNUP_TRIAL_PROVIDER if trial_covers else (
                 "promo_discount" if discount_meta.get("discount_applied") else "free"

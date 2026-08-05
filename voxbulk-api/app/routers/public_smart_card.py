@@ -256,15 +256,18 @@ async def upload_card(
     if not raw:
         raise HTTPException(status_code=400, detail="Empty file")
     extracted: dict = {"name": None, "company": None, "email": None, "phone": None}
+    card_path: str | None = None
     try:
         from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
 
-        extracted = (
-            ExpoBusinessCardService.extract_from_bytes(
-                db, image_bytes=raw, content_type=file.content_type or "image/jpeg"
-            )
-            or extracted
+        extracted, card_path = ExpoBusinessCardService.save_from_bytes(
+            db,
+            org_id=str(rep.org_id),
+            booth_id=str(rep.id),
+            image_bytes=raw,
+            content_type=file.content_type or "image/jpeg",
         )
+        extracted = extracted or {"name": None, "company": None, "email": None, "phone": None}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"OCR unavailable: {e}") from e
 
@@ -275,6 +278,7 @@ async def upload_card(
         company=(extracted or {}).get("company"),
         email=(extracted or {}).get("email"),
         phone=(extracted or {}).get("phone"),
+        business_card_path=card_path,
     )
     db.commit()
     return result

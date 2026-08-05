@@ -251,45 +251,9 @@ class FeedbackBillingService:
         plan_id: str,
         billing_interval: str | None = None,
     ) -> dict[str, Any]:
-        plan = db.get(Plan, plan_id)
-        if plan is None:
-            raise FeedbackBillingError("Unknown plan")
-        FeedbackBillingService._validate_feedback_plan(db, plan)
-        existing = FeedbackBillingService.get_active_subscription(db, org.id)
-        if existing and str(existing.status or "").lower() == "active":
-            raise FeedbackBillingError(
-                "An active Customer feedback subscription already exists. Upgrade from Account → Customer feedback packages."
-            )
-        provider = PaymentProviderRouter.primary_subscription_provider(db, org)
-        if provider == "gocardless":
-            raise FeedbackBillingError(
-                "Direct Debit (GoCardless) is the subscription method for your region. Use the GoCardless checkout."
-            )
-        from app.services.airwallex_subscription_service import AirwallexSubscriptionError, AirwallexSubscriptionService
-        from app.services.stripe_subscription_service import StripeSubscriptionError, StripeSubscriptionService
-
-        try:
-            if provider == "airwallex":
-                checkout = AirwallexSubscriptionService.start_subscription_checkout(
-                    db,
-                    org=org,
-                    plan=plan,
-                    user_email=user_email,
-                    billing_interval=billing_interval,
-                    service_code=FEEDBACK_SERVICE_CODE,
-                )
-            else:
-                checkout = StripeSubscriptionService.start_subscription_checkout(
-                    db,
-                    org=org,
-                    plan=plan,
-                    user_email=user_email,
-                    billing_interval=billing_interval,
-                    service_code=FEEDBACK_SERVICE_CODE,
-                )
-        except (AirwallexSubscriptionError, StripeSubscriptionError) as exc:
-            raise FeedbackBillingError(str(exc)) from exc
-        return {"plan": plan, **checkout}
+        raise FeedbackBillingError(
+            "Customer Feedback is Direct Debit (GoCardless) only. Card signup is not available."
+        )
 
     @staticmethod
     def complete_card_signup(
@@ -301,74 +265,9 @@ class FeedbackBillingService:
         payment_intent_id: str,
         billing_interval: str | None = None,
     ) -> Subscription:
-        from app.services.airwallex_payment_service import AirwallexPaymentService, AirwallexProviderError
-        from app.services.card_subscription_activation_service import (
-            CardSubscriptionActivationError,
-            CardSubscriptionActivationService,
+        raise FeedbackBillingError(
+            "Customer Feedback is Direct Debit (GoCardless) only. Card signup is not available."
         )
-        from app.services.stripe_payment_service import StripePaymentService, StripeProviderError
-
-        plan = db.get(Plan, plan_id)
-        if plan is None:
-            raise FeedbackBillingError("Unknown plan")
-        FeedbackBillingService._validate_feedback_plan(db, plan)
-        pid = str(payment_intent_id or "").strip()
-        if not pid:
-            raise FeedbackBillingError("payment_intent_id required")
-        prov = str(provider or "").strip().lower()
-        if prov not in {"stripe", "airwallex"}:
-            raise FeedbackBillingError("provider must be stripe or airwallex")
-
-        try:
-            if prov == "stripe":
-                intent = StripePaymentService.retrieve_intent(db, pid)
-            else:
-                intent = AirwallexPaymentService.retrieve_intent(db, pid)
-        except (StripeProviderError, AirwallexProviderError) as exc:
-            raise FeedbackBillingError(str(exc)) from exc
-
-        status_raw = str(intent.get("status") or "")
-        if prov == "airwallex":
-            ok = status_raw.upper() == "SUCCEEDED" or status_raw.lower() in {"succeeded", "processing"}
-        else:
-            ok = status_raw.lower() in {"succeeded", "processing", "requires_capture"}
-        if not ok:
-            raise FeedbackBillingError("Payment not completed yet")
-
-        try:
-            CardSubscriptionActivationService.verify_intent_metadata(
-                intent.get("metadata") or {},
-                org_id=org.id,
-                plan_id=plan.id,
-            )
-        except CardSubscriptionActivationError as exc:
-            raise FeedbackBillingError(str(exc)) from exc
-
-        meta = intent.get("metadata") or {}
-        if str(meta.get("voxbulk_service_code") or "").strip() != FEEDBACK_SERVICE_CODE:
-            raise FeedbackBillingError("Payment is not a Customer feedback subscription checkout")
-
-        interval = PlanPriceService.normalize_billing_interval(
-            billing_interval or meta.get("voxbulk_billing_interval")
-        )
-        sub = CardSubscriptionActivationService.activate_from_payment(
-            db,
-            org=org,
-            plan=plan,
-            provider=prov,
-            payment_intent_id=pid,
-            billing_interval=interval,
-            service_code=FEEDBACK_SERVICE_CODE,
-        )
-        if prov == "airwallex":
-            from app.services.airwallex_subscription_service import AirwallexSubscriptionService
-
-            AirwallexSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
-        elif prov == "stripe":
-            from app.services.stripe_subscription_service import StripeSubscriptionService
-
-            StripeSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
-        return sub
 
     @staticmethod
     def complete_gocardless_signup(

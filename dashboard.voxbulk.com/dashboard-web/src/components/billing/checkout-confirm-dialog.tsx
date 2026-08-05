@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export type CheckoutConfirmDetails = {
@@ -21,6 +22,19 @@ export type CheckoutConfirmDetails = {
   seats?: number | null;
   unitDisplay?: string | null;
   providerHint?: string | null;
+  /** Catalog amount in minor units before promo/VAT (enables live re-quote). */
+  amountMinor?: number | null;
+  serviceKind?: string | null;
+};
+
+type QuoteOut = {
+  total_display?: string;
+  amount_note?: string;
+  discount_applied?: boolean;
+  discount_display?: string | null;
+  vat_display?: string | null;
+  net_display?: string;
+  catalog_display?: string;
 };
 
 type Props = {
@@ -46,7 +60,43 @@ export function CheckoutConfirmDialog({
   loading,
   onConfirm,
 }: Props) {
+  const [quote, setQuote] = React.useState<QuoteOut | null>(null);
+  const [quoting, setQuoting] = React.useState(false);
+
+  const refreshQuote = React.useCallback(async () => {
+    if (!details?.amountMinor || details.amountMinor <= 0 || !details.serviceKind) {
+      setQuote(null);
+      return;
+    }
+    setQuoting(true);
+    try {
+      const res = await apiFetch<QuoteOut>("/billing/checkout/quote", {
+        method: "POST",
+        body: JSON.stringify({
+          amount_minor: details.amountMinor,
+          service_kind: details.serviceKind,
+        }),
+      });
+      setQuote(res);
+    } catch {
+      setQuote(null);
+    } finally {
+      setQuoting(false);
+    }
+  }, [details?.amountMinor, details?.serviceKind]);
+
+  React.useEffect(() => {
+    if (!open) {
+      setQuote(null);
+      return;
+    }
+    void refreshQuote();
+  }, [open, refreshQuote]);
+
   if (!details) return null;
+
+  const amountDisplay = quote?.total_display || details.amountDisplay;
+  const amountNote = quote?.amount_note || details.amountNote;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -69,7 +119,9 @@ export function CheckoutConfirmDialog({
             </div>
             <div className="text-right">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Due today</p>
-              <p className="text-xl font-semibold tabular-nums text-foreground">{details.amountDisplay}</p>
+              <p className="text-xl font-semibold tabular-nums text-foreground">
+                {quoting ? "…" : amountDisplay}
+              </p>
             </div>
           </div>
           {details.seats != null && details.seats > 0 ? (
@@ -78,11 +130,25 @@ export function CheckoutConfirmDialog({
               {details.unitDisplay ? ` · ${details.unitDisplay} each` : ""}
             </p>
           ) : null}
-          {details.amountNote ? <p className="text-xs text-muted-foreground">{details.amountNote}</p> : null}
+          {quote?.discount_applied && quote.discount_display ? (
+            <p className="text-xs text-emerald-700 dark:text-emerald-400">Promo −{quote.discount_display}</p>
+          ) : null}
+          {quote?.vat_display ? (
+            <p className="text-xs text-muted-foreground">
+              Net {quote.net_display}
+              {quote.vat_display ? ` · VAT ${quote.vat_display}` : ""}
+            </p>
+          ) : null}
+          {amountNote ? <p className="text-xs text-muted-foreground">{amountNote}</p> : null}
           {details.providerHint ? <p className="text-xs text-muted-foreground">{details.providerHint}</p> : null}
         </div>
 
-        <PromoCodeRedeem serviceHint={serviceHint} />
+        <PromoCodeRedeem
+          serviceHint={serviceHint}
+          onRedeemed={() => {
+            void refreshQuote();
+          }}
+        />
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" disabled={loading} onClick={() => onOpenChange(false)}>

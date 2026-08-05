@@ -1,4 +1,4 @@
-"""Smart Card QR seat billing — quantity × unit price (monthly GoCardless or yearly card)."""
+"""Smart Card QR seat billing — quantity × unit price (monthly/yearly GoCardless, card fallback)."""
 
 from __future__ import annotations
 
@@ -63,14 +63,14 @@ class SmartCardBillingService:
         if prov == "airwallex" and AirwallexPaymentService.is_available(db):
             return "airwallex"
         primary = PaymentProviderRouter.primary_subscription_provider(db, org)
-        if primary == "airwallex" and AirwallexPaymentService.is_available(db):
-            return "airwallex"
         if primary == "stripe" and StripePaymentService.is_available(db):
             return "stripe"
-        if AirwallexPaymentService.is_available(db):
+        if primary == "airwallex" and AirwallexPaymentService.is_available(db):
             return "airwallex"
         if StripePaymentService.is_available(db):
             return "stripe"
+        if AirwallexPaymentService.is_available(db):
+            return "airwallex"
         raise SmartCardBillingError(
             "Smart Card seat checkout needs Stripe or Airwallex (card). Configure a card provider."
         )
@@ -113,10 +113,8 @@ class SmartCardBillingService:
         plan, _pkg = SmartCardBillingService._validate_plan(db, plan_id)
         seats = SmartCardBillingService._normalize_seats(seat_quantity)
         interval = PlanPriceService.normalize_billing_interval(billing_interval)
-        if interval != "monthly":
-            raise SmartCardBillingError(
-                "GoCardless Direct Debit is for monthly Smart Card seats. Choose yearly card checkout for annual billing."
-            )
+        if interval not in ("monthly", "yearly"):
+            raise SmartCardBillingError("Choose monthly or yearly billing for GoCardless Smart Card seats.")
         try:
             res = BillingService.start_gocardless_redirect_flow(
                 db,
@@ -124,7 +122,7 @@ class SmartCardBillingService:
                 user_id=user_id,
                 plan_id=plan.id,
                 flow_purpose=SMART_CARD_SERVICE_CODE,
-                billing_interval="monthly",
+                billing_interval=interval,
                 seat_quantity=seats,
             )
         except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as exc:
@@ -152,19 +150,15 @@ class SmartCardBillingService:
         primary = preferred or PaymentProviderRouter.primary_subscription_provider(db, org)
 
         gc_opts = GcBilling.payment_options(db)
-        # Monthly + GoCardless available → use Direct Debit (caller should hit GC endpoints).
+        # GoCardless available for monthly or yearly → Direct Debit (caller should hit GC endpoints).
         if (
-            interval == "monthly"
+            interval in ("monthly", "yearly")
             and primary == "gocardless"
             and bool(gc_opts.get("gocardless_available"))
         ):
             raise SmartCardBillingError(
-                "Direct Debit (GoCardless) is the monthly subscription method for your region. Use the GoCardless checkout."
+                "Direct Debit (GoCardless) is the subscription method for your region. Use the GoCardless checkout."
             )
-
-        # Yearly always card; monthly without GC falls through to card.
-        if interval == "yearly" and preferred == "gocardless":
-            preferred = None
 
         currency, unit_minor, amount_minor, resolved_interval, promo_applied = SmartCardBillingService._priced_amount(
             db,

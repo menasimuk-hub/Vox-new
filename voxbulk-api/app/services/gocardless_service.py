@@ -484,6 +484,26 @@ class BillingService:
         now = datetime.utcnow()
         sub = BillingService.get_subscription(db, org_id)
         period_end = now + timedelta(days=3650)
+
+        if sub is not None:
+            prev_provider = str(getattr(sub, "payment_provider", None) or "").strip().lower()
+            if prev_provider == "gocardless" or str(getattr(sub, "external_subscription_id", None) or "").strip():
+                try:
+                    BillingService.cancel_subscription_for_sub(db, sub)
+                except Exception:
+                    logger.exception("payg_switch_gc_subscription_cancel_failed org_id=%s", org_id)
+                # cancel_subscription_for_sub commits; re-load
+                sub = BillingService.get_subscription(db, org_id) or sub
+            mandate_id = (
+                str(getattr(sub, "mandate_id", None) or "").strip()
+                or (BillingService.resolve_org_mandate_id(db, org_id) or "")
+            )
+            if mandate_id:
+                try:
+                    BillingService._cancel_gocardless_mandate(db, mandate_id)
+                except Exception:
+                    logger.exception("payg_switch_gc_mandate_cancel_failed org_id=%s", org_id)
+
         if sub is None:
             sub = Subscription(
                 org_id=org_id,
@@ -501,6 +521,10 @@ class BillingService:
             sub.status = "active"
             sub.current_period_end = period_end
             sub.payment_provider = "payg"
+            sub.external_subscription_id = None
+            sub.mandate_id = None
+            if hasattr(sub, "mandate_status"):
+                sub.mandate_status = None
             sub.updated_at = now
             db.add(sub)
         db.commit()

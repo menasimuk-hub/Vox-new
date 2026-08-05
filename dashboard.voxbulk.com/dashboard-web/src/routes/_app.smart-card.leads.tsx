@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
   CheckCheck,
+  CheckCircle2,
   ChevronRight,
   CreditCard,
   Download,
@@ -13,9 +14,11 @@ import {
   MousePointerClick,
   Phone,
   QrCode,
+  ScanLine,
   Search,
   User,
   Users,
+  XCircle,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -67,6 +70,7 @@ type Lead = {
   suggested_follow_up?: string | null;
   follow_up_status?: string;
   channel?: string | null;
+  catalogue_requested?: boolean;
   business_card_url?: string | null;
   created_at?: string | null;
   is_preview?: boolean;
@@ -120,6 +124,56 @@ function ScoreBadge({ score }: { score?: string | null }) {
     <Badge variant="outline" className={scoreBadgeClass(score)}>
       {label}
     </Badge>
+  );
+}
+
+function CardCell({ on, onView }: { on: boolean; onView?: () => void }) {
+  if (!on) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        <XCircle className="size-3.5" /> None
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700 transition hover:bg-emerald-500/20 dark:text-emerald-400"
+      onClick={(e) => {
+        e.stopPropagation();
+        onView?.();
+      }}
+    >
+      <ScanLine className="size-3.5" /> View card
+    </button>
+  );
+}
+
+function CatalogueCell({ requested }: { requested: boolean }) {
+  return requested ? (
+    <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+      <Download className="size-3.5" /> Requested
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <XCircle className="size-3.5" /> Not requested
+    </span>
+  );
+}
+
+function FollowUpCell({ status }: { status?: string | null }) {
+  const s = String(status || "open").toLowerCase();
+  if (s === "done" || s === "closed") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400" title="Follow-up done">
+        <CheckCircle2 className="size-3.5" />
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400" title="Needs follow-up">
+      <Flame className="size-3.5" />
+    </span>
   );
 }
 
@@ -426,13 +480,16 @@ function SmartCardLeadsPage() {
         </CardHeader>
         <CardContent className="overflow-x-auto">
           {leadsQ.isLoading ? <Skeleton className="h-24 w-full" /> : null}
-          <table className="w-full min-w-[880px] text-sm">
+          <table className="w-full min-w-[1040px] text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
                 <th className="py-2 pr-3">Lead</th>
                 <th className="py-2 pr-3">Company</th>
                 <th className="py-2 pr-3">Rep</th>
                 <th className="py-2 pr-3">Channel</th>
+                <th className="py-2 pr-3">Card</th>
+                <th className="py-2 pr-3">Catalogue</th>
+                <th className="py-2 pr-3">Follow-up</th>
                 <th className="py-2 pr-3">Score</th>
                 <th className="py-2 pr-3">Captured</th>
                 <th className="py-2" />
@@ -467,6 +524,15 @@ function SmartCardLeadsPage() {
                     </span>
                   </td>
                   <td className="py-2.5 pr-3">
+                    <CardCell on={Boolean(l.business_card_url)} onView={() => setSelected(l)} />
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <CatalogueCell requested={Boolean(l.catalogue_requested)} />
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <FollowUpCell status={l.follow_up_status} />
+                  </td>
+                  <td className="py-2.5 pr-3">
                     <ScoreBadge score={l.lead_score} />
                   </td>
                   <td className="py-2.5 pr-3 text-xs text-muted-foreground">{formatTs(l.created_at)}</td>
@@ -477,7 +543,7 @@ function SmartCardLeadsPage() {
               ))}
               {!leadsQ.isLoading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-xs text-muted-foreground">
+                  <td colSpan={10} className="py-8 text-center text-xs text-muted-foreground">
                     No leads for the selected cards yet — complete a WhatsApp or web questionnaire after scanning.
                   </td>
                 </tr>
@@ -540,6 +606,20 @@ function SmartCardLeadsPage() {
                   </section>
                 ) : null}
 
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="gap-1 text-[10px]">
+                    {detail.catalogue_requested ? (
+                      <>
+                        <Download className="size-3 text-emerald-500" /> Catalogue requested
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="size-3 text-muted-foreground" /> Catalogue not requested
+                      </>
+                    )}
+                  </Badge>
+                </div>
+
                 <section className="rounded-xl border bg-card p-4 shadow-sm">
                   <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     Contact
@@ -551,6 +631,7 @@ function SmartCardLeadsPage() {
                     <DetailRow icon={<Mail className="size-4" />} label="Email" value={detail.visitor_email} />
                     <DetailRow label="Channel" value={detail.channel} />
                     <DetailRow label="Follow-up" value={detail.follow_up_status || "open"} />
+                    <DetailRow label="Catalogue" value={detail.catalogue_requested ? "Requested" : "Not requested"} />
                   </div>
                 </section>
 
@@ -580,8 +661,10 @@ function SmartCardLeadsPage() {
                       const englishRaw = (a.answer_text_en || a.answer_text || "").trim();
                       const english =
                         !englishRaw || englishRaw === TRANSLATION_UNAVAILABLE ? "" : englishRaw;
-                      const showBoth =
-                        original && english && original.toLowerCase() !== english.toLowerCase();
+                      const differs =
+                        Boolean(original) &&
+                        Boolean(english) &&
+                        original.toLowerCase() !== english.toLowerCase();
                       return (
                         <div
                           key={`${a.question_key}-${i}`}
@@ -597,27 +680,27 @@ function SmartCardLeadsPage() {
                           {a.answer_source === "voice" && a.audio_url ? (
                             <VoiceAnswerAudio audioUrl={a.audio_url} />
                           ) : null}
-                          {showBoth ? (
-                            <div className="mt-3 space-y-3">
-                              <div>
-                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                  Original
-                                </p>
-                                <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{original}</p>
-                              </div>
-                              <Separator />
-                              <div>
-                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                  English
-                                </p>
-                                <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{english}</p>
-                              </div>
+                          <div className="mt-3 space-y-3">
+                            <div>
+                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Original{differs ? "" : " · English"}
+                              </p>
+                              <p className="mt-0.5 whitespace-pre-wrap leading-relaxed" dir="auto">
+                                {original || displayAnswer(englishRaw, original, a.answer_text)}
+                              </p>
                             </div>
-                          ) : (
-                            <p className="mt-2 whitespace-pre-wrap leading-relaxed">
-                              {displayAnswer(englishRaw, original, a.answer_text)}
-                            </p>
-                          )}
+                            {differs ? (
+                              <>
+                                <Separator />
+                                <div>
+                                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                    English
+                                  </p>
+                                  <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{english}</p>
+                                </div>
+                              </>
+                            ) : null}
+                          </div>
                         </div>
                       );
                     })}

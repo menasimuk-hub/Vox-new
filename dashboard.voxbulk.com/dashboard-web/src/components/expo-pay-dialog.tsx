@@ -2,6 +2,7 @@ import * as React from "react";
 import { CreditCard, Loader2, Rocket } from "lucide-react";
 import { toast } from "sonner";
 
+import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -54,6 +55,14 @@ type PayOptions = {
   is_paid?: boolean;
   payment_status?: string;
   providers?: Array<{ id: string; label: string; publishable_key?: string }>;
+  quote?: {
+    total_display?: string;
+    amount_note?: string;
+    discount_applied?: boolean;
+    discount_display?: string | null;
+    vat_display?: string | null;
+    net_display?: string;
+  };
   booth?: {
     activated_at?: string | null;
     is_live?: boolean;
@@ -91,6 +100,20 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
     setPaying(false);
   }, []);
 
+  const loadOptions = React.useCallback(async () => {
+    if (!boothId) return;
+    setLoadingOptions(true);
+    try {
+      const res = await apiFetch<PayOptions>(`/expo/booths/${encodeURIComponent(boothId)}/pay/options`);
+      setOptions(res);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load payment options");
+      onOpenChange(false);
+    } finally {
+      setLoadingOptions(false);
+    }
+  }, [boothId, onOpenChange]);
+
   React.useEffect(() => {
     if (!open || !boothId) {
       reset();
@@ -98,25 +121,8 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
       zeroPriceActivateRef.current = false;
       return;
     }
-    let cancelled = false;
-    setLoadingOptions(true);
-    void (async () => {
-      try {
-        const res = await apiFetch<PayOptions>(`/expo/booths/${encodeURIComponent(boothId)}/pay/options`);
-        if (!cancelled) setOptions(res);
-      } catch (e) {
-        if (!cancelled) {
-          toast.error(e instanceof Error ? e.message : "Could not load payment options");
-          onOpenChange(false);
-        }
-      } finally {
-        if (!cancelled) setLoadingOptions(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, boothId, onOpenChange, reset]);
+    void loadOptions();
+  }, [open, boothId, reset, loadOptions]);
 
   React.useEffect(() => {
     if (!open) reset();
@@ -269,7 +275,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
   };
 
   const providers = options?.providers || [];
-  const amountLabel = options?.amount_display || "—";
+  const amountLabel = options?.quote?.total_display || options?.amount_display || "—";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -296,28 +302,47 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" /> Activating package…
               </p>
-            ) : providers.length === 0 ? (
-              <p className="text-sm text-destructive">
-                Card payments are not configured yet. Contact support to pay for your Expo package.
-              </p>
             ) : (
-              <div className="grid gap-2">
-                {providers.map((p) => (
-                  <Button
-                    key={p.id}
-                    className="w-full justify-start gap-2"
-                    disabled={intentPending}
-                    onClick={() => void startPayment(p.id)}
-                  >
-                    {intentPending && provider === p.id ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="size-4" />
-                    )}
-                    Pay with {p.label}
-                  </Button>
-                ))}
-              </div>
+              <>
+                {options?.quote?.amount_note ? (
+                  <p className="text-xs text-muted-foreground">{options.quote.amount_note}</p>
+                ) : null}
+                {options?.quote?.discount_applied && options.quote.discount_display ? (
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                    Promo −{options.quote.discount_display}
+                  </p>
+                ) : null}
+                <PromoCodeRedeem
+                  serviceHint="Expo"
+                  compact
+                  onRedeemed={() => {
+                    void loadOptions();
+                  }}
+                />
+                {providers.length === 0 ? (
+                  <p className="text-sm text-destructive">
+                    Card payments are not configured yet. Contact support to pay for your Expo package.
+                  </p>
+                ) : (
+                  <div className="grid gap-2">
+                    {providers.map((p) => (
+                      <Button
+                        key={p.id}
+                        className="w-full justify-start gap-2"
+                        disabled={intentPending}
+                        onClick={() => void startPayment(p.id)}
+                      >
+                        {intentPending && provider === p.id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <CreditCard className="size-4" />
+                        )}
+                        Pay {amountLabel} with card
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         ) : (

@@ -32,7 +32,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
 import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
-import { startSmartCardSeatCheckout } from "@/lib/billing/smart-card-subscription-payment";
+import { gocardlessAvailable } from "@/lib/billing/gocardless";
+import { countryToMarket, marketCurrencySymbol, orgCountryToCurrencyCode } from "@/lib/billing/market";
+import {
+  startSmartCardGoCardless,
+  startSmartCardSeatCheckout,
+} from "@/lib/billing/smart-card-subscription-payment";
+import { primarySubscriptionProvider } from "@/lib/billing/subscription-payment";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { useOrganisation } from "@/lib/queries";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
@@ -89,6 +95,11 @@ function SmartCardNewWizard() {
   const { session } = useSession();
   const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
   const orgQ = useOrganisation();
+  const gcReady = gocardlessAvailable(session as Record<string, unknown> | null);
+  const primaryProvider = primarySubscriptionProvider(session as Record<string, unknown> | null);
+  const useGc = gcReady || primaryProvider === "gocardless";
+  const currencySym = marketCurrencySymbol(countryToMarket(orgQ.data?.country));
+  const currencyCode = orgCountryToCurrencyCode(orgQ.data?.country);
 
   const [step, setStep] = React.useState<Step>(1);
   const [saving, setSaving] = React.useState(false);
@@ -305,7 +316,11 @@ function SmartCardNewWizard() {
         method: "POST",
         body: JSON.stringify(buildPayload()),
       });
-      await startSmartCardSeatCheckout(planId, seatQty, "yearly");
+      if (useGc) {
+        await startSmartCardGoCardless(planId, seatQty, "yearly");
+      } else {
+        await startSmartCardSeatCheckout(planId, seatQty, "yearly");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Checkout failed");
       setSaving(false);
@@ -318,17 +333,22 @@ function SmartCardNewWizard() {
       return;
     }
     const selected = (packagesQ.data?.items || []).find((p) => p.plan_id === planId);
-    const usd = selected?.prices.find((p) => p.currency === "USD");
-    const unit = usd?.yearly_price_minor;
+    const priced = selected?.prices.find((p) => p.currency === currencyCode) || selected?.prices.find((p) => p.currency === "USD");
+    const unit = priced?.yearly_price_minor;
     const total = unit != null ? (unit * seatQty) / 100 : null;
+    const sym = priced?.currency === currencyCode ? currencySym : "$";
     setCheckoutDetails({
       planName: selected?.name || "Smart Card seats",
       intervalLabel: "Yearly billing (20% off)",
-      amountDisplay: total != null ? `$${total.toFixed(0)}` : "See checkout",
+      amountDisplay: total != null ? `${sym}${total.toFixed(0)}` : "See checkout",
       seats: seatQty,
-      unitDisplay: unit != null ? `$${(unit / 100).toFixed(0)}` : null,
+      unitDisplay: unit != null ? `${sym}${(unit / 100).toFixed(0)}` : null,
       amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
-      providerHint: "You will continue to secure card payment.",
+      amountMinor: total != null ? Math.round(total * 100) : null,
+      serviceKind: "smart_card",
+      providerHint: useGc
+        ? "You will continue to GoCardless Direct Debit."
+        : "You will continue to secure card payment.",
     });
     setCheckoutOpen(true);
   };
@@ -741,7 +761,7 @@ function SmartCardNewWizard() {
         details={checkoutDetails}
         serviceHint="Smart Card"
         tintClass={SERVICE_TINTS.smartCard.soft}
-        confirmLabel="Pay with card"
+        confirmLabel={useGc ? "Continue to Direct Debit" : "Pay with card"}
         loading={saving}
         onConfirm={async () => {
           setCheckoutOpen(false);

@@ -210,10 +210,13 @@ def wallet_topup_options(db: Session = Depends(get_db), principal=Depends(requir
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     currency = resolve_org_currency(db, org)
     providers = []
+    # Stripe-primary PAYG UI — Airwallex stays as silent server fallback when Stripe is down.
     if StripePaymentService.is_available(db):
-        providers.append({"id": "stripe", "label": "Card (Stripe)", "publishable_key": StripePaymentService.publishable_key(db)})
-    if AirwallexPaymentService.is_available(db):
-        providers.append({"id": "airwallex", "label": "Card (Airwallex)"})
+        providers.append(
+            {"id": "stripe", "label": "Pay with card", "publishable_key": StripePaymentService.publishable_key(db)}
+        )
+    elif AirwallexPaymentService.is_available(db):
+        providers.append({"id": "airwallex", "label": "Pay with card"})
     tiers = [
         VoxbulkPricingService.topup_tier_to_dict(t, currency=currency)
         for t in VoxbulkPricingService.list_topup_tiers(db, active_only=True)
@@ -227,6 +230,26 @@ def wallet_topup_options(db: Session = Depends(get_db), principal=Depends(requir
         "min_amount_display": money_display(WalletService.MIN_TOPUP_MINOR, currency),
         **WalletService.wallet_dict(db, org),
     }
+
+
+@router.post("/checkout/quote")
+def checkout_quote(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(require_billing_access),
+):
+    """Live catalog → promo → VAT quote for checkout confirm UIs."""
+    from app.models.organisation import Organisation
+    from app.services.checkout_quote_service import CheckoutQuoteService
+
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
+    amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
+    service_kind = str(payload.get("service_kind") or "voxbulk").strip()
+    if amount < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="amount_minor must be >= 0")
+    return CheckoutQuoteService.quote(db, org=org, service_kind=service_kind, amount_minor=amount)
 
 
 @router.post("/wallet/topup/intent")
@@ -258,16 +281,36 @@ def wallet_topup_intent(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Minimum top-up is 5.00")
     if amount > 1_000_000:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Maximum top-up is 10,000.00")
+    from app.services.promo_discount_service import PromoDiscountService
+
+    peeked = PromoDiscountService.peek_amount(
+        db, org_id=org.id, service_kind="wallet", amount_minor=amount
+    )
+    charge_minor = max(0, int(peeked.get("amount_minor") or amount))
+    if charge_minor <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Amount after promo is zero")
+    # Prefer Stripe; silent Airwallex fallback when Stripe unavailable and client still asks stripe.
+    if provider == "stripe" and not StripePaymentService.is_available(db) and AirwallexPaymentService.is_available(db):
+        provider = "airwallex"
     try:
         if provider == "stripe":
-            return {"ok": True, **StripePaymentService.create_topup_intent(db, org, amount_minor=amount)}
-        if provider == "airwallex":
-            return {"ok": True, **AirwallexPaymentService.create_topup_intent(db, org, amount_minor=amount)}
+            result = {"ok": True, **StripePaymentService.create_topup_intent(db, org, amount_minor=charge_minor)}
+        elif provider == "airwallex":
+            result = {"ok": True, **AirwallexPaymentService.create_topup_intent(db, org, amount_minor=charge_minor)}
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="provider must be stripe or airwallex")
     except (StripeConfigError, AirwallexConfigError) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except (StripeProviderError, AirwallexProviderError) as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="provider must be stripe or airwallex")
+    if peeked.get("discount_applied"):
+        PromoDiscountService.apply_and_consume(
+            db, org_id=org.id, service_kind="wallet", amount_minor=amount, commit=True
+        )
+    result["catalog_amount_minor"] = amount
+    result["charge_amount_minor"] = charge_minor
+    result["discount_applied"] = bool(peeked.get("discount_applied"))
+    return result
 
 
 @router.post("/wallet/topup/confirm")

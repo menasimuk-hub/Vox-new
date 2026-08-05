@@ -201,7 +201,13 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
                 onChange={(e) => setAmount(e.target.value)}
               />
             </div>
-            <PromoCodeRedeem serviceHint="wallet / Core" compact />
+            <PromoCodeRedeem
+              serviceHint="wallet / Core"
+              compact
+              onRedeemed={() => {
+                void optionsQ.refetch();
+              }}
+            />
             <div className="flex flex-wrap gap-2">
               {(options?.suggested_amounts || []).slice(0, 4).map((t) => {
                 const minor = Number(t.total_credit_pence || t.credit_pence || 0);
@@ -234,7 +240,8 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
                     ) : (
                       <CreditCard className="size-4" />
                     )}
-                    Pay {symbol}{(amountMinor / 100).toFixed(2)} with {p.label}
+                    Pay {symbol}
+                    {(amountMinor / 100).toFixed(2)} with card
                   </Button>
                 ))}
               </div>

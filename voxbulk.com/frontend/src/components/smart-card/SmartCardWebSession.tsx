@@ -329,6 +329,7 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
           ) : (
             <div className="animate-rise flex flex-1 flex-col">
               <VoiceDetail
+                key={`sc-voice-${stepKey}-${stepIndex}`}
                 ref={voiceRef}
                 theme={SC_THEME}
                 eyebrow="Question"

@@ -172,6 +172,12 @@ function formatCorePlanPrice(p: PlanRow, currencySym: string, yearly: boolean) {
   return `${currencySym}${(minor / 100).toFixed(0)}/${yearly ? "yr" : "mo"}`;
 }
 
+function corePlanAmountMinor(p: PlanRow, yearly: boolean) {
+  if (p.is_enterprise || isPaygPlan(p)) return 0;
+  const monthlyMinor = Number(p.price_display_pence ?? p.monthly_price_minor ?? p.price_gbp_pence ?? 0);
+  return yearly ? monthlyMinor * 10 : monthlyMinor;
+}
+
 function formatFeedbackPackagePrice(pkg: FeedbackPackage, orgCurrency: string, yearly: boolean) {
   const prices = pkg.prices || [];
   const match = prices.find((p) => p.currency.toUpperCase() === orgCurrency) || prices[0];
@@ -183,6 +189,17 @@ function formatFeedbackPackagePrice(pkg: FeedbackPackage, orgCurrency: string, y
       : match.monthly_price_minor * 10;
   const minor = yearly ? yearlyMinor : match.monthly_price_minor;
   return `${sym}${(minor / 100).toFixed(0)}/${yearly ? "yr" : "mo"}`;
+}
+
+function feedbackPackageAmountMinor(pkg: FeedbackPackage, orgCurrency: string, yearly: boolean) {
+  const prices = pkg.prices || [];
+  const match = prices.find((p) => p.currency.toUpperCase() === orgCurrency) || prices[0];
+  if (!match) return 0;
+  const yearlyMinor =
+    match.yearly_price_minor != null && match.yearly_price_minor > 0
+      ? match.yearly_price_minor
+      : match.monthly_price_minor * 10;
+  return yearly ? yearlyMinor : match.monthly_price_minor;
 }
 
 function feedbackWebSurveyLine(webIncluded: number) {
@@ -428,6 +445,8 @@ function PackagesPage() {
       intervalLabel: billingInterval === "yearly" ? "Yearly billing" : "Monthly billing",
       amountDisplay: formatCorePlanPrice(plan, sym(data), billingInterval === "yearly"),
       amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+      amountMinor: corePlanAmountMinor(plan, billingInterval === "yearly"),
+      serviceKind: "voxbulk",
       providerHint:
         primaryProvider === "gocardless"
           ? "You will continue to GoCardless Direct Debit."
@@ -523,6 +542,8 @@ function PackagesPage() {
       intervalLabel: billingInterval === "yearly" ? "Yearly billing" : "Monthly billing",
       amountDisplay: formatFeedbackPrice(pkg),
       amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+      amountMinor: feedbackPackageAmountMinor(pkg, orgCurrency, billingInterval === "yearly"),
+      serviceKind: "customer_feedback",
       providerHint: "You will continue to GoCardless Direct Debit.",
     });
     setCheckoutOpen(true);
@@ -841,7 +862,7 @@ function PackagesPage() {
             <Wallet className="size-5 text-green-600" />
             <div>
               <CardTitle>Wallet top-up</CardTitle>
-              <CardDescription>Pay by card (Stripe or Airwallex) — no expiry, use across calls, surveys and CV scans (min {sym(data)}5)</CardDescription>
+              <CardDescription>Pay by card — no expiry, use across calls, surveys and CV scans (min {sym(data)}5)</CardDescription>
             </div>
             </div>
             {walletQ.data ? (

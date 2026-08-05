@@ -294,6 +294,7 @@ class SmartCardSessionFlowService:
         company: str | None,
         email: str | None,
         phone: str | None,
+        business_card_path: str | None = None,
     ) -> dict[str, Any]:
         state = SmartCardSessionFlowService._load_state(session)
         if name:
@@ -304,6 +305,8 @@ class SmartCardSessionFlowService:
             state["visitor_email"] = email
         if phone:
             state["visitor_phone"] = phone
+        if business_card_path:
+            state["business_card_path"] = str(business_card_path)[:2000]
         session.state_json = json.dumps(state)
         session.updated_at = datetime.utcnow()
         db.add(session)
@@ -327,6 +330,7 @@ class SmartCardSessionFlowService:
             raise SmartCardSessionError("Representative missing")
 
         answers = state.get("answers") or {}
+        card_path = state.get("business_card_path")
         lead = SmartCardLead(
             id=str(uuid.uuid4()),
             org_id=session.org_id,
@@ -341,6 +345,7 @@ class SmartCardSessionFlowService:
             consent=state.get("consent") or answers.get("consent_info"),
             channel=session.channel,
             follow_up_status="open",
+            business_card_path=(str(card_path)[:2000] if card_path else None),
         )
         lead.lead_score = _score_lead(
             interest=lead.interest,

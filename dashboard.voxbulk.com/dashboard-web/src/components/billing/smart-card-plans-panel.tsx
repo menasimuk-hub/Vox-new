@@ -114,7 +114,7 @@ export function SmartCardPlansPanel() {
   const currencySym = marketCurrencySymbol(countryToMarket(orgCountry));
   const gcReady = gocardlessAvailable(session as Record<string, unknown> | null);
   const primaryProvider = primarySubscriptionProvider(session as Record<string, unknown> | null);
-  const useGcMonthly = billingInterval === "monthly" && (gcReady || primaryProvider === "gocardless");
+  const useGc = gcReady || primaryProvider === "gocardless";
 
   const packagesQ = useQuery({
     queryKey: ["smart-card", "packages"],
@@ -174,8 +174,8 @@ export function SmartCardPlansPanel() {
 
   const checkoutMut = useMutation({
     mutationFn: async ({ planId, seats }: { planId: string; seats: number }) => {
-      if (useGcMonthly) {
-        await startSmartCardGoCardless(planId, seats, "monthly");
+      if (useGc) {
+        await startSmartCardGoCardless(planId, seats, billingInterval);
         return { provider: "gocardless" };
       }
       const result = await startSmartCardSeatCheckout(planId, seats, billingInterval);
@@ -282,7 +282,9 @@ export function SmartCardPlansPanel() {
                         seats,
                         unitDisplay: `${sym}${(unit / 100).toFixed(0)}`,
                         amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
-                        providerHint: useGcMonthly
+                        amountMinor: Math.round(total * 100),
+                        serviceKind: "smart_card",
+                        providerHint: useGc
                           ? "You will continue to GoCardless Direct Debit."
                           : "You will continue to secure card payment.",
                       });
@@ -310,7 +312,7 @@ export function SmartCardPlansPanel() {
         details={checkoutDetails}
         serviceHint="Smart Card"
         tintClass={tint.soft}
-        confirmLabel={useGcMonthly ? "Continue to Direct Debit" : "Pay with card"}
+        confirmLabel={useGc ? "Continue to Direct Debit" : "Pay with card"}
         loading={checkoutMut.isPending}
         onConfirm={async () => {
           if (!pendingCheckout) return;

@@ -22,6 +22,8 @@ SERVICE_KIND_ALIASES = {
     "expo": "expo",
     "smart_card": "smart_card",
     "smartcard": "smart_card",
+    "wallet": "voxbulk",
+    "topup": "voxbulk",
 }
 
 

@@ -262,7 +262,12 @@ class SmartCardWhatsappService:
             if SmartCardWhatsappService._is_image_inbound(record) and (active.current_step or "") == "contact":
                 from app.services.expo.business_card_ocr_service import ExpoBusinessCardService
 
-                fields = ExpoBusinessCardService.extract_from_inbound(db, record)
+                fields, card_path = ExpoBusinessCardService.save_inbound_image(
+                    db,
+                    org_id=str(active.org_id),
+                    booth_id=str(active.representative_id),
+                    record=record,
+                )
                 ocr = SmartCardSessionFlowService.apply_card_ocr(
                     db,
                     session=active,
@@ -270,6 +275,7 @@ class SmartCardWhatsappService:
                     company=fields.get("company"),
                     email=fields.get("email"),
                     phone=fields.get("phone"),
+                    business_card_path=card_path,
                 )
                 db.commit()
                 sent = SmartCardWhatsappService._send(

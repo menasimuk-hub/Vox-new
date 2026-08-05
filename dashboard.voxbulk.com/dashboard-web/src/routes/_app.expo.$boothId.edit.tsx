@@ -7,7 +7,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   categoriesFromApi,
   categoriesToPayload,
-  CategoryProductsEditor,
   emptyRepresentative,
   representativesFromApi,
   RepresentativesEditor,
@@ -38,8 +37,6 @@ type QuestionOpt = {
   description?: string;
   matches_products?: boolean;
 };
-type Package = { id: string; name: string; max_categories?: number | null };
-
 type BoothDetail = {
   id: string;
   name: string;
@@ -89,11 +86,6 @@ function EditExpoBooth() {
     queryKey: ["expo", "questions"],
     queryFn: () => apiFetch<{ items: QuestionOpt[] }>("/expo/catalog/questions"),
   });
-  const packagesQ = useQuery({
-    queryKey: ["expo", "packages"],
-    queryFn: () => apiFetch<{ items: Package[] }>("/expo/packages?zone=gb"),
-  });
-
   const booth = boothQ.data?.item;
   const industries = industriesQ.data?.items || [];
   const industry = industries.find((i) => i.id === booth?.industry_id);
@@ -161,17 +153,8 @@ function EditExpoBooth() {
     ];
   }, [questionsQ.data?.items, industry?.addon_question]);
 
-  const packages = packagesQ.data?.items || [];
-  const maxCategories = booth ? booth.max_categories ?? null : undefined;
-
   const onSave = async () => {
     if (!booth) return;
-    if (typeof maxCategories === "number" && categories.length > maxCategories) {
-      toast.error(
-        `Your package allows up to ${maxCategories} categor${maxCategories === 1 ? "y" : "ies"}. Remove a category or upgrade your package.`,
-      );
-      return;
-    }
     setSaving(true);
     try {
       const keys = [...selectedQKeys];
@@ -250,7 +233,7 @@ function EditExpoBooth() {
       <PageHeader
         eyebrow="VoxBulk Expo"
         title={`Edit booth — ${booth.name}`}
-        description="Update event details, questions and products. Your printed QR code and trigger message stay the same."
+        description="Update event details and questions. Manage catalogues under Add catalogues. Your printed QR code stays the same."
         actions={
           <Button asChild variant="outline" className="gap-1.5">
             <Link to="/expo">
@@ -266,7 +249,7 @@ function EditExpoBooth() {
             <QrCode className="size-4 text-primary" /> Your QR code
           </CardTitle>
           <CardDescription>
-            Print this for your stand. Editing questions or products does not change the QR.
+            Print this for your stand. Editing questions does not change the QR.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -482,23 +465,6 @@ function EditExpoBooth() {
               />
             ) : null}
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Products & files</CardTitle>
-          <CardDescription>
-            Group products into categories with catalogue, price list, or product sheet files.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <CategoryProductsEditor
-            categories={categories}
-            onChange={setCategories}
-            maxCategories={maxCategories}
-            packages={packages}
-          />
         </CardContent>
       </Card>
 
