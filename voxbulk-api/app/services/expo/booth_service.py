@@ -424,6 +424,9 @@ class ExpoBoothService:
             .where(ExpoBoothAsset.booth_id == booth.id)
             .order_by(ExpoBoothAsset.sort_order.asc())
         ).scalars().all()
+        from app.services.expo.offer_delivery_service import count_deliverable_assets
+
+        asset_counts = count_deliverable_assets(db, booth_id=booth.id, org_id=booth.org_id)
         return {
             "id": booth.id,
             "org_id": booth.org_id,
@@ -458,6 +461,9 @@ class ExpoBoothService:
             "web_url": urls["web_url"],
             "qr_image_url": _qr_image_for(qr_target),
             "assets": [ExpoBoothService.serialize_asset(a) for a in assets],
+            "booth_asset_count": asset_counts["booth_asset_count"],
+            "library_asset_count": asset_counts["library_asset_count"],
+            "deliverable_asset_count": asset_counts["deliverable_asset_count"],
             "categories": ExpoBoothService.serialize_catalog_tree(db, booth.id),
             "representatives": parse_representative_contacts(
                 getattr(booth, "representative_contacts_json", None)

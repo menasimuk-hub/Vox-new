@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.expo import ExpoBoothAsset, ExpoLead, ExpoSession
+from app.models.expo import ExpoBoothAsset, ExpoLead, ExpoLibraryAsset, ExpoSession
 from app.services.expo.asset_storage_service import resolve_storage_abs_path
 from app.services.expo.booth_service import (
     BOOTH_CLOSED_MESSAGE,
@@ -572,8 +572,24 @@ def get_booth_asset(
     asset = db.execute(
         select(ExpoBoothAsset).where(ExpoBoothAsset.id == asset_id, ExpoBoothAsset.booth_id == booth.id)
     ).scalar_one_or_none()
+    library_asset = None
     if asset is None:
+        # Add catalogues library files are org-scoped and offered on every booth.
+        library_asset = db.execute(
+            select(ExpoLibraryAsset).where(
+                ExpoLibraryAsset.id == asset_id,
+                ExpoLibraryAsset.org_id == booth.org_id,
+            )
+        ).scalar_one_or_none()
+    if asset is None and library_asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+
+    track_asset: ExpoBoothAsset | dict = asset or {
+        "id": library_asset.id,
+        "asset_key": f"lib-{library_asset.id}",
+        "purpose": library_asset.purpose,
+        "title": library_asset.title,
+    }
 
     # Open / download tracking (first open only).
     if lead_id:
@@ -586,14 +602,18 @@ def get_booth_asset(
         ).scalar_one_or_none()
         if lead is not None:
             try:
-                if mark_lead_asset_opened(db, lead=lead, asset=asset):
+                if mark_lead_asset_opened(db, lead=lead, asset=track_asset):
                     db.commit()
             except Exception:
                 db.rollback()
 
-    if asset.external_url:
-        return RedirectResponse(asset.external_url)
-    abs_path = resolve_storage_abs_path(asset.storage_path)
+    external = (asset.external_url if asset is not None else library_asset.external_url) if (
+        asset is not None or library_asset is not None
+    ) else None
+    if external:
+        return RedirectResponse(external)
+    storage = asset.storage_path if asset is not None else library_asset.storage_path
+    abs_path = resolve_storage_abs_path(storage)
     if abs_path is not None:
         filename = abs_path.name
         suffix = abs_path.suffix.lower()

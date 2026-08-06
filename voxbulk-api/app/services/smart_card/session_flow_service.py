@@ -293,23 +293,10 @@ class SmartCardSessionFlowService:
         return chosen, False
 
     @staticmethod
-    def _remap_choice_reply(text: str, options: list[dict[str, Any]]) -> str:
-        """Turn a numbered WhatsApp reply into the option value(s); pass text through otherwise."""
-        raw = str(text or "").strip()
-        if not raw or not options:
-            return raw
-        lower = raw.lower()
-        for opt in options:
-            if lower == str(opt.get("value") or "").strip().lower():
-                return raw
-        picks = parse_pick_numbers(raw)
-        chosen: list[str] = []
-        for n in picks:
-            if 1 <= n <= len(options):
-                value = str(options[n - 1].get("value") or "").strip()
-                if value and value not in chosen:
-                    chosen.append(value)
-        return ", ".join(chosen) if chosen else raw
+    def _remap_choice_reply(text: str, options: list[dict[str, Any]], *, multi: bool = True) -> str:
+        from app.services.expo.question_bank import remap_choice_reply
+
+        return remap_choice_reply(text, options, multi=multi)
 
     @staticmethod
     def _contact_capture(company: SmartCardCompany) -> str:
@@ -486,7 +473,9 @@ class SmartCardSessionFlowService:
                 consent_value = "No"
         elif step and step not in CONTACT_STEPS and WEB_CHOICE_OPTIONS.get(step):
             text = SmartCardSessionFlowService._remap_choice_reply(
-                text, [dict(o) for o in WEB_CHOICE_OPTIONS[step]]
+                text,
+                [dict(o) for o in WEB_CHOICE_OPTIONS[step]],
+                multi=step in WEB_MULTI_CHOICE_KEYS,
             )
 
         if step in CONTACT_STEPS:

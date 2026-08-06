@@ -17,7 +17,7 @@ def test_is_low_quality_transcript():
 
 
 def test_stt_provider_order_default():
-    assert stt_provider_order() == ("deepgram", "deepinfra", "whisper_cpp", "groq")
+    assert stt_provider_order() == ("deepinfra", "deepgram", "whisper_cpp", "groq")
 
 
 def test_transcribe_inbound_no_media():

@@ -59,6 +59,13 @@ CONTACT_PROMPT_WA_MANUAL = "👤 What's your full name?"
 CONTACT_PROMPT_WEB_MANUAL = "👤 What's your full name?"
 CONTACT_COMPANY_PROMPT = "🏢 Which company or organisation do you represent?"
 CONTACT_MOBILE_PROMPT = "📱 What's the best mobile number to reach you on?"
+CONTACT_EMAIL_PROMPT = (
+    "📧 What's the best email for catalogues and follow-up? "
+    "(Reply skip if you'd rather not share one.)"
+)
+EMAIL_SKIP_WORDS = frozenset(
+    {"skip", "pass", "n/a", "na", "none", "no", "nope", "nah", "-", "—", "prefer not", "no thanks"}
+)
 
 
 def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp", db: Any | None = None) -> str:
@@ -78,7 +85,7 @@ def contact_prompt_for_mode(mode: str, *, channel: str = "whatsapp", db: Any | N
 SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     {
         "key": "interest",
-        "prompt": "🎯 What are you looking for today at our stand?",
+        "prompt": "What are you looking for at our stand today? Type a short answer, or tap the mic and tell us in your own words.",
         "label": "What they're looking for",
         "description": "Open interest — used for product matching and lead scoring.",
         "matches_products": True,
@@ -197,6 +204,7 @@ QUESTION_TOPIC_EMOJI: dict[str, str] = {
     "post_complete_handoff": "💬",
     "contact_company": "🏢",
     "contact_mobile": "📱",
+    "contact_email": "📧",
     "contact_confirm": "✅",
 }
 
@@ -245,11 +253,18 @@ SYSTEM_SESSION_TEMPLATES: list[dict[str, Any]] = [
         "sort_order": 905,
     },
     {
+        "key": "contact_email",
+        "prompt": CONTACT_EMAIL_PROMPT,
+        "label": "Contact email (WhatsApp)",
+        "description": "Ask for visitor email so catalogues can be emailed. Skip allowed.",
+        "sort_order": 906,
+    },
+    {
         "key": "contact_confirm",
         "prompt": "✅ Please check your details and continue.",
         "label": "Contact confirm",
         "description": "Confirm OCR / typed details.",
-        "sort_order": 906,
+        "sort_order": 907,
     },
     {
         "key": OPEN_FEEDBACK_KEY,
@@ -543,8 +558,13 @@ def looks_affirmative(text: str) -> bool:
     return lower.startswith("yes")
 
 
-def parse_pick_numbers(text: str) -> list[int]:
-    """Extract 1-based option numbers from replies like 1, 1. 1️⃣, 1) or 1,2."""
+def parse_pick_numbers(text: str, *, option_count: int | None = None) -> list[int]:
+    """Extract 1-based option numbers from replies like 1, 1. 1️⃣, 1) or 1,2.
+
+    When ``option_count`` is set and a glued digit run like ``123`` is longer than that
+    count (and every digit is a valid index), split into single digits so multi-select
+    WhatsApp replies map correctly. ``10`` with ten options still parses as ten.
+    """
     raw = str(text or "").strip()
     if not raw:
         return []
@@ -555,16 +575,62 @@ def parse_pick_numbers(text: str) -> list[int]:
     normalized = re.sub(r"[\u200e\u200f\ufe0f\u20e3]", "", normalized)
     found: list[int] = []
     seen: set[int] = set()
-    for match in re.finditer(r"\d+", normalized):
-        try:
-            n = int(match.group(0))
-        except ValueError:
-            continue
+
+    def _push(n: int) -> None:
         if n < 1 or n in seen:
-            continue
+            return
         seen.add(n)
         found.append(n)
+
+    for match in re.finditer(r"\d+", normalized):
+        token = match.group(0)
+        try:
+            n = int(token)
+        except ValueError:
+            continue
+        max_n = int(option_count or 0)
+        if (
+            max_n > 0
+            and len(token) > 1
+            and (n > max_n or len(token) > len(str(max_n)))
+            and all(1 <= int(ch) <= max_n for ch in token)
+        ):
+            for ch in token:
+                _push(int(ch))
+            continue
+        _push(n)
     return found
+
+
+def remap_choice_reply(
+    text: str,
+    options: list[dict[str, Any]],
+    *,
+    multi: bool = False,
+) -> str:
+    """Map a numbered WhatsApp reply to option value(s); pass text through otherwise."""
+    raw = str(text or "").strip()
+    if not raw or not options:
+        return raw
+    lower = raw.lower()
+    for opt in options:
+        value = str(opt.get("value") or "").strip()
+        label = str(opt.get("label") or "").strip()
+        if lower == value.lower() or (label and lower == label.lower()):
+            return value or raw
+    if multi and lower in {"all", "both", "everything", "all of them"}:
+        values = [str(o.get("value") or "").strip() for o in options if str(o.get("value") or "").strip()]
+        return ", ".join(values) if values else raw
+    picks = parse_pick_numbers(raw, option_count=len(options))
+    chosen: list[str] = []
+    for n in picks:
+        if 1 <= n <= len(options):
+            value = str(options[n - 1].get("value") or "").strip()
+            if value and value not in chosen:
+                chosen.append(value)
+    if not chosen:
+        return raw
+    return ", ".join(chosen) if multi or len(chosen) > 1 else chosen[0]
 
 
 def format_numbered_prompt(
@@ -620,11 +686,11 @@ def enrich_step_payload(
         out["options"] = []
         out["allow_voice"] = False
         return out
-    if key == CONTACT_STEP_KEY or sub in {"awaiting", "company", "mobile", "confirm", "card_retry"}:
+    if key == CONTACT_STEP_KEY or sub in {"awaiting", "company", "mobile", "email", "confirm", "card_retry"}:
         out["question_key"] = CONTACT_STEP_KEY
         if sub == "confirm":
             out["input"] = "contact_confirm"
-        elif sub in {"company", "mobile"}:
+        elif sub in {"company", "mobile", "email"}:
             out["input"] = "text"
         else:
             out["input"] = "contact"

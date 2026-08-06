@@ -7,6 +7,7 @@ adapter can format it however it needs to (WhatsApp text messages vs. JSON for t
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from datetime import datetime, timedelta
@@ -29,12 +30,15 @@ from app.services.expo.offer_delivery_service import (
 )
 from app.services.expo.question_bank import (
     CONTACT_COMPANY_PROMPT,
+    CONTACT_EMAIL_PROMPT,
     CONTACT_MOBILE_PROMPT,
     CONTACT_STEP_KEY,
     DEFAULT_COMPANY_CARD,
+    EMAIL_SKIP_WORDS,
     NO_WORDS,
     OPEN_FEEDBACK_KEY,
     WEB_CHOICE_OPTIONS,
+    WEB_MULTI_CHOICE_KEYS,
     YES_WORDS,
     build_company_card_text,
     build_thank_you_message,
@@ -47,8 +51,11 @@ from app.services.expo.question_bank import (
     parse_pick_numbers,
     parse_question_config,
     parse_representative_contacts,
+    remap_choice_reply,
     with_topic_emoji,
 )
+
+logger = logging.getLogger(__name__)
 from app.services.customer_feedback.feedback_answer_service import TRANSLATION_UNAVAILABLE_EN
 from app.services.expo.business_card_ocr_service import (
     ExpoBusinessCardService,
@@ -762,17 +769,22 @@ class ExpoSessionFlowService:
         # Never persist the CF sentinel — Expo leads should show the original transcript
         if not answer_en or answer_en == TRANSLATION_UNAVAILABLE_EN:
             answer_en = original or clean
-        # WhatsApp choice questions are relayed as numbered options — a bare digit reply
-        # maps back to the matching option's value instead of being stored as "2".
-        # consent_info uses a *dynamic* asset menu (not WEB_CHOICE_OPTIONS Yes/No) — never remap it.
-        if key != "consent_info" and key in WEB_CHOICE_OPTIONS and answer_en.strip().isdigit():
-            opts = WEB_CHOICE_OPTIONS[key]
-            idx = int(answer_en.strip())
-            if 1 <= idx <= len(opts):
-                mapped_val = str(opts[idx - 1].get("value") or "").strip()
-                if mapped_val:
-                    original = mapped_val
-                    answer_en = mapped_val
+        # WhatsApp choice questions are relayed as numbered options — map digits (and 1,2 / 123)
+        # back to option values. consent_info uses a *dynamic* asset menu — never remap it here.
+        if key != "consent_info" and key in WEB_CHOICE_OPTIONS:
+            opts = [dict(o) for o in WEB_CHOICE_OPTIONS[key]]
+            mapped_val = remap_choice_reply(
+                answer_en,
+                opts,
+                multi=key in WEB_MULTI_CHOICE_KEYS,
+            )
+            if mapped_val and mapped_val != answer_en.strip():
+                original = mapped_val
+                answer_en = mapped_val
+            elif mapped_val:
+                # Exact label/value match — keep canonical value.
+                answer_en = mapped_val
+                original = mapped_val
         if detected_language:
             session.detected_language = str(detected_language)[:16]
         response_id = str(uuid.uuid4())
@@ -910,8 +922,8 @@ class ExpoSessionFlowService:
             )
 
         # Photo of business card → OCR + skip typed contact fields (also accepted mid-flow
-        # while we're still collecting company/mobile, not only on the first prompt).
-        if sub in {"awaiting", "company", "mobile"} and is_image and capture != "manual_only":
+        # while we're still collecting company/mobile/email, not only on the first prompt).
+        if sub in {"awaiting", "company", "mobile", "email"} and is_image and capture != "manual_only":
             fields = {k: (str(v).strip() if v else None) for k, v in (contact_fields or {}).items()}
             _log("business_card", answer or "[business card image]", "image")
             if lead is not None:
@@ -985,7 +997,7 @@ class ExpoSessionFlowService:
                 return out
 
             # WhatsApp: the visitor's mobile is already known from the sender number, so the
-            # only common gap after a business-card scan is a missing company name.
+            # common gaps after a business-card scan are company and/or email.
             company_present = bool((lead.company if lead else None) or fields.get("company"))
             if not company_present:
                 state["contact_substep"] = "company"
@@ -997,6 +1009,31 @@ class ExpoSessionFlowService:
                     prompt=f"{confirm}\n\n{CONTACT_COMPANY_PROMPT}".strip(),
                     question_key=CONTACT_STEP_KEY,
                     contact_substep="company",
+                    channel=channel,
+                )
+                out["contact_via"] = "card"
+                out["card_fields"] = fields
+                return out
+
+            email_present = bool(
+                fields.get("email")
+                or (
+                    lead is not None
+                    and lead.visitor_email
+                    and not is_placeholder_email(lead.visitor_email)
+                )
+            )
+            if channel == "whatsapp" and not email_present:
+                state["contact_substep"] = "email"
+                ExpoSessionFlowService._save_state(session, state)
+                db.add(session)
+                db.commit()
+                email_prompt = get_template_prompt(db, "contact_email", CONTACT_EMAIL_PROMPT)
+                out = _empty_step_result(
+                    done=False,
+                    prompt=f"{confirm}\n\n{email_prompt}".strip(),
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="email",
                     channel=channel,
                 )
                 out["contact_via"] = "card"
@@ -1093,13 +1130,15 @@ class ExpoSessionFlowService:
                     contact_substep="mobile",
                     channel=channel,
                 )
-            state.pop("contact_substep", None)
-            ExpoSessionFlowService._save_state(session, state)
-            if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
-                session.current_step = 1
-            db.add(session)
-            db.commit()
-            return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+            return ExpoSessionFlowService._finish_contact_or_ask_email(
+                db,
+                session=session,
+                booth=booth,
+                lead=lead,
+                state=state,
+                steps=steps,
+                channel=channel,
+            )
 
         if sub == "mobile":
             if not answer:
@@ -1124,19 +1163,115 @@ class ExpoSessionFlowService:
                 lead.visitor_phone = answer[:32]
                 lead.updated_at = datetime.utcnow()
                 db.add(lead)
-            state.pop("contact_substep", None)
-            ExpoSessionFlowService._save_state(session, state)
-            if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
-                session.current_step = 1
-            db.add(session)
-            db.commit()
-            return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+            return ExpoSessionFlowService._finish_contact_or_ask_email(
+                db,
+                session=session,
+                booth=booth,
+                lead=lead,
+                state=state,
+                steps=steps,
+                channel=channel,
+            )
+
+        if sub == "email":
+            email_prompt = get_template_prompt(db, "contact_email", CONTACT_EMAIL_PROMPT)
+            if not answer:
+                return _empty_step_result(
+                    done=False,
+                    prompt=email_prompt,
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="email",
+                    channel=channel,
+                )
+            lower = answer.strip().lower()
+            if lower in EMAIL_SKIP_WORDS:
+                return ExpoSessionFlowService._finish_contact_or_ask_email(
+                    db,
+                    session=session,
+                    booth=booth,
+                    lead=lead,
+                    state=state,
+                    steps=steps,
+                    channel=channel,
+                    force_skip_email=True,
+                )
+            if "@" not in answer:
+                return _empty_step_result(
+                    done=False,
+                    prompt=f"That doesn't look like an email. {email_prompt}",
+                    question_key=CONTACT_STEP_KEY,
+                    contact_substep="email",
+                    channel=channel,
+                )
+            clean_email = answer.strip()[:255]
+            _log("email", clean_email, answer_source)
+            session.visitor_email = clean_email
+            if lead is not None:
+                lead.visitor_email = clean_email
+                lead.updated_at = datetime.utcnow()
+                db.add(lead)
+            return ExpoSessionFlowService._finish_contact_or_ask_email(
+                db,
+                session=session,
+                booth=booth,
+                lead=lead,
+                state=state,
+                steps=steps,
+                channel=channel,
+                force_skip_email=True,
+            )
 
         # Already done — advance past contact
         if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY and int(session.current_step or 0) == 0:
             session.current_step = 1
             db.add(session)
             db.commit()
+        return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
+
+    @staticmethod
+    def _finish_contact_or_ask_email(
+        db: Session,
+        *,
+        session: ExpoSession,
+        booth: ExpoBooth,
+        lead: ExpoLead | None,
+        state: dict[str, Any],
+        steps: list[dict[str, Any]],
+        channel: str,
+        force_skip_email: bool = False,
+    ) -> dict[str, Any]:
+        """After name/company/(mobile), ask WhatsApp visitors for email when missing."""
+        channel_l = str(channel or "").lower()
+        have_email = bool(
+            lead is not None
+            and lead.visitor_email
+            and not is_placeholder_email(lead.visitor_email)
+            and "@" in str(lead.visitor_email)
+        ) or bool(
+            session.visitor_email
+            and not is_placeholder_email(session.visitor_email)
+            and "@" in str(session.visitor_email)
+        )
+        if channel_l == "whatsapp" and not force_skip_email and not have_email:
+            state["contact_substep"] = "email"
+            ExpoSessionFlowService._save_state(session, state)
+            db.add(session)
+            db.commit()
+            return _empty_step_result(
+                done=False,
+                prompt=get_template_prompt(db, "contact_email", CONTACT_EMAIL_PROMPT),
+                question_key=CONTACT_STEP_KEY,
+                contact_substep="email",
+                channel=channel_l,
+            )
+
+        state.pop("contact_substep", None)
+        ExpoSessionFlowService._save_state(session, state)
+        if steps and str(steps[0].get("key") or "") == CONTACT_STEP_KEY:
+            session.current_step = 1
+        db.add(session)
+        ExpoSessionFlowService._persist_visitor_identity(db, booth=booth, session=session, lead=lead)
+        db.commit()
         return ExpoSessionFlowService._next_prompt(db, session=session, booth=booth, lead=lead)
 
     @staticmethod
@@ -1305,7 +1440,8 @@ class ExpoSessionFlowService:
         elif key == "timeline":
             lead.buying_timeline = clean[:255]
         elif key == "follow_up":
-            lead.follow_up_status = clean[:32] if len(clean) <= 32 else "requested"
+            # Remapped multi-select labels (e.g. "WhatsApp, Email, Call") fit String(32).
+            lead.follow_up_status = clean[:32]
         elif key in ("consent_info", "consent"):
             # Affirmative / any asset pick counts as interested in materials.
             lower = clean.lower()
@@ -1435,11 +1571,10 @@ class ExpoSessionFlowService:
             sess = db.get(ExpoSession, lead.session_id) if lead.session_id else None
             if sess is None or not bool(getattr(sess, "is_preview", False)):
                 try:
-                    from app.services.expo.expo_email_service import ExpoEmailService
+                    from app.services.expo.async_notify_service import enqueue_visitor_catalogue
 
-                    ExpoEmailService.send_visitor_catalogue(db, booth=booth, lead=lead, assets=delivered)
+                    enqueue_visitor_catalogue(db, booth=booth, lead=lead, assets=delivered)
                 except Exception:
-                    logger = __import__("logging").getLogger(__name__)
                     logger.exception("expo_visitor_catalogue_email_failed lead=%s", lead.id)
         return delivered, None
 
@@ -1642,7 +1777,7 @@ class ExpoSessionFlowService:
         channel = str(session.channel or "whatsapp").lower()
         contact_sub = str(state.get("contact_substep") or "").strip().lower()
         at_contact = bool(steps) and step_index == 0 and str(steps[0].get("key") or "") == CONTACT_STEP_KEY
-        if at_contact and contact_sub in {"", "awaiting", "company", "mobile", "confirm", "card_retry"}:
+        if at_contact and contact_sub in {"", "awaiting", "company", "mobile", "email", "confirm", "card_retry"}:
             sub = contact_sub or "awaiting"
             capture = parse_contact_capture(booth.question_config_json)
             prompt_map = {
@@ -1650,6 +1785,7 @@ class ExpoSessionFlowService:
                 "card_retry": contact_prompt_for_mode(capture, channel=channel),
                 "company": CONTACT_COMPANY_PROMPT,
                 "mobile": CONTACT_MOBILE_PROMPT,
+                "email": get_template_prompt(db, "contact_email", CONTACT_EMAIL_PROMPT),
                 "confirm": CONTACT_CONFIRM_PROMPT,
             }
             return _empty_step_result(
@@ -1683,11 +1819,14 @@ class ExpoSessionFlowService:
         prompt = with_topic_emoji(key, prompt)
         if channel == "whatsapp" and key in WEB_CHOICE_OPTIONS and key != "consent_info":
             opts = WEB_CHOICE_OPTIONS[key]
+            multi = key in WEB_MULTI_CHOICE_KEYS
             lines = [prompt, ""]
             for idx, opt in enumerate(opts, start=1):
                 lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
             lines.append("")
-            lines.append("Reply with the number, e.g. 1")
+            lines.append(
+                "Reply with the number(s), e.g. 1 or 1,2" if multi else "Reply with the number, e.g. 1"
+            )
             prompt = "\n".join(line for line in lines if line is not None).strip()
         return _empty_step_result(done=False, prompt=prompt, question_key=key, channel=channel)
 
@@ -1741,6 +1880,12 @@ class ExpoSessionFlowService:
                     session=session,
                 )
                 if consent_ui is None:
+                    logger.warning(
+                        "expo_consent_skipped_no_assets booth=%s session=%s channel=%s",
+                        booth.id,
+                        session.id,
+                        channel,
+                    )
                     session.current_step = step_index + 1
                     db.add(session)
                     step_index += 1
@@ -1753,11 +1898,14 @@ class ExpoSessionFlowService:
             prompt = with_topic_emoji(key, prompt)
             if channel == "whatsapp" and key in WEB_CHOICE_OPTIONS and key != "consent_info":
                 opts = WEB_CHOICE_OPTIONS[key]
+                multi = key in WEB_MULTI_CHOICE_KEYS
                 lines = [prompt, ""]
                 for idx, opt in enumerate(opts, start=1):
                     lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
                 lines.append("")
-                lines.append("Reply with the number, e.g. 1")
+                lines.append(
+                    "Reply with the number(s), e.g. 1 or 1,2" if multi else "Reply with the number, e.g. 1"
+                )
                 prompt = "\n".join(line for line in lines if line is not None).strip()
             return _empty_step_result(
                 done=False,
@@ -1800,7 +1948,7 @@ class ExpoSessionFlowService:
         step_index = int(session.current_step or 0)
         contact_sub = str(state.get("contact_substep") or "").strip().lower()
         at_contact_step = bool(steps) and step_index == 0 and str(steps[0].get("key") or "") == CONTACT_STEP_KEY
-        if at_contact_step and contact_sub in {"", "awaiting", "company", "mobile", "confirm", "card_retry"}:
+        if at_contact_step and contact_sub in {"", "awaiting", "company", "mobile", "email", "confirm", "card_retry"}:
             sub = contact_sub or "awaiting"
             capture = parse_contact_capture(booth.question_config_json)
             prompt_map = {
@@ -1808,6 +1956,7 @@ class ExpoSessionFlowService:
                 "card_retry": contact_prompt_for_mode(capture, channel=channel),
                 "company": CONTACT_COMPANY_PROMPT,
                 "mobile": CONTACT_MOBILE_PROMPT,
+                "email": get_template_prompt(db, "contact_email", CONTACT_EMAIL_PROMPT),
                 "confirm": CONTACT_CONFIRM_PROMPT,
             }
             out = _empty_step_result(
@@ -1865,11 +2014,10 @@ class ExpoSessionFlowService:
             delivered = ExpoSessionFlowService._delivered_assets_payload(db, booth=booth, lead=lead)
             if lead.consent_acknowledged or delivered:
                 try:
-                    from app.services.expo.expo_email_service import ExpoEmailService
+                    from app.services.expo.async_notify_service import enqueue_exhibitor_lead
 
-                    ExpoEmailService.notify_exhibitor_lead(db, booth=booth, lead=lead, assets=delivered)
+                    enqueue_exhibitor_lead(db, booth=booth, lead=lead, assets=delivered)
                 except Exception:
-                    logger = __import__("logging").getLogger(__name__)
                     logger.exception("expo_exhibitor_lead_email_failed lead=%s", lead.id)
         db.commit()
         out = _empty_step_result(done=True, prompt=thank)
@@ -1922,15 +2070,14 @@ class ExpoSessionFlowService:
                         "caption": "📇 Save our contact to your phone",
                     }
 
-        # Hot-lead alert to the exhibitor's mobile — best-effort, never blocks completion.
+        # Hot-lead alert to the exhibitor's mobile — Celery first, sync fallback; never blocks completion.
         if lead is not None and str(lead.lead_score or "").lower() == "hot" and getattr(booth, "notify_mobile", None):
             try:
-                from app.services.expo.hot_lead_notify_service import notify_hot_lead
+                from app.services.expo.async_notify_service import enqueue_hot_lead
 
-                notified = notify_hot_lead(db, booth=booth, lead=lead)
-                out["hot_notify_pending"] = not notified
+                status = enqueue_hot_lead(db, booth=booth, lead=lead)
+                out["hot_notify_pending"] = status == "queued"
             except Exception:
-                logger = __import__("logging").getLogger(__name__)
                 logger.exception("expo_hot_lead_notify_dispatch_failed lead=%s", lead.id)
                 out["hot_notify_pending"] = True
 

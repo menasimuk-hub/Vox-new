@@ -81,3 +81,11 @@ def test_wa_survey_whisper_model_prefers_large_v3_over_turbo(monkeypatch):
     assert DeepInfraProviderService.resolve_wa_survey_model(_Db()) == WA_SURVEY_WHISPER_MODEL
     assert "turbo" not in WA_SURVEY_WHISPER_MODEL
     assert di.DEEPINFRA_DEFAULT_MODEL == "openai/whisper-large-v3"
+    # Stale turbo base_url must be rebuilt to match large-v3.
+    assert (
+        DeepInfraProviderService._resolve_base_url(
+            "https://api.deepinfra.com/v1/inference/openai/whisper-large-v3-turbo",
+            WA_SURVEY_WHISPER_MODEL,
+        )
+        == f"https://api.deepinfra.com/v1/inference/{WA_SURVEY_WHISPER_MODEL}"
+    )

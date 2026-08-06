@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.expo import ExpoBoothAsset, ExpoLead
+from app.models.expo import ExpoBooth, ExpoBoothAsset, ExpoLead, ExpoLibraryAsset
 from app.services.expo.question_bank import (
     format_asset_list_message,
     pick_assets_for_interest,
@@ -18,6 +18,8 @@ from app.services.expo.question_bank import (
 
 __all__ = [
     "load_booth_assets",
+    "load_library_assets",
+    "count_deliverable_assets",
     "asset_public_url",
     "asset_public_url_for_lead",
     "deliver_asset_link_message",
@@ -49,9 +51,80 @@ def normalize_asset_purpose(raw: Any) -> str:
     return "product"
 
 
+def load_library_assets(db: Session, org_id: str) -> list[dict[str, Any]]:
+    """Org Add catalogues library — offered to every booth for that organisation."""
+    from app.models.expo import ExpoLibraryCategory, ExpoLibraryProduct
+
+    oid = str(org_id or "").strip()
+    if not oid:
+        return []
+    rows = (
+        db.execute(
+            select(ExpoLibraryAsset)
+            .where(ExpoLibraryAsset.org_id == oid)
+            .order_by(ExpoLibraryAsset.sort_order.asc(), ExpoLibraryAsset.title.asc())
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return []
+
+    product_ids = {str(a.product_id) for a in rows if a.product_id}
+    products_by_id: dict[str, ExpoLibraryProduct] = {}
+    if product_ids:
+        products_by_id = {
+            p.id: p
+            for p in db.execute(select(ExpoLibraryProduct).where(ExpoLibraryProduct.id.in_(list(product_ids))))
+            .scalars()
+            .all()
+        }
+    cat_ids = {str(a.category_id) for a in rows if a.category_id} | {
+        str(p.category_id) for p in products_by_id.values() if p.category_id
+    }
+    categories_by_id: dict[str, ExpoLibraryCategory] = {}
+    if cat_ids:
+        categories_by_id = {
+            c.id: c
+            for c in db.execute(select(ExpoLibraryCategory).where(ExpoLibraryCategory.id.in_(list(cat_ids))))
+            .scalars()
+            .all()
+        }
+
+    out: list[dict[str, Any]] = []
+    for a in rows:
+        product = products_by_id.get(str(a.product_id or ""))
+        category = categories_by_id.get(str(a.category_id or "")) or (
+            categories_by_id.get(str(product.category_id)) if product is not None else None
+        )
+        out.append(
+            {
+                "id": a.id,
+                "product_id": a.product_id,
+                "asset_key": f"lib-{a.id}",
+                "title": a.title,
+                "short_description": (product.short_description if product is not None else None),
+                "kind": a.kind,
+                "purpose": normalize_asset_purpose(getattr(a, "purpose", None) or "catalogue"),
+                "external_url": a.external_url,
+                "storage_path": a.storage_path,
+                "match_keywords": None,
+                "is_default": False,
+                "sort_order": a.sort_order,
+                "product_name": (product.name if product is not None else "") or "",
+                "category_name": (category.name if category is not None else "") or "",
+                "category_id": (category.id if category is not None else a.category_id),
+                "source": "library",
+            }
+        )
+    return out
+
+
 def load_booth_assets(db: Session, booth_id: str) -> list[dict[str, Any]]:
+    """Booth-specific assets plus the org Add catalogues library (deduped by id)."""
     from app.models.expo import ExpoBoothCategory, ExpoBoothProduct
 
+    booth = db.get(ExpoBooth, booth_id)
     rows = db.execute(
         select(ExpoBoothAsset)
         .where(ExpoBoothAsset.booth_id == booth_id)
@@ -74,7 +147,10 @@ def load_booth_assets(db: Session, booth_id: str) -> list[dict[str, Any]]:
             categories_by_id = {c.id: c for c in cats}
 
     out: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for a in rows:
+        aid = str(a.id)
+        seen.add(aid)
         product = products_by_id.get(str(getattr(a, "product_id", None) or ""))
         category = categories_by_id.get(str(product.category_id)) if product is not None else None
         out.append(
@@ -94,9 +170,48 @@ def load_booth_assets(db: Session, booth_id: str) -> list[dict[str, Any]]:
                 "product_name": (product.name if product is not None else "") or "",
                 "category_name": (category.name if category is not None else "") or "",
                 "category_id": (category.id if category is not None else None),
+                "source": "booth",
             }
         )
+
+    if booth is not None:
+        for lib in load_library_assets(db, booth.org_id):
+            lid = str(lib.get("id") or "")
+            if not lid or lid in seen:
+                continue
+            seen.add(lid)
+            out.append(lib)
     return out
+
+
+def count_deliverable_assets(db: Session, *, booth_id: str, org_id: str | None = None) -> dict[str, int]:
+    from sqlalchemy import func
+
+    booth_n = int(
+        db.execute(
+            select(func.count()).select_from(ExpoBoothAsset).where(ExpoBoothAsset.booth_id == booth_id)
+        ).scalar()
+        or 0
+    )
+    oid = str(org_id or "").strip()
+    if not oid:
+        booth = db.get(ExpoBooth, booth_id)
+        oid = str(booth.org_id) if booth is not None else ""
+    lib_n = (
+        int(
+            db.execute(
+                select(func.count()).select_from(ExpoLibraryAsset).where(ExpoLibraryAsset.org_id == oid)
+            ).scalar()
+            or 0
+        )
+        if oid
+        else 0
+    )
+    return {
+        "booth_asset_count": booth_n,
+        "library_asset_count": lib_n,
+        "deliverable_asset_count": booth_n + lib_n,
+    }
 
 
 def asset_public_url(asset: dict[str, Any], booth_token: str, *, lead_id: str | None = None) -> str:

@@ -138,6 +138,7 @@ from app.workers import survey_wa_dispatch_tasks  # noqa: E402, F401
 from app.workers import feedback_voice_note_tasks  # noqa: E402, F401
 from app.workers import expo_voice_note_tasks  # noqa: E402, F401
 from app.workers import expo_summary_tasks  # noqa: E402, F401
+from app.workers import expo_notify_tasks  # noqa: E402, F401
 from app.workers import smart_card_renewal_tasks  # noqa: E402, F401
 from app.workers import seo_tasks  # noqa: E402, F401
 

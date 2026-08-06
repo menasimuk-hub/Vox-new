@@ -58,6 +58,9 @@ type BoothDetail = {
   qr_image_url?: string | null;
   qr_token?: string | null;
   trigger_text?: string | null;
+  booth_asset_count?: number;
+  library_asset_count?: number;
+  deliverable_asset_count?: number;
 };
 
 const SYSTEM_STEP_KEYS = new Set(["contact", "open_feedback"]);
@@ -242,6 +245,16 @@ function EditExpoBooth() {
           </Button>
         }
       />
+
+      {(booth.deliverable_asset_count ?? 0) === 0 ? (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          No catalogues or files to offer visitors yet. Add PDFs under{" "}
+          <Link to="/expo/catalogues" className="font-medium underline underline-offset-2">
+            Add catalogues
+          </Link>{" "}
+          — they are offered on WhatsApp and web for every booth. Without files, the catalogue step is skipped.
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>

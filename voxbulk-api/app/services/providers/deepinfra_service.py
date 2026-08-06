@@ -33,11 +33,20 @@ class DeepInfraProviderService:
 
     @staticmethod
     def _resolve_base_url(raw: Any, model_name: str) -> str:
-        base = str(raw or "").strip().rstrip("/")
-        if base:
-            return base
         model = str(model_name or DEEPINFRA_DEFAULT_MODEL).strip().strip("/")
-        return f"https://api.deepinfra.com/v1/inference/{model}"
+        expected = f"https://api.deepinfra.com/v1/inference/{model}"
+        base = str(raw or "").strip().rstrip("/")
+        if not base:
+            return expected
+        # Admin often keeps a stale turbo base_url after switching model_name to large-v3.
+        marker = "/v1/inference/"
+        if marker in base:
+            url_model = base.split(marker, 1)[-1].strip("/")
+            if url_model and url_model != model:
+                return expected
+            if "turbo" in url_model.lower() and "turbo" not in model.lower():
+                return expected
+        return base
 
     @staticmethod
     def _config(db: Session) -> dict[str, Any]:

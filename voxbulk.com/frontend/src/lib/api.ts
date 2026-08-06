@@ -181,12 +181,36 @@ function apiUrl(path: string) {
   return `${base}${p}`;
 }
 
+/** Default client timeout so Expo "Please wait…" cannot spin forever on a hung API. */
+const DEFAULT_API_TIMEOUT_MS = 45_000;
+
 async function requestFetch(url: string, options: RequestInit = {}) {
+  const timeoutMs = DEFAULT_API_TIMEOUT_MS;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer =
+    controller && timeoutMs > 0
+      ? setTimeout(() => {
+          try {
+            controller.abort();
+          } catch {
+            /* ignore */
+          }
+        }, timeoutMs)
+      : null;
   try {
-    return await fetch(url, options);
+    const signal = options.signal ?? controller?.signal;
+    return await fetch(url, signal ? { ...options, signal } : options);
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : "Failed to fetch";
+    const name = cause instanceof Error ? cause.name : "";
+    const message =
+      name === "AbortError"
+        ? "Request timed out — please try again."
+        : cause instanceof Error
+          ? cause.message
+          : "Failed to fetch";
     throw new ApiError(message, { isNetworkError: true });
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

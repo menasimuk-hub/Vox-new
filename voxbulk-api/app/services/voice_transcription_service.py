@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 
 MIN_TRANSCRIPT_CHARS = 2
 DEFAULT_STT_LANGUAGE = "auto"
-DEFAULT_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
-WEB_UPLOAD_STT_PROVIDER_ORDER = ("deepgram", "deepinfra", "whisper_cpp", "groq")
+# DeepInfra Whisper large-v3 first — better dialect / Arabic auto-detect than Deepgram nova.
+DEFAULT_STT_PROVIDER_ORDER = ("deepinfra", "deepgram", "whisper_cpp", "groq")
+WEB_UPLOAD_STT_PROVIDER_ORDER = ("deepinfra", "deepgram", "whisper_cpp", "groq")
 
 _LAUGHTER_PATTERN = re.compile(
     r"^(?:ha+|he+|hi+|ho+|hu+|ah+|eh+|oh+|uh+|lol+|haha+|hehe+|hihi+|"
@@ -570,11 +571,14 @@ class VoiceTranscriptionService:
     @staticmethod
     def _transcribe_deepinfra(main_db: Session, audio_path: Path, *, language: str | None) -> SttTranscriptionResult:
         stt_lang = _stt_language(language)
+        # Force large-v3 model + matching base_url so a stale turbo Admin URL cannot win.
+        model = DeepInfraProviderService.resolve_wa_survey_model(main_db)
         result = DeepInfraProviderService.transcribe_audio_file(
             main_db,
             audio_path=audio_path,
             # None lets DeepInfra/Whisper auto-detect the spoken language.
             language=None if stt_lang == "auto" else stt_lang,
+            model_name=model,
         )
         return SttTranscriptionResult(
             text=str(result.get("text") or "").strip(),
