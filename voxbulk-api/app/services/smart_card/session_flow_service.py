@@ -27,6 +27,7 @@ from app.services.expo.question_bank import (
     NO_WORDS,
     WEB_CHOICE_OPTIONS,
     WEB_MULTI_CHOICE_KEYS,
+    WEB_VOICE_KEYS,
     format_numbered_prompt,
     looks_affirmative,
     parse_pick_numbers,
@@ -36,7 +37,18 @@ from app.services.smart_card.email_service import SmartCardEmailService
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STEPS = ("contact", "interest", "role", "timeline", "follow_up", "consent_info", "open_feedback")
+DEFAULT_STEPS = (
+    "contact",
+    "interest",
+    "role",
+    "timeline",
+    "decision_maker",
+    "budget",
+    "volume",
+    "follow_up",
+    "consent_info",
+    "open_feedback",
+)
 
 CONTACT_STEPS = frozenset({"contact", "contact_web", "contact_card_only", "contact_manual"})
 
@@ -45,6 +57,7 @@ PRODUCT_MENU_STEPS = frozenset({"consent_info", "products_wanted", "need_catalog
 
 NO_THANKS_VALUE = "No thanks"
 NO_THANKS_LABEL = "🙅 No thanks"
+WA_SKIP_HINT = "Or reply *Skip* to move on (same as web)."
 
 
 def _score_lead(*, interest: str | None, timeline: str | None, consent: str | None) -> str:
@@ -206,7 +219,12 @@ class SmartCardSessionFlowService:
                 "options": [dict(o) for o in options],
                 "allow_voice": False,
             }
-        return {"input": "text", "options": [], "allow_voice": True}
+        # Same as Expo web: only interest + open_feedback stay free text/voice.
+        return {
+            "input": "text",
+            "options": [],
+            "allow_voice": step in WEB_VOICE_KEYS,
+        }
 
     @staticmethod
     def _step_payload(
@@ -236,6 +254,9 @@ class SmartCardSessionFlowService:
             prompt = format_numbered_prompt(
                 base_prompt, [str(o.get("label") or o.get("value")) for o in ui["options"]], hint=hint
             )
+        elif chan == "whatsapp" and ui["input"] == "text":
+            # Don't keep open questions as ask-only — offer Skip like Expo web.
+            prompt = f"{base_prompt}\n\n{WA_SKIP_HINT}".strip()
         return {
             "step": step,
             "question_key": step,
@@ -457,6 +478,10 @@ class SmartCardSessionFlowService:
 
         channel = str(session.channel or "web").strip().lower() or "web"
         consent_value: str | None = None
+        lower_answer = text.lower().strip()
+        is_open_step = bool(step) and step not in CONTACT_STEPS and step not in PRODUCT_MENU_STEPS and step not in WEB_CHOICE_OPTIONS
+        if is_open_step and lower_answer in {"skip", "skip this", "skip this question", "pass", "n/a", "na"}:
+            text = "skip"
 
         if step in PRODUCT_MENU_STEPS and state.get("product_menu_ids"):
             menu = SmartCardSessionFlowService._products_by_ids(

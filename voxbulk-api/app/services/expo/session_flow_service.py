@@ -66,11 +66,30 @@ from app.services.expo.scoring_service import score_lead
 
 THANK_YOU_TEXT = "Thanks so much for stopping by our stand — we'll be in touch soon!"
 CONTACT_CONFIRM_PROMPT = "✅ Please check your details and continue."
+WA_OPEN_SKIP_HINT = "Or reply *Skip* to move on (same as web)."
 
 _YES_WORDS = YES_WORDS
 _NO_WORDS = NO_WORDS
 _emoji_digit = emoji_digit
 _looks_affirmative = looks_affirmative
+
+
+def _format_whatsapp_step_prompt(key: str, prompt: str) -> str:
+    """Numbered 1/2/3 menus for closed questions; Skip hint for open/ask-only steps."""
+    if key in WEB_CHOICE_OPTIONS and key != "consent_info":
+        opts = WEB_CHOICE_OPTIONS[key]
+        multi = key in WEB_MULTI_CHOICE_KEYS
+        lines = [prompt, ""]
+        for idx, opt in enumerate(opts, start=1):
+            lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
+        lines.append("")
+        lines.append(
+            "Reply with the number(s), e.g. 1 or 1,2" if multi else "Reply with the number, e.g. 1"
+        )
+        return "\n".join(line for line in lines if line is not None).strip()
+    if key and key != CONTACT_STEP_KEY and key not in WEB_CHOICE_OPTIONS:
+        return f"{prompt}\n\n{WA_OPEN_SKIP_HINT}".strip()
+    return prompt
 
 
 def _empty_step_result(
@@ -1830,17 +1849,8 @@ class ExpoSessionFlowService:
         if channel == "web" and step.get("prompt_web"):
             prompt = str(step.get("prompt_web") or prompt)
         prompt = with_topic_emoji(key, prompt)
-        if channel == "whatsapp" and key in WEB_CHOICE_OPTIONS and key != "consent_info":
-            opts = WEB_CHOICE_OPTIONS[key]
-            multi = key in WEB_MULTI_CHOICE_KEYS
-            lines = [prompt, ""]
-            for idx, opt in enumerate(opts, start=1):
-                lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
-            lines.append("")
-            lines.append(
-                "Reply with the number(s), e.g. 1 or 1,2" if multi else "Reply with the number, e.g. 1"
-            )
-            prompt = "\n".join(line for line in lines if line is not None).strip()
+        if channel == "whatsapp":
+            prompt = _format_whatsapp_step_prompt(key, prompt)
         return _empty_step_result(done=False, prompt=prompt, question_key=key, channel=channel)
 
     @staticmethod
@@ -1909,17 +1919,8 @@ class ExpoSessionFlowService:
             if channel == "web" and next_step.get("prompt_web"):
                 prompt = str(next_step.get("prompt_web") or prompt)
             prompt = with_topic_emoji(key, prompt)
-            if channel == "whatsapp" and key in WEB_CHOICE_OPTIONS and key != "consent_info":
-                opts = WEB_CHOICE_OPTIONS[key]
-                multi = key in WEB_MULTI_CHOICE_KEYS
-                lines = [prompt, ""]
-                for idx, opt in enumerate(opts, start=1):
-                    lines.append(f"{_emoji_digit(idx)} {opt.get('label') or opt.get('value')}")
-                lines.append("")
-                lines.append(
-                    "Reply with the number(s), e.g. 1 or 1,2" if multi else "Reply with the number, e.g. 1"
-                )
-                prompt = "\n".join(line for line in lines if line is not None).strip()
+            if channel == "whatsapp":
+                prompt = _format_whatsapp_step_prompt(key, prompt)
             return _empty_step_result(
                 done=False,
                 prompt=prompt,

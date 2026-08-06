@@ -363,8 +363,16 @@ class SmartCardWhatsappService:
         org_id: str | None,
         from_number: str | None = None,
     ) -> int:
-        """Send each selected catalogue file as a WhatsApp document, link fallback on failure."""
+        """Send each selected catalogue file as a WhatsApp document (never paste a bare link for files)."""
+        from urllib.parse import urlsplit, urlunsplit
+
         from app.services.smart_card.asset_delivery_service import supports_document_send
+
+        def _clean_doc_url(url: str) -> str:
+            parts = urlsplit(str(url or "").strip())
+            if not parts.scheme.startswith("http"):
+                return str(url or "").strip()
+            return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
         sent = 0
         for asset in assets or []:
@@ -372,6 +380,7 @@ class SmartCardWhatsappService:
             if not url.startswith("http"):
                 continue
             title = str(asset.get("title") or "Document").strip()
+            filename = str(asset.get("filename") or f"{title}.pdf")
             if supports_document_send(asset):
                 ok = SmartCardWhatsappService._send(
                     db,
@@ -379,12 +388,30 @@ class SmartCardWhatsappService:
                     body=title,
                     org_id=org_id,
                     from_number=from_number,
-                    document_link=url,
-                    document_filename=str(asset.get("filename") or f"{title}.pdf"),
+                    document_link=_clean_doc_url(url),
+                    document_filename=filename[:240],
                 )
                 if ok:
                     sent += 1
                     continue
+                logger.warning(
+                    "smart_card_wa_document_failed to=%s asset=%s — not pasting link",
+                    to_number,
+                    asset.get("id"),
+                )
+                if SmartCardWhatsappService._send(
+                    db,
+                    to_number=to_number,
+                    body=(
+                        f"📄 {title} — file send failed in chat; "
+                        "check your email for the attachment, or ask our team."
+                    ),
+                    org_id=org_id,
+                    from_number=from_number,
+                ):
+                    sent += 1
+                continue
+            # External URL-only (no uploaded file) — link is unavoidable.
             if SmartCardWhatsappService._send(
                 db,
                 to_number=to_number,

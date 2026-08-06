@@ -15,7 +15,7 @@ systemctl status voxbulk-api
 ./vox.sh status
 ```
 
-Afterwards, `./deploy-vps.sh` **reloads** the API via gunicorn (`systemctl reload`) so `:8000` stays up during deploy. Admin/dashboard are static (no downtime). Public vite preview may blip briefly on restart. Celery stays under Supervisor (`sudo bash scripts/vps-setup-celery.sh`).
+Afterwards, `./deploy-vps.sh` **reloads** the API via gunicorn (`systemctl reload`) so `:8000` stays up during deploy. Admin/dashboard are static (no downtime). Public vite preview may blip briefly on restart. Celery stays under Supervisor (`sudo bash scripts/vps-setup-celery.sh`). That setup also installs a **hourly worker refresh** cron (`scripts/celery-hourly-refresh.sh`) so new Celery tasks load even if a deploy-time restart was skipped.
 
 **One-time upgrade** (if unit was installed before gunicorn reload support):
 

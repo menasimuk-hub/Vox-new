@@ -126,11 +126,21 @@ def asset_filename(asset: dict[str, Any]) -> str:
 
 
 def supports_document_send(asset: dict[str, Any]) -> bool:
-    """WhatsApp document messages only accept file-like assets we can name."""
-    suffix = Path(str(asset.get("storage_path") or asset.get("original_filename") or "")).suffix.lower()
+    """WhatsApp document messages for uploaded file-like assets (not video/images/webpages)."""
+    path_blob = str(asset.get("storage_path") or asset.get("original_filename") or "").strip()
+    suffix = Path(path_blob).suffix.lower()
     if suffix in _DOCUMENT_SUFFIX_MEDIA:
         return True
-    return str(asset.get("kind") or "").strip().lower() in {"pdf", "document", "spreadsheet"}
+    if suffix and suffix not in _DOCUMENT_SUFFIX_MEDIA:
+        # Explicit non-document upload (e.g. .mp4) — do not force a document bubble.
+        return False
+    kind = str(asset.get("kind") or "").strip().lower()
+    if kind in {"pdf", "document", "spreadsheet"}:
+        return True
+    # Stored file with no/unknown extension — treat as document if kind isn't media.
+    if path_blob and kind not in {"video", "image", "audio", "link"}:
+        return True
+    return False
 
 
 def build_delivery_rows(

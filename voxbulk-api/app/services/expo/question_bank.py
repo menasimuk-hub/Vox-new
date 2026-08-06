@@ -177,7 +177,16 @@ SELECTABLE_QUESTION_BANK: list[dict[str, Any]] = [
     },
 ]
 
-_DEFAULT_SELECTED_KEYS = ("interest", "role", "timeline", "follow_up", "consent_info")
+_DEFAULT_SELECTED_KEYS = (
+    "interest",
+    "role",
+    "timeline",
+    "decision_maker",
+    "budget",
+    "volume",
+    "follow_up",
+    "consent_info",
+)
 _BANK_BY_KEY = {q["key"]: q for q in SELECTABLE_QUESTION_BANK}
 
 # Topic emoji for WA/web prompts — applied at send time so existing booths get them too.

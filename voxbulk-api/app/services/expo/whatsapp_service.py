@@ -11,7 +11,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,27 +41,52 @@ _DOCUMENT_KINDS = frozenset({"pdf", "spreadsheet", "document", "excel", "xls", "
 _DOCUMENT_EXTS = (".pdf", ".xls", ".xlsx", ".csv", ".doc", ".docx")
 
 
+def _asset_has_stored_file(asset: dict[str, Any]) -> bool:
+    return bool(str(asset.get("storage_path") or "").strip())
+
+
 def _asset_supports_document_send(asset: dict[str, Any]) -> bool:
+    """True when WhatsApp should get a document bubble (file), not a pasted URL."""
+    path_blob = " ".join(
+        [
+            str(asset.get("storage_path") or ""),
+            str(asset.get("original_filename") or ""),
+        ]
+    ).lower()
+    if any(path_blob.endswith(ext) or ext in path_blob for ext in _DOCUMENT_EXTS):
+        return True
+    # Non-document uploads (e.g. video) must not be forced as documents.
+    if path_blob and any(path_blob.endswith(ext) for ext in (".mp4", ".mov", ".webm", ".png", ".jpg", ".jpeg", ".gif")):
+        return False
     kind = str(asset.get("kind") or "").strip().lower()
     if kind in _DOCUMENT_KINDS:
         return True
+    if _asset_has_stored_file(asset) and kind not in {"video", "image", "audio", "link"}:
+        return True
     blob = " ".join(
         [
-            str(asset.get("storage_path") or ""),
             str(asset.get("external_url") or ""),
-            str(asset.get("original_filename") or ""),
             str(asset.get("title") or ""),
         ]
     ).lower()
     return any(blob.endswith(ext) or ext in blob for ext in _DOCUMENT_EXTS)
 
 
+def _wa_document_url(url: str) -> str:
+    """Strip tracking query params — Meta/Telnyx fetch the file more reliably on a clean path."""
+    raw = str(url or "").strip()
+    if not raw.startswith("http"):
+        return raw
+    parts = urlsplit(raw)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 def _asset_document_filename(asset: dict[str, Any]) -> str:
-    for key in ("original_filename", "title", "asset_key"):
+    for key in ("original_filename", "storage_path", "title", "asset_key"):
         raw = str(asset.get(key) or "").strip()
         if not raw:
             continue
-        name = raw.replace("\\", "/").split("/")[-1]
+        name = Path(raw.replace("\\", "/")).name
         if "." in name:
             return name[:240]
         kind = str(asset.get("kind") or "").lower()
@@ -482,31 +509,39 @@ class ExpoWhatsappService:
         from_number: str | None = None,
     ) -> None:
         title = str(asset.get("title") or "our info pack").strip()
-        tracked_url = str(asset.get("url") or "").strip() or asset_public_url(
-            asset, booth_token, lead_id=lead_id
-        )
+        # Clean public file URL for WhatsApp document fetch (no ?lead_id=).
+        file_url = asset_public_url(asset, booth_token, lead_id=None)
         caption = ExpoWhatsappService._asset_caption(asset)
-        if _asset_supports_document_send(asset) and tracked_url.startswith("http"):
+        if _asset_supports_document_send(asset) and file_url.startswith("http"):
+            doc_url = _wa_document_url(file_url)
             ok = ExpoWhatsappService._send(
                 db,
                 to_number=to_number,
                 body=caption,
                 org_id=org_id,
                 from_number=from_number,
-                document_link=tracked_url,
+                document_link=doc_url,
                 document_filename=_asset_document_filename(asset),
             )
             if ok:
                 return
-            logger.info("expo_wa_document_fallback_to_link to=%s asset=%s", to_number, asset.get("id"))
+            logger.warning(
+                "expo_wa_document_send_failed to=%s asset=%s — not pasting link",
+                to_number,
+                asset.get("id"),
+            )
             ExpoWhatsappService._send(
                 db,
                 to_number=to_number,
-                body=f"📄 {title} is ready — please ask our stand team if you need it again.",
+                body=(
+                    f"📄 {title} — we're attaching the file; if it doesn't appear in chat, "
+                    "check your email or ask our stand team."
+                ),
                 org_id=org_id,
                 from_number=from_number,
             )
             return
+        # External URL-only assets (no uploaded file) — link is the only option.
         link_body = deliver_asset_link_message(asset, booth_token, lead_id=lead_id)
         ExpoWhatsappService._send(
             db,

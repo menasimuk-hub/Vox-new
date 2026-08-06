@@ -150,18 +150,31 @@ else
 fi
 
 WATCHDOG="$ROOT/scripts/celery-watchdog.sh"
-chmod +x "$WATCHDOG" 2>/dev/null || true
+HOURLY="$ROOT/scripts/celery-hourly-refresh.sh"
+chmod +x "$WATCHDOG" "$HOURLY" 2>/dev/null || true
 CRON_LINE="*/5 * * * * $WATCHDOG >> /tmp/voxbulk-celery-watchdog.log 2>&1"
+HOURLY_LINE="5 * * * * $HOURLY >> /tmp/voxbulk-celery-hourly.log 2>&1"
 if command -v crontab >/dev/null 2>&1; then
   existing="$(crontab -l 2>/dev/null || true)"
+  updated="$existing"
   if echo "$existing" | grep -Fq "celery-watchdog.sh"; then
     info "Celery watchdog cron already installed"
   else
     info "Installing Celery watchdog cron (every 5 minutes) …"
-    printf '%s\n%s\n' "$existing" "$CRON_LINE" | crontab - || warn "Could not install crontab for current user — add manually: $CRON_LINE"
+    updated="$(printf '%s\n%s\n' "$updated" "$CRON_LINE")"
+  fi
+  if echo "$existing" | grep -Fq "celery-hourly-refresh.sh"; then
+    info "Celery hourly refresh cron already installed"
+  else
+    info "Installing Celery hourly worker refresh cron …"
+    updated="$(printf '%s\n%s\n' "$updated" "$HOURLY_LINE")"
+  fi
+  if [[ "$updated" != "$existing" ]]; then
+    printf '%s\n' "$updated" | crontab - || warn "Could not install crontab — add manually: $CRON_LINE and $HOURLY_LINE"
   fi
 else
-  warn "crontab not available — install watchdog manually: $CRON_LINE"
+  warn "crontab not available — install manually: $CRON_LINE"
+  warn "and: $HOURLY_LINE"
 fi
 
 # Allow API (non-interactive) restart without a password prompt when using sudo -n.
@@ -190,6 +203,7 @@ Celery setup complete
   Logs:      tail -f /tmp/voxbulk-celery.log
   Beat logs: tail -f /tmp/voxbulk-celery-beat.log
   Watchdog:  $WATCHDOG  (cron every 5m + email on failure)
+  Hourly:    $HOURLY  (cron :05 each hour — reloads worker code/tasks)
   Restart:   sudo supervisorctl restart voxbulk-celery voxbulk-celery-beat
   Or:        cd /www/voxbulk && ./vox.sh restart
   Admin UI:  Dashboard → Celery / background jobs

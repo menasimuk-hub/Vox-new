@@ -108,6 +108,7 @@ def load_library_assets(db: Session, org_id: str) -> list[dict[str, Any]]:
                 "purpose": normalize_asset_purpose(getattr(a, "purpose", None) or "catalogue"),
                 "external_url": a.external_url,
                 "storage_path": a.storage_path,
+                "original_filename": (str(a.storage_path or "").replace("\\", "/").split("/")[-1] or None),
                 "match_keywords": None,
                 "is_default": False,
                 "sort_order": a.sort_order,
