@@ -98,6 +98,14 @@ _PURPOSE_OPTION_LABEL = {
     "other": "File",
 }
 
+_PURPOSE_OPTION_ICON = {
+    "catalogue": "📘",
+    "price_list": "💷",
+    "product": "📦",
+    "product_sheet": "📄",
+    "other": "📎",
+}
+
 _PURPOSE_SORT = {
     "catalogue": 10,
     "product_sheet": 20,
@@ -168,13 +176,18 @@ def _classify_booth_assets(assets: list[dict[str, Any]]) -> list[dict[str, Any]]
 def _consent_asset_option_label(asset: dict[str, Any]) -> str:
     purpose = str(asset.get("purpose") or "product")
     kind = _PURPOSE_OPTION_LABEL.get(purpose, "File")
+    icon = _PURPOSE_OPTION_ICON.get(purpose, "📎")
     product = str(asset.get("product_name") or "").strip()
     title = str(asset.get("title") or "Download").strip() or "Download"
     if product and product.lower() not in title.lower():
-        return f"{product} — {kind}"
-    if title.lower().startswith(kind.lower()):
-        return title
-    return f"{kind}: {title}"
+        body = f"{product} — {kind}"
+    elif title.lower().startswith(kind.lower()):
+        body = title
+    else:
+        body = f"{kind}: {title}"
+    if body.startswith(icon):
+        return body
+    return f"{icon} {body}"
 
 
 def _format_consent_menu_lines(assets: list[dict[str, Any]], *, offer: str) -> list[str]:

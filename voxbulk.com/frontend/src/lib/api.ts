@@ -183,9 +183,15 @@ function apiUrl(path: string) {
 
 /** Default client timeout so Expo "Please wait…" cannot spin forever on a hung API. */
 const DEFAULT_API_TIMEOUT_MS = 45_000;
+/** Voice upload + STT often needs longer than a normal JSON call. */
+const VOICE_UPLOAD_TIMEOUT_MS = 120_000;
 
-async function requestFetch(url: string, options: RequestInit = {}) {
-  const timeoutMs = DEFAULT_API_TIMEOUT_MS;
+async function requestFetch(
+  url: string,
+  options: RequestInit & { timeoutMs?: number } = {},
+) {
+  const { timeoutMs: timeoutOverride, ...fetchOptions } = options;
+  const timeoutMs = typeof timeoutOverride === "number" ? timeoutOverride : DEFAULT_API_TIMEOUT_MS;
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   const timer =
     controller && timeoutMs > 0
@@ -198,8 +204,8 @@ async function requestFetch(url: string, options: RequestInit = {}) {
         }, timeoutMs)
       : null;
   try {
-    const signal = options.signal ?? controller?.signal;
-    return await fetch(url, signal ? { ...options, signal } : options);
+    const signal = fetchOptions.signal ?? controller?.signal;
+    return await fetch(url, signal ? { ...fetchOptions, signal } : fetchOptions);
   } catch (cause) {
     const name = cause instanceof Error ? cause.name : "";
     const message =
@@ -233,9 +239,19 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
   return (data ?? {}) as T;
 }
 
-export async function apiUpload<T = unknown>(path: string, form: FormData, method = "POST"): Promise<T> {
+export async function apiUpload<T = unknown>(
+  path: string,
+  form: FormData,
+  method = "POST",
+  opts?: { timeoutMs?: number },
+): Promise<T> {
   const headers = buildAuthHeaders();
-  const res = await requestFetch(apiUrl(path), { method, body: form, headers });
+  const res = await requestFetch(apiUrl(path), {
+    method,
+    body: form,
+    headers,
+    timeoutMs: opts?.timeoutMs,
+  });
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {

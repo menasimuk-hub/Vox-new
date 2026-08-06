@@ -467,6 +467,7 @@ class VoiceTranscriptionService:
         filename: str = "voice.webm",
         content_type: str = "audio/webm",
         language: str | None = None,
+        strict_silence: bool = True,
     ) -> VoiceTranscriptionResult:
         """Transcode + transcribe an audio file uploaded directly by the browser (web survey)."""
         if not audio_bytes:
@@ -489,6 +490,15 @@ class VoiceTranscriptionService:
             audio_path, transcode_ok = VoiceTranscriptionService._transcode_to_ogg(dest)
             duration_seconds = _duration_from_file(audio_path)
             silent = no_speech_reason(audio_path, duration_seconds)
+            # Soft path: short quiet notes still reach STT when the file has meaningful size/duration.
+            if silent and not strict_silence:
+                if silent == "audio_silent" and (
+                    (duration_seconds is not None and duration_seconds >= 0.6)
+                    or len(audio_bytes) >= 4_000
+                ):
+                    silent = None
+                elif silent == "audio_too_short" and len(audio_bytes) >= 8_000:
+                    silent = None
             if silent:
                 logger.info(
                     "voice_web_transcription_no_speech reason=%s duration=%s transcode_ok=%s",

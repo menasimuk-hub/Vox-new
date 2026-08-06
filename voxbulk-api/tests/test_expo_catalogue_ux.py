@@ -213,8 +213,8 @@ def test_consent_menu_shows_category_headers_when_present():
     )
     blob = "\n".join(lines)
     assert "📁 Pumps" in blob
-    assert "Pump A — Catalogue" in blob
-    assert "Pump A — Price list" in blob
+    assert "Pump A — Catalogue" in blob or "📘 Pump A — Catalogue" in blob
+    assert "Pump A — Price list" in blob or "💷 Pump A — Price list" in blob
 
 
 def test_yes_does_not_remap_digit_one_on_consent_advance():

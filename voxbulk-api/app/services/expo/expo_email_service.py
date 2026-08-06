@@ -203,6 +203,19 @@ class ExpoEmailService:
             user = db.get(User, booth.created_by_user_id)
             if user and user.email:
                 emails.append(str(user.email).strip().lower())
+        # Stand representatives — product owners often expect the digest here.
+        try:
+            from app.services.expo.question_bank import parse_representative_contacts
+
+            for r in parse_representative_contacts(getattr(booth, "representative_contacts_json", None)):
+                e = str(r.get("email") or "").strip().lower()
+                if e and "@" in e:
+                    emails.append(e)
+        except Exception:
+            pass
+        booth_contact = ExpoEmailService._booth_contact_email(booth)
+        if booth_contact:
+            emails.append(booth_contact.strip().lower())
         if not emails:
             memberships = (
                 db.execute(
@@ -227,7 +240,7 @@ class ExpoEmailService:
             if e and e not in seen and "@" in e:
                 seen.add(e)
                 out.append(e)
-        return out[:3]
+        return out[:8]
 
     @staticmethod
     def notify_exhibitor_lead(

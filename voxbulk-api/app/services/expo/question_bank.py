@@ -505,15 +505,30 @@ WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
         {"value": "Decision-maker", "label": "✅ I'm the decision-maker"},
         {"value": "Recommending", "label": "🤝 Recommending to someone else"},
     ],
+    "offer_interest": [
+        {"value": "Yes", "label": "✅ Yes, interested"},
+        {"value": "No", "label": "🙅 No thanks"},
+    ],
+    "budget": [
+        {"value": "Under £1k", "label": "💵 Under £1k"},
+        {"value": "£1k–£10k", "label": "💷 £1k–£10k"},
+        {"value": "£10k–£50k", "label": "💶 £10k–£50k"},
+        {"value": "£50k+", "label": "💰 £50k+"},
+        {"value": "Not sure", "label": "🤷 Not sure yet"},
+    ],
+    "volume": [
+        {"value": "Sample / 1–10", "label": "1️⃣ Sample / 1–10"},
+        {"value": "11–100", "label": "🔟 11–100"},
+        {"value": "100–1,000", "label": "📦 100–1,000"},
+        {"value": "1,000+", "label": "🏭 1,000+"},
+        {"value": "Not sure", "label": "🤷 Not sure yet"},
+    ],
 }
 
+# Only free-text interest + final open feedback keep the mic; everything else is taps/numbers.
 WEB_VOICE_KEYS = frozenset(
     {
         "interest",
-        "products_wanted",
-        "budget",
-        "volume",
-        "industry_addon",
         OPEN_FEEDBACK_KEY,
     }
 )

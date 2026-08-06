@@ -15,7 +15,7 @@ from app.services.customer_feedback.feedback_answer_service import (
     TRANSLATION_UNAVAILABLE_EN,
     translate_answer_to_english,
 )
-from app.services.voice_transcription_service import is_low_quality_transcript
+from app.services.voice_transcription_service import is_low_quality_transcript, looks_like_hallucination
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[expo-voice]"
@@ -352,10 +352,16 @@ def process_web_voice_bytes(
             filename=filename or "voice.webm",
             content_type=content_type or "audio/webm",
             language="auto",
+            # Quiet phone mics often trip the default silence gate; Expo still has usable speech.
+            strict_silence=False,
         )
         text = str(getattr(stt, "transcript", None) or getattr(stt, "text", None) or "").strip()
         detected = getattr(stt, "detected_language", None)
-        if not getattr(stt, "ok", False) or not text or is_low_quality_transcript(text):
+        # Accept real speech even when quality heuristics set ok=False (common on short Expo notes).
+        usable = bool(text) and len(text) >= 2 and not looks_like_hallucination(text)
+        if not usable:
+            if not getattr(stt, "ok", False) or not text or is_low_quality_transcript(text):
+                raise RuntimeError(str(getattr(stt, "error", None) or "empty_transcript"))
             raise RuntimeError("empty_transcript")
 
         detected = correct_detected_language(text, detected)

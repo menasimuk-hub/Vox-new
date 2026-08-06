@@ -205,10 +205,11 @@ function clearStoredSession(token: string) {
 
 function purposeBadge(purpose?: string) {
   const p = String(purpose || "").toLowerCase();
-  if (p === "catalogue") return "Catalogue";
-  if (p === "price_list") return "Price list";
-  if (p === "product") return "Product";
-  return "File";
+  if (p === "catalogue") return "📘 Catalogue";
+  if (p === "price_list") return "💷 Price list";
+  if (p === "product_sheet") return "📄 Product sheet";
+  if (p === "product") return "📦 Product";
+  return "📎 File";
 }
 
 async function downloadSameTab(url: string, filename: string, onBusy?: (v: boolean) => void) {
@@ -917,6 +918,8 @@ export function PublicExpoLanding({
       const res = await apiUpload<AdvanceResult>(
         `/public/expo/${encodeURIComponent(token)}/sessions/${encodeURIComponent(sessionId)}/voice`,
         form,
+        "POST",
+        { timeoutMs: 120_000 },
       );
       applyAdvance(res);
     } catch (e) {
@@ -1497,8 +1500,8 @@ export function PublicExpoLanding({
                         title={liveQ.prompt}
                         hint={
                           liveQ.allow_voice
-                            ? "Type in English, or record a voice note in any language — we translate to English."
-                            : "Type your answer."
+                            ? "Type your answer, or record a voice note — if the mic fails, type or tap Skip."
+                            : "Type your answer, or tap Skip if you prefer not to say."
                         }
                         text={textAnswer}
                         onTextChange={setTextAnswer}
@@ -1516,8 +1519,8 @@ export function PublicExpoLanding({
                       title={liveQ.prompt}
                       hint={
                         liveQ.allow_voice
-                          ? "Type in English, or record a voice note in any language — we translate to English."
-                          : "Type your answer."
+                          ? "Type your answer, or record a voice note — if the mic fails, type or tap Skip."
+                          : "Type your answer, or tap Skip if you prefer not to say."
                       }
                       text={textAnswer}
                       onTextChange={setTextAnswer}
@@ -1629,6 +1632,16 @@ export function PublicExpoLanding({
                 </svg>
               </button>
             </div>
+            {webStep === "question" && (liveQ?.key === "open_feedback" || liveQ?.allow_voice) ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void submitAnswer("skip")}
+                className="mx-auto mt-2 block text-center text-sm text-slate-500 underline-offset-2 hover:underline disabled:opacity-40"
+              >
+                Skip this question
+              </button>
+            ) : null}
           </div>
         </main>
       </div>
