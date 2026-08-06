@@ -286,30 +286,19 @@ def test_follow_up_stores_labels_not_123():
 
 
 def test_async_completion_enqueues_exhibitor_email(monkeypatch):
-    calls: list[tuple] = []
+    calls: list[str] = []
 
-    class _FakeTask:
-        name = "expo.notify_exhibitor_lead"
+    def _fake_thread(*, target=None, args=(), **_kwargs):
+        class _T:
+            def start(self_inner):
+                calls.append("threaded")
+                if target:
+                    # Do not run SMTP in unit test — only record that we offloaded.
+                    return None
 
-        @staticmethod
-        def delay(**kwargs):
-            calls.append(("exhibitor", kwargs))
+        return _T()
 
-    monkeypatch.setattr(
-        "app.workers.expo_notify_tasks.notify_exhibitor_lead_task",
-        _FakeTask,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        "app.services.expo.async_notify_service.notify_exhibitor_lead_task",
-        _FakeTask,
-        raising=False,
-    )
-
-    # Patch import path used inside enqueue
-    import app.services.expo.async_notify_service as ans
-
-    monkeypatch.setattr(ans, "_try_delay", lambda task, **kwargs: calls.append((task.name, kwargs)) or True)
+    monkeypatch.setattr("app.services.expo.async_notify_service.threading.Thread", _fake_thread)
 
     with get_sessionmaker()() as db:
         org = _org(db)
@@ -336,7 +325,7 @@ def test_async_completion_enqueues_exhibitor_email(monkeypatch):
 
         result = ExpoSessionFlowService.advance(db, session=session, answer="solar kits", answer_source="text")
         assert result.get("done") is True
-        assert any(name == "expo.notify_exhibitor_lead" for name, _ in calls)
+        assert "threaded" in calls
 
 
 def test_contact_email_template_key_exists():

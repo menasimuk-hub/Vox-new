@@ -139,13 +139,21 @@ restart_celery() {
   }
   local name beat
   if name="$(celery_supervisor_name)"; then
-    _sup restart "$name" && echo "Celery worker restarted ($name)"
+    if _sup restart "$name"; then
+      echo "Celery worker restarted ($name)"
+    else
+      echo "WARNING: Celery worker restart FAILED ($name) — new tasks will not load until: sudo supervisorctl restart $name"
+    fi
   else
     echo "Celery not in supervisor — run once: sudo bash scripts/vps-setup-celery.sh"
     echo "  (Required for WA voice-note transcription, billing jobs, webhooks)"
   fi
   if beat="$(celery_beat_supervisor_name)"; then
-    _sup restart "$beat" && echo "Celery beat restarted ($beat)"
+    if _sup restart "$beat"; then
+      echo "Celery beat restarted ($beat)"
+    else
+      echo "WARNING: Celery beat restart FAILED ($beat)"
+    fi
   else
     echo "Celery beat not in supervisor — run: sudo bash scripts/vps-setup-celery.sh"
   fi
