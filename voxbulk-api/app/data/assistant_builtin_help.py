@@ -132,13 +132,21 @@ BUILTIN_HELP_ARTICLES: list[BuiltinHelpArticle] = [
         "category_id": "expo",
         "routes": ["/expo", "/expo/booths"],
     },
-    {
+        {
         "source_id": "expo-create-booth",
         "title": "Creating an Expo Booth",
         "body": "Go to Expo → New Booth. Add your company logo, brochures (PDF), product images, and booth theme. Configure voice Q&A topics (pricing, features, availability). Generate a booth QR code. Visitors scan it at your exhibition stand or event to explore your booth on their phone. Track leads and engagement under Expo → Leads.",
         "service_key": "expo",
         "category_id": "expo",
         "routes": ["/expo/new"],
+    },
+    {
+        "source_id": "expo-pricing",
+        "title": "Expo pricing and when billing starts",
+        "body": "Expo booth packages are sold under Account → Packages (Expo plans). Cost depends on the plan length you choose (for example multi-day event packages). Billing typically starts when you purchase/activate the package — not when a visitor first scans — unless Admin has configured a different trial. After purchase, create your booth under Expo → New Booth and download/print the QR code. For exact live prices for your organisation, open Account → Packages or ask Billing support.",
+        "service_key": "expo",
+        "category_id": "expo",
+        "routes": ["/account/packages", "/expo/new"],
     },
     # Smart Card
     {

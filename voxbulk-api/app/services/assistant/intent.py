@@ -83,17 +83,50 @@ _RULES: list[tuple[int, str, float, re.Pattern[str], str | None]] = [
         "survey",
     ),
     (
+        14,
+        "general_help",
+        0.93,
+        re.compile(
+            r"\bexpo\b.*\b(code|qr|booth|cost|price|pricing|create|how|lead)\b"
+            r"|\b(how|create|make|new|set\s*up).{0,40}\bexpo\b"
+            r"|\bexpo\s+(booth|code|qr)\b",
+            re.I,
+        ),
+        "expo",
+    ),
+    (
+        14,
+        "general_help",
+        0.9,
+        re.compile(
+            r"\b(how\s+(do|to|can|much)|what\s+does\s+it\s+cost|how\s+much).{0,60}"
+            r"\b(expo|smart\s*card|survey|interview|feedback|wallet|billing|package)\b",
+            re.I,
+        ),
+        None,
+    ),
+    (
         10,
         "create_feedback",
         0.86,
-        re.compile(r"\b(create|new|add)\b.*\b(feedback|location|qr)\b", re.I),
+        re.compile(
+            r"\b(create|new|add)\b.*\b(customer\s+)?feedback\b"
+            r"|\b(create|new|add)\b.*\b(feedback\s+)?location\b"
+            r"|\b(create|new|add)\b.*\bqr\b(?!.*\bexpo\b).*\b(feedback|location)\b",
+            re.I,
+        ),
         "customer_feedback",
     ),
     (
         10,
         "feedback_overview",
         0.87,
-        re.compile(r"\b(feedback|qr|location).*\b(result|scan|location)\b|\bcustomer feedback\b", re.I),
+        re.compile(
+            r"\b(customer\s+feedback)\b"
+            r"|\bfeedback\b.*\b(result|scan|location)\b"
+            r"|\b(qr|location).*\b(feedback\s+)?(result|scan)\b",
+            re.I,
+        ),
         "customer_feedback",
     ),
     (

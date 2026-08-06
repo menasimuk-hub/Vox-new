@@ -153,7 +153,7 @@ class LlmAssistantOrchestrator:
         # Try RAG retrieval for general/help-like intents
         help_chunks = []
         source_type = None
-        help_intents = {"general_help", "unknown", "open_faq"}
+        help_intents = {"general_help", "unknown", "open_faq", "open_packages"}
         if intent_match.intent in help_intents:
             help_chunks = help_retrieval_service.retrieve(
                 db,
@@ -161,12 +161,24 @@ class LlmAssistantOrchestrator:
                 enabled_services=enabled,
                 limit=5,
             )
+            # For package/pricing follow-ups, blend recent history into retrieval
+            if not help_chunks and history_payload:
+                hist_q = " ".join(
+                    str(h.get("text") or "") for h in history_payload[-4:] if h.get("role") == "user"
+                )
+                if hist_q.strip():
+                    help_chunks = help_retrieval_service.retrieve(
+                        db,
+                        question=f"{hist_q} {payload.message}",
+                        enabled_services=enabled,
+                        limit=5,
+                    )
             if help_chunks:
                 source_type = "knowledge_base"
                 for chunk in help_chunks:
                     help_retrieval_service._increment_usage_count(db, chunk["kind"], chunk["source_id"])
 
-        # How-to / FAQ: synthesize with LLM + RAG (never dump raw snippets when LLM is on)
+        # How-to / FAQ / pricing: synthesize with LLM + RAG
         if intent_match.intent in help_intents:
             result = LlmAssistantOrchestrator._answer_help(
                 db,
@@ -469,7 +481,17 @@ class LlmAssistantOrchestrator:
                 intent = regex_match.intent
             confidence = float(parsed.get("confidence") or regex_match.confidence)
             params = parsed.get("params") if isinstance(parsed.get("params"), dict) else {}
-            return IntentMatch(intent=intent, confidence=confidence, service_code=regex_match.service_code, params=params)
+            # Prefer strong regex how-to/expo matches over LLM inventing create_feedback for QR wording
+            if regex_match.intent == "general_help" and regex_match.confidence >= 0.9:
+                if intent in {"create_feedback", "feedback_overview", "open_packages", "create_survey"}:
+                    intent = "general_help"
+                    confidence = max(confidence, regex_match.confidence)
+            return IntentMatch(
+                intent=intent,
+                confidence=confidence,
+                service_code=regex_match.service_code,
+                params=params,
+            )
         except Exception:
             logger.warning("assistant_llm_classify_fallback", exc_info=True)
             record_assistant_failure(endpoint_label="llm_provider")
