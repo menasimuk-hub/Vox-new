@@ -26,6 +26,89 @@ class SmartCardSetupError(ValueError):
     pass
 
 
+def _nonempty_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _rep_update_body_from_wizard(rep_payload: dict[str, Any], *, fallback_mobile: Any, fallback_website: Any) -> dict[str, Any]:
+    """Build PATCH payload that never clears existing fields with empty wizard values."""
+    body: dict[str, Any] = {}
+    name = _nonempty_str(rep_payload.get("name"))
+    if name:
+        body["name"] = name
+
+    email = _nonempty_str(rep_payload.get("email"))
+    if email:
+        body["email"] = email.lower()
+
+    mobile = _nonempty_str(rep_payload.get("mobile")) or _nonempty_str(fallback_mobile)
+    if mobile:
+        body["mobile"] = mobile
+
+    for key in ("landline", "extension"):
+        val = _nonempty_str(rep_payload.get(key))
+        if val:
+            body[key] = val
+
+    website = _nonempty_str(rep_payload.get("website")) or _nonempty_str(fallback_website)
+    if website:
+        body["website"] = website
+
+    social = rep_payload.get("social_links")
+    if isinstance(social, dict) and any(str(v or "").strip() for v in social.values()):
+        body["social_links"] = social
+
+    extra = rep_payload.get("extra")
+    job_title = _nonempty_str(rep_payload.get("job_title"))
+    if isinstance(extra, dict) and extra:
+        body["extra"] = extra
+    elif job_title:
+        body["extra"] = {"job_title": job_title}
+
+    product_ids = rep_payload.get("product_ids")
+    if isinstance(product_ids, list) and product_ids:
+        body["product_ids"] = [str(x) for x in product_ids]
+
+    for key in ("qr_fg_color", "qr_bg_color"):
+        if rep_payload.get(key) is not None and str(rep_payload.get(key) or "").strip():
+            body[key] = rep_payload.get(key)
+    if "qr_transparent" in rep_payload and rep_payload.get("qr_transparent") is not None:
+        body["qr_transparent"] = bool(rep_payload.get("qr_transparent"))
+
+    return body
+
+
+def _find_wizard_target_rep(
+    existing_reps: list[SmartCardRepresentative],
+    *,
+    rep_payload: dict[str, Any],
+) -> SmartCardRepresentative | None:
+    """Match an existing rep intentionally — never silently pick “oldest” for wipe risk."""
+    explicit_id = _nonempty_str(rep_payload.get("id") or rep_payload.get("rep_id"))
+    if explicit_id:
+        for rep in existing_reps:
+            if rep.id == explicit_id:
+                return rep
+        return None
+
+    email = (_nonempty_str(rep_payload.get("email")) or "").lower()
+    if email:
+        for rep in existing_reps:
+            if (rep.email or "").strip().lower() == email:
+                return rep
+
+    name = _nonempty_str(rep_payload.get("name"))
+    if name and len(existing_reps) == 1:
+        only = existing_reps[0]
+        if (only.name or "").strip().lower() == name.lower():
+            return only
+
+    return None
+
+
 def _parse_contact_capture(raw: Any) -> str:
     mode = str(raw or "offer_both").strip().lower()
     return mode if mode in CONTACT_CAPTURE_MODES else "offer_both"
@@ -151,13 +234,20 @@ class SmartCardSetupService:
 
         company_payload: dict[str, Any] = {
             "name": company_name,
-            "website": payload.get("website"),
-            "description": payload.get("description"),
-            "products_summary": payload.get("products_summary"),
-            "contact_email": payload.get("contact_email"),
-            "contact_phone": payload.get("contact_phone") or payload.get("notify_mobile"),
             "question_config": qcfg,
         }
+        # Only set optional company fields when the wizard actually sent a value —
+        # never wipe existing contact/website/description with null.
+        for key, raw in (
+            ("website", payload.get("website")),
+            ("description", payload.get("description")),
+            ("products_summary", payload.get("products_summary")),
+            ("contact_email", payload.get("contact_email")),
+            ("contact_phone", payload.get("contact_phone") or payload.get("notify_mobile")),
+        ):
+            val = _nonempty_str(raw)
+            if val is not None:
+                company_payload[key] = val
 
         existing_company = SmartCardCompanyService.get_or_create(db, org_id)
         brand: dict[str, Any] = {}
@@ -176,8 +266,7 @@ class SmartCardSetupService:
             cleaned = str(address).strip()
             if cleaned:
                 brand["address"] = cleaned
-            else:
-                brand.pop("address", None)
+            # Empty address in wizard must not strip a previously saved address.
 
         if offer_enabled and (offer_title or offer_description):
             company_payload["pricing_notes"] = "\n".join(
@@ -194,15 +283,15 @@ class SmartCardSetupService:
             if "offer_interest" not in qcfg["selected_keys"]:
                 qcfg["selected_keys"] = [*qcfg["selected_keys"], "offer_interest"]
                 company_payload["question_config"] = qcfg
-        elif "pricing_notes" in payload:
+        elif "pricing_notes" in payload and _nonempty_str(payload.get("pricing_notes")):
             company_payload["pricing_notes"] = payload.get("pricing_notes")
 
-        if brand or "brand_defaults" in payload or address is not None:
+        if brand or "brand_defaults" in payload or (address is not None and str(address).strip()):
             company_payload["brand_defaults"] = brand
 
         company = SmartCardCompanyService.update(db, org_id, company_payload)
         SmartCardSetupService.sync_org_profile(
-            db, org_id=org_id, company_name=company_name, website=payload.get("website")
+            db, org_id=org_id, company_name=company_name, website=_nonempty_str(payload.get("website"))
         )
 
         SmartCardSetupService.upsert_catalogue(db, org_id=org_id, categories=payload.get("categories"))
@@ -232,31 +321,22 @@ class SmartCardSetupService:
             .all()
         )
 
-        body: dict[str, Any] = {
-            "name": rep_name,
-            "email": rep_payload.get("email"),
-            "mobile": rep_payload.get("mobile") or payload.get("notify_mobile"),
-            "landline": rep_payload.get("landline"),
-            "extension": rep_payload.get("extension"),
-            "website": rep_payload.get("website") or payload.get("website"),
-            "product_ids": rep_payload.get("product_ids") if isinstance(rep_payload.get("product_ids"), list) else [],
-            "qr_fg_color": rep_payload.get("qr_fg_color"),
-            "qr_bg_color": rep_payload.get("qr_bg_color"),
-            "qr_transparent": rep_payload.get("qr_transparent"),
-        }
-        if "social_links" in rep_payload:
-            body["social_links"] = rep_payload.get("social_links") or {}
-        if "extra" in rep_payload and isinstance(rep_payload.get("extra"), dict):
-            body["extra"] = rep_payload.get("extra")
-        elif str(rep_payload.get("job_title") or "").strip():
-            body["extra"] = {"job_title": str(rep_payload.get("job_title")).strip()}
+        target = _find_wizard_target_rep(existing_reps, rep_payload=rep_payload)
+        body = _rep_update_body_from_wizard(
+            rep_payload,
+            fallback_mobile=payload.get("notify_mobile"),
+            fallback_website=payload.get("website"),
+        )
+        # Create path still needs a name even if body was sparse.
+        body.setdefault("name", rep_name)
 
         try:
-            if existing_reps:
+            if target is not None:
                 rep = SmartCardRepresentativeService.update(
-                    db, org_id=org_id, rep_id=existing_reps[0].id, payload=body
+                    db, org_id=org_id, rep_id=target.id, payload=body
                 )
             else:
+                # New wizard run with a different person → create, do not overwrite the first seat.
                 rep = SmartCardRepresentativeService.create(
                     db, org_id=org_id, user_id=user_id, payload=body
                 )

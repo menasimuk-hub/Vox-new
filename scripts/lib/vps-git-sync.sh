@@ -89,8 +89,13 @@ vox_git_sync() {
   echo "[git] pull --ff-only $remote $branch"
   if ! git pull --ff-only "$remote" "$branch"; then
     if [[ "${VOX_FORCE_PULL:-0}" == "1" ]]; then
-      echo "[git] VOX_FORCE_PULL=1 — stash and retry"
-      git stash push -u -m "voxbulk-deploy-force-pull $(date -Iseconds)" || true
+      echo "[git] VOX_FORCE_PULL=1 — stash and retry (never stash voxbulk-api/data runtime uploads)"
+      # Exclude runtime upload trees even if someone forgot to gitignore them.
+      git stash push -u -m "voxbulk-deploy-force-pull $(date -Iseconds)" -- \
+        . \
+        ':(exclude)voxbulk-api/data' \
+        ':(exclude)voxbulk-api/data/**' \
+        || true
       git pull --ff-only "$remote" "$branch" || {
         echo "[git] FAIL: pull failed after stash" >&2
         return 1
