@@ -37,6 +37,7 @@ from app.services.assistant.service_registry import (
     tool_data_for_prompt,
 )
 from app.services.assistant.service_gate import check_intent_service_gate
+from app.services.assistant.rate_limit import check_assistant_rate_limit
 from app.services.providers.openai_service import OpenAIProviderService
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,8 @@ class LlmAssistantOrchestrator:
         payload: AssistantChatIn,
         is_admin: bool = False,
     ) -> AssistantChatOut:
+        from app.services.assistant import conversation_service, help_retrieval_service
+        
         rate = check_assistant_rate_limit(org_id=principal.org_id, user_id=principal.user_id, endpoint="chat")
         if not rate.allowed:
             return build_out(
@@ -132,9 +135,36 @@ class LlmAssistantOrchestrator:
             if gated is not None:
                 return gated
 
+        # Get or create conversation
+        conversation_id = payload.conversation_id
+        conversation = None
+        if conversation_id:
+            conversation = conversation_service.get_conversation(db, conversation_id, principal.user_id)
+        if not conversation and not is_admin:
+            conversation = conversation_service.create_conversation(
+                db, principal.org_id, principal.user_id, title=payload.message[:100]
+            )
+            conversation_id = conversation.id
+        
+        # Try RAG retrieval for general/help-like intents
+        help_chunks = []
+        source_type = None
+        if intent_match.intent in {"general_help", "unknown", "open_faq"}:
+            help_chunks = help_retrieval_service.retrieve(
+                db,
+                question=payload.message,
+                enabled_services=enabled,
+                limit=5,
+            )
+            if help_chunks:
+                source_type = "knowledge_base"
+                # Increment usage counters
+                for chunk in help_chunks:
+                    help_retrieval_service._increment_usage_count(db, chunk["kind"], chunk["source_id"])
+
         if should_delegate_to_handler(intent_match.intent):
             handler = _HANDLERS.get(intent_match.intent) or _handle_general
-            return handler(
+            result = handler(
                 db,
                 principal=principal,
                 org=org,
@@ -143,13 +173,29 @@ class LlmAssistantOrchestrator:
                 context=chat_context,
                 is_admin=is_admin,
             )
+            # Persist message if conversation exists
+            if conversation and not is_admin:
+                conversation_service.append_message(
+                    db, conversation_id, "user", payload.message
+                )
+                msg = conversation_service.append_message(
+                    db,
+                    conversation_id,
+                    "assistant",
+                    result.primary_message,
+                    source_type=source_type or result.source_type,
+                    sources=help_chunks if help_chunks else None,
+                )
+                result.conversation_id = conversation_id
+                result.message_id = msg.id
+            return result
 
         if intent_match.intent.startswith("admin_"):
             return AssistantOrchestrator.handle_chat(db, principal=principal, payload=payload, is_admin=is_admin)
 
         if intent_match.intent not in INTENT_REGISTRY:
             handler = _HANDLERS.get(intent_match.intent) or _handle_general
-            return handler(
+            result = handler(
                 db,
                 principal=principal,
                 org=org,
@@ -158,6 +204,22 @@ class LlmAssistantOrchestrator:
                 context=chat_context,
                 is_admin=is_admin,
             )
+            # Persist message if conversation exists
+            if conversation and not is_admin:
+                conversation_service.append_message(
+                    db, conversation_id, "user", payload.message
+                )
+                msg = conversation_service.append_message(
+                    db,
+                    conversation_id,
+                    "assistant",
+                    result.primary_message,
+                    source_type=source_type or result.source_type,
+                    sources=help_chunks if help_chunks else None,
+                )
+                result.conversation_id = conversation_id
+                result.message_id = msg.id
+            return result
 
         tool_result = execute_intent(
             db,
@@ -186,9 +248,45 @@ class LlmAssistantOrchestrator:
             tool_result=tool_result,
             history=history_payload,
             enabled_services=enabled,
+            help_context=help_chunks,
         )
 
         next_actions = _ui_commands_to_next_actions(ui_commands)
+        
+        # Determine final source_type
+        final_source_type = source_type
+        if not final_source_type:
+            if help_chunks:
+                final_source_type = "knowledge_base"
+            elif tool_result.data:
+                final_source_type = "account_data"
+            else:
+                final_source_type = "general_ai"
+        
+        # Persist message if conversation exists
+        message_id = None
+        if conversation and not is_admin:
+            conversation_service.append_message(
+                db, conversation_id, "user", payload.message
+            )
+            msg = conversation_service.append_message(
+                db,
+                conversation_id,
+                "assistant",
+                primary,
+                source_type=final_source_type,
+                sources=help_chunks if help_chunks else None,
+            )
+            message_id = msg.id
+            if final_source_type == "general_ai" and float(intent_match.confidence or 0) < 0.65:
+                conversation_service.enqueue_faq_suggestion(
+                    db,
+                    question=payload.message,
+                    sample_answer=primary,
+                    org_id=principal.org_id,
+                    user_id=principal.user_id,
+                )
+
         return build_out(
             primary_message=primary,
             confidence=intent_match.confidence,
@@ -198,6 +296,10 @@ class LlmAssistantOrchestrator:
             highlight_label=highlight.get("highlight_label"),
             next_actions=next_actions,
             ui_commands=ui_commands,
+            source_type=final_source_type,
+            sources=help_chunks if help_chunks else [],
+            conversation_id=conversation_id,
+            message_id=message_id,
         )
 
     @staticmethod
@@ -255,6 +357,7 @@ class LlmAssistantOrchestrator:
         tool_result: ToolResult,
         history: list[dict[str, str]],
         enabled_services: list[str],
+        help_context: list[dict[str, Any]] | None = None,
     ) -> tuple[str, list[AssistantUiCommand], dict[str, str | None]]:
         defaults = default_ui_commands_for_intent(intent, data=tool_result.data, params=tool_result.params_sent)
         fallback_msg = _default_message(intent, tool_result)
@@ -263,6 +366,12 @@ class LlmAssistantOrchestrator:
         if not settings.assistant_llm_enabled or tool_result.navigation_only:
             highlight = _highlight_from_commands(defaults)
             return fallback_msg, defaults, highlight
+        
+        has_kb = bool(help_context)
+        kb_block = ""
+        if help_context:
+            kb_items = [f"- {chunk['title']}: {chunk['snippet']}" for chunk in help_context]
+            kb_block = "\n\nHelp Centre context:\n" + "\n".join(kb_items)
 
         user_prompt = json.dumps(
             {
@@ -272,11 +381,11 @@ class LlmAssistantOrchestrator:
                 "history": _history_block(history),
             },
             ensure_ascii=False,
-        )
+        ) + kb_block
         try:
             text = _llm_complete(
                 db,
-                system_prompt=build_synthesize_system_prompt(enabled_services=enabled_services or None),
+                system_prompt=build_synthesize_system_prompt(enabled_services=enabled_services or None, has_kb_context=has_kb),
                 user_content=user_prompt,
                 max_tokens=700,
                 temperature=0.35,

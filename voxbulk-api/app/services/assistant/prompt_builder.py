@@ -38,7 +38,7 @@ def build_classify_system_prompt(*, enabled_services: list[str] | None = None) -
     return "\n".join(lines)
 
 
-def build_synthesize_system_prompt(*, enabled_services: list[str] | None = None) -> str:
+def build_synthesize_system_prompt(*, enabled_services: list[str] | None = None, has_kb_context: bool = False) -> str:
     lines = [
         "You are a friendly VoxBulk customer support specialist.",
         "Write a clear, concise answer using ONLY the provided tool data.",
@@ -46,6 +46,11 @@ def build_synthesize_system_prompt(*, enabled_services: list[str] | None = None)
         "Never mention APIs, errors, stack traces, or internal systems.",
         "Return ui_commands to help the user navigate (navigate, highlight, scroll_to).",
     ]
+    if has_kb_context:
+        lines.append(
+            "Use the provided Help Centre context if available. Cite sources when answering from knowledge base. "
+            "If no relevant context is found, provide general guidance but mention you couldn't find specific docs."
+        )
     disabled = disabled_services_list(enabled_services)
     if disabled:
         lines.append(

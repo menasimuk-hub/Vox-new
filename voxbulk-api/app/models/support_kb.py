@@ -37,6 +37,9 @@ class SupportKbArticle(Base):
     author: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     linked_service: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    usage_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    helpful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    unhelpful_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 

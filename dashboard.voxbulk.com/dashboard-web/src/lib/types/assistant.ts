@@ -65,6 +65,33 @@ export type AssistantChatResponse = {
   error_occurred?: boolean;
   support_report_token?: string | null;
   suggested_prompts?: string[];
+  source_type?: string | null;
+  sources?: Array<{
+    id?: string;
+    kind?: string;
+    title?: string;
+    snippet?: string;
+    url?: string;
+    source_id?: string;
+  }>;
+  conversation_id?: string | null;
+  message_id?: string | null;
+};
+
+export type AssistantConversation = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AssistantMessage = {
+  id: string;
+  role: string;
+  content: string;
+  source_type?: string | null;
+  sources?: AssistantChatResponse["sources"];
+  created_at: string;
 };
 
 export type AssistantReportSupportResponse = {

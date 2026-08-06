@@ -41,6 +41,7 @@ class AssistantChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     history: list[AssistantHistoryItem] = Field(default_factory=list)
     context: AssistantContextIn = Field(default_factory=AssistantContextIn)
+    conversation_id: str | None = None
 
 
 class AssistantConfirmIn(BaseModel):
@@ -91,6 +92,10 @@ class AssistantChatOut(BaseModel):
     error_occurred: bool = False
     support_report_token: str | None = None
     suggested_prompts: list[str] = Field(default_factory=list)
+    source_type: str | None = None
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    conversation_id: str | None = None
+    message_id: str | None = None
 
 
 class AssistantReportSupportIn(BaseModel):
@@ -102,3 +107,46 @@ class AssistantReportSupportOut(BaseModel):
     message: str
     ticket_ref: str | None = None
     already_reported: bool = False
+
+
+class AssistantConversationOut(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class AssistantMessageOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    source_type: str | None = None
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str
+
+
+class AssistantFeedbackIn(BaseModel):
+    rating: str = Field(pattern="^(up|down)$")
+
+
+class AssistantInsightsOut(BaseModel):
+    total_questions: int
+    kb_hits: int
+    general_ai: int
+    thumbs_up: int
+    thumbs_down: int
+    avg_latency_ms: float
+
+
+class AssistantSuggestionOut(BaseModel):
+    id: str
+    question: str
+    sample_answer: str
+    org_id: str | None
+    user_id: str | None
+    status: str
+    created_at: str
+
+
+class AssistantSuggestionStatusIn(BaseModel):
+    status: str = Field(pattern="^(accepted|rejected)$")

@@ -40,6 +40,10 @@ def build_out(
     error_occurred: bool = False,
     support_report_token: str | None = None,
     suggested_prompts: list[str] | None = None,
+    source_type: str | None = None,
+    sources: list[dict[str, Any]] | None = None,
+    conversation_id: str | None = None,
+    message_id: str | None = None,
 ) -> AssistantChatOut:
     resolved_ui = ui_commands or []
     resolved_next = next_actions or []
@@ -70,6 +74,10 @@ def build_out(
         error_occurred=error_occurred,
         support_report_token=support_report_token,
         suggested_prompts=suggested_prompts or [],
+        source_type=source_type,
+        sources=sources or [],
+        conversation_id=conversation_id,
+        message_id=message_id,
     )
 
 

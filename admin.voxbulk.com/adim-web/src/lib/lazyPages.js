@@ -30,6 +30,7 @@ export const SupportTicketDetail = lazy(() => import('../pages/SupportTicketDeta
 export const SupportHelpCentre = lazy(() => import('../pages/SupportHelpCentre'))
 export const SupportFaqFrontend = lazy(() => import('../pages/SupportFaqFrontend'))
 export const SupportFaqDashboard = lazy(() => import('../pages/SupportFaqDashboard'))
+export const AskAiInsights = lazy(() => import('../pages/AskAiInsights'))
 export const SupportCannedReplies = lazy(() => import('../pages/SupportCannedReplies'))
 export const SupportHelpLinks = lazy(() => import('../pages/SupportHelpLinks'))
 export const SupportInsights = lazy(() => import('../pages/SupportInsights'))

@@ -1,5 +1,5 @@
 import { useRouterState, useNavigate } from "@tanstack/react-router";
-import { Bell, Moon, Search, Sun, Sparkles, Send, X, User as UserIcon, Menu } from "lucide-react";
+import { Bell, History, Moon, Search, Sun, Sparkles, Send, ThumbsDown, ThumbsUp, Trash2, X, User as UserIcon, Menu } from "lucide-react";
 import * as React from "react";
 
 import { useSidebar } from "@/components/ui/sidebar";
@@ -10,7 +10,18 @@ import { useTheme } from "@/lib/theme";
 import { titleForPath } from "@/lib/page-titles";
 import { useConnections } from "@/lib/connections";
 import { useSession } from "@/lib/session";
-import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationUnreadCount, useUnreadNotifications, useAssistantChat, useAssistantConfirm, useAssistantReportSupport } from "@/lib/queries";
+import {
+  useMarkAllNotificationsRead,
+  useMarkNotificationRead,
+  useNotificationUnreadCount,
+  useUnreadNotifications,
+  useAssistantChat,
+  useAssistantConfirm,
+  useAssistantReportSupport,
+  useAssistantConversations,
+  useDeleteAssistantConversation,
+  useAssistantMessageFeedback,
+} from "@/lib/queries";
 import { UserMenu } from "@/components/user-menu";
 import { normalizeOrgRole } from "@/lib/org-roles";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
@@ -19,6 +30,9 @@ import { useServices, type ServiceKey } from "@/lib/services";
 import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
 import { brandAssets } from "@/lib/brand";
 import { PwaInstallButton } from "@/components/pwa-install";
+import { apiFetch } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
+import type { AssistantMessage } from "@/lib/types/assistant";
 
 function AiBrandIcon({ className }: { className?: string }) {
   return <img src={brandAssets.iconDark} alt="" className={className} aria-hidden />;
@@ -238,18 +252,36 @@ function enabledServicesForAssistant(allowed: Record<ServiceKey, boolean>): stri
     .map(([key]) => key);
 }
 
-type Msg = { role: "user" | "ai"; text: string; response?: AssistantChatResponse };
+type Msg = {
+  role: "user" | "ai";
+  text: string;
+  response?: AssistantChatResponse;
+  messageId?: string;
+  feedback?: "up" | "down";
+};
+
+function sourceTypeLabel(sourceType?: string | null): string | null {
+  if (sourceType === "knowledge_base") return "From Help Centre";
+  if (sourceType === "general_ai") return "General AI";
+  if (sourceType === "account_data") return "Your account data";
+  if (sourceType === "mixed") return "Help + account";
+  return null;
+}
 
 export function LiveChatFab() {
-  const { chatOpen, closeChat, openChat } = useConnections();
+  const { chatOpen, closeChat } = useConnections();
   const { session } = useSession();
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const currentRoute = useRouterState({ select: (s) => s.location.pathname });
-  const { allowed, visible: visibleServices } = useServices();
+  const { allowed } = useServices();
   const { setHighlight, applyNextAction } = useAssistantHighlight();
   const chatM = useAssistantChat();
   const confirmM = useAssistantConfirm();
   const reportM = useAssistantReportSupport();
+  const feedbackM = useAssistantMessageFeedback();
+  const convsQ = useAssistantConversations();
+  const deleteConvM = useDeleteAssistantConversation();
   const enabledForAssistant = React.useMemo(
     () => enabledServicesForAssistant(allowed) as ServiceKey[],
     [allowed],
@@ -265,12 +297,20 @@ export function LiveChatFab() {
   const [input, setInput] = React.useState("");
   const [history, setHistory] = React.useState<Array<{ role: string; text: string }>>([]);
   const [reportedTokens, setReportedTokens] = React.useState<Record<string, string>>({});
+  const [conversationId, setConversationId] = React.useState<string | null>(null);
+  const [showHistory, setShowHistory] = React.useState(false);
   const endRef = React.useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
+  function resetChat() {
     setMessages([{ role: "ai", text: welcomeText }]);
     setHistory([]);
     setReportedTokens({});
+    setConversationId(null);
+  }
+
+  React.useEffect(() => {
+    resetChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [welcomeText, orgId]);
 
   React.useEffect(() => {
@@ -306,8 +346,13 @@ export function LiveChatFab() {
       navigate: (route) => void navigate({ to: route }),
       setHighlight,
     });
-    setMessages((m) => [...m, { role: "ai", text: res.primary_message, response: res }]);
+    if (res.conversation_id) setConversationId(res.conversation_id);
+    setMessages((m) => [
+      ...m,
+      { role: "ai", text: res.primary_message, response: res, messageId: res.message_id || undefined },
+    ]);
     setHistory((h) => [...h, { role: "user", text: userText }, { role: "assistant", text: res.primary_message }].slice(-16));
+    void qc.invalidateQueries({ queryKey: ["assistant", "conversations"] });
   }
 
   async function sendReport(token: string) {
@@ -321,6 +366,54 @@ export function LiveChatFab() {
     }
   }
 
+  async function sendFeedback(messageId: string, rating: "up" | "down") {
+    if (!messageId || feedbackM.isPending) return;
+    try {
+      await feedbackM.mutateAsync({ messageId, rating });
+      setMessages((prev) =>
+        prev.map((m) => (m.messageId === messageId ? { ...m, feedback: rating } : m)),
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function loadConversation(id: string) {
+    try {
+      const rows = await apiFetch<AssistantMessage[]>(`/assistant/conversations/${id}/messages`);
+      setConversationId(id);
+      setShowHistory(false);
+      const mapped: Msg[] = rows.map((row) => {
+        if (row.role === "user") return { role: "user", text: row.content };
+        return {
+          role: "ai",
+          text: row.content,
+          messageId: row.id,
+          response: {
+            ok: true,
+            primary_message: row.content,
+            highlight_type: "",
+            next_actions: [],
+            confidence: 1,
+            source_type: row.source_type,
+            sources: row.sources || [],
+            message_id: row.id,
+            conversation_id: id,
+          },
+        };
+      });
+      setMessages(mapped.length ? mapped : [{ role: "ai", text: welcomeText }]);
+      setHistory(
+        rows.map((r) => ({
+          role: r.role === "assistant" ? "assistant" : "user",
+          text: r.content,
+        })).slice(-16),
+      );
+    } catch {
+      setMessages((m) => [...m, { role: "ai", text: "Could not load that conversation." }]);
+    }
+  }
+
   async function send(text: string) {
     const t = text.trim();
     if (!t || chatM.isPending || confirmM.isPending) return;
@@ -330,6 +423,7 @@ export function LiveChatFab() {
       const res = await chatM.mutateAsync({
         message: t,
         history,
+        conversation_id: conversationId,
         context: {
           current_route: currentRoute,
           enabled_services: enabledForAssistant,
@@ -350,6 +444,10 @@ export function LiveChatFab() {
         const msg = err instanceof Error ? err.message : "Could not complete action.";
         setMessages((m) => [...m, { role: "ai", text: msg }]);
       }
+      return;
+    }
+    if (action.kind === "navigate" && action.route) {
+      void navigate({ to: action.route });
       return;
     }
     applyNextAction(action);
@@ -373,14 +471,99 @@ export function LiveChatFab() {
               <p className="text-sm font-semibold">VoxBulk AI</p>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setShowHistory((v) => !v)}
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded opacity-80 hover:bg-primary-foreground/10 md:min-h-0 md:min-w-0 md:p-1"
+                aria-label="History"
+              >
+                <History className="size-4" />
+              </button>
               <button type="button" onClick={closeChat} className="inline-flex min-h-11 min-w-11 items-center justify-center rounded opacity-80 hover:bg-primary-foreground/10 md:min-h-0 md:min-w-0 md:p-1" aria-label="Close"><X className="size-4" /></button>
             </div>
           </div>
 
+          {showHistory ? (
+            <div className="flex-1 space-y-2 overflow-y-auto bg-muted/30 px-3 py-3 text-sm">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">Your conversations</p>
+                <button type="button" className="text-[11px] text-primary" onClick={() => { resetChat(); setShowHistory(false); }}>
+                  New chat
+                </button>
+              </div>
+              {(convsQ.data || []).map((c) => (
+                <div key={c.id} className="flex items-center gap-2 rounded-lg border border-border bg-card px-2 py-2">
+                  <button type="button" className="min-w-0 flex-1 text-left text-xs" onClick={() => void loadConversation(c.id)}>
+                    <span className="block truncate font-medium">{c.title || "Conversation"}</span>
+                    <span className="text-[10px] text-muted-foreground">{c.updated_at?.slice(0, 16)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded p-1 text-muted-foreground hover:text-destructive"
+                    aria-label="Delete conversation"
+                    onClick={() => void deleteConvM.mutateAsync(c.id).then(() => {
+                      if (conversationId === c.id) resetChat();
+                    })}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              ))}
+              {!convsQ.data?.length ? (
+                <p className="text-center text-xs text-muted-foreground">No saved chats yet.</p>
+              ) : null}
+            </div>
+          ) : (
           <div className="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-3 text-sm" aria-live="polite">
             {messages.map((m, i) => (
               <div key={i}>
                 <ChatBubble role={m.role} text={m.text} />
+                {m.role === "ai" && m.response?.source_type ? (
+                  <div className="ml-8 mt-1.5 flex flex-wrap gap-1">
+                    <span className="rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+                      {sourceTypeLabel(m.response.source_type)}
+                    </span>
+                    {(m.response.sources || []).slice(0, 3).map((src, idx) => (
+                      <button
+                        key={`${src.source_id || src.id || idx}`}
+                        type="button"
+                        onClick={() => src.url && void navigate({ to: src.url })}
+                        className="rounded-full border border-primary/25 bg-card px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10"
+                      >
+                        {src.title || "Source"}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {m.role === "ai" && m.messageId ? (
+                  <div className="ml-8 mt-1.5 flex items-center gap-1">
+                    <button
+                      type="button"
+                      aria-label="Helpful"
+                      onClick={() => void sendFeedback(m.messageId!, "up")}
+                      className={"rounded p-1 " + (m.feedback === "up" ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+                    >
+                      <ThumbsUp className="size-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Not helpful"
+                      onClick={() => void sendFeedback(m.messageId!, "down")}
+                      className={"rounded p-1 " + (m.feedback === "down" ? "text-primary" : "text-muted-foreground hover:text-foreground")}
+                    >
+                      <ThumbsDown className="size-3.5" />
+                    </button>
+                    {m.feedback === "down" ? (
+                      <button
+                        type="button"
+                        onClick={() => void navigate({ to: "/account/support" })}
+                        className="ml-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[10px] font-medium"
+                      >
+                        Send to Support
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
                 {m.role === "ai" && m.response?.next_actions?.length ? (
                   <div className="ml-8 mt-1.5 flex flex-wrap gap-1">
                     {m.response.next_actions.map((a) => (
@@ -451,6 +634,7 @@ export function LiveChatFab() {
             )}
             <div ref={endRef} />
           </div>
+          )}
 
           <form
             onSubmit={(e) => { e.preventDefault(); send(input); }}

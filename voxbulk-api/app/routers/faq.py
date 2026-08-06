@@ -1,11 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import csv
+import io
+from datetime import datetime
+from typing import Any
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.admin_rbac import require_platform_admin
 from app.core.database import get_db
 from app.core.dependencies import get_current_principal
+from app.models.faq import FAQCategory, FAQItem
 from app.models.user import User
 from app.schemas.faq import FAQCategoryIn, FAQItemIn
 from app.services.faq_service import FAQService, category_to_dict, item_to_dict
@@ -138,3 +144,74 @@ def admin_update_faq_item(item_id: int, payload: FAQItemIn, db: Session = Depend
 def admin_delete_faq_item(item_id: int, db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
     FAQService.delete_item(db, item_id)
     return {"ok": True}
+
+
+@router.post("/admin/faq/items/bulk")
+def bulk_import_faq_items(
+    file: UploadFile = File(...),
+    force: bool = Query(default=False, description="If true, overwrite existing FAQ items by slug"),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_platform_admin),
+) -> dict[str, Any]:
+    """
+    Bulk import FAQ items from CSV.
+    CSV columns: slug, question, answer, category_slug, surface.
+    - force=False: insert missing items only (skip existing slugs).
+    - force=True: insert or update (overwrite existing items by slug).
+    """
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a CSV")
+    
+    content = file.file.read().decode("utf-8")
+    reader = csv.DictReader(io.StringIO(content))
+    
+    created = 0
+    updated = 0
+    skipped = 0
+    
+    for row in reader:
+        slug = str(row.get("slug", "")).strip()
+        question = str(row.get("question", "")).strip()
+        answer = str(row.get("answer", "")).strip()
+        category_slug = str(row.get("category_slug", "")).strip()
+        surface = str(row.get("surface", "dashboard")).strip()
+        
+        if not slug or not question or not answer:
+            skipped += 1
+            continue
+        
+        # Find category by slug
+        category_id = None
+        if category_slug:
+            cat = db.query(FAQCategory).filter(FAQCategory.slug == category_slug).first()
+            if cat:
+                category_id = cat.id
+        
+        # Check existing
+        existing = db.query(FAQItem).filter(FAQItem.slug == slug).first()
+        
+        if existing and not force:
+            skipped += 1
+            continue
+        
+        if existing and force:
+            existing.question = question
+            existing.answer = answer
+            existing.category_id = category_id
+            existing.surface = surface
+            existing.updated_at = datetime.utcnow()
+            updated += 1
+        else:
+            new_item = FAQItem(
+                slug=slug,
+                question=question,
+                answer=answer,
+                category_id=category_id,
+                surface=surface,
+                is_published=True,
+            )
+            db.add(new_item)
+            created += 1
+    
+    db.commit()
+    return {"ok": True, "created": created, "updated": updated, "skipped": skipped}

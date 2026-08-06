@@ -107,11 +107,55 @@ All chat responses return `AssistantChatOut`:
 - `confidence`
 - `pending_action` (when confirmation needed)
 - `policy_refused`, `error_occurred`, `support_report_token`
+- `source_type` (`knowledge_base` | `general_ai` | `account_data` | `mixed`)
+- `sources[]` (Help Centre hits: title, snippet, url, kind)
+- `conversation_id`, `message_id` (private history + thumbs)
+
+## Help Centre RAG (FULLTEXT)
+
+Corpus indexed in `assistant_help_chunks`:
+
+1. Built-in Help Centre articles (`app/data/assistant_builtin_help.py`)
+2. Published dashboard `faq_items`
+3. Published `support_kb_articles`
+
+Retrieval (`help_retrieval_service`) hard-filters by org-enabled `service_key`. Account-data intents stay tool-based; how-to / `general_help` / `open_faq` retrieve first.
+
+Private history endpoints:
+
+| Method | Path |
+|--------|------|
+| GET | `/assistant/conversations` |
+| GET | `/assistant/conversations/{id}/messages` |
+| DELETE | `/assistant/conversations/{id}` |
+| POST | `/assistant/messages/{id}/feedback` `{rating: up\|down}` |
+
+Admin:
+
+| Method | Path |
+|--------|------|
+| POST | `/admin/assistant/help/rebuild-index` |
+| GET | `/admin/assistant/insights` |
+| GET/PATCH | `/admin/assistant/suggestions` |
+
+CSV FAQ bulk: `POST /admin/faq/items/bulk?force=false` insert-missing by slug; `force=true` overwrites.
+
+Rate limit: `ASSISTANT_RATE_LIMIT_PER_MIN` (default **20**/min/user).
+
+### Deploy prerequisites
+
+1. Admin → Integrations: configure DeepSeek (or chosen provider) and test
+2. VPS `.env`: `ASSISTANT_LLM_ENABLED=true` + provider/model
+3. `alembic upgrade head` (migration `0232_assistant_help_rag`)
+4. Admin → Support → Ask AI insights → **Rebuild help index** once
+5. Spot-check Ask AI with a known FAQ question
 
 ## Frontend
 
 - Chat UI: `LiveChatFab` in `dashboard-web/src/components/top-bar.tsx`
-- Context sent with each message: `current_route`, `enabled_services[]`
+- Context sent with each message: `current_route`, `enabled_services[]`, `conversation_id`
+- Source chips + thumbs + private history drawer
 - Clickable `suggested_prompts` chips on policy/fallback responses
 - Highlight context: `dashboard-web/src/lib/assistant-highlight.tsx`
 - Row targeting: `data-assistant-highlight="{id}"` on billing, surveys, tickets tables
+- Admin: Support → Ask AI insights; FAQ dashboard CSV bulk + usage counters

@@ -181,6 +181,7 @@ export default function App() {
         <Route path='/support/help-centre' element={<P.SupportHelpCentre />} />
         <Route path='/support/faq-frontend' element={<P.SupportFaqFrontend />} />
         <Route path='/support/faq-dashboard' element={<P.SupportFaqDashboard />} />
+        <Route path='/support/ask-ai-insights' element={<P.AskAiInsights />} />
         <Route path='/support/canned-replies' element={<P.SupportCannedReplies />} />
         <Route path='/support/help-links' element={<P.SupportHelpLinks />} />
         <Route path='/support/insights' element={<P.SupportInsights />} />

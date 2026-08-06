@@ -329,6 +329,9 @@ def item_to_dict(db: Session, item: FAQItem) -> dict:
         "sort_order": item.sort_order,
         "linked_provider": getattr(item, "linked_provider", None),
         "linked_service": getattr(item, "linked_service", None),
+        "usage_count": int(getattr(item, "usage_count", 0) or 0),
+        "helpful_count": int(getattr(item, "helpful_count", 0) or 0),
+        "unhelpful_count": int(getattr(item, "unhelpful_count", 0) or 0),
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }

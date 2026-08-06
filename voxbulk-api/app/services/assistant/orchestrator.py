@@ -62,6 +62,20 @@ class AssistantOrchestrator:
 
             return LlmAssistantOrchestrator.handle_chat(db, principal=principal, payload=payload, is_admin=is_admin)
 
+        from app.services.assistant import conversation_service
+        from app.services.assistant.rate_limit import check_assistant_rate_limit
+
+        if not is_admin:
+            rate = check_assistant_rate_limit(
+                org_id=principal.org_id, user_id=principal.user_id, endpoint="chat"
+            )
+            if not rate.allowed:
+                return build_out(
+                    primary_message="Please wait a moment before sending another message.",
+                    confidence=0.99,
+                    intent="rate_limited",
+                )
+
         policy = check_policy(payload.message)
         if not policy.allowed:
             return build_policy_refusal_response(
@@ -85,13 +99,26 @@ class AssistantOrchestrator:
             if gated is not None:
                 return gated
 
+        conversation_id = payload.conversation_id
+        conversation = None
+        if not is_admin:
+            if conversation_id:
+                conversation = conversation_service.get_conversation(
+                    db, conversation_id, principal.user_id
+                )
+            if not conversation:
+                conversation = conversation_service.create_conversation(
+                    db, principal.org_id, principal.user_id, title=payload.message[:100]
+                )
+                conversation_id = conversation.id
+
         handler = _HANDLERS.get(intent_match.intent)
         if handler is None and intent_match.intent in INTENT_REGISTRY:
             handler = _handle_registry_intent
         if handler is None:
             handler = _handle_general
         try:
-            return handler(
+            result = handler(
                 db,
                 principal=principal,
                 org=org,
@@ -100,6 +127,27 @@ class AssistantOrchestrator:
                 context=chat_context,
                 is_admin=is_admin,
             )
+            if conversation and conversation_id and not is_admin:
+                conversation_service.append_message(db, conversation_id, "user", payload.message)
+                msg = conversation_service.append_message(
+                    db,
+                    conversation_id,
+                    "assistant",
+                    result.primary_message,
+                    source_type=result.source_type,
+                    sources=result.sources or None,
+                )
+                result.conversation_id = conversation_id
+                result.message_id = msg.id
+                if result.source_type == "general_ai" and float(result.confidence or 0) < 0.65:
+                    conversation_service.enqueue_faq_suggestion(
+                        db,
+                        question=payload.message,
+                        sample_answer=result.primary_message,
+                        org_id=principal.org_id,
+                        user_id=principal.user_id,
+                    )
+            return result
         except Exception:
             logger.exception("assistant handler failed intent=%s org=%s", intent_match.intent, principal.org_id)
             return _handler_error_response(
@@ -776,9 +824,11 @@ def _handle_registry_intent(db, *, principal, org, message, intent, context, is_
 
 
 def _handle_general(db, *, principal, org, message, intent, context, is_admin) -> AssistantChatOut:
+    from app.services.assistant import help_retrieval_service
+    
     name = user_display_name(db, principal)
     examples = example_questions_for_user(enabled_services=context.enabled_services or None, limit=5)
-
+    
     if is_greeting(message):
         return build_out(
             primary_message=(
@@ -794,7 +844,37 @@ def _handle_general(db, *, principal, org, message, intent, context, is_admin) -
             ],
             suggested_prompts=examples[:3],
         )
-
+    
+    # Try RAG retrieval for general help queries
+    help_chunks = help_retrieval_service.retrieve(
+        db,
+        question=message,
+        enabled_services=context.enabled_services or None,
+        limit=3,
+    )
+    
+    if help_chunks:
+        # Build answer from retrieved chunks
+        snippets = "\n\n".join([f"**{chunk['title']}**\n{chunk['snippet']}" for chunk in help_chunks])
+        answer = (
+            f"Hi {name}! Based on our Help Centre, here's what I found:\n\n{snippets}\n\n"
+            "See the links below for more details."
+        )
+        next_actions = [
+            nav_action(f"source_{idx}", chunk["title"][:40], chunk["url"])
+            for idx, chunk in enumerate(help_chunks)
+        ]
+        
+        return build_out(
+            primary_message=answer,
+            confidence=0.85,
+            intent="general_help",
+            next_actions=next_actions,
+            source_type="knowledge_base",
+            sources=help_chunks,
+        )
+    
+    # Fallback: no KB hits
     example_text = "; ".join(f'"{q}"' for q in examples[:3]) if examples else '"Show my billing"; "Change my services"'
     return build_out(
         primary_message=(
@@ -809,6 +889,8 @@ def _handle_general(db, *, principal, org, message, intent, context, is_admin) -
             nav_action("support", "Support", "/account/support"),
         ],
         suggested_prompts=examples[:4],
+        source_type="general_ai",
+        sources=[],
     )
 
 

@@ -203,6 +203,7 @@ export const NAV = [
       ['Help Centre', '/support/help-centre'],
       ['FAQ (Frontend)', '/support/faq-frontend'],
       ['FAQ (User dashboard)', '/support/faq-dashboard'],
+      ['Ask AI insights', '/support/ask-ai-insights'],
       ['Canned replies', '/support/canned-replies'],
       ['Help links', '/support/help-links'],
       ['Insights', '/support/insights'],

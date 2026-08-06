@@ -2564,6 +2564,7 @@ export function useAssistantChat() {
       message: string;
       history?: Array<{ role: string; text: string }>;
       context?: AssistantChatContext;
+      conversation_id?: string | null;
     }) =>
       apiFetch<AssistantChatResponse>("/assistant/chat", {
         method: "POST",
@@ -2571,6 +2572,7 @@ export function useAssistantChat() {
           message: body.message,
           history: body.history || [],
           context: body.context || {},
+          conversation_id: body.conversation_id || undefined,
         }),
       }),
   });
@@ -2592,6 +2594,45 @@ export function useAssistantReportSupport() {
       apiFetch<import("@/lib/types/assistant").AssistantReportSupportResponse>("/assistant/report-support", {
         method: "POST",
         body: JSON.stringify(body),
+      }),
+  });
+}
+
+export function useAssistantConversations() {
+  return useQuery({
+    queryKey: ["assistant", "conversations"],
+    queryFn: () => apiFetch<import("@/lib/types/assistant").AssistantConversation[]>("/assistant/conversations"),
+  });
+}
+
+export function useAssistantConversationMessages(conversationId: string | null) {
+  return useQuery({
+    queryKey: ["assistant", "messages", conversationId],
+    enabled: Boolean(conversationId),
+    queryFn: () =>
+      apiFetch<import("@/lib/types/assistant").AssistantMessage[]>(
+        `/assistant/conversations/${conversationId}/messages`,
+      ),
+  });
+}
+
+export function useDeleteAssistantConversation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (conversationId: string) =>
+      apiFetch(`/assistant/conversations/${conversationId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assistant", "conversations"] });
+    },
+  });
+}
+
+export function useAssistantMessageFeedback() {
+  return useMutation({
+    mutationFn: (body: { messageId: string; rating: "up" | "down" }) =>
+      apiFetch(`/assistant/messages/${body.messageId}/feedback`, {
+        method: "POST",
+        body: JSON.stringify({ rating: body.rating }),
       }),
   });
 }

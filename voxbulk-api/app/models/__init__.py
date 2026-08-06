@@ -10,6 +10,14 @@ from app.models.branch import Branch  # noqa: F401
 from app.models.patient import Patient  # noqa: F401
 from app.models.dentally_appointment import DentallyAppointment  # noqa: F401
 from app.models.appointment import Appointment, AppointmentLog  # noqa: F401
+from app.models.assistant_help import (  # noqa: F401
+    AssistantChatMetricDaily,
+    AssistantConversation,
+    AssistantFaqSuggestion,
+    AssistantHelpChunk,
+    AssistantMessage,
+    AssistantMessageFeedback,
+)
 from app.models.call_log import CallLog  # noqa: F401
 from app.models.whatsapp_log import WhatsAppLog  # noqa: F401
 from app.models.connection_profile import (  # noqa: F401
