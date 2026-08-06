@@ -15,6 +15,15 @@ from app.services.smart_card.session_flow_service import SmartCardSessionError, 
 
 router = APIRouter(prefix="/public/smart-card", tags=["public-smart-card"])
 
+_ALLOWED_THEME_IDS = frozenset({"smartcard", "smartcard1", "smartcard2", "smartcard3", "smartcard4"})
+
+
+def _resolve_theme_id(brand: dict | None) -> str:
+    raw = ""
+    if isinstance(brand, dict):
+        raw = str(brand.get("theme_id") or brand.get("theme") or "").strip().lower()
+    return raw if raw in _ALLOWED_THEME_IDS else "smartcard"
+
 
 def _get_rep(db: Session, token: str) -> SmartCardRepresentative:
     rep = db.execute(
@@ -148,6 +157,7 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "location": location,
             "logo_url": f"/public/smart-card/{token}/logo" if has_logo else None,
         },
+        "theme_id": _resolve_theme_id(brand),
         "qr_token": rep.qr_token,
         "whatsapp_url": wa_url,
         "feedback_whatsapp_url": feedback_wa_url or wa_url,

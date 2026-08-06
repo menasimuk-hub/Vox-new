@@ -23,6 +23,7 @@ import {
   socialLinksPayload,
   type RepresentativeFormValue,
 } from "@/components/smart-card/representative-fields";
+import { SmartCardThemePicker } from "@/components/smart-card/smart-card-theme-picker";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +44,10 @@ import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { useOrganisation } from "@/lib/queries";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
+import {
+  normalizeSmartCardThemeId,
+  type SmartCardThemeId,
+} from "@/lib/smart-card-themes";
 import { cn } from "@/lib/utils";
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6;
@@ -110,6 +115,7 @@ function SmartCardNewWizard() {
   const [contactPhone, setContactPhone] = React.useState("");
   const [address, setAddress] = React.useState("");
   const [description, setDescription] = React.useState("");
+  const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
   const [rep, setRep] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
   const [repPhotoFile, setRepPhotoFile] = React.useState<File | null>(null);
   const [repPhotoPreview, setRepPhotoPreview] = React.useState<string | null>(null);
@@ -163,8 +169,9 @@ function SmartCardNewWizard() {
     if (c.contact_email) setContactEmail(String(c.contact_email));
     if (c.contact_phone) setContactPhone(String(c.contact_phone));
     if (c.description) setDescription(String(c.description));
-    const brand = c.brand_defaults as { address?: string } | null;
+    const brand = c.brand_defaults as { address?: string; theme_id?: string } | null;
     if (brand?.address) setAddress(String(brand.address));
+    setThemeId(normalizeSmartCardThemeId(c.theme_id ?? brand?.theme_id));
     const cfg = c.question_config as { selected_keys?: string[]; contact_capture?: string } | null;
     if (cfg?.selected_keys?.length) setSelectedQKeys(cfg.selected_keys.map(String));
     if (cfg?.contact_capture === "manual_only" || cfg?.contact_capture === "card_only" || cfg?.contact_capture === "offer_both") {
@@ -209,7 +216,8 @@ function SmartCardNewWizard() {
     contact_phone: contactPhone.trim() || notifyMobile.trim() || null,
     description: description.trim() || null,
     address: address.trim() || null,
-    brand_defaults: { address: address.trim() || null },
+    theme_id: themeId,
+    brand_defaults: { address: address.trim() || null, theme_id: themeId },
     notify_mobile: notifyMobile.trim() || rep.mobile || null,
     contact_capture: contactCapture,
     selected_keys: selectedQKeys,
@@ -610,30 +618,50 @@ function SmartCardNewWizard() {
                 questionnaire (card photo, questions, voice). Up to 15 free preview tests before a paid seat.
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
-              {draftRep?.qr_image_url ? (
-                <img
-                  src={draftRep.qr_image_url}
-                  alt="Smart Card QR preview"
-                  className="size-48 rounded-xl border bg-white p-2"
-                />
-              ) : (
-                <div className="grid size-48 place-items-center rounded-xl border border-dashed text-sm text-muted-foreground">
-                  Generating…
+            <CardContent className="space-y-6">
+              <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+                {draftRep?.qr_image_url ? (
+                  <img
+                    src={draftRep.qr_image_url}
+                    alt="Smart Card QR preview"
+                    className="size-48 rounded-xl border bg-white p-2"
+                  />
+                ) : (
+                  <div className="grid size-48 place-items-center rounded-xl border border-dashed text-sm text-muted-foreground">
+                    Generating…
+                  </div>
+                )}
+                <div className="space-y-2 text-sm">
+                  <p>
+                    <span className="font-medium">{draftRep?.name || rep.name}</span>
+                  </p>
+                  {draftRep?.web_url ? (
+                    <a className="text-primary underline" href={draftRep.web_url} target="_blank" rel="noreferrer">
+                      Open digital card (scan landing)
+                    </a>
+                  ) : null}
+                  <p className="text-muted-foreground">
+                    After activate you can add more representative QRs up to your seat count.
+                  </p>
                 </div>
-              )}
-              <div className="space-y-2 text-sm">
-                <p>
-                  <span className="font-medium">{draftRep?.name || rep.name}</span>
-                </p>
-                {draftRep?.web_url ? (
-                  <a className="text-primary underline" href={draftRep.web_url} target="_blank" rel="noreferrer">
-                    Open digital card (scan landing)
-                  </a>
-                ) : null}
-                <p className="text-muted-foreground">
-                  After activate you can add more representative QRs up to your seat count.
-                </p>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Digital card theme</Label>
+                <SmartCardThemePicker
+                  value={themeId}
+                  onChange={(id) => {
+                    setThemeId(id);
+                    if (!draftRep) return;
+                    void apiFetch("/smart-card/company", {
+                      method: "PATCH",
+                      body: JSON.stringify({ theme_id: id }),
+                    }).catch(() => {
+                      /* preview still holds selection locally until activate */
+                    });
+                  }}
+                  companyName={companyName}
+                  personName={draftRep?.name || rep.name}
+                />
               </div>
             </CardContent>
           </Card>

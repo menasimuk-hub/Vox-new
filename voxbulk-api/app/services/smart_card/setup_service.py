@@ -268,6 +268,14 @@ class SmartCardSetupService:
                 brand["address"] = cleaned
             # Empty address in wizard must not strip a previously saved address.
 
+        theme_raw = payload.get("theme_id")
+        if theme_raw is None and isinstance(payload.get("brand_defaults"), dict):
+            theme_raw = payload["brand_defaults"].get("theme_id") or payload["brand_defaults"].get("theme")
+        if theme_raw is not None:
+            from app.services.smart_card.company_service import normalize_smart_card_theme_id
+
+            brand["theme_id"] = normalize_smart_card_theme_id(theme_raw)
+
         if offer_enabled and (offer_title or offer_description):
             company_payload["pricing_notes"] = "\n".join(
                 x for x in [offer_title, offer_description] if x

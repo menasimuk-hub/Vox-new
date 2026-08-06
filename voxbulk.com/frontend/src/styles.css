@@ -381,4 +381,36 @@ input[type="range"].premium-slider::-moz-range-thumb {
     radial-gradient(90% 60% at 50% 40%, oklch(0.19 0.03 250) 0%, transparent 60%),
     oklch(0.12 0.015 250);
 }
+@utility bg-smartcard1-gradient {
+  background:
+    radial-gradient(110% 70% at 12% 0%, oklch(0.34 0.08 165) 0%, transparent 55%),
+    radial-gradient(100% 65% at 95% 100%, oklch(0.32 0.07 95) 0%, transparent 55%),
+    oklch(0.14 0.02 165);
+}
+@utility bg-smartcard2-gradient {
+  background:
+    radial-gradient(110% 70% at 5% 0%, oklch(0.93 0.05 20) 0%, transparent 60%),
+    radial-gradient(100% 70% at 100% 100%, oklch(0.92 0.05 320) 0%, transparent 55%),
+    oklch(0.975 0.012 40);
+}
+@utility bg-smartcard3-gradient {
+  background:
+    radial-gradient(110% 70% at 15% 0%, oklch(0.36 0.09 55) 0%, transparent 55%),
+    radial-gradient(100% 65% at 100% 95%, oklch(0.3 0.06 30) 0%, transparent 55%),
+    oklch(0.16 0.02 60);
+}
+@utility bg-smartcard4-gradient {
+  background:
+    radial-gradient(110% 70% at 90% 0%, oklch(0.35 0.05 300) 0%, transparent 55%),
+    radial-gradient(100% 65% at 0% 100%, oklch(0.32 0.09 145) 0%, transparent 55%),
+    oklch(0.13 0.01 280);
+}
+
+/* Smart Card display headings — match feedback-flow Fraunces */
+.smartcard-root {
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+}
+.smartcard-root .font-display {
+  font-family: var(--font-display);
+}
 

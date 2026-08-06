@@ -3,11 +3,12 @@ import * as React from "react";
 import { VoiceDetail, type VoiceDetailHandle } from "@/components/feedback-survey/VoiceDetail";
 import type { Theme } from "@/components/feedback-survey/types";
 import "@/components/feedback-survey/survey-themes.css";
+import { smartCardThemeToFeedbackTheme, getSmartCardThemeTokens } from "@/components/smart-card/smart-card-themes";
 
 const API = (import.meta as any).env?.VITE_API_URL || "https://api.voxbulk.com";
 
 /** Theme tuned to SoT smartcard dark UI for VoiceDetail / Expo-style steps. */
-const SC_THEME: Theme = {
+const DEFAULT_SC_THEME: Theme = {
   bgClass: "bg-smartcard-gradient",
   ink: "#eaf2ff",
   sub: "rgba(234,242,255,0.6)",
@@ -26,6 +27,7 @@ const SC_THEME: Theme = {
 type Props = {
   token: string;
   companyName: string;
+  themeId?: string;
   onDone: (message: string, assets?: DeliveredAsset[]) => void;
   onBlocked: (status: string, message?: string) => void;
   onBack: () => void;
@@ -39,7 +41,18 @@ type InputKind = "contact" | "choice" | "multi_choice" | "text";
 
 const NO_THANKS = "No thanks";
 
-export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onBack }: Props) {
+export function SmartCardWebSession({ token, companyName, themeId, onDone, onBlocked, onBack }: Props) {
+  const { SC_THEME, onAccent } = React.useMemo(() => {
+    try {
+      const tokens = getSmartCardThemeTokens(themeId);
+      return {
+        SC_THEME: smartCardThemeToFeedbackTheme(tokens) as Theme,
+        onAccent: tokens.onAccent,
+      };
+    } catch {
+      return { SC_THEME: DEFAULT_SC_THEME, onAccent: "#06121f" };
+    }
+  }, [themeId]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [sessionId, setSessionId] = React.useState<string | null>(null);
@@ -288,7 +301,7 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
   const progressPct = Math.round(((stepIndex + 1) / Math.max(1, stepTotal)) * 100);
 
   return (
-    <main className="bg-smartcard-gradient relative min-h-dvh overflow-hidden">
+    <main className={`${SC_THEME.bgClass} relative min-h-dvh overflow-hidden`}>
       <div className="relative mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 pb-8 pt-6">
         <div className="flex items-center justify-between">
           <div>
@@ -412,7 +425,7 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
                 disabled={busy}
                 onClick={() => void submitContact()}
                 className="mt-2 w-full rounded-2xl px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
-                style={{ background: SC_THEME.gradientButton, color: "#06121f" }}
+                style={{ background: SC_THEME.gradientButton, color: onAccent }}
               >
                 {busy ? "Sending…" : "Continue"}
               </button>
@@ -475,7 +488,7 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
                   disabled={busy}
                   onClick={() => void submitChoice()}
                   className="mt-4 w-full rounded-2xl px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
-                  style={{ background: SC_THEME.gradientButton, color: "#06121f" }}
+                  style={{ background: SC_THEME.gradientButton, color: onAccent }}
                 >
                   {busy ? "Sending…" : "Continue"}
                 </button>
@@ -505,7 +518,7 @@ export function SmartCardWebSession({ token, companyName, onDone, onBlocked, onB
                 disabled={busy}
                 onClick={() => void submitVoiceOrText()}
                 className="mt-4 w-full rounded-2xl px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
-                style={{ background: SC_THEME.gradientButton, color: "#06121f" }}
+                style={{ background: SC_THEME.gradientButton, color: onAccent }}
               >
                 {busy ? "Sending…" : "Continue"}
               </button>

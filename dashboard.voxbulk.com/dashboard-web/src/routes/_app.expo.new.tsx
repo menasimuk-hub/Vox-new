@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Download,
   Eye,
   Gift,
   Mail,
@@ -375,7 +376,7 @@ function CreateExpoBooth() {
       return draftWebUrlBase.includes("?") ? `${draftWebUrlBase}&preview=1` : `${draftWebUrlBase}?preview=1`;
     }
   }, [draftWebUrlBase]);
-  const draftQrSrc = draftWebUrl ? buildExpoQrImageUrl(draftWebUrl, 280) : "";
+  const draftQrSrc = draftWebUrl ? buildExpoQrImageUrl(draftWebUrl, 440) : "";
 
   if (!canCreate) {
     return (
@@ -428,7 +429,7 @@ function CreateExpoBooth() {
   };
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full max-w-none flex-col gap-6">
       <PageHeader
         eyebrow="VoxBulk Expo"
         title="Create Expo booth"
@@ -795,53 +796,111 @@ function CreateExpoBooth() {
         )}
 
         {step === 5 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Eye className="size-4 text-primary" /> Preview journey
-              </CardTitle>
-              <CardDescription>
-                This is exactly what visitors will see when they scan — nothing here is saved as a live booth.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                Preview only — scan to try the journey. Nothing is saved. Go back to edit.
-              </div>
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Eye className="size-4 text-primary" /> Preview journey
+                </CardTitle>
+                <CardDescription>
+                  This is exactly what visitors will see when they scan — nothing here is saved as a live booth.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Preview only — scan to try the journey. Nothing is saved. Go back to edit.
+                </div>
+              </CardContent>
+            </Card>
 
-              {previewSaving && !draftBooth ? (
-                <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                  Generating your preview…
+            {previewSaving && !draftBooth ? (
+              <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                Generating your preview…
+              </div>
+            ) : draftBooth ? (
+              <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:items-start">
+                <div className="min-w-0">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Print booth card</CardTitle>
+                      <CardDescription>Edit copy for your stand placard before you activate.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ExpoBoothPrintCard
+                        boothId={draftBooth.id}
+                        qrSrc={draftQrSrc}
+                        webUrl={draftWebUrl}
+                        qrToken={draftBooth.qr_token}
+                        company={company}
+                        boothCode={boothCode || exhibitionName}
+                        eventName={exhibitionName}
+                        eventDates={eventDatesLabel}
+                        companyWebsite={companyWebsite}
+                        contactEmail={visitorContactEmail}
+                      />
+                    </CardContent>
+                  </Card>
                 </div>
-              ) : draftBooth ? (
-                <ExpoBoothPrintCard
-                  boothId={draftBooth.id}
-                  qrSrc={draftQrSrc}
-                  webUrl={draftWebUrl}
-                  qrToken={draftBooth.qr_token}
-                  company={company}
-                  boothCode={boothCode || exhibitionName}
-                  eventName={exhibitionName}
-                  eventDates={eventDatesLabel}
-                  companyWebsite={companyWebsite}
-                  contactEmail={visitorContactEmail}
-                />
-              ) : (
-                <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                  <p>Could not generate a preview.</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="mt-3"
-                    onClick={() => void runPreviewDraft()}
-                  >
-                    Try again
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                <aside className="lg:sticky lg:top-20">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <QrCode className="size-4 text-primary" /> Preview QR
+                      </CardTitle>
+                      <CardDescription>Scan to try the visitor journey on your phone.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col items-center gap-3">
+                      {draftQrSrc ? (
+                        <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">
+                          <img
+                            src={draftQrSrc}
+                            alt="Expo preview QR"
+                            className="size-52 sm:size-56"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid size-52 place-items-center rounded-xl border border-dashed text-muted-foreground sm:size-56">
+                          <QrCode className="size-12" />
+                        </div>
+                      )}
+                      <p className="text-center text-xs text-muted-foreground">Scan to preview on your phone</p>
+                      {draftWebUrl ? (
+                        <a
+                          href={draftWebUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block w-full break-all text-center text-sm font-medium text-sky-700 hover:underline"
+                        >
+                          {draftWebUrl}
+                        </a>
+                      ) : null}
+                      {draftQrSrc ? (
+                        <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                          <a href={draftQrSrc} target="_blank" rel="noreferrer" download="expo-preview-qr.png">
+                            <Download className="size-3.5" /> Open / download QR
+                          </a>
+                        </Button>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                </aside>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                <p>Could not generate a preview.</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3"
+                  onClick={() => void runPreviewDraft()}
+                >
+                  Try again
+                </Button>
+              </div>
+            )}
+          </div>
         )}
 
         {step === 6 && (
@@ -954,88 +1013,132 @@ function CreateExpoBooth() {
                       web_url: created.web_url,
                       qr_token: created.qr_token,
                     });
+                    const displayWebUrl = String(created.web_url || webUrl || "").trim();
                     const qrSrc =
                       (created.qr_image_url && String(created.qr_image_url).trim()) ||
-                      (webUrl ? buildExpoQrImageUrl(webUrl, 280) : "");
+                      (webUrl ? buildExpoQrImageUrl(webUrl, 440) : "");
                     return (
-                      <>
-                        <div className="border-b pb-6">
-                          <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
-                          <ExpoBoothPrintCard
-                            boothId={created.id}
-                            qrSrc={qrSrc}
-                            webUrl={webUrl}
-                            qrToken={created.qr_token}
-                            company={company}
-                            boothCode={boothCode || exhibitionName}
-                            eventName={exhibitionName}
-                            eventDates={
-                              packageStartDate
-                                ? packageEndDate
-                                  ? `${packageStartDate} → ${packageEndDate}`
-                                  : packageStartDate
-                                : null
-                            }
-                            companyWebsite={companyWebsite}
-                            contactEmail={
-                              visitorContactEmail || representatives.find((r) => r.email?.trim())?.email || null
-                            }
-                          />
-                        </div>
-
-                        <div className="flex flex-col items-start gap-4 sm:flex-row">
-                          {qrSrc ? (
-                            <img
-                              src={qrSrc}
-                              alt="Expo QR"
-                              className="size-40 rounded-xl border bg-white p-2"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : null}
-                          <div className="space-y-2 text-sm">
-                            <p className="font-medium">
+                      <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:items-start">
+                        <div className="min-w-0 space-y-4">
+                          <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                            <p className="font-medium text-foreground">
                               {created.is_paid || created.payment_status === "paid"
                                 ? created.is_live
                                   ? "Booth live"
                                   : "Booth paid — waiting for start date"
                                 : "Booth saved (unpaid)"}
                             </p>
-                            <p className="text-muted-foreground">
+                            <p className="mt-0.5 text-xs text-muted-foreground">
                               Window {packageStartDate}
                               {packageEndDate ? ` → ${packageEndDate}` : ""} ·{" "}
                               {created.is_paid || created.payment_status === "paid"
                                 ? "Paid — live after start date"
                                 : "Pay to go live · 15 preview tests unpaid"}
                             </p>
-                            {webUrl ? (
-                              <a
-                                href={webUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="block break-all text-sky-700 hover:underline"
-                              >
-                                {webUrl}
-                              </a>
+                            {created.trigger_text ? (
+                              <p className="mt-2 text-xs text-muted-foreground">{created.trigger_text}</p>
                             ) : null}
-                            <p className="max-w-md text-muted-foreground">{created.trigger_text}</p>
-                            <div className="flex flex-wrap gap-2">
-                              {!(created.is_paid || created.payment_status === "paid") ? (
-                                <Button size="sm" onClick={() => setPayOpen(true)}>
-                                  Pay with card
-                                </Button>
-                              ) : null}
-                              <Button asChild variant="outline" size="sm">
-                                <Link to="/expo">View saved booths</Link>
-                              </Button>
-                              <Button asChild size="sm" variant={created.is_paid ? "outline" : "ghost"}>
-                                <Link to="/expo/leads" search={{ booth_id: created.id }}>
-                                  View leads
-                                </Link>
-                              </Button>
+                          </div>
+
+                          {webUrl || qrSrc ? (
+                            <div>
+                              <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
+                              <ExpoBoothPrintCard
+                                boothId={created.id}
+                                qrSrc={qrSrc}
+                                webUrl={webUrl}
+                                qrToken={created.qr_token}
+                                company={company}
+                                boothCode={boothCode || exhibitionName}
+                                eventName={exhibitionName}
+                                eventDates={
+                                  packageStartDate
+                                    ? packageEndDate
+                                      ? `${packageStartDate} → ${packageEndDate}`
+                                      : packageStartDate
+                                    : null
+                                }
+                                companyWebsite={companyWebsite}
+                                contactEmail={
+                                  visitorContactEmail ||
+                                  representatives.find((r) => r.email?.trim())?.email ||
+                                  null
+                                }
+                              />
                             </div>
+                          ) : null}
+
+                          <div className="flex flex-wrap gap-2">
+                            {!(created.is_paid || created.payment_status === "paid") ? (
+                              <Button size="sm" onClick={() => setPayOpen(true)}>
+                                Pay with card
+                              </Button>
+                            ) : null}
+                            <Button asChild variant="outline" size="sm">
+                              <Link to="/expo">View saved booths</Link>
+                            </Button>
+                            <Button asChild size="sm" variant={created.is_paid ? "outline" : "ghost"}>
+                              <Link to="/expo/leads" search={{ booth_id: created.id }}>
+                                View leads
+                              </Link>
+                            </Button>
                           </div>
                         </div>
-                      </>
+
+                        <aside className="lg:sticky lg:top-20">
+                          <Card>
+                            <CardHeader>
+                              <CardTitle className="flex items-center gap-2 text-base">
+                                <QrCode className="size-4 text-primary" /> Your QR code
+                              </CardTitle>
+                              <CardDescription>
+                                Print this for your stand. Scan to preview on your phone.
+                              </CardDescription>
+                            </CardHeader>
+                            <CardContent className="flex flex-col items-center gap-3">
+                              {qrSrc ? (
+                                <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">
+                                  <img
+                                    src={qrSrc}
+                                    alt="Expo QR"
+                                    className="size-52 sm:size-56"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="grid size-52 place-items-center rounded-xl border border-dashed text-muted-foreground sm:size-56">
+                                  <QrCode className="size-12" />
+                                </div>
+                              )}
+                              <p className="text-center text-xs text-muted-foreground">
+                                Scan to preview on your phone
+                              </p>
+                              {displayWebUrl ? (
+                                <a
+                                  href={displayWebUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block w-full break-all text-center text-sm font-medium text-sky-700 hover:underline"
+                                >
+                                  {displayWebUrl}
+                                </a>
+                              ) : null}
+                              {qrSrc ? (
+                                <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                                  <a
+                                    href={qrSrc}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    download={`expo-${boothCode || exhibitionName || "booth"}-qr.png`}
+                                  >
+                                    <Download className="size-3.5" /> Open / download QR
+                                  </a>
+                                </Button>
+                              ) : null}
+                            </CardContent>
+                          </Card>
+                        </aside>
+                      </div>
                     );
                   })()}
                 </div>

@@ -227,12 +227,13 @@ function EditExpoBooth() {
     web_url: booth.web_url,
     qr_token: booth.qr_token,
   });
+  const displayWebUrl = String(booth.web_url || webUrl || "").trim();
   const qrSrc =
     (booth.qr_image_url && String(booth.qr_image_url).trim()) ||
-    (webUrl ? buildExpoQrImageUrl(webUrl, 280) : "");
+    (webUrl ? buildExpoQrImageUrl(webUrl, 440) : "");
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full max-w-none flex-col gap-6">
       <PageHeader
         eyebrow="VoxBulk Expo"
         title={`Edit booth — ${booth.name}`}
@@ -256,238 +257,247 @@ function EditExpoBooth() {
         </div>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <QrCode className="size-4 text-primary" /> Your QR code
-          </CardTitle>
-          <CardDescription>
-            Print this for your stand. Editing questions does not change the QR.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-            {qrSrc ? (
-              <img
-                src={qrSrc}
-                alt={`QR for ${booth.name}`}
-                className="size-40 rounded-xl border bg-white p-2"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="grid size-40 place-items-center rounded-xl border border-dashed text-muted-foreground">
-                <QrCode className="size-10" />
+      <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:items-start">
+        <div className="min-w-0 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Event & booth</CardTitle>
+              <CardDescription>QR token is unchanged — editing here does not reprint your QR.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Exhibition name</Label>
+                <Input value={exhibitionName} onChange={(e) => setExhibitionName(e.target.value)} />
               </div>
-            )}
-            <div className="space-y-2 text-sm">
-              {booth.web_url ? (
-                <a
-                  href={booth.web_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block break-all font-medium text-sky-700 hover:underline"
-                >
-                  {booth.web_url}
-                </a>
-              ) : null}
-              {booth.trigger_text ? (
-                <p className="max-w-md text-muted-foreground">{booth.trigger_text}</p>
-              ) : null}
-              <div className="flex flex-wrap gap-2">
-                {qrSrc ? (
-                  <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                    <a href={qrSrc} target="_blank" rel="noreferrer">
-                      <Download className="size-3.5" /> Open / download QR
-                    </a>
-                  </Button>
-                ) : null}
-                {booth.web_url ? (
-                  <Button size="sm" variant="ghost" asChild>
-                    <a href={booth.web_url} target="_blank" rel="noreferrer">
-                      Open scan landing
-                    </a>
-                  </Button>
-                ) : null}
+              <div className="space-y-2">
+                <Label>Venue</Label>
+                <Input value={venue} onChange={(e) => setVenue(e.target.value)} />
               </div>
-            </div>
-          </div>
+              <div className="space-y-2">
+                <Label>Booth / stand code</Label>
+                <Input value={boothCode} onChange={(e) => setBoothCode(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Company name on WhatsApp</Label>
+                <Input value={company} onChange={(e) => setCompany(e.target.value)} />
+              </div>
+            </CardContent>
+          </Card>
 
-          {webUrl || qrSrc ? (
-            <div id="print" className="border-t pt-6">
-              <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
-              <ExpoBoothPrintCard
-                boothId={booth.id}
-                qrSrc={qrSrc}
-                webUrl={webUrl}
-                qrToken={booth.qr_token}
-                company={company || booth.company_display_name}
-                boothCode={boothCode || booth.booth_code}
-                eventName={exhibitionName || booth.exhibition_name || booth.name}
-                eventDates={venue || booth.venue || null}
-                companyWebsite={companyWebsite || booth.company_website}
-                contactEmail={representatives.find((r) => r.email?.trim())?.email || null}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Representative</CardTitle>
+              <CardDescription>
+                One stand contact for the digital business card and hot-lead WhatsApp alerts.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RepresentativesEditor
+                representatives={representatives}
+                onChange={setRepresentatives}
+                companyWebsite={companyWebsite}
+                onCompanyWebsiteChange={setCompanyWebsite}
+                notifyMobile={notifyMobile}
+                onNotifyMobileChange={setNotifyMobile}
+                maxRepresentatives={1}
               />
-            </div>
-          ) : (
-            <p className="border-t pt-4 text-sm text-muted-foreground">
-              Scan link missing for this booth — refresh the page or contact support.
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Event & booth</CardTitle>
-          <CardDescription>QR token is unchanged — editing here does not reprint your QR.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>Exhibition name</Label>
-            <Input value={exhibitionName} onChange={(e) => setExhibitionName(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Venue</Label>
-            <Input value={venue} onChange={(e) => setVenue(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Booth / stand code</Label>
-            <Input value={boothCode} onChange={(e) => setBoothCode(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label>Company name on WhatsApp</Label>
-            <Input value={company} onChange={(e) => setCompany(e.target.value)} />
-          </div>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Qualifying questions</CardTitle>
+              <CardDescription>
+                Fixed contact first — visitors see a business-card photo or type name / company option. Choose which
+                extra questions are asked below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-xl border bg-muted/20 p-4">
+                <p className="text-sm font-medium">Fixed · Contact capture</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(
+                    [
+                      ["offer_both", "Photo or type details"],
+                      ["manual_only", "Name / company only"],
+                      ["card_only", "Business card photo only"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <Button
+                      key={value}
+                      type="button"
+                      size="sm"
+                      variant={contactCapture === value ? "default" : "outline"}
+                      onClick={() => setContactCapture(value)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Representative</CardTitle>
-          <CardDescription>
-            One stand contact for the digital business card and hot-lead WhatsApp alerts.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RepresentativesEditor
-            representatives={representatives}
-            onChange={setRepresentatives}
-            companyWebsite={companyWebsite}
-            onCompanyWebsiteChange={setCompanyWebsite}
-            notifyMobile={notifyMobile}
-            onNotifyMobileChange={setNotifyMobile}
-            maxRepresentatives={1}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Qualifying questions</CardTitle>
-          <CardDescription>
-            Fixed contact first — visitors see a business-card photo or type name / company option. Choose which
-            extra questions are asked below.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="rounded-xl border bg-muted/20 p-4">
-            <p className="text-sm font-medium">Fixed · Contact capture</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {(
-                [
-                  ["offer_both", "Photo or type details"],
-                  ["manual_only", "Name / company only"],
-                  ["card_only", "Business card photo only"],
-                ] as const
-              ).map(([value, label]) => (
-                <Button
-                  key={value}
-                  type="button"
-                  size="sm"
-                  variant={contactCapture === value ? "default" : "outline"}
-                  onClick={() => setContactCapture(value)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-2 text-sm font-medium">Select more questions</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {questionBank.map((q) => {
-                const checked = selectedQKeys.includes(q.key);
-                return (
-                  <label
-                    key={q.key}
-                    className={cn(
-                      "flex cursor-pointer gap-3 rounded-xl border p-3 transition hover:border-primary/40",
-                      checked && "border-primary bg-primary/5",
-                    )}
-                  >
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={(v) => {
-                        setSelectedQKeys((keys) => (v ? [...keys, q.key] : keys.filter((k) => k !== q.key)));
-                      }}
-                    />
-                    <span className="min-w-0">
-                      <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                        {q.label}
-                        {q.matches_products ? (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-normal text-primary">
-                            Matches products
+              <div>
+                <p className="mb-2 text-sm font-medium">Select more questions</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {questionBank.map((q) => {
+                    const checked = selectedQKeys.includes(q.key);
+                    return (
+                      <label
+                        key={q.key}
+                        className={cn(
+                          "flex cursor-pointer gap-3 rounded-xl border p-3 transition hover:border-primary/40",
+                          checked && "border-primary bg-primary/5",
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) => {
+                            setSelectedQKeys((keys) =>
+                              v ? [...keys, q.key] : keys.filter((k) => k !== q.key),
+                            );
+                          }}
+                        />
+                        <span className="min-w-0">
+                          <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            {q.label}
+                            {q.matches_products ? (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-normal text-primary">
+                                Matches products
+                              </span>
+                            ) : null}
                           </span>
-                        ) : null}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted-foreground">{q.prompt}</span>
-                    </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{q.prompt}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {industry?.addon_question ? (
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <Checkbox checked={includeAddon} onCheckedChange={(v) => setIncludeAddon(Boolean(v))} />
+                    Include industry question: {industry.addon_question}
                   </label>
-                );
-              })}
-            </div>
-            {industry?.addon_question ? (
-              <label className="mt-3 flex items-center gap-2 text-sm">
-                <Checkbox checked={includeAddon} onCheckedChange={(v) => setIncludeAddon(Boolean(v))} />
-                Include industry question: {industry.addon_question}
-              </label>
-            ) : null}
-          </div>
+                ) : null}
+              </div>
 
-          <div className="rounded-xl border p-4">
-            <label className="flex items-start gap-3">
-              <Checkbox
-                checked={freeGiftEnabled}
-                onCheckedChange={(v) => setFreeGiftEnabled(Boolean(v))}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="font-medium">Offer a free gift after the questionnaire</span>
-                <span className="mt-0.5 block text-xs text-muted-foreground">
-                  After the thank-you message, tell visitors how to collect their gift.
-                </span>
-              </span>
-            </label>
-            {freeGiftEnabled ? (
-              <Textarea
-                className="mt-3"
-                value={freeGiftText}
-                onChange={(e) => setFreeGiftText(e.target.value)}
-                rows={2}
-              />
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
+              <div className="rounded-xl border p-4">
+                <label className="flex items-start gap-3">
+                  <Checkbox
+                    checked={freeGiftEnabled}
+                    onCheckedChange={(v) => setFreeGiftEnabled(Boolean(v))}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">Offer a free gift after the questionnaire</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      After the thank-you message, tell visitors how to collect their gift.
+                    </span>
+                  </span>
+                </label>
+                {freeGiftEnabled ? (
+                  <Textarea
+                    className="mt-3"
+                    value={freeGiftText}
+                    onChange={(e) => setFreeGiftText(e.target.value)}
+                    rows={2}
+                  />
+                ) : null}
+              </div>
+            </CardContent>
+          </Card>
 
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={() => void onSave()} disabled={saving}>
-          {saving ? "Saving…" : "Save changes"}
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/expo">Cancel</Link>
-        </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void onSave()} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/expo">Cancel</Link>
+            </Button>
+          </div>
+        </div>
+
+        <aside className="lg:sticky lg:top-20">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <QrCode className="size-4 text-primary" /> Your QR code
+              </CardTitle>
+              <CardDescription>
+                Print this for your stand. Editing questions does not change the QR.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="flex flex-col items-center gap-3">
+                {qrSrc ? (
+                  <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">
+                    <img
+                      src={qrSrc}
+                      alt={`QR for ${booth.name}`}
+                      className="size-52 sm:size-56"
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                ) : (
+                  <div className="grid size-52 place-items-center rounded-xl border border-dashed text-muted-foreground sm:size-56">
+                    <QrCode className="size-12" />
+                  </div>
+                )}
+                <p className="text-center text-xs text-muted-foreground">Scan to preview on your phone</p>
+                {displayWebUrl ? (
+                  <a
+                    href={displayWebUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block w-full break-all text-center text-sm font-medium text-sky-700 hover:underline"
+                  >
+                    {displayWebUrl}
+                  </a>
+                ) : null}
+                {booth.trigger_text ? (
+                  <p className="text-center text-xs text-muted-foreground">{booth.trigger_text}</p>
+                ) : null}
+                <div className="flex w-full flex-wrap justify-center gap-2">
+                  {qrSrc ? (
+                    <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                      <a href={qrSrc} target="_blank" rel="noreferrer" download={`expo-${booth.name || "booth"}-qr.png`}>
+                        <Download className="size-3.5" /> Open / download QR
+                      </a>
+                    </Button>
+                  ) : null}
+                  {displayWebUrl ? (
+                    <Button size="sm" variant="ghost" asChild>
+                      <a href={displayWebUrl} target="_blank" rel="noreferrer">
+                        Open scan landing
+                      </a>
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+
+              {webUrl || qrSrc ? (
+                <div id="print" className="border-t pt-5">
+                  <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
+                  <ExpoBoothPrintCard
+                    boothId={booth.id}
+                    qrSrc={qrSrc}
+                    webUrl={webUrl}
+                    qrToken={booth.qr_token}
+                    company={company || booth.company_display_name}
+                    boothCode={boothCode || booth.booth_code}
+                    eventName={exhibitionName || booth.exhibition_name || booth.name}
+                    eventDates={venue || booth.venue || null}
+                    companyWebsite={companyWebsite || booth.company_website}
+                    contactEmail={representatives.find((r) => r.email?.trim())?.email || null}
+                  />
+                </div>
+              ) : (
+                <p className="border-t pt-4 text-sm text-muted-foreground">
+                  Scan link missing for this booth — refresh the page or contact support.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </aside>
       </div>
     </div>
   );

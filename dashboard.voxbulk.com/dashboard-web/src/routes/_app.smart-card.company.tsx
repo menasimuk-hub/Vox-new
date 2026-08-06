@@ -3,15 +3,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { SmartCardThemePicker } from "@/components/smart-card/smart-card-theme-picker";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
+import {
+  normalizeSmartCardThemeId,
+  type SmartCardThemeId,
+} from "@/lib/smart-card-themes";
 
 type Company = {
   name: string;
@@ -21,6 +26,8 @@ type Company = {
   pricing_notes?: string | null;
   contact_email?: string | null;
   contact_phone?: string | null;
+  theme_id?: string | null;
+  brand_defaults?: { theme_id?: string } | null;
 };
 
 export const Route = createFileRoute("/_app/smart-card/company")({
@@ -36,13 +43,17 @@ function SmartCardCompanyPage() {
     queryFn: () => apiFetch<{ ok: boolean; company: Company }>("/smart-card/company"),
   });
   const [form, setForm] = React.useState<Company | null>(null);
+  const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
 
   React.useEffect(() => {
-    if (companyQ.data?.company) setForm(companyQ.data.company);
+    const c = companyQ.data?.company;
+    if (!c) return;
+    setForm(c);
+    setThemeId(normalizeSmartCardThemeId(c.theme_id ?? c.brand_defaults?.theme_id));
   }, [companyQ.data]);
 
   const saveMut = useMutation({
-    mutationFn: (body: Company) =>
+    mutationFn: (body: Company & { theme_id: SmartCardThemeId }) =>
       apiFetch("/smart-card/company", { method: "PATCH", body: JSON.stringify(body) }),
     onSuccess: async () => {
       toast.success("Company saved");
@@ -63,7 +74,10 @@ function SmartCardCompanyPage() {
         description="Profile shown with representative Smart Card QR scans."
         actions={
           canEdit ? (
-            <Button disabled={saveMut.isPending} onClick={() => saveMut.mutate(form)}>
+            <Button
+              disabled={saveMut.isPending}
+              onClick={() => saveMut.mutate({ ...form, theme_id: themeId })}
+            >
               Save
             </Button>
           ) : null
@@ -134,6 +148,23 @@ function SmartCardCompanyPage() {
               View only — request changes from your organisation admin.
             </p>
           ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Digital card theme</CardTitle>
+          <CardDescription>
+            Choose how the public smart card looks when someone scans a representative QR.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SmartCardThemePicker
+            value={themeId}
+            onChange={setThemeId}
+            companyName={form.name}
+            className={canEdit ? undefined : "pointer-events-none opacity-70"}
+          />
         </CardContent>
       </Card>
     </div>

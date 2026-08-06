@@ -21,6 +21,23 @@ from app.models.smart_card import (
 )
 from app.models.subscription import Subscription
 
+ALLOWED_SMART_CARD_THEME_IDS = frozenset(
+    {"smartcard", "smartcard1", "smartcard2", "smartcard3", "smartcard4"}
+)
+
+
+def normalize_smart_card_theme_id(raw: Any) -> str:
+    v = str(raw or "").strip().lower()
+    return v if v in ALLOWED_SMART_CARD_THEME_IDS else "smartcard"
+
+
+def normalize_brand_defaults(raw: Any) -> dict[str, Any]:
+    brand = dict(raw) if isinstance(raw, dict) else {}
+    theme = brand.get("theme_id") or brand.get("theme")
+    brand["theme_id"] = normalize_smart_card_theme_id(theme)
+    brand.pop("theme", None)
+    return brand
+
 
 def build_rep_qr_token(*, company_slug: str, rep_name: str) -> str:
     co = re.sub(r"[^a-z0-9]+", "-", (company_slug or "co").lower()).strip("-")[:16] or "co"
@@ -145,12 +162,15 @@ class SmartCardCompanyService:
                 cfg = json.loads(company.question_config_json)
             except Exception:
                 cfg = None
-        brand: Any = None
+        brand: Any = {}
         if company.brand_defaults_json:
             try:
-                brand = json.loads(company.brand_defaults_json)
+                parsed = json.loads(company.brand_defaults_json)
+                if isinstance(parsed, dict):
+                    brand = parsed
             except Exception:
-                brand = None
+                brand = {}
+        brand = normalize_brand_defaults(brand)
         return {
             "id": company.id,
             "org_id": company.org_id,
@@ -162,6 +182,7 @@ class SmartCardCompanyService:
             "contact_email": company.contact_email,
             "contact_phone": company.contact_phone,
             "brand_defaults": brand,
+            "theme_id": brand.get("theme_id") or "smartcard",
             "question_config": cfg,
             "preview_tests_used": int(company.preview_tests_used or 0),
             "preview_tests_limit": SMART_CARD_PREVIEW_TESTS_LIMIT,
@@ -183,7 +204,18 @@ class SmartCardCompanyService:
                 val = payload[key]
                 setattr(company, key, (str(val).strip() if val is not None else None) or ("" if key == "name" else None))
         if "brand_defaults" in payload:
-            company.brand_defaults_json = json.dumps(payload["brand_defaults"] or {})
+            company.brand_defaults_json = json.dumps(normalize_brand_defaults(payload.get("brand_defaults")))
+        elif "theme_id" in payload:
+            existing: dict[str, Any] = {}
+            if company.brand_defaults_json:
+                try:
+                    parsed = json.loads(company.brand_defaults_json)
+                    if isinstance(parsed, dict):
+                        existing = parsed
+                except Exception:
+                    existing = {}
+            existing["theme_id"] = normalize_smart_card_theme_id(payload.get("theme_id"))
+            company.brand_defaults_json = json.dumps(normalize_brand_defaults(existing))
         if "question_config" in payload:
             company.question_config_json = json.dumps(payload["question_config"] or {})
         company.updated_at = datetime.utcnow()

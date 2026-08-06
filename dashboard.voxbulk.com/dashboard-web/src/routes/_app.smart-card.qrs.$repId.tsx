@@ -11,6 +11,7 @@ import {
   type RepresentativeFormValue,
   type SocialLinks,
 } from "@/components/smart-card/representative-fields";
+import { SmartCardThemePicker } from "@/components/smart-card/smart-card-theme-picker";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +22,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
+import {
+  normalizeSmartCardThemeId,
+  type SmartCardThemeId,
+} from "@/lib/smart-card-themes";
 
 type Rep = {
   id: string;
@@ -46,6 +51,15 @@ type Rep = {
 type Product = { id: string; name: string };
 type Category = { id: string; name: string; products: Product[] };
 
+type CompanyPayload = {
+  ok: boolean;
+  company: {
+    name?: string;
+    theme_id?: string;
+    brand_defaults?: { theme_id?: string } | null;
+  };
+};
+
 export const Route = createFileRoute("/_app/smart-card/qrs/$repId")({
   head: () => ({ meta: [{ title: "Edit QR — Smart Card QR" }] }),
   component: SmartCardEditQrPage,
@@ -62,6 +76,7 @@ function SmartCardEditQrPage() {
   const [fg, setFg] = React.useState("000000");
   const [bg, setBg] = React.useState("ffffff");
   const [transparent, setTransparent] = React.useState(false);
+  const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoLocalPreview, setPhotoLocalPreview] = React.useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = React.useState(false);
@@ -70,6 +85,11 @@ function SmartCardEditQrPage() {
   const repQ = useQuery({
     queryKey: ["smart-card", "rep", repId],
     queryFn: () => apiFetch<{ ok: boolean; item: Rep }>(`/smart-card/representatives/${repId}`),
+  });
+
+  const companyQ = useQuery({
+    queryKey: ["smart-card", "company"],
+    queryFn: () => apiFetch<CompanyPayload>("/smart-card/company"),
   });
 
   const catalogueQ = useQuery({
@@ -140,6 +160,12 @@ function SmartCardEditQrPage() {
     setTransparent(Boolean(r.qr_transparent));
   }, [repQ.data]);
 
+  React.useEffect(() => {
+    const c = companyQ.data?.company;
+    if (!c) return;
+    setThemeId(normalizeSmartCardThemeId(c.theme_id ?? c.brand_defaults?.theme_id));
+  }, [companyQ.data]);
+
   const categories = catalogueQ.data?.categories || [];
   const products = React.useMemo(() => {
     const out: Product[] = [];
@@ -148,6 +174,8 @@ function SmartCardEditQrPage() {
     }
     return out;
   }, [categories]);
+
+  const companyName = companyQ.data?.company?.name || "";
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -170,6 +198,10 @@ function SmartCardEditQrPage() {
           qr_bg_color: bg,
           qr_transparent: transparent,
         }),
+      });
+      await apiFetch("/smart-card/company", {
+        method: "PATCH",
+        body: JSON.stringify({ theme_id: themeId }),
       });
       if (photoFile) {
         setPhotoUploading(true);
@@ -219,7 +251,7 @@ function SmartCardEditQrPage() {
   const pngUrl = rep.qr_image_url || "";
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="Smart Card QR"
         title={rep.name}
@@ -231,28 +263,8 @@ function SmartCardEditQrPage() {
         }
       />
 
-      <div className="flex flex-col gap-4 sm:flex-row">
-        <Card className="sm:w-56">
-          <CardContent className="flex flex-col items-center gap-3 p-4">
-            {pngUrl ? (
-              <img src={pngUrl} alt="QR" className="size-40 rounded-lg border bg-white p-2" />
-            ) : null}
-            {pngUrl ? (
-              <Button asChild size="sm" variant="outline" className="w-full">
-                <a href={pngUrl} download={`smart-card-${rep.name || "qr"}.png`}>
-                  <Download className="size-4" /> Download PNG
-                </a>
-              </Button>
-            ) : null}
-            {rep.web_url ? (
-              <a className="text-xs text-primary underline" href={rep.web_url} target="_blank" rel="noreferrer">
-                Open link
-              </a>
-            ) : null}
-          </CardContent>
-        </Card>
-
-        <div className="min-w-0 flex-1 space-y-4">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)] lg:items-start">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Representative</CardTitle>
@@ -365,6 +377,44 @@ function SmartCardEditQrPage() {
               {saveMut.isPending ? "Saving…" : "Save changes"}
             </Button>
           ) : null}
+        </div>
+
+        <div className="space-y-4 lg:sticky lg:top-4">
+          <Card>
+            <CardContent className="flex flex-col items-center gap-3 p-4">
+              {pngUrl ? (
+                <img src={pngUrl} alt="QR" className="size-40 rounded-lg border bg-white p-2" />
+              ) : null}
+              {pngUrl ? (
+                <Button asChild size="sm" variant="outline" className="w-full">
+                  <a href={pngUrl} download={`smart-card-${rep.name || "qr"}.png`}>
+                    <Download className="size-4" /> Download PNG
+                  </a>
+                </Button>
+              ) : null}
+              {rep.web_url ? (
+                <a className="text-xs text-primary underline" href={rep.web_url} target="_blank" rel="noreferrer">
+                  Open link
+                </a>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Digital card theme</CardTitle>
+              <CardDescription>Applies to all Smart Card scans for this company.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <SmartCardThemePicker
+                value={themeId}
+                onChange={setThemeId}
+                companyName={companyName}
+                personName={repForm.name || rep.name}
+                className="sm:grid-cols-1 lg:grid-cols-1 xl:grid-cols-1"
+              />
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
