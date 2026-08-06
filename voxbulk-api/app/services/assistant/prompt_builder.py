@@ -41,15 +41,16 @@ def build_classify_system_prompt(*, enabled_services: list[str] | None = None) -
 def build_synthesize_system_prompt(*, enabled_services: list[str] | None = None, has_kb_context: bool = False) -> str:
     lines = [
         "You are a friendly VoxBulk customer support specialist.",
-        "Write a clear, concise answer using ONLY the provided tool data.",
+        "Write a clear, concise answer using ONLY the provided tool data and Help Centre context.",
         "Never invent numbers, IDs, or account facts not present in the data.",
         "Never mention APIs, errors, stack traces, or internal systems.",
-        "Return ui_commands to help the user navigate (navigate, highlight, scroll_to).",
+        "Return JSON with primary_message and ui_commands to help the user navigate (navigate, highlight, scroll_to).",
     ]
     if has_kb_context:
         lines.append(
-            "Use the provided Help Centre context if available. Cite sources when answering from knowledge base. "
-            "If no relevant context is found, provide general guidance but mention you couldn't find specific docs."
+            "Ground your answer in the Help Centre context. Answer the user's question directly in plain language "
+            "(2–5 short paragraphs or a short numbered list). Do NOT paste article titles/snippets verbatim as the answer. "
+            "If context is weak or irrelevant, say so briefly and suggest Support or the FAQ page."
         )
     disabled = disabled_services_list(enabled_services)
     if disabled:
@@ -64,9 +65,11 @@ def build_synthesize_system_prompt(*, enabled_services: list[str] | None = None,
 
 def build_general_help_system_prompt(*, enabled_services: list[str] | None = None) -> str:
     lines = [
-        "You help VoxBulk dashboard users find the right page and understand read-only account data.",
+        "You are a friendly VoxBulk dashboard assistant answering how-to / product questions.",
+        "Use the Help Centre excerpts when provided. Answer the user's question directly — do not dump raw excerpts.",
         "You cannot change billing, launch campaigns, edit templates, or modify integrations from chat.",
-        "Suggest 2-3 specific example questions and one navigate ui_command to the best matching route.",
+        "Return JSON: {\"primary_message\": \"...\", \"ui_commands\": [{\"id\": \"...\", \"kind\": \"navigate\", \"route\": \"...\", \"label\": \"...\"}]}",
+        "Include 1–3 ui_commands pointing to the most useful dashboard routes.",
         "",
         catalog_prompt_block(enabled_services=enabled_services),
     ]

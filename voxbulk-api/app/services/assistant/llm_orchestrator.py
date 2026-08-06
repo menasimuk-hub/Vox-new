@@ -25,7 +25,11 @@ from app.services.assistant.intent import IntentMatch, classify_intent
 from app.services.assistant.orchestrator import AssistantOrchestrator, _HANDLERS, _handle_general, _context_with_history
 from app.services.assistant.policy_coach import build_policy_refusal_response
 from app.services.assistant.policy_gate import check_policy
-from app.services.assistant.prompt_builder import build_classify_system_prompt, build_synthesize_system_prompt
+from app.services.assistant.prompt_builder import (
+    build_classify_system_prompt,
+    build_synthesize_system_prompt,
+    build_general_help_system_prompt,
+)
 from app.services.assistant.support_report import issue_support_report_token
 from app.services.assistant.safe_tools import user_display_name
 from app.services.assistant.service_registry import (
@@ -149,7 +153,8 @@ class LlmAssistantOrchestrator:
         # Try RAG retrieval for general/help-like intents
         help_chunks = []
         source_type = None
-        if intent_match.intent in {"general_help", "unknown", "open_faq"}:
+        help_intents = {"general_help", "unknown", "open_faq"}
+        if intent_match.intent in help_intents:
             help_chunks = help_retrieval_service.retrieve(
                 db,
                 question=payload.message,
@@ -158,9 +163,37 @@ class LlmAssistantOrchestrator:
             )
             if help_chunks:
                 source_type = "knowledge_base"
-                # Increment usage counters
                 for chunk in help_chunks:
                     help_retrieval_service._increment_usage_count(db, chunk["kind"], chunk["source_id"])
+
+        # How-to / FAQ: synthesize with LLM + RAG (never dump raw snippets when LLM is on)
+        if intent_match.intent in help_intents:
+            result = LlmAssistantOrchestrator._answer_help(
+                db,
+                principal=principal,
+                message=payload.message,
+                intent=intent_match.intent,
+                confidence=intent_match.confidence,
+                history=history_payload,
+                enabled_services=enabled,
+                help_chunks=help_chunks,
+                context=chat_context,
+                org=org,
+                is_admin=is_admin,
+            )
+            if conversation and not is_admin:
+                conversation_service.append_message(db, conversation_id, "user", payload.message)
+                msg = conversation_service.append_message(
+                    db,
+                    conversation_id,
+                    "assistant",
+                    result.primary_message,
+                    source_type=result.source_type or source_type,
+                    sources=result.sources or (help_chunks if help_chunks else None),
+                )
+                result.conversation_id = conversation_id
+                result.message_id = msg.id
+            return result
 
         if should_delegate_to_handler(intent_match.intent):
             handler = _HANDLERS.get(intent_match.intent) or _handle_general
@@ -303,6 +336,100 @@ class LlmAssistantOrchestrator:
         )
 
     @staticmethod
+    def _answer_help(
+        db: Session,
+        *,
+        principal: CurrentPrincipal,
+        message: str,
+        intent: str,
+        confidence: float,
+        history: list[dict[str, str]],
+        enabled_services: list[str],
+        help_chunks: list[dict[str, Any]],
+        context: Any,
+        org: Any,
+        is_admin: bool,
+    ) -> AssistantChatOut:
+        """Answer how-to/FAQ with LLM grounded in RAG chunks (fallback to handler if LLM off)."""
+        settings = get_settings()
+        defaults = default_ui_commands_for_intent(intent, data={}, params={})
+        for idx, chunk in enumerate(help_chunks[:3]):
+            url = str(chunk.get("url") or "/account/support/faq")
+            title = str(chunk.get("title") or "Help article")[:40]
+            defaults.append(
+                AssistantUiCommand(
+                    id=f"help_src_{idx}",
+                    kind="navigate",
+                    route=url,
+                    label=title,
+                )
+            )
+
+        if not settings.assistant_llm_enabled:
+            return _handle_general(
+                db,
+                principal=principal,
+                org=org,
+                message=message,
+                intent=IntentMatch(intent=intent, confidence=confidence),
+                context=context,
+                is_admin=is_admin,
+            )
+
+        kb_items = []
+        for chunk in help_chunks:
+            kb_items.append(
+                f"- title: {chunk.get('title')}\n  snippet: {chunk.get('snippet')}\n  url: {chunk.get('url')}"
+            )
+        kb_block = "\n".join(kb_items) if kb_items else "(no Help Centre hits)"
+        user_prompt = json.dumps(
+            {
+                "user_message": message,
+                "intent": intent,
+                "history": _history_block(history),
+                "has_help_hits": bool(help_chunks),
+            },
+            ensure_ascii=False,
+        ) + f"\n\nHelp Centre excerpts:\n{kb_block}"
+
+        try:
+            text = _llm_complete(
+                db,
+                system_prompt=build_general_help_system_prompt(enabled_services=enabled_services or None),
+                user_content=user_prompt,
+                max_tokens=800,
+                temperature=0.3,
+            )
+            parsed = _parse_json(text)
+            primary = str(parsed.get("primary_message") or "").strip()
+            if not primary:
+                raise ValueError("empty primary_message")
+            ui_commands = _parse_ui_commands(parsed.get("ui_commands"), defaults)
+            next_actions = _ui_commands_to_next_actions(ui_commands)
+            source_type = "knowledge_base" if help_chunks else "general_ai"
+            return build_out(
+                primary_message=primary,
+                confidence=max(0.55, float(confidence or 0.7)),
+                intent=intent,
+                next_actions=next_actions,
+                ui_commands=ui_commands,
+                source_type=source_type,
+                sources=help_chunks,
+            )
+        except Exception:
+            logger.warning("assistant_help_synthesize_fallback", exc_info=True)
+            record_assistant_failure(endpoint_label="llm_provider")
+            return _handle_general(
+                db,
+                principal=principal,
+                org=org,
+                message=message,
+                intent=IntentMatch(intent=intent, confidence=confidence),
+                context=context,
+                is_admin=is_admin,
+            )
+
+    @staticmethod
     def _classify(
         db: Session,
         *,
@@ -363,7 +490,8 @@ class LlmAssistantOrchestrator:
         fallback_msg = _default_message(intent, tool_result)
 
         settings = get_settings()
-        if not settings.assistant_llm_enabled or tool_result.navigation_only:
+        # navigation_only skips LLM unless we have Help Centre context to ground the answer
+        if not settings.assistant_llm_enabled or (tool_result.navigation_only and not help_context):
             highlight = _highlight_from_commands(defaults)
             return fallback_msg, defaults, highlight
         

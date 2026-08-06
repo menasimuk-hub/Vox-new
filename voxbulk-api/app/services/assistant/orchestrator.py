@@ -854,17 +854,19 @@ def _handle_general(db, *, principal, org, message, intent, context, is_admin) -
     )
     
     if help_chunks:
-        # Build answer from retrieved chunks
-        snippets = "\n\n".join([f"**{chunk['title']}**\n{chunk['snippet']}" for chunk in help_chunks])
+        # Prefer a single best article as readable guidance (LLM path answers smarter when enabled)
+        top = help_chunks[0]
+        body = str(top.get("snippet") or "").strip()
+        title = str(top.get("title") or "Help article")
         answer = (
-            f"Hi {name}! Based on our Help Centre, here's what I found:\n\n{snippets}\n\n"
-            "See the links below for more details."
+            f"Hi {name}! Here's the short answer from **{title}**:\n\n{body}\n\n"
+            "Open the links below for the full Help Centre article, or ask a follow-up."
         )
         next_actions = [
             nav_action(f"source_{idx}", chunk["title"][:40], chunk["url"])
             for idx, chunk in enumerate(help_chunks)
         ]
-        
+
         return build_out(
             primary_message=answer,
             confidence=0.85,

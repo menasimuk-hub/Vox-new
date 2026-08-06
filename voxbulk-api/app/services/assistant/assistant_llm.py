@@ -31,11 +31,15 @@ def assistant_llm_model(db: Session) -> str | None:
 
 
 def should_delegate_to_handler(intent: str) -> bool:
-    if intent in {"create_ticket", "general_help"}:
+    # create_ticket needs the confirm-flow handler. general_help / FAQ must use RAG + LLM
+    # synthesis — do not dump raw Help Centre snippets via the regex handler.
+    if intent == "create_ticket":
         return True
+    if intent in {"general_help", "unknown", "open_faq"}:
+        return False
     spec = INTENT_REGISTRY.get(intent)
     if spec is not None and spec.tool_name is None:
-        return intent in _HANDLERS or intent == "general_help"
+        return intent in _HANDLERS
     if intent in _HANDLERS and spec is None:
         return True
     return False
