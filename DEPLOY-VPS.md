@@ -17,6 +17,28 @@ systemctl status voxbulk-api
 
 Afterwards, `./deploy-vps.sh` **reloads** the API via gunicorn (`systemctl reload`) so `:8000` stays up during deploy. Admin/dashboard are static (no downtime). Public vite preview may blip briefly on restart. Celery stays under Supervisor (`sudo bash scripts/vps-setup-celery.sh`).
 
+### Cypht multi-account webmail (`allmail.voxbulk.com`)
+
+One place to read/reply across many IMAP accounts (Docker + aaPanel nginx + systemd).
+
+**DNS:** `allmail.voxbulk.com` A → VPS IP (same as `voxbulk.com`).
+
+**One-time on the VPS:**
+
+```bash
+cd /www/voxbulk
+git pull origin main
+sudo bash scripts/vps-setup-cypht.sh
+# or: ./vox.sh install-cypht
+```
+
+- Login URL: `https://allmail.voxbulk.com`
+- Admin credentials written once to `/www/voxbulk/data/cypht/.env` (printed at install)
+- Then in Cypht: **Settings → Servers** → add each mailbox (IMAP + SMTP)
+- Control: `systemctl status|restart voxbulk-cypht` or `./vox.sh cypht-status`
+
+If aaPanel still shows the site “stopped”, re-run the setup script (it rewrites the nginx vhost) or start the site in aaPanel → Website and apply SSL for `allmail.voxbulk.com`.
+
 **One-time upgrade** (if unit was installed before gunicorn reload support):
 
 ```bash

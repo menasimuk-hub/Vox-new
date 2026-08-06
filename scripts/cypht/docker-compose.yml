@@ -1,0 +1,67 @@
+# Cypht multi-account webmail — bind to localhost only; aaPanel nginx terminates TLS.
+# Installed by: sudo bash scripts/vps-setup-cypht.sh
+services:
+  db:
+    image: mariadb:10.11
+    container_name: voxbulk-cypht-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${CYPHT_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${CYPHT_DB_NAME:-cypht}
+      MYSQL_USER: ${CYPHT_DB_USER:-cypht}
+      MYSQL_PASSWORD: ${CYPHT_DB_PASSWORD}
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "healthcheck.sh",
+          "--connect",
+          "--innodb_initialized",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    # No host port publish — DB stays on the Docker network only.
+
+  cypht:
+    image: cypht/cypht:2.12.0
+    container_name: voxbulk-cypht
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${CYPHT_HOST_PORT:-8090}:80"
+    environment:
+      AUTH_USERNAME: ${CYPHT_ADMIN_USER:-admin}
+      AUTH_PASSWORD: ${CYPHT_ADMIN_PASSWORD}
+      ADMIN_USERS: ${CYPHT_ADMIN_USER:-admin}
+      DB_CONNECTION_TYPE: host
+      DB_DRIVER: mysql
+      DB_HOST: db
+      DB_NAME: ${CYPHT_DB_NAME:-cypht}
+      DB_USER: ${CYPHT_DB_USER:-cypht}
+      DB_PASS: ${CYPHT_DB_PASSWORD}
+      SESSION_TYPE: DB
+      USER_CONFIG_TYPE: DB
+      USER_SETTINGS_DIR: /var/lib/hm3/users
+      ATTACHMENT_DIR: /var/lib/hm3/attachments
+      # Behind aaPanel nginx TLS termination
+      APP_NAME: ${APP_NAME:-VoxBulk Mail}
+      DISABLE_ORIGIN_CHECK: ${CYPHT_DISABLE_ORIGIN_CHECK:-true}
+      COOKIE_DOMAIN: ${CYPHT_COOKIE_DOMAIN:-allmail.voxbulk.com}
+      DEFAULT_LANGUAGE: en
+      CYPHT_MODULES: core,contacts,local_contacts,feeds,imap,smtp,account,idle_timer,desktop_notifications,calendar,themes,nux,profiles,imap_folders,sievefilters,tags,history,scheduled_sends,2fa
+    volumes:
+      - ./data/users:/var/lib/hm3/users
+      - ./data/attachments:/var/lib/hm3/attachments
+      - ./data/app_data:/var/lib/hm3/app_data
+      - ./data/log/nginx:/var/log/nginx
+      - ./data/log/php:/var/log/php
+      # VoxBulk branding (login + in-app logo)
+      - ./brand/logo-black.svg:/usr/local/share/cypht/modules/core/assets/images/logo_dark.svg:ro
+      - ./brand/logo-black.svg:/usr/local/share/cypht/modules/core/assets/images/logo.svg:ro
+      - ./brand/favicon.ico:/usr/local/share/cypht/modules/core/assets/images/favicon.ico:ro
