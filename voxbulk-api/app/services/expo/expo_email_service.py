@@ -25,6 +25,65 @@ VISITOR_TEMPLATE = "expo_visitor_catalogue"
 EXHIBITOR_TEMPLATE = "expo_exhibitor_lead_digest"
 DAY_SUMMARY_TEMPLATE = "expo_visitor_day_summary"
 
+# Keep under typical SMTP / mailbox limits; oversized files stay as download links.
+MAX_EMAIL_ATTACHMENT_BYTES = 8 * 1024 * 1024
+
+_DOCUMENT_SUFFIX_MEDIA = {
+    ".pdf": ("application", "pdf"),
+    ".xls": ("application", "vnd.ms-excel"),
+    ".xlsx": ("application", "vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    ".csv": ("text", "csv"),
+    ".doc": ("application", "msword"),
+    ".docx": ("application", "vnd.openxmlformats-officedocument.wordprocessingml.document"),
+}
+
+
+def _email_attachments(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Read stored catalogue files into SMTP attachment dicts."""
+    from pathlib import Path
+
+    from app.services.expo.asset_storage_service import resolve_storage_abs_path
+
+    out: list[dict[str, Any]] = []
+    for asset in assets or []:
+        abs_path = resolve_storage_abs_path(asset.get("storage_path"))
+        if abs_path is None:
+            logger.info(
+                "expo_visitor_email_skip_attach_missing asset=%s path=%s",
+                asset.get("id"),
+                asset.get("storage_path"),
+            )
+            continue
+        try:
+            size = abs_path.stat().st_size
+            if size > MAX_EMAIL_ATTACHMENT_BYTES:
+                logger.info(
+                    "expo_visitor_email_skip_attach_too_large asset=%s bytes=%s",
+                    asset.get("id"),
+                    size,
+                )
+                continue
+            content = abs_path.read_bytes()
+        except OSError:
+            logger.warning("expo_visitor_email_attach_read_failed asset=%s", asset.get("id"), exc_info=True)
+            continue
+        maintype, subtype = _DOCUMENT_SUFFIX_MEDIA.get(
+            abs_path.suffix.lower(), ("application", "octet-stream")
+        )
+        filename = str(asset.get("original_filename") or "").strip() or abs_path.name
+        title = str(asset.get("title") or "").strip()
+        if title and "." not in Path(filename).name:
+            filename = f"{title[:200]}{abs_path.suffix or '.pdf'}"
+        out.append(
+            {
+                "filename": Path(filename).name[:240],
+                "content": content,
+                "maintype": maintype,
+                "subtype": subtype,
+            }
+        )
+    return out
+
 
 def _parse_offer_config(raw: str | None) -> dict[str, Any] | None:
     if not raw or not str(raw).strip():
@@ -178,12 +237,20 @@ class ExpoEmailService:
             "offer_block": ExpoEmailService._offer_block_html(booth, interested=interested),
         }
         smtp = ExpoEmailService._smtp_from(db)
+        attachments = _email_attachments(assets) if assets else []
+        if assets and not attachments:
+            logger.warning(
+                "expo_visitor_email_no_attachments lead=%s asset_count=%s (links only)",
+                lead.id,
+                len(assets),
+            )
         try:
             ok, err = TransactionalEmailService.send_templated_optional(
                 db,
                 template_key=VISITOR_TEMPLATE,
                 to_email=email,
                 variables=variables,
+                attachments=attachments or None,
                 from_email=smtp["from_email"],
                 from_name=smtp["from_name"],
                 smtp_username=smtp["smtp_username"],
@@ -191,6 +258,13 @@ class ExpoEmailService:
             )
             if not ok:
                 logger.warning("expo_visitor_email_failed lead=%s err=%s", lead.id, err)
+            else:
+                logger.info(
+                    "expo_visitor_email_sent lead=%s to=%s attachments=%s",
+                    lead.id,
+                    email,
+                    len(attachments),
+                )
             return bool(ok)
         except Exception:
             logger.exception("expo_visitor_email_exception lead=%s", lead.id)
