@@ -78,8 +78,12 @@ def test_support_content_seed_insert_missing_only():
             assert db.execute(select(FAQItem.id).where(FAQItem.slug == slug)).scalar_one_or_none() is not None
 
         assert db.execute(select(CannedReply.id).where(CannedReply.seed_key == "canned-interview-setup")).scalar_one_or_none()
+        assert db.execute(select(CannedReply.id).where(CannedReply.seed_key == "canned-shared-welcome-v2")).scalar_one_or_none()
+        assert db.execute(select(CannedReply.id).where(CannedReply.seed_key == "canned-interview-howto-v2")).scalar_one_or_none()
         assert db.execute(select(SupportKbArticle.id).where(SupportKbArticle.slug == "kb-interview-setup")).scalar_one_or_none()
         assert db.execute(select(SupportHelpLink.id).where(SupportHelpLink.seed_key == "hl-dash-faq")).scalar_one_or_none()
+        assert db.execute(select(SupportHelpLink.id).where(SupportHelpLink.seed_key == "hl-profile-v2")).scalar_one_or_none()
+        assert db.execute(select(SupportHelpLink.id).where(SupportHelpLink.seed_key == "hl-interview-results-v2")).scalar_one_or_none()
 
         # Optional products not seeded unless group exists
         assert "appointments" not in {g.key for g in PlatformProductVisibilityService.list_groups(db)} or True
@@ -89,9 +93,9 @@ def test_support_content_seed_insert_missing_only():
             assert optional_faq is None
 
         assert expected["faq_items"] >= 21  # 3×7 core categories
-        assert expected["canned_replies"] >= 14
+        assert expected["canned_replies"] >= 40  # core packs expanded with v2 keys
         assert expected["kb_articles"] >= 14
-        assert expected["help_links"] >= 16
+        assert expected["help_links"] >= 30
     finally:
         db.close()
 

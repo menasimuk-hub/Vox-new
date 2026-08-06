@@ -306,6 +306,61 @@ CANNED_CATEGORIES: list[dict[str, Any]] = [
                 "question": "Interview billing or outage",
                 "answer": f"Sorry you hit this. Please reply with the campaign name/ID and roughly when it happened. Meanwhile check usage on {DASH}/account/billing. We'll investigate and update this ticket.",
             },
+            {
+                "seed_key": "canned-interview-howto-v2",
+                "title": "Interview — how to launch (friendly)",
+                "question": "Launch interview campaign",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Happy to help you launch AI interviews.\n\n"
+                    f"1. Open {DASH}/interviews/new\n"
+                    "2. Add the role brief and upload candidates\n"
+                    "3. Generate the script, edit if needed, then Approve script\n"
+                    "4. Set the calling window and click Launch\n"
+                    f"5. Review scorecards under {DASH}/interviews/results\n\n"
+                    f"Full guide: {{{{help_link}}}} or {DASH}/account/support/faq\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-interview-results-v2",
+                "title": "Interview — results & export",
+                "question": "Where are interview results?",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Open Interviews → Results here: {DASH}/interviews/results\n\n"
+                    "You’ll find scorecards, audio and transcripts for each candidate. "
+                    f"If something is missing, reply with the campaign name and candidate phone/email and we’ll check ticket {{{{ticket_number}}}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-interview-billing-v2",
+                "title": "Interview — billing pointer",
+                "question": "Interview usage / charges",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Interview minutes and related usage show under {DASH}/account/usage and {DASH}/account/billing.\n\n"
+                    "If a charge looks wrong, reply with the invoice number or campaign name and the date — we’ll investigate on ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-interview-ask-details-v2",
+                "title": "Interview — need more details",
+                "question": "Need campaign details",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Thanks for contacting us about {{company_name}}.\n\n"
+                    "To investigate quickly, please reply with:\n"
+                    "• Campaign name\n"
+                    "• Approximate date/time (UK time if possible)\n"
+                    "• Candidate phone number (if call-related)\n"
+                    "• Screenshot of any error message\n\n"
+                    "We’ll update ticket {{ticket_number}} as soon as we have that.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
         ],
     },
     {
@@ -325,6 +380,54 @@ CANNED_CATEGORIES: list[dict[str, Any]] = [
                 "title": "Survey — delivery issues",
                 "question": "Messages not delivering",
                 "answer": f"Please share the survey/order reference. Common causes: template not approved, recipient opt-out, or profile health. You can also review results in {DASH}/surveys while we check our side.",
+            },
+            {
+                "seed_key": "canned-survey-howto-v2",
+                "title": "Survey — how to launch (friendly)",
+                "question": "Launch WhatsApp survey",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Here’s the quick path:\n"
+                    f"1. Open {DASH}/surveys/new and choose WhatsApp (or AI call if you need phone)\n"
+                    "2. Upload contacts with country codes\n"
+                    "3. Confirm your template is approved\n"
+                    "4. Approve the script if asked, then Launch\n"
+                    f"5. Review replies at {DASH}/surveys/results\n\n"
+                    f"Guide: {DASH}/account/support/faq\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-survey-results-v2",
+                "title": "Survey — results",
+                "question": "Where are survey replies?",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Survey replies and summaries are under {DASH}/surveys/results.\n\n"
+                    "If a send looks incomplete, reply with the survey name and send time on ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-survey-billing-v2",
+                "title": "Survey — billing pointer",
+                "question": "Survey credits / usage",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"WhatsApp and call survey usage appears on {DASH}/account/usage and {DASH}/account/billing.\n\n"
+                    "Share the invoice or campaign reference if you’d like us to double-check ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-survey-ask-details-v2",
+                "title": "Survey — need more details",
+                "question": "Need survey details",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Please reply with the survey/campaign name, template name (if known), and a sample recipient number so we can investigate ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
             },
         ],
     },
@@ -346,6 +449,55 @@ CANNED_CATEGORIES: list[dict[str, Any]] = [
                 "question": "Scans missing / billing",
                 "answer": f"Thanks — please send the location name and approximate scan times. Check {DASH}/feedback meanwhile. Billing questions: {DASH}/account/billing.",
             },
+            {
+                "seed_key": "canned-feedback-howto-v2",
+                "title": "Feedback — how to set up QR",
+                "question": "Create feedback location",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"To set up Customer Feedback:\n"
+                    f"1. Open {DASH}/feedback/new and add your location\n"
+                    "2. Choose the topics guests should rate\n"
+                    "3. Download/print the QR and place it in-venue\n"
+                    f"4. Track scores at {DASH}/feedback/results\n\n"
+                    f"You can edit questions later without reprinting the QR.\n\n"
+                    f"Guide: {DASH}/account/support/faq\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-feedback-results-v2",
+                "title": "Feedback — results & compare",
+                "question": "Where are feedback scores?",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Branch scores are at {DASH}/feedback/results. "
+                    f"Multi-location compare is at {DASH}/feedback/compare on eligible plans.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-feedback-billing-v2",
+                "title": "Feedback — billing pointer",
+                "question": "Feedback packages / billing",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Feedback plans and location limits are under {DASH}/account/packages. "
+                    f"Invoices and wallet: {DASH}/account/billing.\n\n"
+                    "Reply with the invoice number if you need us to review ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-feedback-ask-details-v2",
+                "title": "Feedback — need more details",
+                "question": "Need location details",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Please share the location/branch name, when the scan happened, and whether the printed QR was downloaded from the dashboard. We’ll continue on ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
         ],
     },
     {
@@ -365,6 +517,50 @@ CANNED_CATEGORIES: list[dict[str, Any]] = [
                 "title": "Expo — escalation",
                 "question": "Leads missing",
                 "answer": f"Please share the Expo campaign name and when visitors submitted. Confirm the campaign is published in {DASH}/expo — we'll dig in from there.",
+            },
+            {
+                "seed_key": "canned-expo-howto-v2",
+                "title": "Expo — how to create a booth",
+                "question": "Create Expo booth",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"1. Open {DASH}/expo/new\n"
+                    "2. Enter event details, questions and branding\n"
+                    "3. Publish and print/share the QR or link\n"
+                    f"4. Review leads at {DASH}/expo/leads\n\n"
+                    f"Overview: {PUBLIC}/expo · Docs: {DASH}/account/support/faq\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-expo-results-v2",
+                "title": "Expo — leads & export",
+                "question": "Where are Expo leads?",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Leads are listed under {DASH}/expo/leads — you can filter, mark follow-up and export from there.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-expo-billing-v2",
+                "title": "Expo — billing pointer",
+                "question": "Expo packages",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Expo capacity and packages are under {DASH}/account/packages. Billing overview: {DASH}/account/billing.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-expo-ask-details-v2",
+                "title": "Expo — need more details",
+                "question": "Need Expo details",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Please reply with the Expo event/booth name, whether it was published, and when visitors scanned. We’ll update ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
             },
         ],
     },
@@ -386,6 +582,50 @@ CANNED_CATEGORIES: list[dict[str, Any]] = [
                 "question": "Leads / packages",
                 "answer": f"Please share the representative name and when the scan happened. Manage packages under Account → Smart Card packages; billing is on {DASH}/account/billing.",
             },
+            {
+                "seed_key": "canned-smart-card-howto-v2",
+                "title": "Smart Card — how to create",
+                "question": "Create Smart Card QR",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"1. Open {DASH}/smart-card or {DASH}/smart-card/new\n"
+                    "2. Complete company / questions setup\n"
+                    "3. Add representatives and download their QRs\n"
+                    f"4. Review leads at {DASH}/smart-card/leads\n\n"
+                    f"Guide: {DASH}/account/support/faq\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-smart-card-results-v2",
+                "title": "Smart Card — leads",
+                "question": "Where are Smart Card leads?",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Open {DASH}/smart-card/leads to filter by representative, follow up and export.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-smart-card-billing-v2",
+                "title": "Smart Card — billing pointer",
+                "question": "Smart Card packages",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Packages and capacity: {DASH}/account/packages · Billing: {DASH}/account/billing.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-smart-card-ask-details-v2",
+                "title": "Smart Card — need more details",
+                "question": "Need rep / scan details",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Please share the representative name, approximate scan time, and whether the QR was downloaded from the dashboard. We’ll continue on ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
         ],
     },
     {
@@ -406,6 +646,43 @@ CANNED_CATEGORIES: list[dict[str, Any]] = [
                 "question": "Delivery / billing",
                 "answer": f"Please share the campaign ID and send window. Check delivery in {DASH}/campaigns and usage on {DASH}/account/billing while we investigate.",
             },
+            {
+                "seed_key": "canned-campaigns-howto-v2",
+                "title": "Campaigns — how to send",
+                "question": "Send broadcast campaign",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Broadcasts use approved WhatsApp templates from {DASH}/campaigns.\n\n"
+                    "1. Choose an approved template\n"
+                    "2. Upload consented contacts with country codes\n"
+                    "3. Confirm purpose / consent for marketing sends\n"
+                    f"4. Send from {DASH}/campaigns/send when available and monitor delivery\n\n"
+                    "If a screen looks incomplete, tell us what you see — some Campaign steps are still rolling out.\n\n"
+                    f"Docs: {DASH}/account/support/faq\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-campaigns-billing-v2",
+                "title": "Campaigns — billing pointer",
+                "question": "Campaign usage",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Usage and invoices: {DASH}/account/usage · {DASH}/account/billing. "
+                    "Reply with the campaign name and send window for ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-campaigns-ask-details-v2",
+                "title": "Campaigns — need more details",
+                "question": "Need campaign details",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Please share the campaign name, template name, and send date/time. We’ll investigate ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
         ],
     },
     {
@@ -425,6 +702,169 @@ CANNED_CATEGORIES: list[dict[str, Any]] = [
                 "title": "Help centre pointers",
                 "question": "Where is documentation?",
                 "answer": f"Dashboard docs: {DASH}/account/support/faq · Public help: {PUBLIC}/help · Contact form: {PUBLIC}/contact",
+            },
+            {
+                "seed_key": "canned-shared-welcome-v2",
+                "title": "Welcome",
+                "question": "Welcome new user",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Welcome to VoxBulk for {{company_name}}.\n\n"
+                    f"A good starting point is the in-app Help Centre: {DASH}/account/support/faq\n"
+                    f"Home overview: {DASH}/\n"
+                    f"If you need us, open a ticket anytime: {DASH}/account/support/tickets\n\n"
+                    "We’re glad you’re here.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-login-v2",
+                "title": "Login help",
+                "question": "Cannot sign in",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Sorry you’re having trouble signing in.\n\n"
+                    f"1. Open the login page and try Forgot password if needed\n"
+                    "2. Check you’re using the email invited to the organisation\n"
+                    "3. If you belong to more than one organisation, pick the correct one after sign-in\n\n"
+                    "Reply with the exact error message you see and we’ll continue on ticket {{ticket_number}}.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-password-v2",
+                "title": "Password reset",
+                "question": "Reset password",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"If you can still sign in: Settings → Profile → Change password ({DASH}/settings/profile).\n\n"
+                    "If you cannot sign in: use Forgot password on the login page and follow the email link.\n\n"
+                    "New passwords must be at least 8 characters.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-profile-v2",
+                "title": "Profile & company details",
+                "question": "Update profile / logo",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Organisation name, logo and contact details are under {DASH}/settings/profile.\n\n"
+                    "Owners and managers can edit; other roles can usually view only.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-team-v2",
+                "title": "Team invites",
+                "question": "Invite teammate",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Owners and managers invite teammates at {DASH}/settings/team.\n\n"
+                    "Choose a role (Manager, Member, or Accountant), send the invite, and ask them to check their email.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-services-v2",
+                "title": "Missing module in sidebar",
+                "question": "Module missing",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"If a product is missing from the sidebar, an Owner or Manager can check Settings → Services ({DASH}/settings/services).\n\n"
+                    "Also confirm the teammate’s role under Team — Accountants only see billing.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-optout-v2",
+                "title": "Opt-out list",
+                "question": "Do not contact / STOP",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"Numbers that must never be messaged or called are managed at {DASH}/settings/opt-out.\n\n"
+                    "STOP replies on WhatsApp are added automatically. Please don’t re-add those numbers to campaigns.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-ticket-open-v2",
+                "title": "Ticket received",
+                "question": "Acknowledge ticket",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Thanks for contacting VoxBulk support. We’ve received ticket {{ticket_number}} and will update you here.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-ticket-close-v2",
+                "title": "Closing ticket",
+                "question": "Close ticket",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "I’m closing ticket {{ticket_number}} now that this looks resolved. "
+                    f"If anything else comes up, open a new ticket from {DASH}/account/support/tickets or reply here within a few days and we can reopen.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-followup-v2",
+                "title": "Follow-up",
+                "question": "Checking in",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Just checking in on ticket {{ticket_number}} — did the steps we shared resolve this for {{company_name}}?\n\n"
+                    "Reply anytime and we’ll keep helping.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-thanks-v2",
+                "title": "Thank you",
+                "question": "Thanks",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "You’re very welcome — glad we could help. Reach us anytime via "
+                    f"{DASH}/account/support/tickets.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-feature-v2",
+                "title": "Feature request",
+                "question": "Feature request ack",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Thanks for the suggestion for {{company_name}}. We’ve logged it against ticket {{ticket_number}} and shared it with the product team.\n\n"
+                    "We can’t promise a timeline, but we read every request.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-bug-v2",
+                "title": "Bug report ack",
+                "question": "Bug report received",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    "Sorry you hit this. We’ve logged ticket {{ticket_number}} as a bug report.\n\n"
+                    "Please reply with: what you expected, what happened instead, the page URL, and a screenshot if you have one. That helps us reproduce it quickly.\n\n"
+                    "— {{support_agent}}"
+                ),
+            },
+            {
+                "seed_key": "canned-shared-nav-v2",
+                "title": "Navigation help",
+                "question": "Where do I find…?",
+                "answer": (
+                    "Hi {{user_name}},\n\n"
+                    f"The in-app Help Centre maps every core module: {DASH}/account/support/faq\n\n"
+                    f"Home: {DASH}/\n"
+                    f"Settings: {DASH}/settings/profile\n"
+                    f"Billing: {DASH}/account/billing\n\n"
+                    "Tell us which page you’re looking for and we’ll point you there.\n\n"
+                    "— {{support_agent}}"
+                ),
             },
         ],
     },
@@ -662,17 +1102,39 @@ HELP_LINKS: list[dict[str, Any]] = [
     {"seed_key": "hl-public-help", "title": "Public help centre", "url": f"{PUBLIC}/help", "category": "Support", "linked_service": "shared", "sort_order": 30, "description": "voxbulk.com/help"},
     {"seed_key": "hl-contact", "title": "Contact VoxBulk", "url": f"{PUBLIC}/contact", "category": "Support", "linked_service": "shared", "sort_order": 40, "description": "Public contact form"},
     {"seed_key": "hl-billing", "title": "Account billing", "url": f"{DASH}/account/billing", "category": "Billing", "linked_service": "shared", "sort_order": 50, "description": "Invoices, wallet, Direct Debit"},
+    {"seed_key": "hl-support-hub-v2", "title": "Support hub", "url": f"{DASH}/account/support", "category": "Support", "linked_service": "shared", "sort_order": 15, "description": "Docs, chat and tickets hub"},
+    {"seed_key": "hl-profile-v2", "title": "My profile", "url": f"{DASH}/settings/profile", "category": "Account", "linked_service": "shared", "sort_order": 42, "description": "Organisation profile and password"},
+    {"seed_key": "hl-services-v2", "title": "Settings → Services", "url": f"{DASH}/settings/services", "category": "Account", "linked_service": "shared", "sort_order": 43, "description": "Show or hide sidebar modules"},
+    {"seed_key": "hl-team-v2", "title": "Team members", "url": f"{DASH}/settings/team", "category": "Account", "linked_service": "shared", "sort_order": 44, "description": "Invite teammates and roles"},
+    {"seed_key": "hl-optout-v2", "title": "Opt-out list", "url": f"{DASH}/settings/opt-out", "category": "Account", "linked_service": "shared", "sort_order": 45, "description": "Do-not-contact numbers"},
+    {"seed_key": "hl-integrations-v2", "title": "Integrations", "url": f"{DASH}/settings/integrations", "category": "Account", "linked_service": "shared", "sort_order": 46, "description": "Booking providers and CRM"},
+    {"seed_key": "hl-packages-v2", "title": "Packages & pricing", "url": f"{DASH}/account/packages", "category": "Billing", "linked_service": "shared", "sort_order": 51, "description": "Plans and product packages"},
+    {"seed_key": "hl-usage-v2", "title": "Usage & charges", "url": f"{DASH}/account/usage", "category": "Billing", "linked_service": "shared", "sort_order": 52, "description": "Line-by-line usage"},
+    {"seed_key": "hl-dashboard-home-v2", "title": "Dashboard home", "url": f"{DASH}/", "category": "Account", "linked_service": "shared", "sort_order": 5, "description": "Overview KPIs"},
     {"seed_key": "hl-interview", "title": "AI Interviews", "url": f"{DASH}/interviews", "category": "Products", "linked_service": "interview", "sort_order": 60, "description": "Interview campaigns"},
     {"seed_key": "hl-recruitment-public", "title": "Recruitment product page", "url": f"{PUBLIC}/recruitment", "category": "Products", "linked_service": "interview", "sort_order": 65, "description": "Public recruitment page"},
+    {"seed_key": "hl-interview-new-v2", "title": "New interview campaign", "url": f"{DASH}/interviews/new", "category": "Products", "linked_service": "interview", "sort_order": 61, "description": "Create AI interview"},
+    {"seed_key": "hl-interview-results-v2", "title": "Interview results", "url": f"{DASH}/interviews/results", "category": "Products", "linked_service": "interview", "sort_order": 62, "description": "Scorecards and recordings"},
     {"seed_key": "hl-survey", "title": "WhatsApp Surveys", "url": f"{DASH}/surveys", "category": "Products", "linked_service": "survey", "sort_order": 70, "description": "Survey workspace"},
     {"seed_key": "hl-survey-public", "title": "Surveys product page", "url": f"{PUBLIC}/surveys", "category": "Products", "linked_service": "survey", "sort_order": 75, "description": "Public surveys page"},
+    {"seed_key": "hl-survey-new-v2", "title": "New survey", "url": f"{DASH}/surveys/new", "category": "Products", "linked_service": "survey", "sort_order": 71, "description": "Create WhatsApp or call survey"},
+    {"seed_key": "hl-survey-results-v2", "title": "Survey results", "url": f"{DASH}/surveys/results", "category": "Products", "linked_service": "survey", "sort_order": 72, "description": "Replies and summaries"},
     {"seed_key": "hl-feedback", "title": "Customer Feedback", "url": f"{DASH}/feedback", "category": "Products", "linked_service": "customer_feedback", "sort_order": 80, "description": "Feedback QR workspace"},
     {"seed_key": "hl-feedback-public", "title": "Feedback product page", "url": f"{PUBLIC}/feedback", "category": "Products", "linked_service": "customer_feedback", "sort_order": 85, "description": "Public feedback page"},
+    {"seed_key": "hl-feedback-new-v2", "title": "New feedback location", "url": f"{DASH}/feedback/new", "category": "Products", "linked_service": "customer_feedback", "sort_order": 81, "description": "Create branch QR"},
+    {"seed_key": "hl-feedback-results-v2", "title": "Feedback results", "url": f"{DASH}/feedback/results", "category": "Products", "linked_service": "customer_feedback", "sort_order": 82, "description": "Scores by location"},
+    {"seed_key": "hl-feedback-compare-v2", "title": "Compare feedback locations", "url": f"{DASH}/feedback/compare", "category": "Products", "linked_service": "customer_feedback", "sort_order": 83, "description": "Multi-branch compare"},
     {"seed_key": "hl-expo", "title": "Expo", "url": f"{DASH}/expo", "category": "Products", "linked_service": "expo", "sort_order": 90, "description": "Expo campaigns"},
     {"seed_key": "hl-expo-public", "title": "Expo product page", "url": f"{PUBLIC}/expo", "category": "Products", "linked_service": "expo", "sort_order": 95, "description": "Public Expo page"},
+    {"seed_key": "hl-expo-new-v2", "title": "New Expo booth", "url": f"{DASH}/expo/new", "category": "Products", "linked_service": "expo", "sort_order": 91, "description": "Create event booth"},
+    {"seed_key": "hl-expo-leads-v2", "title": "Expo leads", "url": f"{DASH}/expo/leads", "category": "Products", "linked_service": "expo", "sort_order": 92, "description": "Event lead list"},
     {"seed_key": "hl-smart-card", "title": "Smart Card", "url": f"{DASH}/smart-card", "category": "Products", "linked_service": "smart_card", "sort_order": 100, "description": "Smart Card workspace"},
     {"seed_key": "hl-smart-card-public", "title": "Smart Card product page", "url": f"{PUBLIC}/smart-card", "category": "Products", "linked_service": "smart_card", "sort_order": 105, "description": "Public Smart Card page"},
+    {"seed_key": "hl-smart-card-new-v2", "title": "New Smart Card", "url": f"{DASH}/smart-card/new", "category": "Products", "linked_service": "smart_card", "sort_order": 101, "description": "Create Smart Card QR"},
+    {"seed_key": "hl-smart-card-leads-v2", "title": "Smart Card leads", "url": f"{DASH}/smart-card/leads", "category": "Products", "linked_service": "smart_card", "sort_order": 102, "description": "Leads by representative"},
     {"seed_key": "hl-campaigns", "title": "Campaigns", "url": f"{DASH}/campaigns", "category": "Products", "linked_service": "campaigns", "sort_order": 110, "description": "Broadcast campaigns"},
+    {"seed_key": "hl-campaigns-new-v2", "title": "New campaign", "url": f"{DASH}/campaigns/new", "category": "Products", "linked_service": "campaigns", "sort_order": 111, "description": "Create broadcast template"},
+    {"seed_key": "hl-campaigns-send-v2", "title": "Send campaign", "url": f"{DASH}/campaigns/send", "category": "Products", "linked_service": "campaigns", "sort_order": 112, "description": "Send broadcast"},
     {"seed_key": "hl-appointments", "title": "Appointments", "url": f"{DASH}/appointments", "category": "Products", "linked_service": "appointments", "optional": True, "sort_order": 120, "description": "Appointment confirmations"},
     {"seed_key": "hl-recovery", "title": "Recovery", "url": f"{DASH}/recovery", "category": "Products", "linked_service": "recovery", "optional": True, "sort_order": 130, "description": "Recovery queue"},
     {"seed_key": "hl-follow-up", "title": "Follow-up", "url": f"{DASH}/follow-up", "category": "Products", "linked_service": "follow_up", "optional": True, "sort_order": 140, "description": "Follow-up reminders"},
