@@ -117,9 +117,25 @@ function SmartCardNewWizard() {
   const [description, setDescription] = React.useState("");
   const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
   const [rep, setRep] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
+  const [repId, setRepId] = React.useState<string | null>(null);
   const [repPhotoFile, setRepPhotoFile] = React.useState<File | null>(null);
   const [repPhotoPreview, setRepPhotoPreview] = React.useState<string | null>(null);
+  const [remoteRepPhoto, setRemoteRepPhoto] = React.useState<string | null>(null);
+  const [repHydrated, setRepHydrated] = React.useState(false);
   const [notifyMobile, setNotifyMobile] = React.useState("");
+  const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
+  const [selectedQKeys, setSelectedQKeys] = React.useState<string[]>([...DEFAULT_Q_KEYS]);
+  const [contactCapture, setContactCapture] = React.useState<"offer_both" | "manual_only" | "card_only">(
+    "offer_both",
+  );
+  const [offerEnabled, setOfferEnabled] = React.useState(false);
+  const [offerTitle, setOfferTitle] = React.useState("");
+  const [offerDescription, setOfferDescription] = React.useState("");
+  const [draftRep, setDraftRep] = React.useState<DraftRep | null>(null);
+  const [planId, setPlanId] = React.useState("");
+  const [seatQty, setSeatQty] = React.useState(1);
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
 
   React.useEffect(() => {
     if (!repPhotoFile) {
@@ -131,21 +147,97 @@ function SmartCardNewWizard() {
     return () => URL.revokeObjectURL(url);
   }, [repPhotoFile]);
 
-  const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
-  const [selectedQKeys, setSelectedQKeys] = React.useState<string[]>([...DEFAULT_Q_KEYS]);
-  const [contactCapture, setContactCapture] = React.useState<"offer_both" | "manual_only" | "card_only">(
-    "offer_both",
-  );
+  type ExistingRep = {
+    id: string;
+    name?: string;
+    email?: string | null;
+    mobile?: string | null;
+    landline?: string | null;
+    extension?: string | null;
+    website?: string | null;
+    status?: string;
+    photo_url?: string | null;
+    social_links?: RepresentativeFormValue["social_links"] | null;
+    extra?: { job_title?: string; title?: string; role?: string } | null;
+    qr_token?: string;
+    qr_image_url?: string;
+    web_url?: string;
+  };
 
-  const [offerEnabled, setOfferEnabled] = React.useState(false);
-  const [offerTitle, setOfferTitle] = React.useState("");
-  const [offerDescription, setOfferDescription] = React.useState("");
+  const repsQ = useQuery({
+    queryKey: ["smart-card", "reps", ""],
+    queryFn: () => apiFetch<{ ok: boolean; items: ExistingRep[] }>("/smart-card/representatives"),
+  });
 
-  const [draftRep, setDraftRep] = React.useState<DraftRep | null>(null);
-  const [planId, setPlanId] = React.useState("");
-  const [seatQty, setSeatQty] = React.useState(1);
-  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
-  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
+  React.useEffect(() => {
+    if (repHydrated) return;
+    const items = (repsQ.data?.items || []).filter((r) => String(r.status || "") !== "archived");
+    if (!items.length) {
+      if (repsQ.isFetched) setRepHydrated(true);
+      return;
+    }
+    const r = items[0];
+    const social = r.social_links || {};
+    const extra = r.extra || {};
+    setRepId(r.id);
+    setRep({
+      name: r.name || "",
+      job_title: String(extra.job_title || extra.title || extra.role || ""),
+      email: r.email || "",
+      mobile: r.mobile || "",
+      landline: r.landline || "",
+      extension: r.extension || "",
+      website: r.website || "",
+      social_links: {
+        x: social.x || "",
+        instagram: social.instagram || "",
+        facebook: social.facebook || "",
+        tiktok: social.tiktok || "",
+        linkedin: social.linkedin || "",
+      },
+    });
+    if (r.mobile) setNotifyMobile(String(r.mobile));
+    if (r.qr_image_url || r.web_url || r.qr_token) {
+      setDraftRep({
+        id: r.id,
+        name: r.name || "",
+        email: r.email,
+        mobile: r.mobile,
+        qr_image_url: r.qr_image_url,
+        web_url: r.web_url,
+        qr_token: r.qr_token,
+      });
+    }
+    setRepHydrated(true);
+  }, [repsQ.data, repsQ.isFetched, repHydrated]);
+
+  React.useEffect(() => {
+    let revoked: string | null = null;
+    let cancelled = false;
+    setRemoteRepPhoto(null);
+    if (repPhotoFile || !repId) return;
+    const item = (repsQ.data?.items || []).find((r) => r.id === repId);
+    const path = item?.photo_url;
+    if (!path) return;
+    (async () => {
+      try {
+        const base = getApiBaseUrl().replace(/\/+$/, "");
+        const res = await fetch(`${base}${path}`, { headers: buildAuthHeaders() });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        const url = URL.createObjectURL(blob);
+        revoked = url;
+        setRemoteRepPhoto(url);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [repId, repsQ.data, repPhotoFile]);
 
   React.useEffect(() => {
     const org = orgQ.data;
@@ -233,6 +325,7 @@ function SmartCardNewWizard() {
       })),
     })),
     representative: {
+      ...(repId ? { id: repId } : {}),
       name: rep.name.trim(),
       email: rep.email.trim() || null,
       mobile: (rep.mobile || notifyMobile).trim() || null,
@@ -283,6 +376,7 @@ function SmartCardNewWizard() {
           body: JSON.stringify(buildPayload()),
         });
         setDraftRep(res.representative);
+        if (res.representative?.id) setRepId(res.representative.id);
         if (repPhotoFile && res.representative?.id) {
           try {
             await uploadRepPhoto(res.representative.id, repPhotoFile);
@@ -385,8 +479,12 @@ function SmartCardNewWizard() {
     <div className="flex w-full flex-col gap-6">
       <PageHeader
         eyebrow="Smart Card QR"
-        title="Create Smart Card QR"
-        description="Set up your company, qualifying questions, and first representative QR — then choose seats."
+        title={repId ? "Edit Smart Card setup" : "Create Smart Card QR"}
+        description={
+          repId
+            ? "Your saved representative and company details are loaded below. Change anything, then continue — empty fields will not wipe existing data."
+            : "Set up your company, qualifying questions, and first representative QR — then choose seats."
+        }
       />
 
       <Stepper steps={STEPS} current={step} onStepClick={(n) => n <= step && setStep(n as Step)} />
@@ -461,10 +559,12 @@ function SmartCardNewWizard() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <User className="size-4" /> First representative
+                  <User className="size-4" /> {repId ? "Representative" : "First representative"}
                 </CardTitle>
                 <CardDescription>
-                  Required for Preview — create one QR so you can test the scan → WhatsApp/web questionnaire.
+                  {repId
+                    ? "Loaded from your saved Smart Card. Edit here or use Saved QR codes → Edit for full QR options."
+                    : "Required for Preview — create one QR so you can test the scan → WhatsApp/web questionnaire."}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -475,7 +575,7 @@ function SmartCardNewWizard() {
                     setNotifyMobile(next.mobile);
                   }}
                   mobileHint="Mobile (hot-lead WhatsApp)"
-                  photoPreviewUrl={repPhotoPreview}
+                  photoPreviewUrl={repPhotoPreview || remoteRepPhoto}
                   photoFileName={repPhotoFile?.name}
                   onPhotoChange={setRepPhotoFile}
                 />
