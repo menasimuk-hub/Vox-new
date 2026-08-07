@@ -9,6 +9,7 @@ export const Route = createFileRoute("/expo/$token")({
     meta: [
       { title: "Expo stand — VoxBulk" },
       { name: "description", content: "Scan choice: WhatsApp or web. Under a minute." },
+      { name: "robots", content: "noindex,nofollow" },
     ],
   }),
   component: ExpoRoute,

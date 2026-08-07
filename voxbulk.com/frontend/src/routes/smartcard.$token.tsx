@@ -12,6 +12,7 @@ export const Route = createFileRoute("/smartcard/$token")({
         content:
           "Scan-to-open digital business card: save contact, WhatsApp, call, email, website and directions in one tap.",
       },
+      { name: "robots", content: "noindex,nofollow" },
     ],
   }),
   component: PublicSmartCardAliasPage,

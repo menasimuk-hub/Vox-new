@@ -6,6 +6,8 @@ const FALLBACK = `User-agent: *
 Allow: /
 Disallow: /onboarding
 Disallow: /signin
+# Alias + theme-preview scan URLs (marketing /expo and /smart-card stay allowed)
+Disallow: /smartcard/
 
 Sitemap: https://voxbulk.com/sitemap.xml
 `;

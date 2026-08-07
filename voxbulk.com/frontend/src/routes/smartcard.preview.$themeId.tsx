@@ -19,7 +19,7 @@ export const Route = createFileRoute("/smartcard/preview/$themeId")({
       meta: [
         { title: `${tokens.label} Smart Card preview — VoxBulk` },
         { name: "description", content: `Preview the ${tokens.label} Smart Card theme.` },
-        { name: "robots", content: "noindex" },
+        { name: "robots", content: "noindex,nofollow" },
       ],
     };
   },
