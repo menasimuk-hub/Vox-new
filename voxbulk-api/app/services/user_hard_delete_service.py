@@ -353,10 +353,31 @@ def _delete_service_orders_for_user(db: Session, user_id: str) -> int:
 
 
 def _delete_sales_rep_for_user(db: Session, user_id: str) -> int:
+    from app.models.sales_mail import SalesMailContact, SalesMailLabel, SalesMailMessage
+    from app.models.sales_rep import SalesPayoutInvoice
+
     rep = db.execute(select(SalesRep).where(SalesRep.user_id == user_id)).scalar_one_or_none()
     if rep is None:
         return 0
+    cust_ids = list(
+        db.execute(select(SalesCustomer.id).where(SalesCustomer.sales_rep_id == rep.id)).scalars().all()
+    )
+    if cust_ids:
+        db.execute(
+            update(SalesCommission)
+            .where(SalesCommission.sales_customer_id.in_(cust_ids))
+            .values(sales_customer_id=None)
+        )
+        db.execute(
+            update(SalesMailContact)
+            .where(SalesMailContact.sales_customer_id.in_(cust_ids))
+            .values(sales_customer_id=None)
+        )
     db.execute(delete(SalesCommission).where(SalesCommission.sales_rep_id == rep.id))
+    db.execute(delete(SalesPayoutInvoice).where(SalesPayoutInvoice.sales_rep_id == rep.id))
+    db.execute(delete(SalesMailMessage).where(SalesMailMessage.sales_rep_id == rep.id))
+    db.execute(delete(SalesMailContact).where(SalesMailContact.sales_rep_id == rep.id))
+    db.execute(delete(SalesMailLabel).where(SalesMailLabel.sales_rep_id == rep.id))
     db.execute(delete(SalesCustomer).where(SalesCustomer.sales_rep_id == rep.id))
     db.execute(delete(SalesRep).where(SalesRep.id == rep.id))
     return 1
@@ -364,6 +385,8 @@ def _delete_sales_rep_for_user(db: Session, user_id: str) -> int:
 
 def _cleanup_email_residuals(db: Session, email: str) -> dict[str, int]:
     """Remove CRM/invite rows that survive by email after the user/org rows are gone."""
+    from app.models.sales_mail import SalesMailContact
+
     needle = str(email or "").strip().lower()
     if not needle:
         return {"invites_deleted": 0, "sales_customers_deleted": 0, "promo_redemptions_decremented": 0}
@@ -383,6 +406,11 @@ def _cleanup_email_residuals(db: Session, email: str) -> dict[str, int]:
         db.execute(
             update(SalesCommission)
             .where(SalesCommission.sales_customer_id.in_(cust_ids))
+            .values(sales_customer_id=None)
+        )
+        db.execute(
+            update(SalesMailContact)
+            .where(SalesMailContact.sales_customer_id.in_(cust_ids))
             .values(sales_customer_id=None)
         )
         db.execute(delete(SalesCustomer).where(SalesCustomer.id.in_(cust_ids)))
@@ -531,6 +559,9 @@ def _purge_expo_for_org(db: Session, org_id: str) -> dict[str, int]:
 
 
 def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_service_orders: bool) -> dict[str, int]:
+    from app.models.org_package_assignment import OrgPackageAssignment
+    from app.models.promo_offer import PromoPendingDiscount
+
     order_count = int(
         db.execute(select(func.count()).select_from(ServiceOrder).where(ServiceOrder.org_id == org_id)).scalar_one() or 0
     )
@@ -602,6 +633,8 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
         .values(org_id=None)
     )
     db.execute(delete(PromoRedemption).where(PromoRedemption.org_id == org_id))
+    db.execute(delete(PromoPendingDiscount).where(PromoPendingDiscount.org_id == org_id))
+    db.execute(delete(OrgPackageAssignment).where(OrgPackageAssignment.org_id == org_id))
 
     expo_purged = _purge_expo_for_org(db, org_id)
     smart_card_purged = _purge_smart_card_for_org(db, org_id)

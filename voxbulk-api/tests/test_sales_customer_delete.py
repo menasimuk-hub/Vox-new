@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
 from app.models.organisation import Organisation
@@ -13,12 +15,13 @@ from sqlalchemy import select
 
 
 def test_delete_customer_unlinks_commission_and_mail_contact():
+    suffix = uuid.uuid4().hex[:8]
     with get_sessionmaker()() as db:
-        org = Organisation(name="Sales Delete Cust Org")
+        org = Organisation(name=f"Sales Delete Cust Org {suffix}")
         db.add(org)
         db.flush()
         user = User(
-            email="rep-delete-cust@example.com",
+            email=f"rep-delete-cust-{suffix}@example.com",
             password_hash=hash_password("pass1234"),
             is_active=True,
         )
@@ -27,7 +30,7 @@ def test_delete_customer_unlinks_commission_and_mail_contact():
         rep = SalesRep(
             user_id=user.id,
             name="Rep Delete Test",
-            promo_code="DELCUST01",
+            promo_code=f"DEL{suffix.upper()}",
             mobile="+447700900111",
         )
         db.add(rep)
@@ -35,7 +38,7 @@ def test_delete_customer_unlinks_commission_and_mail_contact():
         cust = SalesCustomer(
             sales_rep_id=rep.id,
             full_name="Lead To Delete",
-            email="lead-delete@example.com",
+            email=f"lead-delete-{suffix}@example.com",
             mobile="+447700900222",
             status="lead",
         )
@@ -56,7 +59,7 @@ def test_delete_customer_unlinks_commission_and_mail_contact():
             SalesMailContact(
                 sales_rep_id=rep.id,
                 sales_customer_id=cust.id,
-                email="lead-delete@example.com",
+                email=f"lead-delete-{suffix}@example.com",
                 name="Lead To Delete",
             )
         )
