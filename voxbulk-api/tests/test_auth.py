@@ -63,6 +63,27 @@ def test_register_creates_org_user_and_returns_token(app_client):
     assert r2.status_code == 200
 
 
+def test_register_does_not_auto_assign_starter_plan(app_client):
+    from app.core.database import get_sessionmaker
+    from app.models.subscription import Subscription
+    from sqlalchemy import select
+
+    r = app_client.post(
+        "/auth/register",
+        json={
+            "email": "noplan@example.com",
+            "password": "pass1234",
+            "organisation_name": "No Plan Org",
+        },
+    )
+    assert r.status_code == 200
+    org_id = r.json()["org_id"]
+
+    with get_sessionmaker()() as db:
+        subs = list(db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalars().all())
+    assert subs == []
+
+
 def test_register_can_join_existing_org_by_org_id(app_client):
     from app.core.database import get_sessionmaker
     from app.models.organisation import Organisation

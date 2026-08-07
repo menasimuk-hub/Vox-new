@@ -43,6 +43,7 @@ class EnabledServicesUpdate(BaseModel):
     customer_feedback: bool | None = None
     feedback_campaigns: bool | None = None
     expo: bool | None = None
+    smart_card: bool | None = None
     recovery: bool | None = None
     follow_up: bool | None = None
     campaigns: bool | None = None

@@ -78,6 +78,38 @@ from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.models.user import User
 from app.models.wallet_transaction import WalletTransaction
 from app.models.whatsapp_log import WhatsAppLog
+from app.models.expo import (
+    ExpoBooth,
+    ExpoBoothAsset,
+    ExpoBoothCategory,
+    ExpoBoothProduct,
+    ExpoExhibition,
+    ExpoLead,
+    ExpoLibraryAsset,
+    ExpoLibraryCategory,
+    ExpoLibraryProduct,
+    ExpoOrgProfile,
+    ExpoResponse,
+    ExpoSession,
+    ExpoVisitorIdentity,
+    ExpoVisitorSummarySend,
+    ExpoVoiceNoteJob,
+)
+from app.models.expo_signup_trial import ExpoCompanyDomainClaim, ExpoSignupEntitlement
+from app.models.smart_card import (
+    SmartCardAsset,
+    SmartCardCategory,
+    SmartCardChangeRequest,
+    SmartCardCompany,
+    SmartCardLead,
+    SmartCardProduct,
+    SmartCardRenewalReminderSend,
+    SmartCardRepresentative,
+    SmartCardRepresentativeProduct,
+    SmartCardResponse,
+    SmartCardSession,
+    SmartCardVoiceNoteJob,
+)
 
 HARD_DELETE_CONFIRM = "HARD_DELETE"
 
@@ -114,6 +146,8 @@ def purge_billing_for_org(db: Session, org_id: str) -> dict[str, int]:
         .where(Subscription.org_id == org_id)
         .values(cancellation_support_ticket_id=None)
     )
+    # Smart Card renewal rows FK to subscriptions — delete before subscriptions.
+    db.execute(delete(SmartCardRenewalReminderSend).where(SmartCardRenewalReminderSend.org_id == org_id))
     for model, col in (
         (BillingRefundReview, BillingRefundReview.org_id),
         (FeedbackUsagePeriod, FeedbackUsagePeriod.org_id),
@@ -224,6 +258,28 @@ def detach_user_references(db: Session, user_id: str) -> dict[str, int]:
     db.execute(delete(AccountDeletionRequest).where(AccountDeletionRequest.requested_by_user_id == user_id))
     db.execute(delete(Notification).where(Notification.user_id == user_id))
     db.execute(delete(OnboardingRequest).where(OnboardingRequest.user_id == user_id))
+
+    db.execute(
+        update(ExpoCompanyDomainClaim)
+        .where(ExpoCompanyDomainClaim.user_id == user_id)
+        .values(user_id=None)
+    )
+    db.execute(
+        update(SmartCardRepresentative)
+        .where(SmartCardRepresentative.linked_user_id == user_id)
+        .values(linked_user_id=None)
+    )
+    db.execute(
+        update(SmartCardRepresentative)
+        .where(SmartCardRepresentative.created_by_user_id == user_id)
+        .values(created_by_user_id=None)
+    )
+    db.execute(
+        update(SmartCardChangeRequest)
+        .where(SmartCardChangeRequest.resolved_by_user_id == user_id)
+        .values(resolved_by_user_id=None)
+    )
+    db.execute(delete(SmartCardChangeRequest).where(SmartCardChangeRequest.requested_by_user_id == user_id))
 
     if ticket_ids:
         msg_ids = list(
@@ -353,6 +409,127 @@ def _delete_promo_redemptions_for_user(db: Session, user_id: str) -> int:
     return len(rows)
 
 
+def _purge_smart_card_for_org(db: Session, org_id: str) -> dict[str, int]:
+    """Delete Smart Card QR rows that FK to organisations (order respects child FKs)."""
+    session_ids = list(
+        db.execute(select(SmartCardSession.id).where(SmartCardSession.org_id == org_id)).scalars().all()
+    )
+    response_n = 0
+    if session_ids:
+        response_n = db.execute(
+            delete(SmartCardResponse).where(SmartCardResponse.session_id.in_(session_ids))
+        ).rowcount or 0
+    response_n += db.execute(delete(SmartCardResponse).where(SmartCardResponse.org_id == org_id)).rowcount or 0
+    voice_n = db.execute(delete(SmartCardVoiceNoteJob).where(SmartCardVoiceNoteJob.org_id == org_id)).rowcount or 0
+    lead_n = db.execute(delete(SmartCardLead).where(SmartCardLead.org_id == org_id)).rowcount or 0
+    session_n = db.execute(delete(SmartCardSession).where(SmartCardSession.org_id == org_id)).rowcount or 0
+    change_n = db.execute(delete(SmartCardChangeRequest).where(SmartCardChangeRequest.org_id == org_id)).rowcount or 0
+    rep_prod_n = (
+        db.execute(delete(SmartCardRepresentativeProduct).where(SmartCardRepresentativeProduct.org_id == org_id)).rowcount
+        or 0
+    )
+    asset_n = db.execute(delete(SmartCardAsset).where(SmartCardAsset.org_id == org_id)).rowcount or 0
+    product_n = db.execute(delete(SmartCardProduct).where(SmartCardProduct.org_id == org_id)).rowcount or 0
+    category_n = db.execute(delete(SmartCardCategory).where(SmartCardCategory.org_id == org_id)).rowcount or 0
+    rep_n = (
+        db.execute(delete(SmartCardRepresentative).where(SmartCardRepresentative.org_id == org_id)).rowcount or 0
+    )
+    company_n = db.execute(delete(SmartCardCompany).where(SmartCardCompany.org_id == org_id)).rowcount or 0
+    renew_n = (
+        db.execute(delete(SmartCardRenewalReminderSend).where(SmartCardRenewalReminderSend.org_id == org_id)).rowcount
+        or 0
+    )
+    return {
+        "smart_card_responses": int(response_n),
+        "smart_card_voice_jobs": int(voice_n),
+        "smart_card_leads": int(lead_n),
+        "smart_card_sessions": int(session_n),
+        "smart_card_change_requests": int(change_n),
+        "smart_card_rep_products": int(rep_prod_n),
+        "smart_card_assets": int(asset_n),
+        "smart_card_products": int(product_n),
+        "smart_card_categories": int(category_n),
+        "smart_card_representatives": int(rep_n),
+        "smart_card_companies": int(company_n),
+        "smart_card_renewal_sends": int(renew_n),
+    }
+
+
+def _purge_expo_for_org(db: Session, org_id: str) -> dict[str, int]:
+    """Delete Expo + signup-trial rows that FK to organisations."""
+    booth_ids = list(db.execute(select(ExpoBooth.id).where(ExpoBooth.org_id == org_id)).scalars().all())
+    exhibition_ids = list(
+        db.execute(select(ExpoExhibition.id).where(ExpoExhibition.org_id == org_id)).scalars().all()
+    )
+    session_ids = list(db.execute(select(ExpoSession.id).where(ExpoSession.org_id == org_id)).scalars().all())
+
+    resp_n = db.execute(delete(ExpoResponse).where(ExpoResponse.org_id == org_id)).rowcount or 0
+    voice_n = db.execute(delete(ExpoVoiceNoteJob).where(ExpoVoiceNoteJob.org_id == org_id)).rowcount or 0
+    if session_ids:
+        resp_n += db.execute(delete(ExpoResponse).where(ExpoResponse.session_id.in_(session_ids))).rowcount or 0
+        voice_n += (
+            db.execute(delete(ExpoVoiceNoteJob).where(ExpoVoiceNoteJob.session_id.in_(session_ids))).rowcount or 0
+        )
+
+    # Clear soft session link on leads before deleting sessions.
+    if booth_ids:
+        db.execute(
+            update(ExpoLead).where(ExpoLead.booth_id.in_(booth_ids)).values(session_id=None)
+        )
+    lead_n = db.execute(delete(ExpoLead).where(ExpoLead.org_id == org_id)).rowcount or 0
+    session_n = db.execute(delete(ExpoSession).where(ExpoSession.org_id == org_id)).rowcount or 0
+    asset_n = db.execute(delete(ExpoBoothAsset).where(ExpoBoothAsset.org_id == org_id)).rowcount or 0
+    product_n = db.execute(delete(ExpoBoothProduct).where(ExpoBoothProduct.org_id == org_id)).rowcount or 0
+    cat_n = db.execute(delete(ExpoBoothCategory).where(ExpoBoothCategory.org_id == org_id)).rowcount or 0
+    booth_n = db.execute(delete(ExpoBooth).where(ExpoBooth.org_id == org_id)).rowcount or 0
+
+    summary_n = 0
+    if exhibition_ids:
+        summary_n = (
+            db.execute(
+                delete(ExpoVisitorSummarySend).where(ExpoVisitorSummarySend.exhibition_id.in_(exhibition_ids))
+            ).rowcount
+            or 0
+        )
+    exhib_n = db.execute(delete(ExpoExhibition).where(ExpoExhibition.org_id == org_id)).rowcount or 0
+
+    lib_asset_n = db.execute(delete(ExpoLibraryAsset).where(ExpoLibraryAsset.org_id == org_id)).rowcount or 0
+    lib_prod_n = db.execute(delete(ExpoLibraryProduct).where(ExpoLibraryProduct.org_id == org_id)).rowcount or 0
+    lib_cat_n = (
+        db.execute(delete(ExpoLibraryCategory).where(ExpoLibraryCategory.org_id == org_id)).rowcount or 0
+    )
+    visitor_n = (
+        db.execute(delete(ExpoVisitorIdentity).where(ExpoVisitorIdentity.org_id == org_id)).rowcount or 0
+    )
+    profile_n = db.execute(delete(ExpoOrgProfile).where(ExpoOrgProfile.org_id == org_id)).rowcount or 0
+    ent_n = (
+        db.execute(delete(ExpoSignupEntitlement).where(ExpoSignupEntitlement.org_id == org_id)).rowcount or 0
+    )
+    claim_n = (
+        db.execute(delete(ExpoCompanyDomainClaim).where(ExpoCompanyDomainClaim.org_id == org_id)).rowcount or 0
+    )
+
+    return {
+        "expo_responses": int(resp_n),
+        "expo_voice_jobs": int(voice_n),
+        "expo_leads": int(lead_n),
+        "expo_sessions": int(session_n),
+        "expo_booth_assets": int(asset_n),
+        "expo_booth_products": int(product_n),
+        "expo_booth_categories": int(cat_n),
+        "expo_booths": int(booth_n),
+        "expo_visitor_summary_sends": int(summary_n),
+        "expo_exhibitions": int(exhib_n),
+        "expo_library_assets": int(lib_asset_n),
+        "expo_library_products": int(lib_prod_n),
+        "expo_library_categories": int(lib_cat_n),
+        "expo_visitor_identities": int(visitor_n),
+        "expo_org_profiles": int(profile_n),
+        "expo_signup_entitlements": int(ent_n),
+        "expo_company_domain_claims": int(claim_n),
+    }
+
+
 def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_service_orders: bool) -> dict[str, int]:
     order_count = int(
         db.execute(select(func.count()).select_from(ServiceOrder).where(ServiceOrder.org_id == org_id)).scalar_one() or 0
@@ -426,6 +603,9 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
     )
     db.execute(delete(PromoRedemption).where(PromoRedemption.org_id == org_id))
 
+    expo_purged = _purge_expo_for_org(db, org_id)
+    smart_card_purged = _purge_smart_card_for_org(db, org_id)
+
     tickets = _delete_support_tickets_for_org(db, org_id)
     db.execute(delete(OrganisationAuditEvent).where(OrganisationAuditEvent.org_id == org_id))
     db.execute(delete(AccountDeletionRequest).where(AccountDeletionRequest.org_id == org_id))
@@ -443,6 +623,8 @@ def _purge_org_children_for_test_delete(db: Session, org_id: str, *, delete_serv
         "service_orders_deleted": orders_deleted,
         "support_tickets_deleted": tickets,
         "org_deleted": org_deleted,
+        **expo_purged,
+        **smart_card_purged,
     }
 
 

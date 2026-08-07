@@ -89,6 +89,33 @@ def test_enabled_services_patch_includes_feedback_campaigns(app_client):
     assert me.json()["enabled_services"]["feedback_campaigns"] is True
 
 
+def test_enabled_services_patch_includes_smart_card(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db, email="sc-enable@example.com")
+        allowed, enabled, _ = org_service_maps(org, db)
+        allowed, enabled = merge_admin_allowed_services(allowed, enabled, {"smart_card": True})
+        # Start with smart_card granted but hidden (user toggle off).
+        enabled["smart_card"] = False
+        org.allowed_services_json = serialize_allowed_services(allowed)
+        org.enabled_services_json = serialize_enabled_services(enabled)
+        db.add(org)
+        db.commit()
+
+    headers = _headers(app_client, user, org)
+    res = app_client.patch(
+        "/organisations/me/enabled-services",
+        headers=headers,
+        json={"smart_card": True},
+    )
+    assert res.status_code == 200, res.text
+    assert (res.json().get("enabled_services") or {}).get("smart_card") is True
+
+    me = app_client.get("/organisations/me", headers=headers)
+    assert me.json()["enabled_services"]["smart_card"] is True
+
+
 def test_appointment_wa_templates_seeded():
     from app.core.database import get_sessionmaker
 

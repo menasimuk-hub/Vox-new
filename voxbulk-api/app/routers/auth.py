@@ -26,7 +26,6 @@ from app.services.product_email_triggers import ProductEmailTriggers
 from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_voice_service import TelnyxCallerIdService
 from app.services.social_oauth import SocialOAuthService, oauth_http_error, OAuthFlowError, OAuthCallbackResult
-from app.services.gocardless_service import BillingService
 from app.services.org_invite_service import (
     attach_pending_invites,
     consume_invite_for_user,
@@ -416,8 +415,7 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
             )
         except PromoOfferError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    else:
-        BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
+    # No default core plan on fresh signup — customer subscribes later (trial package TBD).
     try:
         from app.services.expo.expo_signup_trial_service import ExpoSignupTrialService
 
