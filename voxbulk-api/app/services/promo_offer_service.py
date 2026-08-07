@@ -471,6 +471,50 @@ class PromoOfferService:
             raise PromoOfferError("Promo code already exists")
 
     @staticmethod
+    def _sales_rep_promo_offer(db: Session, sales_rep_id: str, *, prefer_code: str | None = None):
+        """Newest promo linked to a sales rep — never scalar_one (duplicates exist in prod)."""
+        from app.models.promo_offer import PromoOffer
+
+        prefer = PromoOfferService.normalize_code(prefer_code) if prefer_code else ""
+        if prefer:
+            matched = db.execute(
+                select(PromoOffer)
+                .where(PromoOffer.sales_rep_id == sales_rep_id, PromoOffer.code == prefer)
+                .order_by(PromoOffer.updated_at.desc(), PromoOffer.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if matched is not None:
+                return matched
+        return db.execute(
+            select(PromoOffer)
+            .where(PromoOffer.sales_rep_id == sales_rep_id)
+            .order_by(PromoOffer.updated_at.desc(), PromoOffer.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+    @staticmethod
+    def _dedupe_sales_rep_promo_offers(db: Session, *, sales_rep_id: str, keep_id: str) -> None:
+        from app.models.promo_offer import PromoOffer
+
+        keep = str(keep_id or "").strip()
+        if not keep:
+            return
+        extras = list(
+            db.execute(
+                select(PromoOffer).where(
+                    PromoOffer.sales_rep_id == sales_rep_id,
+                    PromoOffer.id != keep,
+                )
+            ).scalars().all()
+        )
+        now = datetime.utcnow()
+        for row in extras:
+            row.is_active = False
+            row.sales_rep_id = None
+            row.updated_at = now
+            db.add(row)
+
+    @staticmethod
     def upsert_for_sales_rep(db: Session, rep) -> PromoOffer:
         from app.models.sales_rep import SalesRep
         from app.services.billing_currency import money_display
@@ -484,7 +528,7 @@ class PromoOfferService:
         if not isinstance(rep, SalesRep):
             raise PromoOfferError("Invalid sales rep")
         code = PromoOfferService.normalize_code(rep.promo_code)
-        existing = db.execute(select(PromoOffer).where(PromoOffer.sales_rep_id == rep.id)).scalar_one_or_none()
+        existing = PromoOfferService._sales_rep_promo_offer(db, rep.id, prefer_code=code)
         if existing is None:
             existing = PromoOfferService.get_by_code(db, code)
             if existing is not None and existing.sales_rep_id not in (None, rep.id):
@@ -557,6 +601,8 @@ class PromoOfferService:
             existing.expires_at = expires
             existing.updated_at = now
             db.add(existing)
+            db.flush()
+            PromoOfferService._dedupe_sales_rep_promo_offers(db, sales_rep_id=rep.id, keep_id=existing.id)
             db.commit()
             db.refresh(existing)
             return existing
@@ -582,6 +628,8 @@ class PromoOfferService:
             updated_at=now,
         )
         db.add(row)
+        db.flush()
+        PromoOfferService._dedupe_sales_rep_promo_offers(db, sales_rep_id=rep.id, keep_id=row.id)
         db.commit()
         db.refresh(row)
         return row
@@ -647,18 +695,38 @@ class PromoOfferService:
                     logger.exception("fixed_topup grant failed for promo %s service %s", promo.code, sid)
             elif kind in {"free_days", "free_package_days"}:
                 days = max(1, int(round(val)))
-                PromoOfferService._grant_free_usage(
-                    db,
-                    org=org,
-                    row=promo,
-                    benefit={
-                        "benefit_kind": BENEFIT_FREE,
-                        "service_kind": "voxbulk" if kind == "free_package_days" else service_kind,
-                        "usage_amount": days,
-                        "discount_type": None,
-                        "discount_value": 0,
-                    },
+                # free_package_days and core_package free_days → Core subscribe trial (voxbulk).
+                target_sk = (
+                    "voxbulk"
+                    if kind == "free_package_days" or service_kind == "voxbulk"
+                    else service_kind
                 )
+                if target_sk == "voxbulk":
+                    PromoOfferService._grant_discount(
+                        db,
+                        org_id=org_id,
+                        row=promo,
+                        benefit={
+                            "benefit_kind": BENEFIT_DISCOUNT,
+                            "service_kind": "voxbulk",
+                            "discount_type": "trial_days",
+                            "discount_value": days,
+                            "usage_amount": 0,
+                        },
+                    )
+                else:
+                    PromoOfferService._grant_free_usage(
+                        db,
+                        org=org,
+                        row=promo,
+                        benefit={
+                            "benefit_kind": BENEFIT_FREE,
+                            "service_kind": target_sk,
+                            "usage_amount": days,
+                            "discount_type": None,
+                            "discount_value": 0,
+                        },
+                    )
 
     @staticmethod
     def stamp_promo_attribution(
@@ -830,15 +898,28 @@ class PromoOfferService:
                 db.add(existing)
             return
 
-        # Core package trial only when the promo names an explicit plan — never auto-Starter.
+        # Core package: store a pending trial for subscribe checkout (never auto-assign Starter).
         plan_code = (row.plan_code or "").strip().lower()
+        days = max(1, int(row.trial_days or amount or 0))
         if not plan_code or plan_code == "starter":
+            if days > 0:
+                PromoOfferService._grant_discount(
+                    db,
+                    org_id=org.id,
+                    row=row,
+                    benefit={
+                        "benefit_kind": BENEFIT_DISCOUNT,
+                        "service_kind": "voxbulk",
+                        "discount_type": "trial_days",
+                        "discount_value": days,
+                        "usage_amount": 0,
+                    },
+                )
             return
         try:
             sub = BillingService.assign_plan_cash(db, org_id=org.id, plan_code=plan_code)
         except ValueError:
             return
-        days = int(row.trial_days or amount or 0)
         if days > 0:
             sub.status = "trial"
             sub.current_period_end = now + timedelta(days=days)

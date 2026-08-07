@@ -917,6 +917,7 @@ class BillingService:
         billing_interval: str | None = None,
         amount_minor_override: int | None = None,
         seat_quantity: int | None = None,
+        start_date: str | None = None,
     ) -> str | None:
         from app.models.organisation import Organisation
         from app.services.plan_price_service import PlanPriceService
@@ -943,16 +944,17 @@ class BillingService:
             meta_kwargs["seats"] = str(int(seat_quantity))
         else:
             meta_kwargs["billing_interval"] = interval
-        subscription_payload = {
-            "subscriptions": {
-                "amount": amount_minor,
-                "currency": currency,
-                "name": f"VOXBULK.COM {plan.name}",
-                "interval_unit": gc_interval,
-                "links": {"mandate": mandate_id},
-                "metadata": BillingService._gocardless_metadata(**meta_kwargs),
-            }
+        subscription_body: dict[str, Any] = {
+            "amount": amount_minor,
+            "currency": currency,
+            "name": f"VOXBULK.COM {plan.name}",
+            "interval_unit": gc_interval,
+            "links": {"mandate": mandate_id},
+            "metadata": BillingService._gocardless_metadata(**meta_kwargs),
         }
+        if start_date:
+            subscription_body["start_date"] = str(start_date)
+        subscription_payload = {"subscriptions": subscription_body}
         with httpx.Client(timeout=20) as client:
             subscription_response = client.post(
                 f"{config['api_base']}/subscriptions",
@@ -1276,15 +1278,24 @@ class BillingService:
             seats = None
         if seats is not None and seats > 0:
             charge_minor = int(charge_minor or 0) * seats
-        # Apply pending Smart Card / product promo to first GC amount when present.
+        # Apply pending Core / Smart Card / Feedback promo to first GC amount when present.
         service_code_preview = BillingService._subscription_service_code(plan=plan, flow_purpose=row.flow_purpose)
+        trial_days = 0
+        catalog_charge = int(charge_minor or 0)
         if service_code_preview in {"smart_card", "customer_feedback", "voxbulk"} and charge_minor > 0:
             from app.services.promo_discount_service import PromoDiscountService
 
             discounted = PromoDiscountService.apply_and_consume(
                 db, org_id=org_id, service_kind=service_code_preview, amount_minor=charge_minor
             )
+            trial_days = int(discounted.get("trial_days") or 0)
             charge_minor = int(discounted["amount_minor"])
+        start_date = None
+        if trial_days > 0:
+            start_date = (datetime.utcnow() + timedelta(days=trial_days)).date().isoformat()
+            charge_for_gc = catalog_charge
+        else:
+            charge_for_gc = charge_minor if charge_minor > 0 else catalog_charge
         external_subscription_id = BillingService._create_gocardless_subscription_on_mandate(
             db,
             org_id=org_id,
@@ -1292,8 +1303,9 @@ class BillingService:
             mandate_id=mandate_id,
             client_email=client_email,
             billing_interval=flow_interval,
-            amount_minor_override=charge_minor if charge_minor > 0 else None,
+            amount_minor_override=charge_for_gc if charge_for_gc > 0 else None,
             seat_quantity=seats,
+            start_date=start_date,
         )
         if not external_subscription_id:
             raise GoCardlessProviderError("GoCardless did not return a subscription id")
@@ -1322,14 +1334,14 @@ class BillingService:
         now = datetime.utcnow()
         service_code = BillingService._subscription_service_code(plan=plan, flow_purpose=row.flow_purpose)
         sub = BillingAccessService.get_subscription(db, org_id, service_code=service_code)
-        period_days = 365 if interval == "yearly" else 30
+        period_days = trial_days if trial_days > 0 else (365 if interval == "yearly" else 30)
         if sub is None:
             sub = Subscription(org_id=org_id, plan_id=plan.id, service_code=service_code)
         sub.plan_id = plan.id
         sub.current_period_end = now + timedelta(days=period_days)
         sub.billing_interval = interval
         sub.billing_currency = currency
-        sub.amount_next_payment_minor = charge_minor
+        sub.amount_next_payment_minor = catalog_charge if trial_days > 0 else charge_minor
         if seats is not None and seats > 0:
             sub.seat_quantity = seats
         sub.payment_provider = "gocardless"
@@ -1340,6 +1352,10 @@ class BillingService:
         BillingAccessService.apply_mandate_setup_access(
             db, sub=sub, mandate_id=mandate_id, scheme=mandate_scheme
         )
+        if trial_days > 0:
+            sub.status = "trial"
+            sub.current_period_end = now + timedelta(days=trial_days)
+            sub.amount_next_payment_minor = catalog_charge
         db.add(sub)
 
         row.status = "completed"

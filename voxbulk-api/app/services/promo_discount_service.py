@@ -52,6 +52,8 @@ class PromoDiscountService:
         amount = max(0, int(amount_minor or 0))
         dtype = str(discount_type or "").strip().lower()
         value = max(0, int(discount_value or 0))
+        if dtype == "trial_days":
+            return 0
         if dtype == "percent":
             pct = min(100, value)
             return max(0, amount - int(round(amount * pct / 100.0)))
@@ -62,24 +64,35 @@ class PromoDiscountService:
     @staticmethod
     def peek_amount(db: Session, *, org_id: str, service_kind: str, amount_minor: int) -> dict[str, Any]:
         pending = PromoDiscountService.get_pending(db, org_id=org_id, service_kind=service_kind)
+        catalog = max(0, int(amount_minor or 0))
         if pending is None:
             return {
-                "amount_minor": max(0, int(amount_minor or 0)),
+                "amount_minor": catalog,
                 "discount_applied": False,
                 "pending_id": None,
+                "trial_days": 0,
+                "promo_offer_id": None,
+                "discount_type": None,
+                "discount_value": 0,
+                "original_amount_minor": catalog,
             }
+        dtype = str(pending.discount_type or "").strip().lower()
+        dval = int(pending.discount_value or 0)
+        trial_days = dval if dtype == "trial_days" else 0
         reduced = PromoDiscountService.compute_amount(
-            amount_minor,
-            discount_type=pending.discount_type,
-            discount_value=int(pending.discount_value or 0),
+            catalog,
+            discount_type=dtype,
+            discount_value=dval,
         )
         return {
             "amount_minor": reduced,
             "discount_applied": True,
             "pending_id": pending.id,
-            "discount_type": pending.discount_type,
-            "discount_value": int(pending.discount_value or 0),
-            "original_amount_minor": max(0, int(amount_minor or 0)),
+            "discount_type": dtype,
+            "discount_value": dval,
+            "trial_days": trial_days,
+            "promo_offer_id": pending.promo_offer_id,
+            "original_amount_minor": catalog,
         }
 
     @staticmethod
@@ -102,6 +115,11 @@ class PromoDiscountService:
                 "amount_minor": max(0, int(amount_minor or 0)),
                 "discount_applied": False,
                 "pending_id": None,
+                "trial_days": 0,
+                "promo_offer_id": None,
+                "discount_type": None,
+                "discount_value": 0,
+                "original_amount_minor": max(0, int(amount_minor or 0)),
             }
         pending.status = "consumed"
         pending.consumed_at = datetime.utcnow()

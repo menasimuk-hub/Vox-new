@@ -55,17 +55,38 @@ class StripeSubscriptionService:
         discounted = PromoDiscountService.apply_and_consume(
             db, org_id=org.id, service_kind=service_kind, amount_minor=amount_minor
         )
+        trial_days = int(discounted.get("trial_days") or 0)
         amount_minor = int(discounted["amount_minor"])
-        if amount_minor <= 0:
-            # 100% / full discount — activate without card charge.
-            sub = CardSubscriptionActivationService.activate_from_payment(
-                db,
-                org=org,
-                plan=plan,
-                provider_reference=f"promo-discount-{org.id[:8]}",
-                service_code=service_code,
-                billing_interval=interval,
-            )
+        if trial_days > 0 or amount_minor <= 0:
+            # Trial or 100% discount — activate without card charge.
+            from datetime import timedelta
+
+            from app.services.billing_access_service import BillingAccessService
+            from app.services.usage_wallet_service import UsageWalletService
+
+            now = datetime.utcnow()
+            period_days = trial_days if trial_days > 0 else (365 if interval == "yearly" else 30)
+            sub = BillingAccessService.get_subscription(db, org.id, service_code=service_code)
+            if sub is None:
+                sub = Subscription(org_id=org.id, plan_id=plan.id, service_code=service_code, created_at=now)
+            sub.plan_id = plan.id
+            sub.status = "trial" if trial_days > 0 else "active"
+            sub.payment_provider = "promo_discount"
+            sub.billing_currency = currency
+            sub.billing_interval = interval
+            catalog = int(discounted.get("original_amount_minor") or amount_minor or 0)
+            sub.amount_next_payment_minor = catalog if trial_days > 0 else 0
+            sub.external_subscription_id = f"promo-{'trial' if trial_days else 'discount'}-{org.id[:8]}"[:255]
+            sub.current_period_end = now + timedelta(days=period_days)
+            sub.updated_at = now
+            db.add(sub)
+            db.commit()
+            db.refresh(sub)
+            if str(service_code or "").lower() not in {"smart_card", "customer_feedback", "feedback"}:
+                try:
+                    UsageWalletService.bootstrap_from_plan(db, org_id=org.id, subscription=sub)
+                except Exception:
+                    logger.exception("promo trial wallet bootstrap failed org=%s", org.id)
             return {
                 "provider": "promo_discount",
                 "paid": True,
@@ -76,6 +97,7 @@ class StripeSubscriptionService:
                 "service_code": service_code,
                 "subscription_id": sub.id,
                 "promo_discount_applied": True,
+                "trial_days": trial_days,
             }
         intent = StripePaymentService.create_subscription_checkout_intent(
             db,

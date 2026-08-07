@@ -99,6 +99,9 @@ class CardSubscriptionStartOut(BaseModel):
     publishable_key: str | None = None
     plan_id: str
     checkout: dict | None = None
+    paid: bool = False
+    trial_days: int = 0
+    subscription_id: str | None = None
 
 
 class CardSubscriptionCompleteIn(BaseModel):
@@ -121,11 +124,22 @@ class CashPlanSelectIn(BaseModel):
     plan_id: str | None = None
     plan_code: str | None = None
     billing_interval: str = "monthly"
+    # Optional explicit choice: gocardless | stripe | airwallex (when both DD and card available).
+    payment_method: str | None = None
 
     @model_validator(mode="after")
     def normalize_interval(self):
         raw = str(self.billing_interval or "monthly").strip().lower()
         self.billing_interval = "yearly" if raw == "yearly" else "monthly"
+        return self
+
+    @model_validator(mode="after")
+    def normalize_payment_method(self):
+        raw = str(self.payment_method or "").strip().lower() or None
+        if raw in {"gocardless", "stripe", "airwallex", "card"}:
+            self.payment_method = "stripe" if raw == "card" else raw
+        else:
+            self.payment_method = None
         return self
 
     @model_validator(mode="after")

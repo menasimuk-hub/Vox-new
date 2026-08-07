@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
+import type { PaymentMethodChoice } from "@/lib/billing/subscription-payment";
 import { cn } from "@/lib/utils";
 
 export type CheckoutConfirmDetails = {
@@ -35,6 +36,11 @@ type QuoteOut = {
   vat_display?: string | null;
   net_display?: string;
   catalog_display?: string;
+  trial_days?: number;
+  promo_code?: string | null;
+  promo_label?: string | null;
+  after_trial_display?: string | null;
+  total_minor?: number;
 };
 
 type Props = {
@@ -46,7 +52,10 @@ type Props = {
   tintClass?: string;
   confirmLabel?: string;
   loading?: boolean;
-  onConfirm: () => void | Promise<void>;
+  onConfirm: (paymentMethod?: PaymentMethodChoice) => void | Promise<void>;
+  /** When both GoCardless and Stripe are available, show a picker. */
+  paymentMethods?: PaymentMethodChoice[];
+  defaultPaymentMethod?: PaymentMethodChoice | null;
 };
 
 export function CheckoutConfirmDialog({
@@ -59,9 +68,21 @@ export function CheckoutConfirmDialog({
   confirmLabel = "Pay now",
   loading,
   onConfirm,
+  paymentMethods,
+  defaultPaymentMethod,
 }: Props) {
   const [quote, setQuote] = React.useState<QuoteOut | null>(null);
   const [quoting, setQuoting] = React.useState(false);
+  const methods = paymentMethods?.length ? paymentMethods : [];
+  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethodChoice>(
+    defaultPaymentMethod || methods[0] || "gocardless",
+  );
+
+  React.useEffect(() => {
+    if (!open) return;
+    const next = defaultPaymentMethod || methods[0] || "gocardless";
+    setPaymentMethod(next);
+  }, [open, defaultPaymentMethod, methods.join("|")]);
 
   const refreshQuote = React.useCallback(async () => {
     if (!details?.amountMinor || details.amountMinor <= 0 || !details.serviceKind) {
@@ -95,8 +116,22 @@ export function CheckoutConfirmDialog({
 
   if (!details) return null;
 
-  const amountDisplay = quote?.total_display || details.amountDisplay;
+  const catalogDisplay = quote?.catalog_display || details.amountDisplay;
+  const dueToday = quote?.total_display || details.amountDisplay;
   const amountNote = quote?.amount_note || details.amountNote;
+  const trialDays = Number(quote?.trial_days || 0);
+  const dueZero = trialDays > 0 || Number(quote?.total_minor || 0) === 0;
+
+  let payLabel = confirmLabel;
+  if (methods.length) {
+    if (dueZero && paymentMethod === "stripe") {
+      payLabel = trialDays > 0 ? "Start free trial" : "Activate with promo";
+    } else if (paymentMethod === "gocardless") {
+      payLabel = trialDays > 0 ? "Continue to Direct Debit (trial)" : "Continue to Direct Debit";
+    } else {
+      payLabel = "Pay with card";
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -104,43 +139,64 @@ export function CheckoutConfirmDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Review what you will pay, apply a promo if you have one, then continue to payment.
+            Review package price, promo, and total due, then choose how to pay.
           </DialogDescription>
         </DialogHeader>
 
         <div className={cn("space-y-3 rounded-xl border p-4 text-sm", tintClass)}>
-          <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Plan</p>
+            <p className="text-base font-semibold text-foreground">{details.planName}</p>
+            {details.intervalLabel ? (
+              <p className="text-xs text-muted-foreground">{details.intervalLabel}</p>
+            ) : null}
+          </div>
+
+          <div className="space-y-1.5 border-t border-black/5 pt-3 dark:border-white/10">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Package price</span>
+              <span className="tabular-nums font-medium">{quoting ? "…" : catalogDisplay}</span>
+            </div>
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-muted-foreground">Promo</span>
+              <span className="max-w-[60%] text-right text-emerald-700 dark:text-emerald-400">
+                {quoting
+                  ? "…"
+                  : quote?.discount_applied
+                    ? [
+                        quote.promo_code ? `Promo ${quote.promo_code}` : "Promo",
+                        quote.promo_label ||
+                          (quote.discount_display ? `−${quote.discount_display}` : null),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : "No promo applied"}
+              </span>
+            </div>
+            {details.seats != null && details.seats > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {details.seats} seat{details.seats === 1 ? "" : "s"}
+                {details.unitDisplay ? ` · ${details.unitDisplay} each` : ""}
+              </p>
+            ) : null}
+            {quote?.vat_display ? (
+              <p className="text-xs text-muted-foreground">
+                Net {quote.net_display}
+                {quote.vat_display ? ` · VAT ${quote.vat_display}` : ""}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex items-end justify-between gap-3 border-t border-black/5 pt-3 dark:border-white/10">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Plan</p>
-              <p className="text-base font-semibold text-foreground">{details.planName}</p>
-              {details.intervalLabel ? (
-                <p className="text-xs text-muted-foreground">{details.intervalLabel}</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total due today</p>
+              {trialDays > 0 && quote?.after_trial_display ? (
+                <p className="text-xs text-muted-foreground">Then {quote.after_trial_display} after {trialDays} days</p>
               ) : null}
             </div>
-            <div className="text-right">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Due today</p>
-              <p className="text-xl font-semibold tabular-nums text-foreground">
-                {quoting ? "…" : amountDisplay}
-              </p>
-            </div>
+            <p className="text-2xl font-semibold tabular-nums text-foreground">{quoting ? "…" : dueToday}</p>
           </div>
-          {details.seats != null && details.seats > 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {details.seats} seat{details.seats === 1 ? "" : "s"}
-              {details.unitDisplay ? ` · ${details.unitDisplay} each` : ""}
-            </p>
-          ) : null}
-          {quote?.discount_applied && quote.discount_display ? (
-            <p className="text-xs text-emerald-700 dark:text-emerald-400">Promo −{quote.discount_display}</p>
-          ) : null}
-          {quote?.vat_display ? (
-            <p className="text-xs text-muted-foreground">
-              Net {quote.net_display}
-              {quote.vat_display ? ` · VAT ${quote.vat_display}` : ""}
-            </p>
-          ) : null}
           {amountNote ? <p className="text-xs text-muted-foreground">{amountNote}</p> : null}
-          {details.providerHint ? <p className="text-xs text-muted-foreground">{details.providerHint}</p> : null}
         </div>
 
         <PromoCodeRedeem
@@ -150,6 +206,54 @@ export function CheckoutConfirmDialog({
           }}
         />
 
+        {methods.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pay with</p>
+            <div className="grid gap-2">
+              {methods.includes("gocardless") ? (
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm",
+                    paymentMethod === "gocardless" ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/30" : "",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="checkout-pay-method"
+                    checked={paymentMethod === "gocardless"}
+                    onChange={() => setPaymentMethod("gocardless")}
+                  />
+                  <span>
+                    <span className="font-medium">Direct Debit</span>
+                    <span className="block text-xs text-muted-foreground">GoCardless — bank mandate</span>
+                  </span>
+                </label>
+              ) : null}
+              {methods.includes("stripe") ? (
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm",
+                    paymentMethod === "stripe" ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/30" : "",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="checkout-pay-method"
+                    checked={paymentMethod === "stripe"}
+                    onChange={() => setPaymentMethod("stripe")}
+                  />
+                  <span>
+                    <span className="font-medium">Card</span>
+                    <span className="block text-xs text-muted-foreground">Stripe — pay by card</span>
+                  </span>
+                </label>
+              ) : null}
+            </div>
+          </div>
+        ) : details.providerHint ? (
+          <p className="text-xs text-muted-foreground">{details.providerHint}</p>
+        ) : null}
+
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" disabled={loading} onClick={() => onOpenChange(false)}>
             Cancel
@@ -158,7 +262,7 @@ export function CheckoutConfirmDialog({
             type="button"
             disabled={loading}
             onClick={() => {
-              void onConfirm();
+              void onConfirm(methods.length ? paymentMethod : undefined);
             }}
           >
             {loading ? (
@@ -166,7 +270,7 @@ export function CheckoutConfirmDialog({
                 <Loader2 className="mr-2 size-4 animate-spin" /> Starting…
               </>
             ) : (
-              confirmLabel
+              payLabel
             )}
           </Button>
         </DialogFooter>

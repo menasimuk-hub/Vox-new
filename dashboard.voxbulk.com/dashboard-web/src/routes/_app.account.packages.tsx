@@ -22,9 +22,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
 import { gocardlessAvailable, startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
 import {
+  availablePaymentMethods,
   coreCheckoutAvailable,
   primarySubscriptionProvider,
   startCardSubscription,
+  type PaymentMethodChoice,
 } from "@/lib/billing/subscription-payment";
 import { marketLabel } from "@/lib/billing/market";
 import {
@@ -305,6 +307,11 @@ function PackagesPage() {
   const gcReady = gocardlessAvailable(subscription as Record<string, unknown> | null);
   const primaryProvider = primarySubscriptionProvider(subscription as Record<string, unknown> | null);
   const checkoutReady = coreCheckoutAvailable(subscription as Record<string, unknown> | null);
+  const corePaymentMethods = availablePaymentMethods(subscription as Record<string, unknown> | null);
+  const defaultCorePayMethod: PaymentMethodChoice =
+    (corePaymentMethods.includes(primaryProvider as PaymentMethodChoice)
+      ? (primaryProvider as PaymentMethodChoice)
+      : corePaymentMethods[0]) || "gocardless";
   const coreSubStatus = String(subscription?.subscription?.status || "").toLowerCase();
   const corePaymentProvider = String(subscription?.subscription?.payment_provider || "").toLowerCase();
   const hasActiveCoreGcSub =
@@ -382,13 +389,23 @@ function PackagesPage() {
     ]);
   }, [qc, refetchSession]);
 
-  const runCoreCheckout = async (plan: PlanRow) => {
+  const runCoreCheckout = async (plan: PlanRow, paymentMethod?: PaymentMethodChoice) => {
     setBusyPlanId(String(plan.id));
     try {
-      if (primaryProvider === "gocardless") {
+      const method = paymentMethod || defaultCorePayMethod;
+      if (method === "gocardless") {
         await startGoCardlessSubscription(String(plan.id), billingInterval);
       } else {
-        await startCardSubscription(String(plan.id), billingInterval);
+        const result = await startCardSubscription(String(plan.id), billingInterval, "stripe");
+        if (result?.provider === "promo_discount" || result?.paid) {
+          toast.success(
+            result.trial_days
+              ? `Trial started — ${result.trial_days} days free`
+              : "Promo applied — subscription activated",
+          );
+          setBusyPlanId(null);
+          await invalidateBilling();
+        }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start checkout");
@@ -414,11 +431,7 @@ function PackagesPage() {
       return;
     }
     if (!checkoutReady) {
-      toast.error(
-        primaryProvider === "gocardless"
-          ? "GoCardless checkout is not configured. Enable it in admin integrations."
-          : "Card subscription checkout is not configured for your region.",
-      );
+      toast.error("No subscription payment method is configured for your region.");
       return;
     }
     if (hasActiveCoreGcSub) {
@@ -447,10 +460,6 @@ function PackagesPage() {
       amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
       amountMinor: corePlanAmountMinor(plan, billingInterval === "yearly"),
       serviceKind: "voxbulk",
-      providerHint:
-        primaryProvider === "gocardless"
-          ? "You will continue to GoCardless Direct Debit."
-          : "You will continue to secure card payment.",
     });
     setCheckoutOpen(true);
   };
@@ -994,12 +1003,12 @@ function PackagesPage() {
         serviceHint={checkoutKind === "feedback" ? "Customer Feedback" : "Core platform"}
         tintClass={checkoutKind === "feedback" ? SERVICE_TINTS.feedback.soft : SERVICE_TINTS.core.soft}
         confirmLabel={
-          checkoutKind === "feedback" || primaryProvider === "gocardless"
-            ? "Continue to Direct Debit"
-            : "Pay with card"
+          checkoutKind === "feedback" ? "Continue to Direct Debit" : "Continue to payment"
         }
+        paymentMethods={checkoutKind === "core" ? corePaymentMethods : undefined}
+        defaultPaymentMethod={checkoutKind === "core" ? defaultCorePayMethod : undefined}
         loading={Boolean(busyPlanId) || Boolean(busyFeedbackPlanId)}
-        onConfirm={async () => {
+        onConfirm={async (paymentMethod) => {
           if (checkoutKind === "feedback") {
             if (!checkoutFeedbackPkg?.plan_id) return;
             setCheckoutOpen(false);
@@ -1014,7 +1023,7 @@ function PackagesPage() {
           }
           if (!checkoutPlan) return;
           setCheckoutOpen(false);
-          await runCoreCheckout(checkoutPlan);
+          await runCoreCheckout(checkoutPlan, paymentMethod);
         }}
       />
 

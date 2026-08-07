@@ -547,9 +547,7 @@ class SalesRepService:
             try:
                 from app.services.promo_offer_service import PromoOfferError, PromoOfferService
 
-                promo = db.execute(
-                    select(PromoOffer).where(PromoOffer.sales_rep_id == rep.id)
-                ).scalar_one_or_none()
+                promo = PromoOfferService._sales_rep_promo_offer(db, rep.id, prefer_code=code)
                 PromoOfferService._assert_code_available(db, code, exclude_promo_id=promo.id if promo else None)
             except PromoOfferError as exc:
                 raise SalesRepError(str(exc)) from exc

@@ -13,6 +13,8 @@ type CardStartResponse = {
   payment_intent_id?: string;
   publishable_key?: string;
   plan_id: string;
+  paid?: boolean;
+  trial_days?: number;
   checkout?: Record<string, unknown> & { environment?: string };
 };
 
@@ -43,26 +45,48 @@ export function primarySubscriptionProvider(subscription: Record<string, unknown
 
 export function cardSubscriptionAvailable(subscription: Record<string, unknown> | null | undefined): boolean {
   const opts = (subscription?.payment_options || {}) as Record<string, unknown>;
-  const primary = primarySubscriptionProvider(subscription);
-  if (primary === "airwallex") return Boolean(opts.airwallex_available);
-  if (primary === "stripe") return Boolean(opts.stripe_available);
-  return false;
+  return Boolean(opts.stripe_available || opts.airwallex_available);
+}
+
+export function gocardlessSubscriptionAvailable(subscription: Record<string, unknown> | null | undefined): boolean {
+  const opts = (subscription?.payment_options || {}) as Record<string, unknown>;
+  return Boolean(opts.gocardless_available || subscription?.gocardless_checkout_available);
 }
 
 export function coreCheckoutAvailable(subscription: Record<string, unknown> | null | undefined): boolean {
-  const primary = primarySubscriptionProvider(subscription);
-  if (primary === "gocardless") {
-    const opts = (subscription?.payment_options || {}) as Record<string, unknown>;
-    return Boolean(opts.gocardless_available || subscription?.gocardless_checkout_available);
-  }
-  return cardSubscriptionAvailable(subscription);
+  return gocardlessSubscriptionAvailable(subscription) || cardSubscriptionAvailable(subscription);
 }
 
-export async function startCardSubscription(planId: string, billingInterval: "monthly" | "yearly" = "monthly") {
+export type PaymentMethodChoice = "gocardless" | "stripe";
+
+export function availablePaymentMethods(
+  subscription: Record<string, unknown> | null | undefined,
+): PaymentMethodChoice[] {
+  const methods: PaymentMethodChoice[] = [];
+  if (gocardlessSubscriptionAvailable(subscription)) methods.push("gocardless");
+  if (cardSubscriptionAvailable(subscription)) methods.push("stripe");
+  return methods;
+}
+
+export async function startCardSubscription(
+  planId: string,
+  billingInterval: "monthly" | "yearly" = "monthly",
+  paymentMethod: "stripe" | "airwallex" = "stripe",
+) {
   const result = await apiFetch<CardStartResponse>("/billing/subscription/card/start", {
     method: "POST",
-    body: JSON.stringify({ plan_id: planId, billing_interval: billingInterval }),
+    body: JSON.stringify({
+      plan_id: planId,
+      billing_interval: billingInterval,
+      payment_method: paymentMethod,
+    }),
   });
+
+  // Promo trial / 100% discount — no card charge.
+  if (result?.provider === "promo_discount" || result?.paid) {
+    return result;
+  }
+
   if (!result?.payment_intent_id) {
     throw new Error("Checkout did not return a payment intent");
   }
@@ -99,7 +123,9 @@ export async function startCardSubscription(planId: string, billingInterval: "mo
 export async function completeCardSubscription(paymentIntentId: string) {
   const planId = sessionStorage.getItem(CARD_SUB_PLAN_KEY) || "";
   const billingInterval = (sessionStorage.getItem(CARD_SUB_INTERVAL_KEY) || "monthly") as "monthly" | "yearly";
-  const providers = await apiFetch<{ primary_provider?: string }>("/billing/subscription/payment-providers");
+  const providers = await apiFetch<{ primary_provider?: string; stripe_available?: boolean }>(
+    "/billing/subscription/payment-providers",
+  );
   const provider = String(providers?.primary_provider || "stripe").toLowerCase();
   const normalized = provider === "airwallex" ? "airwallex" : "stripe";
   return apiFetch("/billing/subscription/card/complete", {

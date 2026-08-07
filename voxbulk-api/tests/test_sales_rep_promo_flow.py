@@ -359,3 +359,103 @@ def test_partner_channel_create_uses_normal_service_defaults(db):
     assert cleaned["customer_feedback"] is False
     for key in SERVICE_KEYS:
         assert cleaned[key] == bool(DEFAULT_ENABLED_SERVICES.get(key) and allowed.get(key))
+
+
+def test_upsert_sales_rep_survives_duplicate_promo_rows(db):
+    rep = _seed_rep(db, code="DUPCODE1")
+    first = PromoOfferService.upsert_for_sales_rep(db, rep)
+    now = datetime.utcnow()
+    dup = PromoOffer(
+        code="DUPCODE1X",
+        name="dup",
+        offer_type="sales_wallet_voucher",
+        sales_rep_id=rep.id,
+        is_active=True,
+        max_redemptions=999,
+        redemption_count=0,
+        wallet_credit_pence=2000,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(dup)
+    db.commit()
+
+    again = PromoOfferService.upsert_for_sales_rep(db, rep)
+    assert again.id == first.id
+    extras = list(
+        db.execute(select(PromoOffer).where(PromoOffer.sales_rep_id == rep.id)).scalars().all()
+    )
+    assert len(extras) == 1
+    SalesRepService.update_rep(db, rep=rep, patch={"commission_pct": 18})
+    db.refresh(rep)
+    assert float(rep.commission_pct) == 18.0
+
+
+def test_core_percent_discount_changes_checkout_quote(db):
+    from app.services.checkout_quote_service import CheckoutQuoteService
+    from app.services.sales_hub_benefits import set_promo_benefits
+
+    rep = _seed_rep(db, code="CORE20OFF")
+    set_promo_benefits(
+        rep,
+        {
+            "wallet_voucher": {"enabled": False, "amount_minor": 0},
+            "services": {
+                "core_package": {"enabled": True, "kind": "percent_discount", "value": 20},
+            },
+        },
+    )
+    db.add(rep)
+    db.commit()
+    PromoOfferService.upsert_for_sales_rep(db, rep)
+
+    org = Organisation(name="Discount Co")
+    db.add(org)
+    db.flush()
+    owner = User(email="disc@test.com", password_hash=hash_password("pass123"), is_active=True)
+    db.add(owner)
+    db.flush()
+    db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+    db.commit()
+
+    PromoOfferService.redeem_for_org(db, org_id=org.id, user_id=owner.id, promo_code=rep.promo_code)
+    quote = CheckoutQuoteService.quote(db, org=org, service_kind="voxbulk", amount_minor=9900)
+    assert quote["discount_applied"] is True
+    assert quote["catalog_minor"] == 9900
+    assert quote["discount_minor"] == 1980
+    assert quote["promo_code"] == "CORE20OFF"
+
+
+def test_core_free_days_quote_is_zero_due_today(db):
+    from app.services.checkout_quote_service import CheckoutQuoteService
+    from app.services.sales_hub_benefits import set_promo_benefits
+
+    rep = _seed_rep(db, code="CORE3DAY", email="rep3@test.com")
+    set_promo_benefits(
+        rep,
+        {
+            "wallet_voucher": {"enabled": False, "amount_minor": 0},
+            "services": {
+                "core_package": {"enabled": True, "kind": "free_days", "value": 3},
+            },
+        },
+    )
+    db.add(rep)
+    db.commit()
+    PromoOfferService.upsert_for_sales_rep(db, rep)
+
+    org = Organisation(name="Trial Co")
+    db.add(org)
+    db.flush()
+    owner = User(email="trial@test.com", password_hash=hash_password("pass123"), is_active=True)
+    db.add(owner)
+    db.flush()
+    db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+    db.commit()
+
+    PromoOfferService.redeem_for_org(db, org_id=org.id, user_id=owner.id, promo_code=rep.promo_code)
+    quote = CheckoutQuoteService.quote(db, org=org, service_kind="voxbulk", amount_minor=9900)
+    assert quote["trial_days"] == 3
+    assert quote["total_minor"] == 0
+    assert quote["discount_applied"] is True
+    assert "3 days free" in (quote.get("promo_label") or "")

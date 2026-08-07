@@ -220,14 +220,23 @@ export function SmartCardTemplate({
         >
           <div className="flex items-center gap-2.5">
             {isSet(card.companyLogo) ? (
-              <img
-                src={card.companyLogo}
-                alt={`${card.companyName} logo`}
-                className="h-9 w-auto max-w-[160px] shrink-0 object-contain"
-              />
+              <div
+                className="flex h-12 max-w-[200px] shrink-0 items-center justify-center rounded-xl px-2.5 py-1.5"
+                style={{
+                  background: "rgba(255,255,255,0.95)",
+                  border: "1px solid rgba(255,255,255,0.7)",
+                  boxShadow: "0 8px 20px -14px rgba(0,0,0,0.35)",
+                }}
+              >
+                <img
+                  src={card.companyLogo}
+                  alt={`${card.companyName} logo`}
+                  className="h-9 w-auto max-w-[176px] object-contain"
+                />
+              </div>
             ) : (
               <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold"
                 style={{ background: `linear-gradient(135deg, ${accent}, ${accent2})`, color: onAccent }}
               >
                 ✦

@@ -401,12 +401,30 @@ def start_card_subscription_checkout(
     if plan is None:
         raise HTTPException(status_code=400, detail="Plan not found")
 
-    provider = PaymentProviderRouter.primary_subscription_provider(db, org)
+    provider = str(payload.payment_method or "").strip().lower() or None
+    if provider not in {"stripe", "airwallex"}:
+        provider = PaymentProviderRouter.primary_subscription_provider(db, org)
     if provider == "gocardless":
         raise HTTPException(
             status_code=400,
-            detail="Direct Debit (GoCardless) is the subscription method for your region. Use /subscription/gocardless/start.",
+            detail="Use Direct Debit checkout for GoCardless, or choose Card (Stripe).",
         )
+    # Allow explicit Stripe even when region default is GoCardless.
+    from app.services.stripe_payment_service import StripePaymentService
+    from app.services.airwallex_payment_service import AirwallexPaymentService
+
+    if provider == "stripe" and not StripePaymentService.is_available(db):
+        raise HTTPException(status_code=400, detail="Stripe card checkout is not configured.")
+    if provider == "airwallex" and not AirwallexPaymentService.is_available(db):
+        raise HTTPException(status_code=400, detail="Airwallex card checkout is not configured.")
+    if provider not in {"stripe", "airwallex"}:
+        # Fall back to non-GC card provider.
+        if StripePaymentService.is_available(db):
+            provider = "stripe"
+        elif AirwallexPaymentService.is_available(db):
+            provider = "airwallex"
+        else:
+            raise HTTPException(status_code=400, detail="No card subscription provider is configured.")
 
     from app.services.airwallex_subscription_service import AirwallexSubscriptionError, AirwallexSubscriptionService
     from app.services.stripe_subscription_service import StripeSubscriptionError, StripeSubscriptionService
@@ -441,6 +459,9 @@ def start_card_subscription_checkout(
         publishable_key=(checkout.get("checkout") or {}).get("publishable_key"),
         plan_id=str(plan.id),
         checkout=checkout.get("checkout"),
+        paid=bool(checkout.get("paid")),
+        trial_days=int(checkout.get("trial_days") or 0),
+        subscription_id=checkout.get("subscription_id"),
     )
 
 

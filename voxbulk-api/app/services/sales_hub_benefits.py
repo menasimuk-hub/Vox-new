@@ -16,9 +16,17 @@ from app.services.billing_currency import (
     normalize_currency,
 )
 
-SERVICE_IDS = ("ai_interview", "wa_survey", "customer_feedback", "voxbulk_expo", "smart_card")
+SERVICE_IDS = ("core_package", "ai_interview", "wa_survey", "customer_feedback", "voxbulk_expo", "smart_card")
 
 SERVICE_META: dict[str, dict[str, Any]] = {
+    "core_package": {
+        "name": "Core package (Starter / Growth)",
+        "service_kind": "voxbulk",
+        "options": [
+            {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
+            {"kind": "free_days", "label": "Free trial days", "unit": "days", "default": 3},
+        ],
+    },
     "ai_interview": {
         "name": "AI Interview Screening",
         "service_kind": "interview",
@@ -417,7 +425,9 @@ def packages_for_currency(db: Session, currency: str) -> list[dict[str, Any]]:
             "feedback": "customer_feedback",
             "customer_feedback": "customer_feedback",
             "expo": "voxbulk_expo",
-            "voxbulk": "voxbulk_expo",
+            "voxbulk": "core_package",
+            "starter": "core_package",
+            "growth": "core_package",
             "smart_card": "smart_card",
             "smartcard": "smart_card",
         }

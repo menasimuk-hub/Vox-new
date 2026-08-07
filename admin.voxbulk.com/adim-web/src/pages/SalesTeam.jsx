@@ -39,8 +39,9 @@ const COUNTRIES = [
   { code: 'EG', label: 'Egypt' },
   { code: 'IN', label: 'India' },
 ]
-const SERVICE_IDS = ['ai_interview', 'wa_survey', 'customer_feedback', 'voxbulk_expo', 'smart_card']
+const SERVICE_IDS = ['core_package', 'ai_interview', 'wa_survey', 'customer_feedback', 'voxbulk_expo', 'smart_card']
 const SERVICE_LABELS = {
+  core_package: 'Core package (Starter / Growth)',
   ai_interview: 'AI Interview Screening',
   wa_survey: 'WA Survey / AI Call Survey',
   customer_feedback: 'Customer Feedback',
@@ -54,6 +55,10 @@ const COMMISSION_MODES = [
 ]
 /** Exact SERVICES.options from partner-sales-hub-main/src/lib/accounts.ts */
 const SERVICE_OPTIONS = {
+  core_package: [
+    { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
+    { kind: 'free_days', label: 'Free trial days', unit: 'days', defaultValue: 3 },
+  ],
   ai_interview: [
     { kind: 'fixed_topup', label: 'Fixed top-up amount', unit: 'minor', defaultValue: 20 },
     { kind: 'percent_discount', label: 'Percentage discount', unit: '%', defaultValue: 20 },
