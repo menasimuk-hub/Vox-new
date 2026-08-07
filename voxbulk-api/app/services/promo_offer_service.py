@@ -633,7 +633,7 @@ class PromoOfferService:
                             amount_minor=amount,
                             kind="promo_credit",
                             provider="sales_rep_promo",
-                            provider_reference=f"{promo.id}:{sid}",
+                            provider_reference=f"{promo.id}:{org_id}:{sid}",
                             description=f"Promo top-up ({sid}) — {promo.code}",
                             metadata={
                                 "restricted_spend": True,
@@ -930,13 +930,15 @@ class PromoOfferService:
             # Do not auto-assign Starter (or any core plan) for sales/wallet promos —
             # wallet credit + multi-benefits apply; customer subscribes separately.
             if credit > 0:
+                # Reference must be unique per org — offer id alone blocks later signups
+                # after the first redeem (WalletService idempotency).
                 WalletService.credit(
                     db,
                     org,
                     amount_minor=credit,
                     kind="promo_credit",
                     provider="sales_rep_promo",
-                    provider_reference=row.id,
+                    provider_reference=f"{row.id}:{org_id}",
                     description=f"Welcome credit — promo {row.code}",
                     created_by_user_id=user_id,
                     metadata={

@@ -155,6 +155,36 @@ def test_redeem_wallet_voucher_credits_promo_wallet(db):
     assert subs == [], "sales promo must not auto-assign Starter (or any core plan)"
 
 
+def test_second_org_redeem_same_sales_promo_still_gets_wallet(db):
+    """Wallet idempotency key must include org_id — offer id alone starved later signups."""
+    rep = _seed_rep(db, code="MULTI20")
+    PromoOfferService.upsert_for_sales_rep(db, rep)
+
+    balances = []
+    for i in range(2):
+        org = Organisation(name=f"Customer {i}")
+        db.add(org)
+        db.flush()
+        owner = User(
+            email=f"customer{i}@test.com",
+            password_hash=hash_password("pass123"),
+            is_active=True,
+        )
+        db.add(owner)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+        db.commit()
+        PromoOfferService.redeem_for_org(
+            db, org_id=org.id, user_id=owner.id, promo_code=rep.promo_code
+        )
+        db.refresh(org)
+        balances.append(
+            (int(org.wallet_balance_pence or 0), int(org.promo_wallet_balance_pence or 0))
+        )
+
+    assert balances == [(2000, 2000), (2000, 2000)]
+
+
 def test_promo_wallet_blocked_for_campaign_launch_debit(db):
     org = Organisation(name="Launch Block Org", wallet_balance_pence=2000, promo_wallet_balance_pence=2000)
     db.add(org)
