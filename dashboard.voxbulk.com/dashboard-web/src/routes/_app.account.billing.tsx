@@ -22,6 +22,7 @@ import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSub
 import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { BillingProductColumn } from "@/components/billing/billing-product-column";
 import { BillingSmartAlerts, allowanceAlertsToItems, type BillingAlertItem } from "@/components/billing/billing-smart-alerts";
+import { ExpoBillingSummary } from "@/components/billing/expo-billing-summary";
 import type { SubscriptionFinanceSummary } from "@/components/billing/subscription-summary-bar";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -483,6 +484,10 @@ function BillingPage() {
             ) : null}
           </div>
         )}
+
+        <div className="mt-3">
+          <ExpoBillingSummary />
+        </div>
 
         {!usageQ.isLoading ? (
           <div className="mt-3 grid gap-3 sm:grid-cols-3">

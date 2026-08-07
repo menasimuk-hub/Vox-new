@@ -1684,6 +1684,7 @@ class SalesRepService:
         )
         org_names: dict[str, str] = {}
         org_packages: dict[str, dict[str, Any]] = {}
+        commissions_by_org: dict[str, list[Any]] = {}
         if org_ids:
             for org in db.execute(select(Organisation).where(Organisation.id.in_(list(org_ids)))).scalars().all():
                 org_names[str(org.id)] = str(org.name or org.id)
@@ -1708,9 +1709,9 @@ class SalesRepService:
                     plan = db.get(Plan, sub.plan_id)
                     if plan is None:
                         continue
-                    cur = str(getattr(sub, "currency", None) or "GBP")
+                    cur = str(getattr(sub, "billing_currency", None) or getattr(sub, "currency", None) or "GBP")
                     price = PlanPriceService.get_price(db, plan.id, cur)
-                    interval = str(getattr(plan, "interval", "") or "monthly")
+                    interval = str(getattr(sub, "billing_interval", None) or getattr(plan, "interval", "") or "monthly")
                     amount = None
                     if price is not None:
                         if str(interval).lower().startswith(("year", "annual")):
@@ -1720,13 +1721,76 @@ class SalesRepService:
                     org_packages[str(oid)] = {
                         "plan_name": getattr(plan, "name", None),
                         "plan_code": getattr(plan, "code", None),
+                        "service_kind": getattr(plan, "service_kind", None),
                         "billing_interval": interval,
                         "amount_minor": amount,
                         "currency": cur,
                         "amount_display": money_display(amount, cur) if amount is not None else None,
+                        "subscription_status": getattr(sub, "status", None),
                     }
             except Exception:  # noqa: BLE001
                 pass
+
+        for row in commissions:
+            oid = str(getattr(row, "org_id", None) or "")
+            if not oid:
+                continue
+            commissions_by_org.setdefault(oid, []).append(row)
+
+        def _iso(dt: Any) -> str | None:
+            return dt.isoformat() if dt is not None else None
+
+        from app.services.billing_currency import money_display as _money_display
+
+        won_companies: list[dict[str, Any]] = []
+        for c in won:
+            oid = str(c.org_id) if c.org_id else None
+            pkg = dict(org_packages.get(oid, {})) if oid else {}
+            org_comms = commissions_by_org.get(oid or "", []) if oid else []
+            total_c = sum(int(x.amount_minor or 0) for x in org_comms)
+            pending_c = sum(int(x.amount_minor or 0) for x in org_comms if str(x.status or "") == "pending")
+            paid_c = sum(int(x.amount_minor or 0) for x in org_comms if str(x.status or "") == "paid")
+            requested_c = sum(int(x.amount_minor or 0) for x in org_comms if str(x.status or "") == "requested")
+            cur = str(pkg.get("currency") or (org_comms[0].currency if org_comms else None) or getattr(rep, "currency", None) or "GBP")
+            won_at = c.offer_sent_at or c.interested_at or c.updated_at or c.created_at
+            won_companies.append(
+                {
+                    "id": c.id,
+                    "name": c.company_name or c.full_name,
+                    "contact_person": c.contact_person or c.full_name,
+                    "email": c.email,
+                    "mobile": c.mobile,
+                    "org_id": c.org_id,
+                    "status": "Converted" if c.org_id else (c.status or "Pending"),
+                    "created_at": _iso(c.created_at),
+                    "won_at": _iso(won_at),
+                    "offer_sent_at": _iso(c.offer_sent_at),
+                    **pkg,
+                    "commission_total_minor": total_c,
+                    "commission_pending_minor": pending_c,
+                    "commission_paid_minor": paid_c,
+                    "commission_requested_minor": requested_c,
+                    "commission_total_display": _money_display(total_c, cur) if total_c else None,
+                    "commission_pending_display": _money_display(pending_c, cur) if pending_c else None,
+                    "commission_paid_display": _money_display(paid_c, cur) if paid_c else None,
+                    "commissions": [
+                        {
+                            "id": x.id,
+                            "amount_minor": int(x.amount_minor or 0),
+                            "amount_display": _money_display(int(x.amount_minor or 0), x.currency or cur),
+                            "currency": x.currency or cur,
+                            "kind": x.kind,
+                            "status": x.status,
+                            "note": x.note,
+                            "created_at": _iso(x.created_at),
+                            "invoice_id": x.invoice_id,
+                        }
+                        for x in org_comms
+                    ],
+                }
+            )
+
+        won_companies.sort(key=lambda row: str(row.get("won_at") or row.get("created_at") or ""), reverse=True)
 
         from app.services.sales_hub_benefits import (
             benefit_summaries,
@@ -1772,17 +1836,9 @@ class SalesRepService:
             "packages": packages_for_currency(db, currency),
             "payout": SalesPayoutService.payout_dict(rep),
             "won_deals": {
-                "count": len(won),
+                "count": len(won_companies),
                 "total_value_minor": total_paid_minor,
-                "companies": [
-                    {
-                        "name": c.company_name or c.full_name,
-                        "org_id": c.org_id,
-                        "status": "Converted" if c.org_id else (c.status or "Pending"),
-                        **(org_packages.get(str(c.org_id), {}) if c.org_id else {}),
-                    }
-                    for c in won
-                ],
+                "companies": won_companies,
             },
             "wallet": {
                 "active_companies": len(org_ids),
