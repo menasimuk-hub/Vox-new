@@ -148,6 +148,11 @@ def test_redeem_wallet_voucher_credits_promo_wallet(db):
     assert int(org.promo_wallet_balance_pence or 0) == 2000
     assert cust.org_id == org.id
     assert cust.status == "won"
+    from app.models.subscription import Subscription
+    from sqlalchemy import select
+
+    subs = list(db.execute(select(Subscription).where(Subscription.org_id == org.id)).scalars().all())
+    assert subs == [], "sales promo must not auto-assign Starter (or any core plan)"
 
 
 def test_promo_wallet_blocked_for_campaign_launch_debit(db):

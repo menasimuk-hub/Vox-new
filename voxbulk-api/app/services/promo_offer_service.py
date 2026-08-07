@@ -830,12 +830,14 @@ class PromoOfferService:
                 db.add(existing)
             return
 
-        # Core subscription trial
-        plan_code = (row.plan_code or "starter").strip().lower()
+        # Core package trial only when the promo names an explicit plan — never auto-Starter.
+        plan_code = (row.plan_code or "").strip().lower()
+        if not plan_code or plan_code == "starter":
+            return
         try:
             sub = BillingService.assign_plan_cash(db, org_id=org.id, plan_code=plan_code)
         except ValueError:
-            sub = BillingService.assign_plan_cash(db, org_id=org.id, plan_code="starter")
+            return
         days = int(row.trial_days or amount or 0)
         if days > 0:
             sub.status = "trial"
@@ -925,10 +927,8 @@ class PromoOfferService:
             credit = max(0, int(row.wallet_credit_pence or 0))
             if PromoOfferService.is_wallet_voucher_offer(row.offer_type) and credit <= 0 and row.offer_type == "sales_wallet_voucher":
                 credit = SALES_REP_WALLET_CREDIT_PENCE
-            try:
-                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
-            except ValueError:
-                sub = BillingService.assign_plan_cash(db, org_id=org_id, plan_code="starter")
+            # Do not auto-assign Starter (or any core plan) for sales/wallet promos —
+            # wallet credit + multi-benefits apply; customer subscribes separately.
             if credit > 0:
                 WalletService.credit(
                     db,
@@ -960,7 +960,7 @@ class PromoOfferService:
                     )
                 except Exception:
                     pass
-            PromoOfferService.stamp_promo_attribution(db, org_id=org_id, promo=row, subscription=sub)
+            PromoOfferService.stamp_promo_attribution(db, org_id=org_id, promo=row, subscription=None)
             try:
                 PromoOfferService.grant_sales_rep_multi_benefits(db, org_id=org_id, promo=row)
             except Exception:
