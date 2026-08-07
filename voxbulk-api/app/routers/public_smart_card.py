@@ -208,6 +208,30 @@ def get_card_photo(token: str, db: Session = Depends(get_db)):
     return FileResponse(abs_path, media_type=media)
 
 
+@router.get("/{token}/qr.png")
+def get_card_qr_png(
+    token: str,
+    s: int = Query(default=512, ge=64, le=2048),
+    db: Session = Depends(get_db),
+):
+    """PNG QR for this card — true transparent background when qr_transparent is set."""
+    from fastapi.responses import Response
+
+    from app.services.smart_card.qr_image_service import render_rep_qr_png
+
+    rep = _get_rep(db, token)
+    png = render_rep_qr_png(rep, size=int(s))
+    filename = f"smart-card-{token[:40]}.png"
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
+
 @router.get("/{token}/assets/{asset_id}")
 def get_card_asset(
     token: str,

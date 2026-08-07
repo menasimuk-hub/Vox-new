@@ -46,6 +46,7 @@ def build_rep_qr_token(*, company_slug: str, rep_name: str) -> str:
 
 
 def _qr_image_for(url: str, *, fg: str = "000000", bg: str = "ffffff", size: int = 280) -> str:
+    """Legacy external QR URL (opaque backgrounds only). Prefer qr_image_url() for reps."""
     fg = re.sub(r"[^0-9a-fA-F]", "", fg or "000000")[:6] or "000000"
     bg = re.sub(r"[^0-9a-fA-F]", "", bg or "ffffff")[:6] or "ffffff"
     return (
@@ -231,8 +232,13 @@ class SmartCardCompanyService:
 
     @staticmethod
     def qr_image_url(rep: SmartCardRepresentative) -> str:
-        url = SmartCardCompanyService.public_web_url(rep.qr_token)
-        bg = "ffffff"
-        if rep.qr_transparent:
-            bg = "ffffff"  # download path can strip; preview uses white
-        return _qr_image_for(url, fg=rep.qr_fg_color or "000000", bg=bg)
+        """Absolute PNG URL served by our API (supports true transparent backgrounds)."""
+        from app.services.brand_assets import api_public_origin
+
+        token = str(rep.qr_token or "").strip()
+        api = (api_public_origin() or "").rstrip("/") or "https://api.voxbulk.com"
+        fg = re.sub(r"[^0-9a-fA-F]", "", str(rep.qr_fg_color or "000000"))[:6] or "000000"
+        bg = re.sub(r"[^0-9a-fA-F]", "", str(rep.qr_bg_color or "ffffff"))[:6] or "ffffff"
+        tr = "1" if rep.qr_transparent else "0"
+        # Cache-bust when colours / transparency change
+        return f"{api}/public/smart-card/{token}/qr.png?fg={fg}&bg={bg}&t={tr}&s=512"

@@ -311,7 +311,7 @@ function SmartCardEditQrPage() {
                   disabled={!canEdit}
                   onCheckedChange={(v) => setTransparent(Boolean(v))}
                 />
-                Transparent background
+                Transparent background (PNG with no fill — print on any colour)
               </label>
             </CardContent>
           </Card>
@@ -383,7 +383,22 @@ function SmartCardEditQrPage() {
           <Card>
             <CardContent className="flex flex-col items-center gap-3 p-4">
               {pngUrl ? (
-                <img src={pngUrl} alt="QR" className="size-40 rounded-lg border bg-white p-2" />
+                <img
+                  src={pngUrl}
+                  alt="QR"
+                  className="size-40 rounded-lg border p-2"
+                  style={
+                    transparent
+                      ? {
+                          backgroundImage:
+                            "linear-gradient(45deg,#e5e7eb 25%,transparent 25%),linear-gradient(-45deg,#e5e7eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e5e7eb 75%),linear-gradient(-45deg,transparent 75%,#e5e7eb 75%)",
+                          backgroundSize: "16px 16px",
+                          backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
+                          backgroundColor: "#fff",
+                        }
+                      : { backgroundColor: `#${bg || "ffffff"}` }
+                  }
+                />
               ) : null}
               {pngUrl ? (
                 <Button asChild size="sm" variant="outline" className="w-full">

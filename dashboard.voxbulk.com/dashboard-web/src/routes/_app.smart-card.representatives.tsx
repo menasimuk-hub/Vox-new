@@ -279,7 +279,7 @@ function RepEditPanel({
       </div>
       <label className="flex items-center gap-2 text-xs">
         <input type="checkbox" checked={transparent} onChange={(e) => setTransparent(e.target.checked)} />
-        Transparent background (download)
+        Transparent background (PNG, no fill)
       </label>
       <Button
         size="sm"
