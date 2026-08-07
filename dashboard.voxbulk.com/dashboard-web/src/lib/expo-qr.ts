@@ -26,3 +26,22 @@ export function buildExpoQrImageCandidates(webUrl: string, size = 200): string[]
 export function buildExpoQrImageUrl(webUrl: string, size = 200): string {
   return buildExpoQrImageCandidates(webUrl, size)[0] || "";
 }
+
+/** Format ISO datetime/date for Expo package windows (UK-friendly). */
+export function formatExpoDay(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    const bare = String(iso).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(bare) ? bare : null;
+  }
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export function formatExpoWindow(startIso?: string | null, endIso?: string | null): string | null {
+  const start = formatExpoDay(startIso);
+  const end = formatExpoDay(endIso);
+  if (start && end) return `${start} → ${end}`;
+  return start || end || null;
+}
+

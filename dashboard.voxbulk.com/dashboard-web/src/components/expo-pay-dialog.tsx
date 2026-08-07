@@ -1,5 +1,5 @@
 import * as React from "react";
-import { CreditCard, Loader2, Rocket } from "lucide-react";
+import { CheckCircle2, CreditCard, Loader2, Rocket } from "lucide-react";
 import { toast } from "sonner";
 
 import { PromoCodeRedeem } from "@/components/billing/promo-code-redeem";
@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
 import { apiFetch } from "@/lib/api";
+import { formatExpoDay, formatExpoWindow } from "@/lib/expo-qr";
 
 declare global {
   interface Window {
@@ -47,6 +48,16 @@ function loadScript(src: string): Promise<void> {
   return loadedScripts[src];
 }
 
+type BoothPaySnapshot = {
+  activated_at?: string | null;
+  expires_at?: string | null;
+  is_live?: boolean;
+  is_before_start?: boolean;
+  is_paid?: boolean;
+  payment_status?: string;
+  paid_at?: string | null;
+};
+
 type PayOptions = {
   ok?: boolean;
   amount_minor?: number;
@@ -69,11 +80,12 @@ type PayOptions = {
     after_trial_display?: string | null;
     total_minor?: number;
   };
-  booth?: {
-    activated_at?: string | null;
-    is_live?: boolean;
-    is_before_start?: boolean;
-  };
+  booth?: BoothPaySnapshot;
+};
+
+type PaidResult = {
+  booth?: Record<string, unknown>;
+  amountLabel: string;
 };
 
 type Props = {
@@ -91,6 +103,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
   const [intentPending, setIntentPending] = React.useState(false);
   const [paying, setPaying] = React.useState(false);
   const [paymentReady, setPaymentReady] = React.useState(false);
+  const [paidResult, setPaidResult] = React.useState<PaidResult | null>(null);
   const mountRef = React.useRef<HTMLDivElement | null>(null);
   const stripeRef = React.useRef<{ stripe: StripeJs; elements: StripeElements; intentId: string } | null>(null);
   const cleanupRef = React.useRef<(() => void) | null>(null);
@@ -124,6 +137,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
     if (!open || !boothId) {
       reset();
       setOptions(null);
+      setPaidResult(null);
       zeroPriceActivateRef.current = false;
       return;
     }
@@ -134,21 +148,33 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
     if (!open) reset();
   }, [open, reset]);
 
-  const paidToast = (booth?: Record<string, unknown>) => {
-    const activated = booth?.activated_at || options?.booth?.activated_at;
+  const amountLabel = options?.quote?.total_display || options?.amount_display || "—";
+  const windowLabel = formatExpoWindow(options?.booth?.activated_at, options?.booth?.expires_at);
+  const startLabel = formatExpoDay(options?.booth?.activated_at);
+
+  const showPaidSuccess = (booth?: Record<string, unknown>, paidAmount?: string) => {
+    const label = paidAmount || amountLabel;
+    setPaidResult({ booth, amountLabel: label });
+    reset();
     const live = Boolean(booth?.is_live ?? options?.booth?.is_live);
-    if (live) {
-      toast.success("Paid — Expo booth is live");
-      return;
-    }
-    const startLabel = activated
-      ? new Date(String(activated)).toLocaleDateString("en-GB", {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        })
-      : "your start date";
-    toast.success(`Paid — goes live on ${startLabel}`);
+    const activated = booth?.activated_at || options?.booth?.activated_at;
+    const ends = booth?.expires_at || options?.booth?.expires_at;
+    const win = formatExpoWindow(
+      activated != null ? String(activated) : null,
+      ends != null ? String(ends) : null,
+    );
+    toast.success(live ? "Payment received — booth is live" : "Payment received", {
+      description: win
+        ? `Package window ${win}${live ? "" : " · goes live on start date"}`
+        : undefined,
+    });
+  };
+
+  const dismissPaidSuccess = () => {
+    const booth = paidResult?.booth;
+    setPaidResult(null);
+    onOpenChange(false);
+    onPaid?.(booth);
   };
 
   const finishPayment = async (providerId: string, intentId: string) => {
@@ -164,9 +190,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
         body: JSON.stringify({ provider: providerId, payment_intent_id: intentId }),
       });
       if (res.paid || res.duplicate) {
-        paidToast(res.booth);
-        onOpenChange(false);
-        onPaid?.(res.booth);
+        showPaidSuccess(res.booth, amountLabel);
       } else {
         toast.message("Payment is still processing", {
           description: "Your booth will unlock as soon as the payment settles.",
@@ -194,15 +218,19 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
         payment_intent_id?: string;
         currency?: string;
         environment?: string;
+        amount_minor?: number;
         booth?: Record<string, unknown>;
       }>(`/expo/booths/${encodeURIComponent(boothId)}/pay/intent`, {
         method: "POST",
         body: JSON.stringify({ provider: providerId }),
       });
-      if (intent.paid || intent.provider === "free" || intent.provider === "signup_trial" || intent.provider === "promo_discount") {
-        paidToast(intent.booth);
-        onOpenChange(false);
-        onPaid?.(intent.booth);
+      if (
+        intent.paid ||
+        intent.provider === "free" ||
+        intent.provider === "signup_trial" ||
+        intent.provider === "promo_discount"
+      ) {
+        showPaidSuccess(intent.booth, amountLabel === "—" ? "£0" : amountLabel);
         return;
       }
       if (providerId === "stripe") {
@@ -252,15 +280,14 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
 
   // Zero-price packages (incl. silent signup trial): activate without card UI.
   React.useEffect(() => {
-    if (!open || !boothId || loadingOptions || !options) return;
+    if (!open || !boothId || loadingOptions || !options || paidResult) return;
     if (options.is_paid) return;
     if (Number(options.amount_minor || 0) > 0) return;
     if (zeroPriceActivateRef.current || provider || intentPending || paying) return;
     zeroPriceActivateRef.current = true;
     void startPayment("free");
-    // startPayment is stable enough for one-shot £0 activate; omit from deps to avoid loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, boothId, loadingOptions, options, provider, intentPending, paying]);
+  }, [open, boothId, loadingOptions, options, provider, intentPending, paying, paidResult]);
 
   const payWithStripe = async () => {
     const ctx = stripeRef.current;
@@ -281,22 +308,91 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
   };
 
   const providers = options?.providers || [];
-  const amountLabel = options?.quote?.total_display || options?.amount_display || "—";
+  const paidBooth = (paidResult?.booth || {}) as BoothPaySnapshot;
+  const paidWindow =
+    formatExpoWindow(
+      paidBooth.activated_at != null ? String(paidBooth.activated_at) : options?.booth?.activated_at,
+      paidBooth.expires_at != null ? String(paidBooth.expires_at) : options?.booth?.expires_at,
+    ) || windowLabel;
+  const paidLive = Boolean(paidBooth.is_live ?? options?.booth?.is_live);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && paidResult) {
+          dismissPaidSuccess();
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="top-[4dvh] flex max-h-[min(92dvh,36rem)] w-[calc(100%-2rem)] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:top-[50%] sm:max-w-md sm:-translate-y-1/2">
         <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
-            <Rocket className="size-5 text-primary" /> Pay Expo package
+            {paidResult ? (
+              <>
+                <CheckCircle2 className="size-5 text-emerald-600" /> Payment received
+              </>
+            ) : (
+              <>
+                <Rocket className="size-5 text-primary" /> Pay Expo package
+              </>
+            )}
           </DialogTitle>
           <DialogDescription>
-            {boothName ? `${boothName} · ` : ""}
-            {amountLabel}. Design and preview tests work unpaid; live exhibition starts after payment.
+            {paidResult
+              ? boothName
+                ? `${boothName} is paid.`
+                : "Your Expo package is paid."
+              : `${boothName ? `${boothName} · ` : ""}${amountLabel}. Live exhibition only after payment.`}
           </DialogDescription>
         </DialogHeader>
 
-        {!provider ? (
+        {paidResult ? (
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+            <div className="rounded-xl border border-emerald-300/70 bg-emerald-50/80 p-4 text-sm dark:border-emerald-800 dark:bg-emerald-950/40">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                Amount paid
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                {paidResult.amountLabel}
+              </p>
+              <div className="mt-3 space-y-1.5 border-t border-emerald-200/80 pt-3 dark:border-emerald-800">
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Starts</span>
+                  <span className="font-medium tabular-nums">
+                    {formatExpoDay(
+                      paidBooth.activated_at != null
+                        ? String(paidBooth.activated_at)
+                        : options?.booth?.activated_at,
+                    ) || "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Ends</span>
+                  <span className="font-medium tabular-nums">
+                    {formatExpoDay(
+                      paidBooth.expires_at != null ? String(paidBooth.expires_at) : options?.booth?.expires_at,
+                    ) || "—"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Status</span>
+                  <span className="font-medium">
+                    {paidLive ? "Live now" : `Goes live ${formatExpoDay(paidBooth.activated_at != null ? String(paidBooth.activated_at) : options?.booth?.activated_at) || "on start date"}`}
+                  </span>
+                </div>
+              </div>
+              {paidWindow ? (
+                <p className="mt-3 text-xs text-muted-foreground">Package window: {paidWindow}</p>
+              ) : null}
+            </div>
+            <Button className="w-full" onClick={dismissPaidSuccess}>
+              Continue to QR code
+            </Button>
+          </div>
+        ) : !provider ? (
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
             {loadingOptions ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -334,6 +430,12 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
                   <div className="flex items-center justify-between gap-3 border-t pt-2">
                     <span className="font-medium">Total due today</span>
                     <span className="text-lg font-semibold tabular-nums">{amountLabel}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-t pt-2">
+                    <span className="text-muted-foreground">Live window</span>
+                    <span className="max-w-[60%] text-right font-medium tabular-nums">
+                      {windowLabel || (startLabel ? `From ${startLabel}` : "Set on booth")}
+                    </span>
                   </div>
                   {options?.quote?.amount_note ? (
                     <p className="text-xs text-muted-foreground">{options.quote.amount_note}</p>

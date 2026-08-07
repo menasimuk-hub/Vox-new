@@ -194,7 +194,11 @@ function GoCardlessReturnHandler({
             const res = await apiFetch<{
               paid?: boolean;
               duplicate?: boolean;
-              booth?: { is_live?: boolean; activated_at?: string | null };
+              booth?: {
+                is_live?: boolean;
+                activated_at?: string | null;
+                expires_at?: string | null;
+              };
             }>(`/expo/booths/${encodeURIComponent(pending.booth_id)}/pay/confirm`, {
               method: "POST",
               body: JSON.stringify({
@@ -203,19 +207,12 @@ function GoCardlessReturnHandler({
               }),
             });
             if (res.paid || res.duplicate) {
-              if (res.booth?.is_live) {
-                toast.success("Paid — Expo booth is live");
-              } else {
-                const activated = res.booth?.activated_at;
-                const startLabel = activated
-                  ? new Date(activated).toLocaleDateString("en-GB", {
-                      day: "numeric",
-                      month: "short",
-                      year: "numeric",
-                    })
-                  : "your start date";
-                toast.success(`Paid — goes live on ${startLabel}`);
-              }
+              const { formatExpoWindow } = await import("@/lib/expo-qr");
+              const win = formatExpoWindow(res.booth?.activated_at, res.booth?.expires_at);
+              toast.success(
+                res.booth?.is_live ? "Payment received — Expo booth is live" : "Payment received — Expo package paid",
+                { description: win ? `Package window ${win}` : undefined },
+              );
             } else {
               toast.message("Payment is still processing", {
                 description: "Your booth will unlock as soon as the payment settles.",

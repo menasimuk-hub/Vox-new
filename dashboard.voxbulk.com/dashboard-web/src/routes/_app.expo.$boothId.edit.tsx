@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
-import { buildExpoQrImageUrl, resolveExpoWebUrl } from "@/lib/expo-qr";
+import { buildExpoQrImageUrl, formatExpoDay, formatExpoWindow, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -46,6 +46,11 @@ type BoothDetail = {
   venue?: string | null;
   industry_id?: string | null;
   package_id?: string | null;
+  activated_at?: string | null;
+  expires_at?: string | null;
+  is_paid?: boolean;
+  payment_status?: string;
+  is_live?: boolean;
   question_config?: { steps?: Array<{ key: string; prompt: string }> };
   closing?: { thank_you_message?: string; free_gift_enabled?: boolean; free_gift_text?: string };
   contact_capture?: "offer_both" | "manual_only" | "card_only";
@@ -108,6 +113,7 @@ function EditExpoBooth() {
   const [freeGiftEnabled, setFreeGiftEnabled] = React.useState(false);
   const [freeGiftText, setFreeGiftText] = React.useState("");
   const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
+  const [packageStartDate, setPackageStartDate] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const initialized = React.useRef(false);
 
@@ -140,6 +146,7 @@ function EditExpoBooth() {
     setFreeGiftEnabled(Boolean(booth.closing?.free_gift_enabled));
     setFreeGiftText(booth.closing?.free_gift_text || "");
     setCategories(categoriesFromApi(booth.categories));
+    setPackageStartDate(booth.activated_at ? String(booth.activated_at).slice(0, 10) : "");
   }, [booth]);
 
   const questionBank = React.useMemo(() => {
@@ -178,9 +185,14 @@ function EditExpoBooth() {
         company_website: companyWebsite.trim() || null,
         notify_mobile: notifyMobile.trim() || null,
         categories: categoriesToPayload(categories),
+        ...(packageStartDate ? { start_date: packageStartDate } : {}),
       };
       await apiFetch(`/expo/booths/${boothId}`, { method: "PATCH", body: JSON.stringify(payload) });
-      toast.success("Booth updated — your QR code stays the same.");
+      toast.success(
+        packageStartDate
+          ? `Booth updated · package starts ${packageStartDate}. QR stays the same.`
+          : "Booth updated — your QR code stays the same.",
+      );
       void navigate({ to: "/expo" });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update booth");
@@ -280,6 +292,43 @@ function EditExpoBooth() {
               <div className="space-y-2">
                 <Label>Company name on WhatsApp</Label>
                 <Input value={company} onChange={(e) => setCompany(e.target.value)} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Package live window</CardTitle>
+              <CardDescription>
+                Change when the paid package starts. End date is calculated from the package length. Current window:{" "}
+                {formatExpoWindow(booth.activated_at, booth.expires_at) || "not set"}.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2 rounded-lg border border-amber-300/70 bg-amber-50/70 px-3 py-2 text-sm dark:border-amber-700 dark:bg-amber-950/30">
+                <p className="font-medium text-amber-950 dark:text-amber-100">
+                  {booth.is_paid || booth.payment_status === "paid"
+                    ? booth.is_live
+                      ? "Paid · live now"
+                      : "Paid · waiting for start"
+                    : "Unpaid · pay to go live"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Starts {formatExpoDay(booth.activated_at) || "—"} · Ends {formatExpoDay(booth.expires_at) || "—"}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-expo-start">Package start date</Label>
+                <Input
+                  id="edit-expo-start"
+                  type="date"
+                  value={packageStartDate}
+                  onChange={(e) => setPackageStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Current end date</Label>
+                <Input type="text" value={formatExpoDay(booth.expires_at) || "—"} readOnly disabled />
               </div>
             </CardContent>
           </Card>

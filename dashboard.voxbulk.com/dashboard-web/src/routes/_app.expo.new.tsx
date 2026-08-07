@@ -37,7 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
 import { countryToMarket } from "@/lib/billing/market";
-import { buildExpoQrImageUrl, resolveExpoWebUrl } from "@/lib/expo-qr";
+import { buildExpoQrImageUrl, formatExpoDay, formatExpoWindow, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
 import { useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
@@ -77,8 +77,11 @@ type BoothResult = {
   whatsapp_url?: string;
   is_paid?: boolean;
   is_live?: boolean;
+  is_before_start?: boolean;
   payment_status?: string;
   activated_at?: string | null;
+  expires_at?: string | null;
+  paid_at?: string | null;
 };
 
 type ExpoProfile = {
@@ -203,6 +206,7 @@ function CreateExpoBooth() {
   const setPackageStartDate = (v: string) => {
     setPackageStartDateTouched(true);
     setPackageStartDateRaw(v);
+    setStartConfirmed(false);
   };
 
   const [saving, setSaving] = React.useState(false);
@@ -210,6 +214,8 @@ function CreateExpoBooth() {
   const [draftBooth, setDraftBooth] = React.useState<BoothResult | null>(null);
   const [created, setCreated] = React.useState<BoothResult | null>(null);
   const [payOpen, setPayOpen] = React.useState(false);
+  const [startConfirmed, setStartConfirmed] = React.useState(false);
+  const [savingStartDate, setSavingStartDate] = React.useState(false);
   const fromBilling = Boolean(search.fromBilling);
   const billedPackageApplied = React.useRef(false);
 
@@ -424,6 +430,10 @@ function CreateExpoBooth() {
   }
 
   const activate = async () => {
+    if (!startConfirmed) {
+      toast.error("Confirm the package start and end dates before saving");
+      return;
+    }
     if (
       selectedPackage &&
       typeof selectedPackage.max_categories === "number" &&
@@ -445,6 +455,10 @@ function CreateExpoBooth() {
         body: JSON.stringify(payload),
       });
       setCreated(res.item);
+      if (res.item.activated_at) {
+        setPackageStartDateRaw(String(res.item.activated_at).slice(0, 10));
+        setPackageStartDateTouched(true);
+      }
       setStep(7);
       // Seed Saved booths cache so the new QR appears immediately
       queryClient.setQueryData<{ ok: boolean; items: Array<typeof res.item> }>(["expo", "booths"], (prev) => {
@@ -468,6 +482,38 @@ function CreateExpoBooth() {
       toast.error(e instanceof Error ? e.message : "Could not create booth");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const savePackageStartDate = async () => {
+    if (!created?.id || !packageStartDate) return;
+    if (!startConfirmed) {
+      toast.error("Tick the confirmation box after checking the dates");
+      return;
+    }
+    setSavingStartDate(true);
+    try {
+      const res = await apiFetch<{ ok?: boolean; item?: BoothResult }>(`/expo/booths/${encodeURIComponent(created.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ start_date: packageStartDate }),
+      });
+      const item = res.item || (res as unknown as BoothResult);
+      const next = {
+        ...created,
+        activated_at: item.activated_at ?? created.activated_at,
+        expires_at: item.expires_at ?? created.expires_at,
+        is_live: item.is_live ?? created.is_live,
+        is_before_start: item.is_before_start ?? created.is_before_start,
+      };
+      setCreated(next);
+      toast.success(
+        `Package window updated · ${formatExpoWindow(next.activated_at, next.expires_at) || packageStartDate}`,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["expo"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update start date");
+    } finally {
+      setSavingStartDate(false);
     }
   };
 
@@ -1015,37 +1061,78 @@ function CreateExpoBooth() {
                       Event dates: <span className="font-medium text-foreground">{eventDatesLabel}</span>
                     </p>
                   ) : null}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="expo-start-date">Package start date</Label>
-                      <Input
-                        id="expo-start-date"
-                        type="date"
-                        value={packageStartDate}
-                        onChange={(e) => setPackageStartDate(e.target.value)}
+                  <div className="rounded-xl border-2 border-amber-400/80 bg-amber-50/90 p-4 shadow-sm dark:border-amber-600 dark:bg-amber-950/40">
+                    <p className="text-sm font-semibold text-amber-950 dark:text-amber-100">
+                      Check when your package starts and finishes
+                    </p>
+                    <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-200/80">
+                      This is the live window after payment — not just a form field. Wrong dates are the most common
+                      mistake; confirm them before you continue.
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="expo-start-date" className="text-amber-950 dark:text-amber-100">
+                          Package start date
+                        </Label>
+                        <Input
+                          id="expo-start-date"
+                          type="date"
+                          className="bg-background text-base"
+                          value={packageStartDate}
+                          onChange={(e) => setPackageStartDate(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="expo-end-date" className="text-amber-950 dark:text-amber-100">
+                          Package end date (auto)
+                        </Label>
+                        <Input
+                          id="expo-end-date"
+                          type="date"
+                          className="bg-background text-base"
+                          value={packageEndDate}
+                          readOnly
+                          disabled
+                        />
+                        <p className="text-xs text-amber-900/70 dark:text-amber-200/70">
+                          {selectedPackage
+                            ? `${selectedPackage.name} · ${packageDays} day${packageDays === 1 ? "" : "s"}`
+                            : "Choose a package first"}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-sm font-medium text-amber-950 dark:text-amber-50">
+                      Live window:{" "}
+                      <span className="tabular-nums">
+                        {packageStartDate && packageEndDate
+                          ? `${packageStartDate} → ${packageEndDate}`
+                          : "Pick a start date"}
+                      </span>
+                    </p>
+                    <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-amber-300/80 bg-background/80 px-3 py-2.5 text-sm dark:border-amber-700">
+                      <Checkbox
+                        checked={startConfirmed}
+                        onCheckedChange={(v) => setStartConfirmed(v === true)}
+                        className="mt-0.5"
                       />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="expo-end-date">Auto end date</Label>
-                      <Input id="expo-end-date" type="date" value={packageEndDate} readOnly disabled />
-                      <p className="text-xs text-muted-foreground">
-                        {selectedPackage
-                          ? `${selectedPackage.name} · ${packageDays} day${packageDays === 1 ? "" : "s"}`
-                          : "Choose a package first"}
-                      </p>
-                    </div>
+                      <span>
+                        I confirm this booth should go live from{" "}
+                        <strong className="tabular-nums">{packageStartDate || "—"}</strong> through{" "}
+                        <strong className="tabular-nums">{packageEndDate || "—"}</strong>.
+                      </span>
+                    </label>
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
                     <p className="font-medium text-foreground">Save unpaid · pay to go live</p>
                     <p className="mt-0.5 text-xs">
                       Save your design and QR now. You get up to 15 preview tests unpaid. The booth goes live for
-                      the package window only after Stripe or Airwallex payment.
+                      the package window only after card payment.
                     </p>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    Creates your booth, WhatsApp trigger text, and downloadable QR (status: Unpaid).
-                  </p>
-                  <Button onClick={() => void activate()} disabled={saving || !packageId || !packageStartDate}>
+                  <Button
+                    onClick={() => void activate()}
+                    disabled={saving || !packageId || !packageStartDate || !startConfirmed}
+                  >
                     {saving ? "Saving…" : "Save Expo booth"}
                   </Button>
                 </>
@@ -1063,25 +1150,93 @@ function CreateExpoBooth() {
                     return (
                       <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:items-start">
                         <div className="min-w-0 space-y-4">
-                          <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-                            <p className="font-medium text-foreground">
-                              {created.is_paid || created.payment_status === "paid"
-                                ? created.is_live
-                                  ? "Booth live"
-                                  : "Booth paid — waiting for start date"
-                                : "Booth saved (unpaid)"}
+                          {created.is_paid || created.payment_status === "paid" ? (
+                            <div className="rounded-xl border-2 border-emerald-400/70 bg-emerald-50/90 px-4 py-3 text-sm dark:border-emerald-700 dark:bg-emerald-950/40">
+                              <p className="text-base font-semibold text-emerald-900 dark:text-emerald-100">
+                                {created.is_live ? "Paid — booth is live" : "Paid — waiting for start date"}
+                              </p>
+                              <div className="mt-2 grid gap-1 text-sm text-emerald-950/90 dark:text-emerald-50/90">
+                                <p>
+                                  Starts:{" "}
+                                  <strong className="tabular-nums">
+                                    {formatExpoDay(created.activated_at) || packageStartDate || "—"}
+                                  </strong>
+                                </p>
+                                <p>
+                                  Ends:{" "}
+                                  <strong className="tabular-nums">
+                                    {formatExpoDay(created.expires_at) || packageEndDate || "—"}
+                                  </strong>
+                                </p>
+                                {created.paid_at ? (
+                                  <p className="text-xs text-muted-foreground">
+                                    Paid on {formatExpoDay(created.paid_at)}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                              <p className="font-medium text-foreground">Booth saved (unpaid)</p>
+                              <p className="mt-0.5 text-xs text-muted-foreground">
+                                Pay to go live · 15 preview tests unpaid · QR ready to print
+                              </p>
+                            </div>
+                          )}
+
+                          <div className="rounded-xl border bg-background p-4">
+                            <p className="text-sm font-semibold">Package live window</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              You can change the start date after the QR is created. End date updates from the
+                              package length.
                             </p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              Window {packageStartDate}
-                              {packageEndDate ? ` → ${packageEndDate}` : ""} ·{" "}
-                              {created.is_paid || created.payment_status === "paid"
-                                ? "Paid — live after start date"
-                                : "Pay to go live · 15 preview tests unpaid"}
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <Label htmlFor="expo-start-date-saved">Start date</Label>
+                                <Input
+                                  id="expo-start-date-saved"
+                                  type="date"
+                                  value={packageStartDate}
+                                  onChange={(e) => setPackageStartDate(e.target.value)}
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor="expo-end-date-saved">End date (auto)</Label>
+                                <Input id="expo-end-date-saved" type="date" value={packageEndDate} readOnly disabled />
+                              </div>
+                            </div>
+                            <p className="mt-2 text-sm font-medium tabular-nums">
+                              {formatExpoWindow(created.activated_at, created.expires_at) ||
+                                (packageStartDate && packageEndDate
+                                  ? `${packageStartDate} → ${packageEndDate}`
+                                  : "—")}
                             </p>
-                            {created.trigger_text ? (
-                              <p className="mt-2 text-xs text-muted-foreground">{created.trigger_text}</p>
-                            ) : null}
+                            <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
+                              <Checkbox
+                                checked={startConfirmed}
+                                onCheckedChange={(v) => setStartConfirmed(v === true)}
+                                className="mt-0.5"
+                              />
+                              <span>
+                                Confirm new dates:{" "}
+                                <strong className="tabular-nums">{packageStartDate || "—"}</strong> →{" "}
+                                <strong className="tabular-nums">{packageEndDate || "—"}</strong>
+                              </span>
+                            </label>
+                            <Button
+                              className="mt-3"
+                              size="sm"
+                              variant="outline"
+                              disabled={savingStartDate || !packageStartDate || !startConfirmed}
+                              onClick={() => void savePackageStartDate()}
+                            >
+                              {savingStartDate ? "Saving dates…" : "Update start / end dates"}
+                            </Button>
                           </div>
+
+                          {created.trigger_text ? (
+                            <p className="text-xs text-muted-foreground">{created.trigger_text}</p>
+                          ) : null}
 
                           {webUrl || qrSrc ? (
                             <div>
@@ -1202,9 +1357,16 @@ function CreateExpoBooth() {
               ...created,
               is_paid: Boolean(booth.is_paid ?? true),
               is_live: Boolean(booth.is_live),
+              is_before_start: Boolean(booth.is_before_start),
               payment_status: String(booth.payment_status || "paid"),
               activated_at: (booth.activated_at as string | null | undefined) ?? created.activated_at,
+              expires_at: (booth.expires_at as string | null | undefined) ?? created.expires_at,
+              paid_at: (booth.paid_at as string | null | undefined) ?? created.paid_at,
             });
+            if (booth.activated_at) {
+              setPackageStartDateRaw(String(booth.activated_at).slice(0, 10));
+              setPackageStartDateTouched(true);
+            }
           }
           void queryClient.invalidateQueries({ queryKey: ["expo"] });
         }}

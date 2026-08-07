@@ -1230,6 +1230,22 @@ class ExpoBoothService:
                 now=now,
             )
 
+        # Package live window — can be changed after QR is created (paid or unpaid).
+        start_raw = (
+            payload.get("start_date")
+            if "start_date" in payload
+            else payload.get("package_start_date")
+            if "package_start_date" in payload
+            else payload.get("starts_on")
+            if "starts_on" in payload
+            else None
+        )
+        if start_raw is not None:
+            start_at = parse_package_start_at(start_raw, fallback=None)
+            if start_at is None:
+                raise ValueError("Invalid package start date")
+            apply_package_window(db, booth, now=now, start_at=start_at)
+
         ExpoOrgProfileService.save(
             db,
             org_id=org_id,
