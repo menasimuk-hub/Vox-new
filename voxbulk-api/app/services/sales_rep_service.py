@@ -11,7 +11,7 @@ from datetime import datetime
 from email.utils import parseaddr
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -747,6 +747,22 @@ class SalesRepService:
         cust = SalesRepService.get_customer(db, rep_id=rep_id, customer_id=customer_id)
         if cust is None:
             raise SalesRepError("Customer not found.")
+        # Commissions + mail contacts FK to sales_customers — unlink before delete (MySQL 1451).
+        db.execute(
+            update(SalesCommission)
+            .where(SalesCommission.sales_customer_id == customer_id)
+            .values(sales_customer_id=None)
+        )
+        try:
+            from app.models.sales_mail import SalesMailContact
+
+            db.execute(
+                update(SalesMailContact)
+                .where(SalesMailContact.sales_customer_id == customer_id)
+                .values(sales_customer_id=None)
+            )
+        except Exception:
+            logger.exception("Failed to unlink mail contacts before deleting customer %s", customer_id)
         db.delete(cust)
         db.commit()
 
