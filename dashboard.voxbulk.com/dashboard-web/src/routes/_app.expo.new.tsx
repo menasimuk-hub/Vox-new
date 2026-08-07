@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   Briefcase,
   CalendarDays,
@@ -36,8 +36,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
+import { countryToMarket } from "@/lib/billing/market";
 import { buildExpoQrImageUrl, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { canLaunchCampaigns, normalizeOrgRole } from "@/lib/org-roles";
+import { useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { waIndustryIcon } from "@/lib/wa-industry-icon";
@@ -116,23 +118,41 @@ function defaultFreeGiftText(companyName: string) {
 }
 
 export const Route = createFileRoute("/_app/expo/new")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    packageId: typeof search.packageId === "string" ? search.packageId : undefined,
+    fromBilling: search.fromBilling === true || search.fromBilling === "1" || search.fromBilling === "true",
+  }),
   head: () => ({ meta: [{ title: "Create Expo booth — VoxBulk" }] }),
   component: CreateExpoBooth,
 });
 
+const MARKET_TO_ZONE: Record<string, string> = {
+  gbp: "gb",
+  eur: "eu",
+  usd: "us",
+  cad: "ca",
+  aud: "au",
+};
+
 function CreateExpoBooth() {
   const { session } = useSession();
+  const orgQ = useOrganisation();
+  const navigate = useNavigate();
+  const search = Route.useSearch();
   const queryClient = useQueryClient();
   const role = normalizeOrgRole(session?.profile?.role);
   const canCreate = canLaunchCampaigns(role);
+  const market = countryToMarket(orgQ.data?.country);
+  const zone = MARKET_TO_ZONE[market] || "us";
 
   const industriesQ = useQuery({
     queryKey: ["expo", "industries"],
     queryFn: () => apiFetch<{ items: Industry[] }>("/expo/catalog/industries"),
   });
   const packagesQ = useQuery({
-    queryKey: ["expo", "packages"],
-    queryFn: () => apiFetch<{ items: Package[] }>("/expo/packages?zone=gb"),
+    queryKey: ["expo", "packages", zone],
+    queryFn: () => apiFetch<{ items: Package[] }>(`/expo/packages?zone=${zone}`),
+    enabled: !orgQ.isLoading,
   });
   const questionsQ = useQuery({
     queryKey: ["expo", "questions"],
@@ -190,6 +210,21 @@ function CreateExpoBooth() {
   const [draftBooth, setDraftBooth] = React.useState<BoothResult | null>(null);
   const [created, setCreated] = React.useState<BoothResult | null>(null);
   const [payOpen, setPayOpen] = React.useState(false);
+  const fromBilling = Boolean(search.fromBilling);
+  const billedPackageApplied = React.useRef(false);
+
+  React.useEffect(() => {
+    if (billedPackageApplied.current) return;
+    const pid = String(search.packageId || "").trim();
+    if (!pid || packagesQ.isLoading) return;
+    const pkgs = packagesQ.data?.items || [];
+    if (!pkgs.some((p) => p.id === pid)) return;
+    billedPackageApplied.current = true;
+    setPackageId(pid);
+    if (fromBilling) {
+      toast.message("Package selected from Billing — finish booth details, then pay");
+    }
+  }, [search.packageId, fromBilling, packagesQ.isLoading, packagesQ.data?.items]);
 
   // Prefill from org Expo profile (contact email, reps, website, notify mobile).
   React.useEffect(() => {
@@ -420,7 +455,15 @@ function CreateExpoBooth() {
         return { ok: true, items };
       });
       await queryClient.invalidateQueries({ queryKey: ["expo"] });
-      toast.success("Booth saved — pay to go live, or use up to 15 preview tests unpaid");
+      const unpaid = !(res.item.is_paid || res.item.payment_status === "paid");
+      if (fromBilling && unpaid) {
+        toast.success("Booth saved — open payment to go live");
+        setPayOpen(true);
+        // Clear billing hand-off flags so refresh does not re-open awkwardly.
+        void navigate({ to: "/expo/new", search: {}, replace: true });
+      } else {
+        toast.success("Booth saved — pay to go live, or use up to 15 preview tests unpaid");
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not create booth");
     } finally {

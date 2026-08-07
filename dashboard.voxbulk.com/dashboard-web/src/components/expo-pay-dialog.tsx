@@ -62,6 +62,12 @@ type PayOptions = {
     discount_display?: string | null;
     vat_display?: string | null;
     net_display?: string;
+    catalog_display?: string;
+    promo_code?: string | null;
+    promo_label?: string | null;
+    trial_days?: number;
+    after_trial_display?: string | null;
+    total_minor?: number;
   };
   booth?: {
     activated_at?: string | null;
@@ -193,7 +199,7 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
         method: "POST",
         body: JSON.stringify({ provider: providerId }),
       });
-      if (intent.paid || intent.provider === "free" || intent.provider === "signup_trial") {
+      if (intent.paid || intent.provider === "free" || intent.provider === "signup_trial" || intent.provider === "promo_discount") {
         paidToast(intent.booth);
         onOpenChange(false);
         onPaid?.(intent.booth);
@@ -304,14 +310,35 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
               </p>
             ) : (
               <>
-                {options?.quote?.amount_note ? (
-                  <p className="text-xs text-muted-foreground">{options.quote.amount_note}</p>
-                ) : null}
-                {options?.quote?.discount_applied && options.quote.discount_display ? (
-                  <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                    Promo −{options.quote.discount_display}
-                  </p>
-                ) : null}
+                <div className="space-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Package price</span>
+                    <span className="tabular-nums font-medium">
+                      {options?.quote?.catalog_display || options?.amount_display || "—"}
+                    </span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-muted-foreground">Promo</span>
+                    <span className="max-w-[60%] text-right text-emerald-700 dark:text-emerald-400">
+                      {options?.quote?.discount_applied
+                        ? [
+                            options.quote.promo_code ? `Promo ${options.quote.promo_code}` : "Promo",
+                            options.quote.promo_label ||
+                              (options.quote.discount_display ? `−${options.quote.discount_display}` : null),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : "No promo applied"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 border-t pt-2">
+                    <span className="font-medium">Total due today</span>
+                    <span className="text-lg font-semibold tabular-nums">{amountLabel}</span>
+                  </div>
+                  {options?.quote?.amount_note ? (
+                    <p className="text-xs text-muted-foreground">{options.quote.amount_note}</p>
+                  ) : null}
+                </div>
                 <PromoCodeRedeem
                   serviceHint="Expo"
                   compact

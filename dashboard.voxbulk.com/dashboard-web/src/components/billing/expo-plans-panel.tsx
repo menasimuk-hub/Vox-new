@@ -1,7 +1,11 @@
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { Check } from "lucide-react";
+import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 
+import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
+import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,7 +39,16 @@ const MARKET_TO_ZONE: Record<string, string> = {
   aud: "au",
 };
 
+function money(minor: number, currency: string) {
+  return (minor / 100).toLocaleString("en-GB", {
+    style: "currency",
+    currency: currency || "GBP",
+    maximumFractionDigits: 0,
+  });
+}
+
 export function ExpoPlansPanel() {
+  const navigate = useNavigate();
   const orgQ = useOrganisation();
   const market = countryToMarket(orgQ.data?.country);
   const zone = MARKET_TO_ZONE[market] || "us";
@@ -48,6 +61,25 @@ export function ExpoPlansPanel() {
   const items = (packagesQ.data?.items || [])
     .slice()
     .sort((a, b) => (a.duration_days || 0) - (b.duration_days || 0));
+
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
+  const [pendingPkg, setPendingPkg] = React.useState<ExpoPackage | null>(null);
+
+  const openCheckout = (pkg: ExpoPackage) => {
+    const days = pkg.duration_days || 1;
+    setPendingPkg(pkg);
+    setCheckoutDetails({
+      planName: pkg.name,
+      intervalLabel: `One exhibition · active ${days} day${days === 1 ? "" : "s"}`,
+      amountDisplay: money(pkg.price_minor, pkg.currency),
+      amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
+      amountMinor: pkg.price_minor,
+      serviceKind: "expo",
+      providerHint: "After confirming, complete booth details — then pay by card to go live.",
+    });
+    setCheckoutOpen(true);
+  };
 
   if (packagesQ.isLoading || orgQ.isLoading) {
     return (
@@ -72,7 +104,7 @@ export function ExpoPlansPanel() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        One-off per exhibition — choose how many days your booth QR stays active. Prices use your organisation country market.
+        One-off per exhibition — review price and promo here, then create your booth and pay by card to go live.
       </p>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((pkg) => {
@@ -97,11 +129,7 @@ export function ExpoPlansPanel() {
                   {BEST_FOR[pkg.tier] || `Booth active for ${days} day${days === 1 ? "" : "s"}`}
                 </p>
                 <p className="pt-2 text-3xl font-semibold tabular-nums">
-                  {(pkg.price_minor / 100).toLocaleString("en-GB", {
-                    style: "currency",
-                    currency: pkg.currency || "GBP",
-                    maximumFractionDigits: 0,
-                  })}
+                  {money(pkg.price_minor, pkg.currency)}
                   <span className="ml-1 text-sm font-normal text-muted-foreground">/ exhibition</span>
                 </p>
                 <p className="text-xs font-medium text-sky-700 dark:text-sky-300">
@@ -117,14 +145,44 @@ export function ExpoPlansPanel() {
                     </li>
                   ))}
                 </ul>
-                <Button asChild className="mt-6 w-full" variant={featured ? "default" : "outline"}>
-                  <Link to="/expo/new">Choose {pkg.name}</Link>
+                <Button
+                  type="button"
+                  className="mt-6 w-full"
+                  variant={featured ? "default" : "outline"}
+                  onClick={() => openCheckout(pkg)}
+                >
+                  Choose {pkg.name}
                 </Button>
               </CardContent>
             </Card>
           );
         })}
       </div>
+
+      <CheckoutConfirmDialog
+        open={checkoutOpen}
+        onOpenChange={(open) => {
+          setCheckoutOpen(open);
+          if (!open) {
+            setPendingPkg(null);
+            setCheckoutDetails(null);
+          }
+        }}
+        title="Confirm Expo package"
+        details={checkoutDetails}
+        serviceHint="Expo"
+        tintClass={SERVICE_TINTS.expo.soft}
+        confirmLabel="Continue to booth & pay"
+        onConfirm={async () => {
+          if (!pendingPkg) return;
+          setCheckoutOpen(false);
+          toast.message("Complete booth details, then pay to go live");
+          await navigate({
+            to: "/expo/new",
+            search: { packageId: pendingPkg.id, fromBilling: true },
+          });
+        }}
+      />
     </div>
   );
 }
