@@ -25,6 +25,21 @@ def _resolve_theme_id(brand: dict | None) -> str:
     return raw if raw in _ALLOWED_THEME_IDS else "smartcard"
 
 
+def _media_version_for_path(rel_path: str | None) -> str | None:
+    """File mtime for cache-busting photo/logo URLs after replace-in-place uploads."""
+    if not rel_path:
+        return None
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    abs_path = (root / str(rel_path)).resolve()
+    try:
+        abs_path.relative_to((root / "data").resolve())
+        return str(int(abs_path.stat().st_mtime))
+    except (ValueError, OSError):
+        return None
+
+
 def _get_rep(db: Session, token: str) -> SmartCardRepresentative:
     rep = db.execute(
         select(SmartCardRepresentative).where(SmartCardRepresentative.qr_token == token)
@@ -129,6 +144,29 @@ def get_card(token: str, db: Session = Depends(get_db)):
     org = db.get(Organisation, rep.org_id)
     has_logo = bool(org and getattr(org, "logo_storage_key", None))
 
+    photo_v = _media_version_for_path(rep.photo_storage_path)
+    logo_v = None
+    if has_logo and org is not None:
+        from app.services.org_logo_storage_service import resolve_logo_path
+
+        logo_path = resolve_logo_path(str(org.logo_storage_key))
+        if logo_path is not None:
+            try:
+                logo_v = str(int(logo_path.stat().st_mtime))
+            except OSError:
+                logo_v = str(int(getattr(rep, "updated_at", None).timestamp()) if getattr(rep, "updated_at", None) else "1")
+
+    photo_url = None
+    if rep.photo_storage_path:
+        photo_url = f"/public/smart-card/{token}/photo"
+        if photo_v:
+            photo_url = f"{photo_url}?v={photo_v}"
+    logo_url = None
+    if has_logo:
+        logo_url = f"/public/smart-card/{token}/logo"
+        if logo_v:
+            logo_url = f"{logo_url}?v={logo_v}"
+
     return {
         "ok": True,
         "status": mode,
@@ -145,9 +183,7 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "extension": rep.extension,
             "job_title": job_title,
             "social_links": social,
-            "photo_url": (
-                f"/public/smart-card/{token}/photo" if rep.photo_storage_path else None
-            ),
+            "photo_url": photo_url,
         },
         "company": {
             "name": company.name,
@@ -155,7 +191,7 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "description": company.description,
             "tagline": tagline,
             "location": location,
-            "logo_url": f"/public/smart-card/{token}/logo" if has_logo else None,
+            "logo_url": logo_url,
         },
         "theme_id": _resolve_theme_id(brand),
         "qr_token": rep.qr_token,
@@ -179,7 +215,18 @@ def get_card_logo(token: str, db: Session = Depends(get_db)):
     path = resolve_logo_path(str(storage_key))
     if path is None:
         raise HTTPException(status_code=404, detail="Logo not found")
-    return FileResponse(path, media_type=media_type_for_key(str(storage_key)))
+    try:
+        v = str(int(path.stat().st_mtime))
+    except OSError:
+        v = "0"
+    return FileResponse(
+        path,
+        media_type=media_type_for_key(str(storage_key)),
+        headers={
+            "Cache-Control": "public, max-age=0, must-revalidate",
+            "ETag": f'"{v}"',
+        },
+    )
 
 
 @router.get("/{token}/photo")
@@ -205,7 +252,18 @@ def get_card_photo(token: str, db: Session = Depends(get_db)):
         media = "image/png"
     elif suffix == ".webp":
         media = "image/webp"
-    return FileResponse(abs_path, media_type=media)
+    try:
+        v = str(int(abs_path.stat().st_mtime))
+    except OSError:
+        v = "0"
+    return FileResponse(
+        abs_path,
+        media_type=media,
+        headers={
+            "Cache-Control": "public, max-age=0, must-revalidate",
+            "ETag": f'"{v}"',
+        },
+    )
 
 
 @router.get("/{token}/qr.png")

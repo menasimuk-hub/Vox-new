@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { PublicSmartCardLanding } from "@/components/smart-card/PublicSmartCardLanding";
 import { PLACEHOLDER_CARD, SmartCardTemplate } from "@/components/smart-card/SmartCardTemplate";
 import {
   getSmartCardThemeTokens,
@@ -9,6 +10,7 @@ import {
 
 export const Route = createFileRoute("/smartcard/preview/$themeId")({
   validateSearch: (search: Record<string, unknown>) => ({
+    token: typeof search.token === "string" ? search.token : undefined,
     company: typeof search.company === "string" ? search.company : undefined,
     name: typeof search.name === "string" ? search.name : undefined,
     job: typeof search.job === "string" ? search.job : undefined,
@@ -31,6 +33,19 @@ function SmartCardThemePreviewPage() {
   const search = Route.useSearch();
   const id = normalizeSmartCardThemeId(themeId) as SmartCardThemeId;
   const tokens = getSmartCardThemeTokens(id);
+  const liveToken = search.token?.trim();
+
+  // Prefer real card (photo, logo, contacts) when a QR token is present
+  if (liveToken) {
+    return (
+      <PublicSmartCardLanding
+        token={liveToken}
+        themeOverride={id}
+        themePreviewLabel={tokens.label}
+      />
+    );
+  }
+
   const card = {
     ...PLACEHOLDER_CARD,
     companyName: search.company?.trim() || PLACEHOLDER_CARD.companyName,

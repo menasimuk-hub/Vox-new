@@ -426,6 +426,7 @@ function SmartCardEditQrPage() {
                 onChange={setThemeId}
                 companyName={companyName}
                 personName={repForm.name || rep.name}
+                qrToken={rep.qr_token}
                 className="sm:grid-cols-1 lg:grid-cols-1 xl:grid-cols-1"
               />
             </CardContent>

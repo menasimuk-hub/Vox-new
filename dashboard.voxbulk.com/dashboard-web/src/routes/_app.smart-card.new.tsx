@@ -661,6 +661,7 @@ function SmartCardNewWizard() {
                   }}
                   companyName={companyName}
                   personName={draftRep?.name || rep.name}
+                  qrToken={draftRep?.qr_token}
                 />
               </div>
             </CardContent>

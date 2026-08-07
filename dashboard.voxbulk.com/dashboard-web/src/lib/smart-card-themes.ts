@@ -82,11 +82,12 @@ export function smartCardPublicOrigin(): string {
 
 export function smartCardThemePreviewUrl(
   themeId: SmartCardThemeId | string,
-  opts?: { company?: string; name?: string; job?: string },
+  opts?: { company?: string; name?: string; job?: string; token?: string },
 ): string {
   const id = normalizeSmartCardThemeId(themeId);
   const base = `${smartCardPublicOrigin()}/smartcard/preview/${id}`;
   const params = new URLSearchParams();
+  if (opts?.token?.trim()) params.set("token", opts.token.trim());
   if (opts?.company?.trim()) params.set("company", opts.company.trim());
   if (opts?.name?.trim()) params.set("name", opts.name.trim());
   if (opts?.job?.trim()) params.set("job", opts.job.trim());
@@ -96,7 +97,7 @@ export function smartCardThemePreviewUrl(
 
 export function smartCardThemePreviewQrUrl(
   themeId: SmartCardThemeId | string,
-  opts?: { company?: string; name?: string; job?: string; size?: number },
+  opts?: { company?: string; name?: string; job?: string; token?: string; size?: number },
 ): string {
   const url = smartCardThemePreviewUrl(themeId, opts);
   const size = opts?.size ?? 120;

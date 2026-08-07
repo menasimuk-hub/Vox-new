@@ -311,11 +311,25 @@ async def upload_rep_photo(
     ext = Path(file.filename or "photo.jpg").suffix.lower()
     if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
         raise HTTPException(status_code=400, detail="Photo must be PNG, JPG, or WEBP")
-    rel = f"data/smart_card_photos/{principal.org_id}/{rep.id}{ext}"
+    import uuid
+    from datetime import datetime
+
+    # Unique filename so scanners never keep a cached old image at the same URL
+    rel = f"data/smart_card_photos/{principal.org_id}/{rep.id}_{uuid.uuid4().hex[:12]}{ext}"
     abs_path = Path(__file__).resolve().parents[2] / rel
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     abs_path.write_bytes(raw)
+    # Best-effort delete previous file
+    old = str(rep.photo_storage_path or "").strip()
+    if old and old != rel.replace("\\", "/"):
+        try:
+            old_abs = Path(__file__).resolve().parents[2] / old
+            if old_abs.is_file():
+                old_abs.unlink()
+        except OSError:
+            pass
     rep.photo_storage_path = rel.replace("\\", "/")
+    rep.updated_at = datetime.utcnow()
     db.add(rep)
     db.commit()
     return {"ok": True, "item": SmartCardRepresentativeService.serialize(db, rep)}
@@ -337,7 +351,17 @@ def get_rep_photo(rep_id: str, db: Session = Depends(get_db), principal=Depends(
     abs_path = (Path(__file__).resolve().parents[2] / str(rep.photo_storage_path)).resolve()
     if not abs_path.is_file():
         raise HTTPException(status_code=404, detail="Photo not found")
-    return FileResponse(abs_path)
+    try:
+        v = str(int(abs_path.stat().st_mtime))
+    except OSError:
+        v = "0"
+    return FileResponse(
+        abs_path,
+        headers={
+            "Cache-Control": "private, max-age=0, must-revalidate",
+            "ETag": f'"{v}"',
+        },
+    )
 
 
 # --- Catalogue ---

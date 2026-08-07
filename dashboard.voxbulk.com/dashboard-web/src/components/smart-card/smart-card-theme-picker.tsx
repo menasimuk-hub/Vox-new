@@ -32,6 +32,7 @@ export function SmartCardThemeCard({
   onClick,
   companyName,
   personName,
+  qrToken,
   compact,
 }: {
   tpl: SmartCardThemeCatalogItem;
@@ -39,11 +40,14 @@ export function SmartCardThemeCard({
   onClick: () => void;
   companyName?: string;
   personName?: string;
+  /** Live Smart Card QR token — preview loads real photo/logo/contacts */
+  qrToken?: string;
   compact?: boolean;
 }) {
   const previewQr = smartCardThemePreviewQrUrl(tpl.id, {
     company: companyName,
     name: personName,
+    token: qrToken,
     size: compact ? 96 : 120,
   });
 
@@ -78,12 +82,14 @@ export function SmartCardThemePicker({
   onChange,
   companyName,
   personName,
+  qrToken,
   className,
 }: {
   value: SmartCardThemeId | string;
   onChange: (id: SmartCardThemeId) => void;
   companyName?: string;
   personName?: string;
+  qrToken?: string;
   className?: string;
 }) {
   const active = String(value || "smartcard");
@@ -97,6 +103,7 @@ export function SmartCardThemePicker({
           onClick={() => onChange(tpl.id)}
           companyName={companyName}
           personName={personName}
+          qrToken={qrToken}
         />
       ))}
     </div>

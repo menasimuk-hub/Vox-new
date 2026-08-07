@@ -219,17 +219,21 @@ export function SmartCardTemplate({
           }}
         >
           <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl text-[13px] font-bold"
-              style={{ background: `linear-gradient(135deg, ${accent}, ${accent2})`, color: onAccent }}
-            >
-              {isSet(card.companyLogo) ? (
-                <img src={card.companyLogo} alt={`${card.companyName} logo`} className="h-full w-full object-cover" />
-              ) : (
-                "✦"
-              )}
-            </div>
-            <span className="text-[13px] font-semibold tracking-wide" style={{ color: ink }}>
+            {isSet(card.companyLogo) ? (
+              <img
+                src={card.companyLogo}
+                alt={`${card.companyName} logo`}
+                className="h-9 w-auto max-w-[160px] shrink-0 object-contain"
+              />
+            ) : (
+              <div
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold"
+                style={{ background: `linear-gradient(135deg, ${accent}, ${accent2})`, color: onAccent }}
+              >
+                ✦
+              </div>
+            )}
+            <span className="min-w-0 truncate text-[13px] font-semibold tracking-wide" style={{ color: ink }}>
               {card.companyName}
             </span>
           </div>

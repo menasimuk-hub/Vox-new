@@ -69,9 +69,12 @@ function ensureHttp(url: string) {
 export function PublicSmartCardLanding({
   token,
   themeOverride,
+  themePreviewLabel,
 }: {
   token: string;
   themeOverride?: SmartCardThemeId | string;
+  /** When set (theme picker scan), show banner and use override theme with live card data */
+  themePreviewLabel?: string;
 }) {
   const [meta, setMeta] = React.useState<CardMeta | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -287,19 +290,29 @@ export function PublicSmartCardLanding({
       actions={{
         whatsappHref: waHref,
         onWebSurvey: startWeb,
-        previewBanner:
-          meta.status === "preview" && typeof meta.preview_tests_remaining === "number" ? (
-            <p
-              className="mt-4 rounded-full px-3 py-1 text-center text-[11px] font-medium"
-              style={{
-                background: "rgba(251,191,36,0.15)",
-                color: "#fbbf24",
-                border: "1px solid rgba(251,191,36,0.35)",
-              }}
-            >
-              {meta.preview_tests_remaining} of 15 free scans left
-            </p>
-          ) : null,
+        previewBanner: themePreviewLabel ? (
+          <p
+            className="mt-4 rounded-full px-3 py-1 text-center text-[11px] font-medium"
+            style={{
+              background: "rgba(251,191,36,0.15)",
+              color: "#fbbf24",
+              border: "1px solid rgba(251,191,36,0.35)",
+            }}
+          >
+            Theme preview — {themePreviewLabel}
+          </p>
+        ) : meta.status === "preview" && typeof meta.preview_tests_remaining === "number" ? (
+          <p
+            className="mt-4 rounded-full px-3 py-1 text-center text-[11px] font-medium"
+            style={{
+              background: "rgba(251,191,36,0.15)",
+              color: "#fbbf24",
+              border: "1px solid rgba(251,191,36,0.35)",
+            }}
+          >
+            {meta.preview_tests_remaining} of 15 free scans left
+          </p>
+        ) : null,
       }}
     />
   );

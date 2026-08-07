@@ -280,7 +280,9 @@ class SmartCardRepresentativeService:
             "qr_transparent": bool(rep.qr_transparent),
             "photo_storage_path": rep.photo_storage_path,
             "photo_url": (
-                f"/smart-card/representatives/{rep.id}/photo" if rep.photo_storage_path else None
+                f"/smart-card/representatives/{rep.id}/photo?v={int(rep.updated_at.timestamp()) if rep.updated_at else 0}"
+                if rep.photo_storage_path
+                else None
             ),
             "qr_image_url": SmartCardCompanyService.qr_image_url(rep),
             "web_url": web_url,

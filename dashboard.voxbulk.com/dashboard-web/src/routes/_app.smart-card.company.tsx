@@ -42,8 +42,15 @@ function SmartCardCompanyPage() {
     queryKey: ["smart-card", "company"],
     queryFn: () => apiFetch<{ ok: boolean; company: Company }>("/smart-card/company"),
   });
+  const repsQ = useQuery({
+    queryKey: ["smart-card", "representatives"],
+    queryFn: () =>
+      apiFetch<{ ok: boolean; items: { qr_token?: string; name?: string }[] }>("/smart-card/representatives"),
+  });
   const [form, setForm] = React.useState<Company | null>(null);
   const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
+  const sampleToken = repsQ.data?.items?.find((r) => r.qr_token)?.qr_token;
+  const sampleName = repsQ.data?.items?.find((r) => r.qr_token)?.name;
 
   React.useEffect(() => {
     const c = companyQ.data?.company;
@@ -163,6 +170,8 @@ function SmartCardCompanyPage() {
             value={themeId}
             onChange={setThemeId}
             companyName={form.name}
+            personName={sampleName}
+            qrToken={sampleToken}
             className={canEdit ? undefined : "pointer-events-none opacity-70"}
           />
         </CardContent>
