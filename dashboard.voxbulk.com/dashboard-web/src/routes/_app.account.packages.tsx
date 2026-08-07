@@ -20,7 +20,7 @@ import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api";
-import { gocardlessAvailable, startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
+import { startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
 import {
   availablePaymentMethods,
   coreCheckoutAvailable,
@@ -28,6 +28,7 @@ import {
   startCardSubscription,
   type PaymentMethodChoice,
 } from "@/lib/billing/subscription-payment";
+import { startFeedbackCardSubscription } from "@/lib/billing/feedback-subscription-payment";
 import { marketLabel } from "@/lib/billing/market";
 import {
   feedbackPlanButtonLabel,
@@ -304,7 +305,6 @@ function PackagesPage() {
   const currentCorePlanId = subscription?.subscription?.plan_id || currentPlan?.id || null;
   const pendingCorePlanId = subscription?.pending_plan?.id || subscription?.subscription?.pending_plan_id || null;
   const pendingCorePlan = (subscription?.pending_plan || null) as PlanRow | null;
-  const gcReady = gocardlessAvailable(subscription as Record<string, unknown> | null);
   const primaryProvider = primarySubscriptionProvider(subscription as Record<string, unknown> | null);
   const checkoutReady = coreCheckoutAvailable(subscription as Record<string, unknown> | null);
   const corePaymentMethods = availablePaymentMethods(subscription as Record<string, unknown> | null);
@@ -553,7 +553,6 @@ function PackagesPage() {
       amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
       amountMinor: feedbackPackageAmountMinor(pkg, orgCurrency, billingInterval === "yearly"),
       serviceKind: "customer_feedback",
-      providerHint: "You will continue to GoCardless Direct Debit.",
     });
     setCheckoutOpen(true);
   };
@@ -1002,11 +1001,9 @@ function PackagesPage() {
         details={checkoutDetails}
         serviceHint={checkoutKind === "feedback" ? "Customer Feedback" : "Core platform"}
         tintClass={checkoutKind === "feedback" ? SERVICE_TINTS.feedback.soft : SERVICE_TINTS.core.soft}
-        confirmLabel={
-          checkoutKind === "feedback" ? "Continue to Direct Debit" : "Continue to payment"
-        }
-        paymentMethods={checkoutKind === "core" ? corePaymentMethods : undefined}
-        defaultPaymentMethod={checkoutKind === "core" ? defaultCorePayMethod : undefined}
+        confirmLabel="Continue to payment"
+        paymentMethods={corePaymentMethods}
+        defaultPaymentMethod={defaultCorePayMethod}
         loading={Boolean(busyPlanId) || Boolean(busyFeedbackPlanId)}
         onConfirm={async (paymentMethod) => {
           if (checkoutKind === "feedback") {
@@ -1014,9 +1011,31 @@ function PackagesPage() {
             setCheckoutOpen(false);
             setBusyFeedbackPlanId(checkoutFeedbackPkg.plan_id);
             try {
-              await startFeedbackGoCardlessSubscription(checkoutFeedbackPkg.plan_id, billingInterval);
+              const method = paymentMethod || defaultCorePayMethod;
+              if (method === "gocardless") {
+                await startFeedbackGoCardlessSubscription(checkoutFeedbackPkg.plan_id, billingInterval);
+              } else {
+                const result = await startFeedbackCardSubscription(
+                  checkoutFeedbackPkg.plan_id,
+                  billingInterval,
+                  "stripe",
+                );
+                if (result?.provider === "promo_discount" || result?.paid) {
+                  toast.success(
+                    result.trial_days
+                      ? `Trial started — ${result.trial_days} days free`
+                      : "Promo applied — subscription activated",
+                  );
+                  setBusyFeedbackPlanId(null);
+                  await Promise.all([
+                    qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
+                    qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+                    qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
+                  ]);
+                }
+              }
             } catch (e) {
-              toast.error(e instanceof Error ? e.message : "Could not update feedback plan");
+              toast.error(e instanceof Error ? e.message : "Could not start feedback checkout");
               setBusyFeedbackPlanId(null);
             }
             return;

@@ -13,7 +13,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 import {
   clearBillingQuery,
-  gocardlessAvailable,
   readBillingReturnParams,
 } from "@/lib/billing/gocardless";
 import {
@@ -29,7 +28,11 @@ import {
   startSmartCardGoCardless,
   startSmartCardSeatCheckout,
 } from "@/lib/billing/smart-card-subscription-payment";
-import { primarySubscriptionProvider } from "@/lib/billing/subscription-payment";
+import {
+  availablePaymentMethods,
+  primarySubscriptionProvider,
+  type PaymentMethodChoice,
+} from "@/lib/billing/subscription-payment";
 import { useBillingSubscriptionsSummary, useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
@@ -112,9 +115,13 @@ export function SmartCardPlansPanel() {
   const orgCountry = orgQ.data?.country;
   const currencyCode = orgCountryToCurrencyCode(orgCountry);
   const currencySym = marketCurrencySymbol(countryToMarket(orgCountry));
-  const gcReady = gocardlessAvailable(session as Record<string, unknown> | null);
-  const primaryProvider = primarySubscriptionProvider(session as Record<string, unknown> | null);
-  const useGc = gcReady || primaryProvider === "gocardless";
+  const subscription = session?.subscription as Record<string, unknown> | null | undefined;
+  const paymentMethods = availablePaymentMethods(subscription);
+  const primaryProvider = primarySubscriptionProvider(subscription);
+  const defaultPayMethod: PaymentMethodChoice =
+    (paymentMethods.includes(primaryProvider as PaymentMethodChoice)
+      ? (primaryProvider as PaymentMethodChoice)
+      : paymentMethods[0]) || "gocardless";
 
   const packagesQ = useQuery({
     queryKey: ["smart-card", "packages"],
@@ -173,12 +180,21 @@ export function SmartCardPlansPanel() {
   }, [search.billing, search.payment_intent, search.redirect_flow_id, qc]);
 
   const checkoutMut = useMutation({
-    mutationFn: async ({ planId, seats }: { planId: string; seats: number }) => {
-      if (useGc) {
+    mutationFn: async ({
+      planId,
+      seats,
+      paymentMethod,
+    }: {
+      planId: string;
+      seats: number;
+      paymentMethod?: PaymentMethodChoice;
+    }) => {
+      const method = paymentMethod || defaultPayMethod;
+      if (method === "gocardless") {
         await startSmartCardGoCardless(planId, seats, billingInterval);
         return { provider: "gocardless" };
       }
-      const result = await startSmartCardSeatCheckout(planId, seats, billingInterval);
+      const result = await startSmartCardSeatCheckout(planId, seats, billingInterval, "stripe");
       if (result.provider === "promo_discount" && result.paid) {
         toast.success("Seats activated with promo");
         await qc.invalidateQueries({ queryKey: ["smart-card"] });
@@ -207,7 +223,8 @@ export function SmartCardPlansPanel() {
       />
 
       <p className="text-xs text-muted-foreground">
-        Flat {currencySym}5/seat/month (local equivalent). Monthly via Direct Debit when available; yearly by card with 20% off.
+        Flat {currencySym}5/seat/month (local equivalent). Choose Direct Debit or card at checkout; yearly includes 20%
+        off.
       </p>
 
       <BillingIntervalToggle value={billingInterval} onChange={setBillingInterval} />
@@ -267,10 +284,14 @@ export function SmartCardPlansPanel() {
                   ) : null}
                   <Button
                     className="mt-auto w-full"
-                    disabled={checkoutMut.isPending || !pkg.plan_id}
+                    disabled={checkoutMut.isPending || !pkg.plan_id || paymentMethods.length === 0}
                     onClick={() => {
                       if (unit == null || total == null) {
                         toast.error("Price not available for your currency");
+                        return;
+                      }
+                      if (paymentMethods.length === 0) {
+                        toast.error("No subscription payment method is configured for your region.");
                         return;
                       }
                       setPendingCheckout({ planId: pkg.plan_id, seats, name: pkg.name });
@@ -284,9 +305,6 @@ export function SmartCardPlansPanel() {
                         amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
                         amountMinor: Math.round(total * 100),
                         serviceKind: "smart_card",
-                        providerHint: useGc
-                          ? "You will continue to GoCardless Direct Debit."
-                          : "You will continue to secure card payment.",
                       });
                       setCheckoutOpen(true);
                     }}
@@ -312,12 +330,18 @@ export function SmartCardPlansPanel() {
         details={checkoutDetails}
         serviceHint="Smart Card"
         tintClass={tint.soft}
-        confirmLabel={useGc ? "Continue to Direct Debit" : "Pay with card"}
+        confirmLabel="Continue to payment"
+        paymentMethods={paymentMethods}
+        defaultPaymentMethod={defaultPayMethod}
         loading={checkoutMut.isPending}
-        onConfirm={async () => {
+        onConfirm={async (paymentMethod) => {
           if (!pendingCheckout) return;
           setCheckoutOpen(false);
-          await checkoutMut.mutateAsync({ planId: pendingCheckout.planId, seats: pendingCheckout.seats });
+          await checkoutMut.mutateAsync({
+            planId: pendingCheckout.planId,
+            seats: pendingCheckout.seats,
+            paymentMethod,
+          });
         }}
       />
     </div>

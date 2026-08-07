@@ -69,9 +69,10 @@ def _seed_ae_org_with_feedback_plan(db) -> tuple[Organisation, Plan, FeedbackPac
     return org, plan, pkg
 
 
+@patch("app.services.airwallex_payment_service.AirwallexPaymentService.is_available", return_value=True)
 @patch("app.services.payment_provider_router.PaymentProviderRouter.primary_subscription_provider", return_value="airwallex")
 @patch("app.services.airwallex_subscription_service.AirwallexSubscriptionService.start_subscription_checkout")
-def test_feedback_start_card_signup_routes_airwallex(mock_start, _provider, db):
+def test_feedback_start_card_signup_routes_airwallex(mock_start, _provider, _awx_ok, db):
     org, plan, _pkg = _seed_ae_org_with_feedback_plan(db)
     mock_start.return_value = {
         "provider": "airwallex",
@@ -97,16 +98,50 @@ def test_feedback_start_card_signup_routes_airwallex(mock_start, _provider, db):
 
 
 @patch("app.services.payment_provider_router.PaymentProviderRouter.primary_subscription_provider", return_value="gocardless")
-def test_feedback_start_card_rejects_gocardless_region(_provider, db):
+def test_feedback_start_card_rejects_gocardless_without_choice(_provider, db):
     org, plan, _pkg = _seed_ae_org_with_feedback_plan(db)
     org.country = "gb"
     db.add(org)
     db.commit()
 
-    with pytest.raises(FeedbackBillingError, match="GoCardless"):
+    with pytest.raises(FeedbackBillingError, match="GoCardless|Card \\(Stripe\\)"):
         FeedbackBillingService.start_card_signup(
             db,
             org=org,
             user_email="owner@test.com",
             plan_id=plan.id,
         )
+
+
+@patch("app.services.stripe_payment_service.StripePaymentService.is_available", return_value=True)
+@patch("app.services.stripe_subscription_service.StripeSubscriptionService.start_subscription_checkout")
+@patch("app.services.payment_provider_router.PaymentProviderRouter.primary_subscription_provider", return_value="gocardless")
+def test_feedback_start_card_allows_explicit_stripe(mock_provider, mock_start, _stripe_ok, db):
+    org, plan, _pkg = _seed_ae_org_with_feedback_plan(db)
+    org.country = "gb"
+    db.add(org)
+    db.commit()
+    mock_start.return_value = {
+        "provider": "stripe",
+        "currency": "GBP",
+        "amount_minor": 9900,
+        "billing_interval": "monthly",
+        "client_secret": "sec_test",
+        "intent_id": "pi_test",
+        "plan_id": plan.id,
+        "checkout": {"publishable_key": "pk_test"},
+    }
+
+    result = FeedbackBillingService.start_card_signup(
+        db,
+        org=org,
+        user_email="owner@test.com",
+        plan_id=plan.id,
+        billing_interval="monthly",
+        payment_method="stripe",
+    )
+
+    assert result["provider"] == "stripe"
+    mock_start.assert_called_once()
+    mock_provider.assert_not_called()
+

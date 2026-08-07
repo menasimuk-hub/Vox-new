@@ -33,13 +33,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
 import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
-import { gocardlessAvailable } from "@/lib/billing/gocardless";
 import { countryToMarket, marketCurrencySymbol, orgCountryToCurrencyCode } from "@/lib/billing/market";
 import {
   startSmartCardGoCardless,
   startSmartCardSeatCheckout,
 } from "@/lib/billing/smart-card-subscription-payment";
-import { primarySubscriptionProvider } from "@/lib/billing/subscription-payment";
+import {
+  availablePaymentMethods,
+  primarySubscriptionProvider,
+  type PaymentMethodChoice,
+} from "@/lib/billing/subscription-payment";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { useOrganisation } from "@/lib/queries";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
@@ -100,9 +103,13 @@ function SmartCardNewWizard() {
   const { session } = useSession();
   const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
   const orgQ = useOrganisation();
-  const gcReady = gocardlessAvailable(session as Record<string, unknown> | null);
-  const primaryProvider = primarySubscriptionProvider(session as Record<string, unknown> | null);
-  const useGc = gcReady || primaryProvider === "gocardless";
+  const subscription = session?.subscription as Record<string, unknown> | null | undefined;
+  const paymentMethods = availablePaymentMethods(subscription);
+  const primaryProvider = primarySubscriptionProvider(subscription);
+  const defaultPayMethod: PaymentMethodChoice =
+    (paymentMethods.includes(primaryProvider as PaymentMethodChoice)
+      ? (primaryProvider as PaymentMethodChoice)
+      : paymentMethods[0]) || "gocardless";
   const currencySym = marketCurrencySymbol(countryToMarket(orgQ.data?.country));
   const currencyCode = orgCountryToCurrencyCode(orgQ.data?.country);
 
@@ -407,9 +414,13 @@ function SmartCardNewWizard() {
     if (step < 6) setStep((s) => (s + 1) as Step);
   };
 
-  const activate = async () => {
+  const activate = async (paymentMethod?: PaymentMethodChoice) => {
     if (!planId || seatQty < 1) {
       toast.error("Choose a plan and seat quantity");
+      return;
+    }
+    if (paymentMethods.length === 0) {
+      toast.error("No subscription payment method is configured for your region.");
       return;
     }
     setSaving(true);
@@ -418,10 +429,11 @@ function SmartCardNewWizard() {
         method: "POST",
         body: JSON.stringify(buildPayload()),
       });
-      if (useGc) {
+      const method = paymentMethod || defaultPayMethod;
+      if (method === "gocardless") {
         await startSmartCardGoCardless(planId, seatQty, "yearly");
       } else {
-        await startSmartCardSeatCheckout(planId, seatQty, "yearly");
+        await startSmartCardSeatCheckout(planId, seatQty, "yearly", "stripe");
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Checkout failed");
@@ -432,6 +444,10 @@ function SmartCardNewWizard() {
   const openActivateCheckout = () => {
     if (!planId || seatQty < 1) {
       toast.error("Choose a plan and seat quantity");
+      return;
+    }
+    if (paymentMethods.length === 0) {
+      toast.error("No subscription payment method is configured for your region.");
       return;
     }
     const selected = (packagesQ.data?.items || []).find((p) => p.plan_id === planId);
@@ -448,9 +464,6 @@ function SmartCardNewWizard() {
       amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
       amountMinor: total != null ? Math.round(total * 100) : null,
       serviceKind: "smart_card",
-      providerHint: useGc
-        ? "You will continue to GoCardless Direct Debit."
-        : "You will continue to secure card payment.",
     });
     setCheckoutOpen(true);
   };
@@ -890,11 +903,13 @@ function SmartCardNewWizard() {
         details={checkoutDetails}
         serviceHint="Smart Card"
         tintClass={SERVICE_TINTS.smartCard.soft}
-        confirmLabel={useGc ? "Continue to Direct Debit" : "Pay with card"}
+        confirmLabel="Continue to payment"
+        paymentMethods={paymentMethods}
+        defaultPaymentMethod={defaultPayMethod}
         loading={saving}
-        onConfirm={async () => {
+        onConfirm={async (paymentMethod) => {
           setCheckoutOpen(false);
-          await activate();
+          await activate(paymentMethod);
         }}
       />
 

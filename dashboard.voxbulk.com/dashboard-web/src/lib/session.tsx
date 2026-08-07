@@ -242,7 +242,18 @@ function GoCardlessReturnHandler({
       }
       void (async () => {
         try {
-          const onFeedbackPackages = window.location.pathname.includes("/account/feedback/packages");
+          const search = new URLSearchParams(window.location.search);
+          const tab = (search.get("tab") || "").toLowerCase();
+          let feedbackPlanKey = "";
+          try {
+            feedbackPlanKey = (sessionStorage.getItem("voxbulk_card_feedback_sub_plan_id") || "").trim();
+          } catch {
+            /* ignore */
+          }
+          const onFeedbackPackages =
+            window.location.pathname.includes("/account/feedback/packages") ||
+            tab === "feedback" ||
+            Boolean(feedbackPlanKey);
           if (onFeedbackPackages) {
             const { completeFeedbackCardSubscription, clearFeedbackCardSubscriptionState } = await import(
               "@/lib/billing/feedback-subscription-payment"

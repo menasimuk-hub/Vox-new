@@ -111,18 +111,71 @@ def get_feedback_payment_providers(
 
 @router.post("/subscription/card/start")
 def start_feedback_card(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    raise HTTPException(
-        status_code=410,
-        detail="Customer Feedback is Direct Debit (GoCardless) only. Use the GoCardless checkout.",
-    )
+    from app.models.user import User
+
+    plan_id = str(payload.get("plan_id") or "").strip()
+    if not plan_id:
+        raise HTTPException(status_code=400, detail="plan_id required")
+    billing_interval = str(payload.get("billing_interval") or "monthly").strip()
+    payment_method = str(payload.get("payment_method") or payload.get("provider") or "").strip() or None
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    user = db.get(User, principal.user_id)
+    user_email = str(user.email or "").strip() if user else ""
+    try:
+        checkout = FeedbackBillingService.start_card_signup(
+            db,
+            org=org,
+            user_email=user_email,
+            plan_id=plan_id,
+            billing_interval=billing_interval,
+            payment_method=payment_method,
+        )
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    plan = checkout.pop("plan")
+    checkout_blob = checkout.get("checkout") or {}
+    return {
+        "ok": True,
+        "plan_id": plan.id,
+        "plan_name": plan.name,
+        "provider": checkout.get("provider"),
+        "currency": checkout.get("currency"),
+        "amount_minor": checkout.get("amount_minor"),
+        "billing_interval": checkout.get("billing_interval") or billing_interval,
+        "client_secret": checkout.get("client_secret"),
+        "payment_intent_id": checkout.get("intent_id") or checkout.get("payment_intent_id"),
+        "publishable_key": checkout_blob.get("publishable_key") or checkout.get("publishable_key"),
+        "paid": checkout.get("paid"),
+        "trial_days": checkout.get("trial_days"),
+        "checkout": checkout_blob or None,
+    }
 
 
 @router.post("/subscription/card/complete")
 def complete_feedback_card(payload: dict, db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    raise HTTPException(
-        status_code=410,
-        detail="Customer Feedback is Direct Debit (GoCardless) only. Use the GoCardless checkout.",
-    )
+    org = db.get(Organisation, principal.org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="Organisation not found")
+    plan_id = str(payload.get("plan_id") or "").strip()
+    provider = str(payload.get("provider") or "").strip().lower()
+    payment_intent_id = str(payload.get("payment_intent_id") or "").strip()
+    billing_interval = str(payload.get("billing_interval") or "monthly").strip()
+    if not plan_id or not payment_intent_id:
+        raise HTTPException(status_code=400, detail="plan_id and payment_intent_id required")
+    try:
+        FeedbackBillingService.complete_card_signup(
+            db,
+            org=org,
+            plan_id=plan_id,
+            provider=provider,
+            payment_intent_id=payment_intent_id,
+            billing_interval=billing_interval,
+        )
+    except FeedbackBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, "subscription": FeedbackBillingService.subscription_payload(db, principal.org_id)}
 
 
 @router.post("/subscription/gocardless/start")

@@ -29,6 +29,7 @@ export async function startSmartCardSeatCheckout(
   planId: string,
   seatQuantity: number,
   billingInterval: "monthly" | "yearly" = "yearly",
+  paymentMethod: "stripe" | "airwallex" = "stripe",
 ) {
   const result = await apiFetch<SeatCheckoutResponse>("/smart-card/billing/checkout", {
     method: "POST",
@@ -36,6 +37,7 @@ export async function startSmartCardSeatCheckout(
       plan_id: planId,
       seat_quantity: seatQuantity,
       billing_interval: billingInterval,
+      provider: paymentMethod,
     }),
   });
 

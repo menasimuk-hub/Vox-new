@@ -147,18 +147,20 @@ class SmartCardBillingService:
         from app.services.gocardless_service import BillingService as GcBilling
 
         preferred = str(provider or "").strip().lower() or None
-        primary = preferred or PaymentProviderRouter.primary_subscription_provider(db, org)
-
-        gc_opts = GcBilling.payment_options(db)
-        # GoCardless available for monthly or yearly → Direct Debit (caller should hit GC endpoints).
-        if (
-            interval in ("monthly", "yearly")
-            and primary == "gocardless"
-            and bool(gc_opts.get("gocardless_available"))
-        ):
-            raise SmartCardBillingError(
-                "Direct Debit (GoCardless) is the subscription method for your region. Use the GoCardless checkout."
-            )
+        # Explicit card choice always wins — do not force Direct Debit when the user picked Stripe/Airwallex.
+        if preferred in {"stripe", "airwallex"}:
+            pass
+        else:
+            primary = preferred or PaymentProviderRouter.primary_subscription_provider(db, org)
+            gc_opts = GcBilling.payment_options(db)
+            if (
+                interval in ("monthly", "yearly")
+                and primary == "gocardless"
+                and bool(gc_opts.get("gocardless_available"))
+            ):
+                raise SmartCardBillingError(
+                    "Use Direct Debit checkout for GoCardless, or choose Card (Stripe)."
+                )
 
         currency, unit_minor, amount_minor, resolved_interval, promo_applied = SmartCardBillingService._priced_amount(
             db,
