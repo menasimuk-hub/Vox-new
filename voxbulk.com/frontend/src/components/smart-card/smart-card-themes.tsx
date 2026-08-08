@@ -106,7 +106,7 @@ const BASE: Record<SmartCardThemeId, Omit<SmartCardThemeTokens, "id">> = {
     accent3: "#67e8f9",
     onAccent: "#12190a",
     radius: "16px",
-    surveyNote: "60 second survey",
+    surveyNote: "Takes about a minute",
   },
 };
 

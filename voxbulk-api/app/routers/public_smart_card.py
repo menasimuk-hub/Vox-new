@@ -134,14 +134,26 @@ def get_card(token: str, db: Session = Depends(get_db)):
     job_title = (
         str(extra.get("job_title") or extra.get("title") or extra.get("role") or "").strip() or None
     )
-    location = (
-        str(brand.get("address") or brand.get("location") or extra.get("location") or "").strip() or None
-    )
-    tagline = (str(company.description or "").strip() or None)
+    rep_address = str(extra.get("address") or "").strip() or None
+    rep_location = str(extra.get("location") or "").strip() or None
+    brand_address = str(brand.get("address") or brand.get("location") or "").strip() or None
 
     from app.models.organisation import Organisation
 
     org = db.get(Organisation, rep.org_id)
+    org_bits = []
+    if org is not None:
+        for key in ("address_line1", "address_line2", "city", "postcode", "country"):
+            val = str(getattr(org, key, None) or "").strip()
+            if val:
+                org_bits.append(val)
+    org_address = ", ".join(org_bits) if org_bits else None
+
+    # Prefer representative address (editable on the QR profile), then brand, then org profile.
+    location = rep_address or rep_location or brand_address or org_address
+    location_label = rep_location or (rep_address.split(",")[0].strip() if rep_address else None) or location
+    tagline = str(company.description or "").strip() or None
+
     has_logo = bool(org and getattr(org, "logo_storage_key", None))
 
     photo_v = _media_version_for_path(rep.photo_storage_path)
@@ -173,6 +185,16 @@ def get_card(token: str, db: Session = Depends(get_db)):
         "preview_tests_remaining": max(0, 15 - int(company.preview_tests_used or 0))
         if mode == "preview"
         else None,
+        "company": {
+            "name": company.name,
+            "website": company.website,
+            "description": company.description,
+            "tagline": tagline,
+            "location": location,
+            "location_label": location_label,
+            "address": location,
+            "logo_url": logo_url,
+        },
         "representative": {
             "id": rep.id,
             "name": rep.name,
@@ -182,16 +204,10 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "landline": rep.landline,
             "extension": rep.extension,
             "job_title": job_title,
+            "location": rep_location,
+            "address": rep_address,
             "social_links": social,
             "photo_url": photo_url,
-        },
-        "company": {
-            "name": company.name,
-            "website": company.website,
-            "description": company.description,
-            "tagline": tagline,
-            "location": location,
-            "logo_url": logo_url,
         },
         "theme_id": _resolve_theme_id(brand),
         "qr_token": rep.qr_token,
@@ -225,6 +241,9 @@ def get_card_logo(token: str, db: Session = Depends(get_db)):
         headers={
             "Cache-Control": "public, max-age=0, must-revalidate",
             "ETag": f'"{v}"',
+            # Allow public card pages to sample pixels for logo contrast.
+            "Access-Control-Allow-Origin": "*",
+            "Cross-Origin-Resource-Policy": "cross-origin",
         },
     )
 

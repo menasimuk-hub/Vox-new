@@ -1,4 +1,4 @@
-import { Briefcase, Globe, Hash, Mail, Phone, PhoneCall, User } from "lucide-react";
+import { Briefcase, Globe, Hash, Mail, MapPin, Phone, PhoneCall, User } from "lucide-react";
 import * as React from "react";
 
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,8 @@ export type RepresentativeFormValue = {
   landline: string;
   extension: string;
   website: string;
+  location: string;
+  address: string;
   social_links: SocialLinks;
 };
 
@@ -33,6 +35,8 @@ export function emptyRepresentativeForm(): RepresentativeFormValue {
     landline: "",
     extension: "",
     website: "",
+    location: "",
+    address: "",
     social_links: { x: "", instagram: "", facebook: "", tiktok: "", linkedin: "" },
   };
 }
@@ -263,7 +267,7 @@ export function RepresentativeFields({
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label className="text-xs">Website</Label>
           <FieldIcon icon={Globe}>
@@ -276,6 +280,36 @@ export function RepresentativeFields({
             />
           </FieldIcon>
         </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Location</Label>
+          <FieldIcon icon={MapPin}>
+            <Input
+              className="pl-8"
+              value={value.location}
+              disabled={disabled}
+              onChange={(e) => patch({ location: e.target.value })}
+              placeholder="City / area"
+            />
+          </FieldIcon>
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label className="text-xs">Full address</Label>
+          <FieldIcon icon={MapPin}>
+            <Input
+              className="pl-8"
+              value={value.address}
+              disabled={disabled}
+              onChange={(e) => patch({ address: e.target.value })}
+              placeholder="Street, city, postcode, country"
+            />
+          </FieldIcon>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Shown on the public smart card. Set this on the representative — company profile address is not used for the card.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         <div className="space-y-1.5 sm:col-span-2">
           <Label className="text-xs">X (Twitter)</Label>
           <FieldIcon icon={XIcon}>

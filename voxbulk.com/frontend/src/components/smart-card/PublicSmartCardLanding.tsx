@@ -38,6 +38,8 @@ type CardMeta = {
     mobile?: string;
     landline?: string;
     job_title?: string | null;
+    location?: string | null;
+    address?: string | null;
     social_links?: SocialLinks | null;
     photo_url?: string | null;
   };
@@ -47,6 +49,8 @@ type CardMeta = {
     description?: string;
     tagline?: string | null;
     location?: string | null;
+    location_label?: string | null;
+    address?: string | null;
     logo_url?: string | null;
   };
 };
@@ -109,7 +113,8 @@ export function PublicSmartCardLanding({
   const companyName = company?.name || "Company";
   const jobTitle = (rep?.job_title || "").trim();
   const tagline = (company?.tagline || company?.description || "").trim();
-  const location = (company?.location || "").trim();
+  const location = (company?.address || company?.location || rep?.address || rep?.location || "").trim();
+  const address = (company?.address || rep?.address || location).trim();
   const phone = (rep?.mobile || rep?.landline || "").trim();
   const email = (rep?.email || "").trim();
   const website = (rep?.website || company?.website || "").trim();
@@ -120,7 +125,7 @@ export function PublicSmartCardLanding({
     meta?.feedback_whatsapp_url ||
     meta?.whatsapp_url ||
     (phone
-      ? `https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent("Hi! I'd like to share some feedback.")}`
+      ? `https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent("Hi! I'd like to get in touch.")}`
       : null);
 
   const card: SmartCardData = {
@@ -134,6 +139,7 @@ export function PublicSmartCardLanding({
     email,
     website: website ? ensureHttp(website) : "",
     location,
+    address,
     instagram: socials.instagram ? ensureHttp(socials.instagram) : "",
     linkedin: socials.linkedin ? ensureHttp(socials.linkedin) : "",
     facebook: socials.facebook ? ensureHttp(socials.facebook) : "",

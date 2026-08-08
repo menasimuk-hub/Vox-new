@@ -36,7 +36,7 @@ type Rep = {
   extension?: string | null;
   website?: string | null;
   social_links?: SocialLinks | null;
-  extra?: { job_title?: string; title?: string; role?: string } | null;
+  extra?: { job_title?: string; title?: string; role?: string; location?: string; address?: string } | null;
   photo_url?: string | null;
   qr_image_url?: string;
   web_url?: string;
@@ -146,6 +146,8 @@ function SmartCardEditQrPage() {
       landline: r.landline || "",
       extension: r.extension || "",
       website: r.website || "",
+      location: String(extra.location || ""),
+      address: String(extra.address || ""),
       social_links: {
         x: social.x || "",
         instagram: social.instagram || "",
@@ -192,6 +194,8 @@ function SmartCardEditQrPage() {
           extra: {
             ...(repQ.data?.item?.extra || {}),
             job_title: repForm.job_title.trim() || null,
+            location: repForm.location.trim() || null,
+            address: repForm.address.trim() || null,
           },
           product_ids: productIds,
           qr_fg_color: fg,

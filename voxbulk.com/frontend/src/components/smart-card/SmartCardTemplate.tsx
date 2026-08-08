@@ -18,6 +18,7 @@ export type SmartCardData = {
   email: string;
   website: string;
   location: string;
+  address?: string;
   instagram: string;
   linkedin: string;
   facebook: string;
@@ -35,6 +36,88 @@ export type SmartCardTemplateActions = {
 };
 
 const isSet = (v: string) => !!v && !v.startsWith("{{") && v.trim().length > 0;
+
+function CompanyLogoBadge({
+  src,
+  companyName,
+}: {
+  src: string;
+  companyName: string;
+}) {
+  const [tone, setTone] = React.useState<"light" | "dark" | "mixed">("mixed");
+
+  const onImgLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    try {
+      const canvas = document.createElement("canvas");
+      const w = Math.min(64, img.naturalWidth || 64);
+      const h = Math.min(64, img.naturalHeight || 64);
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
+      let lumSum = 0;
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3];
+        if (a < 24) continue;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        lumSum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        count += 1;
+      }
+      if (!count) {
+        setTone("mixed");
+        return;
+      }
+      const avg = lumSum / count;
+      if (avg >= 170) setTone("light");
+      else if (avg <= 90) setTone("dark");
+      else setTone("mixed");
+    } catch {
+      // CORS / tainted canvas — soft dual glow still helps white logos.
+      setTone("mixed");
+    }
+  };
+
+  const shellStyle: React.CSSProperties =
+    tone === "light"
+      ? {
+          background: "linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.88))",
+          border: "1px solid rgba(255,255,255,0.18)",
+          boxShadow: "0 0 18px rgba(255,255,255,0.28), 0 8px 18px -12px rgba(0,0,0,0.55)",
+        }
+      : tone === "dark"
+        ? {
+            background: "rgba(255,255,255,0.96)",
+            border: "1px solid rgba(15,23,42,0.08)",
+            boxShadow: "0 0 14px rgba(255,255,255,0.45), 0 8px 18px -14px rgba(0,0,0,0.35)",
+          }
+        : {
+            background:
+              "linear-gradient(145deg, rgba(255,255,255,0.88) 0%, rgba(248,250,252,0.72) 55%, rgba(15,23,42,0.18) 100%)",
+            border: "1px solid rgba(255,255,255,0.45)",
+            boxShadow: "0 0 20px rgba(255,255,255,0.35), 0 0 28px rgba(0,0,0,0.18), 0 8px 18px -14px rgba(0,0,0,0.4)",
+          };
+
+  return (
+    <div
+      className="flex h-7 max-w-[128px] shrink-0 items-center justify-center rounded-lg px-1.5 py-0.5"
+      style={shellStyle}
+    >
+      <img
+        src={src}
+        alt={`${companyName} logo`}
+        crossOrigin="anonymous"
+        onLoad={onImgLoad}
+        className="h-5 w-auto max-w-[112px] object-contain"
+      />
+    </div>
+  );
+}
 
 const initials = (name: string) =>
   isSet(name)
@@ -198,7 +281,9 @@ export function SmartCardTemplate({
   };
 
   const waHref = actions?.whatsappHref;
-  const webLabel = actions?.webSurveyLabel || "Web survey";
+  const webLabel = actions?.webSurveyLabel || "Contact form";
+  const mapsQuery = isSet(card.address) ? card.address : card.location;
+  const addressLine = isSet(card.address) ? card.address : isSet(card.location) ? card.location : "";
 
   return (
     <main className={`smartcard-root ${bgClass} relative min-h-dvh w-full overflow-hidden`}>
@@ -220,23 +305,10 @@ export function SmartCardTemplate({
         >
           <div className="flex items-center gap-2.5">
             {isSet(card.companyLogo) ? (
-              <div
-                className="flex h-12 max-w-[200px] shrink-0 items-center justify-center rounded-xl px-2.5 py-1.5"
-                style={{
-                  background: "rgba(255,255,255,0.95)",
-                  border: "1px solid rgba(255,255,255,0.7)",
-                  boxShadow: "0 8px 20px -14px rgba(0,0,0,0.35)",
-                }}
-              >
-                <img
-                  src={card.companyLogo}
-                  alt={`${card.companyName} logo`}
-                  className="h-9 w-auto max-w-[176px] object-contain"
-                />
-              </div>
+              <CompanyLogoBadge src={card.companyLogo} companyName={card.companyName} />
             ) : (
               <div
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-bold"
                 style={{ background: `linear-gradient(135deg, ${accent}, ${accent2})`, color: onAccent }}
               >
                 ✦
@@ -283,6 +355,11 @@ export function SmartCardTemplate({
                   {card.tagline}
                 </p>
               ) : null}
+              {isSet(addressLine) ? (
+                <p className="mt-1.5 text-[11.5px] leading-snug" style={{ color: sub }}>
+                  {addressLine}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -307,7 +384,7 @@ export function SmartCardTemplate({
               </svg>
             </IconLink>
             <IconLink
-              href={isSet(card.location) ? `https://maps.google.com/?q=${encodeURIComponent(card.location)}` : "#"}
+              href={isSet(mapsQuery) ? `https://maps.google.com/?q=${encodeURIComponent(mapsQuery)}` : "#"}
               label="Location"
               glow={alpha(accent3, 0.2)}
             >
@@ -346,7 +423,7 @@ export function SmartCardTemplate({
         {!actions?.hideFeedback ? (
           <div className="animate-rise mt-4" style={{ animationDelay: "120ms" }}>
             <p className="mb-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.18em]" style={{ color: sub }}>
-              Share your feedback
+              Get in touch
             </p>
             <div className="grid grid-cols-2 gap-3">
               {waHref || actions?.onWhatsApp ? (

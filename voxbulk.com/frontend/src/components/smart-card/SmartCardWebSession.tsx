@@ -112,7 +112,7 @@ export function SmartCardWebSession({ token, companyName, themeId, onDone, onBlo
       const assets: DeliveredAsset[] = Array.isArray(data.assets)
         ? data.assets.filter((a: DeliveredAsset) => a && a.url)
         : [];
-      onDone(data.message || "Thank you — we appreciate your feedback.", assets);
+      onDone(data.message || "Thank you — we received your details.", assets);
       return;
     }
     applyStep(data);
@@ -306,7 +306,7 @@ export function SmartCardWebSession({ token, companyName, themeId, onDone, onBlo
         <div className="flex items-center justify-between">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-[0.18em]" style={{ color: SC_THEME.sub }}>
-              Feedback
+              Contact request
             </p>
             <p className="text-[14px] font-semibold" style={{ color: SC_THEME.ink }}>
               {companyName}

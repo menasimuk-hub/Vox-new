@@ -165,7 +165,7 @@ function SmartCardNewWizard() {
     status?: string;
     photo_url?: string | null;
     social_links?: RepresentativeFormValue["social_links"] | null;
-    extra?: { job_title?: string; title?: string; role?: string } | null;
+    extra?: { job_title?: string; title?: string; role?: string; location?: string; address?: string } | null;
     qr_token?: string;
     qr_image_url?: string;
     web_url?: string;
@@ -195,6 +195,8 @@ function SmartCardNewWizard() {
       landline: r.landline || "",
       extension: r.extension || "",
       website: r.website || "",
+      location: String(extra.location || ""),
+      address: String(extra.address || ""),
       social_links: {
         x: social.x || "",
         instagram: social.instagram || "",
@@ -340,9 +342,11 @@ function SmartCardNewWizard() {
       extension: rep.extension.trim() || null,
       website: (rep.website || website).trim() || null,
       social_links: socialLinksPayload(rep.social_links),
-      ...(rep.job_title.trim()
-        ? { job_title: rep.job_title.trim(), extra: { job_title: rep.job_title.trim() } }
-        : {}),
+      extra: {
+        ...(rep.job_title.trim() ? { job_title: rep.job_title.trim() } : {}),
+        ...(rep.location.trim() ? { location: rep.location.trim() } : {}),
+        ...(rep.address.trim() ? { address: rep.address.trim() } : {}),
+      },
     },
   });
 
@@ -577,7 +581,7 @@ function SmartCardNewWizard() {
                 <CardDescription>
                   {repId
                     ? "Loaded from your saved Smart Card. Edit here or use Saved QR codes → Edit for full QR options."
-                    : "Required for Preview — create one QR so you can test the scan → WhatsApp/web questionnaire."}
+                    : "Required for Preview — create one QR so you can test the scan → WhatsApp/web contact form."}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -727,8 +731,8 @@ function SmartCardNewWizard() {
                 <QrCode className="size-4" /> Preview QR
               </CardTitle>
               <CardDescription>
-                Scan opens the digital smart card first. Then tap Leave feedback to choose WhatsApp or the web
-                questionnaire (card photo, questions, voice). Up to 15 free preview tests before a paid seat.
+                Scan opens the digital smart card first. Then tap Get in touch to choose WhatsApp or the web
+                contact form (card photo, details, voice). Up to 15 free preview tests before a paid seat.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

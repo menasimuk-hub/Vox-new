@@ -552,7 +552,7 @@ function SmartCardLeadsPage() {
               {!leadsQ.isLoading && rows.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-8 text-center text-xs text-muted-foreground">
-                    No leads for the selected cards yet — complete a WhatsApp or web questionnaire after scanning.
+                    No leads for the selected cards yet — complete a WhatsApp or web contact request after scanning.
                   </td>
                 </tr>
               ) : null}
