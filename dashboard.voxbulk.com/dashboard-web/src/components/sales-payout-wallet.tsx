@@ -133,6 +133,17 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
       setInvoices(res.payout_invoices || []);
       setPackages(res.packages || []);
       setCommissions(res.commissions || []);
+      const avail = Number(res.wallet?.commission_available_minor || 0);
+      // Default request amount to full available commission (major units).
+      setAmountGbp(
+        avail > 0
+          ? (avail / 100).toLocaleString("en-GB", {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+              useGrouping: false,
+            })
+          : "",
+      );
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Failed to load wallet");
     } finally {
@@ -174,10 +185,10 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
           notes,
         }),
       });
-      setAmountGbp("");
-      setNotes("");
       setMsg("Invoice submitted — awaiting admin approval");
+      setNotes("");
       await load();
+      // load() resets amountGbp to remaining available
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "Could not create invoice");
     } finally {
@@ -201,32 +212,63 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <Card>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-border/80 bg-white shadow-sm">
           <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <CircleDollarSign className="size-3.5" />
-              Available
+            <CardDescription className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide">
+              <span className="inline-flex items-center gap-1.5">
+                <CircleDollarSign className="size-3.5" />
+                Available
+              </span>
+              <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                ▲ ready
+              </span>
             </CardDescription>
-            <CardTitle className="text-3xl tabular-nums">{loading ? "…" : money(available, currency)}</CardTitle>
+            <CardTitle className="text-3xl tabular-nums tracking-tight">{loading ? "…" : money(available, currency)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-0 text-xs text-muted-foreground">Ready to invoice</CardContent>
         </Card>
-        <Card>
+        <Card className="border-border/80 bg-white shadow-sm">
           <CardHeader className="pb-2">
-            <CardDescription>Awaiting approval</CardDescription>
-            <CardTitle className="text-3xl tabular-nums">
+            <CardDescription className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide">
+              Awaiting approval
+              <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-700">
+                ▼ hold
+              </span>
+            </CardDescription>
+            <CardTitle className="text-3xl tabular-nums tracking-tight">
               {loading ? "…" : money(wallet?.commission_requested_minor, currency)}
             </CardTitle>
           </CardHeader>
+          <CardContent className="pt-0 text-xs text-muted-foreground">Submitted, not paid yet</CardContent>
         </Card>
-        <Card>
+        <Card className="border-border/80 bg-white shadow-sm">
           <CardHeader className="pb-2">
-            <CardDescription>Paid out</CardDescription>
-            <CardTitle className="text-3xl tabular-nums">
+            <CardDescription className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide">
+              Paid out
+              <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                ▲ cleared
+              </span>
+            </CardDescription>
+            <CardTitle className="text-3xl tabular-nums tracking-tight">
               {loading ? "…" : money(wallet?.commission_paid_minor, currency)}
             </CardTitle>
           </CardHeader>
+          <CardContent className="pt-0 text-xs text-muted-foreground">Already withdrawn</CardContent>
+        </Card>
+        <Card className="border-border/80 bg-white shadow-sm">
+          <CardHeader className="pb-2">
+            <CardDescription className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide">
+              Total earned
+              <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                ▲ book
+              </span>
+            </CardDescription>
+            <CardTitle className="text-3xl tabular-nums tracking-tight">
+              {loading ? "…" : money(wallet?.commission_minor, currency)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 text-xs text-muted-foreground">All commission accrued</CardContent>
         </Card>
       </div>
 
@@ -457,6 +499,9 @@ export function SalesPayoutWallet({ titleHint }: { titleHint?: string }) {
             <div>
               <Label>Amount ({currency})</Label>
               <Input value={amountGbp} onChange={(e) => setAmountGbp(e.target.value)} placeholder="0.00" />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Defaults to your full available commission ({money(available, currency)}).
+              </p>
             </div>
             <div>
               <Label>Notes</Label>

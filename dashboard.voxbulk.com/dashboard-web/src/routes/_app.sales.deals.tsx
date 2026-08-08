@@ -1,15 +1,21 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  ArrowDownRight,
+  ArrowUpRight,
   CalendarDays,
   ChevronDown,
   ChevronUp,
+  CircleDollarSign,
   DollarSign,
   Handshake,
+  Minus,
   Search,
   Star,
   Trophy,
   TrendingUp,
+  Users,
+  Wallet,
 } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
@@ -80,10 +86,39 @@ type Company = {
 
 type Stats = {
   won_deals: { count: number; total_value_minor: number; companies: Company[] };
-  wallet: { active_companies: number; commission_minor?: number; commission_pending_minor?: number };
+  wallet: {
+    active_companies: number;
+    commission_minor?: number;
+    commission_pending_minor?: number;
+    commission_available_minor?: number;
+    commission_paid_minor?: number;
+    commission_requested_minor?: number;
+    revenue_minor?: number;
+    codes_used?: number;
+  };
   visited_count: number;
   currency?: string;
 };
+
+function KpiDelta({ value, suffix = "" }: { value: number; suffix?: string }) {
+  if (!Number.isFinite(value) || value === 0) {
+    return (
+      <span className="delta flat">
+        <Minus size={12} /> 0{suffix}
+      </span>
+    );
+  }
+  const up = value > 0;
+  const Icon = up ? ArrowUpRight : ArrowDownRight;
+  return (
+    <span className={`delta ${up ? "up" : "down"}`}>
+      <Icon size={12} />
+      {up ? "+" : ""}
+      {value}
+      {suffix}
+    </span>
+  );
+}
 
 const SYMBOLS: Record<string, string> = { GBP: "£", EUR: "€", USD: "$", CAD: "CA$", AUD: "A$" };
 
@@ -175,6 +210,19 @@ function SalesDeals() {
   }, [companies, query, fromDate, toDate, statusFilter]);
 
   const filteredCommission = filtered.reduce((s, c) => s + Number(c.commission_total_minor || 0), 0);
+  const filteredPending = filtered.reduce((s, c) => s + Number(c.commission_pending_minor || 0), 0);
+  const filteredExpected = filtered.reduce((s, c) => {
+    const lines = c.expected_commissions || [];
+    if (lines.length) return s + lines.reduce((a, l) => a + Number(l.amount_minor || 0), 0);
+    return s + Number(c.next_expected_commission?.amount_minor || 0);
+  }, 0);
+  const visited = Number(stats?.visited_count || 0);
+  const won = Number(stats?.won_deals.count || 0);
+  const conversionPct = visited > 0 ? Math.round((won / visited) * 1000) / 10 : 0;
+  const availableMinor = Number(stats?.wallet.commission_available_minor || 0);
+  const earnedMinor = Number(stats?.wallet.commission_minor || 0);
+  const paidMinor = Number(stats?.wallet.commission_paid_minor || 0);
+  const requestedMinor = Number(stats?.wallet.commission_requested_minor || 0);
 
   return (
     <div className="salesPortal salesPortal--embedded">
@@ -188,27 +236,103 @@ function SalesDeals() {
           <div className="sp-kpi-grid">
             <div className="sp-kpi">
               <div className="label">
-                <Trophy size={14} /> Deals won
+                <span className="label-left">
+                  <Trophy size={14} /> Deals won
+                </span>
+                <KpiDelta value={won} />
               </div>
-              <div className="value">{stats?.won_deals.count ?? 0}</div>
+              <div className="value">{loading ? "…" : won}</div>
+              <div className="sub">{filtered.length} shown · {visited} visited</div>
             </div>
             <div className="sp-kpi">
               <div className="label">
-                <DollarSign size={14} /> Customer revenue
+                <span className="label-left">
+                  <TrendingUp size={14} /> Conversion
+                </span>
+                <KpiDelta value={conversionPct} suffix="%" />
               </div>
-              <div className="value">{money(stats?.won_deals.total_value_minor, currency)}</div>
+              <div className="value">{loading ? "…" : `${conversionPct}%`}</div>
+              <div className="sub">Won / visited</div>
             </div>
             <div className="sp-kpi">
               <div className="label">
-                <Star size={14} /> Active companies
+                <span className="label-left">
+                  <DollarSign size={14} /> Customer revenue
+                </span>
+                <span className={`delta ${Number(stats?.won_deals.total_value_minor || 0) > 0 ? "up" : "flat"}`}>
+                  {Number(stats?.won_deals.total_value_minor || 0) > 0 ? <ArrowUpRight size={12} /> : <Minus size={12} />}
+                  closed
+                </span>
               </div>
-              <div className="value">{stats?.wallet.active_companies ?? 0}</div>
+              <div className="value">{loading ? "…" : money(stats?.won_deals.total_value_minor, currency)}</div>
+              <div className="sub">Closed package value</div>
             </div>
             <div className="sp-kpi">
               <div className="label">
-                <TrendingUp size={14} /> Visited
+                <span className="label-left">
+                  <CircleDollarSign size={14} /> Commission earned
+                </span>
+                <span className={`delta ${earnedMinor > 0 ? "up" : "flat"}`}>
+                  {earnedMinor > 0 ? <ArrowUpRight size={12} /> : <Minus size={12} />}
+                  book
+                </span>
               </div>
-              <div className="value">{stats?.visited_count ?? 0}</div>
+              <div className="value">{loading ? "…" : money(earnedMinor, currency)}</div>
+              <div className="sub">Filter total {money(filteredCommission, currency)}</div>
+            </div>
+            <div className="sp-kpi">
+              <div className="label">
+                <span className="label-left">
+                  <Wallet size={14} /> Available
+                </span>
+                <span className={`delta ${availableMinor > 0 ? "up" : "flat"}`}>
+                  {availableMinor > 0 ? <ArrowUpRight size={12} /> : <Minus size={12} />}
+                  ready
+                </span>
+              </div>
+              <div className="value">{loading ? "…" : money(availableMinor, currency)}</div>
+              <div className="sub">Ready to request payout</div>
+            </div>
+            <div className="sp-kpi">
+              <div className="label">
+                <span className="label-left">
+                  <CalendarDays size={14} /> Expected
+                </span>
+                <span className={`delta ${filteredExpected > 0 ? "up" : "flat"}`}>
+                  {filteredExpected > 0 ? <ArrowUpRight size={12} /> : <Minus size={12} />}
+                  pipeline
+                </span>
+              </div>
+              <div className="value">{loading ? "…" : money(filteredExpected, currency)}</div>
+              <div className="sub">Upcoming commission value</div>
+            </div>
+            <div className="sp-kpi">
+              <div className="label">
+                <span className="label-left">
+                  <Star size={14} /> Pending payout
+                </span>
+                <span className={`delta ${filteredPending > 0 || requestedMinor > 0 ? "down" : "flat"}`}>
+                  {filteredPending > 0 || requestedMinor > 0 ? <ArrowDownRight size={12} /> : <Minus size={12} />}
+                  hold
+                </span>
+              </div>
+              <div className="value">
+                {loading ? "…" : money(Math.max(filteredPending, requestedMinor), currency)}
+              </div>
+              <div className="sub">Awaiting approval / uncleared</div>
+            </div>
+            <div className="sp-kpi">
+              <div className="label">
+                <span className="label-left">
+                  <Users size={14} /> Active · Paid
+                </span>
+                <span className={`delta ${paidMinor > 0 ? "up" : "flat"}`}>
+                  {paidMinor > 0 ? <ArrowUpRight size={12} /> : <Minus size={12} />}
+                  paid
+                </span>
+              </div>
+              <div className="value">{loading ? "…" : stats?.wallet.active_companies ?? 0}</div>
+              <div className="sub">Paid out {money(paidMinor, currency)}</div>
             </div>
           </div>
 
