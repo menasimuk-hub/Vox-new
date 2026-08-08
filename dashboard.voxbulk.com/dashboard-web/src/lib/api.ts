@@ -479,30 +479,50 @@ export async function downloadAuthenticatedFile(path: string, filename = "downlo
 }
 
 export async function openAuthenticatedHtmlInTab(path: string) {
+  // Open synchronously on the click gesture so browsers don't block the popup after await.
+  const tab = window.open("about:blank", "_blank");
+  if (!tab) {
+    throw new ApiError("Pop-up blocked — allow pop-ups for this site to view invoices.");
+  }
+  try {
+    tab.document.title = "Loading…";
+  } catch {
+    /* cross-origin blank may block writes briefly */
+  }
   const baseUrl = getApiBaseUrl();
   const url = baseUrl ? `${baseUrl}${path}` : path;
   const headers = buildAuthHeaders();
-  const res = await requestFetch(url, { headers });
-  if (!res.ok) {
-    const text = await res.text();
-    let message = `${res.status} ${res.statusText}`.trim();
+  try {
+    const res = await requestFetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text();
+      let message = `${res.status} ${res.statusText}`.trim();
+      try {
+        const data = JSON.parse(text);
+        if (typeof data?.detail === "string") message = data.detail;
+      } catch {
+        /* ignore */
+      }
+      try {
+        tab.close();
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(sanitizeUserError(message), { status: res.status });
+    }
+    const html = await res.text();
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const objectUrl = URL.createObjectURL(blob);
+    tab.location.href = objectUrl;
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
+  } catch (e) {
     try {
-      const data = JSON.parse(text);
-      if (typeof data?.detail === "string") message = data.detail;
+      tab.close();
     } catch {
       /* ignore */
     }
-    throw new ApiError(message, { status: res.status });
+    throw e;
   }
-  const html = await res.text();
-  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-  const objectUrl = URL.createObjectURL(blob);
-  const tab = window.open(objectUrl, "_blank", "noopener,noreferrer");
-  if (!tab) {
-    URL.revokeObjectURL(objectUrl);
-    throw new ApiError("Pop-up blocked — allow pop-ups to view the report.");
-  }
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000);
 }
 
 export async function fetchAuthenticatedBlob(path: string) {

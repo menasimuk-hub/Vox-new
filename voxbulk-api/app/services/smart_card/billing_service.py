@@ -345,3 +345,66 @@ class SmartCardBillingService:
 
             AirwallexSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
         return sub
+
+    @staticmethod
+    def cancellation_payload(db: Session, org_id: str) -> dict[str, Any]:
+        from app.services.billing_access_service import BillingAccessService
+        from app.services.subscription_cancellation_service import SubscriptionCancellationService
+
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise SmartCardBillingError("Organisation not found")
+        sub = BillingAccessService.get_subscription(db, org_id, service_code=SMART_CARD_SERVICE_CODE)
+        plan = db.get(Plan, sub.plan_id) if sub else None
+        refund_review = SubscriptionCancellationService.get_open_refund_review(db, org_id) if sub else None
+        return SubscriptionCancellationService.cancellation_dict(db, org, sub, plan, refund_review=refund_review)
+
+    @staticmethod
+    def request_cancellation(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str | None,
+        reason: str | None = None,
+        requested_refund_type: str = "none",
+    ) -> dict[str, Any]:
+        from app.services.subscription_cancellation_service import (
+            SubscriptionCancellationError,
+            SubscriptionCancellationService,
+        )
+
+        try:
+            return SubscriptionCancellationService.request_cancellation(
+                db,
+                org_id=org_id,
+                user_id=user_id,
+                reason=reason,
+                requested_refund_type=requested_refund_type,
+                service_code=SMART_CARD_SERVICE_CODE,
+            )
+        except SubscriptionCancellationError as exc:
+            raise SmartCardBillingError(str(exc)) from exc
+
+    @staticmethod
+    def reverse_cancellation(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str | None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        from app.services.subscription_cancellation_service import (
+            SubscriptionCancellationError,
+            SubscriptionCancellationService,
+        )
+
+        try:
+            return SubscriptionCancellationService.reverse_cancellation(
+                db,
+                org_id=org_id,
+                admin_user_id=user_id,
+                note=note or "Customer reversed scheduled cancellation",
+                service_code=SMART_CARD_SERVICE_CODE,
+            )
+        except SubscriptionCancellationError as exc:
+            raise SmartCardBillingError(str(exc)) from exc

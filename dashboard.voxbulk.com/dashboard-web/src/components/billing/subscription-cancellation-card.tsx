@@ -63,7 +63,7 @@ function useInvalidateBillingQueries() {
   }, [qc]);
 }
 
-type CancellationService = "voxbulk" | "feedback";
+type CancellationService = "voxbulk" | "feedback" | "smart_card";
 
 function cancellationConfig(service: CancellationService) {
   if (service === "feedback") {
@@ -78,6 +78,23 @@ function cancellationConfig(service: CancellationService) {
           qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscriptionCancellation }),
           qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
           qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+          qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
+        ]);
+      },
+    };
+  }
+  if (service === "smart_card") {
+    return {
+      queryKey: queryKeys.smartCardSubscriptionCancellation,
+      getPath: "/smart-card/billing/cancellation",
+      postPath: "/smart-card/billing/cancellation",
+      reversePath: "/smart-card/billing/cancellation/reverse",
+      refundPrefs: ["none", "payment_method_refund"] as const,
+      invalidate: async (qc: ReturnType<typeof useQueryClient>) => {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: queryKeys.smartCardSubscriptionCancellation }),
+          qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
+          qc.invalidateQueries({ queryKey: ["smart-card"] }),
         ]);
       },
     };
@@ -94,6 +111,7 @@ function cancellationConfig(service: CancellationService) {
         qc.invalidateQueries({ queryKey: queryKeys.billingSubscription }),
         qc.invalidateQueries({ queryKey: queryKeys.billingWallet }),
         qc.invalidateQueries({ queryKey: queryKeys.billingRequests }),
+        qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
         qc.invalidateQueries({ queryKey: ["billing", "wallet", "transactions"] }),
       ]);
     },
@@ -327,7 +345,7 @@ export function SubscriptionCancellationBar({
             <>
               <p className="text-sm text-muted-foreground">
                 Active until <strong className="text-foreground">{fmtDate(data.effective_at || data.current_period_end)}</strong>.
-                Renewals stop after that date.
+                No further payments after that date.
               </p>
               <p className="text-xs text-muted-foreground">
                 Change your mind? You can keep your subscription before our team finalises any refund.
@@ -337,7 +355,7 @@ export function SubscriptionCancellationBar({
             <p className="text-sm text-muted-foreground">Your subscription has ended.</p>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Cancel at period end to keep access until your billing period ends. Refunds to your bank are not automatic.
+              Cancel at period end to keep access until your billing period ends. No next payment will be charged.
             </p>
           )}
           {data.refund_review?.review_status === "pending" ? (
@@ -354,10 +372,52 @@ export function SubscriptionCancellationBar({
           ) : null}
           {canCancel ? (
             <Button type="button" variant="outline" className="shrink-0" onClick={() => setOpen(true)}>
-              Request cancellation
+              Cancel subscription
             </Button>
           ) : null}
         </div>
+      </div>
+      <CancellationDialog planName={planName} state={state} />
+      <ReverseCancellationDialog state={state} />
+    </>
+  );
+}
+
+/** Compact cancel / keep controls for product billing cards. */
+export function ProductCancellationActions({
+  planName,
+  service = "voxbulk",
+  enabled = true,
+}: {
+  planName?: string | null;
+  service?: CancellationService;
+  /** False for PAYG / no plan — hide controls. */
+  enabled?: boolean;
+}) {
+  const state = useSubscriptionCancellationState(service);
+  const { data, scheduled, cancelled, canCancel, canReverse, setOpen, setReverseOpen, cancelQ } = state;
+
+  if (!enabled || cancelQ.isLoading || cancelled) return null;
+  if (!canCancel && !canReverse && !scheduled) return null;
+
+  return (
+    <>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {canReverse ? (
+          <Button type="button" size="sm" variant="secondary" onClick={() => setReverseOpen(true)}>
+            Keep subscription
+          </Button>
+        ) : null}
+        {canCancel ? (
+          <Button type="button" size="sm" variant="outline" onClick={() => setOpen(true)}>
+            Cancel subscription
+          </Button>
+        ) : null}
+        {scheduled && !canReverse ? (
+          <span className="text-xs text-muted-foreground">
+            Ends {fmtDate(data.effective_at || data.current_period_end)} · no next payment
+          </span>
+        ) : null}
       </div>
       <CancellationDialog planName={planName} state={state} />
       <ReverseCancellationDialog state={state} />

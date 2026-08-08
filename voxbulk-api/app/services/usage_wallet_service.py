@@ -302,14 +302,33 @@ class UsageWalletService:
 
     @staticmethod
     def get_org_billing_email(db: Session, org_id: str) -> str | None:
-        em = db.execute(
-            select(User.email)
+        """Prefer owner membership email, then earliest active member, then org contact_email."""
+        from app.services.org_rbac import effective_role
+
+        rows = db.execute(
+            select(User.email, OrganisationMembership.role, User.created_at)
             .join(OrganisationMembership, OrganisationMembership.user_id == User.id)
             .where(OrganisationMembership.org_id == org_id, User.is_active.is_(True))
             .order_by(User.created_at.asc())
-            .limit(1)
-        ).scalar_one_or_none()
-        return str(em).strip().lower() if em else None
+        ).all()
+        owner_email = None
+        first_email = None
+        for email, role, _created in rows:
+            em = str(email or "").strip().lower()
+            if not em or "@" not in em:
+                continue
+            if first_email is None:
+                first_email = em
+            if effective_role(role) == "owner" and owner_email is None:
+                owner_email = em
+        if owner_email:
+            return owner_email
+        if first_email:
+            return first_email
+
+        org = db.get(Organisation, org_id)
+        contact = str(getattr(org, "contact_email", None) or "").strip().lower() if org else ""
+        return contact if contact and "@" in contact else None
 
     @staticmethod
     def sync_plan_limits(db: Session, *, org_id: str, plan: Plan, subscription: Subscription) -> OrgUsagePeriod | None:

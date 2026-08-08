@@ -83,6 +83,7 @@ export const queryKeys = {
   feedbackResultsCompare: (locationIds: string) => ["customer-feedback", "results", "compare", locationIds] as const,
   feedbackPackages: ["customer-feedback", "packages"] as const,
   feedbackSubscriptionCancellation: ["customer-feedback", "subscription", "cancellation"] as const,
+  smartCardSubscriptionCancellation: ["smart-card", "billing", "cancellation"] as const,
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
   feedbackMarketingSubscribers: ["customer-feedback", "marketing-subscribers", "count"] as const,
   feedbackPromoCampaigns: ["customer-feedback", "promo-campaigns"] as const,

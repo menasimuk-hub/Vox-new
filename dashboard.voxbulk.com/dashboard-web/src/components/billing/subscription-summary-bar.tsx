@@ -19,6 +19,7 @@ export type SubscriptionFinanceSummary = {
   mandate_status?: string | null;
   payment_provider?: string | null;
   current_period_end?: string | null;
+  access_until?: string | null;
   pending_plan_name?: string | null;
   pending_plan_code?: string | null;
 };
@@ -84,8 +85,11 @@ export function SubscriptionSummaryBar({
   const mandate = mandateLabel(finance.mandate_status);
   const nextLabel = finance.cancel_at_period_end ? "Access until" : "Next payment";
   const nextDate = finance.cancel_at_period_end
-    ? finance.current_period_end || finance.next_billing_date
+    ? finance.access_until || finance.current_period_end
     : finance.next_billing_date;
+  const nextAmount = finance.cancel_at_period_end
+    ? "No renewal"
+    : finance.amount_next_payment_display;
   const hasPendingChange = Boolean(finance.pending_plan_name || finance.pending_plan_code);
 
   return (
@@ -122,7 +126,7 @@ export function SubscriptionSummaryBar({
             <span>
               Amount:{" "}
               <strong className="text-foreground">
-                {finance.amount_next_payment_display ||
+                {nextAmount ||
                   (finance.amount_next_payment_minor != null ? `${finance.amount_next_payment_minor}` : "—")}
               </strong>
             </span>

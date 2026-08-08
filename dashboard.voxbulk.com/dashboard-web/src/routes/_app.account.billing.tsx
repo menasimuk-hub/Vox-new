@@ -763,9 +763,13 @@ function BillingPage() {
                                 size="sm"
                                 variant="outline"
                                 className="gap-1"
-                                onClick={() =>
-                                  void openAuthenticatedHtmlInTab(`/billing/invoices/${encodeURIComponent(row.invoiceId)}/html`)
-                                }
+                                onClick={() => {
+                                  void openAuthenticatedHtmlInTab(
+                                    `/billing/invoices/${encodeURIComponent(row.invoiceId)}/html`,
+                                  ).catch((e) =>
+                                    toast.error(e instanceof Error ? e.message : "Could not open invoice"),
+                                  );
+                                }}
                               >
                                 <Eye className="size-3.5" /> View
                               </Button>
@@ -773,12 +777,16 @@ function BillingPage() {
                                 size="sm"
                                 variant="outline"
                                 className="gap-1"
-                                onClick={() =>
+                                onClick={() => {
                                   void downloadAuthenticatedFile(
                                     `/billing/invoices/${encodeURIComponent(row.invoiceId)}/pdf`,
                                     `invoice-${row.id}.pdf`,
                                   )
-                                }
+                                    .then(() => toast.success("Invoice downloaded"))
+                                    .catch((e) =>
+                                      toast.error(e instanceof Error ? e.message : "Could not download invoice"),
+                                    );
+                                }}
                               >
                                 <Download className="size-3.5" /> Download
                               </Button>

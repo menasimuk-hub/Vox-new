@@ -799,3 +799,66 @@ def complete_smart_card_gocardless(payload: dict, db: Session = Depends(get_db),
         return {"ok": True, **{k: v for k, v in res.items() if k != "subscription"}}
     except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/billing/cancellation")
+def get_smart_card_cancellation(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.schemas.dashboard import SubscriptionCancellationOut
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        payload = SmartCardBillingService.cancellation_payload(db, principal.org_id)
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(payload)
+
+
+@router.post("/billing/cancellation")
+def request_smart_card_cancellation(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.schemas.dashboard import SubscriptionCancellationOut
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        result = SmartCardBillingService.request_cancellation(
+            db,
+            org_id=principal.org_id,
+            user_id=principal.user_id,
+            reason=(payload or {}).get("reason"),
+            requested_refund_type=str((payload or {}).get("requested_refund_type") or "none"),
+        )
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(result)
+
+
+@router.post("/billing/cancellation/reverse")
+def reverse_smart_card_cancellation(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.schemas.dashboard import SubscriptionCancellationOut
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        result = SmartCardBillingService.reverse_cancellation(
+            db, org_id=principal.org_id, user_id=principal.user_id
+        )
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return SubscriptionCancellationOut.model_validate(result)

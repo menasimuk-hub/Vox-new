@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
 import { PackageValuePoolBar } from "@/components/billing/package-value-pool-bar";
+import { ProductCancellationActions } from "@/components/billing/subscription-cancellation-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   meta: ProductPanelMeta;
-  finance?: (SubscriptionFinanceSummary & { seat_quantity?: number | null; is_payg?: boolean }) | null;
+  finance?: (SubscriptionFinanceSummary & { seat_quantity?: number | null; is_payg?: boolean; access_until?: string | null }) | null;
   allowanceRows: AllowanceRow[];
   planLabel?: string;
   billingInterval?: string | null;
@@ -32,6 +33,8 @@ type Props = {
     remainingDisplay?: string;
     percent?: number;
   };
+  /** Show cancel-at-period-end controls for this product card. */
+  showCancel?: boolean;
 };
 
 function formatSubDate(raw: unknown) {
@@ -40,6 +43,12 @@ function formatSubDate(raw: unknown) {
   return Number.isNaN(d.getTime())
     ? ""
     : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+function cancelServiceForProduct(product: string): "voxbulk" | "feedback" | "smart_card" {
+  if (product === "feedback") return "feedback";
+  if (product === "smart_card") return "smart_card";
+  return "voxbulk";
 }
 
 export function BillingProductColumn({
@@ -57,6 +66,7 @@ export function BillingProductColumn({
   footerNote,
   usedOnlyKpis,
   valuePool,
+  showCancel = true,
 }: Props) {
   const Icon = meta.product === "feedback" ? Smile : meta.product === "smart_card" ? QrCode : Sparkles;
   const iconTint =
@@ -80,13 +90,18 @@ export function BillingProductColumn({
           : finance?.billing_interval === "monthly"
             ? "Monthly"
             : null;
-  const nextDate = finance?.cancel_at_period_end
-    ? formatSubDate(finance.current_period_end || finance.next_billing_date)
+  const cancelScheduled = Boolean(finance?.cancel_at_period_end);
+  const accessUntil = cancelScheduled
+    ? formatSubDate(finance?.access_until || finance?.current_period_end)
+    : "";
+  const nextDate = cancelScheduled
+    ? ""
     : formatSubDate(finance?.next_billing_date || finance?.current_period_end);
   const nextAmount =
     finance?.amount_next_payment_display || (isPayg || finance?.is_payg ? "Pay as you go" : "—");
   const seats = finance?.seat_quantity != null && finance.seat_quantity > 0 ? finance.seat_quantity : null;
   const hasPlan = Boolean(finance?.plan_name || finance?.plan_code || isPayg || finance?.is_payg || planLabel);
+  const cancelEnabled = showCancel && hasPlan && !(isPayg || finance?.is_payg);
 
   return (
     <Card className={cn("overflow-hidden ring-1", meta.tintClass, meta.ringClass)}>
@@ -110,6 +125,11 @@ export function BillingProductColumn({
                 {b.label}
               </Badge>
             ))}
+            {cancelScheduled ? (
+              <Badge variant="secondary" className="text-[10px]">
+                Cancels at period end
+              </Badge>
+            ) : null}
             {seats != null ? (
               <Badge variant="outline" className="text-[10px]">
                 {seats} seat{seats === 1 ? "" : "s"}
@@ -134,16 +154,34 @@ export function BillingProductColumn({
           </div>
         ) : hasPlan ? (
           <div className="space-y-1 text-sm text-muted-foreground">
-            <p>
-              Next payment: <strong className="text-foreground">{nextAmount}</strong>
-              {nextDate ? <> · {nextDate}</> : null}
-              {finance?.cancel_at_period_end ? " · Cancels at period end" : null}
-            </p>
-            <Button asChild size="sm" variant="link" className="h-auto p-0">
-              <Link to={meta.packagesLink} search={meta.packagesSearch}>
-                Change plan
-              </Link>
-            </Button>
+            {cancelScheduled ? (
+              <p>
+                No next payment
+                {accessUntil ? (
+                  <>
+                    {" "}
+                    · Access until <strong className="text-foreground">{accessUntil}</strong>
+                  </>
+                ) : null}
+              </p>
+            ) : (
+              <p>
+                Next payment: <strong className="text-foreground">{nextAmount}</strong>
+                {nextDate ? <> · {nextDate}</> : null}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <Button asChild size="sm" variant="link" className="h-auto p-0">
+                <Link to={meta.packagesLink} search={meta.packagesSearch}>
+                  Change plan
+                </Link>
+              </Button>
+            </div>
+            <ProductCancellationActions
+              planName={typeof planName === "string" ? planName : null}
+              service={cancelServiceForProduct(meta.product)}
+              enabled={cancelEnabled}
+            />
           </div>
         ) : (
           <div className="space-y-1 text-sm text-muted-foreground">

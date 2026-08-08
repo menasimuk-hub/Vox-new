@@ -502,12 +502,39 @@ class InvoiceService:
 
         existing = InvoiceService.get_by_external(db, provider=provider, external_invoice_id=external_invoice_id)
         if existing is not None:
+            # Retry email if invoice was created but never emailed (SMTP blip, missing template, etc.).
+            existing_email = str(existing.client_email or "").strip().lower()
+            if (
+                existing.emailed_at is None
+                and existing_email
+                and not existing_email.endswith("@voxbulk.local")
+            ):
+                _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=existing)
+                return existing, False, sent
             return existing, False, False
+
+        resolved_email = (client_email or "").strip()
+        if not resolved_email:
+            from app.services.usage_wallet_service import UsageWalletService
+
+            org = db.get(Organisation, org_id)
+            resolved_email = (
+                UsageWalletService.get_org_billing_email(db, org_id)
+                or (str(getattr(org, "contact_email", None) or "").strip() if org else "")
+                or ""
+            )
+        if not resolved_email:
+            logger.warning(
+                "invoice_issue_skipped_no_email",
+                extra={"org_id": org_id, "external_invoice_id": external_invoice_id},
+            )
+            # Still create the invoice so View/Download work; email can be resent from Admin.
+            resolved_email = f"billing+{org_id[:8]}@voxbulk.local"
 
         invoice = InvoiceService.create_from_payment(
             db,
             org_id=org_id,
-            client_email=client_email,
+            client_email=resolved_email,
             subtotal_pence=subtotal_pence,
             currency=currency,
             description=description,
@@ -521,7 +548,9 @@ class InvoiceService:
             kind=kind,
             order_id=order_id,
         )
-        _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=invoice)
+        sent = False
+        if not resolved_email.endswith("@voxbulk.local"):
+            _, _, sent = BillingEventEmailService.issue_payment_invoice(db, invoice=invoice)
         from app.core.logging import safe_log_extra
 
         logger.info(

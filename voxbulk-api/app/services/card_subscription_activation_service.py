@@ -129,7 +129,8 @@ class CardSubscriptionActivationService:
 
         email = UsageWalletService.get_org_billing_email(db, org.id) or (org.contact_email or "")
         ext_inv = CardSubscriptionActivationService.external_invoice_id(prov, pid)
-        if email and amount_minor > 0:
+        # Always try to issue an invoice for paid activations (email resolved inside issue_from_payment).
+        if amount_minor > 0:
             interval_label = "yearly" if interval == "yearly" else "monthly"
             qty = seats if seats and seats > 0 else 1
             unit = int(amount_minor // qty) if qty > 1 else int(amount_minor)
@@ -137,7 +138,7 @@ class CardSubscriptionActivationService:
                 InvoiceService.issue_from_payment(
                     db,
                     org_id=org.id,
-                    client_email=email,
+                    client_email=email or "",
                     subtotal_pence=amount_minor,
                     currency=currency,
                     description=f"{plan.name} — subscription",
