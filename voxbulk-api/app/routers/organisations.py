@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 import json
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -61,9 +61,11 @@ def _org_response(org, db: Session) -> dict:
         ver = key.rsplit("/", 1)[-1] or key
         data["logo_url"] = f"/organisations/me/logo/file?v={ver}"
         data["logo_storage_key"] = key
+        data["logo_tone"] = getattr(org, "logo_tone", None) or None
     else:
         data["logo_url"] = None
         data["logo_storage_key"] = None
+        data["logo_tone"] = None
     return data
 
 SERVICE_API_REQUIRED_FIELDS = {
@@ -510,12 +512,14 @@ def list_my_audit_log(
 @router.post("/me/logo")
 async def upload_my_logo(
     file: UploadFile = File(...),
+    logo_tone: str | None = Form(None),
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
     from app.services.org_audit_service import OrgAuditService
     from app.services.org_logo_storage_service import (
         delete_logo_file,
+        normalize_logo_tone,
         save_logo_bytes,
         storage_key_for,
         validate_logo_upload,
@@ -538,6 +542,7 @@ async def upload_my_logo(
     key = storage_key_for(org_id=principal.org_id, ext=ext)
     save_logo_bytes(storage_key=key, content=content)
     org.logo_storage_key = key
+    org.logo_tone = normalize_logo_tone(logo_tone)
     db.add(org)
     db.commit()
     db.refresh(org)
@@ -547,7 +552,12 @@ async def upload_my_logo(
         OrgAuditService.record_for_user(db, org_id=principal.org_id, user=user, action="profile.logo_updated", detail=file.filename)
     key = str(org.logo_storage_key)
     ver = key.rsplit("/", 1)[-1] or key
-    return {"ok": True, "logo_url": f"/organisations/me/logo/file?v={ver}", "logo_storage_key": key}
+    return {
+        "ok": True,
+        "logo_url": f"/organisations/me/logo/file?v={ver}",
+        "logo_storage_key": key,
+        "logo_tone": org.logo_tone,
+    }
 
 
 @router.get("/me/logo/file")
@@ -586,6 +596,7 @@ def delete_my_logo(db: Session = Depends(get_db), principal=Depends(get_current_
         return {"ok": True}
     delete_logo_file(org.logo_storage_key)
     org.logo_storage_key = None
+    org.logo_tone = None
     db.add(org)
     db.commit()
 

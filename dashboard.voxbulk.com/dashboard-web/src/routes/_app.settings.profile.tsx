@@ -4,6 +4,7 @@ import { Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { AdaptiveLogo } from "@/components/AdaptiveLogo";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -262,7 +263,13 @@ function ProfileSettings() {
               <Field label="Caller ID" value={name.slice(0, 12).toUpperCase()} onChange={() => undefined} readOnly />
               <div className="md:col-span-2 flex items-center gap-3 rounded-lg border border-dashed border-border bg-background/50 p-4">
                 {logoPreview ? (
-                  <img src={logoPreview} alt="Company logo" className="size-12 rounded-lg object-contain bg-white p-1" />
+                  <AdaptiveLogo
+                    src={logoPreview}
+                    alt="Company logo"
+                    preferredTone={(orgQ.data as { logo_tone?: string | null } | undefined)?.logo_tone}
+                    className="size-12"
+                    imgClassName="max-h-10 max-w-10"
+                  />
                 ) : (
                   <div className="grid size-12 place-items-center rounded-lg bg-accent text-accent-foreground font-semibold">
                     {(name || "VB").slice(0, 2).toUpperCase()}
@@ -270,12 +277,14 @@ function ProfileSettings() {
                 )}
                 <div className="flex-1">
                   <p className="text-sm font-medium">Logo</p>
-                  <p className="text-xs text-muted-foreground">PNG, JPG, WEBP or SVG — max 2 MB.</p>
+                  <p className="text-xs text-muted-foreground">
+                    PNG or JPG only (max 2 MB). We detect contrast and convert to WebP for Smart Card, Feedback, and Expo.
+                  </p>
                 </div>
                 <input
                   ref={logoInputRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  accept="image/png,image/jpeg,.png,.jpg,.jpeg"
                   className="hidden"
                   onChange={(e) => void onLogoSelected(e.target.files?.[0] || null)}
                 />
@@ -285,7 +294,8 @@ function ProfileSettings() {
                   disabled={!canEdit || uploadLogoM.isPending}
                   onClick={() => logoInputRef.current?.click()}
                 >
-                  <Upload className="size-4" /> {uploadLogoM.isPending ? "Uploading…" : logoPreview ? "Replace" : "Upload"}
+                  <Upload className="size-4" />{" "}
+                  {uploadLogoM.isPending ? "Processing…" : logoPreview ? "Replace" : "Upload"}
                 </Button>
                 {logoPreview && canEdit && (
                   <Button variant="ghost" size="icon" className="text-destructive" disabled={deleteLogoM.isPending} onClick={() => void onRemoveLogo()}>

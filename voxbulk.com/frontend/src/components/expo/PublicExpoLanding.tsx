@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { AdaptiveLogo } from "@/components/AdaptiveLogo";
 import { apiFetch, apiUpload, getApiBaseUrl } from "@/lib/api";
 import { buildCopy, getThemePack, resolveThemeId } from "@/components/feedback-survey/theme-registry";
 import type { Theme } from "@/components/feedback-survey/types";
@@ -28,6 +29,7 @@ type ExpoPublicPayload = {
   theme_id?: string;
   company_name?: string;
   logo_url?: string | null;
+  logo_tone?: string | null;
   contact_capture?: string;
   questions?: ExpoQuestion[];
   assets?: ExpoAsset[];
@@ -1031,10 +1033,11 @@ export function PublicExpoLanding({
             {logo || brandName ? (
               <div className="animate-confetti-rise mb-5 flex flex-col items-center gap-2">
                 {logo ? (
-                  <img
+                  <AdaptiveLogo
                     src={logo}
                     alt={brandName || "Exhibitor"}
-                    className="h-14 w-auto max-w-[200px] object-contain"
+                    preferredTone={payload?.logo_tone}
+                    imgClassName="h-12 w-auto max-w-[180px]"
                   />
                 ) : null}
                 {brandName ? (
@@ -1112,10 +1115,11 @@ export function PublicExpoLanding({
                     className="flex items-center justify-center border-b px-4 py-5"
                     style={{ borderColor: theme.border, background: "rgba(255,255,255,0.04)" }}
                   >
-                    <img
-                      src={companyLogoUrl || logo}
+                    <AdaptiveLogo
+                      src={companyLogoUrl || logo || ""}
                       alt={company}
-                      className="max-h-16 w-auto max-w-[200px] object-contain"
+                      preferredTone={payload?.logo_tone}
+                      imgClassName="max-h-14 w-auto max-w-[180px]"
                     />
                   </div>
                 ) : null}
@@ -1225,11 +1229,12 @@ export function PublicExpoLanding({
             <div className="flex items-center justify-between">
               <div className="inline-flex items-center gap-2">
                 {logo ? (
-                  <img
+                  <AdaptiveLogo
                     src={logo}
                     alt=""
-                    className="h-7 w-7 rounded-md object-contain p-0.5 shadow-soft"
-                    style={{ background: theme.card }}
+                    preferredTone={payload?.logo_tone}
+                    compact
+                    imgClassName="h-5 w-5"
                   />
                 ) : (
                   <span
@@ -1665,11 +1670,11 @@ export function PublicExpoLanding({
           ) : null}
           <header className="animate-rise flex flex-col items-center gap-2 text-center" style={{ animationDelay: "60ms" }}>
             {logo ? (
-              <img
+              <AdaptiveLogo
                 src={logo}
                 alt=""
-                className="h-10 w-10 rounded-xl object-contain p-1 shadow-lift ring-1"
-                style={{ background: theme.card, borderColor: theme.border }}
+                preferredTone={payload?.logo_tone}
+                imgClassName="h-8 w-8"
               />
             ) : (
               <span

@@ -250,6 +250,7 @@ def get_booth_public(token: str, db: Session = Depends(get_db)):
         "theme_id": "expo",
         "company_name": booth.company_display_name,
         "logo_url": f"/public/expo/{booth.qr_token}/logo" if has_logo else None,
+        "logo_tone": (getattr(org, "logo_tone", None) or None) if org and has_logo else None,
         "contact_capture": contact_capture,
         "questions": questions,
         "assets": public_assets,

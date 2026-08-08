@@ -78,6 +78,8 @@ function CompanyWizard() {
   const [services, setServices] = useState<ServiceId[]>([]);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoTone, setLogoTone] = useState<"light" | "dark" | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const redirecting = useRef(false);
 
@@ -119,9 +121,29 @@ function CompanyWizard() {
     setServices((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]);
 
   const onLogoPick = (file: File | null) => {
-    setLogoFile(file);
-    if (file) setLogoPreview(URL.createObjectURL(file));
-    else setLogoPreview(null);
+    if (!file) {
+      setLogoFile(null);
+      setLogoPreview(null);
+      setLogoTone(null);
+      return;
+    }
+    setLogoBusy(true);
+    void (async () => {
+      try {
+        const { processLogoUpload } = await import("@/lib/logo-contrast");
+        const processed = await processLogoUpload(file);
+        setLogoFile(processed.file);
+        setLogoTone(processed.tone);
+        setLogoPreview(URL.createObjectURL(processed.file));
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Could not process logo");
+        setLogoFile(null);
+        setLogoPreview(null);
+        setLogoTone(null);
+      } finally {
+        setLogoBusy(false);
+      }
+    })();
   };
 
   const next = () => {
@@ -164,6 +186,7 @@ function CompanyWizard() {
       if (logoFile) {
         const form = new FormData();
         form.append("file", logoFile);
+        if (logoTone) form.append("logo_tone", logoTone);
         await apiUpload("/organisations/me/logo", form);
       }
 
@@ -320,7 +343,7 @@ function CompanyWizard() {
                     <input
                       ref={fileRef}
                       type="file"
-                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      accept="image/png,image/jpeg,.png,.jpg,.jpeg"
                       onChange={(e) => onLogoPick(e.target.files?.[0] ?? null)}
                       className="hidden"
                     />
@@ -328,9 +351,11 @@ function CompanyWizard() {
                       <button
                         type="button"
                         onClick={() => fileRef.current?.click()}
-                        className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-navy text-white text-[13.5px] font-semibold hover:bg-navy/90 transition-colors"
+                        disabled={logoBusy}
+                        className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-navy text-white text-[13.5px] font-semibold hover:bg-navy/90 transition-colors disabled:opacity-60"
                       >
-                        <Upload size={14} /> {logoPreview ? "Change logo" : "Upload logo"}
+                        <Upload size={14} />{" "}
+                        {logoBusy ? "Processing…" : logoPreview ? "Change logo" : "Upload logo"}
                       </button>
                       {logoPreview && (
                         <button
@@ -342,7 +367,7 @@ function CompanyWizard() {
                         </button>
                       )}
                     </div>
-                    <p className="mt-2 text-[12px] text-muted-text">PNG, JPG, WebP or SVG · up to ~2 MB.</p>
+                    <p className="mt-2 text-[12px] text-muted-text">PNG or JPG only · converted to WebP · up to ~2 MB.</p>
                   </div>
                 </div>
 

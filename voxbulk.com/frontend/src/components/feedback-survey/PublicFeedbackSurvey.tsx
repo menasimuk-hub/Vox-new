@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { AdaptiveLogo } from "@/components/AdaptiveLogo";
 import { apiFetch, apiUpload, getApiBaseUrl } from "@/lib/api";
 import { buildCopy, getThemePack, resolveThemeId } from "./theme-registry";
 import type { Copy, SurveyPayload, SurveyQuestion, Theme, ThemePack } from "./types";
@@ -161,11 +162,12 @@ function WelcomeChoose({
       <div className="relative mx-auto flex h-[100svh] w-full max-w-md flex-col px-5 pb-5 pt-4 sm:max-w-lg sm:px-6 sm:pt-6">
         <header className="animate-rise flex flex-col items-center gap-2 text-center" style={{ animationDelay: "60ms" }}>
           {logo ? (
-            <img
+            <AdaptiveLogo
               src={logo}
               alt=""
-              className="animate-tilt-hover h-10 w-10 rounded-xl p-1 shadow-lift ring-1"
-              style={{ background: theme.card, borderColor: theme.border }}
+              preferredTone={payload.logo_tone}
+              className="animate-tilt-hover"
+              imgClassName="h-8 w-8"
             />
           ) : null}
           <span className="font-display text-[15px] tracking-tight" style={{ color: theme.ink }}>{copy.companyName}</span>
@@ -1026,11 +1028,12 @@ export function PublicFeedbackSurvey({
             <div className="flex items-center justify-between">
               <div className="inline-flex items-center gap-2">
                 {payload.logo_url ? (
-                  <img
+                  <AdaptiveLogo
                     src={logoSrc(payload.logo_url)}
                     alt=""
-                    className="h-7 w-7 rounded-md p-0.5 shadow-soft"
-                    style={{ background: "#fff" }}
+                    preferredTone={payload.logo_tone}
+                    compact
+                    imgClassName="h-5 w-5"
                   />
                 ) : null}
                 <div className="flex flex-col leading-tight">

@@ -257,6 +257,7 @@ def get_card(token: str, db: Session = Depends(get_db)):
             "location_label": location_label,
             "address": location,
             "logo_url": logo_url,
+            "logo_tone": (getattr(org, "logo_tone", None) or None) if org else None,
         },
         "representative": {
             "id": rep.id,

@@ -2300,7 +2300,13 @@ export function useTestServiceApiSettings() {
 export function useUploadOrgLogo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => apiUploadFiles("/organisations/me/logo", [file], "file"),
+    mutationFn: async (file: File) => {
+      const { processLogoUpload } = await import("@/lib/logo-contrast");
+      const processed = await processLogoUpload(file);
+      return apiUploadFiles("/organisations/me/logo", [processed.file], "file", {
+        logo_tone: processed.tone,
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.organisation });
       void qc.invalidateQueries({ queryKey: queryKeys.auditLog });

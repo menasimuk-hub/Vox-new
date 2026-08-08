@@ -8,8 +8,12 @@ from pathlib import Path
 
 from app.core.config import get_settings
 
-ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
+# Stored formats after client WebP conversion (PNG/JPG still accepted for API clients).
+ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+REJECTED_EXTENSIONS = {".svg", ".gif", ".avif", ".bmp", ".ico"}
 MAX_BYTES = 2 * 1024 * 1024
+
+_FORMAT_ERROR = "Error: Only PNG and JPG images are supported"
 
 
 def _base_dir() -> Path:
@@ -23,15 +27,55 @@ def _base_dir() -> Path:
     return root
 
 
+def _sniff_image_kind(content: bytes) -> str | None:
+    """Return png|jpeg|webp|gif|svg|None from magic bytes."""
+    if not content:
+        return None
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if content[:3] == b"\xff\xd8\xff":
+        return "jpeg"
+    if len(content) >= 12 and content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp"
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    head = content[:256].lstrip().lower()
+    if head.startswith(b"<?xml") or head.startswith(b"<svg"):
+        return "svg"
+    return None
+
+
 def validate_logo_upload(*, filename: str, content: bytes) -> str:
     if not content:
         raise ValueError("Empty file")
     if len(content) > MAX_BYTES:
         raise ValueError("Logo must be 2 MB or smaller")
+
     ext = Path(filename or "logo.png").suffix.lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise ValueError("Logo must be PNG, JPG, WEBP, or SVG")
-    return ext
+    if ext in REJECTED_EXTENSIONS:
+        raise ValueError(_FORMAT_ERROR)
+
+    kind = _sniff_image_kind(content)
+    if kind in {"gif", "svg"}:
+        raise ValueError(_FORMAT_ERROR)
+    if kind == "png":
+        return ".png"
+    if kind == "jpeg":
+        return ".jpg" if ext == ".jpg" else ".jpeg" if ext == ".jpeg" else ".jpg"
+    if kind == "webp":
+        # Allowed as *stored* format after browser Canvas conversion from PNG/JPG.
+        return ".webp"
+    if ext in ALLOWED_EXTENSIONS and kind is None:
+        # Rare edge: truncated header — still reject unknown binary.
+        raise ValueError(_FORMAT_ERROR)
+    raise ValueError(_FORMAT_ERROR)
+
+
+def normalize_logo_tone(value: str | None) -> str | None:
+    v = str(value or "").strip().lower()
+    if v in {"light", "dark"}:
+        return v
+    return None
 
 
 def storage_key_for(*, org_id: str, ext: str) -> str:
@@ -71,5 +115,4 @@ def media_type_for_key(storage_key: str) -> str:
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
         ".webp": "image/webp",
-        ".svg": "image/svg+xml",
     }.get(ext, "application/octet-stream")

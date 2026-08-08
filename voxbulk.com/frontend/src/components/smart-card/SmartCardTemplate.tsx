@@ -1,15 +1,19 @@
 import * as React from "react";
 
+import { AdaptiveLogo } from "@/components/AdaptiveLogo";
 import {
   getSmartCardThemeTokens,
   SmartCardThemeArt,
   type SmartCardThemeId,
   type SmartCardThemeTokens,
 } from "@/components/smart-card/smart-card-themes";
+import type { LogoTone } from "@/lib/logo-contrast";
 
 export type SmartCardData = {
   companyName: string;
   companyLogo: string;
+  /** light | dark — from org logo upload detection */
+  companyLogoTone?: LogoTone | string | null;
   personName: string;
   personPhoto: string;
   jobTitle: string;
@@ -53,38 +57,23 @@ const alpha = (hex: string, a: number) => {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
 
-/** Small logo on a dark plate, with a soft light glow behind so white logos stay visible. */
-function CompanyLogoBadge({ src, companyName }: { src: string; companyName: string }) {
+/** Contrast-aware company logo badge (light mark → dark plate, dark mark → light plate). */
+function CompanyLogoBadge({
+  src,
+  companyName,
+  tone,
+}: {
+  src: string;
+  companyName: string;
+  tone?: LogoTone | string | null;
+}) {
   return (
-    <div className="relative shrink-0">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -inset-2 rounded-2xl"
-        style={{
-          background:
-            "radial-gradient(circle at 50% 45%, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.35) 42%, rgba(255,255,255,0) 72%)",
-          filter: "blur(6px)",
-        }}
-      />
-      <div
-        className="relative flex h-7 max-w-[120px] items-center justify-center rounded-lg px-1.5 py-0.5"
-        style={{
-          background: "linear-gradient(160deg, rgba(15,23,42,0.96), rgba(30,41,59,0.94))",
-          border: "1px solid rgba(255,255,255,0.22)",
-          boxShadow: "0 0 0 1px rgba(255,255,255,0.06), 0 8px 18px -12px rgba(0,0,0,0.55)",
-        }}
-      >
-        <img
-          src={src}
-          alt={`${companyName} logo`}
-          width={104}
-          height={22}
-          decoding="async"
-          fetchPriority="high"
-          className="h-[18px] w-auto max-w-[104px] object-contain"
-        />
-      </div>
-    </div>
+    <AdaptiveLogo
+      src={src}
+      alt={`${companyName} logo`}
+      preferredTone={tone}
+      compact
+    />
   );
 }
 
@@ -249,7 +238,11 @@ export function SmartCardTemplate({
         >
           <div className="flex items-center gap-2.5">
             {isSet(card.companyLogo) ? (
-              <CompanyLogoBadge src={card.companyLogo} companyName={card.companyName} />
+              <CompanyLogoBadge
+                src={card.companyLogo}
+                companyName={card.companyName}
+                tone={card.companyLogoTone}
+              />
             ) : (
               <div
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[13px] font-bold"

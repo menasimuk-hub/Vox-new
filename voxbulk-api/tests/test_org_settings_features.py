@@ -77,11 +77,11 @@ def test_team_invite_opt_out_audit_and_logo(app_client):
         files={"file": ("logo.png", png.getvalue(), "image/png")},
     )
     assert logo_up.status_code == 200, logo_up.text
-    assert logo_up.json()["logo_url"] == "/organisations/me/logo/file"
+    assert logo_up.json()["logo_url"].startswith("/organisations/me/logo/file")
 
     me = app_client.get("/organisations/me", headers=headers)
     assert me.status_code == 200
-    assert me.json().get("logo_url") == "/organisations/me/logo/file"
+    assert str(me.json().get("logo_url") or "").startswith("/organisations/me/logo/file")
 
     logo_get = app_client.get("/organisations/me/logo/file", headers=headers)
     assert logo_get.status_code == 200

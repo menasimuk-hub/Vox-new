@@ -53,6 +53,7 @@ type CardMeta = {
     location_label?: string | null;
     address?: string | null;
     logo_url?: string | null;
+    logo_tone?: string | null;
   };
 };
 
@@ -132,6 +133,7 @@ export function PublicSmartCardLanding({
   const card: SmartCardData = {
     companyName,
     companyLogo: logoSrc,
+    companyLogoTone: company?.logo_tone || null,
     personName,
     personPhoto: photoSrc,
     jobTitle,

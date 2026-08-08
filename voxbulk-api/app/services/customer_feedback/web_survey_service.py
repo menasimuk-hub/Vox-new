@@ -145,6 +145,7 @@ class FeedbackWebSurveyService:
             "industry_slug": industry_slug,
             "wa_url": loc.get("wa_url"),
             "logo_url": f"/public/feedback/survey/{token}/logo" if has_logo else None,
+            "logo_tone": (getattr(org, "logo_tone", None) or None) if org else None,
             "web_survey_url": f"{base}/survey/{token}",
             "open_question_enabled": bool(location.open_question_enabled),
             "step_count": len(questions),

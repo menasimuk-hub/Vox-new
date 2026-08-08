@@ -3,6 +3,7 @@ import * as React from "react";
 import { buildExpoQrImageCandidates, resolveExpoWebUrl } from "@/lib/expo-qr";
 import { useOrganisation } from "@/lib/queries";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
+import { AdaptiveLogo } from "@/components/AdaptiveLogo";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -316,19 +317,11 @@ export function ExpoBoothPrintCard({
                           <tr>
                             <td valign="middle">
                               {companyLogo ? (
-                                <img
+                                <AdaptiveLogo
                                   src={companyLogo}
                                   alt={exhibitor}
-                                  style={{
-                                    display: "block",
-                                    border: 0,
-                                    outline: "none",
-                                    maxWidth: 140,
-                                    maxHeight: 56,
-                                    width: "auto",
-                                    height: "auto",
-                                    objectFit: "contain",
-                                  }}
+                                  preferredTone={(orgQ.data as { logo_tone?: string | null } | undefined)?.logo_tone}
+                                  imgClassName="max-h-14 max-w-[140px]"
                                 />
                               ) : (
                                 <p

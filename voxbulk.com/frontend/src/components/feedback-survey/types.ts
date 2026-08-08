@@ -59,6 +59,7 @@ export type SurveyPayload = {
   industry_slug?: string;
   wa_url?: string;
   logo_url?: string;
+  logo_tone?: string | null;
   step_count: number;
   questions: SurveyQuestion[];
   theme_id?: string;

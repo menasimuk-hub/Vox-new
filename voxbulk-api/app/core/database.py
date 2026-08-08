@@ -201,6 +201,7 @@ def ensure_schema_hotfixes() -> None:
         ("lead_sales_settings", "telnyx_greeting", "TEXT NULL"),
         ("organisations", "scheduling_config_json", "TEXT NULL"),
         ("organisations", "logo_storage_key", "VARCHAR(512) NULL"),
+        ("organisations", "logo_tone", "VARCHAR(16) NULL"),
         ("organisations", "allowed_services_json", "TEXT NULL"),
         ("organisations", "hubspot_config_json", "TEXT NULL"),
         ("organisations", "wallet_balance_pence", "INTEGER NOT NULL DEFAULT 0"),
