@@ -233,7 +233,7 @@ def get_card(token: str, db: Session = Depends(get_db)):
 
     photo_url = None
     if rep.photo_storage_path:
-        photo_url = f"/public/smart-card/{token}/photo?w=160"
+        photo_url = f"/public/smart-card/{token}/photo?w=200"
         if photo_v:
             photo_url = f"{photo_url}&v={photo_v}"
     logo_url = None
