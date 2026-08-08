@@ -33,8 +33,9 @@ export const catalogueColors = [
   { id: "slate", label: "Slate", chip: "bg-slate-100 dark:bg-slate-500/20", text: "text-slate-700 dark:text-slate-300", ring: "ring-slate-400/50", dot: "bg-slate-400" },
 ] as const;
 
-type ColorId = (typeof catalogueColors)[number]["id"];
-const colorOf = (id: string) => catalogueColors.find((c) => c.id === id) ?? catalogueColors[0];
+export type CatalogueColorId = (typeof catalogueColors)[number]["id"];
+export const colorOf = (id: string) => catalogueColors.find((c) => c.id === id) ?? catalogueColors[0];
+type ColorId = CatalogueColorId;
 
 type FileKind = "excel" | "word" | "pdf" | "image" | "other";
 

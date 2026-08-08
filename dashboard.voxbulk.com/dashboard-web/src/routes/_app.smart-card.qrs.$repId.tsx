@@ -11,13 +11,16 @@ import {
   type RepresentativeFormValue,
   type SocialLinks,
 } from "@/components/smart-card/representative-fields";
+import {
+  AssignProductsPicker,
+  type AssignCategory,
+} from "@/components/smart-card/assign-products-picker";
 import { SmartCardThemePicker } from "@/components/smart-card/smart-card-theme-picker";
 import { QrPreviewPanel } from "@/components/qr-preview-panel";
 import { qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
@@ -50,9 +53,6 @@ type Rep = {
   qr_frame_round?: string;
   status?: string;
 };
-
-type Product = { id: string; name: string };
-type Category = { id: string; name: string; products: Product[] };
 
 type CompanyPayload = {
   ok: boolean;
@@ -102,7 +102,7 @@ function SmartCardEditQrPage() {
 
   const catalogueQ = useQuery({
     queryKey: ["smart-card", "catalogue"],
-    queryFn: () => apiFetch<{ ok: boolean; categories: Category[] }>("/smart-card/catalogue"),
+    queryFn: () => apiFetch<{ ok: boolean; categories: AssignCategory[] }>("/smart-card/catalogue"),
   });
 
   React.useEffect(() => {
@@ -182,13 +182,6 @@ function SmartCardEditQrPage() {
   }, [companyQ.data]);
 
   const categories = catalogueQ.data?.categories || [];
-  const products = React.useMemo(() => {
-    const out: Product[] = [];
-    for (const cat of categories) {
-      for (const p of cat.products || []) out.push(p);
-    }
-    return out;
-  }, [categories]);
 
   const companyName = companyQ.data?.company?.name || "";
 
@@ -323,46 +316,13 @@ function SmartCardEditQrPage() {
                 or reopen Create setup.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {products.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No catalogue products yet.{" "}
-                  {canEdit ? (
-                    <Link to="/smart-card/catalogue" className="text-primary underline">
-                      Add catalogues
-                    </Link>
-                  ) : null}
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {categories.map((cat) =>
-                    (cat.products || []).length === 0 ? null : (
-                      <div key={cat.id} className="space-y-1.5">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          {cat.name}
-                        </p>
-                        {(cat.products || []).map((p) => {
-                          const checked = productIds.includes(p.id);
-                          return (
-                            <label key={p.id} className="flex items-center gap-2 text-sm">
-                              <Checkbox
-                                checked={checked}
-                                disabled={!canEdit}
-                                onCheckedChange={(v) =>
-                                  setProductIds((prev) =>
-                                    v ? [...prev, p.id] : prev.filter((id) => id !== p.id),
-                                  )
-                                }
-                              />
-                              {p.name}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ),
-                  )}
-                </div>
-              )}
+            <CardContent>
+              <AssignProductsPicker
+                categories={categories}
+                selectedIds={productIds}
+                onChange={setProductIds}
+                disabled={!canEdit}
+              />
             </CardContent>
           </Card>
 

@@ -9,16 +9,17 @@ import {
   socialLinksPayload,
   type RepresentativeFormValue,
 } from "@/components/smart-card/representative-fields";
+import {
+  AssignProductsPicker,
+  type AssignCategory,
+} from "@/components/smart-card/assign-products-picker";
 import { QrStyleControls, qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
-
-type Product = { id: string; name: string };
 
 export const Route = createFileRoute("/_app/smart-card/qrs/new")({
   head: () => ({ meta: [{ title: "Add QR — Smart Card QR" }] }),
@@ -56,18 +57,11 @@ function SmartCardAddQrPage() {
 
   const catalogueQ = useQuery({
     queryKey: ["smart-card", "catalogue"],
-    queryFn: () =>
-      apiFetch<{ ok: boolean; categories: Array<{ products: Product[] }> }>("/smart-card/catalogue"),
+    queryFn: () => apiFetch<{ ok: boolean; categories: AssignCategory[] }>("/smart-card/catalogue"),
     enabled: canEdit,
   });
 
-  const products = React.useMemo(() => {
-    const out: Product[] = [];
-    for (const cat of catalogueQ.data?.categories || []) {
-      for (const p of cat.products || []) out.push(p);
-    }
-    return out;
-  }, [catalogueQ.data]);
+  const categories = catalogueQ.data?.categories || [];
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -154,25 +148,12 @@ function SmartCardAddQrPage() {
           <CardTitle className="text-base">Assign products</CardTitle>
           <CardDescription>Optional — which catalogue products this representative represents.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
-          {products.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No products in catalogue yet.</p>
-          ) : (
-            products.map((p) => {
-              const checked = productIds.includes(p.id);
-              return (
-                <label key={p.id} className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={checked}
-                    onCheckedChange={(v) =>
-                      setProductIds((prev) => (v ? [...prev, p.id] : prev.filter((id) => id !== p.id)))
-                    }
-                  />
-                  {p.name}
-                </label>
-              );
-            })
-          )}
+        <CardContent>
+          <AssignProductsPicker
+            categories={categories}
+            selectedIds={productIds}
+            onChange={setProductIds}
+          />
         </CardContent>
       </Card>
 
