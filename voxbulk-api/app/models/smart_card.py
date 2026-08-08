@@ -191,15 +191,17 @@ class SmartCardRepresentativeProduct(Base):
 
 
 class SmartCardEngagementEvent(Base):
-    """Public card engagement (social/website/save-contact/file opens, etc.)."""
+    """Public card engagement (social/website/save-contact/file opens, etc.).
+
+    No DB foreign keys — MySQL charset/collation mismatches on organisations.id
+    cause errno 3780 on VPS; app enforces org/rep scoping in services.
+    """
 
     __tablename__ = "smart_card_engagement_events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
-    representative_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("smart_card_representatives.id"), nullable=False, index=True
-    )
+    org_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    representative_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     lead_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     meta_json: Mapped[str | None] = mapped_column(Text, nullable=True)
