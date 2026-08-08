@@ -11,7 +11,6 @@ export type QrStyleValue = {
   transparent?: boolean;
   moduleStyle: "square" | "dots";
   cornerStyle: "square" | "rounded";
-  showArrow: boolean;
   frameRound: "none" | "top" | "all";
 };
 
@@ -83,7 +82,7 @@ export function withQrStyleQuery(baseUrl: string, style: QrStyleValue, size = 51
     u.searchParams.set("t", style.transparent ? "1" : "0");
     u.searchParams.set("m", style.moduleStyle);
     u.searchParams.set("c", style.cornerStyle);
-    u.searchParams.set("a", style.showArrow ? "1" : "0");
+    u.searchParams.set("a", "0");
     u.searchParams.set("f", style.frameRound);
     u.searchParams.set("s", String(size));
     return u.toString();
@@ -98,7 +97,7 @@ export function qrStylePayload(style: QrStyleValue, { includeTransparent = false
     qr_bg_color: style.bg.replace("#", ""),
     qr_module_style: style.moduleStyle,
     qr_corner_style: style.cornerStyle,
-    qr_show_arrow: style.showArrow,
+    qr_show_arrow: false,
     qr_frame_round: style.frameRound,
   };
   if (includeTransparent) body.qr_transparent = Boolean(style.transparent);
@@ -107,6 +106,7 @@ export function qrStylePayload(style: QrStyleValue, { includeTransparent = false
 
 export function QrStyleControls({ value, onChange, disabled, showTransparent, className }: Props) {
   const patch = (partial: Partial<QrStyleValue>) => onChange({ ...value, ...partial });
+  const cornersDisabled = disabled || value.moduleStyle === "dots";
 
   return (
     <div className={cn("grid gap-3", className)}>
@@ -150,14 +150,17 @@ export function QrStyleControls({ value, onChange, disabled, showTransparent, cl
           disabled={disabled}
           onChange={(moduleStyle) => patch({ moduleStyle })}
         />
+        {value.moduleStyle === "dots" ? (
+          <p className="text-[11px] text-muted-foreground">Dots also use circular corner markers.</p>
+        ) : null}
       </div>
 
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Corners</Label>
         <Seg
           options={CORNER_OPTS}
-          value={value.cornerStyle}
-          disabled={disabled}
+          value={value.moduleStyle === "dots" ? "square" : value.cornerStyle}
+          disabled={cornersDisabled}
           onChange={(cornerStyle) => patch({ cornerStyle })}
         />
       </div>
@@ -171,15 +174,6 @@ export function QrStyleControls({ value, onChange, disabled, showTransparent, cl
           onChange={(frameRound) => patch({ frameRound })}
         />
       </div>
-
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox
-          checked={value.showArrow}
-          disabled={disabled}
-          onCheckedChange={(v) => patch({ showArrow: Boolean(v) })}
-        />
-        Show side arrow
-      </label>
     </div>
   );
 }

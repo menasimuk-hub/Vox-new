@@ -34,7 +34,6 @@ def test_opaque_qr_is_rgb_with_custom_colours():
     )
     img = Image.open(io.BytesIO(png))
     assert img.mode == "RGB"
-    # Corner should be background (quiet zone)
     assert img.getpixel((2, 2)) == (0xFE, 0xF3, 0xC7)
 
 
@@ -52,15 +51,41 @@ def test_white_modules_on_transparent_still_visible_as_opaque_pixels():
     assert clear > 100
 
 
-def test_dots_rounded_arrow_and_frame_render_png():
+def test_white_transparent_finders_are_hollow_not_white_filled():
+    """Regression: transparent + white must not paint solid white finder plates."""
+    png = render_styled_qr_png(
+        "https://voxbulk.com/smart-card/demo",
+        fg_hex="ffffff",
+        transparent=True,
+        corner_style="rounded",
+        size=280,
+        border=2,
+    )
+    img = Image.open(io.BytesIO(png)).convert("RGBA")
+    # Before resize: module_px = 280 // n. Quiet zone = 2 modules.
+    # Finder mid ring at modules (border+1 .. border+5) → sample at ~3.5 modules from corner.
+    # After resize to square target, proportion is the same.
+    w, _h = img.size
+    # Mid-ring of top-left finder ≈ (2+3.5)/n of width; n≈version+4quiet ≈ 29–41
+    # Use a band inside the finder ring (not quiet zone, not centre)
+    samples = []
+    for frac in (0.12, 0.14, 0.16):
+        x = int(w * frac)
+        y = int(w * frac)
+        samples.append(img.getpixel((x, y)))
+    clear = sum(1 for p in samples if p[3] < 40)
+    # At least one sample in the hollow ring should be clear
+    assert clear >= 1, f"expected hollow finder samples={samples}"
+
+
+def test_dots_use_circular_finders_and_frame():
     png = render_styled_qr_png(
         "https://voxbulk.com/survey/demo-token",
         module_style="dots",
-        corner_style="rounded",
-        show_arrow=True,
+        corner_style="square",
         frame_round="top",
         size=256,
     )
     assert png.startswith(b"\x89PNG")
     img = Image.open(io.BytesIO(png))
-    assert img.size[0] >= img.size[1]
+    assert img.size[0] > 0 and img.size[1] > 0

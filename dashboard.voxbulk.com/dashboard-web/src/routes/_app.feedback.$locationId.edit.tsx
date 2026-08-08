@@ -49,7 +49,6 @@ function EditFeedbackSurvey() {
     bg: "ffffff",
     moduleStyle: "square",
     cornerStyle: "square",
-    showArrow: false,
     frameRound: "none",
   });
   const marketingCountQ = useFeedbackMarketingSubscriberCount();
@@ -76,7 +75,6 @@ function EditFeedbackSurvey() {
       bg: (location.qr_bg_color || "ffffff").replace("#", ""),
       moduleStyle: location.qr_module_style === "dots" ? "dots" : "square",
       cornerStyle: location.qr_corner_style === "rounded" ? "rounded" : "square",
-      showArrow: Boolean(location.qr_show_arrow),
       frameRound:
         location.qr_frame_round === "top" || location.qr_frame_round === "all"
           ? location.qr_frame_round

@@ -47,7 +47,6 @@ type Rep = {
   qr_transparent?: boolean;
   qr_module_style?: string;
   qr_corner_style?: string;
-  qr_show_arrow?: boolean;
   qr_frame_round?: string;
   status?: string;
 };
@@ -83,7 +82,6 @@ function SmartCardEditQrPage() {
     transparent: false,
     moduleStyle: "square",
     cornerStyle: "square",
-    showArrow: false,
     frameRound: "none",
   });
   const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
@@ -173,7 +171,6 @@ function SmartCardEditQrPage() {
       transparent: Boolean(r.qr_transparent),
       moduleStyle: r.qr_module_style === "dots" ? "dots" : "square",
       cornerStyle: r.qr_corner_style === "rounded" ? "rounded" : "square",
-      showArrow: Boolean(r.qr_show_arrow),
       frameRound: r.qr_frame_round === "top" || r.qr_frame_round === "all" ? r.qr_frame_round : "none",
     });
   }, [repQ.data]);

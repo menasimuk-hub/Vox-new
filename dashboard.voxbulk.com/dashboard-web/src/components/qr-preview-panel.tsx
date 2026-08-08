@@ -107,7 +107,7 @@ export function QrPreviewPanel({
           <DialogHeader>
             <DialogTitle>Edit QR style</DialogTitle>
             <DialogDescription>
-              Colours, modules, corners, frame, and side arrow. Preview updates live — Save to keep.
+              Colours, modules, corners, and frame. Preview updates live — Save to keep.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(180px,220px)] sm:items-start">

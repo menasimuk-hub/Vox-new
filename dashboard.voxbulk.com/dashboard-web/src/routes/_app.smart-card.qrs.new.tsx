@@ -39,7 +39,6 @@ function SmartCardAddQrPage() {
     transparent: false,
     moduleStyle: "square",
     cornerStyle: "square",
-    showArrow: false,
     frameRound: "none",
   });
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);

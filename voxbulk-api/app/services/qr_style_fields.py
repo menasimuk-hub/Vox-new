@@ -23,7 +23,7 @@ def apply_qr_style_payload(row: Any, payload: dict[str, Any], *, allow_transpare
     if "qr_corner_style" in payload:
         row.qr_corner_style = normalize_corner_style(payload.get("qr_corner_style"))
     if "qr_show_arrow" in payload:
-        row.qr_show_arrow = bool(payload.get("qr_show_arrow"))
+        row.qr_show_arrow = False
     if "qr_frame_round" in payload:
         row.qr_frame_round = normalize_frame_round(payload.get("qr_frame_round"))
 
@@ -35,7 +35,7 @@ def init_qr_style_on_create(row: Any, payload: dict[str, Any], *, allow_transpar
         row.qr_transparent = bool(payload.get("qr_transparent"))
     row.qr_module_style = normalize_module_style(payload.get("qr_module_style"))
     row.qr_corner_style = normalize_corner_style(payload.get("qr_corner_style"))
-    row.qr_show_arrow = bool(payload.get("qr_show_arrow"))
+    row.qr_show_arrow = False
     row.qr_frame_round = normalize_frame_round(payload.get("qr_frame_round"))
 
 
@@ -45,7 +45,7 @@ def qr_style_dict(row: Any, *, include_transparent: bool = False) -> dict[str, A
         "qr_bg_color": getattr(row, "qr_bg_color", None) or "ffffff",
         "qr_module_style": normalize_module_style(getattr(row, "qr_module_style", None)),
         "qr_corner_style": normalize_corner_style(getattr(row, "qr_corner_style", None)),
-        "qr_show_arrow": bool(getattr(row, "qr_show_arrow", False)),
+        "qr_show_arrow": False,
         "qr_frame_round": normalize_frame_round(getattr(row, "qr_frame_round", None)),
     }
     if include_transparent:

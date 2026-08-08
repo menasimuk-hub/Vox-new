@@ -113,7 +113,7 @@ class SmartCardRepresentativeService:
             qr_transparent=bool(payload.get("qr_transparent")),
             qr_module_style=normalize_module_style(payload.get("qr_module_style")),
             qr_corner_style=normalize_corner_style(payload.get("qr_corner_style")),
-            qr_show_arrow=bool(payload.get("qr_show_arrow")),
+            qr_show_arrow=False,
             qr_frame_round=normalize_frame_round(payload.get("qr_frame_round")),
             status="active",
             created_by_user_id=user_id,

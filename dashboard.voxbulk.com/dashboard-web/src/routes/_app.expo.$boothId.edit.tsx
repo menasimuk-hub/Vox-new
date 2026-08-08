@@ -70,7 +70,6 @@ type BoothDetail = {
   qr_bg_color?: string | null;
   qr_module_style?: string | null;
   qr_corner_style?: string | null;
-  qr_show_arrow?: boolean;
   qr_frame_round?: string | null;
   trigger_text?: string | null;
   booth_asset_count?: number;
@@ -130,7 +129,6 @@ function EditExpoBooth() {
     bg: "ffffff",
     moduleStyle: "square",
     cornerStyle: "square",
-    showArrow: false,
     frameRound: "none",
   });
   const initialized = React.useRef(false);
@@ -174,7 +172,6 @@ function EditExpoBooth() {
       bg: (booth.qr_bg_color || "ffffff").replace("#", ""),
       moduleStyle: booth.qr_module_style === "dots" ? "dots" : "square",
       cornerStyle: booth.qr_corner_style === "rounded" ? "rounded" : "square",
-      showArrow: Boolean(booth.qr_show_arrow),
       frameRound: booth.qr_frame_round === "top" || booth.qr_frame_round === "all" ? booth.qr_frame_round : "none",
     });
   }, [booth]);
