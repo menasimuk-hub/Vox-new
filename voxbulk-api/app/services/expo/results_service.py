@@ -300,25 +300,28 @@ class ExpoResultsService:
         capped = max(1, min(int(limit or 200), 5000))
         rows = db.execute(q.order_by(ExpoLead.created_at.desc()).limit(capped)).scalars().all()
 
-        # Drop leads from preview sessions (wizard / ?preview=1)
+        # Drop leads from preview sessions (wizard / ?preview=1); also load channel for results UI
         session_ids = [r.session_id for r in rows if r.session_id]
         preview_session_ids: set[str] = set()
+        session_channel_by_id: dict[str, str] = {}
         if session_ids:
-            preview_session_ids = {
-                s.id
-                for s in db.execute(
-                    select(ExpoSession).where(
-                        ExpoSession.id.in_(session_ids),
-                        ExpoSession.is_preview.is_(True),
-                    )
-                ).scalars().all()
-            }
+            for s in db.execute(select(ExpoSession).where(ExpoSession.id.in_(session_ids))).scalars().all():
+                if bool(getattr(s, "is_preview", False)):
+                    preview_session_ids.add(s.id)
+                session_channel_by_id[s.id] = str(getattr(s, "channel", None) or "whatsapp").lower()
         rows = [r for r in rows if not r.session_id or r.session_id not in preview_session_ids]
 
         booths = {
             b.id: b for b in db.execute(select(ExpoBooth).where(ExpoBooth.id.in_(booth_ids))).scalars().all()
         }
-        items = [ExpoResultsService._lead_to_dict(lead, booths.get(lead.booth_id)) for lead in rows]
+        items = [
+            ExpoResultsService._lead_to_dict(
+                lead,
+                booths.get(lead.booth_id),
+                channel=session_channel_by_id.get(str(lead.session_id or ""), None),
+            )
+            for lead in rows
+        ]
         if price_list_requested is True:
             items = [i for i in items if i.get("price_list_requested")]
         elif price_list_requested is False:
@@ -379,7 +382,12 @@ class ExpoResultsService:
             raise ValueError("Lead not found")
         if created_by_user_id and booth.created_by_user_id and booth.created_by_user_id != created_by_user_id:
             raise ValueError("Lead not found")
-        data = ExpoResultsService._lead_to_dict(lead, booth)
+        channel = None
+        if lead.session_id:
+            session = db.get(ExpoSession, lead.session_id)
+            if session is not None:
+                channel = str(getattr(session, "channel", None) or "whatsapp")
+        data = ExpoResultsService._lead_to_dict(lead, booth, channel=channel)
         answers: list[dict[str, Any]] = []
         if lead.session_id:
             rows = (
@@ -489,7 +497,12 @@ class ExpoResultsService:
         return abs_path if abs_path.is_file() else None
 
     @staticmethod
-    def _lead_to_dict(lead: ExpoLead, booth: ExpoBooth | None) -> dict[str, Any]:
+    def _lead_to_dict(
+        lead: ExpoLead,
+        booth: ExpoBooth | None,
+        *,
+        channel: str | None = None,
+    ) -> dict[str, Any]:
         from app.services.expo.offer_delivery_service import normalize_asset_purpose
 
         try:
@@ -510,11 +523,17 @@ class ExpoResultsService:
                 purposes.add(normalize_asset_purpose(item.get("purpose")))
         catalogue_requested = bool(lead.consent_acknowledged) or "catalogue" in purposes
         price_list_requested = bool(lead.consent_acknowledged) or "price_list" in purposes
+        ch = str(channel or "").strip().lower()
+        if ch not in {"web", "whatsapp", "wa"}:
+            ch = None
+        if ch == "wa":
+            ch = "whatsapp"
         return {
             "id": lead.id,
             "booth_id": lead.booth_id,
             "booth_name": booth.name if booth else None,
             "booth_code": booth.booth_code if booth else None,
+            "channel": ch,
             "detected_language": lead.detected_language,
             "detected_language_label": detected_language_label(lead.detected_language),
             "country_hint": lead.country_hint,
@@ -536,6 +555,7 @@ class ExpoResultsService:
             "email_sent_at": lead.offer_sent_at.isoformat() if lead.offer_sent_at else None,
             "offer_interested": bool(getattr(lead, "offer_interested", False)),
             "assets_sent": assets_sent,
+            "assets_sent_count": len(assets_sent),
             "assets_opened": assets_opened,
             "assets_opened_count": len(assets_opened),
             "follow_up_status": lead.follow_up_status,

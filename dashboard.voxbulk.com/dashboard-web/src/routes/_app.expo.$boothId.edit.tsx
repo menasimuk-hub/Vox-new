@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   categoriesFromApi,
-  categoriesToPayload,
   emptyRepresentative,
   representativesFromApi,
   RepresentativesEditor,
@@ -51,7 +50,10 @@ type BoothDetail = {
   is_paid?: boolean;
   payment_status?: string;
   is_live?: boolean;
-  question_config?: { steps?: Array<{ key: string; prompt: string }> };
+  question_config?: {
+    steps?: Array<{ key: string; prompt: string }>;
+    selected_question_keys?: string[];
+  };
   closing?: { thank_you_message?: string; free_gift_enabled?: boolean; free_gift_text?: string };
   contact_capture?: "offer_both" | "manual_only" | "card_only";
   representatives?: Array<Record<string, unknown>>;
@@ -138,8 +140,12 @@ function EditExpoBooth() {
     setRepresentatives(reps.length > 0 ? reps : [emptyRepresentative(booth.company_display_name || "")]);
     setCompanyWebsite(booth.company_website || "");
     setNotifyMobile(booth.notify_mobile || "");
+    const storedKeys = booth.question_config?.selected_question_keys;
     const steps = booth.question_config?.steps || [];
-    const keys = steps.map((s) => s.key).filter((k) => !SYSTEM_STEP_KEYS.has(k));
+    const keys =
+      Array.isArray(storedKeys) && storedKeys.length > 0
+        ? storedKeys.filter((k) => !SYSTEM_STEP_KEYS.has(k))
+        : steps.map((s) => s.key).filter((k) => !SYSTEM_STEP_KEYS.has(k));
     setSelectedQKeys(keys);
     setIncludeAddon(keys.includes("industry_addon"));
     setContactCapture(booth.contact_capture || "offer_both");
@@ -171,6 +177,10 @@ function EditExpoBooth() {
       if (includeAddon && industry?.addon_question && !keys.includes("industry_addon")) {
         keys.splice(Math.max(0, keys.indexOf("consent_info")), 0, "industry_addon");
       }
+      if (!includeAddon) {
+        const idx = keys.indexOf("industry_addon");
+        if (idx >= 0) keys.splice(idx, 1);
+      }
       const payload = {
         exhibition_name: exhibitionName.trim(),
         venue: venue.trim() || null,
@@ -184,7 +194,7 @@ function EditExpoBooth() {
         representatives: representativesToPayload(representatives),
         company_website: companyWebsite.trim() || null,
         notify_mobile: notifyMobile.trim() || null,
-        categories: categoriesToPayload(categories),
+        // Do not send categories — catalogues are managed on Add catalogues; sending [] wiped them.
         ...(packageStartDate ? { start_date: packageStartDate } : {}),
       };
       await apiFetch(`/expo/booths/${boothId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -401,9 +411,11 @@ function EditExpoBooth() {
                         <Checkbox
                           checked={checked}
                           onCheckedChange={(v) => {
-                            setSelectedQKeys((keys) =>
-                              v ? [...keys, q.key] : keys.filter((k) => k !== q.key),
+                            const on = Boolean(v);
+                            setSelectedQKeys((prev) =>
+                              on ? (prev.includes(q.key) ? prev : [...prev, q.key]) : prev.filter((k) => k !== q.key),
                             );
+                            if (q.key === "industry_addon") setIncludeAddon(on);
                           }}
                         />
                         <span className="min-w-0">
@@ -423,7 +435,17 @@ function EditExpoBooth() {
                 </div>
                 {industry?.addon_question ? (
                   <label className="mt-3 flex items-center gap-2 text-sm">
-                    <Checkbox checked={includeAddon} onCheckedChange={(v) => setIncludeAddon(Boolean(v))} />
+                    <Checkbox
+                      checked={includeAddon}
+                      onCheckedChange={(v) => {
+                        const on = Boolean(v);
+                        setIncludeAddon(on);
+                        setSelectedQKeys((prev) => {
+                          if (on) return prev.includes("industry_addon") ? prev : [...prev, "industry_addon"];
+                          return prev.filter((k) => k !== "industry_addon");
+                        });
+                      }}
+                    />
                     Include industry question: {industry.addon_question}
                   </label>
                 ) : null}

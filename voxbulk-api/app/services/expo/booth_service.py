@@ -399,6 +399,21 @@ class ExpoBoothService:
         }
 
     @staticmethod
+    def _serialize_question_config(raw: str | None) -> dict[str, Any]:
+        steps = parse_question_config(raw)
+        selected: list[str] | None = None
+        try:
+            data = json.loads(raw or "{}")
+            keys = data.get("selected_question_keys") if isinstance(data, dict) else None
+            if isinstance(keys, list):
+                selected = [str(k).strip() for k in keys if str(k).strip()]
+        except (json.JSONDecodeError, TypeError):
+            selected = None
+        if not selected:
+            selected = [str(s.get("key") or "") for s in steps if str(s.get("key") or "") not in {"contact", "open_feedback"}]
+        return {"steps": steps, "selected_question_keys": selected}
+
+    @staticmethod
     def serialize_booth(db: Session, booth: ExpoBooth) -> dict[str, Any]:
         exhibition = db.get(ExpoExhibition, booth.exhibition_id)
         event_name = exhibition.name if exhibition else "Exhibition"
@@ -453,7 +468,7 @@ class ExpoBoothService:
             "preview_tests_remaining": booth_preview_remaining(booth),
             "lead_count": int(lead_count),
             "hot_count": int(hot_count),
-            "question_config": {"steps": parse_question_config(booth.question_config_json)},
+            "question_config": ExpoBoothService._serialize_question_config(booth.question_config_json),
             "closing": parse_closing_config(booth.question_config_json),
             "contact_capture": parse_contact_capture(booth.question_config_json),
             "trigger_text": trigger,
@@ -1220,13 +1235,22 @@ class ExpoBoothService:
                     )
                 )
 
-        if isinstance(payload.get("categories"), list) or isinstance(payload.get("assets"), list):
+        if "categories" in payload and isinstance(payload.get("categories"), list):
             ExpoBoothService._save_catalog_tree(
                 db,
                 org_id=org_id,
                 booth=booth,
                 categories_payload=list(payload.get("categories") or []),
-                legacy_assets=list(payload.get("assets") or []) if not payload.get("categories") else None,
+                legacy_assets=None,
+                now=now,
+            )
+        elif "assets" in payload and isinstance(payload.get("assets"), list):
+            ExpoBoothService._save_catalog_tree(
+                db,
+                org_id=org_id,
+                booth=booth,
+                categories_payload=[],
+                legacy_assets=list(payload.get("assets") or []),
                 now=now,
             )
 

@@ -101,6 +101,11 @@ function displayAnswer(en?: string | null, original?: string | null, fallback?: 
 }
 
 function inferChannel(lead: LeadRow): { label: string; isWhatsApp: boolean } {
+  const ch = String(lead.channel || "").trim().toLowerCase();
+  if (ch === "web") return { label: "Web", isWhatsApp: false };
+  if (ch === "whatsapp" || ch === "wa") return { label: "WhatsApp", isWhatsApp: true };
+
+  // Fallback for older leads without session.channel on the API payload
   const phone = String(lead.visitor_phone || "").trim();
   const email = String(lead.visitor_email || "").trim().toLowerCase();
   if (
@@ -111,7 +116,39 @@ function inferChannel(lead: LeadRow): { label: string; isWhatsApp: boolean } {
   ) {
     return { label: "Web", isWhatsApp: false };
   }
+  // Unknown / missing channel — do not assume WhatsApp
+  if (!phone && !email) return { label: "Web", isWhatsApp: false };
   return { label: "WhatsApp", isWhatsApp: true };
+}
+
+function CatalogueCell({
+  sentCount,
+  openedCount,
+  isWhatsApp,
+}: {
+  sentCount: number;
+  openedCount: number;
+  isWhatsApp: boolean;
+}) {
+  if (openedCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+        <CheckCircle2 className="size-3.5" /> Downloaded ({openedCount})
+      </span>
+    );
+  }
+  if (sentCount > 0) {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+        <CheckCircle2 className="size-3.5" /> Sent ({sentCount})
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+      <XCircle className="size-3.5" /> {isWhatsApp ? "Not sent" : "Not opened"}
+    </span>
+  );
 }
 
 function countryOrBooth(lead: LeadRow): string {
@@ -195,18 +232,6 @@ function CardCell({
   );
 }
 
-function CatalogueCell({ downloaded }: { downloaded: boolean }) {
-  return downloaded ? (
-    <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-      <CheckCircle2 className="size-3.5" /> Downloaded
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-      <XCircle className="size-3.5" /> Not opened
-    </span>
-  );
-}
-
 function FollowUpCell({ status }: { status?: string | null }) {
   const s = String(status || "none").toLowerCase();
   if (s === "done" || s === "closed") {
@@ -250,6 +275,7 @@ type AssetOpenedItem = {
 
 type LeadRow = {
   id: string;
+  channel?: string | null;
   created_at?: string | null;
   detected_language?: string | null;
   detected_language_label?: string | null;
@@ -268,6 +294,7 @@ type LeadRow = {
   offer_interested?: boolean;
   follow_up_status?: string | null;
   assets_sent?: AssetSentItem[];
+  assets_sent_count?: number;
   assets_opened?: AssetOpenedItem[];
   assets_opened_count?: number;
   catalogue_requested?: boolean;
@@ -621,7 +648,10 @@ function ExpoLeads() {
                 ) : (
                   leads.map((lead) => {
                     const channel = inferChannel(lead);
-                    const catalogueDownloaded = Number(lead.assets_opened_count || 0) > 0;
+                    const sentCount = Number(
+                      lead.assets_sent_count ?? (Array.isArray(lead.assets_sent) ? lead.assets_sent.length : 0),
+                    );
+                    const openedCount = Number(lead.assets_opened_count || 0);
                     return (
                       <tr
                         key={lead.id}
@@ -648,7 +678,11 @@ function ExpoLeads() {
                           <CardCell on={Boolean(lead.business_card_url)} onView={() => setSelected(lead)} />
                         </td>
                         <td className="py-2.5 pr-3">
-                          <CatalogueCell downloaded={catalogueDownloaded} />
+                          <CatalogueCell
+                            sentCount={sentCount}
+                            openedCount={openedCount}
+                            isWhatsApp={channel.isWhatsApp}
+                          />
                         </td>
                         <td className="py-2.5 pr-3">
                           <FollowUpCell status={lead.follow_up_status} />
@@ -772,9 +806,25 @@ function ExpoLeads() {
                         <CheckCircle2 className="size-3 text-emerald-500" />{" "}
                         {detail.assets_opened_count} file(s) downloaded
                       </>
+                    ) : Number(detail.assets_sent_count ?? detail.assets_sent?.length ?? 0) > 0 ? (
+                      <>
+                        <CheckCircle2 className="size-3 text-emerald-500" />{" "}
+                        {detail.assets_sent_count ?? detail.assets_sent?.length} file(s) sent
+                      </>
                     ) : (
                       <>
-                        <XCircle className="size-3 text-muted-foreground" /> No downloads yet
+                        <XCircle className="size-3 text-muted-foreground" /> No catalogue sent
+                      </>
+                    )}
+                  </Badge>
+                  <Badge variant="outline" className="gap-1 text-[10px]">
+                    {inferChannel(detail).isWhatsApp ? (
+                      <>
+                        <MessageCircle className="size-3 text-emerald-500" /> WhatsApp
+                      </>
+                    ) : (
+                      <>
+                        <Globe className="size-3 text-primary" /> Web
                       </>
                     )}
                   </Badge>

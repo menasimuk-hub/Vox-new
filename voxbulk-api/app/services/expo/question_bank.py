@@ -836,9 +836,12 @@ def default_question_config(
     db: Any | None = None,
     include_open_feedback: bool = True,
 ) -> dict[str, Any]:
-    keys = list(selected_question_keys) if selected_question_keys else list(_DEFAULT_SELECTED_KEYS)
+    keys = list(selected_question_keys) if selected_question_keys is not None else list(_DEFAULT_SELECTED_KEYS)
     keys = [k for k in keys if k not in SYSTEM_TEMPLATE_KEYS or k == OPEN_FEEDBACK_KEY]
-    if include_industry_addon and str(addon_question or "").strip() and "industry_addon" not in keys:
+    # Honour explicit opt-out of the industry addon (do not leave a stale key in the list).
+    if not include_industry_addon:
+        keys = [k for k in keys if k != "industry_addon"]
+    elif include_industry_addon and str(addon_question or "").strip() and "industry_addon" not in keys:
         # Place before consent when present
         if "consent_info" in keys:
             keys.insert(keys.index("consent_info"), "industry_addon")

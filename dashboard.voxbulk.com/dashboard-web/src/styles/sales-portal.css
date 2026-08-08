@@ -165,6 +165,10 @@
   gap: 12px;
   margin: 18px 0 24px;
 }
+.salesPortal .sp-kpi-grid.sp-kpi-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
 .salesPortal .sp-kpi {
   background: #ffffff;
   padding: 14px 16px 12px;
@@ -175,6 +179,18 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.salesPortal .sp-kpi.sp-kpi--compact {
+  min-height: 0;
+  padding: 10px 12px 9px;
+}
+.salesPortal .sp-kpi.sp-kpi--compact .value {
+  font-size: 20px;
+  margin-top: 4px;
+}
+.salesPortal .sp-kpi.sp-kpi--compact .sub {
+  font-size: 11px;
+  margin-top: 2px;
 }
 .salesPortal .sp-kpi .label {
   font-size: 11px;
@@ -284,9 +300,11 @@
 
 @media (max-width: 1000px) {
   .salesPortal .sp-kpi-grid { grid-template-columns: 1fr 1fr; }
+  .salesPortal .sp-kpi-grid.sp-kpi-grid--4 { grid-template-columns: 1fr 1fr; }
   .salesPortal .sp-row, .salesPortal .sp-row-3, .salesPortal .sp-survey-actions, .salesPortal .sp-offer-row { grid-template-columns: 1fr; }
   .salesPortal .sp-funnel { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 560px) {
   .salesPortal .sp-kpi-grid { grid-template-columns: 1fr; }
+  .salesPortal .sp-kpi-grid.sp-kpi-grid--4 { grid-template-columns: 1fr; }
 }
