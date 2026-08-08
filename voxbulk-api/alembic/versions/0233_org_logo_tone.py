@@ -5,8 +5,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0230_org_logo_tone"
-down_revision = "0229_support_ticket_email_fingerprint"
+revision = "0233_org_logo_tone"
+down_revision = "0232_assistant_help_rag"
 branch_labels = None
 depends_on = None
 
