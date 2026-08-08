@@ -114,6 +114,36 @@ def _line_items_html(
 
 class InvoiceDocumentService:
     @staticmethod
+    def _coerce_datetime(value: Any) -> datetime | None:
+        """Normalise MySQL/driver quirks (unix ints, ISO strings) to naive UTC datetime."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=None) if value.tzinfo else value
+        if isinstance(value, (int, float)):
+            ts = float(value)
+            if ts > 1e12:
+                ts /= 1000.0
+            if ts <= 0:
+                return None
+            try:
+                return datetime.utcfromtimestamp(ts)
+            except (OSError, OverflowError, ValueError):
+                return None
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                if text.endswith("Z"):
+                    text = text[:-1] + "+00:00"
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
     def _company_defaults(db: Session | None = None) -> dict[str, str]:
         settings = get_settings()
         address = str(settings.invoice_company_address or "").replace("\\n", "\n")
@@ -176,23 +206,25 @@ class InvoiceDocumentService:
                 ]
 
         gross = InvoiceLineItemService.catalog_value_pence(line_items) if line_items else int(invoice.amount_gbp_pence or 0)
-        due = InvoiceLineItemService.amount_due_pence(line_items) if line_items else int(invoice.amount_gbp_pence or 0)
-        if due <= 0 and int(invoice.amount_gbp_pence or 0) <= 0:
-            due = 0
+        amount_due = InvoiceLineItemService.amount_due_pence(line_items) if line_items else int(invoice.amount_gbp_pence or 0)
+        if amount_due <= 0 and int(invoice.amount_gbp_pence or 0) <= 0:
+            amount_due = 0
         if gross <= 0:
             gross = int(invoice.amount_gbp_pence or 0)
-        if due <= 0 and gross > 0:
-            due = int(invoice.amount_gbp_pence or 0)
-        if vat_inclusive and due > 0:
-            subtotal, tax = CountryVatService.split_gross_pence(due, CountryVatService.gb_vat_rate_percent())
-            total = due
+        if amount_due <= 0 and gross > 0:
+            amount_due = int(invoice.amount_gbp_pence or 0)
+        if vat_inclusive and amount_due > 0:
+            subtotal, tax = CountryVatService.split_gross_pence(amount_due, CountryVatService.gb_vat_rate_percent())
+            total = amount_due
             rate = CountryVatService.gb_vat_rate_percent()
-        elif vat_inclusive and gross > 0 and due <= 0:
+        elif vat_inclusive and gross > 0 and amount_due <= 0:
             subtotal, tax = CountryVatService.split_gross_pence(gross, CountryVatService.gb_vat_rate_percent())
             total = 0
             rate = CountryVatService.gb_vat_rate_percent()
         else:
-            subtotal = int(invoice.subtotal_pence if invoice.subtotal_pence is not None else due or invoice.amount_gbp_pence or 0)
+            subtotal = int(
+                invoice.subtotal_pence if invoice.subtotal_pence is not None else amount_due or invoice.amount_gbp_pence or 0
+            )
             tax = int(invoice.tax_pence or 0)
             total = int(invoice.amount_gbp_pence if invoice.amount_gbp_pence is not None else subtotal + tax)
             rate = float(invoice.tax_rate_percent or 0)
@@ -203,8 +235,10 @@ class InvoiceDocumentService:
             currency=currency,
         )
 
-        created = invoice.created_at or datetime.utcnow()
-        due = getattr(invoice, "due_date", None) or (created + timedelta(days=7))
+        created = InvoiceDocumentService._coerce_datetime(invoice.created_at) or datetime.utcnow()
+        due_on = InvoiceDocumentService._coerce_datetime(getattr(invoice, "due_date", None)) or (
+            created + timedelta(days=7)
+        )
         settings = get_settings()
         dashboard_origin = str(getattr(settings, "dashboard_app_origin", None) or "http://localhost:5175").rstrip("/")
         first_name = (org.contact_name or "").strip().split()[0] if org and org.contact_name else "there"
@@ -213,7 +247,7 @@ class InvoiceDocumentService:
             "invoice_number": invoice.invoice_number or invoice.external_invoice_id,
             "invoice_id": invoice.invoice_number or invoice.external_invoice_id,
             "invoice_date": created.strftime("%d %b %Y"),
-            "due_date": due.strftime("%d %b %Y"),
+            "due_date": due_on.strftime("%d %b %Y"),
             "invoice_status": (invoice.status or "issued").replace("_", " ").title(),
             "organisation_name": (org.name if org else "Customer") or "Customer",
             "client_email": invoice.client_email,
@@ -232,7 +266,7 @@ class InvoiceDocumentService:
             "vat_note": "All unit prices include VAT where applicable." if vat_inclusive else "",
             "notes": (
                 "Covered by plan allowance — no payment due."
-                + (f" Campaign value: {_money(gross, currency)}." if gross > 0 and due <= 0 else "")
+                + (f" Campaign value: {_money(gross, currency)}." if gross > 0 and amount_due <= 0 else "")
                 + (
                     " All unit prices include VAT where applicable. Thank you for your business. Please retain this invoice for your records."
                     if vat_inclusive

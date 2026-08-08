@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from datetime import datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY
 from app.services.invoice_pdf_service import render_html_to_pdf_bytes
+from app.services.invoice_service import InvoiceDocumentService
 
 
 def _filled_invoice_html() -> str:
@@ -52,3 +55,55 @@ def test_render_html_to_pdf_falls_back_to_fpdf_when_weasyprint_unavailable():
         out = render_html_to_pdf_bytes("<html><body><p>Invoice INV-1</p></body></html>")
 
     assert out.startswith(b"%PDF")
+
+
+def test_build_variables_does_not_compare_due_date_to_int():
+    """Regression: amount_due was overwritten by due_date, then compared with <= 0."""
+    inv = SimpleNamespace(
+        id="i1",
+        org_id="o1",
+        currency="GBP",
+        country_code="GB",
+        line_items_json="[]",
+        amount_gbp_pence=0,
+        subtotal_pence=0,
+        tax_pence=0,
+        tax_rate_percent=0,
+        description="Covered",
+        invoice_number="INV-0",
+        external_invoice_id="x0",
+        client_email="a@b.com",
+        status="paid",
+        payment_method="gocardless",
+        payment_reference="PM1",
+        provider="gocardless",
+        created_at=datetime.utcnow() - timedelta(days=3),
+        due_date=datetime.utcnow() + timedelta(days=4),
+        dd_payment_id=None,
+    )
+    org = SimpleNamespace(
+        name="Org",
+        contact_name="Sam",
+        contact_email="a@b.com",
+        address_line1=None,
+        address_line2=None,
+        city=None,
+        county_state=None,
+        postcode=None,
+        country=None,
+        country_code="GB",
+    )
+    db = MagicMock()
+    db.get.return_value = org
+    with (
+        patch("app.services.invoice_service.CountryVatService.resolve_org_country_code", return_value="GB"),
+        patch("app.services.invoice_service.CountryVatService.get_rate", return_value=(0.0, "United Kingdom")),
+        patch("app.services.invoice_service.CountryVatService.is_vat_inclusive_pricing", return_value=False),
+        patch("app.services.invoice_service.CountryVatService.display_line_items_ex_vat", return_value=[]),
+        patch("app.services.invoice_service.InvoiceLineItemService.catalog_value_pence", return_value=5000),
+        patch("app.services.invoice_service.InvoiceLineItemService.amount_due_pence", return_value=0),
+        patch.object(InvoiceDocumentService, "_company_defaults", return_value={}),
+    ):
+        vars_ = InvoiceDocumentService.build_variables(db, invoice=inv, org=org)
+    assert "Campaign value" in vars_["notes"]
+    assert vars_["due_date"]

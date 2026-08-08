@@ -16,18 +16,13 @@ import { PRODUCT_PANEL_META } from "@/lib/billing/allowances";
 import { invoiceStatusLabel } from "@/lib/billing/order-pay-labels";
 import { badgeToneFromStatus } from "@/lib/mappers/orders";
 import { StatusBadge } from "@/components/status-badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { useBillingAccess, useBillingInvoices, useBillingRequests, useBillingSubscription, useBillingSubscriptionCancellation, useBillingSubscriptionsSummary, useBillingUsage, useFeedbackSubscription, useSetBillingOverage, useWalletTransactions } from "@/lib/queries";
-import { SubscriptionCancellationBar } from "@/components/billing/subscription-cancellation-card";
 import { BillingProductColumn } from "@/components/billing/billing-product-column";
 import { BillingSmartAlerts, allowanceAlertsToItems, type BillingAlertItem } from "@/components/billing/billing-smart-alerts";
 import { ExpoBillingSummary } from "@/components/billing/expo-billing-summary";
 import type { SubscriptionFinanceSummary } from "@/components/billing/subscription-summary-bar";
 import { WalletTopupDialog } from "@/components/wallet-topup-dialog";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
-import { ChevronDown } from "lucide-react";
 import { REFUND_TIMING_BANK, REFUND_TIMING_PROCESSING } from "@/lib/billing/refund-timing";
 import type { BillingMonitorPayload, Invoice } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
@@ -129,7 +124,6 @@ function BillingPage() {
   const [billingTab, setBillingTab] = React.useState<"invoices" | "transactions" | "requests">("invoices");
   const [mandateBusy, setMandateBusy] = React.useState(false);
   const [topupOpen, setTopupOpen] = React.useState(false);
-  const [estimatesOpen, setEstimatesOpen] = React.useState(false);
 
   const billingRequests = (requestsQ.data?.items || []) as Array<Record<string, unknown>>;
   const pendingRequestsCount = billingRequests.filter((r) => String(r.status || "").toLowerCase() === "pending").length;
@@ -140,7 +134,6 @@ function BillingPage() {
   const monitor = (usageQ.data?.billing_monitor || {}) as BillingMonitorPayload;
   const billingCurrency = String(monitor.currency || usageQ.data?.billing_currency || "GBP");
   const commercial = monitor.commercial || {};
-  const estimates = monitor.capacity_estimates || {};
   const status = monitor.status || {};
   const nextInvoice = status.next_invoice || {};
   const coreFinance = (subsSummaryQ.data?.core || null) as SubscriptionFinanceSummary | null;
@@ -455,6 +448,16 @@ function BillingPage() {
                 onTopUp={() => setTopupOpen(true)}
                 usedOnlyKpis
                 valuePool={coreValuePool}
+                allowOverage={allowOverage}
+                overageBusy={overageM.isPending || accessQ.isLoading}
+                onAllowOverageChange={(checked) => {
+                  overageM.mutate(checked, {
+                    onSuccess: () =>
+                      toast.success(checked ? "Extra usage billing enabled" : "Extra usage billing disabled"),
+                    onError: (e) =>
+                      toast.error(e instanceof Error ? e.message : "Could not update overage setting"),
+                  });
+                }}
               />
             ) : null}
             {showFeedbackColumn ? (
@@ -527,61 +530,7 @@ function BillingPage() {
           </div>
         ) : null}
 
-        {!usageQ.isLoading ? (
-          <div className="mt-3 flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 px-4 py-3">
-            <div>
-              <p className="text-sm font-medium">Allow extra usage billing</p>
-              <p className="text-xs text-muted-foreground">
-                When disabled, usage stops at plan limits instead of generating overage charges.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Switch
-                id="allow-overage"
-                checked={allowOverage}
-                disabled={overageM.isPending || accessQ.isLoading}
-                onCheckedChange={(checked) => {
-                  overageM.mutate(checked, {
-                    onSuccess: () => toast.success(checked ? "Extra usage billing enabled" : "Extra usage billing disabled"),
-                    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update overage setting"),
-                  });
-                }}
-              />
-              <Label htmlFor="allow-overage" className="text-xs text-muted-foreground">
-                {allowOverage ? "On" : "Off"}
-              </Label>
-            </div>
-          </div>
-        ) : null}
-
-        {!usageQ.isLoading ? (
-          <Collapsible open={estimatesOpen} onOpenChange={setEstimatesOpen} className="mt-3">
-            <CollapsibleTrigger className="flex w-full items-center justify-between rounded-lg border border-border bg-muted/10 px-4 py-3 text-sm font-medium hover:bg-muted/20">
-              Wallet estimates (approximate only)
-              <ChevronDown className={cn("size-4 transition-transform", estimatesOpen && "rotate-180")} />
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-3">
-              <p className="mb-3 text-xs text-muted-foreground">
-                {estimates.disclaimer || "Approximate capacity only — not used for billing or invoicing."}
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <KpiCard
-                  label="Estimated WA surveys left"
-                  value={String(estimates.estimated_wa_surveys ?? 0)}
-                  sub={estimates.label || "Estimated from plan or wallet"}
-                />
-                <KpiCard
-                  label="Estimated AI minutes left"
-                  value={String(estimates.estimated_ai_minutes ?? 0)}
-                  sub={estimates.label || "Estimated from plan or wallet"}
-                />
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        ) : null}
       </section>
-
-      {plan ? <SubscriptionCancellationBar planName={plan?.name} /> : null}
 
       {outstandingInvoices.length > 0 ? (
         <Card className="border-amber-500/40 bg-amber-500/5">

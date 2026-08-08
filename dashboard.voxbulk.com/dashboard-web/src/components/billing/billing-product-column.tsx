@@ -8,6 +8,8 @@ import { ProductCancellationActions } from "@/components/billing/subscription-ca
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { AllowanceRow, ProductPanelMeta } from "@/lib/billing/allowances";
 import type { SubscriptionFinanceSummary } from "@/components/billing/subscription-summary-bar";
 import { cn } from "@/lib/utils";
@@ -35,6 +37,10 @@ type Props = {
   };
   /** Show cancel-at-period-end controls for this product card. */
   showCancel?: boolean;
+  /** Core only: org-level overage billing for WA Survey + AI Interview. */
+  allowOverage?: boolean;
+  overageBusy?: boolean;
+  onAllowOverageChange?: (checked: boolean) => void;
 };
 
 function formatSubDate(raw: unknown) {
@@ -67,6 +73,9 @@ export function BillingProductColumn({
   usedOnlyKpis,
   valuePool,
   showCancel = true,
+  allowOverage,
+  overageBusy,
+  onAllowOverageChange,
 }: Props) {
   const Icon = meta.product === "feedback" ? Smile : meta.product === "smart_card" ? QrCode : Sparkles;
   const iconTint =
@@ -213,6 +222,27 @@ export function BillingProductColumn({
             hideFooter
             usedOnlyKpis={usedOnlyKpis}
           />
+        ) : null}
+        {meta.product === "core" && onAllowOverageChange ? (
+          <div className="mt-3 flex items-start justify-between gap-3 border-t border-border/60 pt-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Allow extra usage billing</p>
+              <p className="text-xs text-muted-foreground">
+                When off, WA Survey and AI Interview stop at plan limits instead of Direct Debit overage.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Switch
+                id={`allow-overage-${meta.product}`}
+                checked={Boolean(allowOverage)}
+                disabled={Boolean(overageBusy)}
+                onCheckedChange={onAllowOverageChange}
+              />
+              <Label htmlFor={`allow-overage-${meta.product}`} className="text-xs text-muted-foreground">
+                {allowOverage ? "On" : "Off"}
+              </Label>
+            </div>
+          </div>
         ) : null}
         {footerNote ? <div className="mt-3 border-t border-border/60 pt-3">{footerNote}</div> : null}
       </CardContent>
