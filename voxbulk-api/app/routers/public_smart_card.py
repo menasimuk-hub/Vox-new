@@ -372,6 +372,30 @@ def get_card_qr_png(
     )
 
 
+@router.post("/{token}/events")
+def record_engagement_event(token: str, payload: dict | None = None, db: Session = Depends(get_db)):
+    """Fire-and-forget public engagement tracking (social, website, save contact, etc.)."""
+    from app.services.smart_card.engagement_service import (
+        SmartCardEngagementError,
+        SmartCardEngagementService,
+    )
+
+    rep = _get_rep(db, token)
+    body = payload or {}
+    try:
+        SmartCardEngagementService.record(
+            db,
+            rep=rep,
+            event_type=str(body.get("event_type") or body.get("type") or ""),
+            lead_id=(str(body.get("lead_id") or "").strip() or None),
+            meta=body.get("meta") if isinstance(body.get("meta"), dict) else None,
+        )
+        db.commit()
+        return {"ok": True}
+    except SmartCardEngagementError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @router.get("/{token}/assets/{asset_id}")
 def get_card_asset(
     token: str,
@@ -385,6 +409,7 @@ def get_card_asset(
     from app.models.smart_card import SmartCardAsset, SmartCardLead
     from app.services.smart_card.asset_delivery_service import mark_lead_asset_opened
     from app.services.smart_card.asset_storage_service import resolve_storage_abs_path
+    from app.services.smart_card.engagement_service import SmartCardEngagementService
 
     rep = _get_rep(db, token)
     asset = db.execute(
@@ -407,9 +432,31 @@ def get_card_asset(
         if lead is not None:
             try:
                 if mark_lead_asset_opened(db, lead=lead, asset_id=asset_id):
+                    try:
+                        SmartCardEngagementService.record(
+                            db,
+                            rep=rep,
+                            event_type="file_open",
+                            lead_id=lead.id,
+                            meta={"asset_id": asset_id},
+                        )
+                    except Exception:
+                        pass
                     db.commit()
             except Exception:
                 db.rollback()
+    else:
+        # Count anonymous file opens too (no lead context)
+        try:
+            SmartCardEngagementService.record(
+                db,
+                rep=rep,
+                event_type="file_open",
+                meta={"asset_id": asset_id},
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
 
     if asset.external_url:
         return RedirectResponse(asset.external_url)

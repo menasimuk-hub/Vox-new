@@ -309,6 +309,24 @@ export function PublicSmartCardLanding({
       actions={{
         whatsappHref: waHref,
         onWebSurvey: startWeb,
+        trackEvent: (eventType) => {
+          const url = `${API}/public/smart-card/${encodeURIComponent(token)}/events`;
+          const body = JSON.stringify({ event_type: eventType });
+          try {
+            if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+              const blob = new Blob([body], { type: "application/json" });
+              if (navigator.sendBeacon(url, blob)) return;
+            }
+          } catch {
+            /* fall through */
+          }
+          void fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body,
+            keepalive: true,
+          }).catch(() => undefined);
+        },
         previewBanner: themePreviewLabel ? (
           <p
             className="mt-4 rounded-full px-3 py-1 text-center text-[11px] font-medium"

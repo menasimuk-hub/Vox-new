@@ -183,6 +183,7 @@ from app.models.smart_card import (  # noqa: F401
     SmartCardCategory,
     SmartCardChangeRequest,
     SmartCardCompany,
+    SmartCardEngagementEvent,
     SmartCardIndustry,
     SmartCardLead,
     SmartCardPackage,

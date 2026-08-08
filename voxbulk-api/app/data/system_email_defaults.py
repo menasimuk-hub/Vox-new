@@ -630,6 +630,21 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
             badge="Smart Card QR",
         ),
     },
+    "smart_card_rep_member_invite": {
+        "title": "Smart Card QR member invite",
+        "subject": "Your Smart Card QR login — {{org_name}}",
+        "body": wrap_brand_email(
+            title="Your Smart Card QR",
+            inner_html="""<p>Hi <strong>{{rep_name}}</strong>,</p>
+  <p><strong>{{org_name}}</strong> set up a Smart Card QR for you.</p>
+  <p>Create your account (or sign in) to edit your card, view your leads, and track your KPIs.</p>
+  """
+            + cta_button(href="{{signup_url}}", label="Accept invite & register")
+            + "",
+            footer="Sent via VOXBULK Smart Card QR · smartqr@voxbulk.com",
+            badge="Smart Card QR",
+        ),
+    },
     "smart_card_renewal_reminder_30d": {
         "title": "Smart Card QR renewal — 30 days",
         "subject": "Smart Card QR renews in 1 month — {{org_name}}",

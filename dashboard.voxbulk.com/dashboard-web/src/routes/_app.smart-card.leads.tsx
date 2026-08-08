@@ -95,6 +95,16 @@ type Summary = {
   by_representative?: Array<{ id: string; name: string; scan_count: number; lead_count: number }>;
   active_reps?: number;
   seat_quantity?: number;
+  social_clicks?: number;
+  website_clicks?: number;
+  tel_clicks?: number;
+  mailto_clicks?: number;
+  save_contact?: number;
+  whatsapp_clicks?: number;
+  share_clicks?: number;
+  file_opens?: number;
+  maps_clicks?: number;
+  engagement_total?: number;
 };
 
 type RepRow = {
@@ -277,9 +287,19 @@ function SmartCardLeadsPage() {
     setSelectedRepIds((prev) => (prev.length ? prev : activeReps.map((r) => r.id)));
   }, [activeReps, initialRepId]);
 
+  const summaryFilter = React.useMemo(() => {
+    if (!activeReps.length || !selectedRepIds.length) return "";
+    if (selectedRepIds.length === activeReps.length) return "";
+    return selectedRepIds.join(",");
+  }, [activeReps, selectedRepIds]);
+
   const summaryQ = useQuery({
-    queryKey: ["smart-card", "summary"],
-    queryFn: () => apiFetch<{ ok: boolean } & Summary>("/smart-card/results/summary"),
+    queryKey: ["smart-card", "summary", summaryFilter],
+    queryFn: () =>
+      apiFetch<{ ok: boolean } & Summary>(
+        `/smart-card/results/summary${summaryFilter ? `?representative_id=${encodeURIComponent(summaryFilter)}` : ""}`,
+      ),
+    enabled: selectedRepIds.length > 0 || activeReps.length === 0,
   });
 
   const leadsQ = useQuery({
@@ -425,20 +445,32 @@ function SmartCardLeadsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 sm:grid-cols-4">
-        <Kpi icon={Users} label="Leads shown" value={String(scoped.length)} tone="text-primary" />
-        <Kpi icon={Flame} label="Hot leads" value={String(hotCount)} tone="text-rose-500" />
+      <div className="grid gap-2 grid-cols-2 sm:grid-cols-4 lg:grid-cols-8">
+        <Kpi icon={Users} label="Leads" value={String(summary?.leads ?? scoped.length)} tone="text-primary" compact />
+        <Kpi icon={Flame} label="Hot" value={String(summary?.hot ?? hotCount)} tone="text-rose-500" compact />
+        <Kpi icon={ScanLine} label="Scans" value={String(summary?.scans ?? "—")} tone="text-emerald-500" compact />
+        <Kpi icon={Download} label="File opens" value={String(summary?.file_opens ?? 0)} tone="text-sky-500" compact />
         <Kpi
-          icon={CreditCard}
-          label="Cards selected"
-          value={`${selectedRepIds.length}/${activeReps.length || 0}`}
+          icon={MousePointerClick}
+          label="Social"
+          value={String(summary?.social_clicks ?? 0)}
           tone="text-violet-500"
+          compact
+        />
+        <Kpi icon={Globe} label="Website" value={String(summary?.website_clicks ?? 0)} tone="text-teal-500" compact />
+        <Kpi
+          icon={User}
+          label="Save contact"
+          value={String(summary?.save_contact ?? 0)}
+          tone="text-amber-500"
+          compact
         />
         <Kpi
-          icon={Download}
-          label="Scans (all)"
-          value={String(summary?.scans ?? "—")}
-          tone="text-emerald-500"
+          icon={MessageCircle}
+          label="WhatsApp"
+          value={String(summary?.whatsapp_clicks ?? 0)}
+          tone="text-green-600"
+          compact
         />
       </div>
 
@@ -785,26 +817,29 @@ function Kpi({
   label,
   value,
   tone,
+  compact,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   tone: string;
+  compact?: boolean;
 }) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-3 p-4">
+      <CardContent className={cn("flex items-center gap-3", compact ? "p-3" : "p-4")}>
         <div
           className={cn(
-            "grid size-10 place-items-center rounded-xl bg-background shadow-sm ring-1 ring-border",
+            "grid place-items-center rounded-xl bg-background shadow-sm ring-1 ring-border",
+            compact ? "size-8" : "size-10",
             tone,
           )}
         >
-          <Icon className="size-5" />
+          <Icon className={compact ? "size-4" : "size-5"} />
         </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</p>
-          <p className={cn("text-xl font-semibold tabular-nums", tone)}>{value}</p>
+        <div className="min-w-0">
+          <p className="truncate text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+          <p className={cn("font-semibold tabular-nums", compact ? "text-lg" : "text-xl", tone)}>{value}</p>
         </div>
       </CardContent>
     </Card>

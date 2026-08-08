@@ -37,6 +37,8 @@ export type SmartCardTemplateActions = {
   webSurveyLabel?: string;
   previewBanner?: React.ReactNode;
   hideFeedback?: boolean;
+  /** Fire-and-forget engagement tracking (social, website, save contact, …). */
+  trackEvent?: (eventType: string) => void;
 };
 
 const isSet = (v: string) => !!v && !v.startsWith("{{") && v.trim().length > 0;
@@ -127,24 +129,33 @@ export function SmartCardTemplate({
   const [saved, setSaved] = React.useState(false);
   const tokens = tokensProp || getSmartCardThemeTokens(themeId);
   const { ink, sub, border, surface, accent, accent2, accent3, onAccent, radius, bgClass, id } = tokens;
+  const track = (eventType: string) => {
+    try {
+      actions?.trackEvent?.(eventType);
+    } catch {
+      /* ignore */
+    }
+  };
 
   const socials = [
-    { label: "Instagram", href: card.instagram },
-    { label: "LinkedIn", href: card.linkedin },
-    { label: "Facebook", href: card.facebook },
-    { label: "X", href: card.x },
-    { label: "TikTok", href: card.tiktok },
+    { label: "Instagram", href: card.instagram, event: "social_instagram" },
+    { label: "LinkedIn", href: card.linkedin, event: "social_linkedin" },
+    { label: "Facebook", href: card.facebook, event: "social_facebook" },
+    { label: "X", href: card.x, event: "social_x" },
+    { label: "TikTok", href: card.tiktok, event: "social_tiktok" },
   ].filter((s) => isSet(s.href));
 
   const IconLink = ({
     href,
     label,
     glow,
+    eventType,
     children,
   }: {
     href: string;
     label: string;
     glow: string;
+    eventType?: string;
     children: React.ReactNode;
   }) => {
     const enabled = href && href !== "#";
@@ -153,6 +164,7 @@ export function SmartCardTemplate({
         href={enabled ? href : undefined}
         onClick={(e) => {
           if (!enabled) e.preventDefault();
+          else if (eventType) track(eventType);
         }}
         className="flex flex-col items-center gap-1 rounded-xl px-1 py-2.5 text-center transition active:scale-[0.98]"
         style={{
@@ -177,6 +189,7 @@ export function SmartCardTemplate({
   };
 
   const saveContact = () => {
+    track("save_contact");
     const lines = [
       "BEGIN:VCARD",
       "VERSION:3.0",
@@ -202,6 +215,7 @@ export function SmartCardTemplate({
   };
 
   const share = async () => {
+    track("share");
     const url = typeof window !== "undefined" ? window.location.href : "";
     try {
       if (navigator.share) {
@@ -305,18 +319,18 @@ export function SmartCardTemplate({
           {actions?.previewBanner}
 
           <div className="mt-5 grid grid-cols-4 gap-2 border-t pt-4" style={{ borderColor: border }}>
-            <IconLink href={isSet(card.phone) ? `tel:${card.phone}` : "#"} label="Call" glow={alpha(accent, 0.16)}>
+            <IconLink href={isSet(card.phone) ? `tel:${card.phone}` : "#"} label="Call" glow={alpha(accent, 0.16)} eventType="tel">
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
                 <path d="M6.5 3h3l1.5 4-2 1.5a12 12 0 006.5 6.5l1.5-2 4 1.5v3a2 2 0 01-2.2 2A17 17 0 014.5 5.2 2 2 0 016.5 3z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
               </svg>
             </IconLink>
-            <IconLink href={isSet(card.email) ? `mailto:${card.email}` : "#"} label="Email" glow={alpha(accent2, 0.16)}>
+            <IconLink href={isSet(card.email) ? `mailto:${card.email}` : "#"} label="Email" glow={alpha(accent2, 0.16)} eventType="mailto">
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
                 <rect x="3" y="5" width="18" height="14" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
                 <path d="M4 7l8 6 8-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
               </svg>
             </IconLink>
-            <IconLink href={isSet(card.website) ? card.website : "#"} label="Website" glow={alpha(accent3, 0.16)}>
+            <IconLink href={isSet(card.website) ? card.website : "#"} label="Website" glow={alpha(accent3, 0.16)} eventType="website">
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
                 <path d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18" stroke="currentColor" strokeWidth="1.4" />
@@ -326,6 +340,7 @@ export function SmartCardTemplate({
               href={isSet(mapsQuery) ? `https://maps.google.com/?q=${encodeURIComponent(mapsQuery)}` : "#"}
               label="Location"
               glow={alpha(accent3, 0.2)}
+              eventType="maps"
             >
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none">
                 <path d="M12 21s7-5.5 7-11a7 7 0 10-14 0c0 5.5 7 11 7 11z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
@@ -371,6 +386,7 @@ export function SmartCardTemplate({
                     href={waHref}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={() => track("whatsapp")}
                     className="flex flex-col items-center justify-center gap-2 rounded-3xl px-4 py-6 text-center active:scale-[0.98]"
                     style={{
                       background: "linear-gradient(150deg, rgba(37,211,102,0.22), rgba(255,255,255,0.03))",
@@ -388,7 +404,10 @@ export function SmartCardTemplate({
                 ) : (
                   <button
                     type="button"
-                    onClick={actions?.onWhatsApp}
+                    onClick={() => {
+                      track("whatsapp");
+                      actions?.onWhatsApp?.();
+                    }}
                     className="flex flex-col items-center justify-center gap-2 rounded-3xl px-4 py-6 text-center active:scale-[0.98]"
                     style={{
                       background: "linear-gradient(150deg, rgba(37,211,102,0.22), rgba(255,255,255,0.03))",
@@ -408,7 +427,10 @@ export function SmartCardTemplate({
               {actions?.onWebSurvey ? (
                 <button
                   type="button"
-                  onClick={actions.onWebSurvey}
+                  onClick={() => {
+                    track("web_survey");
+                    actions.onWebSurvey?.();
+                  }}
                   className="flex flex-col items-center justify-center gap-2 rounded-3xl px-4 py-6 text-center active:scale-[0.98]"
                   style={{
                     background: `linear-gradient(150deg, ${alpha(accent, 0.22)}, ${alpha(accent2, 0.05)})`,
@@ -440,6 +462,7 @@ export function SmartCardTemplate({
                 target="_blank"
                 rel="noreferrer"
                 aria-label={s.label}
+                onClick={() => track(s.event)}
                 className="flex h-10 w-10 items-center justify-center rounded-full active:scale-95"
                 style={{ background: surface, border: `1px solid ${border}`, color: ink }}
               >

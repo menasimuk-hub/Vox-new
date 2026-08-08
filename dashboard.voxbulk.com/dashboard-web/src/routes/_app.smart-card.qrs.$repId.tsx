@@ -43,6 +43,7 @@ type Rep = {
   photo_url?: string | null;
   qr_image_url?: string;
   web_url?: string;
+  qr_token?: string;
   scan_count?: number;
   product_ids?: string[];
   qr_fg_color?: string;
@@ -52,6 +53,8 @@ type Rep = {
   qr_corner_style?: string;
   qr_frame_round?: string;
   status?: string;
+  linked_user_id?: string | null;
+  invite_id?: string | null;
 };
 
 type CompanyPayload = {
@@ -72,7 +75,8 @@ function SmartCardEditQrPage() {
   const { repId } = Route.useParams();
   const qc = useQueryClient();
   const { session } = useSession();
-  const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
+  const canManage = canManageTeam(normalizeOrgRole(session?.profile?.role));
+  const userId = String(session?.profile?.user_id || "");
 
   const [repForm, setRepForm] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
   const [productIds, setProductIds] = React.useState<string[]>([]);
@@ -207,10 +211,12 @@ function SmartCardEditQrPage() {
           ...qrStylePayload(qrStyle, { includeTransparent: true }),
         }),
       });
-      await apiFetch("/smart-card/company", {
-        method: "PATCH",
-        body: JSON.stringify({ theme_id: themeId }),
-      });
+      if (canManage) {
+        await apiFetch("/smart-card/company", {
+          method: "PATCH",
+          body: JSON.stringify({ theme_id: themeId }),
+        });
+      }
       if (photoFile) {
         setPhotoUploading(true);
         try {
@@ -253,7 +259,25 @@ function SmartCardEditQrPage() {
     onError: (e: Error) => toast.error(e.message || "Could not save QR style"),
   });
 
+  const resendInviteMut = useMutation({
+    mutationFn: async () =>
+      apiFetch<{ ok: boolean; result?: { action?: string; email_sent?: boolean } }>(
+        `/smart-card/representatives/${repId}/resend-invite`,
+        { method: "POST", body: "{}" },
+      ),
+    onSuccess: async (data) => {
+      const action = data?.result?.action || "";
+      if (action.startsWith("linked")) toast.success("Representative linked to existing login");
+      else if (data?.result?.email_sent === false) toast.message("Invite created but email may not have sent");
+      else toast.success("Invite sent");
+      await qc.invalidateQueries({ queryKey: ["smart-card", "rep", repId] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not resend invite"),
+  });
+
   const rep = repQ.data?.item;
+  const canEdit =
+    canManage || Boolean(rep && userId && String(rep.linked_user_id || "") === userId);
 
   if (repQ.isLoading) {
     return <Skeleton className="h-64 rounded-2xl" />;
@@ -271,6 +295,8 @@ function SmartCardEditQrPage() {
   }
 
   const pngUrl = rep.qr_image_url || "";
+  const showResendInvite =
+    canManage && Boolean(rep.email) && !rep.linked_user_id;
 
   return (
     <div className="space-y-6">
@@ -326,6 +352,29 @@ function SmartCardEditQrPage() {
             </CardContent>
           </Card>
 
+          {showResendInvite ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Team invite</CardTitle>
+                <CardDescription>
+                  This representative has not accepted a login invite yet. They need an account to edit
+                  their card and see their leads.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={resendInviteMut.isPending}
+                  onClick={() => resendInviteMut.mutate()}
+                >
+                  {resendInviteMut.isPending ? "Sending…" : "Resend invite email"}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {canEdit ? (
             <Button disabled={saveMut.isPending || !repForm.name.trim()} onClick={() => saveMut.mutate()}>
               {saveMut.isPending ? "Saving…" : "Save changes"}
@@ -356,22 +405,24 @@ function SmartCardEditQrPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Digital card theme</CardTitle>
-              <CardDescription>Applies to all Smart Card scans for this company.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <SmartCardThemePicker
-                value={themeId}
-                onChange={setThemeId}
-                companyName={companyName}
-                personName={repForm.name || rep.name}
-                qrToken={rep.qr_token}
-                className="sm:grid-cols-1 lg:grid-cols-1 xl:grid-cols-1"
-              />
-            </CardContent>
-          </Card>
+          {canManage ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Digital card theme</CardTitle>
+                <CardDescription>Applies to all Smart Card scans for this company.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <SmartCardThemePicker
+                  value={themeId}
+                  onChange={setThemeId}
+                  companyName={companyName}
+                  personName={repForm.name || rep.name}
+                  qrToken={rep.qr_token}
+                  className="sm:grid-cols-1 lg:grid-cols-1 xl:grid-cols-1"
+                />
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
     </div>

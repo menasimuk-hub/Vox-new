@@ -199,7 +199,12 @@ function SmartCardSavedQrsPage() {
               <Button asChild>
                 <Link to="/smart-card/new">Create Smart Card QR</Link>
               </Button>
-            ) : null}
+            ) : (
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Ask your organisation admin to create your Smart Card and send an invite to your email.
+                After you accept, your card and leads will appear here.
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : (

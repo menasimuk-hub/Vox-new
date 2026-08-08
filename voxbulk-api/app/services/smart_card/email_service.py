@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 LEAD_TEMPLATE = "smart_card_lead_notify"
 VISITOR_CATALOGUE_TEMPLATE = "smart_card_visitor_catalogue"
 INVITE_TEMPLATE = "smart_card_rep_invite"
+MEMBER_INVITE_TEMPLATE = "smart_card_rep_member_invite"
 RENEWAL_TEMPLATES = {
     "30d": "smart_card_renewal_reminder_30d",
     "14d": "smart_card_renewal_reminder_14d",
@@ -134,6 +135,7 @@ class SmartCardEmailService:
         org_name: str,
         signup_url: str,
     ) -> bool:
+        """Legacy invite template (view leads). Prefer send_rep_member_invite for new invites."""
         smtp = SmartCardEmailService._smtp(db)
         variables = {
             "rep_name": rep_name or "there",
@@ -150,6 +152,35 @@ class SmartCardEmailService:
             smtp_username=smtp["smtp_username"],
             smtp_password=smtp["smtp_password"],
         )
+        return bool(ok)
+
+    @staticmethod
+    def send_rep_member_invite(
+        db: Session,
+        *,
+        to_email: str,
+        rep_name: str,
+        org_name: str,
+        signup_url: str,
+    ) -> bool:
+        smtp = SmartCardEmailService._smtp(db)
+        variables = {
+            "rep_name": rep_name or "there",
+            "org_name": org_name or "your organisation",
+            "signup_url": signup_url,
+        }
+        ok, err = TransactionalEmailService.send_templated_optional(
+            db,
+            template_key=MEMBER_INVITE_TEMPLATE,
+            to_email=to_email,
+            variables=variables,
+            from_email=smtp["from_email"],
+            from_name=smtp["from_name"],
+            smtp_username=smtp["smtp_username"],
+            smtp_password=smtp["smtp_password"],
+        )
+        if not ok:
+            logger.warning("smart_card_rep_member_invite_failed to=%s err=%s", to_email, err)
         return bool(ok)
 
     @staticmethod

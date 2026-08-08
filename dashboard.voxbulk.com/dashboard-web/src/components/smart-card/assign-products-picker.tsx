@@ -105,7 +105,7 @@ export function AssignProductsPicker({
                 <span className={cn("size-2.5 rounded-full", col.dot)} />
                 <p className={cn("text-xs font-semibold uppercase tracking-wide", col.text)}>{cat.name}</p>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-2">
                 {(cat.products || []).map((p) => {
                   const checked = selectedIds.includes(p.id);
                   const desc = p.short_description || p.description || "";

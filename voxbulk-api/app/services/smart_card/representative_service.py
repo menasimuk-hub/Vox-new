@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.smart_card import (
@@ -14,7 +15,7 @@ from app.models.smart_card import (
     SmartCardRepresentative,
     SmartCardRepresentativeProduct,
 )
-from app.services.org_rbac import OrgRbacService, can_view_all_campaigns
+from app.services.org_rbac import ORG_TEAM_MANAGERS, OrgRbacService, can_view_all_campaigns, effective_role
 from app.services.qr_style_fields import apply_qr_style_payload, qr_style_dict
 from app.services.qr_style_render import (
     normalize_corner_style,
@@ -25,6 +26,30 @@ from app.services.smart_card.company_service import (
     SmartCardCompanyService,
     SmartCardEntitlementService,
     build_rep_qr_token,
+)
+
+logger = logging.getLogger(__name__)
+
+MEMBER_EDIT_KEYS = frozenset(
+    {
+        "name",
+        "email",
+        "website",
+        "mobile",
+        "landline",
+        "extension",
+        "notes",
+        "social_links",
+        "extra",
+        "qr_fg_color",
+        "qr_bg_color",
+        "qr_transparent",
+        "qr_module_style",
+        "qr_corner_style",
+        "qr_show_arrow",
+        "qr_frame_round",
+        "product_ids",
+    }
 )
 
 
@@ -125,39 +150,109 @@ class SmartCardRepresentativeService:
             SmartCardRepresentativeService.set_products(
                 db, org_id=org_id, representative_id=rep.id, product_ids=[str(x) for x in product_ids]
             )
-        # Invite as member via Smart Card QR mailbox when email present
         if rep.email:
             try:
-                from app.models.user import User
-                from app.services.org_team_service import OrgTeamService
-                from app.services.smart_card.email_service import SmartCardEmailService
-
-                inviter = db.get(User, user_id)
-                if inviter is not None:
-                    invite = OrgTeamService.create_invite(
-                        db,
-                        org_id=org_id,
-                        email=rep.email,
-                        role="member",
-                        invited_by=inviter,
-                        send_email=False,
-                    )
-                    rep.invite_id = invite.get("invite_id")
-                    db.add(rep)
-                    from app.models.organisation import Organisation
-
-                    org = db.get(Organisation, org_id)
-                    SmartCardEmailService.send_rep_invite(
-                        db,
-                        to_email=rep.email,
-                        rep_name=rep.name,
-                        org_name=(org.name if org else "your organisation"),
-                        signup_url=str(invite.get("signup_url") or ""),
-                    )
-                    db.flush()
-            except Exception:
-                pass
+                SmartCardRepresentativeService.invite_or_link_rep(
+                    db, org_id=org_id, actor_user_id=user_id, rep=rep
+                )
+            except Exception as e:
+                logger.warning("smart_card_invite_on_create_failed rep=%s err=%s", rep.id, e)
         return rep
+
+    @staticmethod
+    def invite_or_link_rep(
+        db: Session,
+        *,
+        org_id: str,
+        actor_user_id: str,
+        rep: SmartCardRepresentative,
+        force_resend: bool = False,
+    ) -> dict[str, Any]:
+        """Skip admin/owner emails; link existing members; else send member invite."""
+        email = (rep.email or "").strip().lower()
+        if not email or "@" not in email:
+            return {"action": "skipped", "reason": "no_email"}
+
+        from app.models.membership import OrganisationMembership
+        from app.models.organisation import Organisation
+        from app.models.user import User
+        from app.services.org_team_service import OrgTeamService
+        from app.services.smart_card.email_service import SmartCardEmailService
+
+        actor = db.get(User, actor_user_id)
+        org = db.get(Organisation, org_id)
+        org_name = (org.name if org else "your organisation") or "your organisation"
+
+        existing_user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+        if existing_user is not None:
+            mem = db.execute(
+                select(OrganisationMembership).where(
+                    OrganisationMembership.org_id == org_id,
+                    OrganisationMembership.user_id == existing_user.id,
+                )
+            ).scalar_one_or_none()
+            if mem is not None:
+                role = effective_role(mem.role)
+                is_admin = role in ORG_TEAM_MANAGERS or str(existing_user.id) == str(actor_user_id)
+                # Always link when already in org; never send invite to owner/manager/admin.
+                if not rep.linked_user_id:
+                    rep.linked_user_id = existing_user.id
+                    db.add(rep)
+                    db.flush()
+                if is_admin:
+                    return {"action": "linked_admin", "linked_user_id": existing_user.id}
+                return {"action": "linked_member", "linked_user_id": existing_user.id}
+
+        if rep.linked_user_id and not force_resend:
+            return {"action": "already_linked", "linked_user_id": rep.linked_user_id}
+
+        if actor is None:
+            logger.warning("smart_card_invite_skipped rep=%s reason=no_actor", rep.id)
+            return {"action": "skipped", "reason": "no_actor"}
+
+        try:
+            invite = OrgTeamService.create_invite(
+                db,
+                org_id=org_id,
+                email=email,
+                role="member",
+                invited_by=actor,
+                send_email=False,
+            )
+            rep.invite_id = invite.get("invite_id")
+            db.add(rep)
+            db.flush()
+            sent = SmartCardEmailService.send_rep_member_invite(
+                db,
+                to_email=email,
+                rep_name=rep.name or "there",
+                org_name=org_name,
+                signup_url=str(invite.get("signup_url") or ""),
+            )
+            return {
+                "action": "invited",
+                "invite_id": invite.get("invite_id"),
+                "email_sent": bool(sent),
+                "signup_url": invite.get("signup_url"),
+            }
+        except ValueError as e:
+            msg = str(e)
+            logger.warning("smart_card_invite_failed rep=%s err=%s", rep.id, msg)
+            if "already belongs" in msg.lower():
+                u = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+                if u is not None:
+                    rep.linked_user_id = u.id
+                    db.add(rep)
+                    db.flush()
+                    return {"action": "linked_member", "linked_user_id": u.id}
+            raise SmartCardRepError(msg) from e
+        except Exception as e:
+            logger.exception("smart_card_invite_unexpected rep=%s", rep.id)
+            raise SmartCardRepError(f"Could not send invite: {e}") from e
+
+    @staticmethod
+    def member_safe_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in (payload or {}).items() if k in MEMBER_EDIT_KEYS}
 
     @staticmethod
     def update(

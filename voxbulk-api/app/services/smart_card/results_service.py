@@ -383,9 +383,19 @@ class SmartCardResultsService:
         representative_id: str | None = None,
     ) -> dict[str, Any]:
         scope = SmartCardResultsService._rep_scope(db, org_id=org_id, user_id=user_id)
-        rid = str(representative_id or "").strip() or None
-        if rid and scope is not None and rid not in scope:
-            rid = None
+        raw_rid = str(representative_id or "").strip() or None
+        rids: list[str] | None = None
+        rid: str | None = None
+        if raw_rid:
+            parts = [p.strip() for p in raw_rid.split(",") if p.strip()]
+            if scope is not None:
+                parts = [p for p in parts if p in scope]
+            if len(parts) == 1:
+                rid = parts[0]
+                rids = parts
+            elif len(parts) > 1:
+                rids = parts
+                rid = None  # multi-filter via rids below
 
         now_uk = datetime.now(UK)
         today_start = datetime(now_uk.year, now_uk.month, now_uk.day)
@@ -400,6 +410,8 @@ class SmartCardResultsService:
                 q = q.where(SmartCardLead.representative_id.in_(scope))
             if rid:
                 q = q.where(SmartCardLead.representative_id == rid)
+            elif rids:
+                q = q.where(SmartCardLead.representative_id.in_(rids))
             return q
 
         base = _lead_q()
@@ -436,6 +448,18 @@ class SmartCardResultsService:
             "seat_quantity": SmartCardEntitlementService.seat_quantity(db, org_id),
             "active_reps": 0,
             "mode": SmartCardEntitlementService.access_mode(db, org_id),
+            "social_clicks": 0,
+            "website_clicks": 0,
+            "tel_clicks": 0,
+            "mailto_clicks": 0,
+            "save_contact": 0,
+            "whatsapp_clicks": 0,
+            "share_clicks": 0,
+            "file_opens": 0,
+            "maps_clicks": 0,
+            "web_survey_clicks": 0,
+            "engagement_total": 0,
+            "by_type": {},
         }
 
         scans_q = select(func.coalesce(func.sum(SmartCardRepresentative.scan_count), 0)).where(
@@ -447,6 +471,8 @@ class SmartCardResultsService:
             scans_q = scans_q.where(SmartCardRepresentative.id.in_(scope))
         if rid:
             scans_q = scans_q.where(SmartCardRepresentative.id == rid)
+        elif rids:
+            scans_q = scans_q.where(SmartCardRepresentative.id.in_(rids))
         scans_total = int(db.execute(scans_q).scalar() or 0)
 
         sess_today = select(func.count()).select_from(SmartCardSession).where(
@@ -457,6 +483,8 @@ class SmartCardResultsService:
             sess_today = sess_today.where(SmartCardSession.representative_id.in_(scope))
         if rid:
             sess_today = sess_today.where(SmartCardSession.representative_id == rid)
+        elif rids:
+            sess_today = sess_today.where(SmartCardSession.representative_id.in_(rids))
         scans_today = int(db.execute(sess_today).scalar() or 0)
 
         leads_today = sum(1 for L in leads if _in_range(L.created_at, today_start))
@@ -482,6 +510,8 @@ class SmartCardResultsService:
                 sess_filters.append(SmartCardSession.representative_id.in_(scope))
             if rid:
                 sess_filters.append(SmartCardSession.representative_id == rid)
+            elif rids:
+                sess_filters.append(SmartCardSession.representative_id.in_(rids))
             daily.append(
                 {
                     "day": day.strftime("%a"),
@@ -515,6 +545,8 @@ class SmartCardResultsService:
             reps_stmt = reps_stmt.where(SmartCardRepresentative.id.in_(scope))
         if rid:
             reps_stmt = reps_stmt.where(SmartCardRepresentative.id == rid)
+        elif rids:
+            reps_stmt = reps_stmt.where(SmartCardRepresentative.id.in_(rids))
         reps_stmt = reps_stmt.order_by(SmartCardRepresentative.name.asc())
         reps = list(db.execute(reps_stmt).scalars().all())
         by_representative = [
@@ -526,6 +558,22 @@ class SmartCardResultsService:
             }
             for r in reps
         ]
+
+        from app.services.smart_card.engagement_service import SmartCardEngagementService
+
+        eng_ids: list[str] | None
+        if rid:
+            eng_ids = [rid]
+        elif rids:
+            eng_ids = list(rids)
+        elif scope is not None:
+            eng_ids = list(scope)
+        else:
+            eng_ids = None
+        eng_counts = SmartCardEngagementService.counts_for(
+            db, org_id=org_id, representative_ids=eng_ids
+        )
+        engagement = SmartCardEngagementService.engagement_summary(eng_counts)
 
         return {
             "scans": scans_total,
@@ -543,4 +591,5 @@ class SmartCardResultsService:
             "seat_quantity": SmartCardEntitlementService.seat_quantity(db, org_id),
             "active_reps": SmartCardEntitlementService.active_rep_count(db, org_id),
             "mode": SmartCardEntitlementService.access_mode(db, org_id),
+            **engagement,
         }

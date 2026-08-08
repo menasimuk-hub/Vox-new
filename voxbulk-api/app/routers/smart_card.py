@@ -37,6 +37,16 @@ def _require_manage(db: Session, principal) -> None:
         raise HTTPException(status_code=403, detail=str(e)) from e
 
 
+def _require_manage_or_own_rep(db: Session, principal, rep) -> None:
+    """Owner/manager: any rep. Member: only their linked card."""
+    role = OrgRbacService.role_for(db, org_id=principal.org_id, user_id=principal.user_id)
+    if can_view_all_campaigns(role):
+        return
+    if rep is not None and str(rep.linked_user_id or "") == str(principal.user_id):
+        return
+    raise HTTPException(status_code=403, detail="You can only edit your own Smart Card")
+
+
 @router.get("/entitlement")
 def get_entitlement(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_smart_card_enabled(db, principal.org_id)
@@ -280,13 +290,43 @@ def get_rep(rep_id: str, db: Session = Depends(get_db), principal=Depends(get_cu
 @router.patch("/representatives/{rep_id}")
 def patch_rep(rep_id: str, payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_smart_card_enabled(db, principal.org_id)
-    _require_manage(db, principal)
+    rep = SmartCardRepresentativeService.get(db, org_id=principal.org_id, rep_id=rep_id)
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Representative not found")
+    _require_manage_or_own_rep(db, principal, rep)
+    role = OrgRbacService.role_for(db, org_id=principal.org_id, user_id=principal.user_id)
+    body = payload or {}
+    if not can_view_all_campaigns(role):
+        body = SmartCardRepresentativeService.member_safe_payload(body)
     try:
         rep = SmartCardRepresentativeService.update(
-            db, org_id=principal.org_id, rep_id=rep_id, payload=payload or {}
+            db, org_id=principal.org_id, rep_id=rep_id, payload=body
         )
         db.commit()
         return {"ok": True, "item": SmartCardRepresentativeService.serialize(db, rep)}
+    except SmartCardRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/representatives/{rep_id}/resend-invite")
+def resend_rep_invite(rep_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    _require_manage(db, principal)
+    rep = SmartCardRepresentativeService.get(db, org_id=principal.org_id, rep_id=rep_id)
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Representative not found")
+    if not (rep.email or "").strip():
+        raise HTTPException(status_code=400, detail="Representative has no email")
+    try:
+        result = SmartCardRepresentativeService.invite_or_link_rep(
+            db,
+            org_id=principal.org_id,
+            actor_user_id=principal.user_id,
+            rep=rep,
+            force_resend=True,
+        )
+        db.commit()
+        return {"ok": True, "result": result, "item": SmartCardRepresentativeService.serialize(db, rep)}
     except SmartCardRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -299,12 +339,12 @@ async def upload_rep_photo(
     principal=Depends(get_current_principal),
 ):
     _require_smart_card_enabled(db, principal.org_id)
-    _require_manage(db, principal)
     from pathlib import Path
 
     rep = SmartCardRepresentativeService.get(db, org_id=principal.org_id, rep_id=rep_id)
     if rep is None:
         raise HTTPException(status_code=404, detail="Representative not found")
+    _require_manage_or_own_rep(db, principal, rep)
     raw = await file.read()
     if not raw or len(raw) > 3 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Photo must be under 3 MB")
