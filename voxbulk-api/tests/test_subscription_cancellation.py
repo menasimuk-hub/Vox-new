@@ -282,6 +282,57 @@ def test_customer_can_reverse_scheduled_cancellation():
         assert SubscriptionCancellationService.get_open_refund_review(db, org_id) is None
 
 
+def test_yearly_unused_value_uses_monthly_rate_for_used_months(monkeypatch):
+    """Paid yearly £590, monthly £59, used ~3 months → refund £413."""
+    now = datetime.utcnow()
+    period_start = now - timedelta(days=90)
+    period_end = period_start + timedelta(days=365)
+    org = Organisation(name="Yearly Cancel Org", contact_email="y@example.com")
+    plan = Plan(code="starter", name="Starter", price_gbp_pence=5900, interval="yearly")
+    sub = Subscription(
+        org_id="org",
+        plan_id="plan",
+        status="active",
+        billing_interval="yearly",
+        current_period_end=period_end,
+        first_payment_at=period_start,
+        created_at=period_start,
+    )
+    monkeypatch.setattr(
+        SubscriptionCancellationService,
+        "monthly_plan_minor",
+        staticmethod(lambda db, o, p: 5900),
+    )
+    monkeypatch.setattr(
+        SubscriptionCancellationService,
+        "_amount_paid_for_period_minor",
+        staticmethod(lambda db, o, s, p: 59000),
+    )
+    unused = SubscriptionCancellationService.calculate_unused_value_pence(None, org, sub, plan)
+    assert unused == 59000 - (3 * 5900)
+
+
+def test_coerce_datetime_accepts_unix_period_end(monkeypatch):
+    end_ts = int((datetime.utcnow() + timedelta(days=20)).timestamp())
+    org = Organisation(name="Coerce Org", contact_email="c@example.com")
+    plan = Plan(code="starter", name="Starter", price_gbp_pence=5900, interval="monthly")
+    sub = Subscription(org_id="org", plan_id="plan", status="active")
+    sub.current_period_end = end_ts  # type: ignore[assignment]
+    monkeypatch.setattr(
+        SubscriptionCancellationService,
+        "monthly_plan_minor",
+        staticmethod(lambda db, o, p: 5900),
+    )
+    monkeypatch.setattr(
+        SubscriptionCancellationService,
+        "_amount_paid_for_period_minor",
+        staticmethod(lambda db, o, s, p: 5900),
+    )
+    unused = SubscriptionCancellationService.calculate_unused_value_pence(None, org, sub, plan)
+    assert unused >= 0
+    assert SubscriptionCancellationService.effective_status(sub) == "active"
+
+
 def test_billing_refund_email_templates_registered():
     from app.services.email_template_service import EMAIL_TEMPLATE_KEYS
 

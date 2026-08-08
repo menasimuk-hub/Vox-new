@@ -122,15 +122,34 @@ class SubscriptionCancellationService:
         return db.get(Plan, plan_id)
 
     @staticmethod
-    def effective_status(sub: Subscription, *, as_of: datetime | None = None) -> str:
-        now = as_of or datetime.utcnow()
-        base = str(sub.status or "active").strip().lower()
-        cancel_status = str(sub.cancellation_status or CANCELLATION_NONE).strip().lower()
-        if cancel_status == CANCELLATION_SCHEDULED and sub.cancellation_effective_at and now >= sub.cancellation_effective_at:
-            return "cancelled"
-        if cancel_status == CANCELLATION_CANCELLED:
-            return "cancelled"
-        return base
+    def _coerce_datetime(value: Any) -> datetime | None:
+        """Normalise DB/driver quirks (unix ints, ISO strings) to naive UTC datetime."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=None) if value.tzinfo else value
+        if isinstance(value, (int, float)):
+            ts = float(value)
+            if ts > 1e12:
+                ts /= 1000.0
+            if ts <= 0:
+                return None
+            try:
+                return datetime.utcfromtimestamp(ts)
+            except (OSError, OverflowError, ValueError):
+                return None
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return None
+            try:
+                if text.endswith("Z"):
+                    text = text[:-1] + "+00:00"
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+            except ValueError:
+                return None
+        return None
 
     @staticmethod
     def monthly_plan_minor(db: Session, org: Organisation, plan: Plan) -> int:
@@ -143,6 +162,48 @@ class SubscriptionCancellationService:
         return 0
 
     @staticmethod
+    def _billing_interval(sub: Subscription, plan: Plan | None = None) -> str:
+        raw = str(getattr(sub, "billing_interval", None) or getattr(plan, "interval", None) or "monthly").strip().lower()
+        return "yearly" if raw == "yearly" else "monthly"
+
+    @staticmethod
+    def _period_bounds(
+        sub: Subscription,
+        plan: Plan | None,
+        *,
+        as_of: datetime | None = None,
+    ) -> tuple[datetime | None, datetime | None, datetime]:
+        now = SubscriptionCancellationService._coerce_datetime(as_of) or datetime.utcnow()
+        period_end = SubscriptionCancellationService._coerce_datetime(sub.current_period_end)
+        if period_end is None:
+            return None, None, now
+        interval = SubscriptionCancellationService._billing_interval(sub, plan)
+        default_days = 365 if interval == "yearly" else 30
+        period_start = (
+            SubscriptionCancellationService._coerce_datetime(sub.first_payment_at)
+            or SubscriptionCancellationService._coerce_datetime(sub.created_at)
+        )
+        if period_start is None or period_start >= period_end:
+            period_start = period_end - timedelta(days=default_days)
+        if period_start > now:
+            created = SubscriptionCancellationService._coerce_datetime(sub.created_at)
+            if created is not None and created < period_end:
+                period_start = created
+            else:
+                period_start = period_end - timedelta(days=default_days)
+        return period_start, period_end, now
+
+    @staticmethod
+    def _amount_paid_for_period_minor(db: Session, org: Organisation, sub: Subscription, plan: Plan) -> int:
+        invoice = SubscriptionCancellationService._latest_paid_subscription_invoice(db, org.id)
+        if invoice is not None:
+            paid = int(invoice.subtotal_pence if invoice.subtotal_pence is not None else invoice.amount_gbp_pence or 0)
+            if paid > 0:
+                return paid
+        _currency, charged = PlanPriceService.subscription_charge_amount_for_org(db, org, plan, sub)
+        return max(0, int(charged or 0))
+
+    @staticmethod
     def calculate_unused_value_pence(
         db: Session,
         org: Organisation,
@@ -151,20 +212,52 @@ class SubscriptionCancellationService:
         *,
         as_of: datetime | None = None,
     ) -> int:
-        """Conservative proration: remaining days in current period × monthly plan price, rounded down."""
-        now = as_of or datetime.utcnow()
-        period_end = sub.current_period_end
-        if not period_end or now >= period_end:
+        """Unused prepaid value for refund review.
+
+        Yearly: refund = amount_paid − (full months used × monthly list price).
+        That removes the yearly discount from months already used
+        (e.g. paid £590/year, monthly £59, used 3 months → £590 − £177 = £413).
+
+        Monthly: remaining days / period days × amount paid.
+        """
+        if plan is None:
             return 0
-        period_start = period_end - timedelta(days=30)
-        if period_start > now:
-            period_start = sub.created_at or period_start
+        period_start, period_end, now = SubscriptionCancellationService._period_bounds(sub, plan, as_of=as_of)
+        if period_end is None or now >= period_end:
+            return 0
+        monthly = SubscriptionCancellationService.monthly_plan_minor(db, org, plan)
+        amount_paid = SubscriptionCancellationService._amount_paid_for_period_minor(db, org, sub, plan)
+        if amount_paid <= 0 and monthly <= 0:
+            return 0
+
+        interval = SubscriptionCancellationService._billing_interval(sub, plan)
+        if interval == "yearly":
+            if monthly <= 0:
+                return 0
+            elapsed_days = max(0, (now - period_start).days) if period_start else 0
+            months_used = elapsed_days // 30
+            used_value = months_used * monthly
+            return max(0, int(amount_paid) - used_value)
+
+        if amount_paid <= 0:
+            amount_paid = monthly
+        if amount_paid <= 0 or period_start is None:
+            return 0
         total_days = max(1, (period_end - period_start).days)
         remaining_days = max(0, (period_end - now).days)
-        monthly = SubscriptionCancellationService.monthly_plan_minor(db, org, plan)
-        if monthly <= 0:
-            return 0
-        return int(monthly * remaining_days / total_days)
+        return int(amount_paid * remaining_days / total_days)
+
+    @staticmethod
+    def effective_status(sub: Subscription, *, as_of: datetime | None = None) -> str:
+        now = SubscriptionCancellationService._coerce_datetime(as_of) or datetime.utcnow()
+        base = str(sub.status or "active").strip().lower()
+        cancel_status = str(sub.cancellation_status or CANCELLATION_NONE).strip().lower()
+        effective_at = SubscriptionCancellationService._coerce_datetime(sub.cancellation_effective_at)
+        if cancel_status == CANCELLATION_SCHEDULED and effective_at is not None and now >= effective_at:
+            return "cancelled"
+        if cancel_status == CANCELLATION_CANCELLED:
+            return "cancelled"
+        return base
 
     @staticmethod
     def _latest_paid_subscription_invoice(db: Session, org_id: str) -> BillingInvoice | None:
@@ -225,6 +318,7 @@ class SubscriptionCancellationService:
             "requested_refund_type": sub.requested_refund_type,
             "calculated_unused_value_pence": unused,
             "calculated_unused_value_display": money_display(unused, currency),
+            "billing_interval": SubscriptionCancellationService._billing_interval(sub, plan) if plan else "monthly",
             "can_request_cancellation": str(sub.cancellation_status or CANCELLATION_NONE) in {CANCELLATION_NONE, CANCELLATION_REVERSED},
             "can_reverse_cancellation": str(sub.cancellation_status or CANCELLATION_NONE).lower()
             in {CANCELLATION_SCHEDULED, CANCELLATION_REQUESTED},
@@ -236,6 +330,10 @@ class SubscriptionCancellationService:
                 "wallet_credit_automated": False,
                 "payment_method_refund_automated": False,
                 "open_invoices_block_wallet_credit": outstanding > 0,
+                "yearly_refund_rule": (
+                    "Yearly plans: unused value = amount paid minus (months used × monthly list price). "
+                    "Yearly discount is not kept on months already used."
+                ),
             },
         }
 
@@ -312,7 +410,8 @@ class SubscriptionCancellationService:
             raise SubscriptionCancellationError("Invalid refund preference")
 
         now = datetime.utcnow()
-        effective_at = sub.current_period_end or (now + timedelta(days=30))
+        period_end = SubscriptionCancellationService._coerce_datetime(sub.current_period_end)
+        effective_at = period_end or (now + timedelta(days=30))
         sub.cancellation_status = CANCELLATION_SCHEDULED
         sub.cancellation_type = cancel_type
         sub.cancellation_reason = (reason or "").strip()[:2000] or None

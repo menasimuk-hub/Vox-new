@@ -32,10 +32,15 @@ type CancellationPayload = {
   current_period_end?: string | null;
   requested_refund_type?: string | null;
   calculated_unused_value_display?: string | null;
+  calculated_unused_value_pence?: number | null;
+  billing_interval?: string | null;
   can_request_cancellation?: boolean;
   can_reverse_cancellation?: boolean;
   refund_review?: { review_status?: string } | null;
-  policy_notes?: { open_invoices_block_wallet_credit?: boolean };
+  policy_notes?: {
+    open_invoices_block_wallet_credit?: boolean;
+    yearly_refund_rule?: string | null;
+  };
 };
 
 function fmtDate(iso?: string | null) {
@@ -133,9 +138,22 @@ function useSubscriptionCancellationState(service: CancellationService = "voxbul
   const [reverseOpen, setReverseOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [reason, setReason] = React.useState("");
-  const [refundPref, setRefundPref] = React.useState("none");
+  const [refundPref, setRefundPref] = React.useState("payment_method_refund");
 
   const data = (cancelQ.data || {}) as CancellationPayload;
+  const unusedPence = Number(data.calculated_unused_value_pence || 0);
+  const defaultRefundPref =
+    unusedPence > 0 && config.refundPrefs.includes("payment_method_refund")
+      ? "payment_method_refund"
+      : config.refundPrefs.includes("none")
+        ? "none"
+        : config.refundPrefs[0];
+
+  React.useEffect(() => {
+    if (!open) return;
+    setRefundPref(defaultRefundPref);
+  }, [open, defaultRefundPref]);
+
   const status = String(data.status || "none").toLowerCase();
   const scheduled = status === "scheduled" || status === "requested";
   const cancelled = status === "cancelled" || data.effective_subscription_status === "cancelled";
@@ -223,13 +241,18 @@ function CancellationDialog({
         <div className="space-y-4 text-sm">
           {data.calculated_unused_value_display ? (
             <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Estimated unused subscription value (remaining billing period only):{" "}
+              Estimated unused value:{" "}
               <strong className="text-foreground">{data.calculated_unused_value_display}</strong>
+              {String(data.billing_interval || "").toLowerCase() === "yearly" ? (
+                <> — yearly: amount paid minus (months used × monthly price); yearly discount is not kept on months already used.</>
+              ) : (
+                <> (remaining days in this billing period).</>
+              )}
             </p>
           ) : null}
           <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li>Service stays active until the end of your current billing period.</li>
-            <li>No automatic refund until our team approves a refund request.</li>
+            <li>Service stays active until the end of your current billing period — no further renewals after that.</li>
+            <li>If you request a refund for unused prepaid time, our team reviews it before any money is returned.</li>
             <li>{REFUND_TIMING_PROCESSING}</li>
             <li>{REFUND_TIMING_BANK}</li>
           </ul>
@@ -240,20 +263,18 @@ function CancellationDialog({
           <div className="space-y-2">
             <Label>Unused value preference</Label>
             <RadioGroup value={refundPref} onValueChange={setRefundPref}>
-              <div className="flex items-center gap-2">
-                <RadioGroupItem value="none" id="refund-none" />
-                <Label htmlFor="refund-none" className="font-normal">No compensation requested</Label>
-              </div>
+              {refundPrefs.includes("payment_method_refund") ? (
+                <div className="flex items-center gap-2">
+                  <RadioGroupItem value="payment_method_refund" id="refund-bank" />
+                  <Label htmlFor="refund-bank" className="font-normal">
+                    Request refund of unused value to original payment method
+                  </Label>
+                </div>
+              ) : null}
               {refundPrefs.includes("wallet_credit") ? (
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="wallet_credit" id="refund-wallet" />
                   <Label htmlFor="refund-wallet" className="font-normal">Add remaining value to wallet (if approved)</Label>
-                </div>
-              ) : null}
-              {refundPrefs.includes("payment_method_refund") ? (
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="payment_method_refund" id="refund-bank" />
-                  <Label htmlFor="refund-bank" className="font-normal">Request review for refund to original payment method</Label>
                 </div>
               ) : null}
               {refundPrefs.includes("either") ? (
@@ -262,6 +283,10 @@ function CancellationDialog({
                   <Label htmlFor="refund-either" className="font-normal">Either wallet credit or payment-method refund (admin decides)</Label>
                 </div>
               ) : null}
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="none" id="refund-none" />
+                <Label htmlFor="refund-none" className="font-normal">No refund — keep access until period end only</Label>
+              </div>
             </RadioGroup>
           </div>
           {data.policy_notes?.open_invoices_block_wallet_credit ? (

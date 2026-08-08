@@ -131,6 +131,53 @@ class InterviewLaunchEligibilityService:
             has_subscription=can_invoice,
             voice_channel=voice_channel,
         )
+        catalog_due = int(est.get("total_minor") or est.get("amount_due_minor") or 0)
+        promo_discount_applied = False
+        if catalog_due > 0:
+            from app.services.promo_discount_service import PromoDiscountService
+
+            peeked = PromoDiscountService.peek_amount(
+                db, org_id=org.id, service_kind="interview", amount_minor=catalog_due
+            )
+            if peeked.get("discount_applied"):
+                discounted = max(0, int(peeked.get("amount_minor") or 0))
+                if discounted != catalog_due:
+                    promo_discount_applied = True
+                    est = LaunchBillingService._allocate_payment(
+                        db,
+                        org,
+                        currency=str(est.get("currency") or "GBP"),
+                        total_minor=discounted,
+                        collect_by_dd=can_invoice,
+                        base={
+                            **{k: v for k, v in est.items() if k not in {
+                                "total_minor",
+                                "total_display",
+                                "estimated_cost_minor",
+                                "estimated_cost_display",
+                                "required_wallet_minor",
+                                "required_wallet_display",
+                                "wallet_charge_minor",
+                                "wallet_charge_display",
+                                "dd_charge_minor",
+                                "dd_charge_display",
+                                "wallet_shortfall_minor",
+                                "top_up_minor",
+                                "top_up_display",
+                                "payment_method",
+                                "can_launch",
+                                "block_reason",
+                                "wallet_balance_minor",
+                                "wallet_balance_display",
+                                "wallet_spendable_minor",
+                                "wallet_spendable_display",
+                                "wallet_buffer_percent",
+                            }},
+                            "amount_due_minor": discounted,
+                            "promo_discount_applied": True,
+                            "promo_original_amount_minor": catalog_due,
+                        },
+                    )
         method = str(est.get("payment_method") or "")
         total = int(est.get("total_minor") or 0)
         base.update(
@@ -149,6 +196,7 @@ class InterviewLaunchEligibilityService:
                 "wallet_charge_minor": int(est.get("wallet_charge_minor") or 0),
                 "wallet_shortfall_minor": int(est.get("wallet_shortfall_minor") or 0),
                 "launch_billing": est,
+                "promo_discount_applied": promo_discount_applied,
             }
         )
 
@@ -282,5 +330,25 @@ class InterviewLaunchEligibilityService:
             LaunchBillingService.charge_launch(db, order, org, breakdown)
         except LaunchBillingError as e:
             raise InterviewLaunchEligibilityError(str(e)) from e
+        if breakdown.get("promo_discount_applied") or eligibility.get("promo_discount_applied"):
+            try:
+                from app.services.promo_discount_service import PromoDiscountService
+
+                original = int(
+                    breakdown.get("promo_original_amount_minor")
+                    or eligibility.get("estimated_cost_minor")
+                    or breakdown.get("total_minor")
+                    or 0
+                )
+                if original > 0:
+                    PromoDiscountService.apply_and_consume(
+                        db,
+                        org_id=org.id,
+                        service_kind="interview",
+                        amount_minor=original,
+                        commit=False,
+                    )
+            except Exception:
+                logger.exception("interview_promo_discount_consume_failed order_id=%s", order.id)
         db.refresh(order)
         return order
