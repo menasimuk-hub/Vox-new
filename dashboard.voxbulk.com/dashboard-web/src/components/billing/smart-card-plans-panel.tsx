@@ -4,6 +4,7 @@ import { useSearch } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
+import { StripeCardCheckoutDialog } from "@/components/billing/stripe-card-checkout-dialog";
 import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +23,7 @@ import {
   pickPriceMinor,
 } from "@/lib/billing/market";
 import {
+  clearSmartCardCardCheckoutState,
   completeSmartCardGoCardless,
   completeSmartCardSeatCheckout,
   GC_SMART_CARD_FLOW_KEY,
@@ -30,8 +32,10 @@ import {
 } from "@/lib/billing/smart-card-subscription-payment";
 import {
   availablePaymentMethods,
+  isStripeElementsCheckout,
   primarySubscriptionProvider,
   type PaymentMethodChoice,
+  type StripeElementsCheckout,
 } from "@/lib/billing/subscription-payment";
 import { useBillingSubscriptionsSummary, useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
@@ -110,6 +114,7 @@ export function SmartCardPlansPanel() {
   const [pendingCheckout, setPendingCheckout] = React.useState<{ planId: string; seats: number; name: string } | null>(
     null,
   );
+  const [stripeCheckout, setStripeCheckout] = React.useState<StripeElementsCheckout | null>(null);
   const completingRef = React.useRef(false);
 
   const orgCountry = orgQ.data?.country;
@@ -199,6 +204,8 @@ export function SmartCardPlansPanel() {
         toast.success("Seats activated with promo");
         await qc.invalidateQueries({ queryKey: ["smart-card"] });
         await qc.invalidateQueries({ queryKey: ["billing"] });
+      } else if (isStripeElementsCheckout(result)) {
+        setStripeCheckout(result);
       }
       return result;
     },
@@ -342,6 +349,27 @@ export function SmartCardPlansPanel() {
             seats: pendingCheckout.seats,
             paymentMethod,
           });
+        }}
+      />
+
+      <StripeCardCheckoutDialog
+        open={Boolean(stripeCheckout)}
+        onOpenChange={(open) => {
+          if (!open) setStripeCheckout(null);
+        }}
+        session={stripeCheckout}
+        title="Pay for Smart Card seats"
+        onPaid={async (paymentIntentId) => {
+          try {
+            await completeSmartCardSeatCheckout(paymentIntentId);
+            clearSmartCardCardCheckoutState();
+            toast.success("Seats activated");
+            await qc.invalidateQueries({ queryKey: ["smart-card"] });
+            await qc.invalidateQueries({ queryKey: ["billing"] });
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not activate seats");
+            throw e;
+          }
         }}
       />
     </div>

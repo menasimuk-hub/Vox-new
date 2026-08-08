@@ -32,16 +32,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
+import { StripeCardCheckoutDialog } from "@/components/billing/stripe-card-checkout-dialog";
 import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
 import { countryToMarket, marketCurrencySymbol, orgCountryToCurrencyCode } from "@/lib/billing/market";
 import {
+  clearSmartCardCardCheckoutState,
+  completeSmartCardSeatCheckout,
   startSmartCardGoCardless,
   startSmartCardSeatCheckout,
 } from "@/lib/billing/smart-card-subscription-payment";
 import {
   availablePaymentMethods,
+  isStripeElementsCheckout,
   primarySubscriptionProvider,
   type PaymentMethodChoice,
+  type StripeElementsCheckout,
 } from "@/lib/billing/subscription-payment";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { useOrganisation } from "@/lib/queries";
@@ -143,6 +148,7 @@ function SmartCardNewWizard() {
   const [seatQty, setSeatQty] = React.useState(1);
   const [checkoutOpen, setCheckoutOpen] = React.useState(false);
   const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
+  const [stripeCheckout, setStripeCheckout] = React.useState<StripeElementsCheckout | null>(null);
 
   React.useEffect(() => {
     if (!repPhotoFile) {
@@ -437,7 +443,18 @@ function SmartCardNewWizard() {
       if (method === "gocardless") {
         await startSmartCardGoCardless(planId, seatQty, "yearly");
       } else {
-        await startSmartCardSeatCheckout(planId, seatQty, "yearly", "stripe");
+        const result = await startSmartCardSeatCheckout(planId, seatQty, "yearly", "stripe", {
+          returnPath: "/smart-card/new",
+        });
+        if (isStripeElementsCheckout(result)) {
+          setStripeCheckout(result);
+          setSaving(false);
+        } else if (result.provider === "promo_discount" && result.paid) {
+          toast.success("Seats activated with promo");
+          setSaving(false);
+          await qc.invalidateQueries({ queryKey: ["smart-card"] });
+          void navigate({ to: "/smart-card" });
+        }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Checkout failed");
@@ -914,6 +931,32 @@ function SmartCardNewWizard() {
         onConfirm={async (paymentMethod) => {
           setCheckoutOpen(false);
           await activate(paymentMethod);
+        }}
+      />
+
+      <StripeCardCheckoutDialog
+        open={Boolean(stripeCheckout)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setStripeCheckout(null);
+            setSaving(false);
+          }
+        }}
+        session={stripeCheckout}
+        title="Pay for Smart Card seats"
+        onPaid={async (paymentIntentId) => {
+          try {
+            await completeSmartCardSeatCheckout(paymentIntentId);
+            clearSmartCardCardCheckoutState();
+            toast.success("Seats activated");
+            await qc.invalidateQueries({ queryKey: ["smart-card"] });
+            void navigate({ to: "/smart-card" });
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not activate seats");
+            throw e;
+          } finally {
+            setSaving(false);
+          }
         }}
       />
 

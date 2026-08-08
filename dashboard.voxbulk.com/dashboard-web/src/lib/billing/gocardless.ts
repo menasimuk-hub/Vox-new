@@ -194,31 +194,16 @@ export async function completeGoCardlessMandateUpdate(redirectFlowId: string) {
   );
 }
 
-export async function startGoCardlessOrderPayment(orderId: string) {
-  const result = await apiFetch<{
-    redirect_flow_id?: string;
-    authorization_url?: string;
-  }>(`/service-orders/${encodeURIComponent(orderId)}/gocardless/start`, {
-    method: "POST",
-    body: "{}",
-  });
-  const redirectFlowId = result?.redirect_flow_id;
-  const authorizationUrl = result?.authorization_url;
-  if (!redirectFlowId || !authorizationUrl) {
-    throw new Error("GoCardless did not return a checkout URL");
-  }
-  sessionStorage.setItem(GC_ORDER_FLOW_KEY, redirectFlowId);
-  sessionStorage.setItem(GC_ORDER_ID_KEY, orderId);
-  window.location.assign(authorizationUrl);
+export async function startGoCardlessOrderPayment(_orderId: string) {
+  // Per-order GoCardless redirect checkout was removed; campaigns settle via wallet / launch billing.
+  throw new Error(
+    "Direct Debit for individual campaigns is no longer available. Top up your wallet under Account → Billing, then launch from the survey or interview page.",
+  );
 }
 
-export async function completeGoCardlessOrderPayment(redirectFlowId: string) {
-  return apiFetch<{ order?: { id?: string; payment_status?: string; service_code?: string; status?: string } }>(
-    "/service-orders/gocardless/complete",
-    {
-      method: "POST",
-      body: JSON.stringify({ redirect_flow_id: redirectFlowId }),
-    },
+export async function completeGoCardlessOrderPayment(_redirectFlowId: string) {
+  throw new Error(
+    "Direct Debit for individual campaigns is no longer available. Use wallet balance to launch campaigns.",
   );
 }
 

@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { loadScript } from "@/lib/billing/subscription-payment";
+import type { StripeElementsCheckout } from "@/lib/billing/subscription-payment";
 import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
 
 export const CARD_SMART_CARD_PLAN_KEY = "voxbulk_card_smart_card_plan_id";
@@ -23,6 +23,8 @@ type SeatCheckoutResponse = {
   paid?: boolean;
   subscription_id?: string;
   checkout?: Record<string, unknown> & { environment?: string };
+  needs_stripe_elements?: boolean;
+  return_url?: string;
 };
 
 export async function startSmartCardSeatCheckout(
@@ -30,7 +32,8 @@ export async function startSmartCardSeatCheckout(
   seatQuantity: number,
   billingInterval: "monthly" | "yearly" = "yearly",
   paymentMethod: "stripe" | "airwallex" = "stripe",
-) {
+  options?: { returnPath?: string },
+): Promise<SeatCheckoutResponse | StripeElementsCheckout> {
   const result = await apiFetch<SeatCheckoutResponse>("/smart-card/billing/checkout", {
     method: "POST",
     body: JSON.stringify({
@@ -61,7 +64,7 @@ export async function startSmartCardSeatCheckout(
       currency: result.currency,
       environment: String(result.checkout?.environment || "demo"),
       pending: { flow: "smart_card_subscription", payment_intent_id: intentId },
-      returnPath: "/account/packages?tab=smartCard",
+      returnPath: options?.returnPath || "/account/packages?tab=smartCard",
     });
     return result;
   }
@@ -69,17 +72,22 @@ export async function startSmartCardSeatCheckout(
   if (!result.publishable_key || !result.client_secret) {
     throw new Error("Stripe checkout is not configured");
   }
-  await loadScript("https://js.stripe.com/v3");
-  if (!window.Stripe) throw new Error("Stripe.js failed to load");
-  const stripe = window.Stripe(result.publishable_key);
-  const { error } = await stripe.confirmPayment({
-    clientSecret: result.client_secret,
-    confirmParams: {
-      return_url: `${window.location.origin}/account/packages?tab=smartCard&billing=card_success`,
-    },
-  });
-  if (error) throw new Error(error.message || "Stripe payment failed");
-  return result;
+
+  const returnPath = options?.returnPath || "/account/packages?tab=smartCard";
+  const return_url = `${window.location.origin}${returnPath}${returnPath.includes("?") ? "&" : "?"}billing=card_success`;
+
+  return {
+    needs_stripe_elements: true,
+    provider: "stripe",
+    publishable_key: result.publishable_key,
+    client_secret: result.client_secret,
+    payment_intent_id: intentId,
+    return_url,
+    plan_id: result.plan_id || planId,
+    currency: result.currency,
+    amount_minor: result.amount_minor,
+    billing_interval: result.billing_interval || billingInterval,
+  };
 }
 
 export async function completeSmartCardSeatCheckout(paymentIntentId: string) {
@@ -97,6 +105,17 @@ export async function completeSmartCardSeatCheckout(paymentIntentId: string) {
       billing_interval: interval === "monthly" ? "monthly" : "yearly",
     }),
   });
+}
+
+export function clearSmartCardCardCheckoutState() {
+  try {
+    sessionStorage.removeItem(CARD_SMART_CARD_PLAN_KEY);
+    sessionStorage.removeItem(CARD_SMART_CARD_SEATS_KEY);
+    sessionStorage.removeItem(CARD_SMART_CARD_PROVIDER_KEY);
+    sessionStorage.removeItem(CARD_SMART_CARD_INTERVAL_KEY);
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function startSmartCardGoCardless(

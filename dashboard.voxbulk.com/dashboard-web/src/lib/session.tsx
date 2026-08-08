@@ -190,6 +190,14 @@ function GoCardlessReturnHandler({
             await completeFeedbackCardSubscription(pending.payment_intent_id);
             clearFeedbackCardSubscriptionState();
             toast.success("Customer feedback subscription activated");
+          } else if (pending.flow === "smart_card_subscription") {
+            const {
+              completeSmartCardSeatCheckout,
+              clearSmartCardCardCheckoutState,
+            } = await import("@/lib/billing/smart-card-subscription-payment");
+            await completeSmartCardSeatCheckout(pending.payment_intent_id);
+            clearSmartCardCardCheckoutState();
+            toast.success("Smart Card seats activated");
           } else if (pending.flow === "expo" && pending.booth_id) {
             const res = await apiFetch<{
               paid?: boolean;
@@ -242,16 +250,32 @@ function GoCardlessReturnHandler({
           const search = new URLSearchParams(window.location.search);
           const tab = (search.get("tab") || "").toLowerCase();
           let feedbackPlanKey = "";
+          let smartCardPlanKey = "";
           try {
             feedbackPlanKey = (sessionStorage.getItem("voxbulk_card_feedback_sub_plan_id") || "").trim();
+            smartCardPlanKey = (sessionStorage.getItem("voxbulk_card_smart_card_plan_id") || "").trim();
           } catch {
             /* ignore */
           }
+          const onSmartCard =
+            window.location.pathname.includes("/smart-card") ||
+            tab === "smartcard" ||
+            tab === "smart_card" ||
+            Boolean(smartCardPlanKey);
           const onFeedbackPackages =
-            window.location.pathname.includes("/account/feedback/packages") ||
-            tab === "feedback" ||
-            Boolean(feedbackPlanKey);
-          if (onFeedbackPackages) {
+            !onSmartCard &&
+            (window.location.pathname.includes("/account/feedback/packages") ||
+              tab === "feedback" ||
+              Boolean(feedbackPlanKey));
+          if (onSmartCard) {
+            const {
+              completeSmartCardSeatCheckout,
+              clearSmartCardCardCheckoutState,
+            } = await import("@/lib/billing/smart-card-subscription-payment");
+            await completeSmartCardSeatCheckout(paymentIntentId);
+            clearSmartCardCardCheckoutState();
+            toast.success("Smart Card seats activated");
+          } else if (onFeedbackPackages) {
             const { completeFeedbackCardSubscription, clearFeedbackCardSubscriptionState } = await import(
               "@/lib/billing/feedback-subscription-payment"
             );
@@ -477,6 +501,18 @@ function GoCardlessReturnHandler({
           toast.error(e instanceof Error ? e.message : "Could not complete Customer feedback checkout");
         }
       })();
+      return;
+    }
+
+    let smartCardFlowId = "";
+    try {
+      smartCardFlowId = (sessionStorage.getItem("voxbulk_gc_smart_card_redirect_flow_id") || "").trim();
+    } catch {
+      /* ignore */
+    }
+    if (smartCardFlowId) {
+      // Smart Card panel completes its own return; avoid false "session not found" toast.
+      clearBillingQuery();
       return;
     }
 

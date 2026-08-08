@@ -3080,7 +3080,7 @@ export default function Integrations() {
                       <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('stripe', e.target.checked)} />
                       <span>Enable Stripe wallet top-ups</span>
                     </label>
-                    <div className='note'>Used for customer wallet top-ups by card. Customers see Stripe at checkout only when this is enabled and configured.</div>
+                    <div className='note'>Used for wallet top-ups, invoice card pay, and card subscriptions (Core / Feedback / Smart Card) when Direct Debit is not used. Customers see Stripe at checkout when this is enabled and configured.</div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Secret key</label>
                       <input className='input' type='password' value={String(activeDraft.secret_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), secret_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.secret_key ? 'Leave blank to keep current key' : 'sk_test_… or sk_live_…'} />
@@ -3093,7 +3093,7 @@ export default function Integrations() {
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Webhook signing secret</label>
                       <input className='input' type='password' value={String(activeDraft.webhook_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), webhook_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.webhook_secret ? 'Leave blank to keep current secret' : 'whsec_…'} />
-                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/stripe — subscribe to payment_intent.succeeded.</div>
+                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/stripe — subscribe to payment_intent.succeeded and payment_intent.payment_failed. Plan amounts come from Admin pricing (no Stripe Products/Prices required).</div>
                     </div>
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('stripe')} disabled={providerSaving}>

@@ -2,7 +2,7 @@ import { apiFetch } from "@/lib/api";
 import {
   CARD_SUB_INTERVAL_KEY,
   CARD_SUB_PLAN_KEY,
-  loadScript,
+  type StripeElementsCheckout,
 } from "@/lib/billing/subscription-payment";
 import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
 
@@ -21,6 +21,8 @@ type CardStartResponse = {
   paid?: boolean;
   trial_days?: number;
   checkout?: Record<string, unknown> & { environment?: string };
+  needs_stripe_elements?: boolean;
+  return_url?: string;
 };
 
 export async function fetchFeedbackPaymentProviders() {
@@ -39,7 +41,7 @@ export async function startFeedbackCardSubscription(
   planId: string,
   billingInterval: "monthly" | "yearly" = "monthly",
   paymentMethod: "stripe" | "airwallex" = "stripe",
-) {
+): Promise<CardStartResponse | StripeElementsCheckout> {
   const result = await apiFetch<CardStartResponse>("/customer-feedback/subscription/card/start", {
     method: "POST",
     body: JSON.stringify({
@@ -77,17 +79,20 @@ export async function startFeedbackCardSubscription(
   if (!result.publishable_key || !result.client_secret) {
     throw new Error("Stripe checkout is not configured");
   }
-  await loadScript("https://js.stripe.com/v3");
-  if (!window.Stripe) throw new Error("Stripe.js failed to load");
-  const stripe = window.Stripe(result.publishable_key);
-  const { error } = await stripe.confirmPayment({
-    clientSecret: result.client_secret,
-    confirmParams: {
-      return_url: `${window.location.origin}/account/packages?tab=feedback&billing=card_success`,
-    },
-  });
-  if (error) throw new Error(error.message || "Stripe payment failed");
-  return result;
+
+  const return_url = `${window.location.origin}/account/packages?tab=feedback&billing=card_success`;
+  return {
+    needs_stripe_elements: true,
+    provider: "stripe",
+    publishable_key: result.publishable_key,
+    client_secret: result.client_secret,
+    payment_intent_id: result.payment_intent_id,
+    return_url,
+    plan_id: result.plan_id || planId,
+    currency: result.currency,
+    amount_minor: result.amount_minor,
+    billing_interval: result.billing_interval || billingInterval,
+  };
 }
 
 export async function completeFeedbackCardSubscription(paymentIntentId: string) {

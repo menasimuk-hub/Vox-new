@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
+import { StripeCardCheckoutDialog } from "@/components/billing/stripe-card-checkout-dialog";
 import { ExpoPlansPanel } from "@/components/billing/expo-plans-panel";
 import { SERVICE_TINTS, ServicePackageShell } from "@/components/billing/service-package-shell";
 import { SmartCardPlansPanel } from "@/components/billing/smart-card-plans-panel";
@@ -23,12 +24,20 @@ import { apiFetch } from "@/lib/api";
 import { startGoCardlessSubscription, startFeedbackGoCardlessSubscription } from "@/lib/billing/gocardless";
 import {
   availablePaymentMethods,
+  clearCardSubscriptionState,
+  completeCardSubscription,
   coreCheckoutAvailable,
+  isStripeElementsCheckout,
   primarySubscriptionProvider,
   startCardSubscription,
   type PaymentMethodChoice,
+  type StripeElementsCheckout,
 } from "@/lib/billing/subscription-payment";
-import { startFeedbackCardSubscription } from "@/lib/billing/feedback-subscription-payment";
+import {
+  clearFeedbackCardSubscriptionState,
+  completeFeedbackCardSubscription,
+  startFeedbackCardSubscription,
+} from "@/lib/billing/feedback-subscription-payment";
 import { marketLabel } from "@/lib/billing/market";
 import {
   feedbackPlanButtonLabel,
@@ -295,6 +304,8 @@ function PackagesPage() {
   const [checkoutPlan, setCheckoutPlan] = React.useState<PlanRow | null>(null);
   const [checkoutKind, setCheckoutKind] = React.useState<"core" | "feedback">("core");
   const [checkoutFeedbackPkg, setCheckoutFeedbackPkg] = React.useState<FeedbackPackage | null>(null);
+  const [stripeCheckout, setStripeCheckout] = React.useState<StripeElementsCheckout | null>(null);
+  const [stripeCheckoutKind, setStripeCheckoutKind] = React.useState<"core" | "feedback">("core");
 
   const data = pricingQ.data;
   const market = String(data?.org_market || data?.market || "gbp");
@@ -405,6 +416,10 @@ function PackagesPage() {
           );
           setBusyPlanId(null);
           await invalidateBilling();
+        } else if (isStripeElementsCheckout(result)) {
+          setStripeCheckoutKind("core");
+          setStripeCheckout(result);
+          setBusyPlanId(null);
         }
       }
     } catch (e) {
@@ -1032,6 +1047,10 @@ function PackagesPage() {
                     qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
                     qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
                   ]);
+                } else if (isStripeElementsCheckout(result)) {
+                  setStripeCheckoutKind("feedback");
+                  setStripeCheckout(result);
+                  setBusyFeedbackPlanId(null);
                 }
               }
             } catch (e) {
@@ -1043,6 +1062,37 @@ function PackagesPage() {
           if (!checkoutPlan) return;
           setCheckoutOpen(false);
           await runCoreCheckout(checkoutPlan, paymentMethod);
+        }}
+      />
+
+      <StripeCardCheckoutDialog
+        open={Boolean(stripeCheckout)}
+        onOpenChange={(open) => {
+          if (!open) setStripeCheckout(null);
+        }}
+        session={stripeCheckout}
+        title={stripeCheckoutKind === "feedback" ? "Pay for Customer Feedback" : "Pay for Core package"}
+        onPaid={async (paymentIntentId) => {
+          try {
+            if (stripeCheckoutKind === "feedback") {
+              await completeFeedbackCardSubscription(paymentIntentId);
+              clearFeedbackCardSubscriptionState();
+              toast.success("Customer feedback subscription activated");
+              await Promise.all([
+                qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
+                qc.invalidateQueries({ queryKey: queryKeys.feedbackPackages }),
+                qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
+              ]);
+            } else {
+              await completeCardSubscription(paymentIntentId);
+              clearCardSubscriptionState();
+              toast.success("Subscription activated");
+              await invalidateBilling();
+            }
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not activate subscription");
+            throw e;
+          }
         }}
       />
 

@@ -1152,7 +1152,12 @@ class BillingService:
         return f"flow:{str(flow_id or '').strip()}:initial"
 
     @staticmethod
-    def _log_gocardless_http_failure(step: str, *, redirect_flow_id: str, response: httpx.Response) -> None:
+    def _log_gocardless_http_failure(
+        step: str,
+        *,
+        response: httpx.Response,
+        redirect_flow_id: str | None = None,
+    ) -> None:
         detail = ""
         try:
             payload = response.json()
@@ -1164,7 +1169,7 @@ class BillingService:
             "gocardless_complete_api_failed",
             extra={
                 "step": step,
-                "redirect_flow_id": redirect_flow_id,
+                "redirect_flow_id": redirect_flow_id or "",
                 "status_code": response.status_code,
                 "detail": detail,
             },
