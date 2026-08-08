@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Download, QrCode } from "lucide-react";
+import { ArrowLeft, QrCode } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
@@ -14,7 +14,8 @@ import {
   type RepresentativeDraft,
 } from "@/components/expo-booth-sections";
 import { ExpoBoothPrintCard } from "@/components/expo-booth-print-card";
-import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
+import { QrPreviewPanel } from "@/components/qr-preview-panel";
+import { qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -274,12 +275,10 @@ function EditExpoBooth() {
     qr_token: booth.qr_token,
   });
   const displayWebUrl = String(booth.web_url || webUrl || "").trim();
-  const qrSrc =
-    withQrStyleQuery(
-      (booth.qr_image_url && String(booth.qr_image_url).trim()) ||
-        (webUrl ? buildExpoQrImageUrl(webUrl, 440) : ""),
-      qrStyle,
-    ) || "";
+  const qrBase =
+    (booth.qr_image_url && String(booth.qr_image_url).trim()) ||
+    (webUrl ? buildExpoQrImageUrl(webUrl, 440) : "");
+  const qrSrc = withQrStyleQuery(qrBase, qrStyle) || qrBase;
 
   return (
     <div className="flex w-full max-w-none flex-col gap-6">
@@ -521,57 +520,39 @@ function EditExpoBooth() {
                 <QrCode className="size-4 text-primary" /> Your QR code
               </CardTitle>
               <CardDescription>
-                Print this for your stand. Editing questions does not change the QR.
+                Edit style, download, or open the scan link. Print card uses the same QR.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
-              <QrStyleControls value={qrStyle} onChange={setQrStyle} />
-              <div className="flex flex-col items-center gap-3">
-                {qrSrc ? (
-                  <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">
-                    <img
-                      src={qrSrc}
-                      alt={`QR for ${booth.name}`}
-                      className="size-52 sm:size-56"
-                      referrerPolicy="no-referrer"
-                    />
-                  </div>
-                ) : (
-                  <div className="grid size-52 place-items-center rounded-xl border border-dashed text-muted-foreground sm:size-56">
-                    <QrCode className="size-12" />
-                  </div>
-                )}
-                <p className="text-center text-xs text-muted-foreground">Scan to preview on your phone</p>
-                {displayWebUrl ? (
-                  <a
-                    href={displayWebUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block w-full break-all text-center text-sm font-medium text-sky-700 hover:underline"
-                  >
-                    {displayWebUrl}
-                  </a>
-                ) : null}
-                {booth.trigger_text ? (
-                  <p className="text-center text-xs text-muted-foreground">{booth.trigger_text}</p>
-                ) : null}
-                <div className="flex w-full flex-wrap justify-center gap-2">
-                  {qrSrc ? (
-                    <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                      <a href={qrSrc} target="_blank" rel="noreferrer" download={`expo-${booth.name || "booth"}-qr.png`}>
-                        <Download className="size-3.5" /> Open / download QR
-                      </a>
-                    </Button>
-                  ) : null}
-                  {displayWebUrl ? (
-                    <Button size="sm" variant="ghost" asChild>
-                      <a href={displayWebUrl} target="_blank" rel="noreferrer">
-                        Open scan landing
-                      </a>
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+              <QrPreviewPanel
+                style={qrStyle}
+                onStyleChange={setQrStyle}
+                qrImageUrl={qrBase}
+                downloadName={`expo-${booth.name || "booth"}-qr.png`}
+                openUrl={displayWebUrl || null}
+                canEdit={canEdit}
+                saving={saving}
+                onSave={async (draft) => {
+                  setSaving(true);
+                  try {
+                    await apiFetch(`/expo/booths/${boothId}`, {
+                      method: "PATCH",
+                      body: JSON.stringify(qrStylePayload(draft)),
+                    });
+                    setQrStyle(draft);
+                    await boothQ.refetch();
+                    toast.success("QR style saved");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Could not save QR style");
+                    throw e;
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+              />
+              {booth.trigger_text ? (
+                <p className="text-center text-xs text-muted-foreground">{booth.trigger_text}</p>
+              ) : null}
 
               {webUrl || qrSrc ? (
                 <div id="print" className="border-t pt-5">

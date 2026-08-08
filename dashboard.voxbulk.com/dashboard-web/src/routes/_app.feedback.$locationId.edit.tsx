@@ -1,10 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, Download, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
-import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
+import { QrPreviewPanel } from "@/components/qr-preview-panel";
+import { qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -166,32 +167,29 @@ function EditFeedbackSurvey() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">QR style</CardTitle>
+          <CardTitle className="text-base">Your QR code</CardTitle>
           <CardDescription>
-            Colours and design for the downloadable PNG. The scan URL stays the same.
+            Edit style, download PNG, or open the survey link. The scan URL stays the same.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <QrStyleControls value={qrStyle} onChange={setQrStyle} />
-          <div className="flex flex-col items-center gap-2">
-            {location.qr_image_url ? (
-              <>
-                <img
-                  src={withQrStyleQuery(location.qr_image_url, qrStyle)}
-                  alt="QR preview"
-                  className="size-40 rounded-lg border bg-white p-2"
-                />
-                <Button size="sm" variant="outline" asChild>
-                  <a
-                    href={withQrStyleQuery(location.qr_image_url, qrStyle)}
-                    download={`feedback-${location.name || "qr"}.png`}
-                  >
-                    <Download className="size-3.5" /> Download PNG
-                  </a>
-                </Button>
-              </>
-            ) : null}
-          </div>
+        <CardContent>
+          <QrPreviewPanel
+            style={qrStyle}
+            onStyleChange={setQrStyle}
+            qrImageUrl={location.qr_image_url || ""}
+            downloadName={`feedback-${location.name || "qr"}.png`}
+            openUrl={location.web_survey_url || location.wa_url}
+            canEdit
+            saving={updateM.isPending}
+            onSave={async (draft) => {
+              await updateM.mutateAsync({
+                locationId: location.id,
+                body: qrStylePayload(draft),
+              });
+              setQrStyle(draft);
+              toast.success("QR style saved");
+            }}
+          />
         </CardContent>
       </Card>
 

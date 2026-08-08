@@ -45,16 +45,19 @@ def _hex_rgb(raw: str | None, default: str) -> tuple[int, int, int]:
     return int(cleaned[0:2], 16), int(cleaned[2:4], 16), int(cleaned[4:6], 16)
 
 
-def _arrow_band(n: int) -> tuple[int, int, int, int] | None:
-    """Module band cleared for the arrow shaft (x0,y0,x1,y1 inclusive)."""
-    if n < 21:
+def _right_arrow_clear(n: int, border: int) -> tuple[int, int, int, int] | None:
+    """Short clear band on the right edge of the data area (full-matrix coords)."""
+    core = n - 2 * border
+    if core < 21:
         return None
-    cy = n // 2
-    half_h = max(1, n // 18)
-    y0 = max(8, cy - half_h)
-    y1 = min(n - 9, cy + half_h)
-    x0 = max(8, n // 5)
-    x1 = n - 2
+    cy = border + core // 2
+    # Thin vertical clear strip near the right finder-safe edge
+    half_h = max(2, core // 14)
+    y0 = max(border + 8, cy - half_h)
+    y1 = min(border + core - 9, cy + half_h)
+    # Short shaft zone — only rightmost ~3 modules of core (not across whole QR)
+    x1 = border + core - 2
+    x0 = max(border + 8, x1 - 3)
     if y1 < y0 or x1 < x0:
         return None
     return x0, y0, x1, y1
@@ -72,7 +75,8 @@ def _draw_module(
     x0, y0 = x * module_px, y * module_px
     x1, y1 = x0 + module_px - 1, y0 + module_px - 1
     if style == "dots":
-        pad = max(0, module_px // 8)
+        # Clear circular gaps — ~55% diameter so dots read as circles, not squares
+        pad = max(1, int(module_px * 0.22))
         draw.ellipse((x0 + pad, y0 + pad, x1 - pad, y1 - pad), fill=fill)
     else:
         draw.rectangle((x0, y0, x1, y1), fill=fill)
@@ -115,61 +119,128 @@ def _draw_rounded_finder(
     draw.rounded_rectangle(core, radius=rad_core, fill=fill)
 
 
-def _draw_arrow(
+def _draw_line_arrow(
     draw: ImageDraw.ImageDraw,
     *,
-    band: tuple[int, int, int, int],
+    clear: tuple[int, int, int, int],
     module_px: int,
     fill: tuple,
+    qr_right_px: int,
     overhang_px: int,
 ) -> None:
-    x0, y0, x1, y1 = band
-    left = x0 * module_px
-    right = (x1 + 1) * module_px
-    top = y0 * module_px
-    bottom = (y1 + 1) * module_px
-    mid_y = (top + bottom) // 2
-    thickness = max(2, (bottom - top) * 2 // 3)
-    shaft_top = mid_y - thickness // 2
-    shaft_bot = mid_y + thickness // 2
-    head_w = max(module_px * 3, overhang_px)
-    shaft_end = right - head_w // 2
-    tip_x = right + overhang_px
-    draw.rectangle((left, shaft_top, shaft_end, shaft_bot), fill=fill)
-    draw.polygon(
-        [
-            (shaft_end - module_px, top - thickness // 4),
-            (tip_x, mid_y),
-            (shaft_end - module_px, bottom + thickness // 4),
-        ],
-        fill=fill,
-    )
+    """Thin shaft inside the QR + chevron head outside (line-art, right-pointing)."""
+    x0, y0, x1, y1 = clear
+    mid_y = ((y0 + y1 + 1) * module_px) // 2
+    # Shaft: short horizontal line in the cleared zone, stop before the outer edge
+    shaft_left = x0 * module_px + module_px // 2
+    shaft_right = qr_right_px - max(2, module_px // 3)
+    stroke = max(2, module_px // 3)
+    draw.line((shaft_left, mid_y, shaft_right, mid_y), fill=fill, width=stroke)
+
+    # Chevron head outside the QR box
+    tip_x = qr_right_px + overhang_px - max(2, module_px // 4)
+    head_back = qr_right_px + max(2, overhang_px // 5)
+    head_h = max(module_px * 2, overhang_px // 2)
+    draw.line((head_back, mid_y - head_h, tip_x, mid_y), fill=fill, width=stroke)
+    draw.line((head_back, mid_y + head_h, tip_x, mid_y), fill=fill, width=stroke)
+    # Join shaft to head
+    draw.line((shaft_right, mid_y, head_back, mid_y), fill=fill, width=stroke)
 
 
-def _apply_frame_mask(img: Image.Image, frame: FrameRound, bg_rgba: tuple[int, int, int, int]) -> Image.Image:
+def _draw_frame_rect(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    *,
+    frame: FrameRound,
+    radius: int,
+    fill: Any = None,
+    outline: Any = None,
+    width: int = 1,
+) -> None:
+    """Rounded rect; for frame=top only NW/NE are rounded."""
+    x0, y0, x1, y1 = box
+    if frame == "all":
+        draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+        return
+    if frame == "none":
+        draw.rectangle(box, fill=fill, outline=outline, width=width)
+        return
+    # top only: round top, square bottom
+    r = max(0, min(radius, (x1 - x0) // 2, (y1 - y0) // 2))
+    if fill is not None:
+        draw.rectangle((x0, y0 + r, x1, y1), fill=fill)
+        draw.rectangle((x0 + r, y0, x1 - r, y0 + r), fill=fill)
+        draw.pieslice((x0, y0, x0 + 2 * r, y0 + 2 * r), 180, 270, fill=fill)
+        draw.pieslice((x1 - 2 * r, y0, x1, y0 + 2 * r), 270, 360, fill=fill)
+    if outline is not None and width > 0:
+        # Stroke as a slightly inset path approximation
+        for i in range(width):
+            ox0, oy0, ox1, oy1 = x0 + i, y0 + i, x1 - i, y1 - i
+            orad = max(0, r - i)
+            draw.arc((ox0, oy0, ox0 + 2 * orad, oy0 + 2 * orad), 180, 270, fill=outline, width=1)
+            draw.arc((ox1 - 2 * orad, oy0, ox1, oy0 + 2 * orad), 270, 360, fill=outline, width=1)
+            draw.line((ox0 + orad, oy0, ox1 - orad, oy0), fill=outline, width=1)
+            draw.line((ox0, oy0 + orad, ox0, oy1), fill=outline, width=1)
+            draw.line((ox1, oy0 + orad, ox1, oy1), fill=outline, width=1)
+            draw.line((ox0, oy1, ox1, oy1), fill=outline, width=1)
+
+
+def _apply_visible_frame(
+    img: Image.Image,
+    frame: FrameRound,
+    *,
+    fg: tuple[int, int, int],
+    bg: tuple[int, int, int],
+    transparent: bool,
+    pad: int,
+    stroke: int,
+) -> Image.Image:
+    """Pad canvas and draw a visible rounded border so frame style is obvious."""
     if frame == "none":
         return img
     w, h = img.size
-    radius = max(8, min(w, h) // 10)
-    mask = Image.new("L", (w, h), 0)
-    mdraw = ImageDraw.Draw(mask)
-    if frame == "all":
-        mdraw.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=255)
+    radius = max(14, min(w, h) // 8)
+    out_w, out_h = w + 2 * pad, h + 2 * pad
+    if transparent:
+        out = Image.new("RGBA", (out_w, out_h), (0, 0, 0, 0))
+        content = img.convert("RGBA") if img.mode != "RGBA" else img
     else:
-        # top corners rounded: draw full rect then punch square bottoms... 
-        # simpler: rounded_rectangle then re-fill bottom corners as opaque square
-        mdraw.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=255)
-        mdraw.rectangle((0, h - radius - 1, radius + 1, h - 1), fill=255)
-        mdraw.rectangle((w - radius - 1, h - radius - 1, w - 1, h - 1), fill=255)
+        out = Image.new("RGB", (out_w, out_h), bg)
+        content = img.convert("RGB") if img.mode == "RGBA" else img
 
-    if img.mode != "RGBA":
-        img = img.convert("RGBA")
-    out = Image.new("RGBA", (w, h), bg_rgba)
-    out.paste(img, (0, 0))
-    # Apply mask to alpha
-    r, g, b, a = out.split()
-    a = Image.composite(a, Image.new("L", (w, h), 0), mask)
-    return Image.merge("RGBA", (r, g, b, a))
+    mask = Image.new("L", (w, h), 0)
+    _draw_frame_rect(
+        ImageDraw.Draw(mask),
+        (0, 0, w - 1, h - 1),
+        frame=frame,
+        radius=max(8, radius - 4),
+        fill=255,
+    )
+    if transparent:
+        layered = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        layered.paste(content, (0, 0))
+        r, g, b, a = layered.split()
+        a = Image.composite(a, Image.new("L", (w, h), 0), mask)
+        clipped = Image.merge("RGBA", (r, g, b, a))
+        out.paste(clipped, (pad, pad), clipped)
+    else:
+        plate = Image.new("RGB", (w, h), bg)
+        plate.paste(content, (0, 0))
+        out.paste(plate, (pad, pad), mask)
+
+    draw = ImageDraw.Draw(out)
+    inset = max(1, stroke // 2)
+    box = (inset, inset, out_w - 1 - inset, out_h - 1 - inset)
+    stroke_fill: Any = (*fg, 255) if transparent else fg
+    _draw_frame_rect(
+        draw,
+        box,
+        frame=frame,
+        radius=radius,
+        outline=stroke_fill,
+        width=max(2, stroke),
+    )
+    return out
 
 
 def render_styled_qr_png(
@@ -202,20 +273,20 @@ def render_styled_qr_png(
     qr.add_data(payload)
     qr.make(fit=True)
     matrix = qr.get_matrix()
-    # qrcode matrix includes quiet-zone border; work on full matrix
     n = len(matrix)
-    # Finder positions are relative to the QR module grid including border offset.
-    # Quiet zone is `border` modules on each side; finders sit at border offset.
     b = max(0, int(border))
     core_n = n - 2 * b
 
     target = max(64, min(2048, int(size or 512)))
-    overhang_modules = 4 if arrow else 0
+    # Head hangs outside the QR square on the right
+    overhang_modules = 5 if arrow else 0
     total_modules_w = n + overhang_modules
-    module_px = max(1, target // total_modules_w)
+    # Prefer crisp modules before any optional scale
+    module_px = max(4, target // max(n, 1))
     pixel_w = total_modules_w * module_px
     pixel_h = n * module_px
     overhang_px = overhang_modules * module_px
+    qr_right_px = n * module_px
 
     fg = _hex_rgb(fg_hex, "000000")
     bg = _hex_rgb(bg_hex, "ffffff")
@@ -233,31 +304,29 @@ def render_styled_qr_png(
 
     draw = ImageDraw.Draw(img)
 
-    band = None
-    if arrow and core_n >= 21:
-        ax0, ay0, ax1, ay1 = _arrow_band(core_n)  # type: ignore[misc]
-        # Shift into full matrix coords (quiet zone offset)
-        band = (ax0 + b, ay0 + b, ax1 + b, ay1 + b)
-
-    # Clear arrow band first
-    if band is not None:
-        x0, y0, x1, y1 = band
+    clear = _right_arrow_clear(n, b) if arrow else None
+    # Expand clear vertically a bit for breathing room around the shaft
+    if clear is not None:
+        x0, y0, x1, y1 = clear
+        pad_y = 1
+        y0 = max(b + 7, y0 - pad_y)
+        y1 = min(b + core_n - 8, y1 + pad_y)
+        clear = (x0, y0, x1, y1)
         draw.rectangle(
             (x0 * module_px, y0 * module_px, (x1 + 1) * module_px - 1, (y1 + 1) * module_px - 1),
             fill=knockout,
         )
 
-    # Draw modules, skipping finders when rounded (drawn separately) and arrow band
-    finder_set = set()
-    if cor == "rounded":
-        for fx0, fy0, fx1, fy1 in [
-            (b, b, b + 6, b + 6),
-            (b + core_n - 7, b, b + core_n - 1, b + 6),
-            (b, b + core_n - 7, b + 6, b + core_n - 1),
-        ]:
-            for yy in range(fy0, fy1 + 1):
-                for xx in range(fx0, fx1 + 1):
-                    finder_set.add((xx, yy))
+    finder_set: set[tuple[int, int]] = set()
+    # Keep finders solid (square or rounded) even when modules are dots — better scan + clearer style
+    for fx0, fy0, fx1, fy1 in [
+        (b, b, b + 6, b + 6),
+        (b + core_n - 7, b, b + core_n - 1, b + 6),
+        (b, b + core_n - 7, b + 6, b + core_n - 1),
+    ]:
+        for yy in range(fy0, fy1 + 1):
+            for xx in range(fx0, fx1 + 1):
+                finder_set.add((xx, yy))
 
     for y, row in enumerate(matrix):
         for x, dark in enumerate(row):
@@ -265,32 +334,61 @@ def render_styled_qr_png(
                 continue
             if (x, y) in finder_set:
                 continue
-            if band is not None:
-                bx0, by0, bx1, by1 = band
-                if bx0 <= x <= bx1 and by0 <= y <= by1:
+            if clear is not None:
+                cx0, cy0, cx1, cy1 = clear
+                if cx0 <= x <= cx1 and cy0 <= y <= cy1:
                     continue
             _draw_module(draw, x=x, y=y, module_px=module_px, fill=fill, style=mod)
 
     if cor == "rounded":
         for fx, fy in [(b, b), (b + core_n - 7, b), (b, b + core_n - 7)]:
-            _draw_rounded_finder(draw, x0=fx, y0=fy, module_px=module_px, fill=fill, bg=bg_fill if bg_fill is not None else (255, 255, 255, 255))
+            _draw_rounded_finder(
+                draw,
+                x0=fx,
+                y0=fy,
+                module_px=module_px,
+                fill=fill,
+                bg=bg_fill if bg_fill is not None else (255, 255, 255, 255),
+            )
+    else:
+        # Solid square finders (not dotted)
+        for y, row in enumerate(matrix):
+            for x, dark in enumerate(row):
+                if dark and (x, y) in finder_set:
+                    x0, y0 = x * module_px, y * module_px
+                    draw.rectangle(
+                        (x0, y0, x0 + module_px - 1, y0 + module_px - 1),
+                        fill=fill,
+                    )
 
-    if band is not None:
-        _draw_arrow(draw, band=band, module_px=module_px, fill=fill, overhang_px=overhang_px)
+    if clear is not None:
+        _draw_line_arrow(
+            draw,
+            clear=clear,
+            module_px=module_px,
+            fill=fill,
+            qr_right_px=qr_right_px,
+            overhang_px=overhang_px,
+        )
 
-    # Scale to target height while keeping aspect (arrow may make it wider)
+    # Scale height to target; keep arrow overhang aspect
     if pixel_h != target:
         new_w = max(1, int(round(pixel_w * (target / pixel_h))))
-        img = img.resize((new_w, target), Image.Resampling.NEAREST)
+        # Bilinear keeps circles smoother than nearest-neighbour
+        img = img.resize((new_w, target), Image.Resampling.LANCZOS)
 
     if frame != "none":
-        bg_rgba = (0, 0, 0, 0) if transparent else (*bg, 255)
-        img = _apply_frame_mask(img, frame, bg_rgba)
-        if not transparent and img.mode == "RGBA":
-            # Flatten onto bg for opaque downloads
-            flat = Image.new("RGB", img.size, bg)
-            flat.paste(img, mask=img.split()[3])
-            img = flat
+        pad = max(10, target // 28)
+        stroke = max(3, target // 64)
+        img = _apply_visible_frame(
+            img,
+            frame,
+            fg=fg,
+            bg=bg,
+            transparent=transparent,
+            pad=pad,
+            stroke=stroke,
+        )
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

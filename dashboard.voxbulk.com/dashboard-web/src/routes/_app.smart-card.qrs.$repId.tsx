@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Package } from "lucide-react";
+import { Package } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -12,7 +12,8 @@ import {
   type SocialLinks,
 } from "@/components/smart-card/representative-fields";
 import { SmartCardThemePicker } from "@/components/smart-card/smart-card-theme-picker";
-import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
+import { QrPreviewPanel } from "@/components/qr-preview-panel";
+import { qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -248,6 +249,20 @@ function SmartCardEditQrPage() {
     onError: (e: Error) => toast.error(e.message || "Save failed"),
   });
 
+  const saveStyleMut = useMutation({
+    mutationFn: async (style: QrStyleValue) => {
+      await apiFetch(`/smart-card/representatives/${repId}`, {
+        method: "PATCH",
+        body: JSON.stringify(qrStylePayload(style, { includeTransparent: true })),
+      });
+    },
+    onSuccess: async () => {
+      toast.success("QR style saved");
+      await qc.invalidateQueries({ queryKey: ["smart-card"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not save QR style"),
+  });
+
   const rep = repQ.data?.item;
 
   if (repQ.isLoading) {
@@ -265,7 +280,7 @@ function SmartCardEditQrPage() {
     );
   }
 
-  const pngUrl = withQrStyleQuery(rep.qr_image_url || "", qrStyle);
+  const pngUrl = rep.qr_image_url || "";
 
   return (
     <div className="space-y-6">
@@ -294,21 +309,6 @@ function SmartCardEditQrPage() {
                 photoPreviewUrl={photoLocalPreview || remotePhotoSrc}
                 photoFileName={photoFile?.name}
                 onPhotoChange={setPhotoFile}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">QR style</CardTitle>
-              <CardDescription>Modules, corners, colours, and PNG download.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <QrStyleControls
-                value={qrStyle}
-                onChange={setQrStyle}
-                disabled={!canEdit}
-                showTransparent
               />
             </CardContent>
           </Card>
@@ -378,37 +378,24 @@ function SmartCardEditQrPage() {
 
         <div className="space-y-4 lg:sticky lg:top-4">
           <Card>
-            <CardContent className="flex flex-col items-center gap-3 p-4">
-              {pngUrl ? (
-                <img
-                  src={pngUrl}
-                  alt="QR"
-                  className="size-40 rounded-lg border p-2"
-                  style={
-                    qrStyle.transparent
-                      ? {
-                          backgroundImage:
-                            "linear-gradient(45deg,#e5e7eb 25%,transparent 25%),linear-gradient(-45deg,#e5e7eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e5e7eb 75%),linear-gradient(-45deg,transparent 75%,#e5e7eb 75%)",
-                          backgroundSize: "16px 16px",
-                          backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
-                          backgroundColor: "#fff",
-                        }
-                      : { backgroundColor: `#${qrStyle.bg || "ffffff"}` }
-                  }
-                />
-              ) : null}
-              {pngUrl ? (
-                <Button asChild size="sm" variant="outline" className="w-full">
-                  <a href={pngUrl} download={`smart-card-${rep.name || "qr"}.png`}>
-                    <Download className="size-4" /> Download PNG
-                  </a>
-                </Button>
-              ) : null}
-              {rep.web_url ? (
-                <a className="text-xs text-primary underline" href={rep.web_url} target="_blank" rel="noreferrer">
-                  Open link
-                </a>
-              ) : null}
+            <CardHeader>
+              <CardTitle className="text-base">Your QR code</CardTitle>
+              <CardDescription>Edit style, download PNG, or open the scan link.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <QrPreviewPanel
+                style={qrStyle}
+                onStyleChange={setQrStyle}
+                qrImageUrl={pngUrl}
+                downloadName={`smart-card-${rep.name || "qr"}.png`}
+                openUrl={rep.web_url}
+                showTransparent
+                canEdit={canEdit}
+                saving={saveStyleMut.isPending}
+                onSave={async (draft) => {
+                  await saveStyleMut.mutateAsync(draft);
+                }}
+              />
             </CardContent>
           </Card>
 
