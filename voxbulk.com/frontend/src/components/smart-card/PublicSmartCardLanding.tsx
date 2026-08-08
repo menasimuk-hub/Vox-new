@@ -1,9 +1,5 @@
 import * as React from "react";
 
-import {
-  SmartCardWebSession,
-  type DeliveredAsset,
-} from "@/components/smart-card/SmartCardWebSession";
 import { SmartCardTemplate, type SmartCardData } from "@/components/smart-card/SmartCardTemplate";
 import {
   getSmartCardThemeTokens,
@@ -11,6 +7,11 @@ import {
   SmartCardThemeArt,
   type SmartCardThemeId,
 } from "@/components/smart-card/smart-card-themes";
+import type { DeliveredAsset } from "@/components/smart-card/SmartCardWebSession";
+
+const SmartCardWebSession = React.lazy(() =>
+  import("@/components/smart-card/SmartCardWebSession").then((m) => ({ default: m.SmartCardWebSession })),
+);
 
 const API = (import.meta as any).env?.VITE_API_URL || "https://api.voxbulk.com";
 
@@ -264,28 +265,38 @@ export function PublicSmartCardLanding({
 
   if (phase === "web") {
     return (
-      <SmartCardWebSession
-        key={webRunId}
-        token={token}
-        companyName={companyName}
-        themeId={themeId}
-        onDone={(msg, assets) => {
-          setDoneMsg(msg);
-          setDoneAssets(assets || []);
-          setPhase("done");
-        }}
-        onBlocked={(status, message) => {
-          setBlockMessage(
-            message ||
-              (status === "preview_exhausted"
-                ? "Preview tests are used up (15)."
-                : "This Smart Card QR is unavailable."),
-          );
-          setMeta((m) => (m ? { ...m, status } : m));
-          setPhase("blocked");
-        }}
-        onBack={() => setPhase("card")}
-      />
+      <React.Suspense
+        fallback={
+          <main className={`${tokens.bgClass} relative flex min-h-dvh items-center justify-center`}>
+            <p className="text-sm" style={{ color: tokens.sub }}>
+              Loading…
+            </p>
+          </main>
+        }
+      >
+        <SmartCardWebSession
+          key={webRunId}
+          token={token}
+          companyName={companyName}
+          themeId={themeId}
+          onDone={(msg, assets) => {
+            setDoneMsg(msg);
+            setDoneAssets(assets || []);
+            setPhase("done");
+          }}
+          onBlocked={(status, message) => {
+            setBlockMessage(
+              message ||
+                (status === "preview_exhausted"
+                  ? "Preview tests are used up (15)."
+                  : "This Smart Card QR is unavailable."),
+            );
+            setMeta((m) => (m ? { ...m, status } : m));
+            setPhase("blocked");
+          }}
+          onBack={() => setPhase("card")}
+        />
+      </React.Suspense>
     );
   }
 

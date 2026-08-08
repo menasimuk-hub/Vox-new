@@ -40,6 +40,69 @@ def _media_version_for_path(rel_path: str | None) -> str | None:
         return None
 
 
+def _thumb_image_response(
+    abs_path,
+    *,
+    max_edge: int,
+    etag: str,
+    allow_cors: bool = False,
+):
+    """Serve a small WebP thumbnail so public cards stay fast on mobile."""
+    from io import BytesIO
+    from pathlib import Path
+
+    from fastapi.responses import Response
+    from PIL import Image, ImageOps
+
+    path = Path(abs_path)
+    edge = max(32, min(int(max_edge or 160), 512))
+    try:
+        with Image.open(path) as im:
+            im = ImageOps.exif_transpose(im)
+            if im.mode not in ("RGB", "RGBA"):
+                im = im.convert("RGBA" if "A" in im.getbands() else "RGB")
+            im.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+            buf = BytesIO()
+            # Prefer WebP for smaller payload; fall back to JPEG if needed.
+            try:
+                save_im = im.convert("RGB") if im.mode == "RGBA" else im
+                # Keep alpha for logos with transparency.
+                if im.mode == "RGBA":
+                    im.save(buf, format="WEBP", quality=72, method=4)
+                else:
+                    save_im.save(buf, format="WEBP", quality=72, method=4)
+                media = "image/webp"
+            except Exception:
+                buf = BytesIO()
+                im.convert("RGB").save(buf, format="JPEG", quality=78, optimize=True)
+                media = "image/jpeg"
+            headers = {
+                "Cache-Control": "public, max-age=86400, immutable",
+                "ETag": f'"{etag}-w{edge}"',
+            }
+            if allow_cors:
+                headers["Access-Control-Allow-Origin"] = "*"
+                headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+            return Response(content=buf.getvalue(), media_type=media, headers=headers)
+    except Exception:
+        from fastapi.responses import FileResponse
+
+        suffix = path.suffix.lower()
+        media = "image/jpeg"
+        if suffix == ".png":
+            media = "image/png"
+        elif suffix == ".webp":
+            media = "image/webp"
+        headers = {
+            "Cache-Control": "public, max-age=3600",
+            "ETag": f'"{etag}"',
+        }
+        if allow_cors:
+            headers["Access-Control-Allow-Origin"] = "*"
+            headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+        return FileResponse(path, media_type=media, headers=headers)
+
+
 def _get_rep(db: Session, token: str) -> SmartCardRepresentative:
     rep = db.execute(
         select(SmartCardRepresentative).where(SmartCardRepresentative.qr_token == token)
@@ -170,14 +233,14 @@ def get_card(token: str, db: Session = Depends(get_db)):
 
     photo_url = None
     if rep.photo_storage_path:
-        photo_url = f"/public/smart-card/{token}/photo"
+        photo_url = f"/public/smart-card/{token}/photo?w=160"
         if photo_v:
-            photo_url = f"{photo_url}?v={photo_v}"
+            photo_url = f"{photo_url}&v={photo_v}"
     logo_url = None
     if has_logo:
-        logo_url = f"/public/smart-card/{token}/logo"
+        logo_url = f"/public/smart-card/{token}/logo?w=128"
         if logo_v:
-            logo_url = f"{logo_url}?v={logo_v}"
+            logo_url = f"{logo_url}&v={logo_v}"
 
     return {
         "ok": True,
@@ -217,11 +280,13 @@ def get_card(token: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{token}/logo")
-def get_card_logo(token: str, db: Session = Depends(get_db)):
-    from fastapi.responses import FileResponse
-
+def get_card_logo(
+    token: str,
+    w: int = Query(default=128, ge=32, le=512),
+    db: Session = Depends(get_db),
+):
     from app.models.organisation import Organisation
-    from app.services.org_logo_storage_service import media_type_for_key, resolve_logo_path
+    from app.services.org_logo_storage_service import resolve_logo_path
 
     rep = _get_rep(db, token)
     org = db.get(Organisation, rep.org_id)
@@ -235,24 +300,16 @@ def get_card_logo(token: str, db: Session = Depends(get_db)):
         v = str(int(path.stat().st_mtime))
     except OSError:
         v = "0"
-    return FileResponse(
-        path,
-        media_type=media_type_for_key(str(storage_key)),
-        headers={
-            "Cache-Control": "public, max-age=0, must-revalidate",
-            "ETag": f'"{v}"',
-            # Allow public card pages to sample pixels for logo contrast.
-            "Access-Control-Allow-Origin": "*",
-            "Cross-Origin-Resource-Policy": "cross-origin",
-        },
-    )
+    return _thumb_image_response(path, max_edge=w, etag=v, allow_cors=True)
 
 
 @router.get("/{token}/photo")
-def get_card_photo(token: str, db: Session = Depends(get_db)):
+def get_card_photo(
+    token: str,
+    w: int = Query(default=160, ge=32, le=512),
+    db: Session = Depends(get_db),
+):
     from pathlib import Path
-
-    from fastapi.responses import FileResponse
 
     rep = _get_rep(db, token)
     if not rep.photo_storage_path:
@@ -265,24 +322,11 @@ def get_card_photo(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Photo not found") from None
     if not abs_path.is_file():
         raise HTTPException(status_code=404, detail="Photo not found")
-    suffix = abs_path.suffix.lower()
-    media = "image/jpeg"
-    if suffix == ".png":
-        media = "image/png"
-    elif suffix == ".webp":
-        media = "image/webp"
     try:
         v = str(int(abs_path.stat().st_mtime))
     except OSError:
         v = "0"
-    return FileResponse(
-        abs_path,
-        media_type=media,
-        headers={
-            "Cache-Control": "public, max-age=0, must-revalidate",
-            "ETag": f'"{v}"',
-        },
-    )
+    return _thumb_image_response(abs_path, max_edge=w, etag=v, allow_cors=False)
 
 
 @router.get("/{token}/qr.png")
