@@ -14,6 +14,7 @@ import {
   type RepresentativeDraft,
 } from "@/components/expo-booth-sections";
 import { ExpoBoothPrintCard } from "@/components/expo-booth-print-card";
+import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,6 +65,12 @@ type BoothDetail = {
   web_url?: string | null;
   qr_image_url?: string | null;
   qr_token?: string | null;
+  qr_fg_color?: string | null;
+  qr_bg_color?: string | null;
+  qr_module_style?: string | null;
+  qr_corner_style?: string | null;
+  qr_show_arrow?: boolean;
+  qr_frame_round?: string | null;
   trigger_text?: string | null;
   booth_asset_count?: number;
   library_asset_count?: number;
@@ -117,6 +124,14 @@ function EditExpoBooth() {
   const [categories, setCategories] = React.useState<CategoryDraft[]>([]);
   const [packageStartDate, setPackageStartDate] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
+    fg: "000000",
+    bg: "ffffff",
+    moduleStyle: "square",
+    cornerStyle: "square",
+    showArrow: false,
+    frameRound: "none",
+  });
   const initialized = React.useRef(false);
 
   React.useEffect(() => {
@@ -153,6 +168,14 @@ function EditExpoBooth() {
     setFreeGiftText(booth.closing?.free_gift_text || "");
     setCategories(categoriesFromApi(booth.categories));
     setPackageStartDate(booth.activated_at ? String(booth.activated_at).slice(0, 10) : "");
+    setQrStyle({
+      fg: (booth.qr_fg_color || "000000").replace("#", ""),
+      bg: (booth.qr_bg_color || "ffffff").replace("#", ""),
+      moduleStyle: booth.qr_module_style === "dots" ? "dots" : "square",
+      cornerStyle: booth.qr_corner_style === "rounded" ? "rounded" : "square",
+      showArrow: Boolean(booth.qr_show_arrow),
+      frameRound: booth.qr_frame_round === "top" || booth.qr_frame_round === "all" ? booth.qr_frame_round : "none",
+    });
   }, [booth]);
 
   const questionBank = React.useMemo(() => {
@@ -194,6 +217,7 @@ function EditExpoBooth() {
         representatives: representativesToPayload(representatives),
         company_website: companyWebsite.trim() || null,
         notify_mobile: notifyMobile.trim() || null,
+        ...qrStylePayload(qrStyle),
         // Do not send categories — catalogues are managed on Add catalogues; sending [] wiped them.
         ...(packageStartDate ? { start_date: packageStartDate } : {}),
       };
@@ -251,8 +275,11 @@ function EditExpoBooth() {
   });
   const displayWebUrl = String(booth.web_url || webUrl || "").trim();
   const qrSrc =
-    (booth.qr_image_url && String(booth.qr_image_url).trim()) ||
-    (webUrl ? buildExpoQrImageUrl(webUrl, 440) : "");
+    withQrStyleQuery(
+      (booth.qr_image_url && String(booth.qr_image_url).trim()) ||
+        (webUrl ? buildExpoQrImageUrl(webUrl, 440) : ""),
+      qrStyle,
+    ) || "";
 
   return (
     <div className="flex w-full max-w-none flex-col gap-6">
@@ -498,6 +525,7 @@ function EditExpoBooth() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              <QrStyleControls value={qrStyle} onChange={setQrStyle} />
               <div className="flex flex-col items-center gap-3">
                 {qrSrc ? (
                   <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">

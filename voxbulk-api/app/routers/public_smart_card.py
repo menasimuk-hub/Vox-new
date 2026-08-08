@@ -334,15 +334,33 @@ def get_card_photo(
 def get_card_qr_png(
     token: str,
     s: int = Query(default=512, ge=64, le=2048),
+    fg: str | None = Query(default=None),
+    bg: str | None = Query(default=None),
+    t: str | None = Query(default=None),
+    m: str | None = Query(default=None),
+    c: str | None = Query(default=None),
+    a: str | None = Query(default=None),
+    f: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    """PNG QR for this card — true transparent background when qr_transparent is set."""
+    """PNG QR for this card — honours optional style query overrides for live preview."""
     from fastapi.responses import Response
 
+    from app.services.qr_style_render import merge_style_query_overrides, style_kwargs_from_row
     from app.services.smart_card.qr_image_service import render_rep_qr_png
 
     rep = _get_rep(db, token)
-    png = render_rep_qr_png(rep, size=int(s))
+    overrides = merge_style_query_overrides(
+        style_kwargs_from_row(rep),
+        fg=fg,
+        bg=bg,
+        t=t,
+        m=m,
+        c=c,
+        a=a,
+        f=f,
+    )
+    png = render_rep_qr_png(rep, size=int(s), **overrides)
     filename = f"smart-card-{token[:40]}.png"
     return Response(
         content=png,

@@ -27,6 +27,57 @@ def get_survey(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/{token}/qr.png")
+def get_feedback_qr_png(
+    token: str,
+    s: int = Query(default=512, ge=64, le=2048),
+    fg: str | None = Query(default=None),
+    bg: str | None = Query(default=None),
+    t: str | None = Query(default=None),
+    m: str | None = Query(default=None),
+    c: str | None = Query(default=None),
+    a: str | None = Query(default=None),
+    f: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import Response
+    from sqlalchemy import select
+
+    from app.core.config import get_settings
+    from app.models.customer_feedback import FeedbackLocation
+    from app.services.qr_style_render import (
+        merge_style_query_overrides,
+        render_styled_qr_png,
+        style_kwargs_from_row,
+    )
+
+    clean = str(token or "").strip().lower()
+    row = db.execute(select(FeedbackLocation).where(FeedbackLocation.qr_token == clean)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Location not found")
+    web_base = get_settings().public_site_base_url.rstrip("/")
+    web_url = f"{web_base}/survey/{row.qr_token}"
+    overrides = merge_style_query_overrides(
+        style_kwargs_from_row(row),
+        fg=fg,
+        bg=bg,
+        t=t,
+        m=m,
+        c=c,
+        a=a,
+        f=f,
+    )
+    overrides["transparent"] = False
+    png = render_styled_qr_png(web_url, size=int(s), **overrides)
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="feedback-{clean[:40]}.png"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
 @router.get("/survey/{token}/logo")
 def get_survey_logo(token: str, db: Session = Depends(get_db)):
     try:

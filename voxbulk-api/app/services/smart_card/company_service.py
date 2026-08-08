@@ -234,11 +234,18 @@ class SmartCardCompanyService:
     def qr_image_url(rep: SmartCardRepresentative) -> str:
         """Absolute PNG URL served by our API (supports true transparent backgrounds)."""
         from app.services.brand_assets import api_public_origin
+        from app.services.qr_style_render import build_qr_png_url
 
         token = str(rep.qr_token or "").strip()
-        api = (api_public_origin() or "").rstrip("/") or "https://api.voxbulk.com"
-        fg = re.sub(r"[^0-9a-fA-F]", "", str(rep.qr_fg_color or "000000"))[:6] or "000000"
-        bg = re.sub(r"[^0-9a-fA-F]", "", str(rep.qr_bg_color or "ffffff"))[:6] or "ffffff"
-        tr = "1" if rep.qr_transparent else "0"
-        # Cache-bust when colours / transparency change
-        return f"{api}/public/smart-card/{token}/qr.png?fg={fg}&bg={bg}&t={tr}&s=512"
+        return build_qr_png_url(
+            api_origin=api_public_origin() or "https://api.voxbulk.com",
+            path=f"/public/smart-card/{token}/qr.png",
+            fg=str(rep.qr_fg_color or "000000"),
+            bg=str(rep.qr_bg_color or "ffffff"),
+            transparent=bool(rep.qr_transparent),
+            module_style=str(getattr(rep, "qr_module_style", None) or "square"),
+            corner_style=str(getattr(rep, "qr_corner_style", None) or "square"),
+            show_arrow=bool(getattr(rep, "qr_show_arrow", False)),
+            frame_round=str(getattr(rep, "qr_frame_round", None) or "none"),
+            size=512,
+        )

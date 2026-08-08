@@ -104,6 +104,12 @@ export type FeedbackLocation = {
   open_question_enabled?: boolean;
   marketing_opt_in_enabled?: boolean;
   qr_token?: string;
+  qr_fg_color?: string;
+  qr_bg_color?: string;
+  qr_module_style?: string;
+  qr_corner_style?: string;
+  qr_show_arrow?: boolean;
+  qr_frame_round?: string;
   status: string;
   scan_count: number;
   trigger_text: string;
@@ -136,6 +142,12 @@ export type CreateFeedbackLocationInput = {
   marketing_opt_in_enabled?: boolean;
   web_theme?: Record<string, unknown>;
   ai_follow_up?: Record<string, unknown>;
+  qr_fg_color?: string;
+  qr_bg_color?: string;
+  qr_module_style?: string;
+  qr_corner_style?: string;
+  qr_show_arrow?: boolean;
+  qr_frame_round?: string;
 };
 
 export type UpdateFeedbackLocationInput = {
@@ -146,6 +158,12 @@ export type UpdateFeedbackLocationInput = {
   status?: string;
   web_theme?: Record<string, unknown>;
   ai_follow_up?: Record<string, unknown>;
+  qr_fg_color?: string;
+  qr_bg_color?: string;
+  qr_module_style?: string;
+  qr_corner_style?: string;
+  qr_show_arrow?: boolean;
+  qr_frame_round?: string;
 };
 
 export type FeedbackIndustry = {

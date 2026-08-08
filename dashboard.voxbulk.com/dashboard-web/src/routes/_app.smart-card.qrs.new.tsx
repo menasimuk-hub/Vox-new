@@ -9,12 +9,11 @@ import {
   socialLinksPayload,
   type RepresentativeFormValue,
 } from "@/components/smart-card/representative-fields";
+import { QrStyleControls, qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
@@ -34,8 +33,15 @@ function SmartCardAddQrPage() {
 
   const [rep, setRep] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
   const [productIds, setProductIds] = React.useState<string[]>([]);
-  const [fg, setFg] = React.useState("000000");
-  const [bg, setBg] = React.useState("ffffff");
+  const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
+    fg: "000000",
+    bg: "ffffff",
+    transparent: false,
+    moduleStyle: "square",
+    cornerStyle: "square",
+    showArrow: false,
+    frameRound: "none",
+  });
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = React.useState<string | null>(null);
 
@@ -78,8 +84,7 @@ function SmartCardAddQrPage() {
           social_links: socialLinksPayload(rep.social_links),
           extra: rep.job_title.trim() ? { job_title: rep.job_title.trim() } : {},
           product_ids: productIds,
-          qr_fg_color: fg,
-          qr_bg_color: bg,
+          ...qrStylePayload(qrStyle, { includeTransparent: true }),
         }),
       });
       if (photoFile && res.item?.id) {
@@ -141,16 +146,7 @@ function SmartCardAddQrPage() {
             photoFileName={photoFile?.name}
             onPhotoChange={setPhotoFile}
           />
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label>QR colour</Label>
-              <Input type="color" value={`#${fg}`} onChange={(e) => setFg(e.target.value.replace("#", ""))} />
-            </div>
-            <div className="space-y-2">
-              <Label>Background</Label>
-              <Input type="color" value={`#${bg}`} onChange={(e) => setBg(e.target.value.replace("#", ""))} />
-            </div>
-          </div>
+          <QrStyleControls value={qrStyle} onChange={setQrStyle} showTransparent />
         </CardContent>
       </Card>
 

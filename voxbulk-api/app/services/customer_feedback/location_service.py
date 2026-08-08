@@ -76,14 +76,32 @@ def build_trigger_text(*, company: str, branch: str, token: str) -> str:
     )
 
 
-def _qr_image_for(target_url: str) -> str:
-    return (
-        "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&charset-source=UTF-8&charset-target=UTF-8&data="
-        + quote(str(target_url or ""), safe="", encoding="utf-8")
+def _qr_image_for(row: FeedbackLocation) -> str:
+    from app.services.brand_assets import api_public_origin
+    from app.services.qr_style_render import build_qr_png_url
+
+    token = str(row.qr_token or "").strip()
+    return build_qr_png_url(
+        api_origin=api_public_origin() or "https://api.voxbulk.com",
+        path=f"/public/feedback/{token}/qr.png",
+        fg=str(getattr(row, "qr_fg_color", None) or "000000"),
+        bg=str(getattr(row, "qr_bg_color", None) or "ffffff"),
+        transparent=False,
+        module_style=str(getattr(row, "qr_module_style", None) or "square"),
+        corner_style=str(getattr(row, "qr_corner_style", None) or "square"),
+        show_arrow=bool(getattr(row, "qr_show_arrow", False)),
+        frame_round=str(getattr(row, "qr_frame_round", None) or "none"),
+        size=512,
     )
 
 
-def _build_qr_urls(*, phone: str, trigger_text: str, qr_target_url: str | None = None) -> tuple[str, str]:
+def _build_qr_urls(
+    *,
+    phone: str,
+    trigger_text: str,
+    qr_target_url: str | None = None,
+    location: FeedbackLocation | None = None,
+) -> tuple[str, str]:
     """Return (wa_url, qr_image_url).
 
     The scannable QR now points at the web survey landing page (Task 6 — feedback-flow),
@@ -95,8 +113,17 @@ def _build_qr_urls(*, phone: str, trigger_text: str, qr_target_url: str | None =
         raise ValueError("WhatsApp business number is not configured for Customer Feedback.")
     encoded_text = quote(trigger_text, safe="", encoding="utf-8")
     wa_url = f"https://wa.me/{digits}?text={encoded_text}"
-    # Default to the WhatsApp deep link only when no web landing URL is supplied (back-compat).
-    qr_image_url = _qr_image_for(qr_target_url or wa_url)
+    if location is not None:
+        qr_image_url = _qr_image_for(location)
+    else:
+        # Preview without a row — plain styled URL is not available; fall back to external.
+        from urllib.parse import quote as q
+
+        target = qr_target_url or wa_url
+        qr_image_url = (
+            "https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data="
+            + q(str(target or ""), safe="", encoding="utf-8")
+        )
     return wa_url, qr_image_url
 
 
@@ -110,7 +137,9 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
     phone = resolve_feedback_wa_phone_for_qr(db, row.wa_sender_country)
     web_base = get_settings().public_site_base_url.rstrip("/")
     web_survey_url = f"{web_base}/survey/{row.qr_token}"
-    wa_url, qr_image_url = _build_qr_urls(phone=phone, trigger_text=trigger_text, qr_target_url=web_survey_url)
+    wa_url, qr_image_url = _build_qr_urls(
+        phone=phone, trigger_text=trigger_text, qr_target_url=web_survey_url, location=row
+    )
     selected_ids: list[str] = []
     if row.selected_survey_type_ids_json:
         try:
@@ -119,6 +148,8 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
                 selected_ids = [str(x) for x in parsed]
         except json.JSONDecodeError:
             selected_ids = []
+    from app.services.qr_style_fields import qr_style_dict
+
     return {
         "id": row.id,
         "org_id": row.org_id,
@@ -132,6 +163,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "open_question_enabled": bool(row.open_question_enabled),
         "marketing_opt_in_enabled": effective_marketing_opt_in_enabled(row.marketing_opt_in_enabled),
         "qr_token": row.qr_token,
+        **qr_style_dict(row),
         "wa_sender_country": row.wa_sender_country,
         "status": row.status,
         "scan_count": row.scan_count,
@@ -283,6 +315,9 @@ class FeedbackLocationService:
             created_at=now,
             updated_at=now,
         )
+        from app.services.qr_style_fields import init_qr_style_on_create
+
+        init_qr_style_on_create(row, payload, allow_transparent=False)
         db.add(row)
         db.commit()
         db.refresh(row)
@@ -351,6 +386,10 @@ class FeedbackLocationService:
             if "ai_follow_up" in payload and isinstance(payload.get("ai_follow_up"), dict):
                 cfg["ai_follow_up"] = payload["ai_follow_up"]
             row.survey_config_json = json.dumps(cfg)
+
+        from app.services.qr_style_fields import apply_qr_style_payload
+
+        apply_qr_style_payload(row, payload, allow_transparent=False)
 
         row.updated_at = datetime.utcnow()
         db.add(row)

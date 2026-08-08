@@ -15,6 +15,12 @@ from app.models.smart_card import (
     SmartCardRepresentativeProduct,
 )
 from app.services.org_rbac import OrgRbacService, can_view_all_campaigns
+from app.services.qr_style_fields import apply_qr_style_payload, qr_style_dict
+from app.services.qr_style_render import (
+    normalize_corner_style,
+    normalize_frame_round,
+    normalize_module_style,
+)
 from app.services.smart_card.company_service import (
     SmartCardCompanyService,
     SmartCardEntitlementService,
@@ -105,6 +111,10 @@ class SmartCardRepresentativeService:
             qr_fg_color=str(payload.get("qr_fg_color") or "000000").replace("#", "")[:6],
             qr_bg_color=str(payload.get("qr_bg_color") or "ffffff").replace("#", "")[:6],
             qr_transparent=bool(payload.get("qr_transparent")),
+            qr_module_style=normalize_module_style(payload.get("qr_module_style")),
+            qr_corner_style=normalize_corner_style(payload.get("qr_corner_style")),
+            qr_show_arrow=bool(payload.get("qr_show_arrow")),
+            qr_frame_round=normalize_frame_round(payload.get("qr_frame_round")),
             status="active",
             created_by_user_id=user_id,
         )
@@ -180,6 +190,7 @@ class SmartCardRepresentativeService:
             rep.qr_bg_color = str(payload.get("qr_bg_color") or "ffffff").replace("#", "")[:6]
         if "qr_transparent" in payload:
             rep.qr_transparent = bool(payload.get("qr_transparent"))
+        apply_qr_style_payload(rep, payload, allow_transparent=False)
         if "status" in payload:
             status = str(payload.get("status") or "").strip().lower()
             if status in {"active", "archived"}:
@@ -275,9 +286,7 @@ class SmartCardRepresentativeService:
             "notes": rep.notes,
             "extra": extra,
             "qr_token": rep.qr_token,
-            "qr_fg_color": rep.qr_fg_color,
-            "qr_bg_color": rep.qr_bg_color,
-            "qr_transparent": bool(rep.qr_transparent),
+            **qr_style_dict(rep, include_transparent=True),
             "photo_storage_path": rep.photo_storage_path,
             "photo_url": (
                 f"/smart-card/representatives/{rep.id}/photo?v={int(rep.updated_at.timestamp()) if rep.updated_at else 0}"

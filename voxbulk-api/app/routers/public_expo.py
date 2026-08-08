@@ -135,6 +135,57 @@ def get_booth_logo(token: str, db: Session = Depends(get_db)):
     return FileResponse(path, media_type=media_type_for_key(str(storage_key)))
 
 
+@router.get("/{token}/qr.png")
+def get_booth_qr_png(
+    token: str,
+    s: int = Query(default=512, ge=64, le=2048),
+    fg: str | None = Query(default=None),
+    bg: str | None = Query(default=None),
+    t: str | None = Query(default=None),
+    m: str | None = Query(default=None),
+    c: str | None = Query(default=None),
+    a: str | None = Query(default=None),
+    f: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    from app.services.qr_style_render import (
+        merge_style_query_overrides,
+        render_styled_qr_png,
+        style_kwargs_from_row,
+    )
+
+    booth = ExpoBoothService.find_by_token(db, token)
+    if booth is None:
+        raise HTTPException(status_code=404, detail="Booth not found")
+    from app.core.config import get_settings
+
+    site = str(
+        getattr(get_settings(), "public_site_base_url", None)
+        or getattr(get_settings(), "public_site_url", None)
+        or "https://voxbulk.com"
+    ).rstrip("/")
+    web_url = f"{site}/expo/{booth.qr_token}"
+    overrides = merge_style_query_overrides(
+        style_kwargs_from_row(booth),
+        fg=fg,
+        bg=bg,
+        t=t,
+        m=m,
+        c=c,
+        a=a,
+        f=f,
+    )
+    overrides["transparent"] = False
+    png = render_styled_qr_png(web_url, size=int(s), **overrides)
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="expo-{token[:40]}.png"',
+            "Cache-Control": "public, max-age=300",
+        },
+    )
+
 @router.get("/{token}/vcard")
 def get_booth_vcard(token: str, db: Session = Depends(get_db)):
     """Download exhibitor representative contacts as a .vcf for Save to phone."""

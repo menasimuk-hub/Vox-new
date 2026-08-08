@@ -32,6 +32,7 @@ from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
 from app.services.expo.org_profile_service import ExpoOrgProfileService
+from app.services.qr_style_fields import apply_qr_style_payload, qr_style_dict
 from app.services.expo.question_bank import (
     build_vcard,
     default_free_gift_text,
@@ -237,8 +238,23 @@ def build_trigger_text(*, company: str, booth: str, event: str, token: str) -> s
     )
 
 
-def _qr_image_for(target_url: str) -> str:
-    return f"https://api.qrserver.com/v1/create-qr-code/?size=280x280&data={quote(target_url, safe='')}"
+def _qr_image_for(booth: ExpoBooth) -> str:
+    from app.services.brand_assets import api_public_origin
+    from app.services.qr_style_render import build_qr_png_url
+
+    token = str(booth.qr_token or "").strip()
+    return build_qr_png_url(
+        api_origin=api_public_origin() or "https://api.voxbulk.com",
+        path=f"/public/expo/{token}/qr.png",
+        fg=str(getattr(booth, "qr_fg_color", None) or "000000"),
+        bg=str(getattr(booth, "qr_bg_color", None) or "ffffff"),
+        transparent=False,
+        module_style=str(getattr(booth, "qr_module_style", None) or "square"),
+        corner_style=str(getattr(booth, "qr_corner_style", None) or "square"),
+        show_arrow=bool(getattr(booth, "qr_show_arrow", False)),
+        frame_round=str(getattr(booth, "qr_frame_round", None) or "none"),
+        size=512,
+    )
 
 
 # Accept legacy 6-char and new 16-char suffixes (and anything in between for forward compat).
@@ -394,7 +410,7 @@ class ExpoBoothService:
             "trigger_text": trigger,
             "whatsapp_url": "",
             "web_url": web_url,
-            "qr_image_url": _qr_image_for(web_url),
+            "qr_image_url": _qr_image_for(booth),
             "api_asset_base": f"{api}/public/expo/assets/{booth.qr_token}",
         }
 
@@ -425,7 +441,6 @@ class ExpoBoothService:
         digits = re.sub(r"\D+", "", str(phone or ""))
         wa_url = f"https://wa.me/{digits}?text={quote(trigger)}" if digits else ""
         # QR always opens the public landing (WA vs Web choice), same pattern as Customer Feedback.
-        qr_target = urls["web_url"]
         lead_count = db.execute(
             select(func.count()).select_from(ExpoLead).where(ExpoLead.booth_id == booth.id)
         ).scalar() or 0
@@ -452,6 +467,7 @@ class ExpoBoothService:
             "company_display_name": booth.company_display_name,
             "booth_code": booth.booth_code,
             "qr_token": booth.qr_token,
+            **qr_style_dict(booth),
             "status": booth.status,
             "activated_at": booth.activated_at.isoformat() if booth.activated_at else None,
             "expires_at": booth.expires_at.isoformat() if booth.expires_at else None,
@@ -474,7 +490,7 @@ class ExpoBoothService:
             "trigger_text": trigger,
             "whatsapp_url": wa_url,
             "web_url": urls["web_url"],
-            "qr_image_url": _qr_image_for(qr_target),
+            "qr_image_url": _qr_image_for(booth),
             "assets": [ExpoBoothService.serialize_asset(a) for a in assets],
             "booth_asset_count": asset_counts["booth_asset_count"],
             "library_asset_count": asset_counts["library_asset_count"],
@@ -1061,6 +1077,9 @@ class ExpoBoothService:
             exhibition.timezone = str(payload.get("timezone") or "Europe/London")[:64]
             exhibition.updated_at = now
             db.add(exhibition)
+            from app.services.qr_style_fields import init_qr_style_on_create
+
+            init_qr_style_on_create(booth, payload, allow_transparent=False)
             db.add(booth)
             db.flush()
 
@@ -1167,6 +1186,7 @@ class ExpoBoothService:
             booth.offer_config_json = json.dumps(offer) if offer else None
         if payload.get("is_preview_draft") is False:
             booth.is_preview_draft = False
+        apply_qr_style_payload(booth, payload, allow_transparent=False)
         if "representatives" in payload or "representative_contacts" in payload:
             reps = ExpoBoothService._normalize_reps(
                 payload.get("representatives") or payload.get("representative_contacts")

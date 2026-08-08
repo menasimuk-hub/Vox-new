@@ -12,12 +12,11 @@ import {
   type SocialLinks,
 } from "@/components/smart-card/representative-fields";
 import { SmartCardThemePicker } from "@/components/smart-card/smart-card-theme-picker";
+import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
@@ -45,6 +44,10 @@ type Rep = {
   qr_fg_color?: string;
   qr_bg_color?: string;
   qr_transparent?: boolean;
+  qr_module_style?: string;
+  qr_corner_style?: string;
+  qr_show_arrow?: boolean;
+  qr_frame_round?: string;
   status?: string;
 };
 
@@ -73,9 +76,15 @@ function SmartCardEditQrPage() {
 
   const [repForm, setRepForm] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
   const [productIds, setProductIds] = React.useState<string[]>([]);
-  const [fg, setFg] = React.useState("000000");
-  const [bg, setBg] = React.useState("ffffff");
-  const [transparent, setTransparent] = React.useState(false);
+  const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
+    fg: "000000",
+    bg: "ffffff",
+    transparent: false,
+    moduleStyle: "square",
+    cornerStyle: "square",
+    showArrow: false,
+    frameRound: "none",
+  });
   const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoLocalPreview, setPhotoLocalPreview] = React.useState<string | null>(null);
@@ -157,9 +166,15 @@ function SmartCardEditQrPage() {
       },
     });
     setProductIds(r.product_ids || []);
-    setFg((r.qr_fg_color || "000000").replace("#", ""));
-    setBg((r.qr_bg_color || "ffffff").replace("#", ""));
-    setTransparent(Boolean(r.qr_transparent));
+    setQrStyle({
+      fg: (r.qr_fg_color || "000000").replace("#", ""),
+      bg: (r.qr_bg_color || "ffffff").replace("#", ""),
+      transparent: Boolean(r.qr_transparent),
+      moduleStyle: r.qr_module_style === "dots" ? "dots" : "square",
+      cornerStyle: r.qr_corner_style === "rounded" ? "rounded" : "square",
+      showArrow: Boolean(r.qr_show_arrow),
+      frameRound: r.qr_frame_round === "top" || r.qr_frame_round === "all" ? r.qr_frame_round : "none",
+    });
   }, [repQ.data]);
 
   React.useEffect(() => {
@@ -198,9 +213,7 @@ function SmartCardEditQrPage() {
             address: repForm.address.trim() || null,
           },
           product_ids: productIds,
-          qr_fg_color: fg,
-          qr_bg_color: bg,
-          qr_transparent: transparent,
+          ...qrStylePayload(qrStyle, { includeTransparent: true }),
         }),
       });
       await apiFetch("/smart-card/company", {
@@ -252,7 +265,7 @@ function SmartCardEditQrPage() {
     );
   }
 
-  const pngUrl = rep.qr_image_url || "";
+  const pngUrl = withQrStyleQuery(rep.qr_image_url || "", qrStyle);
 
   return (
     <div className="space-y-6">
@@ -288,35 +301,15 @@ function SmartCardEditQrPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">QR style</CardTitle>
-              <CardDescription>Foreground, background, and PNG download.</CardDescription>
+              <CardDescription>Modules, corners, colours, and PNG download.</CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Colour</Label>
-                <Input
-                  type="color"
-                  value={`#${fg}`}
-                  disabled={!canEdit}
-                  onChange={(e) => setFg(e.target.value.replace("#", ""))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Background</Label>
-                <Input
-                  type="color"
-                  value={`#${bg}`}
-                  disabled={!canEdit || transparent}
-                  onChange={(e) => setBg(e.target.value.replace("#", ""))}
-                />
-              </div>
-              <label className="col-span-2 flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={transparent}
-                  disabled={!canEdit}
-                  onCheckedChange={(v) => setTransparent(Boolean(v))}
-                />
-                Transparent background (PNG with no fill — print on any colour)
-              </label>
+            <CardContent>
+              <QrStyleControls
+                value={qrStyle}
+                onChange={setQrStyle}
+                disabled={!canEdit}
+                showTransparent
+              />
             </CardContent>
           </Card>
 
@@ -392,7 +385,7 @@ function SmartCardEditQrPage() {
                   alt="QR"
                   className="size-40 rounded-lg border p-2"
                   style={
-                    transparent
+                    qrStyle.transparent
                       ? {
                           backgroundImage:
                             "linear-gradient(45deg,#e5e7eb 25%,transparent 25%),linear-gradient(-45deg,#e5e7eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e5e7eb 75%),linear-gradient(-45deg,transparent 75%,#e5e7eb 75%)",
@@ -400,7 +393,7 @@ function SmartCardEditQrPage() {
                           backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
                           backgroundColor: "#fff",
                         }
-                      : { backgroundColor: `#${bg || "ffffff"}` }
+                      : { backgroundColor: `#${qrStyle.bg || "ffffff"}` }
                   }
                 />
               ) : null}

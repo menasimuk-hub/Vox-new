@@ -1,9 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, Download, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
+import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,6 +43,14 @@ function EditFeedbackSurvey() {
   const [overlayIds, setOverlayIds] = React.useState<string[]>([]);
   const [overlayMode, setOverlayMode] = React.useState<WebThemeWizardState["overlayMode"]>("auto");
   const [customEventLabel, setCustomEventLabel] = React.useState("");
+  const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
+    fg: "000000",
+    bg: "ffffff",
+    moduleStyle: "square",
+    cornerStyle: "square",
+    showArrow: false,
+    frameRound: "none",
+  });
   const marketingCountQ = useFeedbackMarketingSubscriberCount();
   const initialized = React.useRef(false);
 
@@ -61,6 +70,17 @@ function EditFeedbackSurvey() {
     setOverlayMode(wt.overlayMode);
     setCustomEventLabel(wt.customEventLabel);
     setAiFollowUp(aiFollowUpFromApi(location.ai_follow_up as Record<string, unknown> | undefined));
+    setQrStyle({
+      fg: (location.qr_fg_color || "000000").replace("#", ""),
+      bg: (location.qr_bg_color || "ffffff").replace("#", ""),
+      moduleStyle: location.qr_module_style === "dots" ? "dots" : "square",
+      cornerStyle: location.qr_corner_style === "rounded" ? "rounded" : "square",
+      showArrow: Boolean(location.qr_show_arrow),
+      frameRound:
+        location.qr_frame_round === "top" || location.qr_frame_round === "all"
+          ? location.qr_frame_round
+          : "none",
+    });
   }, [location]);
 
   const typesQ = useFeedbackSurveyTypes(location?.industry_id || "");
@@ -95,9 +115,10 @@ function EditFeedbackSurvey() {
             customEventLabel,
           }),
           ai_follow_up: aiFollowUpToApi(aiFollowUp),
+          ...qrStylePayload(qrStyle),
         },
       });
-      toast.success("Survey updated. Your existing QR code still works.");
+      toast.success("Survey updated. Download the QR again if you changed its style.");
       void navigate({ to: "/feedback" });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not update survey");
@@ -142,6 +163,37 @@ function EditFeedbackSurvey() {
           </Button>
         }
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">QR style</CardTitle>
+          <CardDescription>
+            Colours and design for the downloadable PNG. The scan URL stays the same.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+          <QrStyleControls value={qrStyle} onChange={setQrStyle} />
+          <div className="flex flex-col items-center gap-2">
+            {location.qr_image_url ? (
+              <>
+                <img
+                  src={withQrStyleQuery(location.qr_image_url, qrStyle)}
+                  alt="QR preview"
+                  className="size-40 rounded-lg border bg-white p-2"
+                />
+                <Button size="sm" variant="outline" asChild>
+                  <a
+                    href={withQrStyleQuery(location.qr_image_url, qrStyle)}
+                    download={`feedback-${location.name || "qr"}.png`}
+                  >
+                    <Download className="size-3.5" /> Download PNG
+                  </a>
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -1,4 +1,4 @@
-"""Smart Card QR PNG — transparent background support."""
+"""Smart Card / styled QR PNG — transparent + style options."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import io
 
 from PIL import Image
 
+from app.services.qr_style_render import render_styled_qr_png
 from app.services.smart_card.qr_image_service import render_smart_card_qr_png
 
 
@@ -49,3 +50,17 @@ def test_white_modules_on_transparent_still_visible_as_opaque_pixels():
     clear = sum(1 for p in img.getdata() if p[3] == 0)
     assert opaque_white > 100
     assert clear > 100
+
+
+def test_dots_rounded_arrow_and_frame_render_png():
+    png = render_styled_qr_png(
+        "https://voxbulk.com/survey/demo-token",
+        module_style="dots",
+        corner_style="rounded",
+        show_arrow=True,
+        frame_round="top",
+        size=256,
+    )
+    assert png.startswith(b"\x89PNG")
+    img = Image.open(io.BytesIO(png))
+    assert img.size[0] >= img.size[1]
