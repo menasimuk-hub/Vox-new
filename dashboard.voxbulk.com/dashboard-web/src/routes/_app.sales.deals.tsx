@@ -34,6 +34,18 @@ type CommissionLine = {
   invoice_id?: string | null;
 };
 
+type ExpectedCommission = {
+  label?: string | null;
+  kind?: string | null;
+  status?: string | null;
+  expected_at?: string | null;
+  expected_date?: string | null;
+  amount_minor?: number | null;
+  amount_display?: string | null;
+  currency?: string | null;
+  note?: string | null;
+};
+
 type Company = {
   id?: string;
   name: string;
@@ -50,6 +62,7 @@ type Company = {
   currency?: string | null;
   amount_display?: string | null;
   subscription_status?: string | null;
+  current_period_end?: string | null;
   created_at?: string | null;
   won_at?: string | null;
   offer_sent_at?: string | null;
@@ -61,6 +74,8 @@ type Company = {
   commission_pending_display?: string | null;
   commission_paid_display?: string | null;
   commissions?: CommissionLine[];
+  expected_commissions?: ExpectedCommission[];
+  next_expected_commission?: ExpectedCommission | null;
 };
 
 type Stats = {
@@ -361,12 +376,21 @@ function SalesDeals() {
                         <span style={{ display: "block", marginTop: 4, fontSize: 12, color: "#6b7280" }}>
                           Won {fmtDay(c.won_at || c.created_at)}
                           {c.commission_total_display || Number(c.commission_total_minor || 0) > 0
-                            ? ` · Your commission ${c.commission_total_display || money(c.commission_total_minor, c.currency || currency)}`
-                            : " · Commission pending first paid invoice"}
+                            ? ` · Earned ${c.commission_total_display || money(c.commission_total_minor, c.currency || currency)}`
+                            : " · No commission earned yet"}
                           {Number(c.commission_pending_minor || 0) > 0
-                            ? ` · ${c.commission_pending_display || money(c.commission_pending_minor, c.currency || currency)} pending`
+                            ? ` · ${c.commission_pending_display || money(c.commission_pending_minor, c.currency || currency)} pending payout`
                             : ""}
                         </span>
+                        {c.next_expected_commission ? (
+                          <span style={{ display: "block", marginTop: 4, fontSize: 12, color: "#047857", fontWeight: 600 }}>
+                            Expected {fmtDay(c.next_expected_commission.expected_date || c.next_expected_commission.expected_at)}
+                            {" · "}
+                            {c.next_expected_commission.amount_display ||
+                              money(c.next_expected_commission.amount_minor, c.next_expected_commission.currency || currency)}
+                            {c.next_expected_commission.label ? ` · ${c.next_expected_commission.label}` : ""}
+                          </span>
+                        ) : null}
                       </span>
                       <span style={{ color: "#9ca3af", marginTop: 8 }}>
                         {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
@@ -439,10 +463,70 @@ function SalesDeals() {
                               {c.commission_pending_display || money(c.commission_pending_minor, c.currency || currency)}
                             </div>
                           </div>
+                          <div>
+                            <div style={{ color: "#6b7280" }}>Next expected</div>
+                            <div style={{ fontWeight: 600 }}>
+                              {c.next_expected_commission
+                                ? `${fmtDay(c.next_expected_commission.expected_date || c.next_expected_commission.expected_at)} · ${
+                                    c.next_expected_commission.amount_display ||
+                                    money(
+                                      c.next_expected_commission.amount_minor,
+                                      c.next_expected_commission.currency || currency,
+                                    )
+                                  }`
+                                : "—"}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: "#6b7280" }}>Customer renewal</div>
+                            <div style={{ fontWeight: 600 }}>{fmtDay(c.current_period_end)}</div>
+                          </div>
                         </div>
 
                         <div>
-                          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Commission lines</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Expected commission</div>
+                          {(c.expected_commissions || []).length === 0 ? (
+                            <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
+                              No further expected commission for this customer under your current tiers.
+                            </p>
+                          ) : (
+                            <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+                              {(c.expected_commissions || []).map((line, idx) => (
+                                <div
+                                  key={`${line.kind || "exp"}-${idx}`}
+                                  style={{
+                                    display: "flex",
+                                    flexWrap: "wrap",
+                                    justifyContent: "space-between",
+                                    gap: 8,
+                                    fontSize: 12,
+                                    padding: "8px 10px",
+                                    borderRadius: 8,
+                                    border: "1px solid #a7f3d0",
+                                    background: "#ecfdf5",
+                                  }}
+                                >
+                                  <div>
+                                    <div style={{ fontWeight: 600 }}>{line.label || "Expected commission"}</div>
+                                    <div style={{ color: "#065f46" }}>
+                                      Expected date: {fmtDay(line.expected_date || line.expected_at)}
+                                      {line.note ? ` · ${line.note}` : ""}
+                                    </div>
+                                  </div>
+                                  <div style={{ textAlign: "right" }}>
+                                    <div style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                                      {line.amount_display || money(line.amount_minor, line.currency || currency)}
+                                    </div>
+                                    <div style={{ color: "#047857" }}>Expected value</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Earned commission lines</div>
                           {(c.commissions || []).length === 0 ? (
                             <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
                               No commission accrued yet for this customer. Rows appear after their subscription invoice

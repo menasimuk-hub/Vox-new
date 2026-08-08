@@ -7,7 +7,7 @@ import io
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.utils import parseaddr
 from typing import Any
 
@@ -1652,6 +1652,179 @@ class SalesRepService:
         return "monthly"
 
     @staticmethod
+    def _add_months(dt: datetime, months: int) -> datetime:
+        from calendar import monthrange
+
+        m0 = dt.month - 1 + int(months)
+        year = dt.year + m0 // 12
+        month = m0 % 12 + 1
+        day = min(dt.day, monthrange(year, month)[1])
+        return dt.replace(year=year, month=month, day=day)
+
+    @staticmethod
+    def forecast_expected_commissions(
+        *,
+        rep: SalesRep,
+        tiers: list[dict[str, Any]],
+        interval: str,
+        package_amount_minor: int | None,
+        currency: str,
+        period_end: datetime | None,
+        paid_subscription_count: int,
+        existing_kinds: set[str],
+    ) -> list[dict[str, Any]]:
+        """Upcoming commission estimates (date + value) for salesman won-deal details."""
+        from app.services.billing_currency import money_display
+        from app.services.sales_hub_benefits import COMMISSION_MONTHS, parse_commission_mode, parse_one_time_bonus_minor
+        from app.services.sales_payout_service import (
+            COMMISSION_TYPE_FIXED,
+            COMMISSION_TYPE_MONTH2,
+            COMMISSION_TYPE_PERCENT,
+            SalesPayoutService,
+        )
+
+        out: list[dict[str, Any]] = []
+        cur = str(currency or "GBP").upper()
+        amount = max(0, int(package_amount_minor or 0))
+        is_yearly = str(interval or "").lower().startswith(("year", "annual"))
+        ctype = SalesPayoutService.commission_type_of(rep)
+        has_tier_json = bool(getattr(rep, "commission_tiers_json", None))
+        base_date = period_end or (datetime.utcnow() + timedelta(days=30))
+        kind_map = {
+            1: "monthly_1st",
+            2: "monthly_2nd",
+            3: "monthly_3rd",
+            4: "monthly_4th",
+            5: "monthly_5th",
+            6: "monthly_6th",
+        }
+
+        def _row(
+            *,
+            label: str,
+            kind: str,
+            expected_at: datetime | None,
+            commission_minor: int,
+            note: str,
+        ) -> dict[str, Any]:
+            return {
+                "label": label,
+                "kind": kind,
+                "status": "expected",
+                "expected_at": expected_at.isoformat() if expected_at else None,
+                "expected_date": expected_at.date().isoformat() if expected_at else None,
+                "amount_minor": int(commission_minor),
+                "amount_display": money_display(int(commission_minor), cur),
+                "currency": cur,
+                "note": note,
+            }
+
+        mode = parse_commission_mode(rep)
+        bonus_minor = parse_one_time_bonus_minor(rep)
+        if mode in {"one_time_only", "one_time_plus_commission"} and bonus_minor > 0 and "one_time_bonus" not in existing_kinds:
+            out.append(
+                _row(
+                    label="One-time bonus",
+                    kind="one_time_bonus",
+                    expected_at=base_date if mode == "one_time_only" else (period_end or base_date),
+                    commission_minor=bonus_minor,
+                    note="Expected when the customer’s first qualifying subscription payment clears.",
+                )
+            )
+            if mode == "one_time_only":
+                return out
+
+        # Partner / every-payment styles
+        if ctype in (COMMISSION_TYPE_PERCENT, COMMISSION_TYPE_FIXED) and not (
+            has_tier_json and ctype == COMMISSION_TYPE_MONTH2
+        ):
+            if ctype == COMMISSION_TYPE_FIXED:
+                commission_minor = SalesPayoutService.fixed_minor_of(rep)
+                note = f"Fixed commission on the next paid subscription invoice."
+                label = "Next paid invoice"
+                kind = "fixed_invoice"
+            else:
+                commission_minor = SalesRepService.apply_commission_pct(amount, SalesRepService.commission_pct_of(rep))
+                pct = SalesRepService.commission_pct_of(rep)
+                note = f"{pct:g}% of the next paid subscription invoice."
+                label = "Next paid invoice"
+                kind = "partner_invoice" if SalesRepService.is_partner_channel(rep) else "percent_invoice"
+            if commission_minor > 0:
+                out.append(
+                    _row(
+                        label=label,
+                        kind=kind,
+                        expected_at=period_end or base_date,
+                        commission_minor=commission_minor,
+                        note=note,
+                    )
+                )
+            return out
+
+        # Month 1–6 tiers
+        if is_yearly:
+            if "yearly_1mo" in existing_kinds or any(k.startswith("monthly_") for k in existing_kinds):
+                return out
+            tier = next((t for t in tiers if int(t.get("month") or 0) == 2 and t.get("enabled")), None)
+            if tier is None:
+                tier = next((t for t in tiers if t.get("enabled")), None)
+            if tier is None or amount <= 0:
+                return out
+            base_minor = max(0, int(round(amount / 12))) if amount else 0
+            if tier.get("kind") == "fixed":
+                commission_minor = int(round(float(tier["value"])))
+                note = "Fixed yearly commission (one month equivalent) — expected on next yearly payment."
+            else:
+                commission_minor = SalesRepService.apply_commission_pct(base_minor, float(tier["value"]))
+                note = f"{float(tier['value']):g}% of one month of the yearly plan — expected on next yearly payment."
+            if commission_minor > 0:
+                out.append(
+                    _row(
+                        label=f"Month {int(tier.get('month') or 2)} (yearly)",
+                        kind="yearly_1mo",
+                        expected_at=period_end or base_date,
+                        commission_minor=commission_minor,
+                        note=note,
+                    )
+                )
+            return out
+
+        paid_n = max(0, int(paid_subscription_count or 0))
+        remaining = [
+            t
+            for t in tiers
+            if t.get("enabled")
+            and int(t.get("month") or 0) in COMMISSION_MONTHS
+            and int(t.get("month") or 0) > paid_n
+            and kind_map[int(t["month"])] not in existing_kinds
+        ]
+        remaining.sort(key=lambda t: int(t["month"]))
+        for idx, tier in enumerate(remaining):
+            month = int(tier["month"])
+            kind = kind_map[month]
+            if tier.get("kind") == "fixed":
+                commission_minor = int(round(float(tier["value"])))
+                note = f"Fixed commission on subscription month {month}."
+            else:
+                commission_minor = SalesRepService.apply_commission_pct(amount, float(tier["value"]))
+                note = f"{float(tier['value']):g}% of subscription month {month}."
+            if commission_minor <= 0:
+                continue
+            # Next unpaid month aligns to current period end; later months step forward.
+            steps = max(0, month - paid_n - 1)
+            expected_at = SalesRepService._add_months(period_end or base_date, steps) if (period_end or base_date) else None
+            out.append(
+                _row(
+                    label=f"Month {month} commission",
+                    kind=kind,
+                    expected_at=expected_at,
+                    commission_minor=commission_minor,
+                    note=note + (f" Estimated around renewal #{idx + 1}." if expected_at else ""),
+                )
+            )
+        return out
+
+    @staticmethod
     def dashboard_stats(db: Session, rep: SalesRep) -> dict[str, Any]:
         customers = db.execute(
             select(SalesCustomer).where(SalesCustomer.sales_rep_id == rep.id)
@@ -1685,9 +1858,16 @@ class SalesRepService:
         org_names: dict[str, str] = {}
         org_packages: dict[str, dict[str, Any]] = {}
         commissions_by_org: dict[str, list[Any]] = {}
+        paid_sub_count_by_org: dict[str, int] = {}
         if org_ids:
             for org in db.execute(select(Organisation).where(Organisation.id.in_(list(org_ids)))).scalars().all():
                 org_names[str(org.id)] = str(org.name or org.id)
+            for inv in paid_invoices:
+                if str(getattr(inv, "kind", "") or "").lower() != "subscription":
+                    continue
+                oid = str(getattr(inv, "org_id", "") or "")
+                if oid:
+                    paid_sub_count_by_org[oid] = paid_sub_count_by_org.get(oid, 0) + 1
             try:
                 from app.models.plan import Plan
                 from app.models.subscription import Subscription
@@ -1727,6 +1907,8 @@ class SalesRepService:
                         "currency": cur,
                         "amount_display": money_display(amount, cur) if amount is not None else None,
                         "subscription_status": getattr(sub, "status", None),
+                        "current_period_end": sub.current_period_end.isoformat() if getattr(sub, "current_period_end", None) else None,
+                        "paid_subscription_count": paid_sub_count_by_org.get(str(oid), 0),
                     }
             except Exception:  # noqa: BLE001
                 pass
@@ -1741,6 +1923,9 @@ class SalesRepService:
             return dt.isoformat() if dt is not None else None
 
         from app.services.billing_currency import money_display as _money_display
+        from app.services.sales_hub_benefits import parse_commission_tiers as _parse_tiers_early
+
+        tiers_for_forecast = _parse_tiers_early(rep)
 
         won_companies: list[dict[str, Any]] = []
         for c in won:
@@ -1753,6 +1938,29 @@ class SalesRepService:
             requested_c = sum(int(x.amount_minor or 0) for x in org_comms if str(x.status or "") == "requested")
             cur = str(pkg.get("currency") or (org_comms[0].currency if org_comms else None) or getattr(rep, "currency", None) or "GBP")
             won_at = c.offer_sent_at or c.interested_at or c.updated_at or c.created_at
+            existing_kinds = {str(x.kind or "") for x in org_comms}
+            period_end_raw = pkg.get("current_period_end")
+            period_end_dt = None
+            if period_end_raw:
+                try:
+                    period_end_dt = datetime.fromisoformat(str(period_end_raw).replace("Z", ""))
+                except ValueError:
+                    period_end_dt = None
+            expected = (
+                SalesRepService.forecast_expected_commissions(
+                    rep=rep,
+                    tiers=tiers_for_forecast,
+                    interval=str(pkg.get("billing_interval") or "monthly"),
+                    package_amount_minor=int(pkg["amount_minor"]) if pkg.get("amount_minor") is not None else None,
+                    currency=cur,
+                    period_end=period_end_dt,
+                    paid_subscription_count=int(pkg.get("paid_subscription_count") or 0),
+                    existing_kinds=existing_kinds,
+                )
+                if oid
+                else []
+            )
+            next_expected = expected[0] if expected else None
             won_companies.append(
                 {
                     "id": c.id,
@@ -1773,6 +1981,8 @@ class SalesRepService:
                     "commission_total_display": _money_display(total_c, cur) if total_c else None,
                     "commission_pending_display": _money_display(pending_c, cur) if pending_c else None,
                     "commission_paid_display": _money_display(paid_c, cur) if paid_c else None,
+                    "expected_commissions": expected,
+                    "next_expected_commission": next_expected,
                     "commissions": [
                         {
                             "id": x.id,
