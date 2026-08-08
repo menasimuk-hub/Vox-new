@@ -48,18 +48,46 @@ declare global {
   }
 }
 
+const loadedScripts: Record<string, Promise<void>> = {};
+
 export function loadScript(src: string) {
-  return new Promise<void>((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) {
-      resolve();
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = src;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error(`Failed to load ${src}`));
-    document.head.appendChild(s);
-  });
+  if (!loadedScripts[src]) {
+    loadedScripts[src] = new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null;
+      if (existing) {
+        if (src.includes("js.stripe.com") && window.Stripe) {
+          resolve();
+          return;
+        }
+        existing.addEventListener("load", () => resolve(), { once: true });
+        existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
+        // Already-complete script tags may not fire load again.
+        if (src.includes("js.stripe.com")) {
+          const start = Date.now();
+          const tick = () => {
+            if (window.Stripe) {
+              resolve();
+              return;
+            }
+            if (Date.now() - start > 8000) {
+              reject(new Error("Stripe.js failed to load"));
+              return;
+            }
+            window.setTimeout(tick, 50);
+          };
+          tick();
+        }
+        return;
+      }
+      const s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error(`Failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  return loadedScripts[src];
 }
 
 export function primarySubscriptionProvider(subscription: Record<string, unknown> | null | undefined): string {

@@ -31,6 +31,7 @@ type StripeJs = {
 type StripePaymentElement = {
   mount: (el: HTMLElement) => void;
   destroy: () => void;
+  on: (event: string, handler: () => void) => void;
 };
 
 type StripeElements = {
@@ -48,8 +49,8 @@ type Props = {
 
 /**
  * Subscription Stripe checkout — mounts Payment Element then confirms.
- * Wallet/invoice/expo already do this; package subscribe must too (confirmPayment
- * without Elements yields Stripe.js "A processing error occurred.").
+ * Uses a callback ref so we wait until Radix Dialog has painted the mount node
+ * (otherwise the effect runs with mountRef=null and stays on “Loading…” forever).
  */
 export function StripeCardCheckoutDialog({
   open,
@@ -61,7 +62,7 @@ export function StripeCardCheckoutDialog({
 }: Props) {
   const [ready, setReady] = React.useState(false);
   const [paying, setPaying] = React.useState(false);
-  const mountRef = React.useRef<HTMLDivElement | null>(null);
+  const [mountEl, setMountEl] = React.useState<HTMLDivElement | null>(null);
   const stripeRef = React.useRef<{ stripe: StripeJs; elements: StripeElements; intentId: string } | null>(
     null,
   );
@@ -70,13 +71,18 @@ export function StripeCardCheckoutDialog({
     ? `${session.payment_intent_id}:${session.client_secret.slice(0, 24)}`
     : "";
 
+  const mountRefCb = React.useCallback((node: HTMLDivElement | null) => {
+    setMountEl(node);
+  }, []);
+
   React.useEffect(() => {
-    if (!open || !session || !mountRef.current) {
+    if (!open || !session || !mountEl) {
       setReady(false);
       return;
     }
 
     let cancelled = false;
+    let readyFallbackTimer: number | undefined;
     setReady(false);
     cleanupRef.current?.();
     cleanupRef.current = null;
@@ -85,18 +91,34 @@ export function StripeCardCheckoutDialog({
     void (async () => {
       try {
         await loadScript("https://js.stripe.com/v3");
-        if (cancelled || !window.Stripe || !mountRef.current) return;
+        if (cancelled || !window.Stripe) {
+          if (!cancelled) throw new Error("Stripe.js failed to load");
+          return;
+        }
         const stripe = window.Stripe(session.publishable_key);
         const elements = stripe.elements({ clientSecret: session.client_secret });
         const paymentElement = elements.create("payment", {
           layout: "tabs",
           wallets: { applePay: "never", googlePay: "never" },
         });
-        mountRef.current.innerHTML = "";
-        paymentElement.mount(mountRef.current);
+        if (cancelled || !mountEl.isConnected) return;
+        mountEl.innerHTML = "";
+        paymentElement.on("ready", () => {
+          if (!cancelled) setReady(true);
+        });
+        paymentElement.mount(mountEl);
         stripeRef.current = { stripe, elements, intentId: session.payment_intent_id };
-        cleanupRef.current = () => paymentElement.destroy();
-        if (!cancelled) setReady(true);
+        cleanupRef.current = () => {
+          try {
+            paymentElement.destroy();
+          } catch {
+            /* ignore */
+          }
+        };
+        // Fallback if ready event is slow/missing in some browsers.
+        readyFallbackTimer = window.setTimeout(() => {
+          if (!cancelled) setReady(true);
+        }, 2500);
       } catch (e) {
         if (!cancelled) {
           toast.error(e instanceof Error ? e.message : "Could not load Stripe");
@@ -107,11 +129,12 @@ export function StripeCardCheckoutDialog({
 
     return () => {
       cancelled = true;
+      if (readyFallbackTimer) window.clearTimeout(readyFallbackTimer);
       cleanupRef.current?.();
       cleanupRef.current = null;
       stripeRef.current = null;
     };
-  }, [open, sessionKey, onOpenChange]);
+  }, [open, sessionKey, mountEl, session, onOpenChange]);
 
   React.useEffect(() => {
     if (!open) {
@@ -158,7 +181,7 @@ export function StripeCardCheckoutDialog({
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
-          <div ref={mountRef} className="min-h-[180px]" />
+          <div ref={mountRefCb} className="min-h-[180px]" />
           {!ready ? (
             <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
