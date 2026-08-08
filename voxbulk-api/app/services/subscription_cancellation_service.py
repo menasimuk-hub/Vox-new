@@ -304,7 +304,17 @@ class SubscriptionCancellationService:
         if sub is None:
             return {"status": CANCELLATION_NONE, "can_request_cancellation": False}
         currency = resolve_org_currency(db, org)
-        unused = SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan) if plan else 0
+        unused = 0
+        if plan is not None:
+            try:
+                unused = SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan)
+            except TypeError:
+                logger.exception(
+                    "calculate_unused_value_pence_type_error org_id=%s subscription_id=%s",
+                    org.id,
+                    sub.id,
+                )
+                unused = 0
         effective = SubscriptionCancellationService.effective_status(sub)
         outstanding = BillingAccessService.outstanding_invoice_minor(db, org.id)
         return {
@@ -312,9 +322,21 @@ class SubscriptionCancellationService:
             "effective_subscription_status": effective,
             "cancellation_type": sub.cancellation_type,
             "cancellation_reason": sub.cancellation_reason,
-            "requested_at": sub.cancellation_requested_at.isoformat() if sub.cancellation_requested_at else None,
-            "effective_at": sub.cancellation_effective_at.isoformat() if sub.cancellation_effective_at else None,
-            "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
+            "requested_at": (
+                SubscriptionCancellationService._coerce_datetime(sub.cancellation_requested_at).isoformat()
+                if SubscriptionCancellationService._coerce_datetime(sub.cancellation_requested_at)
+                else None
+            ),
+            "effective_at": (
+                SubscriptionCancellationService._coerce_datetime(sub.cancellation_effective_at).isoformat()
+                if SubscriptionCancellationService._coerce_datetime(sub.cancellation_effective_at)
+                else None
+            ),
+            "current_period_end": (
+                SubscriptionCancellationService._coerce_datetime(sub.current_period_end).isoformat()
+                if SubscriptionCancellationService._coerce_datetime(sub.current_period_end)
+                else None
+            ),
             "requested_refund_type": sub.requested_refund_type,
             "calculated_unused_value_pence": unused,
             "calculated_unused_value_display": money_display(unused, currency),

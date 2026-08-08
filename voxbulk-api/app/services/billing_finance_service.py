@@ -113,7 +113,11 @@ class BillingFinanceService:
         if not amount_minor and plan and org and not sub.cancel_at_period_end:
             _currency, amount_minor = PlanPriceService.subscription_charge_amount_for_org(db, org, plan, sub)
         # When cancel is scheduled, never surface a "next payment" date — only access-until via current_period_end.
-        next_billing = None if sub.cancel_at_period_end else sub.next_billing_date
+        from app.services.subscription_cancellation_service import SubscriptionCancellationService as _CancelSvc
+
+        next_billing = None if sub.cancel_at_period_end else _CancelSvc._coerce_datetime(sub.next_billing_date)
+        period_end = _CancelSvc._coerce_datetime(sub.current_period_end)
+        effective_at = _CancelSvc._coerce_datetime(sub.cancellation_effective_at) or period_end
         interval = str(getattr(sub, "billing_interval", None) or "monthly").strip().lower()
         if interval not in {"monthly", "yearly"}:
             interval = "monthly"
@@ -126,12 +130,8 @@ class BillingFinanceService:
             "billing_interval": interval,
             "pending_plan_code": pending.code if pending else None,
             "pending_plan_name": pending.name if pending else None,
-            "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
-            "access_until": (
-                (sub.cancellation_effective_at or sub.current_period_end).isoformat()
-                if sub.cancel_at_period_end and (sub.cancellation_effective_at or sub.current_period_end)
-                else None
-            ),
+            "current_period_end": period_end.isoformat() if period_end else None,
+            "access_until": effective_at.isoformat() if sub.cancel_at_period_end and effective_at else None,
             "next_billing_date": next_billing.isoformat() if next_billing else None,
             "amount_next_payment_minor": 0 if sub.cancel_at_period_end else amount_minor,
             "amount_next_payment_display": (
