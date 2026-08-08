@@ -105,5 +105,7 @@ def test_build_variables_does_not_compare_due_date_to_int():
         patch.object(InvoiceDocumentService, "_company_defaults", return_value={}),
     ):
         vars_ = InvoiceDocumentService.build_variables(db, invoice=inv, org=org)
-    assert "Campaign value" in vars_["notes"]
+    # Must not raise TypeError (datetime vs int). Zero-due uses allowance note path.
+    assert "no payment due" in vars_["notes"].lower()
     assert vars_["due_date"]
+    assert vars_["total"]
