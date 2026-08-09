@@ -112,7 +112,7 @@ function EditFeedbackSurvey() {
           marketing_opt_in_enabled: marketingOptIn,
           web_theme: buildWebThemePayload(webTheme),
           ai_follow_up: aiFollowUpToApi(aiFollowUp),
-          ...qrStylePayload(qrStyle, { includeTransparent: true }),
+          ...qrStylePayload(qrStyle),
         },
       });
       toast.success("Survey updated. Download the QR again if you changed its style.");
