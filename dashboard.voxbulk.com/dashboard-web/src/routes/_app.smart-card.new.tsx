@@ -49,6 +49,7 @@ import {
   type StripeElementsCheckout,
 } from "@/lib/billing/subscription-payment";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
+import { dialPrefixForOrg, ensurePhoneCountryCode } from "@/lib/phone";
 import { useOrganisation } from "@/lib/queries";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
 import { useSession } from "@/lib/session";
@@ -117,6 +118,7 @@ function SmartCardNewWizard() {
       : paymentMethods[0]) || "gocardless";
   const currencySym = marketCurrencySymbol(countryToMarket(orgQ.data?.country));
   const currencyCode = orgCountryToCurrencyCode(orgQ.data?.country);
+  const dialPrefix = dialPrefixForOrg(orgQ.data?.country, orgQ.data?.country_code);
 
   const [step, setStep] = React.useState<Step>(1);
   const [saving, setSaving] = React.useState(false);
@@ -316,16 +318,20 @@ function SmartCardNewWizard() {
     return true;
   }, [step, companyName, rep.name, selectedQKeys, contactCapture, planId, seatQty]);
 
-  const buildPayload = () => ({
+  const buildPayload = () => {
+    const mobile = ensurePhoneCountryCode(rep.mobile || notifyMobile, dialPrefix);
+    const landline = ensurePhoneCountryCode(rep.landline, dialPrefix);
+    const companyPhone = ensurePhoneCountryCode(contactPhone || notifyMobile || mobile, dialPrefix);
+    return {
     name: companyName.trim(),
     website: website.trim() || null,
     contact_email: contactEmail.trim() || null,
-    contact_phone: contactPhone.trim() || notifyMobile.trim() || null,
+    contact_phone: companyPhone || null,
     description: description.trim().slice(0, 150) || null,
     address: address.trim() || null,
     theme_id: themeId,
     brand_defaults: { address: address.trim() || null, theme_id: themeId },
-    notify_mobile: notifyMobile.trim() || rep.mobile || null,
+    notify_mobile: mobile || null,
     contact_capture: contactCapture,
     selected_keys: selectedQKeys,
     offer_enabled: offerEnabled,
@@ -343,8 +349,8 @@ function SmartCardNewWizard() {
       ...(repId ? { id: repId } : {}),
       name: rep.name.trim(),
       email: rep.email.trim() || null,
-      mobile: (rep.mobile || notifyMobile).trim() || null,
-      landline: rep.landline.trim() || null,
+      mobile: mobile || null,
+      landline: landline || null,
       extension: rep.extension.trim() || null,
       website: (rep.website || website).trim() || null,
       social_links: socialLinksPayload(rep.social_links),
@@ -354,7 +360,8 @@ function SmartCardNewWizard() {
         ...(rep.address.trim() ? { address: rep.address.trim() } : {}),
       },
     },
-  });
+  };
+  };
 
   const uploadRepPhoto = async (repId: string, file: File) => {
     const form = new FormData();
@@ -566,7 +573,10 @@ function SmartCardNewWizard() {
                     <Input
                       value={contactPhone}
                       onChange={(e) => setContactPhone(e.target.value)}
-                      placeholder="+44…"
+                      onBlur={() =>
+                        setContactPhone((prev) => ensurePhoneCountryCode(prev, dialPrefix))
+                      }
+                      placeholder={`${dialPrefix}…`}
                     />
                   </div>
                   <div className="space-y-1.5">

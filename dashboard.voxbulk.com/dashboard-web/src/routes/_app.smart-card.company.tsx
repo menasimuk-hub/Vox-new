@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
+import { dialPrefixForOrg, ensurePhoneCountryCode } from "@/lib/phone";
+import { useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import {
   normalizeSmartCardThemeId,
@@ -36,6 +38,8 @@ export const Route = createFileRoute("/_app/smart-card/company")({
 
 function SmartCardCompanyPage() {
   const { session } = useSession();
+  const orgQ = useOrganisation();
+  const dialPrefix = dialPrefixForOrg(orgQ.data?.country, orgQ.data?.country_code);
   const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
   const qc = useQueryClient();
   const companyQ = useQuery({
@@ -83,7 +87,13 @@ function SmartCardCompanyPage() {
           canEdit ? (
             <Button
               disabled={saveMut.isPending}
-              onClick={() => saveMut.mutate({ ...form, theme_id: themeId })}
+              onClick={() =>
+                saveMut.mutate({
+                  ...form,
+                  contact_phone: ensurePhoneCountryCode(form.contact_phone, dialPrefix) || null,
+                  theme_id: themeId,
+                })
+              }
             >
               Save
             </Button>
@@ -118,6 +128,17 @@ function SmartCardCompanyPage() {
               disabled={!canEdit}
               value={form.contact_phone || ""}
               onChange={(e) => setForm({ ...form, contact_phone: e.target.value })}
+              onBlur={() =>
+                setForm((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        contact_phone: ensurePhoneCountryCode(prev.contact_phone, dialPrefix) || null,
+                      }
+                    : prev,
+                )
+              }
+              placeholder={`${dialPrefix}…`}
             />
           </Field>
           <div className="sm:col-span-2">

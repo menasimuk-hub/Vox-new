@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
+import { dialPrefixForOrg, ensurePhoneCountryCode } from "@/lib/phone";
+import { useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 
 export const Route = createFileRoute("/_app/smart-card/qrs/new")({
@@ -30,6 +32,8 @@ function SmartCardAddQrPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { session } = useSession();
+  const orgQ = useOrganisation();
+  const dialPrefix = dialPrefixForOrg(orgQ.data?.country, orgQ.data?.country_code);
   const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
 
   const [rep, setRep] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
@@ -70,8 +74,8 @@ function SmartCardAddQrPage() {
         body: JSON.stringify({
           name: rep.name.trim(),
           email: rep.email.trim() || null,
-          mobile: rep.mobile.trim() || null,
-          landline: rep.landline.trim() || null,
+          mobile: ensurePhoneCountryCode(rep.mobile, dialPrefix) || null,
+          landline: ensurePhoneCountryCode(rep.landline, dialPrefix) || null,
           extension: rep.extension.trim() || null,
           website: rep.website.trim() || null,
           social_links: socialLinksPayload(rep.social_links),

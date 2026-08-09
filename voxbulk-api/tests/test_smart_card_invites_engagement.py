@@ -147,6 +147,48 @@ def test_invite_sends_member_invite_for_new_email(db):
     send_mail.assert_called_once()
 
 
+def test_resend_invite_updates_rep_email(db):
+    org, owner = _org_user(db, role="owner")
+    old_email = f"old-{uuid.uuid4().hex[:8]}@test.local"
+    new_email = f"new-{uuid.uuid4().hex[:8]}@test.local"
+    rep = SmartCardRepresentative(
+        org_id=org.id,
+        name="Rep",
+        email=old_email,
+        qr_token=f"tok-{uuid.uuid4().hex[:12]}",
+        status="active",
+        created_by_user_id=owner.id,
+    )
+    db.add(rep)
+    db.flush()
+
+    with (
+        patch(
+            "app.services.org_team_service.OrgTeamService.create_invite",
+            return_value={
+                "invite_id": "inv-2",
+                "signup_url": "https://dashboard.voxbulk.com/signin?invite_token=xyz",
+            },
+        ) as create_invite,
+        patch(
+            "app.services.smart_card.email_service.SmartCardEmailService.send_rep_member_invite",
+            return_value=True,
+        ) as send_mail,
+    ):
+        rep.email = new_email
+        db.add(rep)
+        db.flush()
+        result = SmartCardRepresentativeService.invite_or_link_rep(
+            db, org_id=org.id, actor_user_id=owner.id, rep=rep, force_resend=True
+        )
+    db.commit()
+    assert result["action"] == "invited"
+    assert rep.email == new_email
+    assert create_invite.call_args.kwargs["email"] == new_email
+    send_mail.assert_called_once()
+    assert send_mail.call_args.kwargs["to_email"] == new_email
+
+
 def test_member_safe_payload_strips_status():
     body = SmartCardRepresentativeService.member_safe_payload(
         {"name": "A", "status": "archived", "product_ids": ["1"], "evil": True}

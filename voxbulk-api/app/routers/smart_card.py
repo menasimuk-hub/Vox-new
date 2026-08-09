@@ -311,12 +311,27 @@ def patch_rep(rep_id: str, payload: dict, db: Session = Depends(get_db), princip
 
 
 @router.post("/representatives/{rep_id}/resend-invite")
-def resend_rep_invite(rep_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+def resend_rep_invite(
+    rep_id: str,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
     _require_smart_card_enabled(db, principal.org_id)
     _require_manage(db, principal)
     rep = SmartCardRepresentativeService.get(db, org_id=principal.org_id, rep_id=rep_id)
     if rep is None:
         raise HTTPException(status_code=404, detail="Representative not found")
+    body = payload or {}
+    email_in = body.get("email")
+    if email_in is not None:
+        next_email = str(email_in or "").strip().lower()
+        if not next_email or "@" not in next_email:
+            raise HTTPException(status_code=400, detail="Valid email required")
+        if next_email != (rep.email or "").strip().lower():
+            rep.email = next_email
+            db.add(rep)
+            db.flush()
     if not (rep.email or "").strip():
         raise HTTPException(status_code=400, detail="Representative has no email")
     try:

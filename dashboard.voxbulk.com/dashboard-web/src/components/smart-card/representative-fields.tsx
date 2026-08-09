@@ -3,6 +3,8 @@ import * as React from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { dialPrefixForOrg, ensurePhoneCountryCode } from "@/lib/phone";
+import { useOrganisation } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 export type SocialLinks = {
@@ -133,9 +135,15 @@ export function RepresentativeFields({
   photoFileName?: string | null;
   onPhotoChange?: (file: File | null) => void;
 }) {
+  const orgQ = useOrganisation();
+  const dialPrefix = dialPrefixForOrg(orgQ.data?.country, orgQ.data?.country_code);
   const patch = (partial: Partial<RepresentativeFormValue>) => onChange({ ...value, ...partial });
   const patchSocial = (key: keyof SocialLinks, v: string) =>
     onChange({ ...value, social_links: { ...value.social_links, [key]: v } });
+  const normalizePhoneField = (key: "mobile" | "landline") => {
+    const next = ensurePhoneCountryCode(value[key], dialPrefix);
+    if (next !== value[key]) patch({ [key]: next });
+  };
   const fileRef = React.useRef<HTMLInputElement>(null);
 
   return (
@@ -235,7 +243,8 @@ export function RepresentativeFields({
               value={value.mobile}
               disabled={disabled}
               onChange={(e) => patch({ mobile: e.target.value })}
-              placeholder="+447…"
+              onBlur={() => normalizePhoneField("mobile")}
+              placeholder={`${dialPrefix}7…`}
             />
           </FieldIcon>
         </div>
@@ -248,7 +257,8 @@ export function RepresentativeFields({
                 value={value.landline}
                 disabled={disabled}
                 onChange={(e) => patch({ landline: e.target.value })}
-                placeholder="+44 20…"
+                onBlur={() => normalizePhoneField("landline")}
+                placeholder={`${dialPrefix}…`}
               />
             </FieldIcon>
           </div>

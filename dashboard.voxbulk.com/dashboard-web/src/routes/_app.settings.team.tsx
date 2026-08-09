@@ -1,11 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Check, Copy, Mail, Trash2, UserPlus } from "lucide-react";
+import { Check, Copy, Mail, RefreshCw, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -17,6 +25,7 @@ import {
   useRevokeTeamInvite,
   useTeamInvites,
   useTeamMembers,
+  type TeamInvite,
 } from "@/lib/queries";
 import { requireOrgSettingsAccess } from "@/lib/guards/settings-route";
 import { useSession } from "@/lib/session";
@@ -44,6 +53,10 @@ function TeamSettings() {
   const [email, setEmail] = React.useState("");
   const [role, setRole] = React.useState("accountant");
   const [copiedLinkId, setCopiedLinkId] = React.useState<string | null>(null);
+  const [resendInvite, setResendInvite] = React.useState<TeamInvite | null>(null);
+  const [resendEmail, setResendEmail] = React.useState("");
+  const [resendRole, setResendRole] = React.useState("member");
+  const [resending, setResending] = React.useState(false);
 
   const myRole = String(session?.profile?.role || "owner").toLowerCase();
   const canManage = !myRole || myRole === "owner" || myRole === "manager";
@@ -60,6 +73,35 @@ function TeamSettings() {
       setEmail("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not send invite");
+    }
+  };
+
+  const openResend = (inv: TeamInvite) => {
+    setResendInvite(inv);
+    setResendEmail(inv.email || "");
+    setResendRole(inv.role || "member");
+  };
+
+  const onResend = async () => {
+    if (!resendInvite) return;
+    const em = resendEmail.trim().toLowerCase();
+    if (!em || !em.includes("@")) {
+      toast.error("Enter a valid email address");
+      return;
+    }
+    setResending(true);
+    try {
+      const original = (resendInvite.email || "").trim().toLowerCase();
+      if (em !== original) {
+        await revokeM.mutateAsync(resendInvite.id);
+      }
+      const res = await inviteM.mutateAsync({ email: em, role: resendRole, send_email: true });
+      toast.success(res.email_sent ? `Invite emailed to ${em}` : `Invite created for ${em}`);
+      setResendInvite(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not resend invite");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -87,22 +129,34 @@ function TeamSettings() {
           <CardTitle>Invite teammate</CardTitle>
           <CardDescription>
             They receive an email with a sign-up link. Accountants can use{" "}
-            <Link to="/account/billing" className="text-primary underline-offset-2 hover:underline">Billing</Link>{" "}
+            <Link to="/account/billing" className="text-primary underline-offset-2 hover:underline">
+              Billing
+            </Link>{" "}
             to view invoices and set up GoCardless payment.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 md:flex-row md:items-end">
           <div className="flex-1 space-y-1.5">
             <Label className="text-xs">Email</Label>
-            <Input type="email" placeholder="finance@clinic.com" value={email} onChange={(e) => setEmail(e.target.value)} disabled={!canManage} />
+            <Input
+              type="email"
+              placeholder="finance@clinic.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={!canManage}
+            />
           </div>
           <div className="w-full space-y-1.5 md:w-56">
             <Label className="text-xs">Role</Label>
             <Select value={role} onValueChange={setRole} disabled={!canManage}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 {ROLES.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  <SelectItem key={r.value} value={r.value}>
+                    {r.label}
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -112,15 +166,21 @@ function TeamSettings() {
           </Button>
         </CardContent>
         {!canManage && (
-          <CardContent className="pt-0 text-xs text-muted-foreground">Only owners and managers can invite or remove team members.</CardContent>
+          <CardContent className="pt-0 text-xs text-muted-foreground">
+            Only owners and managers can invite or remove team members.
+          </CardContent>
         )}
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Pending invites</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Pending invites</CardTitle>
+        </CardHeader>
         <CardContent className="px-0">
           {invitesQ.isLoading ? (
-            <div className="p-6"><Skeleton className="h-10 w-full" /></div>
+            <div className="p-6">
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : (invitesQ.data || []).length === 0 ? (
             <p className="px-6 pb-6 text-sm text-muted-foreground">No pending invites.</p>
           ) : (
@@ -143,8 +203,23 @@ function TeamSettings() {
                       {inv.is_expired ? " (expired)" : ""}
                     </TableCell>
                     <TableCell className="pr-6 text-right">
-                      <Button size="sm" variant="ghost" className="gap-1" onClick={() => void copyLink(inv.signup_url, inv.id)}>
-                        {copiedLinkId === inv.id ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+                      {canManage && (
+                        <Button size="sm" variant="ghost" className="gap-1" onClick={() => openResend(inv)}>
+                          <RefreshCw className="size-3.5" />
+                          Resend
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1"
+                        onClick={() => void copyLink(inv.signup_url, inv.id)}
+                      >
+                        {copiedLinkId === inv.id ? (
+                          <Check className="size-3.5 text-success" />
+                        ) : (
+                          <Copy className="size-3.5" />
+                        )}
                         {copiedLinkId === inv.id ? "Copied" : "Link"}
                       </Button>
                       {canManage && (
@@ -152,7 +227,12 @@ function TeamSettings() {
                           size="sm"
                           variant="ghost"
                           className="gap-1 text-destructive"
-                          onClick={() => void revokeM.mutateAsync(inv.id).then(() => toast.success("Invite revoked")).catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))}
+                          onClick={() =>
+                            void revokeM
+                              .mutateAsync(inv.id)
+                              .then(() => toast.success("Invite revoked"))
+                              .catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))
+                          }
                         >
                           <Trash2 className="size-3.5" />
                         </Button>
@@ -167,10 +247,14 @@ function TeamSettings() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Active members</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Active members</CardTitle>
+        </CardHeader>
         <CardContent className="px-0">
           {membersQ.isLoading ? (
-            <div className="p-6"><Skeleton className="h-10 w-full" /></div>
+            <div className="p-6">
+              <Skeleton className="h-10 w-full" />
+            </div>
           ) : (
             <Table>
               <TableHeader>
@@ -193,7 +277,12 @@ function TeamSettings() {
                           size="sm"
                           variant="ghost"
                           className="gap-1 text-destructive"
-                          onClick={() => void removeM.mutateAsync(m.user_id).then(() => toast.success("Member removed")).catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))}
+                          onClick={() =>
+                            void removeM
+                              .mutateAsync(m.user_id)
+                              .then(() => toast.success("Member removed"))
+                              .catch((e) => toast.error(e instanceof Error ? e.message : "Failed"))
+                          }
                         >
                           <Trash2 className="size-3.5" /> Remove
                         </Button>
@@ -208,8 +297,54 @@ function TeamSettings() {
       </Card>
 
       <p className="flex items-center gap-1 text-xs text-muted-foreground">
-        <Mail className="size-3.5" /> Invites use your organisation sign-in page. The invitee creates a password and joins this clinic automatically.
+        <Mail className="size-3.5" /> Invites use your organisation sign-in page. The invitee creates a password and
+        joins this clinic automatically.
       </p>
+
+      <Dialog open={Boolean(resendInvite)} onOpenChange={(open) => !open && setResendInvite(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Resend invitation</DialogTitle>
+            <DialogDescription>
+              Confirm or correct the email address, then send a fresh invite link.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Email</Label>
+              <Input
+                type="email"
+                value={resendEmail}
+                onChange={(e) => setResendEmail(e.target.value)}
+                disabled={resending}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Role</Label>
+              <Select value={resendRole} onValueChange={setResendRole} disabled={resending}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResendInvite(null)} disabled={resending}>
+              Cancel
+            </Button>
+            <Button onClick={() => void onResend()} disabled={resending || !resendEmail.trim()}>
+              {resending ? "Sending…" : "Resend invite"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

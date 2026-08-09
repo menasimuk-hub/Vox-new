@@ -22,9 +22,13 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
+import { dialPrefixForOrg, ensurePhoneCountryCode } from "@/lib/phone";
+import { useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import {
   normalizeSmartCardThemeId,
@@ -83,10 +87,13 @@ function SmartCardEditQrPage() {
   const { repId } = Route.useParams();
   const qc = useQueryClient();
   const { session } = useSession();
+  const orgQ = useOrganisation();
+  const dialPrefix = dialPrefixForOrg(orgQ.data?.country, orgQ.data?.country_code);
   const canManage = canManageTeam(normalizeOrgRole(session?.profile?.role));
   const userId = String(session?.profile?.user_id || "");
 
   const [repForm, setRepForm] = React.useState<RepresentativeFormValue>(() => emptyRepresentativeForm());
+  const [inviteEmail, setInviteEmail] = React.useState("");
   const [productIds, setProductIds] = React.useState<string[]>([]);
   const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
     fg: "000000",
@@ -184,6 +191,7 @@ function SmartCardEditQrPage() {
         linkedin: social.linkedin || "",
       },
     });
+    setInviteEmail(r.email || "");
     setProductIds(r.product_ids || []);
     setQrStyle({
       fg: (r.qr_fg_color || "000000").replace("#", ""),
@@ -216,8 +224,8 @@ function SmartCardEditQrPage() {
         body: JSON.stringify({
           name: repForm.name.trim(),
           email: repForm.email.trim() || null,
-          mobile: repForm.mobile.trim() || null,
-          landline: repForm.landline.trim() || null,
+          mobile: ensurePhoneCountryCode(repForm.mobile, dialPrefix) || null,
+          landline: ensurePhoneCountryCode(repForm.landline, dialPrefix) || null,
           extension: repForm.extension.trim() || null,
           website: repForm.website.trim() || null,
           social_links: socialLinksPayload(repForm.social_links),
@@ -291,16 +299,20 @@ function SmartCardEditQrPage() {
   });
 
   const resendInviteMut = useMutation({
-    mutationFn: async () =>
-      apiFetch<{ ok: boolean; result?: { action?: string; email_sent?: boolean } }>(
+    mutationFn: async (email: string) =>
+      apiFetch<{ ok: boolean; result?: { action?: string; email_sent?: boolean }; item?: Rep }>(
         `/smart-card/representatives/${repId}/resend-invite`,
-        { method: "POST", body: "{}" },
+        { method: "POST", body: JSON.stringify({ email }) },
       ),
     onSuccess: async (data) => {
       const action = data?.result?.action || "";
       if (action.startsWith("linked")) toast.success("Representative linked to existing login");
       else if (data?.result?.email_sent === false) toast.message("Invite created but email may not have sent");
       else toast.success("Invite sent");
+      if (data?.item?.email) {
+        setInviteEmail(data.item.email);
+        setRepForm((prev) => ({ ...prev, email: data.item?.email || prev.email }));
+      }
       await qc.invalidateQueries({ queryKey: ["smart-card", "rep", repId] });
     },
     onError: (e: Error) => toast.error(e.message || "Could not resend invite"),
@@ -326,8 +338,7 @@ function SmartCardEditQrPage() {
   }
 
   const pngUrl = rep.qr_image_url || "";
-  const showResendInvite =
-    canManage && Boolean(rep.email) && !rep.linked_user_id;
+  const showResendInvite = canManage && !rep.linked_user_id;
 
   return (
     <div className="space-y-6">
@@ -461,13 +472,30 @@ function SmartCardEditQrPage() {
                   their card and see their leads.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Invite email</Label>
+                  <Input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="alex@company.com"
+                    disabled={resendInviteMut.isPending}
+                  />
+                </div>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={resendInviteMut.isPending}
-                  onClick={() => resendInviteMut.mutate()}
+                  disabled={resendInviteMut.isPending || !inviteEmail.trim()}
+                  onClick={() => {
+                    const em = inviteEmail.trim().toLowerCase();
+                    if (!em || !em.includes("@")) {
+                      toast.error("Enter a valid email address");
+                      return;
+                    }
+                    resendInviteMut.mutate(em);
+                  }}
                 >
                   {resendInviteMut.isPending ? "Sending…" : "Resend invite email"}
                 </Button>
