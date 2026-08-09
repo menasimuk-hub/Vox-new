@@ -420,13 +420,35 @@ class SmartCardSessionFlowService:
         return remap_choice_reply(text, options, multi=multi)
 
     @staticmethod
-    def _contact_capture(company: SmartCardCompany) -> str:
-        cfg = None
-        if company.question_config_json:
-            try:
-                cfg = json.loads(company.question_config_json)
-            except Exception:
-                cfg = None
+    def _parse_question_config(raw: str | None) -> dict[str, Any] | None:
+        if not raw:
+            return None
+        try:
+            cfg = json.loads(raw)
+        except Exception:
+            return None
+        return cfg if isinstance(cfg, dict) else None
+
+    @staticmethod
+    def _effective_question_config(
+        company: SmartCardCompany,
+        rep: SmartCardRepresentative | None = None,
+    ) -> dict[str, Any] | None:
+        """Per-QR override when set; otherwise company defaults."""
+        if rep is not None:
+            rep_cfg = SmartCardSessionFlowService._parse_question_config(
+                getattr(rep, "question_config_json", None)
+            )
+            if rep_cfg is not None:
+                return rep_cfg
+        return SmartCardSessionFlowService._parse_question_config(company.question_config_json)
+
+    @staticmethod
+    def _contact_capture(
+        company: SmartCardCompany,
+        rep: SmartCardRepresentative | None = None,
+    ) -> str:
+        cfg = SmartCardSessionFlowService._effective_question_config(company, rep)
         if isinstance(cfg, dict):
             mode = str(cfg.get("contact_capture") or "offer_both").strip().lower()
             if mode in {"offer_both", "manual_only", "card_only"}:
@@ -434,8 +456,11 @@ class SmartCardSessionFlowService:
         return "offer_both"
 
     @staticmethod
-    def _contact_step_key(company: SmartCardCompany) -> str:
-        mode = SmartCardSessionFlowService._contact_capture(company)
+    def _contact_step_key(
+        company: SmartCardCompany,
+        rep: SmartCardRepresentative | None = None,
+    ) -> str:
+        mode = SmartCardSessionFlowService._contact_capture(company, rep)
         if mode == "card_only":
             return "contact_card_only"
         if mode == "manual_only":
@@ -443,14 +468,12 @@ class SmartCardSessionFlowService:
         return "contact"
 
     @staticmethod
-    def _steps_for_company(company: SmartCardCompany) -> list[str]:
-        cfg = None
-        if company.question_config_json:
-            try:
-                cfg = json.loads(company.question_config_json)
-            except Exception:
-                cfg = None
-        contact_key = SmartCardSessionFlowService._contact_step_key(company)
+    def _steps_for_company(
+        company: SmartCardCompany,
+        rep: SmartCardRepresentative | None = None,
+    ) -> list[str]:
+        cfg = SmartCardSessionFlowService._effective_question_config(company, rep)
+        contact_key = SmartCardSessionFlowService._contact_step_key(company, rep)
         system_skip = {
             "contact",
             "contact_web",
@@ -462,16 +485,19 @@ class SmartCardSessionFlowService:
             "thank_you",
             "company_card",
             "post_complete_handoff",
+            # Always appended at end for follow-back — strip if present in selected_keys.
+            "open_feedback",
         }
         if isinstance(cfg, dict) and isinstance(cfg.get("selected_keys"), list) and cfg["selected_keys"]:
             keys = [
-                str(k)
+                str(k).strip()
                 for k in cfg["selected_keys"]
                 if str(k).strip() and str(k).strip() not in system_skip
             ]
-            # Always start with contact (mode-aware)
-            return [contact_key, *keys]
-        return [contact_key, *[k for k in DEFAULT_STEPS if k != "contact"]]
+            return [contact_key, *keys, "open_feedback"]
+        # Fallback when no selection saved: full default bank, already ends with open_feedback.
+        rest = [k for k in DEFAULT_STEPS if k not in {"contact", "open_feedback"}]
+        return [contact_key, *rest, "open_feedback"]
 
     @staticmethod
     def start_session(
@@ -499,7 +525,7 @@ class SmartCardSessionFlowService:
             if company.preview_tests_used > SMART_CARD_PREVIEW_TESTS_LIMIT:
                 raise SmartCardSessionError("preview_exhausted")
 
-        steps = SmartCardSessionFlowService._steps_for_company(company)
+        steps = SmartCardSessionFlowService._steps_for_company(company, rep)
         state = {
             "steps": steps,
             "step_index": 0,
@@ -536,7 +562,7 @@ class SmartCardSessionFlowService:
             "ok": True,
             "session_id": session.id,
             "is_preview": is_preview,
-            "contact_capture": SmartCardSessionFlowService._contact_capture(company),
+            "contact_capture": SmartCardSessionFlowService._contact_capture(company, rep),
             "steps": steps,
             "contact": SmartCardSessionFlowService._contact_snapshot(state),
             **payload,

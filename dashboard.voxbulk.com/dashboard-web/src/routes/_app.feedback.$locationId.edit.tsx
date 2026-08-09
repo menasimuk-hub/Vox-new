@@ -61,12 +61,18 @@ function EditFeedbackSurvey() {
   const initialized = React.useRef(false);
 
   React.useEffect(() => {
+    initialized.current = false;
+  }, [locationId]);
+
+  React.useEffect(() => {
     if (!location || initialized.current) return;
     initialized.current = true;
     setSelectedTypeIds(
       location.selected_survey_type_ids?.length
-        ? location.selected_survey_type_ids
-        : [location.survey_type_id],
+        ? location.selected_survey_type_ids.map(String)
+        : location.survey_type_id
+          ? [String(location.survey_type_id)]
+          : [],
     );
     setOpenQuestion(location.open_question_enabled !== false);
     setMarketingOptIn(Boolean(location.marketing_opt_in_enabled));
@@ -90,9 +96,15 @@ function EditFeedbackSurvey() {
 
   React.useEffect(() => {
     if (!location?.industry_id || !typesQ.isFetched) return;
+    // Wait until the industry catalogue has rows — filtering against an empty list
+    // would wipe hydrated selectedTypeIds and make Edit look blank.
+    if (surveyTypes.length === 0) return;
     const validTypeIds = new Set(surveyTypes.map((row) => String(row.id)));
     setSelectedTypeIds((prev) => {
+      if (prev.length === 0) return prev;
       const next = prev.filter((id) => validTypeIds.has(id));
+      // If nothing matched (stale IDs / race), keep previous so Edit is not blank.
+      if (next.length === 0) return prev;
       if (next.length === prev.length && next.every((id, idx) => id === prev[idx])) return prev;
       return next;
     });

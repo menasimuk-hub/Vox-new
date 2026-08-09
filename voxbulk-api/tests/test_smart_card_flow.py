@@ -25,6 +25,12 @@ from app.services.smart_card.session_flow_service import (
 
 @pytest.fixture()
 def db():
+    from app.core.database import Base, get_engine
+    import app.models  # noqa: F401
+
+    engine = get_engine()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
     session = get_sessionmaker()()
     try:
         yield session
@@ -403,3 +409,89 @@ def test_whatsapp_completion_still_sends_hot_lead(db, monkeypatch):
     assert result.get("done") is True
     assert str(result.get("lead_score") or "").lower() == "hot"
     assert calls == ["sent"]
+
+
+def test_steps_inherit_company_and_always_end_with_open_feedback(db):
+    rep = _seed_rep(db)
+    company = SmartCardCompanyService.get_or_create(db, rep.org_id)
+    company.question_config_json = json.dumps(
+        {
+            "selected_keys": ["interest", "timeline", "open_feedback"],
+            "contact_capture": "manual_only",
+        }
+    )
+    db.add(company)
+    db.commit()
+
+    steps = SmartCardSessionFlowService._steps_for_company(company, rep)
+    assert steps[0] == "contact_manual"
+    assert "role" not in steps
+    assert steps == ["contact_manual", "interest", "timeline", "open_feedback"]
+    assert steps[-1] == "open_feedback"
+
+
+def test_steps_use_rep_override_not_company(db):
+    rep = _seed_rep(db)
+    company = SmartCardCompanyService.get_or_create(db, rep.org_id)
+    company.question_config_json = json.dumps(
+        {"selected_keys": ["interest", "role", "timeline"], "contact_capture": "offer_both"}
+    )
+    db.add(company)
+    rep.question_config_json = json.dumps(
+        {"selected_keys": ["follow_up"], "contact_capture": "card_only"}
+    )
+    db.add(rep)
+    db.commit()
+
+    steps = SmartCardSessionFlowService._steps_for_company(company, rep)
+    assert steps == ["contact_card_only", "follow_up", "open_feedback"]
+    assert "role" not in steps
+
+
+def test_start_session_uses_rep_question_override(db):
+    rep = _seed_rep(db)
+    company = SmartCardCompanyService.get_or_create(db, rep.org_id)
+    company.question_config_json = json.dumps(
+        {"selected_keys": ["interest", "role"], "contact_capture": "offer_both"}
+    )
+    db.add(company)
+    rep.question_config_json = json.dumps(
+        {"selected_keys": ["timeline"], "contact_capture": "manual_only"}
+    )
+    db.add(rep)
+    db.commit()
+
+    started = SmartCardSessionFlowService.start_session(db, rep=rep, channel="whatsapp")
+    db.commit()
+    assert started["steps"] == ["contact_manual", "timeline", "open_feedback"]
+    assert started["contact_capture"] == "manual_only"
+    assert started["steps"][-1] == "open_feedback"
+
+
+def test_rep_question_config_round_trip(db):
+    from app.services.smart_card.representative_service import SmartCardRepresentativeService
+
+    rep = _seed_rep(db)
+    updated = SmartCardRepresentativeService.update(
+        db,
+        org_id=rep.org_id,
+        rep_id=rep.id,
+        payload={
+            "question_config": {
+                "selected_keys": ["interest", "follow_up"],
+                "contact_capture": "offer_both",
+            }
+        },
+    )
+    db.commit()
+    payload = SmartCardRepresentativeService.serialize(db, updated)
+    assert payload["question_config"]["selected_keys"] == ["interest", "follow_up"]
+
+    cleared = SmartCardRepresentativeService.update(
+        db,
+        org_id=rep.org_id,
+        rep_id=rep.id,
+        payload={"question_config": None},
+    )
+    db.commit()
+    assert SmartCardRepresentativeService.serialize(db, cleared)["question_config"] is None

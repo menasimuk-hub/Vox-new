@@ -121,6 +121,10 @@ class SmartCardRepresentativeService:
 
         social = payload.get("social_links")
         extra = payload.get("extra")
+        qcfg = payload.get("question_config")
+        qcfg_json = None
+        if isinstance(qcfg, dict):
+            qcfg_json = json.dumps(qcfg)
         rep = SmartCardRepresentative(
             org_id=org_id,
             name=name,
@@ -132,6 +136,7 @@ class SmartCardRepresentativeService:
             extension=(str(payload.get("extension") or "").strip() or None),
             notes=(str(payload.get("notes") or "").strip() or None),
             extra_json=json.dumps(extra) if extra is not None else None,
+            question_config_json=qcfg_json,
             qr_token=token,
             qr_fg_color=str(payload.get("qr_fg_color") or "000000").replace("#", "")[:6],
             qr_bg_color=str(payload.get("qr_bg_color") or "ffffff").replace("#", "")[:6],
@@ -302,6 +307,14 @@ class SmartCardRepresentativeService:
                 representative_id=rep.id,
                 product_ids=[str(x) for x in payload["product_ids"]],
             )
+        if "question_config" in payload:
+            cfg = payload.get("question_config")
+            if cfg is None:
+                rep.question_config_json = None
+            elif isinstance(cfg, dict):
+                rep.question_config_json = json.dumps(cfg)
+            else:
+                raise SmartCardRepError("question_config must be an object or null")
         rep.updated_at = datetime.utcnow()
         db.add(rep)
         db.flush()
@@ -367,6 +380,14 @@ class SmartCardRepresentativeService:
                 extra = json.loads(rep.extra_json)
             except Exception:
                 extra = None
+        question_config = None
+        if getattr(rep, "question_config_json", None):
+            try:
+                parsed = json.loads(rep.question_config_json)
+                if isinstance(parsed, dict):
+                    question_config = parsed
+            except Exception:
+                question_config = None
         web_url = SmartCardCompanyService.public_web_url(rep.qr_token)
         return {
             "id": rep.id,
@@ -380,6 +401,7 @@ class SmartCardRepresentativeService:
             "extension": rep.extension,
             "notes": rep.notes,
             "extra": extra,
+            "question_config": question_config,
             "qr_token": rep.qr_token,
             **qr_style_dict(rep, include_transparent=True),
             "photo_storage_path": rep.photo_storage_path,

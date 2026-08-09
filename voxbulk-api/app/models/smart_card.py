@@ -164,6 +164,8 @@ class SmartCardRepresentative(Base):
     qr_show_arrow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     qr_frame_round: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
     photo_storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Null = inherit company.question_config_json; set = per-QR override.
+    question_config_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
     scan_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     linked_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)

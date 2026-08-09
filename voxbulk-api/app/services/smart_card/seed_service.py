@@ -234,7 +234,7 @@ QUESTION_TEMPLATES: list[dict] = [
     {
         "question_key": "open_feedback",
         "label": "Anything else (voice/text)",
-        "prompt": "📝 Anything else we should know? (text or voice note)",
+        "prompt": "📝 Please share anything else you'd like us to know.",
         "kind": "system",
         "sort_order": 110,
     },

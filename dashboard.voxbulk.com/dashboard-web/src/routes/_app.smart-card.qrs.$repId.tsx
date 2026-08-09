@@ -61,6 +61,10 @@ type Rep = {
   status?: string;
   linked_user_id?: string | null;
   invite_id?: string | null;
+  question_config?: {
+    selected_keys?: string[];
+    contact_capture?: string;
+  } | null;
 };
 
 type CompanyPayload = {
@@ -106,6 +110,8 @@ function SmartCardEditQrPage() {
   const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
   const [selectedQKeys, setSelectedQKeys] = React.useState<string[]>([]);
   const [contactCapture, setContactCapture] = React.useState("offer_both");
+  const [questionsHydrated, setQuestionsHydrated] = React.useState(false);
+  const [usesCompanyDefaults, setUsesCompanyDefaults] = React.useState(true);
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoLocalPreview, setPhotoLocalPreview] = React.useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = React.useState(false);
@@ -204,56 +210,90 @@ function SmartCardEditQrPage() {
   }, [repQ.data]);
 
   React.useEffect(() => {
+    setQuestionsHydrated(false);
+  }, [repId]);
+
+  React.useEffect(() => {
+    const r = repQ.data?.item;
     const c = companyQ.data?.company;
-    if (!c) return;
-    setThemeId(normalizeSmartCardThemeId(c.theme_id ?? c.brand_defaults?.theme_id));
-    const cfg = c.question_config;
-    if (cfg?.selected_keys?.length) setSelectedQKeys(cfg.selected_keys.map(String));
+    if (!r || !c || questionsHydrated) return;
+    const override = r.question_config;
+    const inherited = c.question_config;
+    const cfg = override || inherited;
+    const hasOverride = Boolean(
+      override && Array.isArray(override.selected_keys) && override.selected_keys.length,
+    );
+    setUsesCompanyDefaults(!hasOverride);
+    if (cfg?.selected_keys?.length) {
+      setSelectedQKeys(cfg.selected_keys.map(String).filter((k) => k !== "open_feedback"));
+    }
     if (cfg?.contact_capture) setContactCapture(String(cfg.contact_capture));
-  }, [companyQ.data]);
+    setThemeId(normalizeSmartCardThemeId(c.theme_id ?? c.brand_defaults?.theme_id));
+    setQuestionsHydrated(true);
+  }, [repQ.data, companyQ.data, questionsHydrated]);
+
+  React.useEffect(() => {
+    const c = companyQ.data?.company;
+    if (!c || questionsHydrated) return;
+    // Theme can still load from company even before questions hydrate completes via other path.
+    setThemeId(normalizeSmartCardThemeId(c.theme_id ?? c.brand_defaults?.theme_id));
+  }, [companyQ.data, questionsHydrated]);
 
   const categories = catalogueQ.data?.categories || [];
   const questions = questionsQ.data?.items || [];
 
   const companyName = companyQ.data?.company?.name || "";
 
+  const applyCompanyDefaults = () => {
+    const cfg = companyQ.data?.company?.question_config;
+    setSelectedQKeys(
+      (cfg?.selected_keys || []).map(String).filter((k) => k !== "open_feedback"),
+    );
+    if (cfg?.contact_capture) setContactCapture(String(cfg.contact_capture));
+    setUsesCompanyDefaults(true);
+  };
+
   const saveMut = useMutation({
     mutationFn: async () => {
-      await apiFetch(`/smart-card/representatives/${repId}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: repForm.name.trim(),
-          email: repForm.email.trim() || null,
-          mobile: ensurePhoneCountryCode(repForm.mobile, dialPrefix) || null,
-          landline: ensurePhoneCountryCode(repForm.landline, dialPrefix) || null,
-          extension: repForm.extension.trim() || null,
-          website: repForm.website.trim() || null,
-          social_links: socialLinksPayload(repForm.social_links),
-          extra: {
-            ...(repQ.data?.item?.extra || {}),
-            job_title: repForm.job_title.trim() || null,
-            location: repForm.location.trim() || null,
-            address: repForm.address.trim() || null,
-          },
-          product_ids: productIds,
-          ...qrStylePayload(qrStyle, { includeTransparent: true }),
-        }),
-      });
+      const body: Record<string, unknown> = {
+        name: repForm.name.trim(),
+        email: repForm.email.trim() || null,
+        mobile: ensurePhoneCountryCode(repForm.mobile, dialPrefix) || null,
+        landline: ensurePhoneCountryCode(repForm.landline, dialPrefix) || null,
+        extension: repForm.extension.trim() || null,
+        website: repForm.website.trim() || null,
+        social_links: socialLinksPayload(repForm.social_links),
+        extra: {
+          ...(repQ.data?.item?.extra || {}),
+          job_title: repForm.job_title.trim() || null,
+          location: repForm.location.trim() || null,
+          address: repForm.address.trim() || null,
+        },
+        product_ids: productIds,
+        ...qrStylePayload(qrStyle, { includeTransparent: true }),
+      };
       if (canManage) {
-        const hadCfg = Boolean(companyQ.data?.company?.question_config?.selected_keys?.length);
-        if (hadCfg && !selectedQKeys.length) {
-          throw new Error("Select at least one qualifying question");
-        }
-        const companyBody: Record<string, unknown> = { theme_id: themeId };
-        if (selectedQKeys.length) {
-          companyBody.question_config = {
+        if (!usesCompanyDefaults) {
+          if (!selectedQKeys.length) {
+            throw new Error("Select at least one qualifying question");
+          }
+          body.question_config = {
             selected_keys: selectedQKeys,
             contact_capture: contactCapture,
           };
+        } else {
+          // Clear per-QR override so this card inherits company defaults.
+          body.question_config = null;
         }
+      }
+      await apiFetch(`/smart-card/representatives/${repId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      if (canManage) {
         await apiFetch("/smart-card/company", {
           method: "PATCH",
-          body: JSON.stringify(companyBody),
+          body: JSON.stringify({ theme_id: themeId }),
         });
       }
       if (photoFile) {
@@ -279,6 +319,7 @@ function SmartCardEditQrPage() {
     },
     onSuccess: async () => {
       toast.success("Saved");
+      setQuestionsHydrated(false);
       await qc.invalidateQueries({ queryKey: ["smart-card"] });
     },
     onError: (e: Error) => toast.error(e.message || "Save failed"),
@@ -399,11 +440,25 @@ function SmartCardEditQrPage() {
               <CardHeader>
                 <CardTitle className="text-base">Lead questions</CardTitle>
                 <CardDescription>
-                  Applies to all Smart Card scans for this company. Enable &quot;Contact consent&quot; to collect
-                  marketing opt-in proof.
+                  {usesCompanyDefaults
+                    ? "Using company defaults for this QR. Change a question below to override for this card only."
+                    : "Custom questions for this QR only — other cards keep company defaults."}{" "}
+                  Enable &quot;Contact consent&quot; to collect marketing opt-in proof. An open follow-back question is
+                  always asked at the end.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {!usesCompanyDefaults ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={saveMut.isPending}
+                    onClick={applyCompanyDefaults}
+                  >
+                    Use company defaults
+                  </Button>
+                ) : null}
                 <div className="rounded-xl border bg-muted/20 p-4">
                   <p className="text-sm font-medium">Contact capture</p>
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -419,7 +474,10 @@ function SmartCardEditQrPage() {
                         type="button"
                         size="sm"
                         variant={contactCapture === value ? "default" : "outline"}
-                        onClick={() => setContactCapture(value)}
+                        onClick={() => {
+                          setContactCapture(value);
+                          setUsesCompanyDefaults(false);
+                        }}
                         disabled={saveMut.isPending}
                       >
                         {label}
@@ -441,6 +499,7 @@ function SmartCardEditQrPage() {
                         <Checkbox
                           checked={checked}
                           onCheckedChange={(v) => {
+                            setUsesCompanyDefaults(false);
                             setSelectedQKeys((prev) =>
                               v ? [...prev, q.key] : prev.filter((k) => k !== q.key),
                             );
@@ -455,6 +514,15 @@ function SmartCardEditQrPage() {
                       </label>
                     );
                   })}
+                  <div className="flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-3 sm:col-span-2">
+                    <Checkbox checked disabled className="mt-0.5" />
+                    <span>
+                      <span className="block text-sm font-medium">Anything else (always asked)</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Please share anything else you&apos;d like us to know. — so the card owner can follow back.
+                      </span>
+                    </span>
+                  </div>
                 </div>
                 {questions.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Loading question bank…</p>
