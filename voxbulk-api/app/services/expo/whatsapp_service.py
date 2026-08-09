@@ -111,6 +111,25 @@ def _looks_like_smart_card_inbound(text: str) -> bool:
 
 class ExpoWhatsappService:
     @staticmethod
+    def _other_product_session_owns_phone(db: Session, phone: str) -> bool:
+        """True when CF or Smart Card has an active session on this shared WA number."""
+        try:
+            from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+
+            if FeedbackWhatsappService._active_session(db, from_phone=phone) is not None:
+                return True
+        except Exception:
+            logger.exception("expo_wa_cf_active_check_failed")
+        try:
+            from app.services.smart_card.whatsapp_service import SmartCardWhatsappService
+
+            if SmartCardWhatsappService.find_active_session(db, visitor_phone=phone) is not None:
+                return True
+        except Exception:
+            logger.exception("expo_wa_smart_card_active_check_failed")
+        return False
+
+    @staticmethod
     def _is_image_inbound(record: dict[str, Any] | None) -> bool:
         if not isinstance(record, dict):
             return False
@@ -335,6 +354,11 @@ class ExpoWhatsappService:
 
         session = ExpoSessionFlowService.find_active_session(db, visitor_phone=phone)
         if session is None:
+            # Shared WA line: never steal replies that belong to an active Customer Feedback
+            # (or Smart Card) session — e.g. rating "Poor" after a CF QR start.
+            if ExpoWhatsappService._other_product_session_owns_phone(db, phone):
+                return {"handled": False, "reason": "deferred_to_other_product_session"}
+
             # Likely Expo QR text without a matching token (edited draft / old QR).
             if (
                 ("visited" in lower or "scanned" in lower or "catalogue" in lower or "questionnaire" in lower)
@@ -351,6 +375,7 @@ class ExpoWhatsappService:
 
             # Visitor already completed a booth chat recently and is messaging again on the
             # shared WA line — log the note against that lead and hand off, don't re-open the flow.
+            # Must not run while CF/Smart Card owns the conversation.
             if text:
                 completed_session = ExpoSessionFlowService.find_recent_completed_session(
                     db, visitor_phone=phone

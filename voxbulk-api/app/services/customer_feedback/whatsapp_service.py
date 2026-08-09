@@ -343,6 +343,20 @@ class FeedbackWhatsappService:
         FeedbackLocationService.record_scan(db, location)
         repair_survey_config_if_needed(db, location)
         now = datetime.utcnow()
+        # Shared WA line: abandon older active CF chats so replies bind to this scan.
+        stale = list(
+            db.execute(
+                select(FeedbackSession).where(
+                    FeedbackSession.visitor_phone == from_phone,
+                    FeedbackSession.status.in_(("active", "awaiting_callback_consent")),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for old in stale:
+            old.status = "abandoned"
+            db.add(old)
         session = FeedbackSession(
             id=str(uuid.uuid4()),
             org_id=location.org_id,

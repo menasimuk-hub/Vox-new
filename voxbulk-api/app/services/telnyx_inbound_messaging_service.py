@@ -756,6 +756,33 @@ class TelnyxInboundMessagingService:
                         len(body or ""),
                     )
 
+            # Active CF must win over Expo post-complete handoff on the shared line.
+            if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
+                try:
+                    from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+
+                    if FeedbackWhatsappService._active_session(
+                        db, from_phone=from_norm or from_number or ""
+                    ) is not None:
+                        feedback_result = FeedbackWhatsappService.try_handle_inbound(
+                            db,
+                            from_phone=from_norm or from_number or "",
+                            body=inbound_text,
+                            org_id=org_id,
+                            record=record if isinstance(record, dict) else None,
+                        )
+                        handled_feedback = bool(feedback_result.get("handled"))
+                        _log_feedback_wa_route(
+                            message_id=message_id,
+                            from_phone=from_norm or from_number or "",
+                            inbound_text=inbound_text,
+                            webhook_org_id=org_id,
+                            feedback_result=feedback_result,
+                            route="session_priority",
+                        )
+                except Exception:
+                    logger.exception("feedback_wa_session_handler_failed from=%r", from_norm or from_number)
+
             if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
                 try:
                     from app.services.expo.whatsapp_service import ExpoWhatsappService

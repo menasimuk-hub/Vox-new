@@ -312,6 +312,26 @@ def _route_inbound_handlers(
         except Exception:
             logger.exception("meta_survey_wa_inbound_handler_failed log_id=%s from=%r", log_id, from_phone)
 
+    # Active Customer Feedback sessions must win over Expo post-complete handoff on the
+    # shared Meta line (otherwise "Poor" / answers are swallowed by Expo thank-you).
+    if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
+        try:
+            from app.services.customer_feedback.whatsapp_service import FeedbackWhatsappService
+
+            if FeedbackWhatsappService._active_session(db, from_phone=from_phone) is not None:
+                feedback_result = FeedbackWhatsappService.try_handle_inbound(
+                    db,
+                    from_phone=from_phone,
+                    body=inbound_text,
+                    org_id=org_id,
+                    record=record if isinstance(record, dict) else None,
+                )
+                handled_feedback = bool(feedback_result.get("handled"))
+                result["handled_feedback"] = handled_feedback
+                result["feedback_result"] = feedback_result
+        except Exception:
+            logger.exception("meta_feedback_wa_session_handler_failed from=%r", from_phone)
+
     if not handled_expo and not handled_smart_card and not handled_feedback and not handled_survey:
         try:
             from app.services.expo.whatsapp_service import ExpoWhatsappService
