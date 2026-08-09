@@ -35,7 +35,6 @@ import { toast } from "sonner";
 import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
 import { FeedbackTopicPicker } from "@/components/feedback-topic-picker";
 import { FeedbackWebThemePicker } from "@/components/feedback-web-theme-picker";
-import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,14 +139,6 @@ function CreateFeedback() {
   const [duplicateMode, setDuplicateMode] = React.useState(false);
   const [duplicateSourceName, setDuplicateSourceName] = React.useState("");
   const [aiFollowUp, setAiFollowUp] = React.useState<AiFollowUpConfig>(defaultAiFollowUp);
-  const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
-    fg: "000000",
-    bg: "ffffff",
-    transparent: false,
-    moduleStyle: "square",
-    cornerStyle: "square",
-    frameRound: "none",
-  });
   const [webTheme, setWebTheme] = React.useState<WebThemeWizardState>({
     baseTemplateId: "auto",
     overlayIds: [],
@@ -240,36 +231,28 @@ function CreateFeedback() {
       .catch(() => setPreviewQr(null));
   }, [step, industryId, selectedTypeIds, branches, openQuestion, marketingOptIn]);
 
-  const saveLocations = async (): Promise<FeedbackLocation[]> => {
-    if (!industryId || selectedTypeIds.length === 0) return [];
-    const created: FeedbackLocation[] = [];
-    const styleBody = qrStylePayload(qrStyle, { includeTransparent: true });
-    for (const branch of branches) {
-      const res = await createM.mutateAsync({
-        industry_id: industryId,
-        survey_type_id: selectedTypeIds[0],
-        selected_survey_type_ids: selectedTypeIds,
-        name: branch.name.trim(),
-        open_question_enabled: openQuestion,
-        marketing_opt_in_enabled: marketingOptIn,
-        web_theme: webThemePayload,
-        ai_follow_up: aiFollowUpToApi(aiFollowUp),
-        ...styleBody,
-      });
-      if (res.item) created.push(res.item);
-    }
-    return created;
-  };
-
   const onActivate = async () => {
     if (!industryId || selectedTypeIds.length === 0) return;
     if (!subscriptionQ.data?.active) {
-      toast.message("Choose a package to activate your QR survey.");
+      toast.error("Subscribe to a Customer feedback package before activating QR surveys.");
       window.location.assign("/account/feedback/packages");
       return;
     }
     try {
-      const created = await saveLocations();
+      const created: FeedbackLocation[] = [];
+      for (const branch of branches) {
+        const res = await createM.mutateAsync({
+          industry_id: industryId,
+          survey_type_id: selectedTypeIds[0],
+          selected_survey_type_ids: selectedTypeIds,
+          name: branch.name.trim(),
+          open_question_enabled: openQuestion,
+          marketing_opt_in_enabled: marketingOptIn,
+          web_theme: webThemePayload,
+          ai_follow_up: aiFollowUpToApi(aiFollowUp),
+        });
+        if (res.item) created.push(res.item);
+      }
       setCreatedLocations(created);
       toast.success("QR survey is live");
       setDone(true);
@@ -619,7 +602,8 @@ function CreateFeedback() {
                 <Rocket className="size-4 text-primary" /> Step 6 · Activate QR survey
               </CardTitle>
               <CardDescription>
-                Review your setup, style the QR, then activate. An active Customer Feedback subscription is required.
+                Review your setup, then activate. An active Customer Feedback subscription is required. Style the QR
+                later from the saved survey edit page.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -635,9 +619,9 @@ function CreateFeedback() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
-                  <p className="font-medium">Subscription required to activate</p>
+                  <p className="font-medium">Customer feedback subscription required</p>
                   <p className="text-xs text-muted-foreground">
-                    Choose a Customer Feedback package to go live and start collecting responses.
+                    Subscribe to a package before activating QR surveys.
                   </p>
                 </div>
               )}
@@ -664,39 +648,13 @@ function CreateFeedback() {
                 />
               </div>
 
-              <div className="rounded-xl border border-border bg-background/40 p-4">
-                <p className="mb-3 text-sm font-medium">QR style</p>
-                <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(200px,260px)] sm:items-start">
-                  <QrStyleControls value={qrStyle} onChange={setQrStyle} showTransparent />
-                  <div className="flex flex-col items-center gap-2">
-                    {(() => {
-                      const baseQr =
-                        previewQr?.qr_image_url ||
-                        buildQrImageUrl(previewQr?.wa_url || "https://wa.me/", 512);
-                      const styledUrl = previewQr?.qr_image_url
-                        ? withQrStyleQuery(previewQr.qr_image_url, qrStyle, 512)
-                        : baseQr;
-                      const transparentBg = qrStyle.transparent
-                        ? {
-                            backgroundImage:
-                              "linear-gradient(45deg,#e5e7eb 25%,transparent 25%),linear-gradient(-45deg,#e5e7eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e5e7eb 75%),linear-gradient(-45deg,transparent 75%,#e5e7eb 75%)",
-                            backgroundSize: "16px 16px",
-                            backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
-                            backgroundColor: "#fff",
-                          }
-                        : { backgroundColor: `#${qrStyle.bg || "ffffff"}` };
-                      return (
-                        <img
-                          key={styledUrl}
-                          src={styledUrl}
-                          alt="QR preview"
-                          className="w-full max-w-[240px] rounded-lg border p-2"
-                          style={transparentBg}
-                        />
-                      );
-                    })()}
-                    <p className="text-center text-xs text-muted-foreground">Live style preview</p>
-                  </div>
+              <div className="flex justify-center">
+                <div className="rounded-xl border-4 border-primary/20 bg-white p-3 shadow-md">
+                  <img
+                    src={previewQr?.qr_image_url || buildQrImageUrl(previewQr?.wa_url || "https://wa.me/", 320)}
+                    alt="QR"
+                    className="size-40"
+                  />
                 </div>
               </div>
 
