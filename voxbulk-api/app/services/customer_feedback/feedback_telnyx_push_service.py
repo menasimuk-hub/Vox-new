@@ -1439,6 +1439,109 @@ def refresh_feedback_template_status_from_telnyx_for_industry(
     }
 
 
+def refresh_feedback_platform_status_updated_only(
+    db: Session,
+    *,
+    connection_profile_id: str | None = None,
+    service_code: str = "customer_feedback",
+) -> dict[str, Any]:
+    """Refresh Meta status only for pending/in-review CF templates (no full catalog pull)."""
+    from app.services.meta_whatsapp_service import MetaWhatsappService
+    from app.services.telnyx_whatsapp_template_sync_service import _normalize_meta_template_item
+    from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+
+    pending_statuses = {"pending", "in_review", "submitted", "pending_deletion", "in_appeal"}
+    templates = list(
+        db.execute(
+            select(FeedbackWaTemplate)
+            .where(FeedbackWaTemplate.is_active.is_(True))
+            .order_by(FeedbackWaTemplate.updated_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    candidates = [
+        tpl
+        for tpl in templates
+        if str(tpl.telnyx_sync_status or "").strip().lower() in pending_statuses
+    ]
+
+    updated = 0
+    matched = 0
+    approved = 0
+    pending = 0
+    not_found = 0
+    errors: list[dict[str, Any]] = []
+    use_meta = is_meta_whatsapp_primary(
+        db, service_code=service_code, connection_profile_id=connection_profile_id
+    )
+
+    for tpl in candidates:
+        industry_slug_ctx, survey_slug_ctx = _feedback_template_meta_context(db, tpl)
+        meta_name = feedback_meta_template_name(
+            tpl,
+            industry_slug=industry_slug_ctx,
+            survey_type_slug=survey_slug_ctx,
+        )
+        language = normalize_feedback_language(tpl.language)
+        remote = None
+        try:
+            if use_meta:
+                items = MetaWhatsappService.fetch_templates_by_name(
+                    db,
+                    meta_name,
+                    connection_profile_id=connection_profile_id,
+                    service_code=service_code,
+                )
+                config, _ = MetaWhatsappService._config(
+                    db,
+                    service_code=service_code,
+                    connection_profile_id=connection_profile_id,
+                )
+                waba_id = str(config.get("waba_id") or "").strip()
+                normalized = [_normalize_meta_template_item(item, waba_id=waba_id or None) for item in items]
+                remote = find_remote_feedback_template(normalized, name=meta_name, language=language)
+            else:
+                # Telnyx fallback: single-template fetch is not name-based; skip full catalog.
+                not_found += 1
+                continue
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"template_id": tpl.id, "meta_name": meta_name, "error": str(exc)[:300]})
+            continue
+
+        if remote is None:
+            not_found += 1
+            continue
+
+        matched += 1
+        previous = str(tpl.telnyx_sync_status or "")
+        local_status = _apply_remote_status(db, tpl, remote)
+        if local_status != previous:
+            updated += 1
+        if local_status == "approved":
+            approved += 1
+        elif local_status == "pending":
+            pending += 1
+
+    db.commit()
+    return {
+        "ok": len(errors) == 0,
+        "candidates": len(candidates),
+        "matched": matched,
+        "updated": updated,
+        "approved": approved,
+        "pending": pending,
+        "not_found": not_found,
+        "errors": errors,
+        "connection_profile_id": connection_profile_id,
+        "message": (
+            f"Refreshed status for {matched}/{len(candidates)} pending CF template(s)"
+            + (f" — {updated} updated" if updated else "")
+            + " (updated-only; no full catalog)"
+        ),
+    }
+
+
 def refresh_feedback_platform_status(
     db: Session,
     *,

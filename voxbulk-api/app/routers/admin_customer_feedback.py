@@ -249,6 +249,78 @@ def pull_feedback_template_status(
     }
 
 
+@router.post("/templates/sync-updated-only")
+def sync_updated_feedback_templates_only(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Refresh pending CF statuses (per-name Meta lookup) then push changed drafts only."""
+    from app.services.customer_feedback.feedback_telnyx_push_service import (
+        FeedbackTelnyxPushError,
+        push_feedback_platform_batch,
+        refresh_feedback_platform_status_updated_only,
+    )
+    from app.services.wa_template_sync_profile import connection_profile_id_from_payload
+
+    body = payload or {}
+    profile_id = connection_profile_id_from_payload(body)
+    phase = str(body.get("phase") or "full").strip().lower()
+    offset = int(body.get("offset") or 0)
+    limit = int(body.get("limit") or 10)
+
+    try:
+        if phase == "pull":
+            status_pull = refresh_feedback_platform_status_updated_only(
+                db,
+                connection_profile_id=profile_id,
+                service_code="customer_feedback",
+            )
+            return {
+                "ok": bool(status_pull.get("ok", True)),
+                "phase": "pull",
+                "status_pull": status_pull,
+                "has_more": False,
+                "message": status_pull.get("message"),
+            }
+        if phase == "push":
+            push = push_feedback_platform_batch(
+                db,
+                offset=offset,
+                limit=limit,
+                force_push=False,
+                connection_profile_id=profile_id,
+                service_code="customer_feedback",
+            )
+            return {"ok": push.get("ok", True), "phase": "push", "push": push, **push}
+
+        status_pull = refresh_feedback_platform_status_updated_only(
+            db,
+            connection_profile_id=profile_id,
+            service_code="customer_feedback",
+        )
+        push = push_feedback_platform_batch(
+            db,
+            offset=offset,
+            limit=limit,
+            force_push=False,
+            connection_profile_id=profile_id,
+            service_code="customer_feedback",
+        )
+        return {
+            "ok": bool(status_pull.get("ok", True)) and bool(push.get("ok", True)),
+            "phase": "full",
+            "status_pull": status_pull,
+            "push": push,
+            "has_more": bool(push.get("has_more")),
+            "next_offset": push.get("next_offset", offset),
+            "message": f"{status_pull.get('message') or 'Status refreshed'}. {push.get('message') or 'Push done'}.",
+            **{k: push.get(k) for k in ("pushed", "skipped", "results", "errors", "total", "content_updated") if k in push},
+        }
+    except FeedbackTelnyxPushError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/industries/{industry_id}/import-md")
 async def import_industry_md(
     industry_id: str,

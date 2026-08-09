@@ -316,20 +316,33 @@ class MetaWhatsappTemplateService:
         return _normalize_meta_template_item(best, waba_id=waba_id or None)
 
     @staticmethod
-    def fetch_by_record_id(db: Session, record_id: str) -> dict[str, Any]:
+    def fetch_by_record_id(
+        db: Session,
+        record_id: str,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
         rid = str(record_id or "").strip()
         if not rid:
             raise MetaWhatsappTemplateError("Meta template record id is required")
         meta_id = rid[len(_META_RECORD_PREFIX) :] if rid.startswith(_META_RECORD_PREFIX) else rid
-        items = MetaWhatsappService.fetch_all_templates(db)
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("id") or "").strip() == meta_id:
-                config, _ = MetaWhatsappService._config(db)
-                waba_id = str(config.get("waba_id") or "").strip()
-                return _normalize_meta_template_item(item, waba_id=waba_id or None)
-        raise MetaWhatsappTemplateError(f"Meta template not found for id {record_id}")
+        try:
+            item = MetaWhatsappService.fetch_template_by_meta_id(
+                db,
+                meta_id,
+                connection_profile_id=connection_profile_id,
+                service_code=service_code,
+            )
+        except (MetaWhatsappConfigError, MetaWhatsappServiceError) as exc:
+            raise MetaWhatsappTemplateError(str(exc)) from exc
+        config, _ = MetaWhatsappService._config(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
+        waba_id = str(config.get("waba_id") or "").strip()
+        return _normalize_meta_template_item(item, waba_id=waba_id or None)
 
     @staticmethod
     def push_template_payload(

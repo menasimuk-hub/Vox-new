@@ -588,6 +588,222 @@ class WaTemplateSyncService:
             ),
         }
 
+    _PENDING_STATUSES = frozenset(
+        {
+            "PENDING",
+            "IN_REVIEW",
+            "IN_APPEAL",
+            "PENDING_DELETION",
+            "REINSTATED",
+        }
+    )
+
+    @staticmethod
+    def _remote_record_id_for_row(
+        db: Session,
+        row: TelnyxWhatsappTemplate,
+        *,
+        connection_profile_id: str | None,
+    ) -> str | None:
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+
+        if connection_profile_id:
+            entry = WaTemplateProfilePushService.get_ledger_entry(db, int(row.id), connection_profile_id)
+            if entry is not None and WaTemplateProfilePushService._ledger_has_remote(entry):
+                rid = str(entry.remote_record_id or "").strip()
+                if rid:
+                    return rid
+        for candidate in (row.telnyx_record_id, row.template_id):
+            rid = str(candidate or "").strip()
+            if not rid or rid.startswith("local-"):
+                continue
+            return rid
+        return None
+
+    @staticmethod
+    def collect_updated_rows(
+        db: Session,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> list[TelnyxWhatsappTemplate]:
+        """Rows that need status refresh (pending/review) and/or a content push."""
+        from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK, normalize_service_code
+        from app.services.wa_template_product_scope import is_feedback_platform_name, is_survey_platform_row
+
+        code = normalize_service_code(service_code) or "survey"
+        rows = list(db.execute(select(TelnyxWhatsappTemplate)).scalars().all())
+        work: list[TelnyxWhatsappTemplate] = []
+        for row in rows:
+            if code == SERVICE_CUSTOMER_FEEDBACK:
+                if not is_feedback_platform_name(row.name):
+                    continue
+            elif not is_survey_platform_row(db, row):
+                continue
+            status = str(row.status or "").strip().upper()
+            needs_status = status in WaTemplateSyncService._PENDING_STATUSES or status in {"", "UNKNOWN"}
+            needs_push = _row_needs_push(row)
+            if needs_status or needs_push:
+                work.append(row)
+        work.sort(key=lambda item: str(item.name or item.id))
+        return work
+
+    @staticmethod
+    def pull_statuses_updated_only(
+        db: Session,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        """Refresh Meta status only for pending/changed rows — no full WABA catalog fetch."""
+        from app.services.connection.constants import normalize_service_code
+        from app.services.wa_template_profile_push_service import WaTemplateProfilePushService
+        from app.services.wa_template_profile_status_service import WaTemplateProfileStatusService
+
+        code = normalize_service_code(service_code) or "survey"
+        rows = WaTemplateSyncService.collect_updated_rows(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=code,
+        )
+        is_primary = WaTemplateProfilePushService.is_primary_profile(
+            db, connection_profile_id, service_code=code
+        )
+        updated = 0
+        fetched = 0
+        skipped_no_remote = 0
+        errors: list[dict[str, Any]] = []
+        synced_rows: list[TelnyxWhatsappTemplate] = []
+
+        for row in rows:
+            status = str(row.status or "").strip().upper()
+            # Only hit Meta for status when pending/unknown; push step handles draft diffs.
+            if status not in WaTemplateSyncService._PENDING_STATUSES and status not in {"", "UNKNOWN"}:
+                continue
+            rid = WaTemplateSyncService._remote_record_id_for_row(
+                db, row, connection_profile_id=connection_profile_id
+            )
+            if not rid:
+                skipped_no_remote += 1
+                continue
+            try:
+                live = TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id(
+                    db,
+                    rid,
+                    connection_profile_id=connection_profile_id,
+                    service_code=code,
+                )
+            except Exception as exc:  # noqa: BLE001
+                errors.append(
+                    {
+                        "template_id": int(row.id),
+                        "template_name": str(row.name or row.id),
+                        "error": str(exc)[:300],
+                    }
+                )
+                continue
+            fetched += 1
+            if is_primary or not connection_profile_id:
+                _apply_live_meta_to_row(db, row, live, mirror_remote_body=False)
+                synced_rows.append(row)
+            else:
+                WaTemplateProfileStatusService.record_from_live_item(
+                    db,
+                    int(row.id),
+                    live,
+                    connection_profile_id=connection_profile_id,
+                    commit=False,
+                )
+            updated += 1
+
+        if synced_rows:
+            WaTemplateProfileStatusService.record_many(
+                db, synced_rows, connection_profile_id=connection_profile_id, commit=False
+            )
+        db.commit()
+        return {
+            "ok": len(errors) == 0,
+            "updated": updated,
+            "fetched": fetched,
+            "candidates": len(rows),
+            "skipped_no_remote": skipped_no_remote,
+            "errors": errors,
+            "message": (
+                f"Refreshed status for {updated}/{fetched} updated template(s) "
+                f"({len(rows)} candidate(s); no full catalog pull)"
+            ),
+        }
+
+    @staticmethod
+    def sync_updated_only(
+        db: Session,
+        *,
+        offset: int = 0,
+        limit: int | None = 10,
+        phase: str = "full",
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        """Pull status for pending/changed only, then push changed drafts only."""
+        code = service_code or "survey"
+        if phase == "pull":
+            status = WaTemplateSyncService.pull_statuses_updated_only(
+                db,
+                connection_profile_id=connection_profile_id,
+                service_code=code,
+            )
+            return {
+                "ok": bool(status.get("ok", True)),
+                "phase": "pull",
+                "status_pull": status,
+                "has_more": False,
+                "message": status.get("message"),
+            }
+        if phase == "push":
+            push = WaTemplateSyncService.push_changed_batch(
+                db,
+                offset=offset,
+                limit=limit,
+                force_push=False,
+                connection_profile_id=connection_profile_id,
+                service_code=code,
+            )
+            return {
+                "ok": bool(push.get("ok", True)),
+                "phase": "push",
+                "push": push,
+                "has_more": bool(push.get("has_more")),
+                "next_offset": push.get("next_offset", offset),
+                "message": push.get("message"),
+                **{k: push.get(k) for k in ("pushed", "skipped", "results", "errors", "total", "content_updated")},
+            }
+
+        status = WaTemplateSyncService.pull_statuses_updated_only(
+            db,
+            connection_profile_id=connection_profile_id,
+            service_code=code,
+        )
+        push = WaTemplateSyncService.push_changed_batch(
+            db,
+            offset=offset,
+            limit=limit,
+            force_push=False,
+            connection_profile_id=connection_profile_id,
+            service_code=code,
+        )
+        return {
+            "ok": bool(status.get("ok", True)) and bool(push.get("ok", True)),
+            "phase": "full",
+            "status_pull": status,
+            "push": push,
+            "has_more": bool(push.get("has_more")),
+            "next_offset": push.get("next_offset", offset),
+            "message": (
+                f"{status.get('message') or 'Status refreshed'}. "
+                f"{push.get('message') or 'Push done'}."
+            ),
+        }
+
     @staticmethod
     def collect_survey_mirror_templates(db: Session) -> list[TelnyxWhatsappTemplate]:
         from app.services.wa_template_product_scope import is_survey_platform_row

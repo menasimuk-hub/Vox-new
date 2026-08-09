@@ -901,6 +901,159 @@ export default function WaTemplatesHub() {
     }
   }
 
+  const syncUpdatedOnly = async () => {
+    try {
+      await requestSyncConfirm({
+        title: 'Sync updated only',
+        action: 'Sync',
+        detail:
+          'Refreshes Meta approval status only for pending / changed templates (not the full catalog), then pushes locally changed drafts. Use this to move PENDING → APPROVED without timing out.',
+      })
+    } catch (e) {
+      if (e?.message !== 'cancelled') setError(e?.message || 'Sync cancelled')
+      return
+    }
+    const stepDefs = [
+      { id: 'pull', label: '1. Refresh status for updated templates only' },
+      { id: 'push', label: '2. Push changed templates from DB' },
+    ]
+    const controller = beginHubJobAbort()
+    setSyncing(true)
+    setSyncProgress('')
+    setError('')
+    setMsg('')
+    setJob({
+      ...EMPTY_JOB,
+      open: true,
+      title: 'Sync updated only',
+      phase: 'running',
+      steps: stepDefs.map((s) => ({ ...s, status: 'pending', detail: '' })),
+      tables: { sync_log: [], pushed: [], refreshed: [], push_failed: [] },
+      progressPct: 0,
+    })
+    const messages = []
+    const summaryRows = []
+    const acc = createHubPushAccumulator()
+    const isFeedback = tab === 'feedback'
+    const path = isFeedback
+      ? '/admin/customer-feedback/templates/sync-updated-only'
+      : '/admin/integrations/meta_whatsapp/whatsapp-templates/sync-updated-only'
+    try {
+      let last = null
+      patchJobStep('pull', { status: 'running', detail: 'Refreshing pending/changed statuses…' })
+      last = await apiFetch(path, {
+        method: 'POST',
+        body: JSON.stringify({
+          phase: 'pull',
+          ...(isFeedback ? {} : { service_code: syncServiceCode }),
+          ...syncBodyExtra(),
+        }),
+        timeoutMs: 180000,
+        quietNetworkHint: true,
+        signal: controller.signal,
+      })
+      messages.push(last?.message || last?.status_pull?.message || 'Status pull complete')
+      patchJobStep('pull', { status: 'done', detail: last?.message || last?.status_pull?.message || 'Done' })
+      const statusUpdated = last?.status_pull?.updated ?? last?.updated
+      if (statusUpdated != null) {
+        summaryRows.push({ metric: 'Status refreshed (updated only)', count: statusUpdated })
+      }
+      const candidates = last?.status_pull?.candidates ?? last?.candidates
+      if (candidates != null) {
+        summaryRows.push({ metric: 'Candidates checked', count: candidates })
+      }
+
+      const PUSH_BATCH = 10
+      let offset = 0
+      let pushTotal = 0
+      patchJobStep('push', { status: 'running', detail: 'Pushing changed templates…' })
+      for (let batchNum = 1; ; batchNum += 1) {
+        last = await apiFetch(path, {
+          method: 'POST',
+          body: JSON.stringify({
+            phase: 'push',
+            offset,
+            limit: PUSH_BATCH,
+            ...(isFeedback ? {} : { service_code: syncServiceCode }),
+            ...syncBodyExtra(),
+          }),
+          timeoutMs: 180000,
+          quietNetworkHint: true,
+          signal: controller.signal,
+        })
+        const flat = flattenHubPushBatch(last?.push || last)
+        mergePushBatchIntoAcc(acc, flat)
+        pushTotal = acc.content_updated
+        const progress = buildIndustrySyncJobProgress(acc, {
+          running: Boolean(last?.has_more ?? last?.push?.has_more),
+          industryName: hubScopeLabel,
+        })
+        const lastResult = acc.results[acc.results.length - 1]
+        const lastName = lastResult?.template_name || lastResult?.label || ''
+        setSyncProgress(acc.total ? `${acc.results.length}/${acc.total}` : '')
+        patchJobStep('push', {
+          status: last?.has_more || last?.push?.has_more ? 'running' : 'done',
+          detail: lastName
+            ? `Last: ${lastName} — ${outcomeLabel(lastResult?.outcome)}`
+            : last?.message || `Batch ${batchNum}`,
+        })
+        setJob((prev) => ({
+          ...prev,
+          ...progress,
+          phase: 'running',
+          open: true,
+        }))
+        if (!(last?.has_more ?? last?.push?.has_more)) break
+        offset = Number(last?.next_offset ?? last?.push?.next_offset ?? offset + PUSH_BATCH)
+      }
+      messages.push(last?.message || 'Push complete')
+      if (pushTotal) summaryRows.push({ metric: 'Templates pushed', count: pushTotal })
+      const finalProgress = buildIndustrySyncJobProgress(acc, { running: false, industryName: hubScopeLabel })
+      const finalMsg = formatActionSuccess(last || {}, messages.join(' · ')).message
+      setMsg(finalMsg)
+      setJob((prev) => ({
+        ...prev,
+        phase: 'done',
+        message: finalMsg,
+        progressPct: 100,
+        summaryRows: summaryRows.length ? summaryRows : finalProgress.summaryRows,
+        tables: finalProgress.tables,
+      }))
+      refreshSelectedProfileSummary()
+      refreshTabData()
+    } catch (e) {
+      if (controller.signal.aborted || /cancelled/i.test(e?.message || '')) {
+        const partial = buildIndustrySyncJobProgress(acc, { running: false, industryName: hubScopeLabel })
+        setJob((prev) => ({
+          ...prev,
+          ...partial,
+          phase: 'cancelled',
+          message: 'Stopped — sync cancelled',
+          summaryRows,
+        }))
+        return
+      }
+      const raw = e?.message || String(e)
+      const aborted = e?.name === 'AbortError' || /aborted|abort/i.test(raw)
+      const errText = aborted
+        ? 'Sync updated only timed out. Wait a minute, refresh, and check pending statuses — or retry.'
+        : formatWaSurveyError(e, 'Sync updated only failed').detailText || raw || 'Sync updated only failed'
+      setError(errText)
+      if (messages.length) setMsg(messages.join(' · '))
+      setJob((prev) => ({
+        ...prev,
+        phase: 'error',
+        error: errText,
+        message: messages.join(' · '),
+        summaryRows,
+      }))
+    } finally {
+      if (hubJobAbortRef.current === controller) hubJobAbortRef.current = null
+      setSyncing(false)
+      setSyncProgress('')
+    }
+  }
+
   const openSurveyTypeEditor = async (row) => {
     setError('')
     try {
@@ -1492,6 +1645,19 @@ export default function WaTemplatesHub() {
                 <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
                 {refreshing ? 'Refreshing…' : 'Refresh approval status'}
               </Button>
+              {(tab === 'survey' || tab === 'feedback') && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1.5 text-xs"
+                  onClick={() => void syncUpdatedOnly()}
+                  disabled={syncing || refreshing || cleaning || !syncProfile?.id}
+                  title="Refresh Meta status only for pending/changed templates, then push changed drafts. Avoids full-catalog timeout."
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', syncing && 'animate-spin')} />
+                  Sync updated only
+                </Button>
+              )}
               <Button
                 size="sm"
                 className="wa-hub-primary-btn h-8 gap-1.5 text-xs"

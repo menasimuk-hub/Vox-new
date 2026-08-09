@@ -271,7 +271,7 @@ def test_pull_statuses_never_overwrites_local_draft_body(monkeypatch):
 
     monkeypatch.setattr(
         "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
-        lambda db: remote,
+        lambda db, **kwargs: remote,
     )
 
     with get_sessionmaker()() as db:
@@ -300,6 +300,48 @@ def test_pull_statuses_never_overwrites_local_draft_body(monkeypatch):
         draft = _loads(row.draft_components_json)
         assert draft[0]["text"] == "My new local body"
         assert row.body_preview == "My new local body"
+
+
+def test_pull_statuses_updated_only_fetches_pending_by_record_id(monkeypatch):
+    fetched: list[str] = []
+
+    def _fetch_one(db, record_id, **kwargs):
+        fetched.append(str(record_id))
+        return {
+            "id": str(record_id),
+            "template_id": "888",
+            "name": "voxbulk_survey_pending_only",
+            "language": "en_GB",
+            "category": "UTILITY",
+            "status": "APPROVED",
+            "components": [{"type": "BODY", "text": "Body"}],
+        }
+
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_template_by_record_id",
+        _fetch_one,
+    )
+    monkeypatch.setattr(
+        "app.services.telnyx_whatsapp_template_sync_service.TelnyxWhatsappTemplateSyncService.fetch_remote_templates",
+        lambda db, **kwargs: (_ for _ in ()).throw(AssertionError("full catalog must not be fetched")),
+    )
+
+    with get_sessionmaker()() as db:
+        pending = _template(db, name="voxbulk_survey_pending_only")
+        pending.status = "PENDING"
+        pending.local_sync_status = "in_sync"
+        approved = _template(db, name="voxbulk_survey_already_ok")
+        approved.status = "APPROVED"
+        approved.local_sync_status = "in_sync"
+        db.add_all([pending, approved])
+        db.commit()
+
+        result = WaTemplateSyncService.pull_statuses_updated_only(db, service_code="survey")
+        assert result["ok"] is True
+        assert result["updated"] == 1
+        assert fetched == [str(pending.telnyx_record_id)]
+        db.refresh(pending)
+        assert pending.status == "APPROVED"
 
 
 def test_industry_sync_defaults_to_changed_only():

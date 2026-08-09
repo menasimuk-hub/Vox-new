@@ -1660,6 +1660,52 @@ def sync_meta_whatsapp_templates(db: Session = Depends(get_db), _admin=Depends(r
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
+@router.post("/integrations/meta_whatsapp/whatsapp-templates/sync-updated-only")
+def sync_meta_whatsapp_templates_updated_only(
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
+    """Pull status for pending/changed templates only, then push changed drafts (no full catalog)."""
+    from app.services.wa_template_sync_profile import resolve_sync_route_from_payload
+    from app.services.wa_template_sync_service import WaTemplateSyncService
+    from app.services.whatsapp_provider_service import is_meta_whatsapp_primary
+    from app.services.connection.constants import normalize_service_code
+
+    body = payload or {}
+    service_code = normalize_service_code(body.get("service_code")) or "survey"
+    try:
+        profile_id, route = resolve_sync_route_from_payload(db, body, service_code=service_code)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if profile_id and route is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Connection profile not found or invalid for WhatsApp sync",
+        )
+    if not profile_id and not is_meta_whatsapp_primary(db):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Meta WhatsApp is not enabled or fully configured — save credentials first",
+        )
+    phase = str(body.get("phase") or "full").strip().lower()
+    try:
+        return WaTemplateSyncService.sync_updated_only(
+            db,
+            offset=int(body.get("offset") or 0),
+            limit=int(body.get("limit") or 10) if body.get("limit") is not None else 10,
+            phase=phase,
+            connection_profile_id=profile_id,
+            service_code=service_code,
+        )
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
 @router.post("/integrations/meta_whatsapp/whatsapp-templates/sync-step/{step}")
 def sync_meta_whatsapp_templates_step(
     step: str,

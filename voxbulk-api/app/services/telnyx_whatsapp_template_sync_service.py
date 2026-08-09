@@ -591,7 +591,12 @@ class TelnyxWhatsappTemplateSyncService:
             from app.services.meta_whatsapp_template_service import MetaWhatsappTemplateError, MetaWhatsappTemplateService
 
             try:
-                return MetaWhatsappTemplateService.fetch_by_record_id(db, rid)
+                return MetaWhatsappTemplateService.fetch_by_record_id(
+                    db,
+                    rid,
+                    connection_profile_id=connection_profile_id,
+                    service_code=service_code,
+                )
             except MetaWhatsappTemplateError as exc:
                 raise TelnyxWhatsappTemplateSyncError(str(exc)) from exc
 

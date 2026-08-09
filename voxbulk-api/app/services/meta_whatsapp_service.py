@@ -332,6 +332,71 @@ class MetaWhatsappService:
         return fallback or None
 
     @staticmethod
+    def fetch_template_by_meta_id(
+        db: Session,
+        meta_template_id: str,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+    ) -> dict[str, Any]:
+        """Fetch one WhatsApp message template by Meta numeric id (no full catalog scan)."""
+        config, enabled = MetaWhatsappService._config(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
+        if not enabled:
+            raise MetaWhatsappConfigError("Meta WhatsApp integration is disabled")
+        meta_id = str(meta_template_id or "").strip()
+        if meta_id.startswith(_META_RECORD_PREFIX):
+            meta_id = meta_id[len(_META_RECORD_PREFIX) :]
+        if not meta_id or not meta_id.isdigit():
+            raise MetaWhatsappServiceError("Meta template id must be numeric")
+        fields = "id,name,language,status,category,components,rejected_reason"
+        payload = MetaWhatsappService._graph_request(
+            config=config,
+            method="GET",
+            path=meta_id,
+            params={"fields": fields},
+        )
+        if not isinstance(payload, dict) or not str(payload.get("id") or "").strip():
+            raise MetaWhatsappServiceError(f"Meta template not found for id {meta_id}")
+        return payload
+
+    @staticmethod
+    def fetch_templates_by_name(
+        db: Session,
+        name: str,
+        *,
+        connection_profile_id: str | None = None,
+        service_code: str | None = "survey",
+        limit: int = 25,
+    ) -> list[dict[str, Any]]:
+        """Fetch templates matching a name (small Meta query — not a full catalog pull)."""
+        config, enabled = MetaWhatsappService._config(
+            db,
+            service_code=service_code,
+            connection_profile_id=connection_profile_id,
+        )
+        if not enabled:
+            raise MetaWhatsappConfigError("Meta WhatsApp integration is disabled")
+        waba_id = str(config.get("waba_id") or "").strip()
+        if not waba_id:
+            raise MetaWhatsappConfigError("waba_id is required")
+        template_name = str(name or "").strip()
+        if not template_name:
+            return []
+        fields = "id,name,language,status,category,components,rejected_reason"
+        payload = MetaWhatsappService._graph_request(
+            config=config,
+            method="GET",
+            path=f"{waba_id}/message_templates",
+            params={"name": template_name, "fields": fields, "limit": max(1, min(int(limit), 100))},
+        )
+        chunk = payload.get("data") if isinstance(payload.get("data"), list) else []
+        return [item for item in chunk if isinstance(item, dict)]
+
+    @staticmethod
     def fetch_all_templates(
         db: Session,
         *,
