@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -80,17 +81,80 @@ def _web_steps(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
     return [step for step in steps if not is_marketing_survey_step(step)]
 
 
-# Rating choices for topic questions (web survey). "Poor" is the low value that triggers
-# the "why did you rate poor?" follow-up screen on the web client.
+# Rating choices fallback when a topic template has no buttons.
 _RATING_OPTIONS = [
     {"label": "😊 Excellent", "value": "Excellent"},
     {"label": "🙂 Good", "value": "Good"},
     {"label": "😞 Poor", "value": "Poor"},
 ]
 _LOW_RATING_VALUES = ["Poor"]
+_RATING_LABEL_EMOJI = {
+    "excellent": "😊",
+    "good": "🙂",
+    "poor": "😞",
+    "yes": "✅",
+    "no": "❌",
+    "satisfied": "😊",
+    "dissatisfied": "😞",
+}
 
 # Suggested reasons shown on the low-rating follow-up screen (English-only web survey).
 _LOW_RATING_REASONS = ["Service", "Speed", "Staff", "Price", "Cleanliness", "Quality"]
+
+
+def _template_button_labels(tpl: Any) -> list[str]:
+    if tpl is None or not getattr(tpl, "buttons_json", None):
+        return []
+    try:
+        parsed = json.loads(tpl.buttons_json)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item).strip() for item in parsed if str(item).strip()]
+
+
+def _web_question_text(tpl: Any, *, fallback: str) -> str:
+    """Use the same WA template body as WhatsApp (no 'Reply with:' suffix)."""
+    raw = str(getattr(tpl, "body_text", None) or "").strip() if tpl is not None else ""
+    if raw:
+        return raw
+    if tpl is not None:
+        formatted = format_template_message(tpl)
+        # Strip option prompt if present.
+        for marker in ("\n\nReply with:", "\n\nاختر:"):
+            if marker in formatted:
+                formatted = formatted.split(marker, 1)[0].strip()
+        if formatted:
+            return formatted
+    return fallback
+
+
+def _web_choice_options(tpl: Any) -> tuple[list[dict[str, str]], bool, list[str]]:
+    """Build web buttons from the WA template; fall back to Excellent/Good/Poor."""
+    labels = _template_button_labels(tpl)
+    if not labels:
+        return list(_RATING_OPTIONS), True, list(_LOW_RATING_VALUES)
+
+    role = str(getattr(tpl, "step_role", None) or "").strip().lower()
+    lowered = [label.lower() for label in labels]
+    yes_no = (
+        role in {"yes_no", "opt_in"}
+        or set(lowered) <= {"yes", "no", "نعم", "لا"}
+        or (
+            len(labels) == 2
+            and lowered[0] in {"yes", "نعم"}
+            and lowered[1] in {"no", "لا"}
+        )
+    )
+    options: list[dict[str, str]] = []
+    for label in labels:
+        emoji = _RATING_LABEL_EMOJI.get(label.lower(), "")
+        options.append({"label": f"{emoji} {label}".strip() if emoji else label, "value": label})
+    if yes_no:
+        return options, False, []
+    low = [label for label in labels if label.lower() in {"poor", "bad", "سيئ", "dissatisfied", "unsatisfied"}]
+    return options, True, low or list(_LOW_RATING_VALUES)
 
 
 def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, Any], *, language: str | None) -> dict[str, Any]:
@@ -98,13 +162,14 @@ def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, A
     tpl = template_for_step(db, location, step, language=language)
     survey_type_id = str(step.get("survey_type_id") or location.survey_type_id or "")
     survey_type = db.get(FeedbackSurveyType, survey_type_id) if survey_type_id else None
-    title = survey_type.name if survey_type else (tpl.template_key if tpl else kind)
-    body = format_template_message(tpl) if tpl else title
+    topic_name = survey_type.name if survey_type else (tpl.template_key if tpl else kind)
+    question_text = _web_question_text(tpl, fallback=topic_name)
+
     if kind == "open_question":
         return {
             "kind": kind,
-            "title": title,
-            "body": body,
+            "title": question_text,
+            "body": "",
             "input": "text",
             "options": [],
             "allow_voice": True,
@@ -113,24 +178,27 @@ def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, A
     if kind == "tell_us_more":
         return {
             "kind": kind,
-            "title": "Tell us more",
-            "body": body or "What could we do better?",
+            "title": question_text or "What could we do better?",
+            "body": "",
             "input": "text",
             "options": [{"label": "Skip", "value": "skip"}],
             "allow_voice": True,
             "is_rating": False,
         }
+
+    options, is_rating, low_values = _web_choice_options(tpl)
     return {
         "kind": kind,
-        "title": title,
-        "body": body,
+        "title": question_text,
+        "body": "",
+        "topic_name": topic_name,
         "input": "choice",
-        "options": list(_RATING_OPTIONS),
+        "options": options,
         "allow_voice": False,
-        "is_rating": True,
-        "low_values": list(_LOW_RATING_VALUES),
-        "reason_options": list(_LOW_RATING_REASONS),
-        "reason_prompt": "Sorry to hear that. What went wrong?",
+        "is_rating": is_rating,
+        "low_values": low_values,
+        "reason_options": list(_LOW_RATING_REASONS) if is_rating else [],
+        "reason_prompt": "Sorry to hear that. What went wrong?" if is_rating else None,
     }
 
 

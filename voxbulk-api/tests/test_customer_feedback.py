@@ -1150,6 +1150,43 @@ def _seed_web_survey_location(db, *, org_id: str, open_question: bool = False) -
     return location, survey_type
 
 
+def test_web_survey_questions_follow_wa_template_body_and_buttons():
+    """Web CF must show the same WA template body/buttons when templates are updated."""
+    from app.models.customer_feedback import FeedbackWaTemplate
+    from app.services.customer_feedback.web_survey_service import _step_to_question
+
+    org_id, _ = _seed_org()
+    with get_sessionmaker()() as db:
+        location, survey_type = _seed_web_survey_location(db, org_id=org_id)
+        rows = list(
+            db.execute(
+                select(FeedbackWaTemplate).where(
+                    FeedbackWaTemplate.survey_type_id == survey_type.id,
+                    FeedbackWaTemplate.language == "en_GB",
+                    FeedbackWaTemplate.is_active.is_(True),
+                )
+            ).scalars().all()
+        )
+        assert rows
+        for tpl in rows:
+            tpl.body_text = "🔁 Following your recent visit, would you return for a future visit?"
+            tpl.buttons_json = json.dumps(["Yes", "No"])
+            tpl.step_role = "yes_no"
+            db.add(tpl)
+        db.commit()
+
+        q = _step_to_question(
+            db,
+            location,
+            {"kind": "topic", "survey_type_id": survey_type.id, "template_key": "food-quality"},
+            language="en_GB",
+        )
+        assert "would you return for a future visit" in str(q["title"]).lower()
+        assert q.get("body") in (None, "")
+        assert [o["value"] for o in q["options"]] == ["Yes", "No"]
+        assert q.get("is_rating") is False
+
+
 def test_web_survey_submit_poor_rating_with_reason():
     from app.models.customer_feedback import FeedbackResponse, FeedbackSession
     from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
