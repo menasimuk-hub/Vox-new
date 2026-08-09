@@ -176,6 +176,12 @@ build_all_frontends() {
   build_frontend "$DASH_DIR" "dashboard"
   if [[ -d "$PUBLIC_DIR" ]]; then
     build_frontend "$PUBLIC_DIR" "public site"
+    # vite preview (systemd User=qusay) must write node_modules/.vite-temp — root-owned
+    # leftovers after sudo deploy cause Bad Gateway crash-loops on voxbulk.com.
+    rm -rf "$PUBLIC_DIR/node_modules/.vite-temp" 2>/dev/null || true
+    mkdir -p "$PUBLIC_DIR/node_modules/.vite-temp" 2>/dev/null || true
+    vox_ensure_frontend_dir_writable "$PUBLIC_DIR" \
+      || warn "Public frontend may not be writable for vite preview — fix: sudo chown -R \$(whoami) $PUBLIC_DIR"
   else
     warn "Public frontend not found at $PUBLIC_DIR — skip"
   fi
