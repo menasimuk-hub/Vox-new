@@ -428,6 +428,7 @@ export function PublicFeedbackSurvey({
   const [choiceSelection, setChoiceSelection] = useState("");
   const [callbackPhone, setCallbackPhone] = useState("");
   const [callbackWants, setCallbackWants] = useState(false);
+  const [callbackChoiceMade, setCallbackChoiceMade] = useState(false);
 
   const sendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const navEpochRef = useRef(0);
@@ -1043,21 +1044,46 @@ export function PublicFeedbackSurvey({
             style={{ background: theme.card, borderColor: theme.border }}
           >
             <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: theme.sub }}>
-              Optional callback
+              Call back
             </p>
-            <h1 className="mt-2 font-display text-[26px] leading-[1.15]">Want us to call you back?</h1>
+            <h1 className="mt-2 font-display text-[26px] leading-[1.15]">Shall we call you back?</h1>
             <p className="mt-2 text-[14px] leading-relaxed" style={{ color: theme.sub }}>
               If something was wrong, we can ring you to help. Your number is only used for this feedback follow-up.
             </p>
-            <label className="mt-5 flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-1 size-4"
-                checked={callbackWants}
-                onChange={(e) => setCallbackWants(e.target.checked)}
-              />
-              <span className="text-sm">Yes — OK to call me back about this feedback</span>
-            </label>
+            <div className="mt-5 grid gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-xl border px-4 py-3 text-left text-sm font-semibold transition"
+                style={{
+                  borderColor: callbackWants ? theme.ink : theme.border,
+                  background: callbackWants ? `${theme.ink}12` : "transparent",
+                  color: theme.ink,
+                }}
+                onClick={() => {
+                  setCallbackWants(true);
+                  setCallbackChoiceMade(true);
+                }}
+              >
+                Yes, call me back
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-xl border px-4 py-3 text-left text-sm font-semibold transition"
+                style={{
+                  borderColor: !callbackWants && callbackChoiceMade ? theme.ink : theme.border,
+                  background: !callbackWants && callbackChoiceMade ? `${theme.ink}12` : "transparent",
+                  color: theme.ink,
+                }}
+                onClick={() => {
+                  setCallbackWants(false);
+                  setCallbackChoiceMade(true);
+                }}
+              >
+                No, don&apos;t call me
+              </button>
+            </div>
             {callbackWants ? (
               <div className="mt-4 space-y-2">
                 <label className="text-[12px] font-medium" style={{ color: theme.sub }}>
@@ -1075,11 +1101,11 @@ export function PublicFeedbackSurvey({
               </div>
             ) : null}
             {error ? <p className="mt-3 text-center text-[13px] text-red-600">{error}</p> : null}
-            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+            <div className="mt-6">
               <button
                 type="button"
-                disabled={busy}
-                className="flex-1 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                disabled={busy || (!callbackWants && !callbackChoiceMade)}
+                className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
                 style={{ background: theme.gradientButton }}
                 onClick={() => {
                   void (async () => {
@@ -1119,15 +1145,6 @@ export function PublicFeedbackSurvey({
                 }}
               >
                 {busy ? "Saving…" : "Continue"}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="rounded-xl border px-4 py-3 text-sm font-medium"
-                style={{ borderColor: theme.border, color: theme.ink }}
-                onClick={() => setPhase("thanks")}
-              >
-                Skip
               </button>
             </div>
           </div>

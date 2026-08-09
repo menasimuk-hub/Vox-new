@@ -202,6 +202,58 @@ def _set_job_outcome(job, patch: dict[str, Any]) -> None:
     job.outcome_json = json.dumps(data, ensure_ascii=False)
 
 
+# Hang up + redial later on no-answer / AMD (mirrors survey voice defaults).
+FOLLOWUP_MAX_RETRIES = 1
+FOLLOWUP_RETRY_AFTER_SECONDS = 3600
+
+
+def _try_schedule_followup_retry(
+    db: Session,
+    job,
+    *,
+    reason: str,
+    max_retries: int = FOLLOWUP_MAX_RETRIES,
+    delay_seconds: int = FOLLOWUP_RETRY_AFTER_SECONDS,
+) -> bool:
+    """Reschedule job for a later dial. Returns True when a retry was queued."""
+    outcome = _job_outcome(job)
+    retry_count = int(outcome.get("retry_count") or 0)
+    if retry_count >= max_retries:
+        return False
+    delay = max(60, int(delay_seconds or FOLLOWUP_RETRY_AFTER_SECONDS))
+    now = datetime.utcnow()
+    try:
+        window = _next_calling_window_utc(db, job.org_id, str(job.visitor_phone or ""))
+        if window.tzinfo is not None:
+            window = window.replace(tzinfo=None)
+        candidate = now + timedelta(seconds=delay)
+        scheduled_at = max(candidate, window)
+    except Exception:
+        scheduled_at = now + timedelta(seconds=delay)
+
+    outcome.update(
+        {
+            "retry_count": retry_count + 1,
+            "last_retry_reason": reason,
+            "next_retry_at": scheduled_at.isoformat(),
+            "previous_status": str(job.status or reason),
+        }
+    )
+    job.status = "scheduled"
+    job.scheduled_at = scheduled_at
+    job.outcome_json = json.dumps(outcome, ensure_ascii=False)
+    job.updated_at = now
+    db.add(job)
+    logger.info(
+        "feedback_ai_followup_retry_scheduled job_id=%s reason=%s retry=%s at=%s",
+        job.id,
+        reason,
+        retry_count + 1,
+        scheduled_at.isoformat(),
+    )
+    return True
+
+
 def _has_written_reason(db: Session, session_id: str) -> bool:
     rows = db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
     for row in rows:
@@ -934,6 +986,7 @@ def _dispatch_job(db: Session, job, *, force_immediate: bool = False) -> str | N
         from_number=from_number,
         config=telnyx_config,
         enable_media_stream=False,
+        answering_machine_detection="detect",
         client_state={
             "feedback_ai_followup": True,
             "feedback_ai_followup_job_id": job.id,
@@ -947,6 +1000,7 @@ def _dispatch_job(db: Session, job, *, force_immediate: bool = False) -> str | N
             "promo_enabled": bool(job.promo_enabled),
             "promo_code": job.promo_code,
             "promo_description": job.promo_description,
+            "voicemail_behavior": "retry_later",
         },
     )
     if not result.ok or not result.external_id:
@@ -1062,10 +1116,25 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
     assistant_id = str(parsed.get("telnyx_assistant_id") or "").strip()
 
     if _is_voicemail_telnyx_event(event_type, record):
-        job.status = "voicemail"
-        outcome.update({"call_control_id": call_id, "voicemail_at": datetime.utcnow().isoformat()})
+        # Hang up on answering machine / no human — do not start the recovery agent.
+        try:
+            TelnyxVoiceAdapter.hangup_call(call_control_id=call_id, config=telnyx_config)
+        except Exception:
+            logger.exception("feedback_ai_followup_amd_hangup_failed job_id=%s", job.id)
+        outcome.update(
+            {
+                "call_control_id": call_id,
+                "voicemail_detected": True,
+                "voicemail_at": datetime.utcnow().isoformat(),
+                "voicemail_behavior": "retry_later",
+            }
+        )
         job.outcome_json = json.dumps(outcome, ensure_ascii=False)
         job.updated_at = datetime.utcnow()
+        if _try_schedule_followup_retry(db, job, reason="voicemail"):
+            db.commit()
+            return True
+        job.status = "voicemail"
         db.add(job)
         db.commit()
         return True
@@ -1193,6 +1262,13 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
         )
         job.outcome_json = json.dumps(outcome, ensure_ascii=False)
         job.updated_at = datetime.utcnow()
+
+        # No human answer / busy / machine hangup → hang already happened; retry later.
+        retryable = str(job.status or "").lower() in {"no_answer", "busy", "voicemail"} and not answered
+        if retryable and _try_schedule_followup_retry(db, job, reason=str(job.status)):
+            db.commit()
+            return True
+
         db.add(job)
         db.commit()
         if str(job.status or "").lower() in {"completed", "opted_out"}:

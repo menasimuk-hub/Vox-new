@@ -44,6 +44,8 @@ OPT_IN_YES = frozenset(
         "yes, please",
         "yes definitely",
         "yes, definitely",
+        "yes, call me back",
+        "yes call me back",
         "نعم",
         "ايوه",
         "أيوه",
@@ -60,6 +62,10 @@ OPT_IN_NO = frozenset(
         "no thanks",
         "no thank you",
         "no, thanks",
+        "no, don't call me",
+        "no don't call me",
+        "no, dont call me",
+        "no dont call me",
         "لا",
         "لأ",
         "كلا",
@@ -72,6 +78,24 @@ def _normalize_opt_in_token(value: str) -> str:
     raw = str(value or "").strip().lower()
     return raw.strip(".,!?;:'\"“”‘’،؟۔…")
 
+
+def _looks_like_opt_in_yes(token: str) -> bool:
+    if token in OPT_IN_YES:
+        return True
+    # "Yes, call me back" and similar long replies
+    return token.startswith("yes, call") or token.startswith("yes call")
+
+
+def _looks_like_opt_in_no(token: str) -> bool:
+    if token in OPT_IN_NO:
+        return True
+    return (
+        token.startswith("no, don")
+        or token.startswith("no don")
+        or token.startswith("no, don't")
+        or token.startswith("don't call")
+        or token.startswith("dont call")
+    )
 TRANSLATION_UNAVAILABLE_EN = "[Translation unavailable]"
 
 _LATIN_FOREIGN_HINT_RE = re.compile(
@@ -211,9 +235,9 @@ def is_opt_in_yes(
     # Prefer the raw reply first — STT may flip session language to Arabic, and
     # translating a Latin "Yes"/"No" can yield "yes"/"no." which must still match.
     raw = _normalize_opt_in_token(answer)
-    if raw in OPT_IN_YES:
+    if _looks_like_opt_in_yes(raw):
         return True
-    if raw in OPT_IN_NO:
+    if _looks_like_opt_in_no(raw):
         return False
     normalized = _normalize_opt_in_token(
         map_answer_to_english_label(
@@ -223,7 +247,7 @@ def is_opt_in_yes(
             detected_language=detected_language,
         )
     )
-    return normalized in OPT_IN_YES
+    return _looks_like_opt_in_yes(normalized)
 
 
 def is_opt_in_no(
@@ -234,9 +258,9 @@ def is_opt_in_no(
     detected_language: str | None,
 ) -> bool:
     raw = _normalize_opt_in_token(answer)
-    if raw in OPT_IN_NO:
+    if _looks_like_opt_in_no(raw):
         return True
-    if raw in OPT_IN_YES:
+    if _looks_like_opt_in_yes(raw):
         return False
     normalized = _normalize_opt_in_token(
         map_answer_to_english_label(
@@ -246,8 +270,7 @@ def is_opt_in_no(
             detected_language=detected_language,
         )
     )
-    return normalized in OPT_IN_NO
-
+    return _looks_like_opt_in_no(normalized)
 
 def translate_answer_to_english(
     db: Session,

@@ -435,6 +435,7 @@ class TelnyxVoiceAdapter:
         status_callback_url: str | None = None,
         media_stream_url: str | None = None,
         client_state: dict[str, Any] | None = None,
+        answering_machine_detection: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {"connection_id": connection_id, "to": to_number, "from": from_number}
         if voice_webhook_url:
@@ -446,6 +447,9 @@ class TelnyxVoiceAdapter:
             payload["stream_track"] = "both_tracks"
         if client_state:
             payload["client_state"] = _encode_client_state(client_state)
+        amd = str(answering_machine_detection or "").strip()
+        if amd:
+            payload["answering_machine_detection"] = amd
         with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:
             response = client.post("https://api.telnyx.com/v2/calls", json=payload, headers=_telnyx_headers(api_key))
         response.raise_for_status()
@@ -459,6 +463,7 @@ class TelnyxVoiceAdapter:
         config: dict[str, Any],
         client_state: dict[str, Any] | None = None,
         enable_media_stream: bool = True,
+        answering_machine_detection: str | None = None,
     ) -> TelnyxProviderResult:
         connection_id = str(config.get("connection_id") or "").strip()
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
@@ -481,6 +486,7 @@ class TelnyxVoiceAdapter:
                 status_callback_url=config.get("status_callback_url"),
                 media_stream_url=media_stream_url,
                 client_state=client_state,
+                answering_machine_detection=answering_machine_detection,
             )
             data = payload.get("data") or payload
             call_id = data.get("call_control_id") or data.get("call_leg_id") or data.get("id")

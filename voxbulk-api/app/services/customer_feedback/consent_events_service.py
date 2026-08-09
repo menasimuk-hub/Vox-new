@@ -19,12 +19,9 @@ from app.models.customer_feedback import (
 )
 from app.services.org_opt_out_service import OrgOptOutService
 
-CALLBACK_QUESTION = (
-    "Yes — OK to call me back about this feedback "
-    "(number used only for this feedback follow-up)."
-)
+CALLBACK_QUESTION = "Yes, call me back / No, don't call me (number used only for this feedback follow-up)."
 MARKETING_QUESTION = "Yes — I want occasional offers from this business on WhatsApp."
-CALLBACK_VERSION = "callback_v1"
+CALLBACK_VERSION = "callback_v2"
 MARKETING_VERSION = "marketing_v1"
 
 

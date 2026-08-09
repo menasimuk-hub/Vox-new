@@ -698,8 +698,11 @@ class FeedbackWhatsappService:
                 db,
                 to_number=session.visitor_phone,
                 body=(
-                    "Thanks for your feedback. If something was wrong, may we call you back "
-                    "on this number to help? Reply Yes or No."
+                    "Thanks for your feedback. If something was wrong, would you like us to call you back "
+                    "on this number to help?\n\n"
+                    "Reply:\n"
+                    "• Yes, call me back\n"
+                    "• No, don't call me"
                 ),
                 org_id=session.org_id,
                 tpl=None,
@@ -772,7 +775,11 @@ class FeedbackWhatsappService:
                 FeedbackWhatsappService._send_wa(
                     db,
                     to_number=session.visitor_phone,
-                    body="Please reply Yes or No — may we call you back on this number?",
+                    body=(
+                        "Please choose one:\n"
+                        "• Yes, call me back\n"
+                        "• No, don't call me"
+                    ),
                     org_id=session.org_id,
                     tpl=None,
                     location=location,
