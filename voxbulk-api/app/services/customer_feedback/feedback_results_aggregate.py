@@ -307,6 +307,12 @@ def build_respondents(
         return (priority, ts)
 
     with_responses = [s for s in sessions if responses_by_session.get(s.id)]
+    # Hide abandoned/failed QR retries so the drawer opens the real completed survey.
+    with_responses = [
+        s
+        for s in with_responses
+        if str(s.status or "").lower() not in {"abandoned", "failed", "expired"}
+    ]
     with_responses.sort(key=_session_sort_key)
     rows: list[dict[str, Any]] = []
     for sess in with_responses[:limit]:
@@ -315,7 +321,13 @@ def build_respondents(
             continue
         answers: list[dict[str, Any]] = []
         quote = ""
-        for resp in sorted(answers_raw, key=lambda r: r.step_order):
+
+        def _answer_sort_key(r: FeedbackResponse) -> tuple[int, int, str]:
+            qk = str(r.question_key or "")
+            follow = 1 if qk.endswith("__tell_us_more") or qk.endswith("__low_reason") else 0
+            return (int(r.step_order or 0), follow, qk)
+
+        for resp in sorted(answers_raw, key=_answer_sort_key):
             answer = str(resp.answer_text_en or resp.answer_text or "").strip()
             question, step_role = template_meta(
                 templates,

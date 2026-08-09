@@ -889,6 +889,9 @@ function RespondentSheet({
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {respondent.type === "web" ? "Web" : "WhatsApp"}
+            </span>
             <Button
               size="sm"
               className="gap-1.5"
@@ -925,26 +928,35 @@ function RespondentSheet({
               <p className="text-[11px] text-muted-foreground">Temp test dial — ignores calling hours.</p>
             )}
           </div>
-          <AiFollowUpAssistancePanel report={respondent.aiFollowUp} />
         </SheetHeader>
 
         <div className="mt-6 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Full survey answers</p>
-          {respondent.answers.map((a, i) => (
-            <div key={i} className="rounded-lg border border-border bg-background p-3">
-              <p className="text-sm font-medium leading-snug">{a.question}</p>
-              <div className="mt-2">
-                {a.type === "rating" && a.rating ? <RatingChip value={a.rating} /> : null}
-                {a.type === "yes_no" && a.yesNo ? <YNChip value={a.yesNo} /> : null}
-                {a.followUp ? (
-                  <BilingualAnswerBlock label="Tell us more" text={a.followUp} />
-                ) : null}
-                {a.openText ? (
-                  <BilingualAnswerBlock label="English" text={a.openText} />
-                ) : null}
+          {respondent.answers.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No answers saved for this respondent yet.
+            </p>
+          ) : (
+            respondent.answers.map((a, i) => (
+              <div key={i} className="rounded-lg border border-border bg-background p-3">
+                <p className="text-sm font-medium leading-snug">{a.question}</p>
+                <div className="mt-2">
+                  {a.type === "rating" && a.rating ? <RatingChip value={a.rating} /> : null}
+                  {a.type === "yes_no" && a.yesNo ? <YNChip value={a.yesNo} /> : null}
+                  {a.followUp ? (
+                    <BilingualAnswerBlock label="Tell us more" text={a.followUp} />
+                  ) : null}
+                  {a.openText ? (
+                    <BilingualAnswerBlock label="English" text={a.openText} />
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
+        </div>
+
+        <div className="mt-6">
+          <AiFollowUpAssistancePanel report={respondent.aiFollowUp} />
         </div>
       </SheetContent>
     </Sheet>

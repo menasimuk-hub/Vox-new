@@ -330,8 +330,13 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
       transcriptionStatus: a.transcription_status,
       translationStatus: a.translation_status,
     };
+    const st = String((a as { survey_type_id?: string }).survey_type_id || "");
     const parentKey = answerMergeKey(a);
-    const followRaw = lowReasons.get(parentKey) || lowReasons.get(qk);
+    const followRaw =
+      lowReasons.get(parentKey) ||
+      (st ? lowReasons.get(`${st}::${qk}`) : undefined) ||
+      lowReasons.get(qk) ||
+      [...lowReasons.entries()].find(([k]) => k.endsWith(`::${qk}`) || k === qk)?.[1];
     const followUp = followRaw ? toFollowUp(followRaw) : undefined;
     if (followRaw) {
       const fid = String((followRaw as { id?: string }).id || followRaw.question_key || "");
