@@ -21,6 +21,7 @@ import { qrStylePayload, type QrStyleValue } from "@/components/qr-style-control
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
 import { canManageTeam, normalizeOrgRole } from "@/lib/org-roles";
@@ -29,6 +30,7 @@ import {
   normalizeSmartCardThemeId,
   type SmartCardThemeId,
 } from "@/lib/smart-card-themes";
+import { cn } from "@/lib/utils";
 
 type Rep = {
   id: string;
@@ -63,8 +65,14 @@ type CompanyPayload = {
     name?: string;
     theme_id?: string;
     brand_defaults?: { theme_id?: string } | null;
+    question_config?: {
+      selected_keys?: string[];
+      contact_capture?: string;
+    } | null;
   };
 };
+
+type QuestionOpt = { key: string; label: string; prompt: string };
 
 export const Route = createFileRoute("/_app/smart-card/qrs/$repId")({
   head: () => ({ meta: [{ title: "Edit QR — Smart Card QR" }] }),
@@ -89,6 +97,8 @@ function SmartCardEditQrPage() {
     frameRound: "none",
   });
   const [themeId, setThemeId] = React.useState<SmartCardThemeId>("smartcard");
+  const [selectedQKeys, setSelectedQKeys] = React.useState<string[]>([]);
+  const [contactCapture, setContactCapture] = React.useState("offer_both");
   const [photoFile, setPhotoFile] = React.useState<File | null>(null);
   const [photoLocalPreview, setPhotoLocalPreview] = React.useState<string | null>(null);
   const [photoUploading, setPhotoUploading] = React.useState(false);
@@ -102,6 +112,12 @@ function SmartCardEditQrPage() {
   const companyQ = useQuery({
     queryKey: ["smart-card", "company"],
     queryFn: () => apiFetch<CompanyPayload>("/smart-card/company"),
+  });
+
+  const questionsQ = useQuery({
+    queryKey: ["smart-card", "catalog-questions"],
+    queryFn: () => apiFetch<{ ok: boolean; items: QuestionOpt[] }>("/smart-card/catalog/questions"),
+    enabled: canManage,
   });
 
   const catalogueQ = useQuery({
@@ -183,9 +199,13 @@ function SmartCardEditQrPage() {
     const c = companyQ.data?.company;
     if (!c) return;
     setThemeId(normalizeSmartCardThemeId(c.theme_id ?? c.brand_defaults?.theme_id));
+    const cfg = c.question_config;
+    if (cfg?.selected_keys?.length) setSelectedQKeys(cfg.selected_keys.map(String));
+    if (cfg?.contact_capture) setContactCapture(String(cfg.contact_capture));
   }, [companyQ.data]);
 
   const categories = catalogueQ.data?.categories || [];
+  const questions = questionsQ.data?.items || [];
 
   const companyName = companyQ.data?.company?.name || "";
 
@@ -212,9 +232,20 @@ function SmartCardEditQrPage() {
         }),
       });
       if (canManage) {
+        const hadCfg = Boolean(companyQ.data?.company?.question_config?.selected_keys?.length);
+        if (hadCfg && !selectedQKeys.length) {
+          throw new Error("Select at least one qualifying question");
+        }
+        const companyBody: Record<string, unknown> = { theme_id: themeId };
+        if (selectedQKeys.length) {
+          companyBody.question_config = {
+            selected_keys: selectedQKeys,
+            contact_capture: contactCapture,
+          };
+        }
         await apiFetch("/smart-card/company", {
           method: "PATCH",
-          body: JSON.stringify({ theme_id: themeId }),
+          body: JSON.stringify(companyBody),
         });
       }
       if (photoFile) {
@@ -351,6 +382,75 @@ function SmartCardEditQrPage() {
               />
             </CardContent>
           </Card>
+
+          {canManage ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Lead questions</CardTitle>
+                <CardDescription>
+                  Applies to all Smart Card scans for this company. Enable &quot;Contact consent&quot; to collect
+                  marketing opt-in proof.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-xl border bg-muted/20 p-4">
+                  <p className="text-sm font-medium">Contact capture</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {(
+                      [
+                        ["offer_both", "Photo or type details"],
+                        ["manual_only", "Name / company only"],
+                        ["card_only", "Business card photo only"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={contactCapture === value ? "default" : "outline"}
+                        onClick={() => setContactCapture(value)}
+                        disabled={saveMut.isPending}
+                      >
+                        {label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {questions.map((q) => {
+                    const checked = selectedQKeys.includes(q.key);
+                    return (
+                      <label
+                        key={q.key}
+                        className={cn(
+                          "flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition",
+                          checked ? "border-primary bg-primary/5" : "border-border",
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(v) => {
+                            setSelectedQKeys((prev) =>
+                              v ? [...prev, q.key] : prev.filter((k) => k !== q.key),
+                            );
+                          }}
+                          className="mt-0.5"
+                          disabled={saveMut.isPending}
+                        />
+                        <span>
+                          <span className="block text-sm font-medium">{q.label}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{q.prompt}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {questions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Loading question bank…</p>
+                ) : null}
+              </CardContent>
+            </Card>
+          ) : null}
 
           {showResendInvite ? (
             <Card>

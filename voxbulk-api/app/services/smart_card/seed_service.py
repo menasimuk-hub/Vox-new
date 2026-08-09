@@ -166,6 +166,14 @@ QUESTION_TEMPLATES: list[dict] = [
         "description": "Visitor can request catalogue or price list downloads.",
     },
     {
+        "question_key": "marketing_consent",
+        "label": "Contact consent (marketing)",
+        "prompt": "📞 Can we contact you about products and offers?",
+        "kind": "selectable",
+        "sort_order": 62,
+        "description": "UK marketing / PECR-style opt-in — stores proof for your Lead results export.",
+    },
+    {
         "question_key": "offer_interest",
         "label": "Special offer",
         "prompt": "🎁 Are you interested in our special offer? (Yes / No)",

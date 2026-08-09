@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,6 +26,29 @@ from app.services.smart_card.company_service import SmartCardEntitlementService
 
 UK = ZoneInfo("Europe/London")
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _empty_consent_csv() -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        [
+            "lead_id",
+            "created_at",
+            "answered_at",
+            "channel",
+            "marketing_consent",
+            "prompt_snapshot",
+            "answer_text",
+            "visitor_name",
+            "visitor_email",
+            "visitor_phone",
+            "visitor_company",
+            "representative_name",
+            "session_id",
+        ]
+    )
+    return buf.getvalue()
 
 
 class SmartCardResultsError(ValueError):
@@ -76,6 +101,14 @@ class SmartCardResultsService:
                 products = []
         if products:
             catalogue_requested = True
+        proof: dict[str, Any] | None = None
+        if lead.marketing_consent_proof_json:
+            try:
+                parsed_proof = json.loads(lead.marketing_consent_proof_json)
+                if isinstance(parsed_proof, dict):
+                    proof = parsed_proof
+            except (TypeError, ValueError):
+                proof = None
         return {
             "id": lead.id,
             "representative_id": lead.representative_id,
@@ -93,6 +126,8 @@ class SmartCardResultsService:
             "channel": lead.channel,
             "catalogue_requested": catalogue_requested,
             "catalogue_products": products,
+            "marketing_consent": lead.marketing_consent,
+            "marketing_consent_proof": proof,
             "business_card_url": (
                 f"/smart-card/results/leads/{lead.id}/card-image" if lead.business_card_path else None
             ),
@@ -169,6 +204,74 @@ class SmartCardResultsService:
         return data
 
     @staticmethod
+    def export_marketing_consent_csv(
+        db: Session,
+        *,
+        org_id: str,
+        user_id: str,
+    ) -> str:
+        """UTF-8 CSV audit of leads that answered marketing_consent (yes and no)."""
+        scope = SmartCardResultsService._rep_scope(db, org_id=org_id, user_id=user_id)
+        stmt = select(SmartCardLead).where(
+            SmartCardLead.org_id == org_id,
+            SmartCardLead.marketing_consent.isnot(None),
+        )
+        if scope is not None:
+            if not scope:
+                return _empty_consent_csv()
+            stmt = stmt.where(SmartCardLead.representative_id.in_(scope))
+        stmt = stmt.order_by(SmartCardLead.created_at.desc()).limit(5000)
+        leads = db.execute(stmt).scalars().all()
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(
+            [
+                "lead_id",
+                "created_at",
+                "answered_at",
+                "channel",
+                "marketing_consent",
+                "prompt_snapshot",
+                "answer_text",
+                "visitor_name",
+                "visitor_email",
+                "visitor_phone",
+                "visitor_company",
+                "representative_name",
+                "session_id",
+            ]
+        )
+        for lead in leads:
+            proof: dict[str, Any] = {}
+            if lead.marketing_consent_proof_json:
+                try:
+                    parsed = json.loads(lead.marketing_consent_proof_json)
+                    if isinstance(parsed, dict):
+                        proof = parsed
+                except (TypeError, ValueError):
+                    proof = {}
+            rep = db.get(SmartCardRepresentative, lead.representative_id)
+            writer.writerow(
+                [
+                    lead.id,
+                    lead.created_at.isoformat() if lead.created_at else "",
+                    str(proof.get("answered_at") or ""),
+                    str(proof.get("channel") or lead.channel or ""),
+                    str(lead.marketing_consent or ""),
+                    str(proof.get("prompt_snapshot") or ""),
+                    str(proof.get("answer_text") or ""),
+                    lead.name or "",
+                    lead.visitor_email or "",
+                    lead.visitor_phone or "",
+                    lead.company or "",
+                    rep.name if rep else "",
+                    str(proof.get("session_id") or lead.session_id or ""),
+                ]
+            )
+        return buf.getvalue()
+
+    @staticmethod
     def _question_labels(db: Session) -> tuple[dict[str, str], dict[str, str]]:
         labels = {
             "contact": "Contact",
@@ -179,7 +282,8 @@ class SmartCardResultsService:
             "role": "Role",
             "timeline": "Buying timeline",
             "follow_up": "Follow-up",
-            "consent_info": "Consent",
+            "consent_info": "Catalogue / price list",
+            "marketing_consent": "Contact consent",
             "open_feedback": "Anything else",
         }
         prompts = dict(labels)

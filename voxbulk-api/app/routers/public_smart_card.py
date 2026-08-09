@@ -3,19 +3,91 @@
 from __future__ import annotations
 
 import json
+from typing import Any
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.models.smart_card import SmartCardRepresentative, SmartCardSession
 from app.services.smart_card.company_service import SmartCardCompanyService, SmartCardEntitlementService
 from app.services.smart_card.session_flow_service import SmartCardSessionError, SmartCardSessionFlowService
+from app.services.smart_card_public_rate_limit import check_smart_card_rate_limit
 
 router = APIRouter(prefix="/public/smart-card", tags=["public-smart-card"])
 
 _ALLOWED_THEME_IDS = frozenset({"smartcard", "smartcard1", "smartcard2", "smartcard3", "smartcard4"})
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if forwarded:
+        return forwarded[:64]
+    if request.client and request.client.host:
+        return str(request.client.host)[:64]
+    return "unknown"
+
+
+def _enforce_sc_rate_limit(*, scope: str, identity: str, limit: int, window_sec: int = 60) -> None:
+    decision = check_smart_card_rate_limit(
+        scope=scope, identity=identity, limit=limit, window_sec=window_sec
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please try again shortly.",
+            headers={"Retry-After": str(decision.retry_after_sec)},
+        )
+
+
+def _allowed_public_origins() -> set[str]:
+    settings = get_settings()
+    origins: set[str] = set()
+    for raw in (
+        getattr(settings, "public_app_origin", None),
+        getattr(settings, "PUBLIC_SITE_URL", None),
+        "https://voxbulk.com",
+        "https://www.voxbulk.com",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ):
+        s = str(raw or "").strip().rstrip("/")
+        if s:
+            origins.add(s.lower())
+    for part in str(getattr(settings, "cors_allow_origins_raw", "") or "").split(","):
+        s = part.strip().rstrip("/")
+        if s:
+            origins.add(s.lower())
+    try:
+        for o in settings.cors_allow_origins:
+            s = str(o or "").strip().rstrip("/")
+            if s:
+                origins.add(s.lower())
+    except Exception:
+        pass
+    return origins
+
+
+def _origin_allowed(request: Request) -> bool:
+    """Allow browser Origin/Referer from public site; reject bare API clients with neither."""
+    allowed = _allowed_public_origins()
+    origin = str(request.headers.get("origin") or "").strip().rstrip("/").lower()
+    if origin and origin in allowed:
+        return True
+    referer = str(request.headers.get("referer") or "").strip()
+    if referer:
+        try:
+            parsed = urlparse(referer)
+            base = f"{parsed.scheme}://{parsed.netloc}".rstrip("/").lower()
+            if base in allowed:
+                return True
+        except Exception:
+            pass
+    # Same-origin or missing both — fail closed for reveal (blocks naive curl).
+    return False
 
 
 def _resolve_theme_id(brand: dict | None) -> str:
@@ -112,41 +184,139 @@ def _get_rep(db: Session, token: str) -> SmartCardRepresentative:
     return rep
 
 
-@router.get("/{token}")
-def get_card(token: str, db: Session = Depends(get_db)):
-    rep = _get_rep(db, token)
+def _blocked_card_payload(
+    *,
+    status: str,
+    message: str,
+    renew_url: str,
+    rep: SmartCardRepresentative,
+    company,
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "status": status,
+        "message": message,
+        "renew_url": renew_url,
+        "representative": {"name": rep.name},
+        "company": {"name": company.name},
+    }
+
+
+def _build_card_payload(db: Session, *, token: str, rep: SmartCardRepresentative, full: bool) -> dict[str, Any]:
+    """full=False: shell (names/photos/theme only). full=True: contact + social + WA."""
     company = SmartCardCompanyService.get_or_create(db, rep.org_id)
     mode = SmartCardEntitlementService.access_mode(db, rep.org_id)
     renew_url = "https://dashboard.voxbulk.com/account/smart-card/packages"
 
     if mode == "expired":
-        return {
-            "ok": True,
-            "status": "expired",
-            "message": (
+        return _blocked_card_payload(
+            status="expired",
+            message=(
                 "We're sorry — this Smart Card QR account has expired. "
                 "Please ask the company to renew their package."
             ),
-            "renew_url": renew_url,
-            "representative": {"name": rep.name},
-            "company": {"name": company.name},
-        }
+            renew_url=renew_url,
+            rep=rep,
+            company=company,
+        )
 
     if mode == "preview_exhausted":
-        return {
-            "ok": True,
-            "status": "preview_exhausted",
-            "message": (
+        return _blocked_card_payload(
+            status="preview_exhausted",
+            message=(
                 "Preview tests are used up (15). "
                 "This Smart Card QR will go live after the organisation buys or renews a package."
             ),
-            "renew_url": renew_url,
-            "representative": {"name": rep.name},
-            "company": {"name": company.name},
-        }
+            renew_url=renew_url,
+            rep=rep,
+            company=company,
+        )
+
+    brand: dict = {}
+    if company.brand_defaults_json:
+        try:
+            parsed_brand = json.loads(company.brand_defaults_json)
+            if isinstance(parsed_brand, dict):
+                brand = parsed_brand
+        except Exception:
+            brand = {}
+
+    extra: dict = {}
+    if rep.extra_json:
+        try:
+            parsed_extra = json.loads(rep.extra_json)
+            if isinstance(parsed_extra, dict):
+                extra = parsed_extra
+        except Exception:
+            extra = {}
+
+    job_title = (
+        str(extra.get("job_title") or extra.get("title") or extra.get("role") or "").strip() or None
+    )
+
+    from app.models.organisation import Organisation
+
+    org = db.get(Organisation, rep.org_id)
+    has_logo = bool(org and getattr(org, "logo_storage_key", None))
+    photo_v = _media_version_for_path(rep.photo_storage_path)
+    logo_v = None
+    if has_logo and org is not None:
+        from app.services.org_logo_storage_service import resolve_logo_path
+
+        logo_path = resolve_logo_path(str(org.logo_storage_key))
+        if logo_path is not None:
+            try:
+                logo_v = str(int(logo_path.stat().st_mtime))
+            except OSError:
+                logo_v = str(
+                    int(getattr(rep, "updated_at", None).timestamp())
+                    if getattr(rep, "updated_at", None)
+                    else "1"
+                )
+
+    photo_url = None
+    if rep.photo_storage_path:
+        photo_url = f"/public/smart-card/{token}/photo?w=200"
+        if photo_v:
+            photo_url = f"{photo_url}&v={photo_v}"
+    logo_url = None
+    if has_logo:
+        logo_url = f"/public/smart-card/{token}/logo?w=128"
+        if logo_v:
+            logo_url = f"{logo_url}&v={logo_v}"
+
+    tagline = str(company.description or "").strip() or None
+
+    shell = {
+        "ok": True,
+        "status": mode,
+        "shell": True,
+        "preview_tests_remaining": max(0, 15 - int(company.preview_tests_used or 0))
+        if mode == "preview"
+        else None,
+        "company": {
+            "name": company.name,
+            "tagline": tagline,
+            "logo_url": logo_url,
+            "logo_tone": (getattr(org, "logo_tone", None) or None) if org else None,
+        },
+        "representative": {
+            "id": rep.id,
+            "name": rep.name,
+            "job_title": job_title,
+            "photo_url": photo_url,
+        },
+        "theme_id": _resolve_theme_id(brand),
+        "qr_token": rep.qr_token,
+    }
+    if not full:
+        return shell
+
+    from urllib.parse import quote
 
     from app.services.connection.config_resolver import whatsapp_route_whatsapp_from
-    from app.services.connection.constants import SERVICE_SMART_CARD, SERVICE_CUSTOMER_FEEDBACK
+    from app.services.connection.constants import SERVICE_CUSTOMER_FEEDBACK, SERVICE_SMART_CARD
+    from app.services.smart_card.whatsapp_service import build_smart_card_wa_trigger
 
     wa_phone = (
         whatsapp_route_whatsapp_from(db, org_id=rep.org_id, service_code=SERVICE_SMART_CARD)
@@ -160,14 +330,10 @@ def get_card(token: str, db: Session = Depends(get_db)):
             wa_phone = resolve_feedback_wa_phone_for_qr(db, "gb", org_id=rep.org_id) or ""
         except Exception:
             wa_phone = ""
-    from urllib.parse import quote
-
-    from app.services.smart_card.whatsapp_service import build_smart_card_wa_trigger
 
     wa_digits = "".join(c for c in wa_phone if c.isdigit())
     trigger = build_smart_card_wa_trigger(rep_name=rep.name, qr_token=rep.qr_token)
     wa_url = f"https://wa.me/{wa_digits}?text={quote(trigger)}" if wa_digits else None
-    feedback_wa_url = wa_url
 
     social = None
     if rep.social_links_json:
@@ -176,34 +342,9 @@ def get_card(token: str, db: Session = Depends(get_db)):
         except Exception:
             social = None
 
-    extra: dict = {}
-    if rep.extra_json:
-        try:
-            parsed_extra = json.loads(rep.extra_json)
-            if isinstance(parsed_extra, dict):
-                extra = parsed_extra
-        except Exception:
-            extra = {}
-
-    brand: dict = {}
-    if company.brand_defaults_json:
-        try:
-            parsed_brand = json.loads(company.brand_defaults_json)
-            if isinstance(parsed_brand, dict):
-                brand = parsed_brand
-        except Exception:
-            brand = {}
-
-    job_title = (
-        str(extra.get("job_title") or extra.get("title") or extra.get("role") or "").strip() or None
-    )
     rep_address = str(extra.get("address") or "").strip() or None
     rep_location = str(extra.get("location") or "").strip() or None
     brand_address = str(brand.get("address") or brand.get("location") or "").strip() or None
-
-    from app.models.organisation import Organisation
-
-    org = db.get(Organisation, rep.org_id)
     org_bits = []
     if org is not None:
         for key in ("address_line1", "address_line2", "city", "postcode", "country"):
@@ -211,43 +352,14 @@ def get_card(token: str, db: Session = Depends(get_db)):
             if val:
                 org_bits.append(val)
     org_address = ", ".join(org_bits) if org_bits else None
-
-    # Prefer representative address (editable on the QR profile), then brand, then org profile.
     location = rep_address or rep_location or brand_address or org_address
     location_label = rep_location or (rep_address.split(",")[0].strip() if rep_address else None) or location
-    tagline = str(company.description or "").strip() or None
-
-    has_logo = bool(org and getattr(org, "logo_storage_key", None))
-
-    photo_v = _media_version_for_path(rep.photo_storage_path)
-    logo_v = None
-    if has_logo and org is not None:
-        from app.services.org_logo_storage_service import resolve_logo_path
-
-        logo_path = resolve_logo_path(str(org.logo_storage_key))
-        if logo_path is not None:
-            try:
-                logo_v = str(int(logo_path.stat().st_mtime))
-            except OSError:
-                logo_v = str(int(getattr(rep, "updated_at", None).timestamp()) if getattr(rep, "updated_at", None) else "1")
-
-    photo_url = None
-    if rep.photo_storage_path:
-        photo_url = f"/public/smart-card/{token}/photo?w=200"
-        if photo_v:
-            photo_url = f"{photo_url}&v={photo_v}"
-    logo_url = None
-    if has_logo:
-        logo_url = f"/public/smart-card/{token}/logo?w=128"
-        if logo_v:
-            logo_url = f"{logo_url}&v={logo_v}"
 
     return {
         "ok": True,
         "status": mode,
-        "preview_tests_remaining": max(0, 15 - int(company.preview_tests_used or 0))
-        if mode == "preview"
-        else None,
+        "shell": False,
+        "preview_tests_remaining": shell["preview_tests_remaining"],
         "company": {
             "name": company.name,
             "website": company.website,
@@ -276,8 +388,38 @@ def get_card(token: str, db: Session = Depends(get_db)):
         "theme_id": _resolve_theme_id(brand),
         "qr_token": rep.qr_token,
         "whatsapp_url": wa_url,
-        "feedback_whatsapp_url": feedback_wa_url or wa_url,
+        "feedback_whatsapp_url": wa_url,
     }
+
+
+@router.get("/{token}")
+def get_card(token: str, request: Request, db: Session = Depends(get_db)):
+    """HTML shell metadata — no phone/email/social/WhatsApp (use POST /reveal)."""
+    settings = get_settings()
+    ip_limit = int(getattr(settings, "smart_card_public_rate_limit_per_min", 60) or 60)
+    _enforce_sc_rate_limit(scope="shell", identity=_client_ip(request), limit=ip_limit, window_sec=60)
+    rep = _get_rep(db, token)
+    return _build_card_payload(db, token=token, rep=rep, full=False)
+
+
+@router.post("/{token}/reveal")
+def reveal_card(token: str, request: Request, db: Session = Depends(get_db)):
+    """Return full card contact fields after origin + rate-limit checks."""
+    settings = get_settings()
+    ip = _client_ip(request)
+    ip_limit = int(getattr(settings, "smart_card_public_rate_limit_per_min", 60) or 60)
+    token_limit = int(getattr(settings, "smart_card_reveal_per_token_per_hour", 60) or 60)
+    _enforce_sc_rate_limit(scope="reveal-ip", identity=ip, limit=ip_limit, window_sec=60)
+    _enforce_sc_rate_limit(
+        scope="reveal-token",
+        identity=str(token or "")[:80],
+        limit=token_limit,
+        window_sec=3600,
+    )
+    if not _origin_allowed(request):
+        raise HTTPException(status_code=403, detail="Reveal not allowed from this origin")
+    rep = _get_rep(db, token)
+    return _build_card_payload(db, token=token, rep=rep, full=True)
 
 
 @router.get("/{token}/logo")
@@ -373,13 +515,19 @@ def get_card_qr_png(
 
 
 @router.post("/{token}/events")
-def record_engagement_event(token: str, payload: dict | None = None, db: Session = Depends(get_db)):
+def record_engagement_event(
+    token: str,
+    request: Request,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+):
     """Fire-and-forget public engagement tracking (social, website, save contact, etc.)."""
     from app.services.smart_card.engagement_service import (
         SmartCardEngagementError,
         SmartCardEngagementService,
     )
 
+    _enforce_sc_rate_limit(scope="events", identity=_client_ip(request), limit=40, window_sec=60)
     rep = _get_rep(db, token)
     body = payload or {}
     try:
@@ -473,7 +621,13 @@ def get_card_asset(
 
 
 @router.post("/{token}/start")
-def start_session(token: str, payload: dict | None = None, db: Session = Depends(get_db)):
+def start_session(
+    token: str,
+    request: Request,
+    payload: dict | None = None,
+    db: Session = Depends(get_db),
+):
+    _enforce_sc_rate_limit(scope="start", identity=_client_ip(request), limit=30, window_sec=60)
     rep = _get_rep(db, token)
     payload = payload or {}
     try:
@@ -496,7 +650,8 @@ def start_session(token: str, payload: dict | None = None, db: Session = Depends
 
 
 @router.post("/{token}/answer")
-def answer_session(token: str, payload: dict, db: Session = Depends(get_db)):
+def answer_session(token: str, request: Request, payload: dict, db: Session = Depends(get_db)):
+    _enforce_sc_rate_limit(scope="answer", identity=_client_ip(request), limit=30, window_sec=60)
     rep = _get_rep(db, token)
     session_id = str((payload or {}).get("session_id") or "").strip()
     session = db.get(SmartCardSession, session_id)

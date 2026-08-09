@@ -68,6 +68,39 @@ def _score_lead(*, interest: str | None, timeline: str | None, consent: str | No
     return score_lead(interest=interest, timeline=timeline, consent=consented)
 
 
+def _normalize_marketing_consent(text: str | None) -> str | None:
+    t = str(text or "").strip().lower()
+    if not t:
+        return None
+    if t in {
+        "yes",
+        "y",
+        "true",
+        "1",
+        "yes, please",
+        "yes, interested",
+        "yes, you may contact me",
+        "yes you may contact me",
+    }:
+        return "yes"
+    if t in {
+        "no",
+        "n",
+        "false",
+        "0",
+        "no thanks",
+        "no, thanks",
+        "no, do not contact me",
+        "no do not contact me",
+    }:
+        return "no"
+    if "yes" in t and "no" not in t:
+        return "yes"
+    if t.startswith("no"):
+        return "no"
+    return None
+
+
 def _ai_summary(lead: SmartCardLead, rep_name: str) -> str:
     parts = [
         f"{lead.name or 'A visitor'} from {lead.company or 'an unknown company'}",
@@ -534,6 +567,21 @@ class SmartCardSessionFlowService:
                 state["timeline"] = text
             if step == "consent_info":
                 state["consent"] = (consent_value or text)[:64]
+            if step == "marketing_consent":
+                mc = _normalize_marketing_consent(text)
+                state["marketing_consent"] = mc
+                prompts = SmartCardSessionFlowService._prompts(db)
+                state["marketing_consent_proof"] = {
+                    "answered_at": datetime.utcnow().isoformat() + "Z",
+                    "channel": channel,
+                    "question_key": "marketing_consent",
+                    "prompt_snapshot": str(
+                        prompts.get("marketing_consent")
+                        or "Can we contact you about products and offers?"
+                    )[:500],
+                    "answer_text": text[:500],
+                    "session_id": session.id,
+                }
 
         db.add(
             SmartCardResponse(
@@ -683,6 +731,31 @@ class SmartCardSessionFlowService:
             follow_up_status="open",
             business_card_path=(str(card_path)[:2000] if card_path else None),
         )
+        mc = state.get("marketing_consent") or _normalize_marketing_consent(
+            answers.get("marketing_consent")
+        )
+        lead.marketing_consent = mc
+        proof = state.get("marketing_consent_proof")
+        if isinstance(proof, dict) and proof:
+            if "session_id" not in proof:
+                proof = {**proof, "session_id": session.id}
+            lead.marketing_consent_proof_json = json.dumps(proof, ensure_ascii=False)
+        elif mc:
+            prompts = SmartCardSessionFlowService._prompts(db)
+            lead.marketing_consent_proof_json = json.dumps(
+                {
+                    "answered_at": datetime.utcnow().isoformat() + "Z",
+                    "channel": session.channel,
+                    "question_key": "marketing_consent",
+                    "prompt_snapshot": str(
+                        prompts.get("marketing_consent")
+                        or "Can we contact you about products and offers?"
+                    )[:500],
+                    "answer_text": str(answers.get("marketing_consent") or mc)[:500],
+                    "session_id": session.id,
+                },
+                ensure_ascii=False,
+            )
         lead.lead_score = _score_lead(
             interest=lead.interest,
             timeline=lead.buying_timeline,

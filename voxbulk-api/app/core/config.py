@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Default 24h (was 7d). Override via ACCESS_TOKEN_EXPIRE_MINUTES if needed.
     access_token_expire_minutes: int = Field(default=1440, alias="ACCESS_TOKEN_EXPIRE_MINUTES")
     auth_rate_limit_per_min: int = Field(default=20, alias="AUTH_RATE_LIMIT_PER_MIN")
+    # Public Smart Card shell / reveal / session throttles (per IP unless noted).
+    smart_card_public_rate_limit_per_min: int = Field(default=60, alias="SMART_CARD_PUBLIC_RATE_LIMIT_PER_MIN")
+    smart_card_reveal_per_token_per_hour: int = Field(default=60, alias="SMART_CARD_REVEAL_PER_TOKEN_PER_HOUR")
     # Local Meta/Telnyx webhook testing without signatures. Never set on production VPS.
     allow_insecure_webhooks: bool = Field(default=False, alias="ALLOW_INSECURE_WEBHOOKS")
     # Recipient CSV/XLSX upload caps (service-orders preview + replace).

@@ -282,6 +282,8 @@ class SmartCardLead(Base):
     interest: Mapped[str | None] = mapped_column(Text, nullable=True)
     buying_timeline: Mapped[str | None] = mapped_column(String(255), nullable=True)
     consent: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    marketing_consent: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    marketing_consent_proof_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     channel: Mapped[str] = mapped_column(String(16), nullable=False, default="web")
     lead_score: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

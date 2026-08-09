@@ -91,19 +91,41 @@ export function PublicSmartCardLanding({
   const [webRunId, setWebRunId] = React.useState(0);
 
   React.useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`${API}/public/smart-card/${encodeURIComponent(token)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(typeof data?.detail === "string" ? data.detail : "Not found");
-        setMeta(data);
-        if (data.status === "expired" || data.status === "preview_exhausted") {
-          setPhase("blocked");
+        const shellRes = await fetch(`${API}/public/smart-card/${encodeURIComponent(token)}`);
+        const shell = await shellRes.json();
+        if (!shellRes.ok) {
+          throw new Error(typeof shell?.detail === "string" ? shell.detail : "Not found");
         }
+        if (cancelled) return;
+        setMeta(shell);
+        if (shell.status === "expired" || shell.status === "preview_exhausted") {
+          setPhase("blocked");
+          return;
+        }
+        const revealRes = await fetch(`${API}/public/smart-card/${encodeURIComponent(token)}/reveal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: "{}",
+        });
+        const full = await revealRes.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!revealRes.ok) {
+          // Keep shell (names/photos) visible; contact fields stay empty until retry.
+          setError(typeof full?.detail === "string" ? full.detail : "Could not load contact details");
+          return;
+        }
+        setMeta(full);
+        setError(null);
       } catch (e: any) {
-        setError(e?.message || "Failed to load");
+        if (!cancelled) setError(e?.message || "Failed to load");
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [token]);
 
   const themeId = normalizeSmartCardThemeId(themeOverride || meta?.theme_id);

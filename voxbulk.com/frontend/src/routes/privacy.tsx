@@ -40,6 +40,17 @@ export const Route = createFileRoute("/privacy")({
         <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a>).
       </p>
 
+      <h2>3A. Smart Card QR</h2>
+      <p>
+        When a visitor scans a Smart Card QR, we process on behalf of the customer organisation (typically as
+        processor) the card profile they published and any lead answers the visitor submits, including optional
+        marketing / contact consent and related proof (time, channel, prompt shown, answer). The customer organisation
+        usually decides the purpose of that lead data (controller). Contact details on a published card are visible to
+        anyone with the QR link. Customers can export consent records from the dashboard for their own compliance
+        records. For rights requests relating to lead data collected for a customer, contact that organisation or{" "}
+        <a href="mailto:Data.Pro@voxbulk.com">Data.Pro@voxbulk.com</a> and we will assist under our processor role.
+      </p>
+
       <h2>4. Retention</h2>
       <p>
         Account and billing data is kept while your account is active and for up to 24 months after closure (or longer

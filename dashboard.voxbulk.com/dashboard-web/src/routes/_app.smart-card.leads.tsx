@@ -41,7 +41,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiFetch, buildAuthHeaders, getApiBaseUrl } from "@/lib/api";
+import { apiFetch, buildAuthHeaders, downloadAuthenticatedFile, getApiBaseUrl } from "@/lib/api";
 import { scoreBadgeClass, titleScore } from "@/lib/lead-score";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +74,15 @@ type Lead = {
   follow_up_status?: string;
   channel?: string | null;
   catalogue_requested?: boolean;
+  marketing_consent?: string | null;
+  marketing_consent_proof?: {
+    answered_at?: string;
+    channel?: string;
+    question_key?: string;
+    prompt_snapshot?: string;
+    answer_text?: string;
+    session_id?: string;
+  } | null;
   business_card_url?: string | null;
   created_at?: string | null;
   is_preview?: boolean;
@@ -375,6 +384,21 @@ function SmartCardLeadsPage() {
         description="Pick one card, a few, or all of them — every scan is attributed to the rep who owns the card."
         actions={
           <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => {
+                const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+                void downloadAuthenticatedFile(
+                  "/smart-card/results/leads/export-consent",
+                  `smart-card-marketing-consent-${stamp}.csv`,
+                ).catch((e: Error) => toast.error(e.message || "Export failed"));
+              }}
+            >
+              <Download className="size-4" /> Export consent records
+            </Button>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <Link to="/smart-card">
                 <QrCode className="size-4" /> Saved cards
@@ -383,6 +407,9 @@ function SmartCardLeadsPage() {
           </div>
         }
       />
+      <p className="text-xs text-muted-foreground">
+        Consent export includes contact details of people who answered the contact-consent question — store securely.
+      </p>
 
       <Card>
         <CardHeader className="gap-2 pb-3 sm:flex-row sm:items-center sm:justify-between">
@@ -694,6 +721,42 @@ function SmartCardLeadsPage() {
                     <p className="mt-2 rounded-md border bg-muted/40 p-2 text-sm">{detail.suggested_follow_up}</p>
                   ) : null}
                 </section>
+
+                {detail.marketing_consent || detail.marketing_consent_proof ? (
+                  <section className="rounded-xl border bg-card p-4 shadow-sm">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                      Marketing / contact consent
+                    </p>
+                    <div className="mt-3 grid gap-3">
+                      <DetailRow
+                        label="Consent"
+                        value={
+                          String(detail.marketing_consent || "").toLowerCase() === "yes"
+                            ? "Yes — agreed to be contacted"
+                            : String(detail.marketing_consent || "").toLowerCase() === "no"
+                              ? "No — do not contact for marketing"
+                              : detail.marketing_consent || "—"
+                        }
+                      />
+                      <DetailRow
+                        label="Answered at"
+                        value={detail.marketing_consent_proof?.answered_at || null}
+                      />
+                      <DetailRow
+                        label="Channel"
+                        value={detail.marketing_consent_proof?.channel || detail.channel || null}
+                      />
+                      <DetailRow
+                        label="Prompt shown"
+                        value={detail.marketing_consent_proof?.prompt_snapshot || null}
+                      />
+                      <DetailRow
+                        label="Answer"
+                        value={detail.marketing_consent_proof?.answer_text || null}
+                      />
+                    </div>
+                  </section>
+                ) : null}
 
                 {(detail.answers || []).length > 0 ? (
                   <section className="space-y-3">

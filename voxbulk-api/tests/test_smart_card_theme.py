@@ -45,7 +45,7 @@ def test_company_update_persists_theme_id(db):
 
 
 def test_public_meta_includes_theme_id(db):
-    from app.routers.public_smart_card import get_card
+    from app.routers.public_smart_card import _build_card_payload
 
     org = Organisation(name=f"Pub Theme {uuid.uuid4().hex[:6]}")
     db.add(org)
@@ -64,5 +64,5 @@ def test_public_meta_includes_theme_id(db):
     db.add_all([company, rep])
     db.commit()
 
-    meta = get_card(rep.qr_token, db)
+    meta = _build_card_payload(db, token=rep.qr_token, rep=rep, full=False)
     assert meta.get("theme_id") == "smartcard1"

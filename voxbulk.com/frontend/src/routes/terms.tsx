@@ -42,6 +42,18 @@ export const Route = createFileRoute("/terms")({
         and STOP requests.
       </p>
 
+      <h2>3A. Smart Card QR</h2>
+      <p>
+        Smart Card QR lets your organisation publish a digital business card via a durable QR link that you choose to
+        print or share. Anyone who scans or opens that link can view the contact details you published on the card.
+        You control what appears on each card and who you give the QR to. Lead answers (including marketing or contact
+        consent) are collected for your organisation; you are responsible for using those leads lawfully, for your own
+        marketing, and for honouring withdrawal of consent. VoxBulk provides the platform and security measures; we do
+        not control how third parties treat a printed QR once you distribute it. Nothing in this section excludes
+        liability that cannot be limited under English law (including fraud, death or personal injury caused by
+        negligence, or non-excludable data-protection duties). Aggregate liability remains as set out in section 6.
+      </p>
+
       <h2>4. Data processing</h2>
       <p>
         When we process personal data of your end users, we act as processor under our Data Processing Agreement,

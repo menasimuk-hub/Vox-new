@@ -1,5 +1,19 @@
 # VOXBULK VPS deploy
 
+## Smart Card public rate limit (aaPanel nginx — no Cloudflare)
+
+One-time on the VPS after `git pull` (edge flood brake for `/public/smart-card/` on `api.voxbulk.com`):
+
+```bash
+cd /www/voxbulk
+git pull origin main
+sudo bash scripts/vps-install-smart-card-nginx-limit.sh
+```
+
+Adds `limit_req_zone sc_public` (http include) + `location ^~ /public/smart-card/` with `burst=60`. App-side reveal + IP/token limits still apply after deploy. Phone scans should stay fine; aggressive `curl` should eventually get **429**.
+
+---
+
 ## Always-on API (systemd)
 
 API + public preview can run under **systemd** (`Restart=always`) so they come back after a crash or VPS reboot — no manual `./vox.sh start` after reboot.

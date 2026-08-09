@@ -498,6 +498,10 @@ WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
         {"value": "Yes", "label": "✅ Yes, please"},
         {"value": "No", "label": "🙅 No thanks"},
     ],
+    "marketing_consent": [
+        {"value": "Yes", "label": "✅ Yes, you may contact me"},
+        {"value": "No", "label": "🙅 No, do not contact me"},
+    ],
     "need_price_list": [
         {"value": "Yes", "label": "✅ Yes"},
         {"value": "No", "label": "🙅 No"},

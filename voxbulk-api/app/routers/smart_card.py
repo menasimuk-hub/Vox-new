@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -587,6 +589,29 @@ def list_leads(
             representative_id=representative_id,
         ),
     }
+
+
+@router.get("/results/leads/export-consent")
+def export_marketing_consent(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """CSV audit trail of marketing / contact-consent answers for the org (scoped)."""
+    _require_smart_card_enabled(db, principal.org_id)
+    from fastapi.responses import Response
+
+    from app.services.smart_card.results_service import SmartCardResultsService
+
+    csv_text = SmartCardResultsService.export_marketing_consent_csv(
+        db, org_id=principal.org_id, user_id=principal.user_id
+    )
+    stamp = datetime.utcnow().strftime("%Y%m%d")
+    filename = f"smart-card-marketing-consent-{stamp}.csv"
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/results/leads/{lead_id}")
