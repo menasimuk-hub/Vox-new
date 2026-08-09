@@ -202,9 +202,115 @@ def _set_job_outcome(job, patch: dict[str, Any]) -> None:
     job.outcome_json = json.dumps(data, ensure_ascii=False)
 
 
-# Hang up + redial later on no-answer / AMD (mirrors survey voice defaults).
-FOLLOWUP_MAX_RETRIES = 1
+# Hang up + redial later on no-answer / AMD. Up to 3 dial attempts total.
+FOLLOWUP_MAX_ATTEMPTS = 3
+FOLLOWUP_MAX_RETRIES = FOLLOWUP_MAX_ATTEMPTS - 1  # legacy alias (retries after first dial)
 FOLLOWUP_RETRY_AFTER_SECONDS = 3600
+
+# Cleared when scheduling the next dial so AMD/no-answer metadata cannot pollute a later real call.
+_CALL_EPHEMERAL_OUTCOME_KEYS = (
+    "hangup_cause",
+    "transcript",
+    "transcript_excerpt",
+    "call_reason",
+    "call_summary",
+    "call_findings",
+    "duration_seconds",
+    "assistant_started_at",
+    "assistant_status",
+    "telnyx_conversation_id",
+    "telnyx_recording_download_url",
+    "telnyx_recording_id",
+    "recording_url",
+    "has_recording",
+    "voicemail_detected",
+    "voicemail_at",
+    "completed_at",
+    "transcript_saved_at",
+    "call_log_id",
+    "billing",
+)
+
+
+def _normalize_attempt_result(reason: str) -> str:
+    raw = str(reason or "").strip().lower().replace(" ", "_")
+    if raw in {"voicemail", "answering_machine", "machine"}:
+        return "answering_machine"
+    if raw in {"no_answer", "no-answer"}:
+        return "no_answer"
+    if raw == "busy":
+        return "busy"
+    if raw in {"completed", "opted_out", "failed"}:
+        return raw
+    return raw or "failed"
+
+
+def _attempt_label(result: str) -> str:
+    key = _normalize_attempt_result(result)
+    return {
+        "answering_machine": "Answering machine",
+        "no_answer": "No answer / hung up",
+        "busy": "Busy",
+        "completed": "Answered (human)",
+        "opted_out": "Opted out",
+        "failed": "Failed",
+    }.get(key, key.replace("_", " ").title() or "Unknown")
+
+
+def _dial_attempts(outcome: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = outcome.get("dial_attempts")
+    if not isinstance(raw, list):
+        return []
+    return [a for a in raw if isinstance(a, dict)]
+
+
+def _attempt_already_recorded(outcome: dict[str, Any], call_id: str) -> bool:
+    cid = str(call_id or "").strip()
+    if not cid:
+        return False
+    return any(str(a.get("call_id") or "").strip() == cid for a in _dial_attempts(outcome))
+
+
+def _record_dial_attempt(
+    outcome: dict[str, Any],
+    *,
+    call_id: str,
+    result: str,
+    hangup_cause: str | None = None,
+) -> list[dict[str, Any]]:
+    attempts = _dial_attempts(outcome)
+    cid = str(call_id or "").strip()
+    if cid and any(str(a.get("call_id") or "").strip() == cid for a in attempts):
+        outcome["dial_attempts"] = attempts
+        return attempts
+    attempts.append(
+        {
+            "attempt": len(attempts) + 1,
+            "call_id": cid or None,
+            "result": _normalize_attempt_result(result),
+            "label": _attempt_label(result),
+            "hangup_cause": (str(hangup_cause).strip() or None) if hangup_cause else None,
+            "at": datetime.utcnow().isoformat(),
+        }
+    )
+    outcome["dial_attempts"] = attempts
+    outcome["attempt_count"] = len(attempts)
+    return attempts
+
+
+def _clear_ephemeral_call_fields(outcome: dict[str, Any]) -> None:
+    for key in _CALL_EPHEMERAL_OUTCOME_KEYS:
+        outcome.pop(key, None)
+
+
+def _should_ignore_call_event(job, call_id: str, outcome: dict[str, Any]) -> bool:
+    """Ignore webhooks for a previous dial so AMD hangup cannot overwrite a later real call."""
+    if _attempt_already_recorded(outcome, call_id):
+        return True
+    active = str(getattr(job, "call_id", None) or "").strip()
+    if active and active != str(call_id or "").strip():
+        return True
+    return False
 
 
 def _try_schedule_followup_retry(
@@ -212,13 +318,16 @@ def _try_schedule_followup_retry(
     job,
     *,
     reason: str,
-    max_retries: int = FOLLOWUP_MAX_RETRIES,
+    max_attempts: int = FOLLOWUP_MAX_ATTEMPTS,
     delay_seconds: int = FOLLOWUP_RETRY_AFTER_SECONDS,
 ) -> bool:
-    """Reschedule job for a later dial. Returns True when a retry was queued."""
+    """Reschedule job for a later dial. Returns True when another attempt was queued."""
     outcome = _job_outcome(job)
-    retry_count = int(outcome.get("retry_count") or 0)
-    if retry_count >= max_retries:
+    attempts = _dial_attempts(outcome)
+    # Legacy jobs used retry_count (= failed dials that already triggered a reschedule).
+    legacy_failed = int(outcome.get("retry_count") or 0)
+    failed_so_far = max(len(attempts), legacy_failed)
+    if failed_so_far >= max_attempts:
         return False
     delay = max(60, int(delay_seconds or FOLLOWUP_RETRY_AFTER_SECONDS))
     now = datetime.utcnow()
@@ -231,24 +340,30 @@ def _try_schedule_followup_retry(
     except Exception:
         scheduled_at = now + timedelta(seconds=delay)
 
+    next_attempt = failed_so_far + 1
+    _clear_ephemeral_call_fields(outcome)
     outcome.update(
         {
-            "retry_count": retry_count + 1,
-            "last_retry_reason": reason,
+            "retry_count": failed_so_far,  # number of failed dials so far
+            "last_retry_reason": _normalize_attempt_result(reason),
             "next_retry_at": scheduled_at.isoformat(),
+            "next_attempt": next_attempt,
+            "max_attempts": max_attempts,
             "previous_status": str(job.status or reason),
         }
     )
     job.status = "scheduled"
     job.scheduled_at = scheduled_at
+    job.call_id = None  # stale AMD/no-answer webhooks must not match the next dial
     job.outcome_json = json.dumps(outcome, ensure_ascii=False)
     job.updated_at = now
     db.add(job)
     logger.info(
-        "feedback_ai_followup_retry_scheduled job_id=%s reason=%s retry=%s at=%s",
+        "feedback_ai_followup_retry_scheduled job_id=%s reason=%s next_attempt=%s/%s at=%s",
         job.id,
         reason,
-        retry_count + 1,
+        next_attempt,
+        max_attempts,
         scheduled_at.isoformat(),
     )
     return True
@@ -1006,18 +1121,28 @@ def _dispatch_job(db: Session, job, *, force_immediate: bool = False) -> str | N
     if not result.ok or not result.external_id:
         raise RuntimeError(result.detail or result.status or "dial_failed")
 
-    _set_job_outcome(
-        job,
+    outcome = _job_outcome(job)
+    _clear_ephemeral_call_fields(outcome)
+    prior_attempts = len(_dial_attempts(outcome))
+    outcome.update(
         {
             "session_summary": session_summary,
             "dispatched_at": datetime.utcnow().isoformat(),
-        },
+            "active_call_id": str(result.external_id),
+            "current_attempt": prior_attempts + 1,
+            "max_attempts": FOLLOWUP_MAX_ATTEMPTS,
+            "why_unhappy": session_summary.get("why_unhappy"),
+        }
     )
+    outcome.pop("next_retry_at", None)
+    outcome.pop("next_attempt", None)
+    job.outcome_json = json.dumps(outcome, ensure_ascii=False)
 
     logger.info(
-        "feedback_ai_followup_dialled job_id=%s call_id=%s org_id=%s",
+        "feedback_ai_followup_dialled job_id=%s call_id=%s attempt=%s org_id=%s",
         job.id,
         result.external_id,
+        prior_attempts + 1,
         job.org_id,
     )
     return str(result.external_id)
@@ -1039,6 +1164,7 @@ def job_to_report_dict(job) -> dict[str, Any]:
         )
     except Exception:
         logger.exception("feedback_ai_followup_reason_report_failed job_id=%s", job.id)
+    dial_attempts = _dial_attempts(outcome)
     report = {
         "id": job.id,
         "session_id": getattr(job, "session_id", None),
@@ -1054,6 +1180,11 @@ def job_to_report_dict(job) -> dict[str, Any]:
         "session_summary": session_summary or None,
         "reason_report": reason_report,
         "why_unhappy": outcome.get("why_unhappy") or session_summary.get("why_unhappy"),
+        "dial_attempts": dial_attempts,
+        "max_attempts": int(outcome.get("max_attempts") or FOLLOWUP_MAX_ATTEMPTS),
+        "next_retry_at": outcome.get("next_retry_at"),
+        "next_attempt": outcome.get("next_attempt"),
+        "answered_call_id": outcome.get("answered_call_id"),
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
     try:
@@ -1128,6 +1259,16 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
         return True
 
     outcome = _job_outcome(job)
+    if _should_ignore_call_event(job, call_id, outcome):
+        logger.info(
+            "feedback_ai_followup_ignore_stale_event job_id=%s call_id=%s active=%s event=%s",
+            job.id,
+            call_id,
+            job.call_id,
+            event_type,
+        )
+        return True
+
     telnyx_config = _telnyx_config(db)
     assistant_id = str(parsed.get("telnyx_assistant_id") or "").strip()
 
@@ -1137,20 +1278,29 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
             TelnyxVoiceAdapter.hangup_call(call_control_id=call_id, config=telnyx_config)
         except Exception:
             logger.exception("feedback_ai_followup_amd_hangup_failed job_id=%s", job.id)
+        hangup_cause = str(record.get("hangup_cause") or record.get("sip_hangup_cause") or "answering_machine").lower()
+        _record_dial_attempt(
+            outcome,
+            call_id=call_id,
+            result="answering_machine",
+            hangup_cause=hangup_cause or "answering_machine",
+        )
         outcome.update(
             {
-                "call_control_id": call_id,
-                "voicemail_detected": True,
-                "voicemail_at": datetime.utcnow().isoformat(),
+                "last_attempt_result": "answering_machine",
                 "voicemail_behavior": "retry_later",
             }
         )
         job.outcome_json = json.dumps(outcome, ensure_ascii=False)
         job.updated_at = datetime.utcnow()
-        if _try_schedule_followup_retry(db, job, reason="voicemail"):
+        if _try_schedule_followup_retry(db, job, reason="answering_machine"):
             db.commit()
             return True
         job.status = "voicemail"
+        outcome["last_attempt_result"] = "answering_machine"
+        for key in ("transcript", "transcript_excerpt", "call_reason", "call_summary", "hangup_cause"):
+            outcome.pop(key, None)
+        job.outcome_json = json.dumps(outcome, ensure_ascii=False)
         db.add(job)
         db.commit()
         return True
@@ -1160,6 +1310,7 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
         instructions = str(parsed.get("survey_instructions") or "").strip()
         if not assistant_id:
             job.status = "failed"
+            _record_dial_attempt(outcome, call_id=call_id, result="failed", hangup_cause="assistant_missing")
             outcome.update({"error": "followback_assistant_not_configured", "call_control_id": call_id})
             job.outcome_json = json.dumps(outcome, ensure_ascii=False)
             job.updated_at = datetime.utcnow()
@@ -1177,13 +1328,16 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
         )
         if not result.ok:
             job.status = "failed"
+            _record_dial_attempt(outcome, call_id=call_id, result="failed", hangup_cause="assistant_start_failed")
             outcome.update({"error": result.detail or result.status, "call_control_id": call_id})
         else:
             outcome.update(
                 {
                     "call_control_id": call_id,
+                    "active_call_id": call_id,
                     "assistant_started_at": datetime.utcnow().isoformat(),
                     "assistant_status": result.status,
+                    "human_answered": True,
                 }
             )
         job.outcome_json = json.dumps(outcome, ensure_ascii=False)
@@ -1196,6 +1350,7 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
         hangup_cause = str(record.get("hangup_cause") or record.get("sip_hangup_cause") or "").lower()
         no_answer_causes = {"no_answer", "originator_cancel", "timeout", "unallocated_number"}
         busy_causes = {"user_busy", "busy"}
+        machine_causes = {"answering_machine", "machine", "voicemail"}
 
         duration_seconds = None
         for key in ("duration_secs", "duration_seconds", "duration"):
@@ -1212,21 +1367,42 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
         if log and log.transcript_text:
             transcript = log.transcript_text
 
+        answered = bool(outcome.get("assistant_started_at") or outcome.get("human_answered"))
+        # If this hangup is for a call we already classified as AMD, ignore (retry already scheduled).
+        if not answered and any(token in hangup_cause for token in machine_causes):
+            _record_dial_attempt(
+                outcome, call_id=call_id, result="answering_machine", hangup_cause=hangup_cause or "answering_machine"
+            )
+            job.outcome_json = json.dumps(outcome, ensure_ascii=False)
+            if _try_schedule_followup_retry(db, job, reason="answering_machine"):
+                db.commit()
+                return True
+            job.status = "voicemail"
+            job.outcome_json = json.dumps(outcome, ensure_ascii=False)
+            db.add(job)
+            db.commit()
+            return True
+
         if transcript and detect_opt_out_text(transcript):
             job.status = "opted_out"
-            outcome.update({"opt_out": True, "transcript_excerpt": transcript[:500]})
+            outcome.update({"opt_out": True})
+            _record_dial_attempt(outcome, call_id=call_id, result="opted_out", hangup_cause=hangup_cause)
         elif any(c in hangup_cause for c in busy_causes) or "busy" in hangup_cause:
             job.status = "busy"
+            _record_dial_attempt(outcome, call_id=call_id, result="busy", hangup_cause=hangup_cause)
         elif any(c in hangup_cause for c in no_answer_causes) or "no answer" in hangup_cause:
             job.status = "no_answer"
-        elif outcome.get("assistant_started_at"):
+            _record_dial_attempt(outcome, call_id=call_id, result="no_answer", hangup_cause=hangup_cause)
+        elif answered:
             job.status = "completed"
+            _record_dial_attempt(outcome, call_id=call_id, result="completed", hangup_cause=hangup_cause)
         elif str(job.status or "").lower() == "dispatched":
             job.status = "no_answer"
+            _record_dial_attempt(outcome, call_id=call_id, result="no_answer", hangup_cause=hangup_cause or "no_answer")
         else:
             job.status = "failed"
+            _record_dial_attempt(outcome, call_id=call_id, result="failed", hangup_cause=hangup_cause)
 
-        answered = bool(outcome.get("assistant_started_at"))
         org = db.get(Organisation, job.org_id)
         billing: dict[str, Any] = {}
         if org is not None:
@@ -1265,29 +1441,44 @@ def handle_feedback_ai_followup_telnyx_event(db: Session, payload: dict[str, Any
                 logger.exception("feedback_ai_followup_promo_email_failed job_id=%s", job.id)
                 outcome["promo_email"] = {"ok": False, "reason": "send_exception"}
 
-        outcome.update(
-            {
-                "call_control_id": call_id,
-                "hangup_cause": hangup_cause or None,
-                "duration_seconds": duration_seconds,
-                "transcript": transcript,
-                "transcript_excerpt": (transcript[:800] if transcript else None),
-                "billing": billing,
-                "completed_at": datetime.utcnow().isoformat(),
-            }
-        )
+        status_now = str(job.status or "").lower()
+        if answered and status_now in {"completed", "opted_out"}:
+            outcome.update(
+                {
+                    "call_control_id": call_id,
+                    "answered_call_id": call_id,
+                    "active_call_id": call_id,
+                    "hangup_cause": hangup_cause or None,
+                    "duration_seconds": duration_seconds,
+                    "transcript": transcript,
+                    "transcript_excerpt": (transcript[:800] if transcript else None),
+                    "billing": billing,
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "last_attempt_result": "completed" if status_now == "completed" else "opted_out",
+                    "human_answered": True,
+                }
+            )
+        else:
+            # Failed dial — keep attempt history only; do not store machine audio as the call summary.
+            outcome.update(
+                {
+                    "last_attempt_result": _normalize_attempt_result(status_now),
+                    "billing": billing,
+                }
+            )
+
         job.outcome_json = json.dumps(outcome, ensure_ascii=False)
         job.updated_at = datetime.utcnow()
 
-        # No human answer / busy / machine hangup → hang already happened; retry later.
-        retryable = str(job.status or "").lower() in {"no_answer", "busy", "voicemail"} and not answered
-        if retryable and _try_schedule_followup_retry(db, job, reason=str(job.status)):
+        # No human answer / busy / machine → retry later (max 3 dials).
+        retryable = status_now in {"no_answer", "busy", "voicemail"} and not answered
+        if retryable and _try_schedule_followup_retry(db, job, reason=status_now):
             db.commit()
             return True
 
         db.add(job)
         db.commit()
-        if str(job.status or "").lower() in {"completed", "opted_out"}:
+        if status_now in {"completed", "opted_out"}:
             try:
                 from app.services.ai_followup_call_media_service import ensure_ai_followup_call_media
 

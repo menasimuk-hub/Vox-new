@@ -192,8 +192,6 @@ def test_handle_feedback_ai_followup_answered_starts_assistant(db: Session):
 
 
 def test_amd_hangs_up_and_schedules_retry(db: Session):
-    from app.services.customer_feedback.feedback_ai_followup_service import _try_schedule_followup_retry
-
     org = Organisation(id=str(uuid.uuid4()), name="Org", wallet_balance_pence=10_000)
     db.add(org)
     job = FeedbackAiFollowUpJob(
@@ -242,13 +240,40 @@ def test_amd_hangs_up_and_schedules_retry(db: Session):
 
     db.refresh(job)
     assert job.status == "scheduled"
+    assert job.call_id is None
     outcome = json.loads(job.outcome_json or "{}")
-    assert outcome.get("voicemail_detected") is True
     assert int(outcome.get("retry_count") or 0) == 1
+    assert outcome.get("next_attempt") == 2
+    attempts = outcome.get("dial_attempts") or []
+    assert len(attempts) == 1
+    assert attempts[0]["result"] == "answering_machine"
     mock_adapter.hangup_call.assert_called_once()
 
+    # Stale hangup from the AMD dial must not overwrite the scheduled retry.
+    hangup_payload = {
+        "data": {
+            "event_type": "call.hangup",
+            "payload": {
+                "call_control_id": "cc-amd-1",
+                "hangup_cause": "answering_machine",
+                "client_state": json.dumps(state),
+            },
+        }
+    }
+    with (
+        patch(
+            "app.services.customer_feedback.feedback_ai_followup_service._settle_followup_call_billing",
+            return_value={},
+        ),
+        patch("app.services.telnyx_voice_service._telnyx_config", return_value={}),
+    ):
+        assert handle_feedback_ai_followup_telnyx_event(db, hangup_payload) is True
+    db.refresh(job)
+    assert job.status == "scheduled"
+    assert len(json.loads(job.outcome_json or "{}").get("dial_attempts") or []) == 1
 
-def test_no_answer_hangup_schedules_retry_then_terminal(db: Session):
+
+def test_no_answer_hangup_schedules_until_max_3_attempts(db: Session):
     org = Organisation(id=str(uuid.uuid4()), name="Org", wallet_balance_pence=10_000)
     db.add(org)
     job = FeedbackAiFollowUpJob(
@@ -269,16 +294,18 @@ def test_no_answer_hangup_schedules_retry_then_terminal(db: Session):
         "feedback_ai_followup": True,
         "feedback_ai_followup_job_id": job.id,
     }
-    payload = {
-        "data": {
-            "event_type": "call.hangup",
-            "payload": {
-                "call_control_id": "cc-na-1",
-                "hangup_cause": "no_answer",
-                "client_state": json.dumps(state),
-            },
+
+    def _hangup(call_control_id: str):
+        return {
+            "data": {
+                "event_type": "call.hangup",
+                "payload": {
+                    "call_control_id": call_control_id,
+                    "hangup_cause": "no_answer",
+                    "client_state": json.dumps(state),
+                },
+            }
         }
-    }
 
     with (
         patch(
@@ -291,26 +318,39 @@ def test_no_answer_hangup_schedules_retry_then_terminal(db: Session):
         ),
         patch("app.services.telnyx_voice_service._telnyx_config", return_value={}),
     ):
-        assert handle_feedback_ai_followup_telnyx_event(db, payload) is True
+        assert handle_feedback_ai_followup_telnyx_event(db, _hangup("cc-na-1")) is True
 
     db.refresh(job)
     assert job.status == "scheduled"
-    assert int(json.loads(job.outcome_json or "{}").get("retry_count") or 0) == 1
+    assert len(json.loads(job.outcome_json or "{}").get("dial_attempts") or []) == 1
 
-    # Second no-answer exhausts retries → terminal no_answer
+    # Attempt 2 — still retries
     job.status = "dispatched"
+    job.call_id = "cc-na-2"
     db.add(job)
     db.commit()
-    payload2 = {
-        "data": {
-            "event_type": "call.hangup",
-            "payload": {
-                "call_control_id": "cc-na-2",
-                "hangup_cause": "no_answer",
-                "client_state": json.dumps(state),
-            },
-        }
-    }
+    with (
+        patch(
+            "app.services.customer_feedback.feedback_ai_followup_service._settle_followup_call_billing",
+            return_value={},
+        ),
+        patch(
+            "app.services.customer_feedback.feedback_ai_followup_service._next_calling_window_utc",
+            return_value=datetime.utcnow(),
+        ),
+        patch("app.services.telnyx_voice_service._telnyx_config", return_value={}),
+    ):
+        assert handle_feedback_ai_followup_telnyx_event(db, _hangup("cc-na-2")) is True
+
+    db.refresh(job)
+    assert job.status == "scheduled"
+    assert len(json.loads(job.outcome_json or "{}").get("dial_attempts") or []) == 2
+
+    # Attempt 3 — terminal no_answer
+    job.status = "dispatched"
+    job.call_id = "cc-na-3"
+    db.add(job)
+    db.commit()
     with (
         patch(
             "app.services.customer_feedback.feedback_ai_followup_service._settle_followup_call_billing",
@@ -318,7 +358,68 @@ def test_no_answer_hangup_schedules_retry_then_terminal(db: Session):
         ),
         patch("app.services.telnyx_voice_service._telnyx_config", return_value={}),
     ):
-        assert handle_feedback_ai_followup_telnyx_event(db, payload2) is True
+        assert handle_feedback_ai_followup_telnyx_event(db, _hangup("cc-na-3")) is True
 
     db.refresh(job)
     assert job.status == "no_answer"
+    assert len(json.loads(job.outcome_json or "{}").get("dial_attempts") or []) == 3
+
+
+def test_stale_amd_hangup_does_not_overwrite_completed_real_call(db: Session):
+    org = Organisation(id=str(uuid.uuid4()), name="Org", wallet_balance_pence=10_000)
+    db.add(org)
+    job = FeedbackAiFollowUpJob(
+        id=str(uuid.uuid4()),
+        org_id=org.id,
+        location_id=str(uuid.uuid4()),
+        session_id=str(uuid.uuid4()),
+        visitor_phone="+447700900777",
+        scheduled_at=datetime.utcnow(),
+        status="completed",
+        call_id="cc-real-2",
+        outcome_json=json.dumps(
+            {
+                "answered_call_id": "cc-real-2",
+                "human_answered": True,
+                "assistant_started_at": datetime.utcnow().isoformat(),
+                "call_reason": "Food was cold",
+                "transcript": "Customer: Food was cold",
+                "hangup_cause": "normal_clearing",
+                "dial_attempts": [
+                    {
+                        "attempt": 1,
+                        "call_id": "cc-amd-1",
+                        "result": "answering_machine",
+                        "label": "Answering machine",
+                    },
+                    {"attempt": 2, "call_id": "cc-real-2", "result": "completed", "label": "Answered (human)"},
+                ],
+            }
+        ),
+    )
+    db.add(job)
+    db.commit()
+
+    state = {
+        "feedback_ai_followup": True,
+        "feedback_ai_followup_job_id": job.id,
+    }
+    payload = {
+        "data": {
+            "event_type": "call.hangup",
+            "payload": {
+                "call_control_id": "cc-amd-1",
+                "hangup_cause": "answering_machine",
+                "client_state": json.dumps(state),
+            },
+        }
+    }
+    with patch("app.services.telnyx_voice_service._telnyx_config", return_value={}):
+        assert handle_feedback_ai_followup_telnyx_event(db, payload) is True
+
+    db.refresh(job)
+    outcome = json.loads(job.outcome_json or "{}")
+    assert job.status == "completed"
+    assert outcome.get("call_reason") == "Food was cold"
+    assert outcome.get("hangup_cause") == "normal_clearing"
+    assert outcome.get("answered_call_id") == "cc-real-2"

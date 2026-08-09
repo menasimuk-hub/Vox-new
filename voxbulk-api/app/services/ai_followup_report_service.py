@@ -108,7 +108,12 @@ def describe_call_findings(
             )
         return "AI follow-up call completed but no transcript was recorded — reason not captured on the call."
     if st in {"no_answer", "busy", "voicemail"}:
-        return f"AI follow-up call was not answered ({st.replace('_', ' ')}) — reason not captured on the call."
+        label = {
+            "voicemail": "answering machine",
+            "no_answer": "no answer / hung up",
+            "busy": "busy",
+        }.get(st, st.replace("_", " "))
+        return f"AI follow-up call did not reach the customer ({label}) — reason not captured on the call."
     if st == "opted_out":
         return "Customer opted out during the AI follow-up call."
     return None

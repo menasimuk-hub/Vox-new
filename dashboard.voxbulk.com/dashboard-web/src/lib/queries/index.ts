@@ -771,6 +771,18 @@ export function useAiFollowUpCallDetail(jobId: string | null, enabled = true) {
         duration_label?: string | null;
         hangup_cause?: string | null;
         status?: string | null;
+        dial_attempts?: Array<{
+          attempt?: number;
+          call_id?: string | null;
+          result?: string;
+          label?: string;
+          hangup_cause?: string | null;
+          at?: string | null;
+        }>;
+        max_attempts?: number | null;
+        next_retry_at?: string | null;
+        next_attempt?: number | null;
+        human_answered?: boolean;
       }>(`/service-orders/ai-follow-up-jobs/${encodeURIComponent(jobId!)}/detail`),
     enabled: Boolean(jobId && enabled),
     staleTime: 30_000,

@@ -84,7 +84,16 @@ def resolve_ai_followup_job(
 
 
 def _call_control_id(job: SurveyAiFollowUpJob | FeedbackAiFollowUpJob, outcome: dict[str, Any]) -> str:
-    return str(job.call_id or outcome.get("call_control_id") or "").strip()
+    answered = str(outcome.get("answered_call_id") or "").strip()
+    if answered:
+        return answered
+    return str(job.call_id or outcome.get("call_control_id") or outcome.get("active_call_id") or "").strip()
+
+
+def _human_answered(job: SurveyAiFollowUpJob | FeedbackAiFollowUpJob, outcome: dict[str, Any]) -> bool:
+    if outcome.get("answered_call_id") or outcome.get("human_answered") or outcome.get("assistant_started_at"):
+        return True
+    return str(getattr(job, "status", None) or "").strip().lower() in {"completed", "opted_out"}
 
 
 def _duration_label(seconds: int | None) -> str | None:
@@ -116,6 +125,20 @@ def _extract_call_reason(*, transcript: str, call_summary: str | None) -> str | 
 def ensure_ai_followup_call_media(db: Session, job: SurveyAiFollowUpJob | FeedbackAiFollowUpJob) -> dict[str, Any]:
     """Hydrate transcript + recording metadata from CallLog and Telnyx (idempotent)."""
     outcome = _loads_outcome(job)
+    status = str(job.status or "").strip().lower()
+
+    # Never treat answering-machine / no-answer dials as the customer conversation.
+    if not _human_answered(job, outcome) and status in {"voicemail", "busy", "no_answer", "scheduled", "dispatched"}:
+        label = {
+            "voicemail": "Answering machine — no conversation with the customer.",
+            "busy": "Line was busy — no conversation with the customer.",
+            "no_answer": "No answer / hung up — no conversation with the customer.",
+        }.get(status)
+        if label and not outcome.get("call_reason"):
+            patch = {"call_reason": label, "has_recording": False}
+            return _persist_outcome(db, job, patch)
+        return outcome
+
     call_id = _call_control_id(job, outcome)
     transcript = str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
 
@@ -132,6 +155,8 @@ def ensure_ai_followup_call_media(db: Session, job: SurveyAiFollowUpJob | Feedba
     patch: dict[str, Any] = {}
     if call_id and not outcome.get("call_control_id"):
         patch["call_control_id"] = call_id
+    if call_id and not outcome.get("answered_call_id") and _human_answered(job, outcome):
+        patch["answered_call_id"] = call_id
     if log and log.id and not outcome.get("call_log_id"):
         patch["call_log_id"] = log.id
 
@@ -160,7 +185,12 @@ def ensure_ai_followup_call_media(db: Session, job: SurveyAiFollowUpJob | Feedba
             patch["transcript_saved_at"] = datetime.utcnow().isoformat()
 
     call_summary = str(patch.get("call_summary") or outcome.get("call_summary") or "").strip()
+    # Prefer live customer transcript over a stale Telnyx summary from an earlier dial.
     call_reason = _extract_call_reason(transcript=transcript, call_summary=call_summary or None)
+    if transcript and len(transcript) >= 12:
+        from_transcript = extract_customer_lines_from_transcript(transcript)
+        if from_transcript and len(from_transcript) >= 12:
+            call_reason = from_transcript
     if call_reason:
         patch["call_reason"] = call_reason
 
@@ -171,7 +201,7 @@ def ensure_ai_followup_call_media(db: Session, job: SurveyAiFollowUpJob | Feedba
         or outcome.get("recording_url")
         or patch.get("telnyx_conversation_id")
         or outcome.get("telnyx_conversation_id")
-        or call_id
+        or (call_id and _human_answered(job, outcome))
     )
     patch["has_recording"] = has_recording
 
@@ -185,24 +215,29 @@ def ensure_ai_followup_call_media(db: Session, job: SurveyAiFollowUpJob | Feedba
 
 def build_ai_followup_call_detail(db: Session, job: SurveyAiFollowUpJob | FeedbackAiFollowUpJob) -> dict[str, Any]:
     outcome = ensure_ai_followup_call_media(db, job)
-    transcript = sanitize_transcript_document(
-        str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
-    )
-    call_reason = str(outcome.get("call_reason") or "").strip() or _extract_call_reason(
-        transcript=transcript,
-        call_summary=str(outcome.get("call_summary") or "").strip() or None,
-    )
-    duration_seconds = outcome.get("duration_seconds")
+    human = _human_answered(job, outcome)
+    transcript = ""
+    if human:
+        transcript = sanitize_transcript_document(
+            str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
+        )
+    call_reason = str(outcome.get("call_reason") or "").strip() or None
+    if human and not call_reason:
+        call_reason = _extract_call_reason(
+            transcript=transcript,
+            call_summary=str(outcome.get("call_summary") or "").strip() or None,
+        )
+    duration_seconds = outcome.get("duration_seconds") if human else None
     if not isinstance(duration_seconds, int):
         try:
             duration_seconds = int(duration_seconds) if duration_seconds is not None else None
         except (TypeError, ValueError):
             duration_seconds = None
 
-    has_recording = bool(outcome.get("has_recording"))
+    has_recording = bool(outcome.get("has_recording")) and human
     status = str(job.status or "").strip().lower()
 
-    if not call_reason and status in {"completed", "opted_out"}:
+    if not call_reason and status in {"completed", "opted_out"} and human:
         if transcript:
             call_reason = extract_customer_lines_from_transcript(transcript) or None
         if not call_reason:
@@ -210,6 +245,14 @@ def build_ai_followup_call_detail(db: Session, job: SurveyAiFollowUpJob | Feedba
                 "The AI call finished but the customer's explanation is still syncing. "
                 "Open the transcript or refresh in a minute."
             )
+    if not call_reason and status == "voicemail":
+        call_reason = "Answering machine — no conversation with the customer."
+    if not call_reason and status == "no_answer":
+        call_reason = "No answer / hung up — no conversation with the customer."
+    if not call_reason and status == "busy":
+        call_reason = "Line was busy — no conversation with the customer."
+
+    dial_attempts = outcome.get("dial_attempts") if isinstance(outcome.get("dial_attempts"), list) else []
 
     return {
         "ok": True,
@@ -217,13 +260,18 @@ def build_ai_followup_call_detail(db: Session, job: SurveyAiFollowUpJob | Feedba
         "status": job.status,
         "call_reason": call_reason,
         "transcript": transcript,
-        "transcript_lines": _format_transcript_lines(transcript),
+        "transcript_lines": _format_transcript_lines(transcript) if transcript else [],
         "has_recording": has_recording,
         "recording_play_url": _recording_play_path(job.id) if has_recording else None,
         "duration_seconds": duration_seconds,
         "duration_label": _duration_label(duration_seconds),
-        "hangup_cause": outcome.get("hangup_cause"),
-        "call_id": job.call_id,
+        "hangup_cause": outcome.get("hangup_cause") if human else None,
+        "call_id": outcome.get("answered_call_id") or job.call_id,
+        "dial_attempts": dial_attempts,
+        "max_attempts": outcome.get("max_attempts"),
+        "next_retry_at": outcome.get("next_retry_at"),
+        "next_attempt": outcome.get("next_attempt"),
+        "human_answered": human,
     }
 
 
@@ -236,6 +284,8 @@ def fetch_ai_followup_recording(
     job: SurveyAiFollowUpJob | FeedbackAiFollowUpJob,
 ) -> tuple[bytes, str] | None:
     outcome = ensure_ai_followup_call_media(db, job)
+    if not _human_answered(job, outcome):
+        return None
     conversation_id = str(outcome.get("telnyx_conversation_id") or "").strip()
 
     if conversation_id:
@@ -302,23 +352,33 @@ def attach_call_media_to_report(db: Session, report: dict[str, Any], job: Survey
     """Lightweight enrich for list/results payloads (uses stored outcome; hydrates if completed and empty)."""
     status = str(job.status or "").strip().lower()
     outcome = _loads_outcome(job)
-    if status in {"completed", "opted_out", "voicemail", "busy", "no_answer"} and not outcome.get("transcript"):
+    human = _human_answered(job, outcome)
+    if status in {"completed", "opted_out"} and human and not outcome.get("transcript"):
         try:
             outcome = ensure_ai_followup_call_media(db, job)
         except Exception:
             logger.exception("ai_followup_report_hydrate_failed job_id=%s", job.id)
 
-    transcript = sanitize_transcript_document(
-        str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
-    )
-    call_reason = str(outcome.get("call_reason") or "").strip() or _extract_call_reason(
-        transcript=transcript,
-        call_summary=str(outcome.get("call_summary") or "").strip() or None,
-    )
-    duration_seconds = outcome.get("duration_seconds")
-    has_recording = bool(outcome.get("has_recording")) or bool(
-        outcome.get("telnyx_conversation_id") or outcome.get("telnyx_recording_download_url") or job.call_id
-    )
+    transcript = ""
+    call_reason = str(outcome.get("call_reason") or "").strip() or None
+    if human:
+        transcript = sanitize_transcript_document(
+            str(outcome.get("transcript") or outcome.get("transcript_excerpt") or "").strip()
+        )
+        if not call_reason:
+            call_reason = _extract_call_reason(
+                transcript=transcript,
+                call_summary=str(outcome.get("call_summary") or "").strip() or None,
+            )
+    elif status == "voicemail":
+        call_reason = call_reason or "Answering machine — no conversation with the customer."
+    elif status == "no_answer":
+        call_reason = call_reason or "No answer / hung up — no conversation with the customer."
+    elif status == "busy":
+        call_reason = call_reason or "Line was busy — no conversation with the customer."
+
+    duration_seconds = outcome.get("duration_seconds") if human else None
+    has_recording = bool(outcome.get("has_recording")) and human
 
     report["call_reason"] = call_reason
     report["transcript_preview"] = transcript[:400] if transcript else None
@@ -327,4 +387,13 @@ def attach_call_media_to_report(db: Session, report: dict[str, Any], job: Survey
     report["duration_label"] = _duration_label(
         int(duration_seconds) if isinstance(duration_seconds, int) else None
     )
+    report["human_answered"] = human
+    if "dial_attempts" not in report:
+        report["dial_attempts"] = outcome.get("dial_attempts") if isinstance(outcome.get("dial_attempts"), list) else []
+    if "next_retry_at" not in report:
+        report["next_retry_at"] = outcome.get("next_retry_at")
+    if "next_attempt" not in report:
+        report["next_attempt"] = outcome.get("next_attempt")
+    if "max_attempts" not in report:
+        report["max_attempts"] = outcome.get("max_attempts")
     return report

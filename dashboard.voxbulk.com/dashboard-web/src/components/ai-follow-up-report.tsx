@@ -38,8 +38,33 @@ export type AiFollowUpReport = {
     narrative?: string | null;
   } | null;
   why_unhappy?: string | null;
+  dial_attempts?: Array<{
+    attempt?: number;
+    call_id?: string | null;
+    result?: string;
+    label?: string;
+    hangup_cause?: string | null;
+    at?: string | null;
+  }>;
+  max_attempts?: number | null;
+  next_retry_at?: string | null;
+  next_attempt?: number | null;
+  answered_call_id?: string | null;
+  human_answered?: boolean;
   updated_at?: string | null;
 };
+
+function dialAttemptLabel(row: NonNullable<AiFollowUpReport["dial_attempts"]>[number]): string {
+  if (typeof row.label === "string" && row.label.trim()) return row.label.trim();
+  const result = String(row.result || "").trim().toLowerCase();
+  if (result === "answering_machine" || result === "voicemail") return "Answering machine";
+  if (result === "no_answer") return "No answer / hung up";
+  if (result === "busy") return "Busy";
+  if (result === "completed") return "Answered (human)";
+  if (result === "opted_out") return "Opted out";
+  if (result === "failed") return "Failed";
+  return result.replace(/_/g, " ") || "Unknown";
+}
 
 export function aiFollowUpStatusLabel(status?: string | null): string {
   const raw = String(status || "").trim().toLowerCase();
@@ -162,30 +187,64 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
   if (!report?.status) return null;
 
   const jobId = String(report.id || "").trim() || null;
-  const terminal = ["completed", "opted_out", "voicemail", "busy", "no_answer", "failed"].includes(
-    String(report.status || "").toLowerCase(),
-  );
+  const status = String(report.status || "").toLowerCase();
+  const terminal = ["completed", "opted_out", "voicemail", "busy", "no_answer", "failed"].includes(status);
   const detailQ = useAiFollowUpCallDetail(jobId, Boolean(jobId && terminal));
+
+  const humanAnswered =
+    report.human_answered === true ||
+    detailQ.data?.human_answered === true ||
+    Boolean(report.answered_call_id) ||
+    status === "completed" ||
+    status === "opted_out";
 
   const callReason =
     (typeof detailQ.data?.call_reason === "string" && detailQ.data.call_reason.trim()) ||
     (typeof report.call_reason === "string" && report.call_reason.trim()) ||
     null;
   const recordingPath =
-    (typeof detailQ.data?.recording_play_url === "string" && detailQ.data.recording_play_url) ||
-    (typeof report.recording_play_url === "string" && report.recording_play_url) ||
-    null;
+    humanAnswered &&
+    ((typeof detailQ.data?.recording_play_url === "string" && detailQ.data.recording_play_url) ||
+      (typeof report.recording_play_url === "string" && report.recording_play_url) ||
+      null);
   const durationLabel =
-    (typeof detailQ.data?.duration_label === "string" && detailQ.data.duration_label) ||
-    (typeof report.duration_label === "string" && report.duration_label) ||
-    null;
+    humanAnswered &&
+    ((typeof detailQ.data?.duration_label === "string" && detailQ.data.duration_label) ||
+      (typeof report.duration_label === "string" && report.duration_label) ||
+      null);
   const hangup =
-    typeof detailQ.data?.hangup_cause === "string"
+    humanAnswered &&
+    (typeof detailQ.data?.hangup_cause === "string"
       ? detailQ.data.hangup_cause
       : typeof report.outcome?.hangup_cause === "string"
         ? report.outcome.hangup_cause
-        : null;
+        : null);
   const promoEmail = report.promo_email;
+
+  const dialAttempts =
+    (Array.isArray(detailQ.data?.dial_attempts) && detailQ.data.dial_attempts.length
+      ? detailQ.data.dial_attempts
+      : null) ||
+    (Array.isArray(report.dial_attempts) ? report.dial_attempts : null) ||
+    (Array.isArray(report.outcome?.dial_attempts)
+      ? (report.outcome.dial_attempts as AiFollowUpReport["dial_attempts"])
+      : null) ||
+    [];
+  const maxAttempts =
+    (typeof detailQ.data?.max_attempts === "number" && detailQ.data.max_attempts) ||
+    (typeof report.max_attempts === "number" && report.max_attempts) ||
+    (typeof report.outcome?.max_attempts === "number" && report.outcome.max_attempts) ||
+    3;
+  const nextRetryAt =
+    (typeof detailQ.data?.next_retry_at === "string" && detailQ.data.next_retry_at) ||
+    (typeof report.next_retry_at === "string" && report.next_retry_at) ||
+    (typeof report.outcome?.next_retry_at === "string" && report.outcome.next_retry_at) ||
+    null;
+  const nextAttempt =
+    (typeof detailQ.data?.next_attempt === "number" && detailQ.data.next_attempt) ||
+    (typeof report.next_attempt === "number" && report.next_attempt) ||
+    (typeof report.outcome?.next_attempt === "number" && report.outcome.next_attempt) ||
+    (status === "scheduled" ? dialAttempts.length + 1 : null);
 
   const summary =
     report.session_summary ||
@@ -219,6 +278,58 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
             </p>
             <Badge variant={aiFollowUpStatusTone(report.status)}>{aiFollowUpStatusLabel(report.status)}</Badge>
           </div>
+
+          {dialAttempts.length > 0 || status === "scheduled" ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground">
+                Call attempts ({dialAttempts.length}/{maxAttempts})
+              </p>
+              <ul className="space-y-1.5 rounded-lg border border-border bg-background/80 px-3 py-3 text-sm">
+                {dialAttempts.map((row, i) => (
+                  <li key={`attempt-${row.call_id || i}`} className="leading-relaxed">
+                    <span className="font-medium">Attempt {row.attempt || i + 1}</span>
+                    <span className="text-muted-foreground"> — </span>
+                    <span>{dialAttemptLabel(row)}</span>
+                    {row.at ? (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        (
+                        {new Date(row.at).toLocaleString("en-GB", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                        )
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+                {status === "scheduled" && nextAttempt && nextAttempt <= maxAttempts ? (
+                  <li className="leading-relaxed text-primary">
+                    <span className="font-medium">Next attempt {nextAttempt}</span>
+                    <span className="text-muted-foreground"> — </span>
+                    <span>
+                      scheduled
+                      {nextRetryAt
+                        ? ` for ${new Date(nextRetryAt).toLocaleString("en-GB", {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          })}`
+                        : report.scheduled_at
+                          ? ` for ${new Date(report.scheduled_at).toLocaleString("en-GB", {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            })}`
+                          : ""}
+                    </span>
+                  </li>
+                ) : null}
+                {terminal && !humanAnswered && dialAttempts.length >= maxAttempts ? (
+                  <li className="text-xs text-muted-foreground">
+                    Reached max {maxAttempts} attempts — no human answer.
+                  </li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
 
           {hasSurveyReasons ? (
             <div className="space-y-2">
@@ -264,40 +375,53 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
             </div>
           ) : null}
 
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">Problem reported on call</p>
-            {detailQ.isLoading && !callReason ? (
-              <Skeleton className="h-14 w-full" />
-            ) : (
-              <blockquote className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-3 text-sm leading-relaxed text-foreground">
-                {callReason || "Loading what the customer said on the AI call…"}
-              </blockquote>
-            )}
-          </div>
+          {humanAnswered ? (
+            <>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-foreground">Problem reported on call</p>
+                {detailQ.isLoading && !callReason ? (
+                  <Skeleton className="h-14 w-full" />
+                ) : (
+                  <blockquote className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-3 text-sm leading-relaxed text-foreground">
+                    {callReason || "Loading what the customer said on the AI call…"}
+                  </blockquote>
+                )}
+              </div>
 
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">Recording</p>
-            <InterviewRecordingPlayer
-              playPath={recordingPath}
-              durationLabel={durationLabel ? `${durationLabel} · AI follow-up` : "AI follow-up recording"}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full"
-              disabled={!jobId}
-              onClick={() => setTranscriptOpen(true)}
-            >
-              <FileText className="mr-2 size-4" />
-              Open transcript
-            </Button>
-          </div>
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-foreground">Recording</p>
+                <InterviewRecordingPlayer
+                  playPath={recordingPath || null}
+                  durationLabel={durationLabel ? `${durationLabel} · AI follow-up` : "AI follow-up recording"}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  disabled={!jobId}
+                  onClick={() => setTranscriptOpen(true)}
+                >
+                  <FileText className="mr-2 size-4" />
+                  Open transcript
+                </Button>
+              </div>
+            </>
+          ) : status === "scheduled" || status === "dispatched" ? (
+            <p className="text-sm text-muted-foreground">
+              Waiting for a human answer. Summary, transcript and recording appear only after a real conversation.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {callReason ||
+                "No human conversation yet — answering machine / no answer is listed under call attempts above."}
+            </p>
+          )}
 
           <div className="space-y-1 text-xs text-muted-foreground">
             {report.scheduled_at ? (
               <p>
-                Called:{" "}
+                {status === "scheduled" ? "Next call: " : "Scheduled: "}
                 {new Date(report.scheduled_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
               </p>
             ) : null}
