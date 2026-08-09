@@ -235,7 +235,6 @@ export function SmartCardTemplate({
   const waHref = actions?.whatsappHref;
   const webLabel = actions?.webSurveyLabel || "Contact us";
   const mapsQuery = isSet(card.address) ? card.address : card.location;
-  const addressLine = isSet(card.address) ? card.address : isSet(card.location) ? card.location : "";
 
   return (
     <main className={`smartcard-root ${bgClass} relative min-h-dvh w-full overflow-hidden`}>
@@ -304,13 +303,11 @@ export function SmartCardTemplate({
                 </p>
               ) : null}
               {isSet(card.tagline) ? (
-                <p className="mt-1.5 text-[12px] leading-relaxed" style={{ color: sub }}>
-                  {card.tagline}
-                </p>
-              ) : null}
-              {isSet(addressLine) ? (
-                <p className="mt-1.5 text-[11.5px] leading-snug" style={{ color: sub }}>
-                  {addressLine}
+                <p
+                  className="mt-1.5 line-clamp-3 text-[12px] leading-relaxed"
+                  style={{ color: sub }}
+                >
+                  {card.tagline.length > 150 ? `${card.tagline.slice(0, 150).trimEnd()}…` : card.tagline}
                 </p>
               ) : null}
             </div>

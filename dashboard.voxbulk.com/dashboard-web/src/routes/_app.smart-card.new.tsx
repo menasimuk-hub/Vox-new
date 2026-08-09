@@ -321,7 +321,7 @@ function SmartCardNewWizard() {
     website: website.trim() || null,
     contact_email: contactEmail.trim() || null,
     contact_phone: contactPhone.trim() || notifyMobile.trim() || null,
-    description: description.trim() || null,
+    description: description.trim().slice(0, 150) || null,
     address: address.trim() || null,
     theme_id: themeId,
     brand_defaults: { address: address.trim() || null, theme_id: themeId },
@@ -582,10 +582,12 @@ function SmartCardNewWizard() {
                   <Label className="text-xs">Short description (optional)</Label>
                   <Textarea
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    onChange={(e) => setDescription(e.target.value.slice(0, 150))}
                     rows={3}
+                    maxLength={150}
                     placeholder="What your company does"
                   />
+                  <p className="text-[11px] text-muted-foreground">{description.length}/150 · max 3 lines</p>
                 </div>
               </CardContent>
             </Card>

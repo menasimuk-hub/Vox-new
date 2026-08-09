@@ -74,10 +74,12 @@ function SmartCardDescriptionsPage() {
             <Label>Company description</Label>
             <Textarea
               disabled={!canEdit}
-              rows={4}
+              rows={3}
+              maxLength={150}
               value={form.description || ""}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              onChange={(e) => setForm({ ...form, description: e.target.value.slice(0, 150) })}
             />
+            <p className="text-[11px] text-muted-foreground">{(form.description || "").length}/150 · max 3 lines</p>
           </div>
           <div className="space-y-1.5">
             <Label>Products summary</Label>

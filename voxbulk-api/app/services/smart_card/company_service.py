@@ -203,7 +203,10 @@ class SmartCardCompanyService:
         ):
             if key in payload:
                 val = payload[key]
-                setattr(company, key, (str(val).strip() if val is not None else None) or ("" if key == "name" else None))
+                cleaned = (str(val).strip() if val is not None else None) or ("" if key == "name" else None)
+                if key == "description" and cleaned:
+                    cleaned = cleaned[:150]
+                setattr(company, key, cleaned)
         if "brand_defaults" in payload:
             company.brand_defaults_json = json.dumps(normalize_brand_defaults(payload.get("brand_defaults")))
         elif "theme_id" in payload:
