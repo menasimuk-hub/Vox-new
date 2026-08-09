@@ -456,8 +456,8 @@ export function FeedbackSurveyResults({
                             <p className="font-medium leading-tight">{r.name}</p>
                           </td>
                           <td className="px-4 py-3">
-                            <span className="inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium capitalize text-muted-foreground">
-                              {r.type}
+                            <span className="inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                              {r.type === "web" ? "Web" : "WhatsApp"}
                             </span>
                           </td>
                           <td className="px-4 py-3">
@@ -849,7 +849,8 @@ function RespondentSheet({
   const canTestCall =
     Boolean(phoneForTest) &&
     phoneForTest !== "—" &&
-    !phoneForTest.toLowerCase().startsWith("web:");
+    !phoneForTest.toLowerCase().startsWith("web:") &&
+    (respondent.type === "whatsapp" || respondent.callbackConsent === true);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">

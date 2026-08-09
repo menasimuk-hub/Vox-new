@@ -284,6 +284,7 @@ class FeedbackWebSurveyService:
             org_id=location.org_id,
             location_id=location.id,
             visitor_phone=visitor_phone,
+            entry_channel="web",
             status="active",
             current_step=0,
             detected_language="en_GB",

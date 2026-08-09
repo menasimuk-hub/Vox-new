@@ -306,6 +306,8 @@ export type FeedbackAggregateBlock = {
 export type FeedbackRespondent = {
   id?: string;
   phone?: string | null;
+  /** "web" | "whatsapp" — how the visitor started the survey */
+  entry_channel?: string | null;
   callback_consent?: boolean | null;
   location_id?: string;
   location_name?: string | null;

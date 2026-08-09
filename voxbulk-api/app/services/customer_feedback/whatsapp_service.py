@@ -108,9 +108,16 @@ class FeedbackWhatsappService:
         org_id: str | None = None,
         record: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        from app.services.telnyx_inbound_messaging_service import extract_wa_button_reply
+
         normalized_body = str(body or "").strip()
         answer_source = "text"
         source_language: str | None = None
+        button = extract_wa_button_reply(record or {})
+        button_title = str(button.get("title") or "").strip()
+        # Prefer button title when Meta/Telnyx send id/payload without readable text.
+        if button_title and (not normalized_body or normalized_body.startswith("[")):
+            normalized_body = button_title
         if not normalized_body:
             from app.services.customer_feedback.feedback_voice_service import is_voice_inbound
 
@@ -268,10 +275,19 @@ class FeedbackWhatsappService:
 
     @staticmethod
     def _steps_for_location(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
-        from app.services.customer_feedback.feedback_marketing_policy import filter_survey_steps
+        from app.services.customer_feedback.feedback_marketing_policy import (
+            filter_survey_steps,
+            is_marketing_survey_step,
+        )
 
         config = load_survey_config(db, location)
-        steps = filter_survey_steps(config.get("steps") or [])
+        # Same interactive path as web: topics + open question (no marketing step).
+        # Marketing consent stays WA-product-optional later; web never asks it.
+        steps = [
+            step
+            for step in filter_survey_steps(config.get("steps") or [])
+            if not is_marketing_survey_step(step)
+        ]
         if steps:
             return steps
         tpl = db.execute(
@@ -332,6 +348,7 @@ class FeedbackWhatsappService:
             org_id=location.org_id,
             location_id=location.id,
             visitor_phone=from_phone,
+            entry_channel="whatsapp",
             status="active",
             current_step=0,
             detected_language=resolve_session_language(
@@ -623,7 +640,7 @@ class FeedbackWhatsappService:
             )
             return {"handled": True, "reason": "missing_template", "session_id": session.id}
         next_message = format_template_message(next_tpl)
-        FeedbackWhatsappService._send_wa(
+        sent = FeedbackWhatsappService._send_wa(
             db,
             to_number=session.visitor_phone,
             body=next_message,
@@ -632,6 +649,17 @@ class FeedbackWhatsappService:
             location=location,
             require_template=True,
         )
+        # Mirror web: open / session-text steps must still reach the visitor if HSM send fails.
+        if not sent and next_message:
+            FeedbackWhatsappService._send_wa(
+                db,
+                to_number=session.visitor_phone,
+                body=next_message,
+                org_id=session.org_id,
+                tpl=None,
+                location=location,
+                require_template=False,
+            )
         return {"handled": True, "session_id": session.id}
 
     @staticmethod
@@ -939,27 +967,42 @@ class FeedbackWhatsappService:
                     detected_language=session.detected_language,
                 )
             ):
+                # Match web: always ask "tell us more" after a poor/negative topic answer.
                 tell_more = get_system_template(db, "tell_us_more", language=session.detected_language)
-                if tell_more:
-                    set_tell_us_more_pending(
-                        state,
-                        step_index=step_index,
-                        topic_key=str(tpl.template_key if tpl else "topic"),
-                        survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
-                    )
-                    save_feedback_session_state(session, state)
-                    db.add(session)
-                    db.commit()
+                tell_body = (
+                    str(tell_more.body_text or "").strip()
+                    if tell_more
+                    else "Thanks — what could we have done better? Reply with a short note or a voice message, or reply Skip."
+                )
+                set_tell_us_more_pending(
+                    state,
+                    step_index=step_index,
+                    topic_key=str(tpl.template_key if tpl else current_step.get("template_key") or "topic"),
+                    survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
+                )
+                save_feedback_session_state(session, state)
+                db.add(session)
+                db.commit()
+                sent = FeedbackWhatsappService._send_wa(
+                    db,
+                    to_number=session.visitor_phone,
+                    body=tell_body,
+                    org_id=session.org_id,
+                    tpl=tell_more,
+                    location=location,
+                    require_template=tell_more is not None,
+                )
+                if not sent:
                     FeedbackWhatsappService._send_wa(
                         db,
                         to_number=session.visitor_phone,
-                        body=tell_more.body_text,
+                        body=tell_body,
                         org_id=session.org_id,
-                        tpl=tell_more,
+                        tpl=None,
                         location=location,
-                        require_template=True,
+                        require_template=False,
                     )
-                    return {"handled": True, "awaiting_tell_us_more": True, "session_id": session.id}
+                return {"handled": True, "awaiting_tell_us_more": True, "session_id": session.id}
 
         session.current_step = step_index + 1
         db.add(session)

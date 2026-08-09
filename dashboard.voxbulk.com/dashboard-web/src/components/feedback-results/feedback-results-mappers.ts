@@ -68,7 +68,8 @@ function voiceAudioUrl(row: {
 export type Respondent = {
   id: string;
   name: string;
-  type: "mobile" | "web";
+  /** Survey entry channel shown in results */
+  type: "whatsapp" | "web";
   mobile: string;
   callbackConsent?: boolean | null;
   completedAt: string;
@@ -159,8 +160,14 @@ function classifyYn(text: string): "yes" | "no" | null {
   return null;
 }
 
-function respondentType(phone: string | null | undefined): "mobile" | "web" {
-  return String(phone || "").startsWith("web:") ? "web" : "mobile";
+function respondentType(
+  phone: string | null | undefined,
+  entryChannel?: string | null,
+): "whatsapp" | "web" {
+  const channel = String(entryChannel || "").trim().toLowerCase();
+  if (channel === "web") return "web";
+  if (channel === "whatsapp") return "whatsapp";
+  return String(phone || "").startsWith("web:") ? "web" : "whatsapp";
 }
 
 function displayName(phone: string | null | undefined): string {
@@ -450,7 +457,7 @@ export function mapFeedbackResults(
     return {
       id: String(r.id || ""),
       name: displayName(r.phone),
-      type: respondentType(r.phone),
+      type: respondentType(r.phone, r.entry_channel),
       mobile: String(r.phone || "—"),
       callbackConsent:
         typeof r.callback_consent === "boolean" ? r.callback_consent : r.callback_consent == null ? null : Boolean(r.callback_consent),

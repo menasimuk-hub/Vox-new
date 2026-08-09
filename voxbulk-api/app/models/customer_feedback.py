@@ -160,6 +160,8 @@ class FeedbackSession(Base):
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
     location_id: Mapped[str] = mapped_column(String(36), ForeignKey("feedback_locations.id"), nullable=False, index=True)
     visitor_phone: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # Entry surface for results: "web" | "whatsapp". Survives callback phone overwrite on web.
+    entry_channel: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     units_charged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

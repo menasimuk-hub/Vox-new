@@ -347,10 +347,15 @@ def build_respondents(
         loc = locations.get(sess.location_id)
         sentiment = _session_sentiment(answers)
         unhappy = _is_unhappy(answers)
+        channel = str(getattr(sess, "entry_channel", None) or "").strip().lower()
+        if channel not in {"web", "whatsapp"}:
+            phone = str(sess.visitor_phone or "")
+            channel = "web" if phone.startswith("web:") else "whatsapp"
         rows.append(
             {
                 "id": sess.id,
                 "phone": sess.visitor_phone,
+                "entry_channel": channel,
                 "callback_consent": sess.callback_consent,
                 "location_id": sess.location_id,
                 "location_name": loc.name if loc else None,
