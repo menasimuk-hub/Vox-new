@@ -745,8 +745,7 @@ def start_test_ai_followup(
         )
         db.add(job)
     else:
-        if str(job.status or "").lower() in {"dispatched", "completed"}:
-            raise ValueError(f"AI follow-up already {job.status}")
+        # TEMP: dashboard test dial may re-fire even after a prior dispatch/complete.
         job.visitor_phone = session.visitor_phone
         job.business_context = str(cfg.get("business_context") or cfg.get("businessContext") or "").strip()
         job.promo_enabled = bool(cfg.get("promo_enabled") or cfg.get("promoEnabled"))
@@ -754,6 +753,7 @@ def start_test_ai_followup(
         job.promo_description = str(cfg.get("promo_description") or cfg.get("promoDescription") or "").strip()
         job.scheduled_at = scheduled_at.replace(tzinfo=None)
         job.status = "scheduled"
+        job.call_id = None
         job.updated_at = now
         db.add(job)
 
@@ -767,6 +767,7 @@ def start_test_ai_followup(
             # TEMP test override — remove when results test dial is retired.
             "force_immediate": True,
             "skip_calling_hours": True,
+            "ignore_delay_hours": True,
             "agent_id": str(cfg.get("agent_id") or cfg.get("agentId") or "").strip() or None,
         },
     )
@@ -782,13 +783,36 @@ def start_test_ai_followup(
         db.commit()
         db.refresh(job)
     except FollowUpDefer as exc:
-        job.scheduled_at = exc.until or _next_calling_window_utc(db, job.org_id, str(job.visitor_phone or ""))
-        _set_job_outcome(job, {"defer_reason": exc.reason, "deferred_at": datetime.utcnow().isoformat()})
-        job.updated_at = datetime.utcnow()
+        # TEMP test dial must never soft-defer on calling hours / delay.
+        logger.warning(
+            "feedback_ai_followup_test_unexpected_defer job_id=%s reason=%s — retrying force_immediate",
+            job.id,
+            exc.reason,
+        )
+        _set_job_outcome(
+            job,
+            {
+                "force_immediate": True,
+                "skip_calling_hours": True,
+                "ignore_delay_hours": True,
+                "defer_bypassed": True,
+                "defer_reason": exc.reason,
+            },
+        )
         db.add(job)
         db.commit()
-        db.refresh(job)
-        raise ValueError(exc.reason or "Call deferred — outside calling hours") from exc
+        try:
+            call_id = _dispatch_job(db, job, force_immediate=True)
+            job.status = "dispatched"
+            job.call_id = call_id
+            job.updated_at = datetime.utcnow()
+            db.add(job)
+            db.commit()
+            db.refresh(job)
+        except FollowUpDefer as exc2:
+            raise ValueError(
+                f"Test dial still deferred after force_immediate bypass: {exc2.reason or exc.reason}"
+            ) from exc2
     except FollowUpSkip as exc:
         job.status = exc.status
         _set_job_outcome(job, {"skip_reason": exc.reason})

@@ -843,9 +843,13 @@ function RespondentSheet({
 }) {
   const [startingCall, setStartingCall] = React.useState(false);
   if (!respondent) return null;
+  // TEMP: developer test dial — ignore calling-time / delay rules on the API.
+  // Remove this button when follow-back testing is finished.
+  const phoneForTest = String(respondent.mobile || "").trim();
   const canTestCall =
-    respondent.type === "mobile" ||
-    (Boolean(respondent.mobile) && !String(respondent.mobile).startsWith("web:"));
+    Boolean(phoneForTest) &&
+    phoneForTest !== "—" &&
+    !phoneForTest.toLowerCase().startsWith("web:");
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
@@ -896,7 +900,9 @@ function RespondentSheet({
                       method: "POST",
                       body: JSON.stringify({
                         callback_consent: true,
-                        visitor_phone: respondent.type === "mobile" ? respondent.mobile : undefined,
+                        force_immediate: true,
+                        skip_calling_hours: true,
+                        visitor_phone: canTestCall ? phoneForTest : undefined,
                       }),
                     });
                     toast.success("AI follow-up call started — results appear when the call finishes.");
@@ -914,7 +920,9 @@ function RespondentSheet({
             </Button>
             {!canTestCall ? (
               <p className="text-[11px] text-muted-foreground">Needs a mobile number for testing.</p>
-            ) : null}
+            ) : (
+              <p className="text-[11px] text-muted-foreground">Temp test dial — ignores calling hours.</p>
+            )}
           </div>
           <AiFollowUpAssistancePanel report={respondent.aiFollowUp} />
         </SheetHeader>

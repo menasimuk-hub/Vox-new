@@ -261,40 +261,79 @@ function normalizeBilingual(
   return { english: en || orig };
 }
 
+function followUpBaseKey(questionKey: string): string | null {
+  const qk = String(questionKey || "");
+  if (qk.endsWith("__tell_us_more")) return qk.slice(0, -"__tell_us_more".length);
+  if (qk.endsWith("__low_reason")) return qk.slice(0, -"__low_reason".length);
+  return null;
+}
+
+function answerMergeKey(a: NonNullable<FeedbackRespondent["answers"]>[number]): string {
+  const qk = String(a.question_key || "");
+  const st = String((a as { survey_type_id?: string }).survey_type_id || "");
+  return st ? `${st}::${qk}` : qk;
+}
+
+function toFollowUp(
+  followRaw: NonNullable<FeedbackRespondent["answers"]>[number],
+): BilingualAnswer {
+  const fEn = String(followRaw.answer || "").trim();
+  const fOrig = String(followRaw.original_text || "").trim();
+  return {
+    ...normalizeBilingual(fEn, fOrig, {
+      transcriptionStatus: followRaw.transcription_status,
+      translationStatus: followRaw.translation_status,
+    }),
+    source: followRaw.answer_source,
+    audioUrl: voiceAudioUrl(followRaw),
+  };
+}
+
 function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
   const items = r.answers || [];
-  // Web CF pending flow saves `__tell_us_more`; older / reason_prev path saves `__low_reason`.
-  // Prefer tell_us_more when both exist so Apple/web voice reasons show under the rating.
+  // Attach tell-us-more / low-reason rows to parents; never drop unmatched voices.
+  // Key by survey_type_id + base question_key so three topics don't collapse into one.
   const lowReasons = new Map<string, (typeof items)[number]>();
+  const attachedFollowUpIds = new Set<string>();
+
   for (const a of items) {
+    const base = followUpBaseKey(String(a.question_key || ""));
+    if (!base) continue;
+    const st = String((a as { survey_type_id?: string }).survey_type_id || "");
+    const key = st ? `${st}::${base}` : base;
+    // Prefer tell_us_more over low_reason when both exist for the same parent.
     const qk = String(a.question_key || "");
-    if (qk.endsWith("__low_reason")) {
-      const base = qk.slice(0, -"__low_reason".length);
-      if (!lowReasons.has(base)) lowReasons.set(base, a);
-    }
-  }
-  for (const a of items) {
-    const qk = String(a.question_key || "");
-    if (qk.endsWith("__tell_us_more")) {
-      lowReasons.set(qk.slice(0, -"__tell_us_more".length), a);
+    if (qk.endsWith("__tell_us_more") || !lowReasons.has(key)) {
+      lowReasons.set(key, a);
     }
   }
 
   const rows: RespondentAnswerRow[] = [];
   for (const a of items) {
     const qk = String(a.question_key || "");
-    if (qk.endsWith("__low_reason") || qk.endsWith("__tell_us_more")) continue;
+    if (followUpBaseKey(qk)) continue;
 
-    const question = String(a.question || "").trim();
+    const question = String(a.question || qk || "Question").trim() || "Question";
     const raw = String(a.answer || "").trim();
     const original = String(a.original_text || "").trim();
     const role = String(a.step_role || "").toLowerCase();
+    const source = String(a.answer_source || "text").toLowerCase();
+    const isVoice = source === "voice" || source === "voice_note";
     const bilingualOpts = {
       transcriptionStatus: a.transcription_status,
       translationStatus: a.translation_status,
     };
+    const parentKey = answerMergeKey(a);
+    const followRaw = lowReasons.get(parentKey) || lowReasons.get(qk);
+    const followUp = followRaw ? toFollowUp(followRaw) : undefined;
+    if (followRaw) {
+      const fid = String((followRaw as { id?: string }).id || followRaw.question_key || "");
+      if (fid) attachedFollowUpIds.add(fid);
+      // Also mark by question_key so unmatched pass can skip.
+      attachedFollowUpIds.add(String(followRaw.question_key || ""));
+    }
 
-    if (role === "final_feedback_text" || qk === "open_question") {
+    if (role === "final_feedback_text" || qk === "open_question" || role.includes("open")) {
       rows.push({
         question,
         type: "open",
@@ -307,33 +346,22 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
       continue;
     }
 
-    const yn = classifyYn(raw);
-    if (yn || role.includes("recommend") || role === "yes_no" || role.includes("marketing")) {
-      rows.push({ question, type: "yes_no", yesNo: yn || "no" });
-      continue;
-    }
-
-    const pge = classifyPge(raw);
-    if (pge || role === "rating") {
-      const followRaw = lowReasons.get(qk);
-      let followUp: BilingualAnswer | undefined;
-      if (followRaw) {
-        const fEn = String(followRaw.answer || "").trim();
-        const fOrig = String(followRaw.original_text || "").trim();
-        followUp = {
-          ...normalizeBilingual(fEn, fOrig, {
-            transcriptionStatus: followRaw.transcription_status,
-            translationStatus: followRaw.translation_status,
-          }),
-          source: followRaw.answer_source,
-          audioUrl: voiceAudioUrl(followRaw),
-        };
+    // Never classify voice transcripts as rating / yes-no — that strips audio.
+    if (!isVoice) {
+      const yn = classifyYn(raw);
+      if (yn || role.includes("recommend") || role === "yes_no" || role.includes("marketing")) {
+        rows.push({ question, type: "yes_no", yesNo: yn || "no", followUp });
+        continue;
       }
-      rows.push({ question, type: "rating", rating: pge || "poor", followUp });
-      continue;
+
+      const pge = classifyPge(raw);
+      if (pge || role === "rating") {
+        rows.push({ question, type: "rating", rating: pge || "poor", followUp });
+        continue;
+      }
     }
 
-    if (raw || original || String(a.transcription_status || "") === "pending") {
+    if (raw || original || String(a.transcription_status || "") === "pending" || voiceAudioUrl(a)) {
       rows.push({
         question,
         type: "open",
@@ -342,9 +370,35 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
           source: a.answer_source,
           audioUrl: voiceAudioUrl(a),
         },
+        followUp,
       });
     }
   }
+
+  // Emit any tell-us-more / low-reason rows that were not attached to a parent.
+  for (const a of items) {
+    const qk = String(a.question_key || "");
+    const base = followUpBaseKey(qk);
+    if (!base) continue;
+    const id = String((a as { id?: string }).id || "");
+    if ((id && attachedFollowUpIds.has(id)) || attachedFollowUpIds.has(qk)) continue;
+    const question = String(a.question || base || "Tell us more").trim() || "Tell us more";
+    const raw = String(a.answer || "").trim();
+    const original = String(a.original_text || "").trim();
+    rows.push({
+      question: `${question} — tell us more`,
+      type: "open",
+      openText: {
+        ...normalizeBilingual(raw, original, {
+          transcriptionStatus: a.transcription_status,
+          translationStatus: a.translation_status,
+        }),
+        source: a.answer_source,
+        audioUrl: voiceAudioUrl(a),
+      },
+    });
+  }
+
   return rows;
 }
 
@@ -378,7 +432,14 @@ export function mapFeedbackResults(
 
   const questions: Question[] = aggregates.map((block, i) => {
     const id = `q${i + 1}`;
-    const samples = openComments.filter((c) => c.answer_source === "voice").length;
+    const qk = String(block.question_key || "");
+    const qLabel = String(block.question || "");
+    const samples = openComments.filter((c) => {
+      if (c.answer_source !== "voice") return false;
+      const cqk = String(c.question_key || "");
+      const cq = String(c.question || "");
+      return (qk && cqk === qk) || (qLabel && cq === qLabel) || (c.theme && c.theme === qLabel);
+    }).length;
     return aggregateToQuestion(block, id, samples);
   });
 
@@ -422,7 +483,7 @@ export function mapFeedbackResults(
           transcribing ||
           (english === TRANSLATION_UNAVAILABLE && Boolean(original)),
         reason: String(c.theme || "Feedback"),
-        question: c.sentiment === "negative" ? "Why poor?" : "Anything else?",
+        question: String(c.question || c.question_key || "Voice answer").trim() || "Voice answer",
         audioUrl: c.audio_url || (c.voice_note_job_id ? `/customer-feedback/results/voice-notes/${c.voice_note_job_id}/audio` : null),
       };
     });

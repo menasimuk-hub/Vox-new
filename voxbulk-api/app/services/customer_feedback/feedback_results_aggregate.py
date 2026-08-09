@@ -159,8 +159,12 @@ def build_aggregates(
 
     for row in responses:
         answer = str(row.answer_text_en or row.answer_text or "").strip()
-        if not answer:
+        pending_voice = str(getattr(row, "transcription_status", None) or "") == "pending"
+        source = str(getattr(row, "answer_source", None) or "text").lower()
+        is_voice = source in {"voice", "voice_note"}
+        if not answer and not (is_voice and pending_voice):
             continue
+        display = answer or "Transcribing…"
         question_key = str(row.question_key or "")
         survey_type_id = str(row.survey_type_id or "")
         question, step_role = template_meta(templates, survey_type_id=survey_type_id, question_key=question_key)
@@ -176,7 +180,11 @@ def build_aggregates(
                 buttons = None
 
         bucket_key = f"{survey_type_id}::{question_key}"
-        if step_role in {"yes_no", "marketing_opt_in"} or classify_yn(answer):
+        # Voice / tell-us-more must never be PGE/YN-classified from transcript wording.
+        if is_voice or step_role in OPEN_STEP_ROLES or question_key.endswith("__tell_us_more") or question_key.endswith("__low_reason"):
+            buckets[bucket_key][display[:200]] += 1
+            meta[bucket_key] = {"question": question, "step_role": step_role or "open", "scale": "OPEN"}
+        elif step_role in {"yes_no", "marketing_opt_in"} or classify_yn(answer):
             label = classify_yn(answer) or answer.lower()
             buckets[bucket_key][label] += 1
             meta[bucket_key] = {"question": question, "step_role": step_role or "yes_no", "scale": "YN"}
@@ -185,10 +193,10 @@ def build_aggregates(
             buckets[bucket_key][label] += 1
             meta[bucket_key] = {"question": question, "step_role": step_role or "rating", "scale": "PGE"}
         elif is_open_text_step(step_role, answer, buttons):
-            buckets[bucket_key][answer[:200]] += 1
+            buckets[bucket_key][display[:200]] += 1
             meta[bucket_key] = {"question": question, "step_role": step_role or "open", "scale": "OPEN"}
         else:
-            buckets[bucket_key][answer[:120]] += 1
+            buckets[bucket_key][display[:120]] += 1
             meta[bucket_key] = {"question": question, "step_role": step_role, "scale": "choice"}
 
     aggregates: list[dict[str, Any]] = []
@@ -315,6 +323,7 @@ def build_respondents(
                 question_key=str(resp.question_key),
             )
             row = {
+                "id": str(resp.id),
                 "question": question,
                 "answer": answer,
                 "original_text": str(resp.original_text or "").strip() or None,
@@ -324,6 +333,7 @@ def build_respondents(
                 "transcription_status": getattr(resp, "transcription_status", None),
                 "detected_language": getattr(resp, "detected_language", None),
                 "question_key": str(resp.question_key or ""),
+                "survey_type_id": str(resp.survey_type_id or ""),
                 "step_order": int(resp.step_order or 0),
                 "step_role": step_role,
                 "answer_source": getattr(resp, "answer_source", None) or "text",
@@ -415,7 +425,10 @@ def build_open_comments(
             "transcription_status": getattr(resp, "transcription_status", None),
             "detected_language": getattr(resp, "detected_language", None),
             "answer_source": source,
-            "theme": theme or None,
+            "question": question,
+            "question_key": str(resp.question_key or ""),
+            "step_role": step_role,
+            "theme": theme or question or None,
             "sentiment": sentiment,
             "created_at": resp.created_at.isoformat() if resp.created_at else None,
         }

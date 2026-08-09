@@ -314,6 +314,7 @@ export type FeedbackRespondent = {
   flagged?: boolean;
   sentiment_label?: string | null;
   answers?: Array<{
+    id?: string;
     question?: string;
     answer?: string;
     original_text?: string | null;
@@ -323,6 +324,7 @@ export type FeedbackRespondent = {
     transcription_status?: string | null;
     detected_language?: string | null;
     question_key?: string;
+    survey_type_id?: string;
     step_order?: number;
     step_role?: string | null;
     answer_source?: string;
@@ -345,6 +347,9 @@ export type FeedbackOpenComment = {
   transcription_status?: string | null;
   detected_language?: string | null;
   answer_source?: string;
+  question?: string | null;
+  question_key?: string | null;
+  step_role?: string | null;
   theme?: string | null;
   sentiment?: string;
   created_at?: string | null;
