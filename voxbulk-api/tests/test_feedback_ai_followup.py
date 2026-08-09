@@ -108,14 +108,43 @@ def test_schedule_if_eligible_skips_web_phone(db: Session):
 
 
 def test_pre_dial_billing_blocks_low_payg_wallet(db: Session):
-    org = Organisation(id=str(uuid.uuid4()), name="Payg Org", wallet_balance_pence=100)
+    org = Organisation(
+        id=str(uuid.uuid4()),
+        name="Payg Org",
+        wallet_balance_pence=100,
+        billing_currency="USD",
+    )
     db.add(org)
     db.commit()
 
     ok, reason, mode = _pre_dial_billing_allowed(db, org)
     assert ok is False
     assert mode == "wallet"
-    assert "£5" in reason or "500" in reason
+    assert "$5.00" in reason
+    assert "£5" not in reason
+    assert "$1.00" in reason
+
+
+def test_pre_dial_billing_allows_promo_wallet_in_org_currency(db: Session):
+    org = Organisation(
+        id=str(uuid.uuid4()),
+        name="Promo Org",
+        wallet_balance_pence=2000,
+        promo_wallet_balance_pence=2000,
+        billing_currency="AUD",
+        country_code="AU",
+    )
+    db.add(org)
+    db.commit()
+
+    with patch(
+        "app.services.launch_billing_service.LaunchBillingService.estimate_phone_launch",
+        return_value={"can_launch": True, "block_reason": None},
+    ):
+        ok, reason, mode = _pre_dial_billing_allowed(db, org)
+    assert ok is True
+    assert mode == "payg"
+    assert reason == ""
 
 
 def test_handle_feedback_ai_followup_answered_starts_assistant(db: Session):

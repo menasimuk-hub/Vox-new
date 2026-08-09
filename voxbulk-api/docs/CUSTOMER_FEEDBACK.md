@@ -121,7 +121,7 @@ Optional recovery calls for **unhappy WhatsApp respondents** who left a low rati
 | Customer type | Pre-dial | Charge |
 |---------------|----------|--------|
 | **Core subscription** | Allow if active sub (or included minutes / overage allowed) | Included minutes first → overage on **month-end DD invoice** |
-| **Pay-as-you-go / wallet** | Block if spendable wallet **< £5** | Connection fee + billable minutes debited from wallet (`ai_call_follow_back`) |
+| **Pay-as-you-go / wallet** | Block if spendable wallet **< 5.00** in the org billing currency (GBP/EUR/USD/CAD/AUD); promo welcome credit allowed | Connection fee + billable minutes debited from wallet (`ai_call_follow_back`) |
 
 Customer Feedback Direct Debit plans cover **WhatsApp trigger units only** — follow-back AI calls always use **Core** allowance, wallet, or overage.
 

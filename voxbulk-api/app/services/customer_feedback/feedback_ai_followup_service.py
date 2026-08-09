@@ -474,11 +474,19 @@ def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
     if block:
         return False, block, "blocked"
 
-    spendable = WalletService.spendable_minor(org, allow_promo=False)
+    from app.services.billing_currency import money_display, resolve_org_currency
+
+    # 5.00 in the org billing currency (GBP/EUR/USD/CAD/AUD minor units).
+    # Welcome/promo wallet credit is allowed for AI follow-back (unlike campaign launches).
+    currency = resolve_org_currency(db, org)
+    spendable = WalletService.spendable_minor(org, allow_promo=True)
     if spendable < PAYG_MIN_WALLET_MINOR:
         return (
             False,
-            f"Wallet balance must be at least £5 for AI follow-back calls ({spendable}p available).",
+            (
+                f"Wallet balance must be at least {money_display(PAYG_MIN_WALLET_MINOR, currency)} "
+                f"for AI follow-back calls ({money_display(spendable, currency)} available)."
+            ),
             "wallet",
         )
 
@@ -489,6 +497,7 @@ def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
         duration_min=3,
         calls_remaining_min=0,
         has_subscription=False,
+        allow_promo=True,
     )
     if not est.get("can_launch"):
         return False, str(est.get("block_reason") or "Insufficient wallet for estimated call cost."), "wallet"
@@ -568,6 +577,7 @@ def _settle_followup_call_billing(
         duration_min=max(1, billable_mins),
         calls_remaining_min=calls_remaining,
         has_subscription=has_subscription,
+        allow_promo=True,
     )
 
     UsageWalletService.on_call_completed(
@@ -604,7 +614,7 @@ def _settle_followup_call_billing(
                     "call_log_id": call_log_id,
                     "billable_minutes": billable_mins,
                 },
-                restrict_promo_spend=True,
+                restrict_promo_spend=False,
             )
             billing["wallet_transaction_id"] = tx.id
         except InsufficientWalletBalance as exc:

@@ -112,6 +112,7 @@ class LaunchBillingService:
         calls_remaining_min: int,
         has_subscription: bool,
         voice_channel: str = "ai_call",
+        allow_promo: bool = False,
     ) -> dict[str, Any]:
         from app.services.gocardless_service import BillingService
         from app.services.wallet_service import WalletService
@@ -149,6 +150,7 @@ class LaunchBillingService:
             currency=currency,
             total_minor=amount_due_minor,
             collect_by_dd=has_subscription,
+            allow_promo=allow_promo,
             base={
                 "channel": channel,
                 "unit": "minutes",
@@ -188,11 +190,12 @@ class LaunchBillingService:
         total_minor: int,
         collect_by_dd: bool,
         base: dict[str, Any],
+        allow_promo: bool = False,
     ) -> dict[str, Any]:
         """Split the billable amount across wallet first, then Direct Debit for subscription."""
         from app.services.wallet_service import WalletService
 
-        wallet_balance = WalletService.spendable_minor(org, allow_promo=False)
+        wallet_balance = WalletService.spendable_minor(org, allow_promo=allow_promo)
         total_balance = WalletService.balance_minor(org)
         estimated_cost = max(0, int(total_minor or 0))
         required_wallet = (
@@ -233,10 +236,16 @@ class LaunchBillingService:
             shortfall = required_wallet - wallet_balance
             hold_display = money_display(required_wallet, currency)
             est_display = money_display(estimated_cost, currency)
+            promo_note = ""
+            if total_balance > wallet_balance and not allow_promo:
+                promo_note = (
+                    f" ({money_display(total_balance, currency)} total, including promo credit "
+                    "that cannot be used here)"
+                )
             block_reason = (
                 f"Estimated cost {est_display}. We hold 125% ({hold_display}) for longer calls. "
                 f"Your wallet has {money_display(wallet_balance, currency)} available for launches"
-                f"{f' ({money_display(total_balance, currency)} total, including promo credit that cannot be used here)' if total_balance > wallet_balance else ''}"
+                f"{promo_note}"
                 f" — top up at least {money_display(shortfall, currency)} to launch."
             )
 
