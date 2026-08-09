@@ -237,8 +237,23 @@ def resolve_recipient_timezone(phone: str | None, *, channel: ContactChannel, db
     return str(window.fallback_tz or "Europe/London").strip() or "Europe/London"
 
 
-def _moment_allowed(local: datetime, window: ContactWindow, eff: OfcomWindow) -> bool:
-    if local.isoweekday() not in window.days:
+def _allowed_days_for_phone(window: ContactWindow, phone: str | None) -> frozenset[int]:
+    """UK keeps platform Mon–Fri OFCOM floor; Australia allows Sat/Sun in the same clock window."""
+    days = set(window.days)
+    tz = timezone_from_phone(phone)
+    if tz == "Australia/Sydney":
+        days.update({6, 7})
+    return frozenset(days)
+
+
+def _moment_allowed(
+    local: datetime,
+    window: ContactWindow,
+    eff: OfcomWindow,
+    *,
+    phone: str | None = None,
+) -> bool:
+    if local.isoweekday() not in _allowed_days_for_phone(window, phone):
         return False
     t = local.time().replace(second=0, microsecond=0)
     return eff.start <= t <= eff.end
@@ -257,7 +272,7 @@ def contact_allowed(
     now = now_utc or datetime.now(timezone.utc)
     local = _local_dt(now, tz_name)
     eff = _effective_window(window, phone)
-    if _moment_allowed(local, window, eff):
+    if _moment_allowed(local, window, eff, phone=phone):
         return True, None
     label = _TZ_LABELS.get(tz_name, tz_name)
     ch = "calling" if channel == "calling" else "WhatsApp survey"
@@ -278,7 +293,7 @@ def next_allowed_utc(
     for _ in range(336):
         local = _local_dt(cursor, tz_name)
         eff = _effective_window(window, phone)
-        if _moment_allowed(local, window, eff):
+        if _moment_allowed(local, window, eff, phone=phone):
             return cursor.astimezone(timezone.utc).replace(tzinfo=None)
         cursor = cursor + timedelta(minutes=30)
     return (cursor + timedelta(days=1)).astimezone(timezone.utc).replace(tzinfo=None)

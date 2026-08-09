@@ -413,7 +413,10 @@ def _pre_dial_guards(db: Session, job, org) -> None:
     from app.services.uk_compliance_opt_out import should_block_outbound_phone
 
     settings = get_settings()
-    if not bool(getattr(settings, "ai_followup_relax_calling_hours", False)):
+    outcome = _job_outcome(job) or {}
+    force_immediate = bool(outcome.get("force_immediate") or outcome.get("forceImmediate"))
+    # Dashboard test dials and explicit force_immediate skip quiet-hours (e.g. AU Sunday daytime).
+    if not force_immediate and not bool(getattr(settings, "ai_followup_relax_calling_hours", False)):
         allowed, reason = platform_calling_allowed(db, str(job.visitor_phone or ""))
         if not allowed:
             raise FollowUpDefer(
@@ -625,8 +628,8 @@ def start_test_ai_followup(
 
     cfg = dict(load_ai_follow_up_from_location(location) or {})
     cfg["force_immediate"] = True
-    delay_hours = resolve_followup_delay_hours(cfg)
-    scheduled_at = datetime.now(timezone.utc) + timedelta(hours=delay_hours)
+    # Test dials fire now; production schedule_if_eligible still uses delay_hours.
+    scheduled_at = datetime.now(timezone.utc)
 
     job = db.execute(
         select(FeedbackAiFollowUpJob).where(FeedbackAiFollowUpJob.session_id == session.id)
@@ -691,6 +694,7 @@ def start_test_ai_followup(
         db.add(job)
         db.commit()
         db.refresh(job)
+        raise ValueError(exc.reason or "Call deferred — outside calling hours") from exc
     except FollowUpSkip as exc:
         job.status = exc.status
         _set_job_outcome(job, {"skip_reason": exc.reason})

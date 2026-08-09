@@ -55,6 +55,16 @@ def test_contact_allowed_australia_outside_window(db):
     assert reason
 
 
+def test_contact_allowed_australia_sunday_daytime(db):
+    """AU +61 phones may be called Sat/Sun inside the clock window (UK stays Mon–Fri)."""
+    # 2026-08-09 is a Sunday; noon Sydney is inside 08:00–21:00.
+    sunday_noon_sydney = datetime(2026, 8, 9, 12, 0, tzinfo=ZoneInfo("Australia/Sydney"))
+    au_ok, au_reason = contact_allowed(db, "calling", "+61412345678", now_utc=sunday_noon_sydney)
+    assert au_ok is True, au_reason
+    uk_ok, _ = contact_allowed(db, "calling", "+447954823445", now_utc=sunday_noon_sydney)
+    assert uk_ok is False
+
+
 def test_uk_floor_blocks_early_morning(db):
     update_calling_settings(
         db,

@@ -10,9 +10,28 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
 import { cn } from "@/lib/utils";
 import { agentRegionCode, agentsForRegion, buildRegionMenuOptions } from "@/lib/interview-agents";
-import { pickDefaultInterviewAgent, useInterviewAgents, type InterviewAgent } from "@/lib/queries";
+import {
+  pickDefaultInterviewAgent,
+  useInterviewAgents,
+  useOrganisation,
+  type InterviewAgent,
+} from "@/lib/queries";
 
 const EMPTY_AGENTS: InterviewAgent[] = [];
+
+function regionFromOrgCountry(country?: string | null, countryCode?: string | null): string {
+  const code = String(countryCode || "").trim().toUpperCase();
+  if (code === "AU" || code === "US" || code === "CA" || code === "IE" || code === "GB") return code;
+  if (code === "UK") return "GB";
+  const c = String(country || "").trim().toLowerCase();
+  if (!c) return "GB";
+  if (c === "au" || c === "aus" || c.includes("australia")) return "AU";
+  if (c === "us" || c === "usa" || c.includes("united states") || c.includes("america")) return "US";
+  if (c === "ca" || c === "can" || c.includes("canada")) return "CA";
+  if (c === "ie" || c.includes("ireland")) return "IE";
+  if (c === "gb" || c === "uk" || c.includes("united kingdom") || c.includes("britain")) return "GB";
+  return "GB";
+}
 
 export type AiFollowUpConfig = {
   enabled: boolean;
@@ -74,12 +93,21 @@ export function AiFollowUpStep({
   const set = <K extends keyof AiFollowUpConfig>(k: K, v: AiFollowUpConfig[K]) =>
     onChange({ ...config, [k]: v });
 
+  const orgQ = useOrganisation();
   const agentsQ = useInterviewAgents();
   const agents = agentsQ.data ?? EMPTY_AGENTS;
-  const [selectedRegion, setSelectedRegion] = React.useState("GB");
+  const orgDefaultRegion = regionFromOrgCountry(orgQ.data?.country, orgQ.data?.country_code);
+  const [selectedRegion, setSelectedRegion] = React.useState(orgDefaultRegion);
+  const [regionSeeded, setRegionSeeded] = React.useState(false);
   const regionAgents = React.useMemo(() => agentsForRegion(agents, selectedRegion), [agents, selectedRegion]);
   const defaultAgent = pickDefaultInterviewAgent(regionAgents.length ? regionAgents : agents);
   const resolvedAgentId = config.agentId || defaultAgent?.id || "";
+
+  React.useEffect(() => {
+    if (regionSeeded || !orgQ.isFetched) return;
+    setSelectedRegion(orgDefaultRegion);
+    setRegionSeeded(true);
+  }, [orgQ.isFetched, orgDefaultRegion, regionSeeded]);
 
   React.useEffect(() => {
     if (!config.enabled || !agents.length) return;
@@ -87,9 +115,11 @@ export function AiFollowUpStep({
     const regionOptions = buildRegionMenuOptions(agents);
     if (!regionOptions.length) return;
 
-    let nextRegion = String(selectedRegion || "GB").trim().toUpperCase();
+    let nextRegion = String(selectedRegion || orgDefaultRegion || "GB").trim().toUpperCase();
     if (!regionOptions.some((o) => o.code === nextRegion)) {
-      nextRegion = regionOptions[0]!.code;
+      nextRegion = regionOptions.some((o) => o.code === orgDefaultRegion)
+        ? orgDefaultRegion
+        : regionOptions[0]!.code;
     }
 
     let nextAgentId = config.agentId;
@@ -114,7 +144,7 @@ export function AiFollowUpStep({
     if (nextAgentId && nextAgentId !== config.agentId) {
       set("agentId", nextAgentId);
     }
-  }, [agents, selectedRegion, config.agentId, config.enabled]);
+  }, [agents, selectedRegion, config.agentId, config.enabled, orgDefaultRegion]);
 
   return (
     <Card className="animate-scale-in">
@@ -154,13 +184,27 @@ export function AiFollowUpStep({
 
         {config.enabled && (
           <div className="space-y-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
-            <InterviewAgentPicker
-              agents={agents}
-              selectedRegion={selectedRegion}
-              resolvedAgentId={resolvedAgentId}
-              onSelectAgent={(id) => set("agentId", id)}
-              onRegionChange={setSelectedRegion}
-            />
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold">Voice agent</Label>
+              <p className="text-xs text-muted-foreground">
+                Same picker as AI interview screening — choose a region/accent, then tap the play button on an agent to hear a sound sample.
+              </p>
+              {agentsQ.isLoading ? (
+                <p className="text-xs text-muted-foreground">Loading voice agents…</p>
+              ) : agents.length === 0 ? (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  No voice agents available. Check Integrations / Telnyx assistants, then refresh.
+                </p>
+              ) : (
+                <InterviewAgentPicker
+                  agents={agents}
+                  selectedRegion={selectedRegion}
+                  resolvedAgentId={resolvedAgentId}
+                  onSelectAgent={(id) => set("agentId", id)}
+                  onRegionChange={setSelectedRegion}
+                />
+              )}
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="ai-context" className="text-sm font-semibold">

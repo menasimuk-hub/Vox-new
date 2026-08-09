@@ -20,6 +20,7 @@ export type Organisation = {
   contact_name?: string | null;
   website?: string | null;
   country?: string | null;
+  country_code?: string | null;
   address_line1?: string | null;
   city?: string | null;
   postcode?: string | null;

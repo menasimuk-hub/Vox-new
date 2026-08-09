@@ -9,7 +9,6 @@ import {
   ChevronRight,
   CircleCheck as CheckCircle2,
   Download,
-  Eye,
   Hotel,
   LayoutDashboard,
   Lock,
@@ -105,31 +104,7 @@ function buildQrImageUrl(waUrl: string, size = 320) {
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&margin=8&data=${encodeURIComponent(waUrl)}`;
 }
 
-function buildPreviewMessages(
-  company: string,
-  branch: string | undefined,
-  types: FeedbackSurveyType[],
-  openQuestion: boolean,
-) {
-  const msgs: { you?: boolean; text: string }[] = [
-    { you: true, text: previewTrigger(company, branch) },
-    { text: `Hi 👋 thanks for visiting ${company}${branch ? ` (${branch})` : ""}! A few quick questions — under a minute.` },
-  ];
-  types.slice(0, 5).forEach((t, i) => {
-    msgs.push({ text: `${i + 1}. How would you rate the ${t.name.toLowerCase()}? (Excellent / Good / Poor)` });
-    msgs.push({ you: true, text: i === 0 ? "Excellent" : i === 1 ? "Good" : "Excellent" });
-  });
-  if (openQuestion) {
-    msgs.push({
-      text: `${Math.min(types.length, 5) + 1}. Is there anything else you'd like to tell us about your experience?`,
-    });
-    msgs.push({ you: true, text: "Service was great, maybe shorter wait at peak hours." });
-  }
-  msgs.push({ text: "Thank you 🙏 your feedback helps us improve." });
-  return msgs;
-}
-
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+type Step = 1 | 2 | 3 | 4 | 5 | 6;
 type Branch = { id: string; name: string };
 
 const STEPS = [
@@ -137,9 +112,8 @@ const STEPS = [
   { id: 2, title: "Survey type", icon: Target },
   { id: 3, title: "Look & feel", icon: Palette },
   { id: 4, title: "QR & branches", icon: QrCode },
-  { id: 5, title: "Preview", icon: Eye },
-  { id: 6, title: "AI follow-up", icon: PhoneCall },
-  { id: 7, title: "Launch", icon: Rocket },
+  { id: 5, title: "AI follow-up", icon: PhoneCall },
+  { id: 6, title: "Launch", icon: Rocket },
 ] as const;
 
 function CreateFeedback() {
@@ -236,15 +210,14 @@ function CreateFeedback() {
     3: true,
     4: branches.length >= 1 && branches.every((b) => b.name.trim().length > 0),
     5: true,
-    6: true,
-    7: consent,
+    6: consent,
   };
 
   const webThemePayload = React.useMemo(() => buildWebThemePayload(webTheme), [webTheme]);
   const { baseTemplateId, overlayIds, overlayMode, customEventLabel } = webTheme;
 
   React.useEffect(() => {
-    if ((step !== 4 && step !== 5 && step !== 6 && step !== 7) || !industryId || selectedTypeIds.length === 0) return;
+    if ((step !== 4 && step !== 5 && step !== 6) || !industryId || selectedTypeIds.length === 0) return;
     const branch = branches[0]?.name?.trim() || "Main branch";
     previewM
       .mutateAsync({
@@ -673,67 +646,13 @@ function CreateFeedback() {
           </Card>
         )}
 
-        {step === 5 && (
+        {step === 5 && <AiFollowUpStep stepLabel="Step 5" config={aiFollowUp} onChange={setAiFollowUp} />}
+
+        {step === 6 && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Eye className="size-4 text-primary" /> Step 5 · Preview customer journey
-              </CardTitle>
-              <CardDescription>Scan the QR → WhatsApp opens with the pre-filled message → survey runs.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {previewM.isPending && !previewQr ? (
-                <div className="grid gap-3">
-                  <Skeleton className="h-40 w-full" />
-                  <p className="text-sm text-muted-foreground">Loading QR preview from your WhatsApp number…</p>
-                </div>
-              ) : previewM.isError && !previewQr ? (
-                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-                  Could not load live QR preview. WhatsApp may not be configured yet — go back and try again.
-                </div>
-              ) : (
-              <div className="grid gap-6 lg:grid-cols-[auto_1fr_auto]">
-                <div className="flex flex-col items-center gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">1 · Scan</p>
-                  <div className="rounded-xl border-2 border-dashed border-border bg-white p-3">
-                    <img
-                      src={previewQr?.qr_image_url || buildQrImageUrl("https://wa.me/")}
-                      alt="QR"
-                      className="size-40"
-                    />
-                  </div>
-                </div>
-                <div className="flex flex-col items-center gap-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">2 · WhatsApp opens</p>
-                  <PhoneFrame
-                    messages={buildPreviewMessages(
-                      companyName,
-                      branches[0]?.name || undefined,
-                      selectedTypes,
-                      openQuestion,
-                    )}
-                  />
-                </div>
-                <div className="flex flex-col gap-2 lg:max-w-xs">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Summary</p>
-                  <Summary label="Industry" value={industry?.name || "—"} />
-                  <Summary label="Topics" value={selectedTypes.map((t) => t.name).join(", ") || "—"} />
-                  <Summary label="Open question" value={openQuestion ? "On" : "Off"} />
-                  <Summary label="Branches" value={branches.map((b) => b.name).filter(Boolean).join(", ") || "—"} />
-                </div>
-              </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {step === 6 && <AiFollowUpStep stepLabel="Step 6" config={aiFollowUp} onChange={setAiFollowUp} />}
-
-        {step === 7 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Rocket className="size-4 text-primary" /> Step 7 · Activate QR survey
+                <Rocket className="size-4 text-primary" /> Step 6 · Activate QR survey
               </CardTitle>
               <CardDescription>
                 Review your setup, style the QR, then activate. An active Customer Feedback subscription is required.
@@ -863,7 +782,7 @@ function CreateFeedback() {
                   <Button
                     size="lg"
                     className="gap-1.5"
-                    disabled={!canNext[7] || createM.isPending}
+                    disabled={!canNext[6] || createM.isPending}
                     onClick={() => void onActivate()}
                   >
                     <QrCode className="size-4" /> {createM.isPending ? "Activating…" : "Activate QR survey"}
@@ -884,10 +803,10 @@ function CreateFeedback() {
         >
           <ChevronLeft className="size-4" /> Back
         </Button>
-        {step < 7 ? (
+        {step < 6 ? (
           <Button
             className="gap-1.5"
-            onClick={() => setStep((s) => Math.min(7, s + 1) as Step)}
+            onClick={() => setStep((s) => Math.min(6, s + 1) as Step)}
             disabled={!canNext[step]}
           >
             Next <ChevronRight className="size-4" />
@@ -938,30 +857,6 @@ function Stepper({ current, onJump, duplicateMode }: { current: Step; onJump: (n
             );
           })}
         </ol>
-      </div>
-    </div>
-  );
-}
-
-function PhoneFrame({ messages }: { messages: { you?: boolean; text: string }[] }) {
-  return (
-    <div className="w-[280px] overflow-hidden rounded-[2.5rem] border-[12px] border-foreground/90 bg-[#e5ddd5] shadow-2xl">
-      <div className="bg-[#075e54] px-3 py-2.5 text-xs text-white">
-        <p className="font-semibold">VoxBulk Feedback</p>
-        <p className="opacity-80">online</p>
-      </div>
-      <div className="flex h-[500px] flex-col gap-2 overflow-y-auto px-3 py-3 text-[12px]">
-        {messages.map((m, idx) => (
-          <div
-            key={idx}
-            className={cn(
-              "max-w-[85%] rounded-xl px-2.5 py-1.5 shadow-sm",
-              m.you ? "ml-auto bg-[#dcf8c6] text-[#111]" : "bg-white text-[#111]",
-            )}
-          >
-            {m.text}
-          </div>
-        ))}
       </div>
     </div>
   );
