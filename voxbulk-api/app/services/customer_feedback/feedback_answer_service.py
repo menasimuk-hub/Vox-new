@@ -34,8 +34,43 @@ POOR_ANSWERS = frozenset(
         "not comfortable",
     }
 )
-OPT_IN_YES = frozenset({"yes", "yes please", "yes, please", "yes definitely", "yes, definitely"})
-OPT_IN_NO = frozenset({"no", "no thanks", "no thank you", "no, thanks"})
+OPT_IN_YES = frozenset(
+    {
+        "yes",
+        "y",
+        "yeah",
+        "yep",
+        "yes please",
+        "yes, please",
+        "yes definitely",
+        "yes, definitely",
+        "نعم",
+        "ايوه",
+        "أيوه",
+        "اه",
+        "آه",
+    }
+)
+OPT_IN_NO = frozenset(
+    {
+        "no",
+        "n",
+        "nope",
+        "nah",
+        "no thanks",
+        "no thank you",
+        "no, thanks",
+        "لا",
+        "لأ",
+        "كلا",
+    }
+)
+
+
+def _normalize_opt_in_token(value: str) -> str:
+    """Strip punctuation so translated 'no.' / 'yes!' still match opt-in sets."""
+    raw = str(value or "").strip().lower()
+    return raw.strip(".,!?;:'\"“”‘’،؟۔…")
 
 TRANSLATION_UNAVAILABLE_EN = "[Translation unavailable]"
 
@@ -173,11 +208,20 @@ def is_opt_in_yes(
     tpl: FeedbackWaTemplate | None,
     detected_language: str | None,
 ) -> bool:
-    normalized = map_answer_to_english_label(
-        db,
-        answer=answer,
-        tpl=tpl,
-        detected_language=detected_language,
+    # Prefer the raw reply first — STT may flip session language to Arabic, and
+    # translating a Latin "Yes"/"No" can yield "yes"/"no." which must still match.
+    raw = _normalize_opt_in_token(answer)
+    if raw in OPT_IN_YES:
+        return True
+    if raw in OPT_IN_NO:
+        return False
+    normalized = _normalize_opt_in_token(
+        map_answer_to_english_label(
+            db,
+            answer=answer,
+            tpl=tpl,
+            detected_language=detected_language,
+        )
     )
     return normalized in OPT_IN_YES
 
@@ -189,11 +233,18 @@ def is_opt_in_no(
     tpl: FeedbackWaTemplate | None,
     detected_language: str | None,
 ) -> bool:
-    normalized = map_answer_to_english_label(
-        db,
-        answer=answer,
-        tpl=tpl,
-        detected_language=detected_language,
+    raw = _normalize_opt_in_token(answer)
+    if raw in OPT_IN_NO:
+        return True
+    if raw in OPT_IN_YES:
+        return False
+    normalized = _normalize_opt_in_token(
+        map_answer_to_english_label(
+            db,
+            answer=answer,
+            tpl=tpl,
+            detected_language=detected_language,
+        )
     )
     return normalized in OPT_IN_NO
 

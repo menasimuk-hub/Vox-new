@@ -193,9 +193,7 @@ def process_voice_job(db: Session, job_id: str) -> dict[str, Any]:
             if not ok:
                 raise RuntimeError(str(getattr(result, "error", "") or "empty_transcript"))
         elif job.media_url:
-            # Reuse inbound helper with a synthetic record.
-            from app.services.customer_feedback.feedback_voice_service import transcribe_inbound
-
+            # Download + STT; keep the local file so results can play original audio.
             session = db.get(FeedbackSession, job.session_id)
             phone = str(session.visitor_phone or "") if session else ""
             record = {
@@ -208,14 +206,26 @@ def process_voice_job(db: Session, job_id: str) -> dict[str, Any]:
                     }
                 ],
             }
-            text, ok, detected = transcribe_inbound(
+            stt_result = VoiceTranscriptionService.transcribe_inbound(
                 db,
                 record=record,
                 customer_phone=phone,
                 language="auto",
             )
+            text = str(getattr(stt_result, "transcript", "") or "").strip()
+            detected = getattr(stt_result, "detected_language", None)
+            ok = bool(
+                getattr(stt_result, "ok", False) and text and not is_low_quality_transcript(text)
+            )
             if not ok or not text:
-                raise RuntimeError("empty_transcript")
+                raise RuntimeError(str(getattr(stt_result, "error", "") or "empty_transcript"))
+            stored = str(getattr(stt_result, "storage_path", "") or "").strip()
+            if stored and Path(stored).is_file():
+                job.audio_file_path = stored
+                if getattr(stt_result, "content_type", None):
+                    job.audio_mime_type = str(stt_result.content_type)
+                if not job.audio_original_filename:
+                    job.audio_original_filename = Path(stored).name
         else:
             raise RuntimeError("missing_media")
 

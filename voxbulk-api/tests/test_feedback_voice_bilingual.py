@@ -59,6 +59,94 @@ def test_build_open_comments_exposes_bilingual_and_pending_voice():
     assert by_id["r2"]["translation_status"] == "completed"
 
 
+def test_process_voice_job_persists_wa_media_storage_path():
+    job_id = str(uuid.uuid4())
+    response_id = str(uuid.uuid4())
+    session_id = str(uuid.uuid4())
+    job = FeedbackVoiceNoteJob(
+        id=job_id,
+        org_id="org1",
+        session_id=session_id,
+        response_id=response_id,
+        inbound_message_id="wamid.x",
+        provider_media_id="media1",
+        media_url="https://example.com/voice.ogg",
+        audio_file_path=None,
+        audio_mime_type="audio/ogg",
+        transcription_status="pending",
+        translation_status="pending",
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    response = FeedbackResponse(
+        id=response_id,
+        session_id=session_id,
+        org_id="org1",
+        location_id="loc1",
+        survey_type_id="st1",
+        question_key="topic__tell_us_more",
+        translation_status="pending",
+        transcription_status="pending",
+        answer_source="voice",
+        step_order=1,
+        created_at=datetime.utcnow(),
+    )
+    session = FeedbackSession(
+        id=session_id,
+        org_id="org1",
+        location_id="loc1",
+        visitor_phone="+447000000000",
+        status="active",
+        current_step=1,
+        started_at=datetime.utcnow(),
+    )
+    db = MagicMock()
+
+    def _get(model, pk):
+        if model is FeedbackVoiceNoteJob and pk == job_id:
+            return job
+        if model is FeedbackResponse and pk == response_id:
+            return response
+        if model is FeedbackSession and pk == session_id:
+            return session
+        return None
+
+    db.get.side_effect = _get
+    stored = "/tmp/feedback-voice-test.ogg"
+
+    with (
+        patch(
+            "app.services.customer_feedback.feedback_voice_note_service.VoiceTranscriptionService.transcribe_inbound"
+        ) as stt,
+        patch(
+            "app.services.customer_feedback.feedback_voice_note_service.translate_answer_to_english"
+        ) as translate,
+        patch("app.services.customer_feedback.feedback_voice_note_service.Path") as path_cls,
+    ):
+        path_inst = MagicMock()
+        path_inst.is_file.return_value = True
+        path_inst.name = "feedback-voice-test.ogg"
+        path_cls.return_value = path_inst
+        stt.return_value = SimpleNamespace(
+            ok=True,
+            transcript="Hot water was out",
+            detected_language="en",
+            error=None,
+            storage_path=stored,
+            content_type="audio/ogg",
+        )
+        translate.return_value = {
+            "original_text": "Hot water was out",
+            "answer_text_en": "Hot water was out",
+            "translation_status": "not_needed",
+        }
+        result = process_voice_job(db, job_id)
+
+    assert result["ok"] is True
+    assert job.audio_file_path == stored
+    assert job.transcription_status == "completed"
+
+
 def test_process_voice_job_fills_original_and_english():
     job_id = str(uuid.uuid4())
     response_id = str(uuid.uuid4())
