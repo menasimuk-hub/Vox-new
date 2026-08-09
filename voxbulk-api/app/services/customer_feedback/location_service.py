@@ -86,7 +86,7 @@ def _qr_image_for(row: FeedbackLocation) -> str:
         path=f"/public/feedback/{token}/qr.png",
         fg=str(getattr(row, "qr_fg_color", None) or "000000"),
         bg=str(getattr(row, "qr_bg_color", None) or "ffffff"),
-        transparent=False,
+        transparent=bool(getattr(row, "qr_transparent", False)),
         module_style=str(getattr(row, "qr_module_style", None) or "square"),
         corner_style=str(getattr(row, "qr_corner_style", None) or "square"),
         show_arrow=bool(getattr(row, "qr_show_arrow", False)),
@@ -163,7 +163,7 @@ def location_to_dict(db: Session, row: FeedbackLocation) -> dict[str, Any]:
         "open_question_enabled": bool(row.open_question_enabled),
         "marketing_opt_in_enabled": effective_marketing_opt_in_enabled(row.marketing_opt_in_enabled),
         "qr_token": row.qr_token,
-        **qr_style_dict(row),
+        **qr_style_dict(row, include_transparent=True),
         "wa_sender_country": row.wa_sender_country,
         "status": row.status,
         "scan_count": row.scan_count,
@@ -203,6 +203,94 @@ class FeedbackLocationService:
         )
 
     @staticmethod
+    def count_active_locations(db: Session, org_id: str) -> int:
+        return int(
+            db.execute(
+                select(func.count())
+                .select_from(FeedbackLocation)
+                .where(
+                    FeedbackLocation.org_id == org_id,
+                    FeedbackLocation.status == "active",
+                )
+            ).scalar_one()
+            or 0
+        )
+
+    @staticmethod
+    def activate_preview_locations(db: Session, org_id: str) -> dict[str, Any]:
+        """After pay: flip preview drafts to active up to package max_locations."""
+        max_loc = FeedbackBillingService.max_locations(db, org_id)
+        if max_loc <= 0:
+            return {"activated": 0, "left_preview": 0}
+        active_n = FeedbackLocationService.count_active_locations(db, org_id)
+        slots = max(0, max_loc - active_n)
+        preview_rows = list(
+            db.execute(
+                select(FeedbackLocation)
+                .where(
+                    FeedbackLocation.org_id == org_id,
+                    FeedbackLocation.status.in_(("preview", "preview_exhausted")),
+                )
+                .order_by(FeedbackLocation.created_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+        activated = 0
+        for row in preview_rows:
+            if activated >= slots:
+                break
+            row.status = "active"
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            activated += 1
+        db.commit()
+        return {"activated": activated, "left_preview": max(0, len(preview_rows) - activated)}
+
+    @staticmethod
+    def gate_session_start(db: Session, location: FeedbackLocation) -> tuple[str | None, str | None]:
+        """
+        Returns (billing_mode, error_message).
+        billing_mode is 'live' or 'preview' when allowed; None when blocked.
+        """
+        status = str(location.status or "").strip().lower()
+        if status == "paused":
+            return None, "This Customer Feedback QR is paused."
+        if status == "archived":
+            return None, "This Customer Feedback QR is no longer available."
+        mode = FeedbackBillingService.access_mode(db, location.org_id)
+        renew = "https://dashboard.voxbulk.com/account/feedback/packages"
+        if mode == "live":
+            return "live", None
+        if status == "active" and mode != "live":
+            # Paid row but sub lapsed — allow preview quota if remaining.
+            pass
+        if mode == "preview_exhausted":
+            if status == "preview":
+                location.status = "preview_exhausted"
+                location.updated_at = datetime.utcnow()
+                db.add(location)
+                db.commit()
+            return (
+                None,
+                f"Free test scans are used up (20). Activate a Customer feedback package to continue: {renew}",
+            )
+        if mode == "expired":
+            return (
+                None,
+                f"Your Customer feedback package has expired. Renew to continue: {renew}",
+            )
+        # preview mode
+        if status not in {"preview", "preview_exhausted", "active"}:
+            return None, "This Customer Feedback QR is unavailable."
+        if status == "preview_exhausted":
+            return (
+                None,
+                f"Free test scans are used up (20). Activate a Customer feedback package to continue: {renew}",
+            )
+        return "preview", None
+
+    @staticmethod
     def preview_location(db: Session, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         org = db.get(Organisation, org_id)
         if org is None:
@@ -239,16 +327,20 @@ class FeedbackLocationService:
     def create_location(
         db: Session, org_id: str, payload: dict[str, Any], *, created_by_user_id: str | None = None
     ) -> dict[str, Any]:
-        if FeedbackBillingService.get_active_subscription(db, org_id) is None:
-            raise ValueError("Subscribe to a Customer feedback package before adding locations.")
-        max_loc = FeedbackBillingService.max_locations(db, org_id)
-        if max_loc <= 0:
-            raise ValueError("Subscribe to a Customer feedback package before adding locations.")
-        current = FeedbackLocationService.count_locations(db, org_id)
-        if current >= max_loc:
-            raise ValueError(
-                f"Location limit reached ({max_loc}). Upgrade your Customer feedback package or contact support."
-            )
+        live_sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
+        if live_sub is not None:
+            max_loc = FeedbackBillingService.max_locations(db, org_id)
+            if max_loc <= 0:
+                raise ValueError("Subscribe to a Customer feedback package before adding locations.")
+            current = FeedbackLocationService.count_active_locations(db, org_id)
+            if current >= max_loc:
+                raise ValueError(
+                    f"Location limit reached ({max_loc}). Upgrade your Customer feedback package or contact support."
+                )
+            default_status = "active"
+        else:
+            # Save-before-pay: draft QR usable for free preview scans.
+            default_status = "preview"
         org = db.get(Organisation, org_id)
         zone = country_to_zone(getattr(org, "country", None) if org else None)
         industry_id = str(payload.get("industry_id") or "").strip()
@@ -306,7 +398,7 @@ class FeedbackLocationService:
             branch_code=(str(payload.get("branch_code")).strip() if payload.get("branch_code") else None),
             qr_token=qr_token,
             wa_sender_country=zone,
-            status=str(payload.get("status") or "active"),
+            status=str(payload.get("status") or default_status).strip() or default_status,
             selected_survey_type_ids_json=json.dumps(selected_ids),
             open_question_enabled=open_question,
             marketing_opt_in_enabled=marketing_opt_in,
@@ -315,9 +407,11 @@ class FeedbackLocationService:
             created_at=now,
             updated_at=now,
         )
+        if live_sub is None and row.status not in {"preview", "preview_exhausted"}:
+            row.status = "preview"
         from app.services.qr_style_fields import init_qr_style_on_create
 
-        init_qr_style_on_create(row, payload, allow_transparent=False)
+        init_qr_style_on_create(row, payload, allow_transparent=True)
         db.add(row)
         db.commit()
         db.refresh(row)
@@ -389,7 +483,7 @@ class FeedbackLocationService:
 
         from app.services.qr_style_fields import apply_qr_style_payload
 
-        apply_qr_style_payload(row, payload, allow_transparent=False)
+        apply_qr_style_payload(row, payload, allow_transparent=True)
 
         row.updated_at = datetime.utcnow()
         db.add(row)

@@ -10,7 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.billing_invoice import BillingInvoice
-from app.models.customer_feedback import FEEDBACK_SERVICE_CODE, FeedbackPackage, FeedbackUsagePeriod
+from app.models.customer_feedback import (
+    FEEDBACK_PREVIEW_TESTS_LIMIT,
+    FEEDBACK_SERVICE_CODE,
+    FeedbackPackage,
+    FeedbackUsagePeriod,
+)
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.subscription import Subscription
@@ -41,6 +46,49 @@ class FeedbackBillingService:
         if str(sub.status or "").lower() in {"cancelled", "inactive"}:
             return None
         return sub
+
+    @staticmethod
+    def access_mode(db: Session, org_id: str) -> str:
+        """live | preview | preview_exhausted | expired"""
+        sub = FeedbackBillingService.get_active_subscription(db, org_id)
+        if sub is not None and str(sub.status or "").lower() in {"active", "trial", "pending_first_payment"}:
+            # pending_first_payment still blocks unit consume via ensure_*; treat as not live for free tests
+            if str(sub.status or "").lower() in {"active", "trial"}:
+                return "live"
+        org = db.get(Organisation, org_id)
+        used = int(getattr(org, "feedback_preview_tests_used", 0) or 0) if org else 0
+        if used >= FEEDBACK_PREVIEW_TESTS_LIMIT:
+            return "preview_exhausted"
+        if sub is not None and str(sub.status or "").lower() in {"cancelled", "expired"}:
+            return "expired" if used >= FEEDBACK_PREVIEW_TESTS_LIMIT else "preview"
+        return "preview"
+
+    @staticmethod
+    def entitlement_payload(db: Session, org_id: str) -> dict[str, Any]:
+        org = db.get(Organisation, org_id)
+        used = int(getattr(org, "feedback_preview_tests_used", 0) or 0) if org else 0
+        mode = FeedbackBillingService.access_mode(db, org_id)
+        sub_payload = FeedbackBillingService.subscription_payload(db, org_id)
+        remaining = max(0, FEEDBACK_PREVIEW_TESTS_LIMIT - used) if mode != "live" else None
+        return {
+            "mode": mode,
+            "preview_tests_used": used,
+            "preview_tests_limit": FEEDBACK_PREVIEW_TESTS_LIMIT,
+            "preview_tests_remaining": remaining,
+            "renew_url": "https://dashboard.voxbulk.com/account/feedback/packages",
+            "subscription": sub_payload,
+        }
+
+    @staticmethod
+    def increment_preview_test(db: Session, org_id: str) -> int:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            return 0
+        used = int(getattr(org, "feedback_preview_tests_used", 0) or 0) + 1
+        org.feedback_preview_tests_used = used
+        db.add(org)
+        db.flush()
+        return used
 
     @staticmethod
     def get_usage_eligible_subscription(db: Session, org_id: str) -> Subscription | None:
@@ -386,6 +434,12 @@ class FeedbackBillingService:
             from app.services.stripe_subscription_service import StripeSubscriptionService
 
             StripeSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
+        try:
+            from app.services.customer_feedback.location_service import FeedbackLocationService
+
+            FeedbackLocationService.activate_preview_locations(db, org.id)
+        except Exception:
+            pass
         return sub
 
     @staticmethod
@@ -409,6 +463,12 @@ class FeedbackBillingService:
         plan = res.get("plan")
         if sub is not None and plan is not None:
             FeedbackBillingService._tag_activation_invoice(db, org_id=org_id)
+            try:
+                from app.services.customer_feedback.location_service import FeedbackLocationService
+
+                FeedbackLocationService.activate_preview_locations(db, org_id)
+            except Exception:
+                pass
         return res
 
     @staticmethod

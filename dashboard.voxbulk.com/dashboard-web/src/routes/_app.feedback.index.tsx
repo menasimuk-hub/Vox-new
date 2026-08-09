@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Copy, Download, Eye, Pencil, Plus, QrCode, Trash2 } from "lucide-react";
+import { Copy, CreditCard, Download, Eye, Pencil, Plus, QrCode, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -23,6 +23,7 @@ import { canDuplicateFeedbackSurvey } from "@/lib/feedback-plan";
 import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import {
   useDeleteFeedbackLocation,
+  useFeedbackEntitlement,
   useFeedbackLocations,
   useFeedbackSubscription,
   type FeedbackLocation,
@@ -35,9 +36,22 @@ export const Route = createFileRoute("/_app/feedback/")({
   component: SavedFeedback,
 });
 
+function statusBadge(status: string, orgMode?: string): { label: string; variant: "default" | "secondary" | "outline" | "destructive" } {
+  const s = String(status || "").toLowerCase();
+  if (s === "preview_exhausted") return { label: "Exhausted", variant: "destructive" };
+  if (s === "preview") return { label: "Preview", variant: "secondary" };
+  if (s === "paused") return { label: "Paused", variant: "outline" };
+  if (s === "active") {
+    if (orgMode === "preview" || orgMode === "preview_exhausted") return { label: "Preview", variant: "secondary" };
+    return { label: "Live", variant: "default" };
+  }
+  return { label: status || "—", variant: "secondary" };
+}
+
 function SavedFeedback() {
   const locationsQ = useFeedbackLocations();
   const subscriptionQ = useFeedbackSubscription();
+  const entQ = useFeedbackEntitlement();
   const deleteLocationM = useDeleteFeedbackLocation();
   const allowancesState = useUsageAllowances();
   const waAllowance = allowancesState.feedbackRows.find((r) => r.key === "feedback_wa");
@@ -46,6 +60,13 @@ function SavedFeedback() {
   const items = locationsQ.data || [];
   const canDuplicate = canDuplicateFeedbackSurvey(subscriptionQ.data, items.length);
   const [deleteTarget, setDeleteTarget] = useState<FeedbackLocation | null>(null);
+
+  const mode = entQ.data?.mode;
+  const needsPayActivate = Boolean(mode && mode !== "live");
+  const previewLeft =
+    mode === "preview" || mode === "preview_exhausted"
+      ? Math.max(0, (entQ.data?.preview_tests_limit || 20) - (entQ.data?.preview_tests_used || 0))
+      : null;
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -65,13 +86,46 @@ function SavedFeedback() {
         title="Saved QR surveys"
         description="Print these QR codes in your venue — customers scan, send the message, and the WhatsApp survey starts automatically."
         actions={
-          <Button asChild className="gap-1.5">
-            <Link to="/feedback/new">
-              <Plus className="size-4" /> Create QR survey
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {needsPayActivate ? (
+              <Button asChild size="sm" className="gap-1.5">
+                <Link to="/account/feedback/packages">
+                  <CreditCard className="size-4" /> Pay &amp; Activate
+                </Link>
+              </Button>
+            ) : null}
+            <Button asChild className="gap-1.5">
+              <Link to="/feedback/new">
+                <Plus className="size-4" /> Create QR survey
+              </Link>
+            </Button>
+          </div>
         }
       />
+
+      {entQ.data ? (
+        <Card className={cn(needsPayActivate && "border-amber-500/40 bg-amber-500/5")}>
+          <CardContent className="flex flex-wrap items-center gap-4 p-4 text-sm">
+            <span>
+              Status: <span className="font-medium capitalize">{entQ.data.mode.replace(/_/g, " ")}</span>
+            </span>
+            {previewLeft !== null ? (
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                {previewLeft} of {entQ.data.preview_tests_limit || 20} free scans left
+              </span>
+            ) : null}
+            {needsPayActivate ? (
+              <Button asChild size="sm" className="gap-1.5">
+                <Link to="/account/feedback/packages">
+                  <CreditCard className="size-4" /> Pay &amp; Activate
+                </Link>
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : entQ.isLoading ? (
+        <Skeleton className="h-14 w-full max-w-2xl rounded-xl" />
+      ) : null}
 
       {(waAllowance || webAllowance) && !allowancesState.loading ? (
         <div className="grid max-w-2xl gap-3 sm:grid-cols-2">
@@ -98,7 +152,7 @@ function SavedFeedback() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((it) => {
-            const live = String(it.status || "").toLowerCase() === "active";
+            const badge = statusBadge(it.status, mode);
             return (
               <Card
                 key={it.id}
@@ -113,11 +167,18 @@ function SavedFeedback() {
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{it.survey_type_name}</p>
                     ) : null}
                   </div>
-                  <Badge variant={live ? "default" : "secondary"}>{live ? "Live" : it.status || "Paused"}</Badge>
+                  <Badge variant={badge.variant}>{badge.label}</Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex items-center justify-center rounded-xl border border-dashed border-border bg-background/40 p-3">
+                  <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border bg-background/40 p-3">
                     <img src={it.qr_image_url} alt={`QR for ${it.name}`} className="size-40 rounded-md bg-white p-1" />
+                    {previewLeft !== null ? (
+                      <p className="text-center text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                        {previewLeft} of {entQ.data?.preview_tests_limit || 20} free scans left
+                      </p>
+                    ) : mode === "live" ? (
+                      <p className="text-center text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Live</p>
+                    ) : null}
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-center">
                     <div className="rounded-lg border border-border bg-background/40 p-2">
@@ -129,6 +190,13 @@ function SavedFeedback() {
                       <p className="text-sm font-semibold leading-tight">{it.survey_type_name || "—"}</p>
                     </div>
                   </div>
+                  {needsPayActivate ? (
+                    <Button asChild size="sm" className="w-full gap-1.5">
+                      <Link to="/account/feedback/packages">
+                        <CreditCard className="size-3.5" /> Pay &amp; Activate
+                      </Link>
+                    </Button>
+                  ) : null}
                   <div className="flex flex-wrap items-center gap-2">
                     <Button size="sm" variant="outline" className="gap-1.5" asChild>
                       <a href={it.qr_image_url} download={`qr-${it.id}.png`}>
@@ -198,7 +266,7 @@ function SavedFeedback() {
                 void confirmDelete();
               }}
             >
-              {deleteLocationM.isPending ? "Deleting…" : "Delete location"}
+              {deleteLocationM.isPending ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

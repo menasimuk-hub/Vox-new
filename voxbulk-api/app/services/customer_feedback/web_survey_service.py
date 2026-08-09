@@ -175,9 +175,13 @@ class FeedbackWebSurveyService:
         location = FeedbackLocationService.resolve_by_token(db, token)
         if location is None:
             raise ValueError("Survey not found")
-        ok, reason = FeedbackBillingService.ensure_web_units_available(db, location.org_id)
-        if not ok:
-            raise ValueError(reason or "Customer feedback is unavailable right now.")
+        billing_mode, gate_reason = FeedbackLocationService.gate_session_start(db, location)
+        if billing_mode is None:
+            raise ValueError(gate_reason or "Customer feedback is unavailable right now.")
+        if billing_mode == "live":
+            ok, reason = FeedbackBillingService.ensure_web_units_available(db, location.org_id)
+            if not ok:
+                raise ValueError(reason or "Customer feedback is unavailable right now.")
         steps = _web_steps(db, location)
         if not steps:
             raise ValueError("Survey has no questions configured")
@@ -186,6 +190,8 @@ class FeedbackWebSurveyService:
         visitor_phone = f"web:{visitor_id}"
         dedupe_key = f"{visitor_phone}:{token}"
         FeedbackLocationService.record_scan(db, location)
+        if billing_mode == "preview":
+            FeedbackBillingService.increment_preview_test(db, location.org_id)
         repair_survey_config_if_needed(db, location)
         now = datetime.utcnow()
         session = FeedbackSession(
@@ -204,8 +210,11 @@ class FeedbackWebSurveyService:
         db.commit()
         db.refresh(session)
 
-        FeedbackBillingService.consume_web_unit(db, location.org_id)
-        session.units_charged = True
+        if billing_mode == "live":
+            FeedbackBillingService.consume_web_unit(db, location.org_id)
+            session.units_charged = True
+        else:
+            session.units_charged = False
         db.add(session)
         db.commit()
 

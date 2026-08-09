@@ -92,6 +92,24 @@ def get_subscription(db: Session = Depends(get_db), principal=Depends(require_bi
     return {"ok": True, **FeedbackBillingService.subscription_payload(db, principal.org_id)}
 
 
+@router.get("/entitlement")
+def get_feedback_entitlement(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_feedback_enabled(db, principal.org_id)
+    return {"ok": True, **FeedbackBillingService.entitlement_payload(db, principal.org_id)}
+
+
+@router.post("/locations/activate-preview")
+def activate_preview_locations(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
+    """Flip saved preview QRs to active after a package is purchased."""
+    _require_feedback_enabled(db, principal.org_id)
+    if FeedbackBillingService.get_usage_eligible_subscription(db, principal.org_id) is None:
+        raise HTTPException(status_code=400, detail="Subscribe to a Customer feedback package first.")
+    from app.services.customer_feedback.location_service import FeedbackLocationService
+
+    result = FeedbackLocationService.activate_preview_locations(db, principal.org_id)
+    return {"ok": True, **result, **FeedbackBillingService.entitlement_payload(db, principal.org_id)}
+
+
 @router.get("/packages")
 def list_packages(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     org = db.get(Organisation, principal.org_id)

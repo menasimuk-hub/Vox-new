@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 FEEDBACK_SERVICE_CODE = "customer_feedback"
+FEEDBACK_PREVIEW_TESTS_LIMIT = 20
 VOXBULK_SERVICE_CODE = "voxbulk"
 
 
@@ -103,6 +104,7 @@ class FeedbackLocation(Base):
     qr_token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     qr_fg_color: Mapped[str] = mapped_column(String(16), nullable=False, default="000000")
     qr_bg_color: Mapped[str] = mapped_column(String(16), nullable=False, default="ffffff")
+    qr_transparent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     qr_module_style: Mapped[str] = mapped_column(String(16), nullable=False, default="square")
     qr_corner_style: Mapped[str] = mapped_column(String(16), nullable=False, default="square")
     qr_show_arrow: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

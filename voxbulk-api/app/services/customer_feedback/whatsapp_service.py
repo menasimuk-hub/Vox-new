@@ -267,17 +267,30 @@ class FeedbackWhatsappService:
             if recent.status == "active":
                 return {"handled": True, "session_id": recent.id, "deduped": True, "org_id": location.org_id}
 
-        ok, reason = FeedbackBillingService.ensure_units_available(db, location.org_id)
-        if not ok:
+        billing_mode, gate_reason = FeedbackLocationService.gate_session_start(db, location)
+        if billing_mode is None:
             FeedbackWhatsappService._send_wa(
                 db,
                 to_number=from_phone,
-                body=reason or "Customer feedback is unavailable right now.",
+                body=gate_reason or "Customer feedback is unavailable right now.",
                 org_id=location.org_id,
             )
-            return {"handled": True, "reason": "units_exhausted", "org_id": location.org_id}
+            return {"handled": True, "reason": "preview_or_access_blocked", "org_id": location.org_id}
+
+        if billing_mode == "live":
+            ok, reason = FeedbackBillingService.ensure_units_available(db, location.org_id)
+            if not ok:
+                FeedbackWhatsappService._send_wa(
+                    db,
+                    to_number=from_phone,
+                    body=reason or "Customer feedback is unavailable right now.",
+                    org_id=location.org_id,
+                )
+                return {"handled": True, "reason": "units_exhausted", "org_id": location.org_id}
 
         FeedbackLocationService.record_scan(db, location)
+        if billing_mode == "preview":
+            FeedbackBillingService.increment_preview_test(db, location.org_id)
         repair_survey_config_if_needed(db, location)
         now = datetime.utcnow()
         session = FeedbackSession(
@@ -344,8 +357,11 @@ class FeedbackWhatsappService:
             db.commit()
             return {"handled": True, "reason": "send_failed", "org_id": location.org_id}
 
-        FeedbackBillingService.consume_unit(db, location.org_id)
-        session.units_charged = True
+        if billing_mode == "live":
+            FeedbackBillingService.consume_unit(db, location.org_id)
+            session.units_charged = True
+        else:
+            session.units_charged = False
         db.add(session)
         db.commit()
         return {
@@ -354,6 +370,7 @@ class FeedbackWhatsappService:
             "org_id": location.org_id,
             "template_sent": sent,
             "template_key": tpl.template_key,
+            "billing_mode": billing_mode,
         }
 
     @staticmethod

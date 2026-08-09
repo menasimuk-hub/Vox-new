@@ -35,6 +35,7 @@ import {
 import { toast } from "sonner";
 
 import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
+import { QrStyleControls, qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -245,6 +246,14 @@ function CreateFeedback() {
   const [duplicateMode, setDuplicateMode] = React.useState(false);
   const [duplicateSourceName, setDuplicateSourceName] = React.useState("");
   const [aiFollowUp, setAiFollowUp] = React.useState<AiFollowUpConfig>(defaultAiFollowUp);
+  const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
+    fg: "000000",
+    bg: "ffffff",
+    transparent: false,
+    moduleStyle: "square",
+    cornerStyle: "square",
+    frameRound: "none",
+  });
   const [baseTemplateId, setBaseTemplateId] = React.useState("auto");
   const [overlayIds, setOverlayIds] = React.useState<string[]>([]);
   const [overlayMode, setOverlayMode] = React.useState<OverlayMode>("auto");
@@ -350,40 +359,54 @@ function CreateFeedback() {
       .catch(() => setPreviewQr(null));
   }, [step, industryId, selectedTypeIds, branches, openQuestion, marketingOptIn]);
 
-  const onLaunch = async () => {
-    if (!industryId || selectedTypeIds.length === 0) return;
-    const sub = subscriptionQ.data;
-    if (!sub?.active) {
-      toast.error("Subscribe to a Customer feedback package before activating QR surveys.");
-      window.location.assign("/account/feedback/packages");
-      return;
+  const saveLocations = async (): Promise<FeedbackLocation[]> => {
+    if (!industryId || selectedTypeIds.length === 0) return [];
+    const created: FeedbackLocation[] = [];
+    const styleBody = qrStylePayload(qrStyle, { includeTransparent: true });
+    for (const branch of branches) {
+      const res = await createM.mutateAsync({
+        industry_id: industryId,
+        survey_type_id: selectedTypeIds[0],
+        selected_survey_type_ids: selectedTypeIds,
+        name: branch.name.trim(),
+        open_question_enabled: openQuestion,
+        marketing_opt_in_enabled: marketingOptIn,
+        web_theme: webThemePayload,
+        ai_follow_up: aiFollowUpToApi(aiFollowUp),
+        ...styleBody,
+      });
+      if (res.item) created.push(res.item);
     }
+    return created;
+  };
+
+  const onSaveQr = async () => {
+    if (!industryId || selectedTypeIds.length === 0) return;
     try {
-      const created: FeedbackLocation[] = [];
-      for (const branch of branches) {
-        const res = await createM.mutateAsync({
-          industry_id: industryId,
-          survey_type_id: selectedTypeIds[0],
-          selected_survey_type_ids: selectedTypeIds,
-          name: branch.name.trim(),
-          open_question_enabled: openQuestion,
-          marketing_opt_in_enabled: marketingOptIn,
-          web_theme: webThemePayload,
-          ai_follow_up: aiFollowUpToApi(aiFollowUp),
-        });
-        if (res.item) created.push(res.item);
-      }
+      const created = await saveLocations();
       setCreatedLocations(created);
-      toast.success("QR survey is live");
+      const live = Boolean(subscriptionQ.data?.active);
+      toast.success(live ? "QR survey is live" : "QR survey saved — you have free test scans");
       setDone(true);
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Could not activate QR survey";
-      toast.error(message);
-      if (/subscribe|subscription|package/i.test(message)) {
-        toast.message("Subscribe to a Customer feedback package first.", {
-          action: { label: "View plans", onClick: () => window.location.assign("/account/feedback/packages") },
-        });
+      toast.error(e instanceof Error ? e.message : "Could not save QR survey");
+    }
+  };
+
+  const onPayAndActivate = async () => {
+    if (!industryId || selectedTypeIds.length === 0) return;
+    try {
+      const created = await saveLocations();
+      setCreatedLocations(created);
+      if (subscriptionQ.data?.active) {
+        toast.success("QR survey is live");
+        setDone(true);
+        return;
       }
+      toast.success("QR saved. Choose a package to activate.");
+      window.location.assign("/account/feedback/packages");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save QR survey");
     }
   };
 
@@ -984,9 +1007,11 @@ function CreateFeedback() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Rocket className="size-4 text-primary" /> Step 7 · Activate QR survey
+                <Rocket className="size-4 text-primary" /> Step 7 · Save QR survey
               </CardTitle>
-              <CardDescription>Activating starts collecting responses. You can pause anytime.</CardDescription>
+              <CardDescription>
+                Save now and test with free scans, or pay to activate live collection. You can pause anytime.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               {subscriptionQ.isLoading ? (
@@ -1001,13 +1026,10 @@ function CreateFeedback() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
-                  <p className="font-medium">Customer feedback subscription required</p>
+                  <p className="font-medium">Save as preview — 20 free test scans included</p>
                   <p className="text-xs text-muted-foreground">
-                    This is separate from Core platform plans (interviews &amp; outbound surveys).
+                    No package needed to save. Free scans are shared across your organisation. Pay &amp; Activate when you are ready for live responses.
                   </p>
-                  <Button asChild size="sm" variant="outline" className="mt-2">
-                    <Link to="/account/feedback/packages">View Customer feedback plans</Link>
-                  </Button>
                 </div>
               )}
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -1031,6 +1053,11 @@ function CreateFeedback() {
                       : `${base}${custom}`;
                   })()}
                 />
+              </div>
+
+              <div className="rounded-xl border border-border bg-background/40 p-4">
+                <p className="mb-3 text-sm font-medium">QR style</p>
+                <QrStyleControls value={qrStyle} onChange={setQrStyle} showTransparent />
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1070,19 +1097,35 @@ function CreateFeedback() {
                     I confirm the QR will only be shown to customers in my own venue with their implicit opt-in.
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Required before launch. Customers must scan & send the message themselves to start the survey.
+                    Required before save. Customers must scan & send the message themselves to start the survey.
                   </p>
                 </div>
               </label>
 
-              <div className="flex justify-end">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                {!subscriptionQ.data?.active ? (
+                  <Button
+                    size="lg"
+                    variant="outline"
+                    className="gap-1.5"
+                    disabled={!canNext[7] || createM.isPending}
+                    onClick={() => void onPayAndActivate()}
+                  >
+                    Pay &amp; Activate
+                  </Button>
+                ) : null}
                 <Button
                   size="lg"
                   className="gap-1.5"
-                  disabled={!canNext[7] || createM.isPending || !subscriptionQ.data?.active}
-                  onClick={() => void onLaunch()}
+                  disabled={!canNext[7] || createM.isPending}
+                  onClick={() => void onSaveQr()}
                 >
-                  <Rocket className="size-4" /> {createM.isPending ? "Activating…" : "Activate QR survey"}
+                  <QrCode className="size-4" />{" "}
+                  {createM.isPending
+                    ? "Saving…"
+                    : subscriptionQ.data?.active
+                      ? "Activate QR survey"
+                      : "Save QR"}
                 </Button>
               </div>
             </CardContent>
@@ -1192,6 +1235,7 @@ function Summary({ label, value }: { label: string; value: string }) {
 }
 
 function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; company: string }) {
+  const isPreview = locations.some((l) => String(l.status || "").toLowerCase() === "preview");
   return (
     <Card className="animate-scale-in">
       <CardContent className="flex flex-col items-center gap-5 py-12 text-center">
@@ -1202,9 +1246,13 @@ function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; 
           </div>
         </div>
         <div>
-          <h2 className="text-xl font-semibold">Your QR surveys are live 🎉</h2>
+          <h2 className="text-xl font-semibold">
+            {isPreview ? "Your QR surveys are saved" : "Your QR surveys are live 🎉"}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Print these QR codes and place them in each venue. Responses appear in real-time per branch.
+            {isPreview
+              ? "Print and test with free scans. Pay & Activate from Saved QR surveys when you are ready for live responses."
+              : "Print these QR codes and place them in each venue. Responses appear in real-time per branch."}
           </p>
         </div>
         <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1227,9 +1275,20 @@ function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; 
           ))}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button asChild className="gap-1.5">
-            <Link to="/feedback/results">
-              <BarChart3 className="size-4" /> View live results <ArrowRight className="size-4" />
+          {isPreview ? (
+            <Button asChild className="gap-1.5">
+              <Link to="/account/feedback/packages">Pay &amp; Activate</Link>
+            </Button>
+          ) : (
+            <Button asChild className="gap-1.5">
+              <Link to="/feedback/results">
+                <BarChart3 className="size-4" /> View live results <ArrowRight className="size-4" />
+              </Link>
+            </Button>
+          )}
+          <Button asChild variant="ghost" className="gap-1.5">
+            <Link to="/feedback">
+              <QrCode className="size-4" /> Saved QR surveys
             </Link>
           </Button>
           <Button asChild variant="ghost" className="gap-1.5">

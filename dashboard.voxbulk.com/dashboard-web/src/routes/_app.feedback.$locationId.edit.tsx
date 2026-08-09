@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
+import { ArrowLeft, Check, CreditCard, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
+  useFeedbackEntitlement,
   useFeedbackLocations,
   useFeedbackMarketingSubscriberCount,
   useFeedbackSurveyTypes,
@@ -32,9 +33,15 @@ function EditFeedbackSurvey() {
   const { locationId } = Route.useParams();
   const navigate = useNavigate();
   const locationsQ = useFeedbackLocations();
+  const entQ = useFeedbackEntitlement();
   const updateM = useUpdateFeedbackLocation();
 
   const location = (locationsQ.data || []).find((l) => l.id === locationId);
+  const needsPayActivate = Boolean(entQ.data?.mode && entQ.data.mode !== "live");
+  const previewLeft =
+    entQ.data && (entQ.data.mode === "preview" || entQ.data.mode === "preview_exhausted")
+      ? Math.max(0, (entQ.data.preview_tests_limit || 20) - (entQ.data.preview_tests_used || 0))
+      : null;
 
   const [selectedTypeIds, setSelectedTypeIds] = React.useState<string[]>([]);
   const [openQuestion, setOpenQuestion] = React.useState(true);
@@ -47,6 +54,7 @@ function EditFeedbackSurvey() {
   const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
     fg: "000000",
     bg: "ffffff",
+    transparent: false,
     moduleStyle: "square",
     cornerStyle: "square",
     frameRound: "none",
@@ -73,6 +81,7 @@ function EditFeedbackSurvey() {
     setQrStyle({
       fg: (location.qr_fg_color || "000000").replace("#", ""),
       bg: (location.qr_bg_color || "ffffff").replace("#", ""),
+      transparent: Boolean(location.qr_transparent),
       moduleStyle: location.qr_module_style === "dots" ? "dots" : "square",
       cornerStyle: location.qr_corner_style === "rounded" ? "rounded" : "square",
       frameRound:
@@ -114,7 +123,7 @@ function EditFeedbackSurvey() {
             customEventLabel,
           }),
           ai_follow_up: aiFollowUpToApi(aiFollowUp),
-          ...qrStylePayload(qrStyle),
+          ...qrStylePayload(qrStyle, { includeTransparent: true }),
         },
       });
       toast.success("Survey updated. Download the QR again if you changed its style.");
@@ -155,13 +164,45 @@ function EditFeedbackSurvey() {
         title={`Edit survey — ${location.name}`}
         description="Change topics and closing questions. Your printed QR code and trigger message stay the same."
         actions={
-          <Button asChild variant="outline" className="gap-1.5">
-            <Link to="/feedback">
-              <ArrowLeft className="size-4" /> Back
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {needsPayActivate ? (
+              <Button asChild size="sm" className="gap-1.5">
+                <Link to="/account/feedback/packages">
+                  <CreditCard className="size-4" /> Pay &amp; Activate
+                </Link>
+              </Button>
+            ) : null}
+            <Button asChild variant="outline" className="gap-1.5">
+              <Link to="/feedback">
+                <ArrowLeft className="size-4" /> Back
+              </Link>
+            </Button>
+          </div>
         }
       />
+
+      {needsPayActivate ? (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="flex flex-wrap items-center gap-4 p-4 text-sm">
+            <span>
+              Status:{" "}
+              <span className="font-medium capitalize">
+                {(entQ.data?.mode || location.status || "preview").replace(/_/g, " ")}
+              </span>
+            </span>
+            {previewLeft !== null ? (
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                {previewLeft} of {entQ.data?.preview_tests_limit || 20} free scans left
+              </span>
+            ) : null}
+            <Button asChild size="sm" className="gap-1.5">
+              <Link to="/account/feedback/packages">
+                <CreditCard className="size-4" /> Pay &amp; Activate
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -178,11 +219,12 @@ function EditFeedbackSurvey() {
             downloadName={`feedback-${location.name || "qr"}.png`}
             openUrl={location.web_survey_url || location.wa_url}
             canEdit
+            showTransparent
             saving={updateM.isPending}
             onSave={async (draft) => {
               await updateM.mutateAsync({
                 locationId: location.id,
-                body: qrStylePayload(draft),
+                body: qrStylePayload(draft, { includeTransparent: true }),
               });
               setQrStyle(draft);
               toast.success("QR style saved");

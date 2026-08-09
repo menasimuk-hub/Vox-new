@@ -85,6 +85,7 @@ export const queryKeys = {
   feedbackSubscriptionCancellation: ["customer-feedback", "subscription", "cancellation"] as const,
   smartCardSubscriptionCancellation: ["smart-card", "billing", "cancellation"] as const,
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
+  feedbackEntitlement: ["customer-feedback", "entitlement"] as const,
   feedbackMarketingSubscribers: ["customer-feedback", "marketing-subscribers", "count"] as const,
   feedbackPromoCampaigns: ["customer-feedback", "promo-campaigns"] as const,
   feedbackPromoDashboard: ["customer-feedback", "promo-campaigns", "dashboard"] as const,
@@ -106,6 +107,7 @@ export type FeedbackLocation = {
   qr_token?: string;
   qr_fg_color?: string;
   qr_bg_color?: string;
+  qr_transparent?: boolean;
   qr_module_style?: string;
   qr_corner_style?: string;
   qr_show_arrow?: boolean;
@@ -144,10 +146,20 @@ export type CreateFeedbackLocationInput = {
   ai_follow_up?: Record<string, unknown>;
   qr_fg_color?: string;
   qr_bg_color?: string;
+  qr_transparent?: boolean;
   qr_module_style?: string;
   qr_corner_style?: string;
   qr_show_arrow?: boolean;
   qr_frame_round?: string;
+};
+
+export type FeedbackEntitlement = {
+  mode: string;
+  preview_tests_used?: number;
+  preview_tests_limit?: number;
+  preview_tests_remaining?: number | null;
+  renew_url?: string;
+  subscription?: FeedbackSubscription;
 };
 
 export type UpdateFeedbackLocationInput = {
@@ -160,6 +172,7 @@ export type UpdateFeedbackLocationInput = {
   ai_follow_up?: Record<string, unknown>;
   qr_fg_color?: string;
   qr_bg_color?: string;
+  qr_transparent?: boolean;
   qr_module_style?: string;
   qr_corner_style?: string;
   qr_show_arrow?: boolean;
@@ -2440,6 +2453,17 @@ export function useFeedbackSubscription() {
   });
 }
 
+export function useFeedbackEntitlement() {
+  return useQuery({
+    queryKey: queryKeys.feedbackEntitlement,
+    queryFn: async () => {
+      const data = await apiFetch<{ ok?: boolean } & FeedbackEntitlement>("/customer-feedback/entitlement");
+      return data;
+    },
+    refetchOnMount: "always",
+  });
+}
+
 export function useFeedbackMarketingSubscriberCount(enabled = true) {
   return useQuery({
     queryKey: queryKeys.feedbackMarketingSubscribers,
@@ -2550,6 +2574,7 @@ export function useCreateFeedbackLocation() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.feedbackLocations });
       void qc.invalidateQueries({ queryKey: queryKeys.feedbackResults({}) });
+      void qc.invalidateQueries({ queryKey: queryKeys.feedbackEntitlement });
     },
   });
 }
