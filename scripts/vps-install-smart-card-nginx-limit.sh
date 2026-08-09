@@ -26,10 +26,12 @@ else
   echo "Zone include already present — skip write"
 fi
 
+# aaPanel often has `include …/vhost/nginx/*.conf` inside http — zone MUST be in http {},
+# not only in a server file. Verify via nginx -T after patch.
 if ! grep -q 'voxbulk-smart-card-limit.conf' "$NGINX_CONF" 2>/dev/null; then
+  tmp="$(mktemp)"
+  # Prefer insert right after `http {` / `http{`
   if grep -qE '^\s*http\s*\{' "$NGINX_CONF"; then
-    tmp="$(mktemp)"
-    # Insert include just after `http {`
     awk '
       BEGIN { done=0 }
       /^\s*http\s*\{/ && !done {
@@ -40,16 +42,42 @@ if ! grep -q 'voxbulk-smart-card-limit.conf' "$NGINX_CONF" 2>/dev/null; then
       }
       { print }
     ' "$NGINX_CONF" >"$tmp"
-    sudo cp -a "$tmp" "$NGINX_CONF"
-    rm -f "$tmp"
-    echo "Patched $NGINX_CONF to include zone file"
   else
-    echo "WARNING: could not find http { in $NGINX_CONF — add manually:"
-    echo "  include /www/server/nginx/conf/voxbulk-smart-card-limit.conf;"
+    # Fallback: insert before first vhost include inside http
+    awk '
+      BEGIN { done=0 }
+      !done && /include[[:space:]]+\/www\/server\/panel\/vhost\/nginx\// {
+        print "    include /www/server/nginx/conf/voxbulk-smart-card-limit.conf;"
+        done=1
+      }
+      { print }
+      END {
+        if (!done) {
+          print "ERROR: could not find insertion point for zone include" > "/dev/stderr"
+          exit 1
+        }
+      }
+    ' "$NGINX_CONF" >"$tmp"
   fi
+  sudo cp -a "$tmp" "$NGINX_CONF"
+  rm -f "$tmp"
+  echo "Patched $NGINX_CONF to include zone file"
 else
-  echo "nginx.conf already includes zone file — skip"
+  echo "nginx.conf already references zone file — skip"
 fi
+
+echo "Zone file contents:"
+sudo cat "$ZONE_INCLUDE"
+echo "---"
+if ! sudo nginx -T 2>/dev/null | grep -q 'limit_req_zone.*zone=sc_public'; then
+  echo "ERROR: sc_public zone is NOT active in the loaded http config."
+  echo "Add this line INSIDE http { } in $NGINX_CONF (aaPanel → Nginx → Config):"
+  echo "    include /www/server/nginx/conf/voxbulk-smart-card-limit.conf;"
+  echo "File $ZONE_INCLUDE must contain:"
+  echo "    limit_req_zone \$binary_remote_addr zone=sc_public:10m rate=30r/s;"
+  exit 1
+fi
+echo "Confirmed: sc_public zone is loaded in http context"
 
 # 2) location on api.voxbulk.com
 if grep -q 'location ^~ /public/smart-card/' "$NGINX_VHOST" 2>/dev/null; then
