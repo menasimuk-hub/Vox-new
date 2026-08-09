@@ -26,44 +26,44 @@ else
   echo "Zone include already present — skip write"
 fi
 
-# aaPanel often has `include …/vhost/nginx/*.conf` inside http — zone MUST be in http {},
-# not only in a server file. Verify via nginx -T after patch.
-if ! grep -q 'voxbulk-smart-card-limit.conf' "$NGINX_CONF" 2>/dev/null; then
+# aaPanel uses `http` then `{` on the next line — zone MUST be inside that http block.
+# Prefer next to existing limit_conn_zone lines (same pattern as sc_public).
+if ! grep -q 'voxbulk-smart-card-limit.conf' "$NGINX_CONF" 2>/dev/null \
+  && ! grep -q 'zone=sc_public' "$NGINX_CONF" 2>/dev/null; then
   tmp="$(mktemp)"
-  # Prefer insert right after `http {` / `http{`
-  if grep -qE '^\s*http\s*\{' "$NGINX_CONF"; then
-    awk '
-      BEGIN { done=0 }
-      /^\s*http\s*\{/ && !done {
-        print
-        print "    include /www/server/nginx/conf/voxbulk-smart-card-limit.conf;"
-        done=1
-        next
-      }
-      { print }
-    ' "$NGINX_CONF" >"$tmp"
-  else
-    # Fallback: insert before first vhost include inside http
-    awk '
-      BEGIN { done=0 }
-      !done && /include[[:space:]]+\/www\/server\/panel\/vhost\/nginx\// {
-        print "    include /www/server/nginx/conf/voxbulk-smart-card-limit.conf;"
-        done=1
-      }
-      { print }
-      END {
-        if (!done) {
-          print "ERROR: could not find insertion point for zone include" > "/dev/stderr"
-          exit 1
-        }
-      }
-    ' "$NGINX_CONF" >"$tmp"
-  fi
+  python3 - "$NGINX_CONF" "$tmp" <<'PY'
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1])
+out = Path(sys.argv[2])
+text = src.read_text(encoding="utf-8")
+line = "        include /www/server/nginx/conf/voxbulk-smart-card-limit.conf;\n"
+if "voxbulk-smart-card-limit.conf" in text or "zone=sc_public" in text:
+    out.write_text(text, encoding="utf-8")
+    print("already present")
+    raise SystemExit(0)
+# Insert after last limit_conn_zone (aaPanel default)
+idx = text.rfind("limit_conn_zone")
+if idx >= 0:
+    nl = text.find("\n", idx)
+    if nl < 0:
+        raise SystemExit("bad nginx.conf: limit_conn_zone without newline")
+    text = text[: nl + 1] + line + text[nl + 1 :]
+else:
+    # Before vhost include
+    marker = "include /www/server/panel/vhost/nginx/*.conf;"
+    if marker not in text:
+        raise SystemExit("Could not find insertion point in nginx.conf")
+    text = text.replace(marker, line + marker, 1)
+out.write_text(text, encoding="utf-8")
+print("patched")
+PY
   sudo cp -a "$tmp" "$NGINX_CONF"
   rm -f "$tmp"
   echo "Patched $NGINX_CONF to include zone file"
 else
-  echo "nginx.conf already references zone file — skip"
+  echo "nginx.conf already references sc_public / zone file — skip"
 fi
 
 echo "Zone file contents:"
