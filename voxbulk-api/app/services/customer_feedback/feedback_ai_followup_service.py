@@ -1026,6 +1026,19 @@ def _dispatch_job(db: Session, job, *, force_immediate: bool = False) -> str | N
 def job_to_report_dict(job) -> dict[str, Any]:
     outcome = _job_outcome(job)
     promo_email = outcome.get("promo_email") if isinstance(outcome.get("promo_email"), dict) else None
+    session_summary = outcome.get("session_summary") if isinstance(outcome.get("session_summary"), dict) else {}
+    reason_report = None
+    try:
+        from app.services.ai_followup_report_service import build_followup_reason_report
+
+        reason_report = build_followup_reason_report(
+            session_summary=session_summary,
+            outcome=outcome,
+            status=job.status,
+            business_context=getattr(job, "business_context", None),
+        )
+    except Exception:
+        logger.exception("feedback_ai_followup_reason_report_failed job_id=%s", job.id)
     report = {
         "id": job.id,
         "session_id": getattr(job, "session_id", None),
@@ -1038,6 +1051,9 @@ def job_to_report_dict(job) -> dict[str, Any]:
         "promo_code": getattr(job, "promo_code", None),
         "promo_email": promo_email,
         "outcome": outcome,
+        "session_summary": session_summary or None,
+        "reason_report": reason_report,
+        "why_unhappy": outcome.get("why_unhappy") or session_summary.get("why_unhappy"),
         "updated_at": job.updated_at.isoformat() if job.updated_at else None,
     }
     try:

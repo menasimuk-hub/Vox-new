@@ -24,6 +24,20 @@ export type AiFollowUpReport = {
   promo_code?: string | null;
   promo_email?: { ok?: boolean; reason?: string; to?: string } | null;
   outcome?: Record<string, unknown> | null;
+  session_summary?: {
+    poor_topics?: string[];
+    poor_answers?: Array<{ question?: string; answer?: string }>;
+    written_feedback?: Array<{ question?: string; text?: string; source?: string }>;
+    why_unhappy?: string | null;
+  } | null;
+  reason_report?: {
+    survey_low_ratings?: Array<{ question?: string; answer?: string }>;
+    survey_written_reason?: string | null;
+    survey_written_reasons?: Array<{ question?: string; text?: string; source?: string }>;
+    call_findings?: string | null;
+    narrative?: string | null;
+  } | null;
+  why_unhappy?: string | null;
   updated_at?: string | null;
 };
 
@@ -173,6 +187,27 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
         : null;
   const promoEmail = report.promo_email;
 
+  const summary =
+    report.session_summary ||
+    (report.outcome?.session_summary && typeof report.outcome.session_summary === "object"
+      ? (report.outcome.session_summary as AiFollowUpReport["session_summary"])
+      : null);
+  const reasonReport = report.reason_report;
+  const lowRatings =
+    (reasonReport?.survey_low_ratings?.length ? reasonReport.survey_low_ratings : null) ||
+    summary?.poor_answers ||
+    [];
+  const writtenReasons =
+    (reasonReport?.survey_written_reasons?.length ? reasonReport.survey_written_reasons : null) ||
+    summary?.written_feedback ||
+    [];
+  const whyUnhappy =
+    (typeof report.why_unhappy === "string" && report.why_unhappy.trim()) ||
+    (typeof summary?.why_unhappy === "string" && summary.why_unhappy.trim()) ||
+    (typeof reasonReport?.survey_written_reason === "string" && reasonReport.survey_written_reason.trim()) ||
+    null;
+  const hasSurveyReasons = lowRatings.length > 0 || writtenReasons.length > 0 || Boolean(whyUnhappy);
+
   return (
     <>
       <Card className="border-primary/30 bg-primary/5">
@@ -184,6 +219,50 @@ export function AiFollowUpAssistancePanel({ report }: { report?: AiFollowUpRepor
             </p>
             <Badge variant={aiFollowUpStatusTone(report.status)}>{aiFollowUpStatusLabel(report.status)}</Badge>
           </div>
+
+          {hasSurveyReasons ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-foreground">Why negative feedback (from survey)</p>
+              <div className="space-y-2 rounded-lg border border-border bg-background/80 px-3 py-3 text-sm">
+                {lowRatings.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {lowRatings.map((row, i) => (
+                      <li key={`low-${i}`} className="leading-relaxed">
+                        <span className="font-medium">{String(row.question || "Topic")}</span>
+                        <span className="text-muted-foreground"> — </span>
+                        <span>{String(row.answer || "—")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {writtenReasons.length > 0 ? (
+                  <div className={cn("space-y-2", lowRatings.length > 0 && "border-t border-border pt-2")}>
+                    {writtenReasons.map((row, i) => (
+                      <div key={`written-${i}`}>
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {String(row.question || "Reason")}
+                        </p>
+                        <p className="mt-0.5 whitespace-pre-wrap leading-relaxed">{String(row.text || "")}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : whyUnhappy ? (
+                  <p
+                    className={cn(
+                      "whitespace-pre-wrap leading-relaxed",
+                      lowRatings.length > 0 && "border-t border-border pt-2",
+                    )}
+                  >
+                    {whyUnhappy}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">
+                    No written reason was left in the survey — the AI call was placed to find out why.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
 
           <div className="space-y-2">
             <p className="text-xs font-medium text-foreground">Problem reported on call</p>
