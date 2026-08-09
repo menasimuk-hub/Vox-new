@@ -14,7 +14,7 @@ import {
   type RepresentativeDraft,
 } from "@/components/expo-booth-sections";
 import { ExpoBoothPrintCard } from "@/components/expo-booth-print-card";
-import { QrPreviewPanel } from "@/components/qr-preview-panel";
+import { QrStyleEditor } from "@/components/qr-style-editor";
 import { qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -510,50 +510,41 @@ function EditExpoBooth() {
           </div>
         </div>
 
-        <aside className="lg:sticky lg:top-20">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <QrCode className="size-4 text-primary" /> Your QR code
-              </CardTitle>
-              <CardDescription>
-                Edit style, download, or open the scan link. Print card uses the same QR.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
-              <QrPreviewPanel
-                style={qrStyle}
-                onStyleChange={setQrStyle}
-                qrImageUrl={qrBase}
-                downloadName={`expo-${booth.name || "booth"}-qr.png`}
-                openUrl={displayWebUrl || null}
-                canEdit={canEdit}
-                saving={saving}
-                onSave={async (draft) => {
-                  setSaving(true);
-                  try {
-                    await apiFetch(`/expo/booths/${boothId}`, {
-                      method: "PATCH",
-                      body: JSON.stringify(qrStylePayload(draft)),
-                    });
-                    setQrStyle(draft);
-                    await boothQ.refetch();
-                    toast.success("QR style saved");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : "Could not save QR style");
-                    throw e;
-                  } finally {
-                    setSaving(false);
-                  }
-                }}
-              />
+        <QrStyleEditor
+          style={qrStyle}
+          onStyleChange={setQrStyle}
+          qrImageUrl={qrBase}
+          downloadName={`expo-${booth.name || "booth"}-qr.png`}
+          openUrl={displayWebUrl || null}
+          canEdit={canEdit}
+          saving={saving}
+          onSave={async (draft) => {
+            setSaving(true);
+            try {
+              await apiFetch(`/expo/booths/${boothId}`, {
+                method: "PATCH",
+                body: JSON.stringify(qrStylePayload(draft)),
+              });
+              setQrStyle(draft);
+              await boothQ.refetch();
+              toast.success("QR style saved");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Could not save QR style");
+              throw e;
+            } finally {
+              setSaving(false);
+            }
+          }}
+          footer={
+            <>
               {booth.trigger_text ? (
                 <p className="text-center text-xs text-muted-foreground">{booth.trigger_text}</p>
               ) : null}
-
               {webUrl || qrSrc ? (
-                <div id="print" className="border-t pt-5">
-                  <h3 className="mb-3 text-sm font-semibold">Print booth card</h3>
+                <div id="print" className="rounded-xl border border-border bg-card p-4">
+                  <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                    <QrCode className="size-4 text-primary" /> Print booth card
+                  </h3>
                   <ExpoBoothPrintCard
                     boothId={booth.id}
                     qrSrc={qrSrc}
@@ -568,13 +559,13 @@ function EditExpoBooth() {
                   />
                 </div>
               ) : (
-                <p className="border-t pt-4 text-sm text-muted-foreground">
+                <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
                   Scan link missing for this booth — refresh the page or contact support.
                 </p>
               )}
-            </CardContent>
-          </Card>
-        </aside>
+            </>
+          }
+        />
       </div>
     </div>
   );

@@ -33,7 +33,10 @@ from app.services.customer_feedback.web_theme_service import (
     parse_web_theme_config,
     resolve_theme_id,
 )
-from app.services.customer_feedback.feedback_ai_followup_service import load_ai_follow_up_from_location
+from app.services.customer_feedback.feedback_ai_followup_service import (
+    enrich_ai_follow_up_with_call_kb,
+    load_ai_follow_up_from_location,
+)
 
 
 TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {token}"
@@ -251,33 +254,54 @@ class FeedbackLocationService:
     def gate_session_start(db: Session, location: FeedbackLocation) -> tuple[str | None, str | None]:
         """
         Returns (billing_mode, error_message).
-        billing_mode is 'live' when allowed; None when blocked.
+        billing_mode is 'live' | 'preview' when allowed; None when blocked.
         """
+        from app.models.customer_feedback import FEEDBACK_PREVIEW_TESTS_LIMIT
+
         status = str(location.status or "").strip().lower()
         if status == "paused":
             return None, "This Customer Feedback QR is paused."
         if status == "archived":
             return None, "This Customer Feedback QR is no longer available."
+        renew = "https://dashboard.voxbulk.com/account/feedback/packages"
         if status in {"preview", "preview_exhausted"}:
-            # Leftover drafts: only usable after pay activates them.
+            # After pay, flip preview drafts to active when slots allow.
             FeedbackLocationService.activate_preview_locations(db, location.org_id)
             db.refresh(location)
             status = str(location.status or "").strip().lower()
-        if status != "active":
-            return None, "This Customer Feedback QR is unavailable."
-        mode = FeedbackBillingService.access_mode(db, location.org_id)
-        renew = "https://dashboard.voxbulk.com/account/feedback/packages"
-        if mode == "live":
-            return "live", None
-        if mode == "expired":
+        if status == "active":
+            mode = FeedbackBillingService.access_mode(db, location.org_id)
+            if mode == "live":
+                return "live", None
+            if mode == "expired":
+                return (
+                    None,
+                    f"Your Customer feedback package has expired. Renew to continue: {renew}",
+                )
             return (
                 None,
-                f"Your Customer feedback package has expired. Renew to continue: {renew}",
+                f"Subscribe to a Customer feedback package to collect responses: {renew}",
             )
-        return (
-            None,
-            f"Subscribe to a Customer feedback package to collect responses: {renew}",
-        )
+        if status == "preview":
+            used = FeedbackBillingService.preview_tests_used(db, location.org_id)
+            if used >= FEEDBACK_PREVIEW_TESTS_LIMIT:
+                location.status = "preview_exhausted"
+                location.updated_at = datetime.utcnow()
+                db.add(location)
+                db.commit()
+                return (
+                    None,
+                    f"Demo testing limit reached ({FEEDBACK_PREVIEW_TESTS_LIMIT} scans). "
+                    f"Pay to activate this QR survey: {renew}",
+                )
+            return "preview", None
+        if status == "preview_exhausted":
+            return (
+                None,
+                f"Demo testing limit reached ({FEEDBACK_PREVIEW_TESTS_LIMIT} scans). "
+                f"Pay to activate this QR survey: {renew}",
+            )
+        return None, "This Customer Feedback QR is unavailable."
 
     @staticmethod
     def preview_location(db: Session, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -317,17 +341,19 @@ class FeedbackLocationService:
         db: Session, org_id: str, payload: dict[str, Any], *, created_by_user_id: str | None = None
     ) -> dict[str, Any]:
         live_sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
-        if live_sub is None:
-            raise ValueError("Subscribe to a Customer feedback package before adding locations.")
-        max_loc = FeedbackBillingService.max_locations(db, org_id)
-        if max_loc <= 0:
-            raise ValueError("Subscribe to a Customer feedback package before adding locations.")
-        current = FeedbackLocationService.count_active_locations(db, org_id)
-        if current >= max_loc:
-            raise ValueError(
-                f"Location limit reached ({max_loc}). Upgrade your Customer feedback package or contact support."
-            )
-        default_status = "active"
+        if live_sub is not None:
+            max_loc = FeedbackBillingService.max_locations(db, org_id)
+            if max_loc <= 0:
+                raise ValueError("Subscribe to a Customer feedback package before adding locations.")
+            current = FeedbackLocationService.count_active_locations(db, org_id)
+            if current >= max_loc:
+                raise ValueError(
+                    f"Location limit reached ({max_loc}). Upgrade your Customer feedback package or contact support."
+                )
+            default_status = "active"
+        else:
+            # Unpaid: save as demo preview (org-wide 20-scan testing pool).
+            default_status = "preview"
         org = db.get(Organisation, org_id)
         zone = country_to_zone(getattr(org, "country", None) if org else None)
         industry_id = str(payload.get("industry_id") or "").strip()
@@ -361,21 +387,33 @@ class FeedbackLocationService:
         )
         web_theme = payload.get("web_theme")
         ai_follow_up = payload.get("ai_follow_up")
+        location_name = str(payload.get("name") or "Location").strip()
+        company_name = org.name if org else "Your business"
         if isinstance(web_theme, dict) or isinstance(ai_follow_up, dict):
             extras: dict[str, Any] = {}
             if isinstance(web_theme, dict):
                 extras["web_theme"] = web_theme
             if isinstance(ai_follow_up, dict):
-                extras["ai_follow_up"] = ai_follow_up
+                extras["ai_follow_up"] = enrich_ai_follow_up_with_call_kb(
+                    db,
+                    ai_follow_up,
+                    org=org,
+                    location_name=location_name,
+                    industry_name=getattr(industry, "name", None),
+                    selected_type_ids=selected_ids,
+                )
             survey_config = merge_web_theme_into_config(survey_config, extras.get("web_theme"))
             if extras.get("ai_follow_up"):
                 survey_config["ai_follow_up"] = extras["ai_follow_up"]
-        location_name = str(payload.get("name") or "Location").strip()
-        company_name = org.name if org else "Your business"
         qr_token = build_location_qr_token(company=company_name, branch=location_name)
         while db.execute(select(FeedbackLocation.qr_token).where(FeedbackLocation.qr_token == qr_token)).scalar_one_or_none():
             qr_token = build_location_qr_token(company=company_name, branch=location_name)
         now = datetime.utcnow()
+        # Only paid creates may be active; unpaid always saves as preview demo.
+        status = default_status
+        requested = str(payload.get("status") or "").strip().lower()
+        if live_sub is not None and requested in {"active", "paused"}:
+            status = requested
         row = FeedbackLocation(
             id=str(uuid.uuid4()),
             org_id=org_id,
@@ -385,7 +423,7 @@ class FeedbackLocationService:
             branch_code=(str(payload.get("branch_code")).strip() if payload.get("branch_code") else None),
             qr_token=qr_token,
             wa_sender_country=zone,
-            status=str(payload.get("status") or default_status).strip() or default_status,
+            status=status,
             selected_survey_type_ids_json=json.dumps(selected_ids),
             open_question_enabled=open_question,
             marketing_opt_in_enabled=marketing_opt_in,
@@ -394,8 +432,6 @@ class FeedbackLocationService:
             created_at=now,
             updated_at=now,
         )
-        if row.status != "active":
-            row.status = "active"
         from app.services.qr_style_fields import init_qr_style_on_create
 
         init_qr_style_on_create(row, payload, allow_transparent=True)
@@ -460,12 +496,26 @@ class FeedbackLocationService:
         if survey_fields_changed:
             row.survey_config_json = json.dumps(rebuild_survey_config_for_location(db, row))
 
-        if "web_theme" in payload or "ai_follow_up" in payload:
+        if "web_theme" in payload or "ai_follow_up" in payload or survey_fields_changed:
             cfg = parse_web_theme_config(row.survey_config_json)
             if "web_theme" in payload and isinstance(payload.get("web_theme"), dict):
                 cfg["web_theme"] = payload["web_theme"]
-            if "ai_follow_up" in payload and isinstance(payload.get("ai_follow_up"), dict):
-                cfg["ai_follow_up"] = payload["ai_follow_up"]
+            industry = db.get(FeedbackIndustry, row.industry_id)
+            org = db.get(Organisation, org_id)
+            ai_cfg = (
+                payload["ai_follow_up"]
+                if "ai_follow_up" in payload and isinstance(payload.get("ai_follow_up"), dict)
+                else (cfg.get("ai_follow_up") if isinstance(cfg.get("ai_follow_up"), dict) else None)
+            )
+            if isinstance(ai_cfg, dict):
+                cfg["ai_follow_up"] = enrich_ai_follow_up_with_call_kb(
+                    db,
+                    ai_cfg,
+                    org=org,
+                    location_name=str(row.name or ""),
+                    industry_name=getattr(industry, "name", None) if industry else None,
+                    selected_type_ids=parse_selected_type_ids_from_location(row),
+                )
             row.survey_config_json = json.dumps(cfg)
 
         from app.services.qr_style_fields import apply_qr_style_payload

@@ -47,24 +47,46 @@ class FeedbackBillingService:
         return sub
 
     @staticmethod
+    def preview_tests_used(db: Session, org_id: str) -> int:
+        org = db.get(Organisation, org_id)
+        if org is None:
+            return 0
+        return int(getattr(org, "feedback_preview_tests_used", 0) or 0)
+
+    @staticmethod
     def access_mode(db: Session, org_id: str) -> str:
-        """live | expired | inactive — free-scan preview entitlement removed."""
+        """live | preview | preview_exhausted | expired | inactive."""
+        from app.models.customer_feedback import FEEDBACK_PREVIEW_TESTS_LIMIT
+
         sub = FeedbackBillingService.get_active_subscription(db, org_id)
         if sub is not None and str(sub.status or "").lower() in {"active", "trial"}:
             return "live"
         if sub is not None and str(sub.status or "").lower() in {"cancelled", "expired"}:
             return "expired"
-        return "inactive"
+        used = FeedbackBillingService.preview_tests_used(db, org_id)
+        if used >= FEEDBACK_PREVIEW_TESTS_LIMIT:
+            return "preview_exhausted"
+        # Unpaid orgs can save QR surveys and use the shared demo scan pool.
+        return "preview"
 
     @staticmethod
     def entitlement_payload(db: Session, org_id: str) -> dict[str, Any]:
+        from app.models.customer_feedback import FEEDBACK_PREVIEW_TESTS_LIMIT
+
         mode = FeedbackBillingService.access_mode(db, org_id)
         sub_payload = FeedbackBillingService.subscription_payload(db, org_id)
-        return {
+        used = FeedbackBillingService.preview_tests_used(db, org_id)
+        remaining = max(0, FEEDBACK_PREVIEW_TESTS_LIMIT - used)
+        payload: dict[str, Any] = {
             "mode": mode,
             "renew_url": "https://dashboard.voxbulk.com/account/feedback/packages",
             "subscription": sub_payload,
         }
+        if mode in {"preview", "preview_exhausted"}:
+            payload["preview_tests_used"] = used
+            payload["preview_tests_limit"] = FEEDBACK_PREVIEW_TESTS_LIMIT
+            payload["preview_tests_remaining"] = remaining
+        return payload
 
     @staticmethod
     def increment_preview_test(db: Session, org_id: str) -> int:

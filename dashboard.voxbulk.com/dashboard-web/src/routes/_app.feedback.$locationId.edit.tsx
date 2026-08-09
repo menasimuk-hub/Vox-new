@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
 import { FeedbackTopicPicker } from "@/components/feedback-topic-picker";
 import { FeedbackWebThemePicker } from "@/components/feedback-web-theme-picker";
-import { QrPreviewPanel } from "@/components/qr-preview-panel";
+import { QrStyleEditor } from "@/components/qr-style-editor";
 import { qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,7 @@ function EditFeedbackSurvey() {
       <PageHeader
         eyebrow="Customer feedback"
         title={`Edit survey — ${location.name}`}
-        description="Change topics and closing questions. Your printed QR code and trigger message stay the same."
+        description="Change topics, AI follow-up, theme, and QR style. Your scan URL and trigger message stay the same."
         actions={
           <Button asChild variant="outline" className="gap-1.5">
             <Link to="/feedback">
@@ -161,143 +161,134 @@ function EditFeedbackSurvey() {
         }
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Your QR code</CardTitle>
-          <CardDescription>
-            Edit style (dots, frame, colours), download PNG, or open the survey link. The scan URL stays the same.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <QrPreviewPanel
-            style={qrStyle}
-            onStyleChange={setQrStyle}
-            qrImageUrl={location.qr_image_url || ""}
-            downloadName={`feedback-${location.name || "qr"}.png`}
-            openUrl={location.web_survey_url || location.wa_url}
-            canEdit
-            saving={updateM.isPending}
-            onSave={async (draft) => {
-              await updateM.mutateAsync({
-                locationId: location.id,
-                body: qrStylePayload(draft),
-              });
-              setQrStyle(draft);
-              toast.success("QR style saved");
-            }}
-          />
-        </CardContent>
-      </Card>
+      <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] lg:items-start">
+        <div className="min-w-0 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Survey topics</CardTitle>
+              <CardDescription>
+                Industry: {location.industry_name || "—"}. Choose up to 6 topics and drag to set ask order on WhatsApp /
+                web.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {typesQ.isLoading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : typesQ.isError ? (
+                <p className="text-sm text-destructive">Could not load survey topics.</p>
+              ) : (
+                <FeedbackTopicPicker
+                  topics={surveyTypes}
+                  selectedIds={selectedTypeIds}
+                  onChange={setSelectedTypeIds}
+                />
+              )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Survey topics</CardTitle>
-          <CardDescription>
-            Industry: {location.industry_name || "—"}. Choose up to 6 topics and drag to set ask order on WhatsApp / web.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {typesQ.isLoading ? (
-            <Skeleton className="h-24 w-full" />
-          ) : typesQ.isError ? (
-            <p className="text-sm text-destructive">Could not load survey topics.</p>
-          ) : (
-            <FeedbackTopicPicker
-              topics={surveyTypes}
-              selectedIds={selectedTypeIds}
-              onChange={setSelectedTypeIds}
-            />
-          )}
-
-          <div
-            className={cn(
-              "flex items-start gap-3 rounded-xl border p-4 transition",
-              marketingOptIn ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
-            )}
-          >
-            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-              <Sparkles className="size-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold">
-                  Promo opt-in after survey{" "}
-                  <span className="text-xs font-normal text-muted-foreground">(optional)</span>
-                </p>
-                <Switch checked={marketingOptIn} onCheckedChange={setMarketingOptIn} />
+              <div
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4 transition",
+                  marketingOptIn ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
+                )}
+              >
+                <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                  <Sparkles className="size-4" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold">
+                      Promo opt-in after survey{" "}
+                      <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                    </p>
+                    <Switch checked={marketingOptIn} onCheckedChange={setMarketingOptIn} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Ask customers on WhatsApp if they want occasional offers. Replying STOP unsubscribes them from the
+                    VoxBulk feedback number (handled by WhatsApp/Telnyx) and removes them from your promo list.
+                  </p>
+                  {marketingOptIn ? (
+                    <p className="mt-2 text-xs font-medium text-primary">
+                      Current promo subscribers: {marketingCountQ.isLoading ? "…" : marketingCountQ.data ?? 0}
+                    </p>
+                  ) : null}
+                </div>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Ask customers on WhatsApp if they want occasional offers. Replying STOP unsubscribes them from the
-                VoxBulk feedback number (handled by WhatsApp/Telnyx) and removes them from your promo list.
-              </p>
-              {marketingOptIn ? (
-                <p className="mt-2 text-xs font-medium text-primary">
-                  Current promo subscribers: {marketingCountQ.isLoading ? "…" : marketingCountQ.data ?? 0}
-                </p>
-              ) : null}
-            </div>
-          </div>
 
-          <div
-            className={cn(
-              "flex items-start gap-3 rounded-xl border p-4 transition",
-              openQuestion ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
-            )}
-          >
-            <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-              <MessageSquarePlus className="size-4" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-semibold">
-                  Tell us more about your experience{" "}
-                  <span className="text-xs font-normal text-muted-foreground">(optional)</span>
-                </p>
-                <Switch checked={openQuestion} onCheckedChange={setOpenQuestion} />
+              <div
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-4 transition",
+                  openQuestion ? "border-primary/40 bg-primary/5" : "border-border bg-background/40",
+                )}
+              >
+                <div className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                  <MessageSquarePlus className="size-4" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold">
+                      Tell us more about your experience{" "}
+                      <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                    </p>
+                    <Switch checked={openQuestion} onCheckedChange={setOpenQuestion} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Adds a final open question. Responses appear in feedback results under more details.
+                  </p>
+                </div>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Adds a final open question. Responses appear in feedback results under more details.
-              </p>
-            </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Palette className="size-4 text-primary" /> Web survey look &amp; feel
+              </CardTitle>
+              <CardDescription>
+                Skin shown when customers complete the survey on the web link (not WhatsApp templates).
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <FeedbackWebThemePicker
+                value={webTheme}
+                onChange={setWebTheme}
+                companyName={companyName}
+                industryName={location.industry_name || industry?.name || undefined}
+                industrySlug={industry?.slug || undefined}
+                radioName="editFeedbackOverlayMode"
+              />
+            </CardContent>
+          </Card>
+
+          <AiFollowUpStep stepLabel="Settings" config={aiFollowUp} onChange={setAiFollowUp} />
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onSave} disabled={updateM.isPending || selectedTypeIds.length === 0}>
+              {updateM.isPending ? "Saving…" : "Save changes"}
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/feedback">Cancel</Link>
+            </Button>
           </div>
+        </div>
 
-          <p className="text-xs text-muted-foreground">
-            To change question wording (not which topics are asked), contact your VoxBulk admin — template text is
-            managed centrally and must be approved on WhatsApp.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Palette className="size-4 text-primary" /> Web survey look &amp; feel
-          </CardTitle>
-          <CardDescription>
-            Skin shown when customers complete the survey on the web link (not WhatsApp templates).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <FeedbackWebThemePicker
-            value={webTheme}
-            onChange={setWebTheme}
-            companyName={companyName}
-            industryName={location.industry_name || industry?.name || undefined}
-            industrySlug={industry?.slug || undefined}
-            radioName="editFeedbackOverlayMode"
-          />
-        </CardContent>
-      </Card>
-
-      <AiFollowUpStep stepLabel="Settings" config={aiFollowUp} onChange={setAiFollowUp} />
-
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={onSave} disabled={updateM.isPending || selectedTypeIds.length === 0}>
-          {updateM.isPending ? "Saving…" : "Save changes"}
-        </Button>
-        <Button asChild variant="outline">
-          <Link to="/feedback">Cancel</Link>
-        </Button>
+        <QrStyleEditor
+          style={qrStyle}
+          onStyleChange={setQrStyle}
+          qrImageUrl={location.qr_image_url || ""}
+          downloadName={`feedback-${location.name || "qr"}.png`}
+          openUrl={location.web_survey_url || location.wa_url}
+          canEdit
+          showTransparent
+          saving={updateM.isPending}
+          onSave={async (draft) => {
+            await updateM.mutateAsync({
+              locationId: location.id,
+              body: qrStylePayload(draft, { includeTransparent: true }),
+            });
+            setQrStyle(draft);
+            toast.success("QR style saved");
+          }}
+        />
       </div>
     </div>
   );

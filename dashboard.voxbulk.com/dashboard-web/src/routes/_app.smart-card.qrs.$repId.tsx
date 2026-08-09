@@ -16,7 +16,7 @@ import {
   type AssignCategory,
 } from "@/components/smart-card/assign-products-picker";
 import { SmartCardThemePicker } from "@/components/smart-card/smart-card-theme-picker";
-import { QrPreviewPanel } from "@/components/qr-preview-panel";
+import { QrStyleEditor } from "@/components/qr-style-editor";
 import { qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -482,48 +482,39 @@ function SmartCardEditQrPage() {
           ) : null}
         </div>
 
-        <div className="space-y-4 lg:sticky lg:top-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Your QR code</CardTitle>
-              <CardDescription>Edit style, download PNG, or open the scan link.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <QrPreviewPanel
-                style={qrStyle}
-                onStyleChange={setQrStyle}
-                qrImageUrl={pngUrl}
-                downloadName={`smart-card-${rep.name || "qr"}.png`}
-                openUrl={rep.web_url}
-                showTransparent
-                canEdit={canEdit}
-                saving={saveStyleMut.isPending}
-                onSave={async (draft) => {
-                  await saveStyleMut.mutateAsync(draft);
-                }}
-              />
-            </CardContent>
-          </Card>
-
-          {canManage ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Digital card theme</CardTitle>
-                <CardDescription>Applies to all Smart Card scans for this company.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <SmartCardThemePicker
-                  value={themeId}
-                  onChange={setThemeId}
-                  companyName={companyName}
-                  personName={repForm.name || rep.name}
-                  qrToken={rep.qr_token}
-                  className="sm:grid-cols-1 lg:grid-cols-1 xl:grid-cols-1"
-                />
-              </CardContent>
-            </Card>
-          ) : null}
-        </div>
+        <QrStyleEditor
+          style={qrStyle}
+          onStyleChange={setQrStyle}
+          qrImageUrl={pngUrl}
+          downloadName={`smart-card-${rep.name || "qr"}.png`}
+          openUrl={rep.web_url}
+          showTransparent
+          canEdit={canEdit}
+          saving={saveStyleMut.isPending}
+          onSave={async (draft) => {
+            await saveStyleMut.mutateAsync(draft);
+          }}
+          footer={
+            canManage ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Digital card theme</CardTitle>
+                  <CardDescription>Applies to all Smart Card scans for this company.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <SmartCardThemePicker
+                    value={themeId}
+                    onChange={setThemeId}
+                    companyName={companyName}
+                    personName={repForm.name || rep.name}
+                    qrToken={rep.qr_token}
+                    className="sm:grid-cols-1 lg:grid-cols-1 xl:grid-cols-1"
+                  />
+                </CardContent>
+              </Card>
+            ) : null
+          }
+        />
       </div>
     </div>
   );

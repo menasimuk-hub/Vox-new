@@ -231,9 +231,9 @@ function CreateFeedback() {
       .catch(() => setPreviewQr(null));
   }, [step, industryId, selectedTypeIds, branches, openQuestion, marketingOptIn]);
 
-  const onActivate = async () => {
+  const onSave = async (asLive: boolean) => {
     if (!industryId || selectedTypeIds.length === 0) return;
-    if (!subscriptionQ.data?.active) {
+    if (asLive && !subscriptionQ.data?.active) {
       toast.error("Subscribe to a Customer feedback package before activating QR surveys.");
       window.location.assign("/account/feedback/packages");
       return;
@@ -250,14 +250,19 @@ function CreateFeedback() {
           marketing_opt_in_enabled: marketingOptIn,
           web_theme: webThemePayload,
           ai_follow_up: aiFollowUpToApi(aiFollowUp),
+          ...(asLive ? { status: "active" } : { status: "preview" }),
         });
         if (res.item) created.push(res.item);
       }
       setCreatedLocations(created);
-      toast.success("QR survey is live");
+      toast.success(
+        asLive
+          ? "QR survey is live"
+          : "QR survey saved for demo testing (20 scans). Pay later to activate.",
+      );
       setDone(true);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not activate QR survey");
+      toast.error(e instanceof Error ? e.message : "Could not save QR survey");
     }
   };
 
@@ -690,24 +695,34 @@ function CreateFeedback() {
                     I confirm the QR will only be shown to customers in my own venue with their implicit opt-in.
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Required before activate. Customers must scan &amp; send the message themselves to start the survey.
+                    Required before save. Customers must scan &amp; send the message themselves to start the survey.
+                    Without a package you get 20 demo scans for testing.
                   </p>
                 </div>
               </label>
 
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                {!subscriptionQ.data?.active ? (
-                  <Button asChild size="lg" className="gap-1.5">
-                    <Link to="/account/feedback/packages">Choose a package</Link>
-                  </Button>
-                ) : (
+                <Button
+                  size="lg"
+                  variant={subscriptionQ.data?.active ? "outline" : "default"}
+                  className="gap-1.5"
+                  disabled={!canNext[6] || createM.isPending}
+                  onClick={() => void onSave(false)}
+                >
+                  <QrCode className="size-4" /> {createM.isPending ? "Saving…" : "Save QR survey"}
+                </Button>
+                {subscriptionQ.data?.active ? (
                   <Button
                     size="lg"
                     className="gap-1.5"
                     disabled={!canNext[6] || createM.isPending}
-                    onClick={() => void onActivate()}
+                    onClick={() => void onSave(true)}
                   >
-                    <QrCode className="size-4" /> {createM.isPending ? "Activating…" : "Activate QR survey"}
+                    <Rocket className="size-4" /> {createM.isPending ? "Activating…" : "Activate QR survey"}
+                  </Button>
+                ) : (
+                  <Button asChild size="lg" variant="outline" className="gap-1.5">
+                    <Link to="/account/feedback/packages">Pay and activate</Link>
                   </Button>
                 )}
               </div>
@@ -794,6 +809,7 @@ function Summary({ label, value }: { label: string; value: string }) {
 }
 
 function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; company: string }) {
+  const allDemo = locations.length > 0 && locations.every((l) => String(l.status || "").toLowerCase() === "preview");
   return (
     <Card className="animate-scale-in">
       <CardContent className="flex flex-col items-center gap-5 py-12 text-center">
@@ -804,9 +820,13 @@ function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; 
           </div>
         </div>
         <div>
-          <h2 className="text-xl font-semibold">Your QR surveys are live 🎉</h2>
+          <h2 className="text-xl font-semibold">
+            {allDemo ? "Your QR surveys are saved for demo testing" : "Your QR surveys are live"}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Print these QR codes and place them in each venue. Responses appear in real-time per branch.
+            {allDemo
+              ? "You can print and test with up to 20 demo scans. Use Pay and activate on the saved list when ready."
+              : "Print these QR codes and place them in each venue. Responses appear in real-time per branch."}
           </p>
         </div>
         <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-2 lg:grid-cols-3">

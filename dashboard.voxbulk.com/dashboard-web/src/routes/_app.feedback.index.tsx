@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Copy, Download, Eye, Pencil, Plus, QrCode, Trash2 } from "lucide-react";
+import { Copy, CreditCard, Download, Eye, Pencil, Plus, QrCode, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -23,6 +23,7 @@ import { canDuplicateFeedbackSurvey } from "@/lib/feedback-plan";
 import { useUsageAllowances } from "@/lib/billing/use-usage-allowances";
 import {
   useDeleteFeedbackLocation,
+  useFeedbackEntitlement,
   useFeedbackLocations,
   useFeedbackSubscription,
   type FeedbackLocation,
@@ -38,6 +39,7 @@ export const Route = createFileRoute("/_app/feedback/")({
 function SavedFeedback() {
   const locationsQ = useFeedbackLocations();
   const subscriptionQ = useFeedbackSubscription();
+  const entitlementQ = useFeedbackEntitlement();
   const deleteLocationM = useDeleteFeedbackLocation();
   const allowancesState = useUsageAllowances();
   const waAllowance = allowancesState.feedbackRows.find((r) => r.key === "feedback_wa");
@@ -46,6 +48,12 @@ function SavedFeedback() {
   const items = locationsQ.data || [];
   const canDuplicate = canDuplicateFeedbackSurvey(subscriptionQ.data, items.length);
   const [deleteTarget, setDeleteTarget] = useState<FeedbackLocation | null>(null);
+  const demoRemaining =
+    entitlementQ.data?.preview_tests_remaining ??
+    (typeof entitlementQ.data?.preview_tests_limit === "number" &&
+    typeof entitlementQ.data?.preview_tests_used === "number"
+      ? Math.max(0, entitlementQ.data.preview_tests_limit - entitlementQ.data.preview_tests_used)
+      : null);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -98,7 +106,16 @@ function SavedFeedback() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((it) => {
-            const live = String(it.status || "").toLowerCase() === "active";
+            const status = String(it.status || "").toLowerCase();
+            const live = status === "active";
+            const demo = status === "preview" || status === "preview_exhausted";
+            const badgeLabel = live
+              ? "Live"
+              : demo
+                ? status === "preview_exhausted"
+                  ? "Demo ended"
+                  : "Demo"
+                : it.status || "Paused";
             return (
               <Card
                 key={it.id}
@@ -112,8 +129,13 @@ function SavedFeedback() {
                     {it.survey_type_name ? (
                       <p className="mt-0.5 text-[11px] text-muted-foreground">{it.survey_type_name}</p>
                     ) : null}
+                    {demo && demoRemaining != null ? (
+                      <p className="mt-1 text-[11px] font-medium text-primary">
+                        {demoRemaining} demo scan{demoRemaining === 1 ? "" : "s"} left
+                      </p>
+                    ) : null}
                   </div>
-                  <Badge variant={live ? "default" : "secondary"}>{live ? "Live" : it.status || "Paused"}</Badge>
+                  <Badge variant={live ? "default" : "secondary"}>{badgeLabel}</Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex items-center justify-center rounded-xl border border-dashed border-border bg-background/40 p-3">
@@ -130,6 +152,13 @@ function SavedFeedback() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {demo ? (
+                      <Button size="sm" className="gap-1.5" asChild>
+                        <Link to="/account/feedback/packages">
+                          <CreditCard className="size-3.5" /> Pay and activate
+                        </Link>
+                      </Button>
+                    ) : null}
                     <Button size="sm" variant="outline" className="gap-1.5" asChild>
                       <a href={it.qr_image_url} download={`qr-${it.id}.png`}>
                         <Download className="size-3.5" /> Download QR

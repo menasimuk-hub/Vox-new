@@ -11,7 +11,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.customer_feedback import FeedbackLocation, FeedbackResponse, FeedbackSession
+from app.models.customer_feedback import FeedbackLocation, FeedbackResponse, FeedbackSession, FeedbackSurveyType
+from app.models.organisation import Organisation
 from app.utils.ofcom import platform_calling_allowed
 
 logger = logging.getLogger(__name__)
@@ -32,14 +33,17 @@ FOLLOWUP_TERMINAL = frozenset(
 PAYG_MIN_WALLET_MINOR = 500
 RECOVERY_RULES = (
     "Your job on this call:\n"
-    "- Speak as a caring representative of THIS business — use the company/venue context below.\n"
-    "- Make the customer feel valued and appreciated for taking time to share feedback.\n"
+    "- Speak as a caring representative of THIS business — use the company/venue context and call knowledge base below.\n"
+    "- Make the customer feel valued for taking time to share feedback, and understand why they rated topics poorly.\n"
+    "- Stay calm, warm, and never defensive or argumentative.\n"
+    "- Acknowledge before asking anything (e.g. \"I'm sorry to hear that\") — then ask one clear open question.\n"
+    "- Vary your phrasing; do not sound scripted or repeat \"I understand\".\n"
+    "- Never talk over the customer or rush them; leave space to speak.\n"
     "- Focus only on the survey topics they rated poorly; do not re-run the full survey.\n"
-    "- Your main goal: understand the real reason for the bad experience, in their words.\n"
-    "- Open softly (recent feedback / how we can improve) — never say 'you gave a low rating'.\n"
-    "- Ask one clear open question about the weakest topic, then listen; summarise and thank them.\n"
+    "- Never say \"you gave a low rating\".\n"
     "- Never argue, defend the business, or blame staff by name.\n"
     "- If they are busy or upset: apologise, offer a human callback, and end politely.\n"
+    "- End every call with one clear next step and a timeframe.\n"
     "- Keep under three minutes. English only."
 )
 
@@ -89,6 +93,78 @@ def load_ai_follow_up_from_location(location: FeedbackLocation) -> dict[str, Any
     except json.JSONDecodeError:
         return {}
     return {}
+
+
+def build_feedback_call_kb(
+    db: Session,
+    *,
+    org: Organisation | None,
+    location_name: str,
+    industry_name: str | None,
+    business_context: str,
+    selected_type_ids: list[str],
+) -> str:
+    """Knowledge base for the recovery call agent: business field + survey topics."""
+    org_name = str(getattr(org, "name", None) or "the business").strip() or "the business"
+    topics: list[str] = []
+    for type_id in selected_type_ids[:6]:
+        row = db.get(FeedbackSurveyType, str(type_id).strip())
+        if row is None:
+            continue
+        label = str(getattr(row, "name", None) or getattr(row, "slug", None) or "").strip()
+        if label:
+            topics.append(label)
+    context = str(business_context or "").strip()
+    lines = [
+        f"Business: {org_name}",
+        f"Venue / branch: {str(location_name or '').strip() or 'Main location'}",
+    ]
+    if industry_name:
+        lines.append(f"Industry: {str(industry_name).strip()}")
+    lines.append("")
+    lines.append("About the business (used on the call):")
+    lines.append(context or "No extra business notes — speak as a caring representative of this venue.")
+    lines.append("")
+    lines.append("Survey topics this location asks about:")
+    if topics:
+        for t in topics:
+            lines.append(f"- {t}")
+    else:
+        lines.append("- (topics not listed — use the session summary on the call)")
+    lines.append("")
+    lines.append(
+        "Call purpose: make the customer feel valued for calling them back, "
+        "and learn why they gave low ratings on the topics above — without sounding defensive."
+    )
+    return "\n".join(lines).strip()
+
+
+def enrich_ai_follow_up_with_call_kb(
+    db: Session,
+    ai_follow_up: dict[str, Any],
+    *,
+    org: Organisation | None,
+    location_name: str,
+    industry_name: str | None,
+    selected_type_ids: list[str],
+) -> dict[str, Any]:
+    """Attach call_kb when AI follow-up is enabled; clear it when disabled."""
+    out = dict(ai_follow_up or {})
+    enabled = bool(out.get("enabled") or out.get("Enabled"))
+    if not enabled:
+        out.pop("call_kb", None)
+        out.pop("callKb", None)
+        return out
+    business_context = str(out.get("business_context") or out.get("businessContext") or "").strip()
+    out["call_kb"] = build_feedback_call_kb(
+        db,
+        org=org,
+        location_name=location_name,
+        industry_name=industry_name,
+        business_context=business_context,
+        selected_type_ids=selected_type_ids,
+    )
+    return out
 
 
 def resolve_followup_delay_hours(cfg: dict[str, Any]) -> int:
@@ -270,6 +346,7 @@ def _build_followup_instructions(
     org_name: str,
     org_context: str = "",
     session_summary: dict[str, Any] | None = None,
+    call_kb: str = "",
 ) -> tuple[str, str]:
     context = str(job.business_context or "").strip()
     summary_text = _format_session_summary_for_prompt(session_summary or {})
@@ -279,7 +356,8 @@ def _build_followup_instructions(
             f"\nOnly after they feel heard, if they are receptive, you may offer promo code {job.promo_code}"
             f" ({job.promo_description or 'recovery offer'}). Mention it once only."
         )
-    business_block = context or (
+    kb_block = str(call_kb or "").strip()
+    business_block = kb_block or context or (
         "Use the organisation and location details above. "
         "If detail is thin, stay general but still sound like you represent this business."
     )
@@ -288,7 +366,7 @@ def _build_followup_instructions(
         "an independent follow-up service (not an interview or survey campaign).\n"
         f"Business name: {org_name}\n"
         f"{org_context}\n"
-        f"What this business does / survey context (know this):\n{business_block}\n\n"
+        f"Call agent knowledge base (know this — do not read aloud verbatim):\n{business_block}\n\n"
         f"This customer's survey (internal — do not read aloud):\n{summary_text}\n\n"
         f"{RECOVERY_RULES}"
         f"{promo}"
@@ -806,11 +884,14 @@ def _dispatch_job(db: Session, job, *, force_immediate: bool = False) -> str | N
 
     session_summary = _build_session_summary(db, job.session_id)
     org_context = _build_org_context(db, org=org, location=location)
+    loc_cfg = load_ai_follow_up_from_location(location) if location is not None else {}
+    call_kb = str(loc_cfg.get("call_kb") or loc_cfg.get("callKb") or "").strip()
     greeting, instructions = _build_followup_instructions(
         job,
         org_name=org_name,
         org_context=org_context,
         session_summary=session_summary,
+        call_kb=call_kb,
     )
     to_number = normalize_telnyx_e164(str(job.visitor_phone or ""))
 

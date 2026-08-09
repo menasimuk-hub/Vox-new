@@ -355,8 +355,18 @@ class FeedbackWhatsappService:
             db.commit()
             return {"handled": True, "reason": "send_failed", "org_id": location.org_id}
 
-        FeedbackBillingService.consume_unit(db, location.org_id)
-        session.units_charged = True
+        if billing_mode == "live":
+            FeedbackBillingService.consume_unit(db, location.org_id)
+            session.units_charged = True
+        elif billing_mode == "preview":
+            from app.models.customer_feedback import FEEDBACK_PREVIEW_TESTS_LIMIT
+
+            used = FeedbackBillingService.increment_preview_test(db, location.org_id)
+            session.units_charged = True
+            if used >= FEEDBACK_PREVIEW_TESTS_LIMIT:
+                location.status = "preview_exhausted"
+                location.updated_at = datetime.utcnow()
+                db.add(location)
         db.add(session)
         db.commit()
         return {
