@@ -857,10 +857,21 @@ function RespondentSheet({
             <Avatar name={respondent.name} sentiment={respondent.sentiment} />
             <div className="flex-1">
               <SheetTitle className="text-lg">{respondent.name}</SheetTitle>
-              <SheetDescription className="flex items-center gap-2">
+              <SheetDescription className="flex flex-wrap items-center gap-2">
                 <span className="tabular-nums">{respondent.mobile}</span>
                 <span>·</span>
                 <span>completed {respondent.completedAt}</span>
+                {respondent.callbackConsent === true ? (
+                  <>
+                    <span>·</span>
+                    <span className="font-medium text-primary">Callback consent: Yes</span>
+                  </>
+                ) : respondent.callbackConsent === false ? (
+                  <>
+                    <span>·</span>
+                    <span>Callback consent: No</span>
+                  </>
+                ) : null}
               </SheetDescription>
             </div>
             <SentimentBadge sentiment={respondent.sentiment} flagged={respondent.flagged} />

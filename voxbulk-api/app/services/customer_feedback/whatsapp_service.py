@@ -20,6 +20,7 @@ from app.models.customer_feedback import (
 from app.services.customer_feedback.billing_service import FeedbackBillingService
 from app.services.customer_feedback.feedback_answer_service import (
     is_negative_topic_answer,
+    is_opt_in_no,
     is_opt_in_yes,
     translate_answer_to_english,
 )
@@ -186,12 +187,47 @@ class FeedbackWhatsappService:
         if session is not None and session.org_id:
             org_ids.add(str(session.org_id))
 
+        from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
+
         now = datetime.utcnow()
         for row in rows:
             row.is_active = False
             row.opted_out_at = now
             db.add(row)
-        if rows:
+            try:
+                FeedbackConsentEventsService.record(
+                    db,
+                    org_id=str(row.org_id),
+                    phone_e164=from_phone,
+                    purpose="marketing",
+                    consent_given=False,
+                    method="keyword_stop",
+                    source_event="revoke",
+                    session_id=row.session_id,
+                    location_id=row.location_id,
+                    commit=False,
+                )
+            except Exception:
+                logger.exception("feedback_consent_event_stop_failed org=%s", row.org_id)
+        if session is not None:
+            try:
+                FeedbackConsentEventsService.record(
+                    db,
+                    org_id=str(session.org_id),
+                    phone_e164=from_phone,
+                    purpose="callback_call",
+                    consent_given=False,
+                    method="keyword_stop",
+                    source_event="revoke",
+                    session_id=session.id,
+                    location_id=session.location_id,
+                    commit=False,
+                )
+                session.callback_consent = False
+                db.add(session)
+            except Exception:
+                logger.exception("feedback_consent_event_callback_stop_failed org=%s", session.org_id)
+        if rows or session is not None:
             db.commit()
 
         for org_id in org_ids:
@@ -683,6 +719,7 @@ class FeedbackWhatsappService:
             return {"handled": True, "reason": "missing_location"}
 
         if str(session.status or "") == "awaiting_callback_consent":
+            from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
             from app.services.customer_feedback.feedback_answer_service import is_opt_in_no, is_opt_in_yes
 
             if is_opt_in_yes(db, answer=answer, tpl=None, detected_language=session.detected_language):
@@ -701,6 +738,22 @@ class FeedbackWhatsappService:
                 )
                 return {"handled": True, "awaiting_callback_consent": True, "session_id": session.id}
             db.add(session)
+            db.flush()
+            try:
+                FeedbackConsentEventsService.record(
+                    db,
+                    org_id=session.org_id,
+                    phone_e164=str(session.visitor_phone),
+                    purpose="callback_call",
+                    consent_given=bool(session.callback_consent),
+                    method="whatsapp_button",
+                    source_event="grant" if session.callback_consent else "revoke",
+                    session_id=session.id,
+                    location_id=location.id,
+                    commit=False,
+                )
+            except Exception:
+                logger.exception("feedback_consent_event_callback_wa_failed session_id=%s", session.id)
             db.commit()
             return FeedbackWhatsappService._finish_or_ask_callback_consent(
                 db, session=session, location=location
@@ -783,6 +836,8 @@ class FeedbackWhatsappService:
             return FeedbackWhatsappService._continue_after_step(db, session=session)
 
         if current_step.get("kind") == "marketing_opt_in":
+            from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
+
             if is_opt_in_yes(
                 db,
                 answer=answer,
@@ -816,6 +871,42 @@ class FeedbackWhatsappService:
                             created_at=datetime.utcnow(),
                         )
                     )
+                try:
+                    FeedbackConsentEventsService.record(
+                        db,
+                        org_id=session.org_id,
+                        phone_e164=str(session.visitor_phone),
+                        purpose="marketing",
+                        consent_given=True,
+                        method="whatsapp_button",
+                        source_event="grant",
+                        session_id=session.id,
+                        location_id=location.id,
+                        commit=False,
+                    )
+                except Exception:
+                    logger.exception("feedback_consent_event_marketing_failed session_id=%s", session.id)
+            elif is_opt_in_no(
+                db,
+                answer=answer,
+                tpl=tpl,
+                detected_language=session.detected_language,
+            ):
+                try:
+                    FeedbackConsentEventsService.record(
+                        db,
+                        org_id=session.org_id,
+                        phone_e164=str(session.visitor_phone),
+                        purpose="marketing",
+                        consent_given=False,
+                        method="whatsapp_button",
+                        source_event="revoke",
+                        session_id=session.id,
+                        location_id=location.id,
+                        commit=False,
+                    )
+                except Exception:
+                    logger.exception("feedback_consent_event_marketing_no_failed session_id=%s", session.id)
             FeedbackWhatsappService._save_answer(
                 db,
                 session=session,

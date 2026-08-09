@@ -6,12 +6,19 @@ leaked session_id alone cannot submit answers (M4).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.services.customer_feedback.web_survey_service import FeedbackWebSurveyService
+
+
+def _client_meta(request: Request) -> tuple[str | None, str | None]:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip = forwarded or (request.client.host if request.client else None)
+    ua = (request.headers.get("user-agent") or "").strip() or None
+    return ip, ua
 
 router = APIRouter(prefix="/public/feedback", tags=["public-feedback"])
 
@@ -127,9 +134,11 @@ def submit_web_answer(
 def submit_web_callback_consent(
     session_id: str,
     payload: dict,
+    request: Request,
     token: str = Query(..., min_length=6),
     db: Session = Depends(get_db),
 ):
+    ip, ua = _client_meta(request)
     try:
         return {
             "ok": True,
@@ -139,6 +148,8 @@ def submit_web_callback_consent(
                 token=token,
                 consent=bool(payload.get("consent") or payload.get("callback_consent")),
                 phone=(str(payload.get("phone") or payload.get("visitor_phone") or "").strip() or None),
+                ip_address=ip,
+                user_agent=ua,
             ),
         }
     except ValueError as exc:

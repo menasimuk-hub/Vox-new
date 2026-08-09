@@ -121,11 +121,14 @@ def build_feedback_results_csv(payload: dict[str, Any]) -> str:
                 writer.writerow([question if idx == 0 else "", row.get("answer"), row.get("count"), ""])
     writer.writerow([])
     writer.writerow(["Respondents"])
-    writer.writerow(["Phone", "Sentiment", "Flagged", "Location", "Completed at", "Quote"])
+    writer.writerow(["Phone", "Callback consent", "Sentiment", "Flagged", "Location", "Completed at", "Quote"])
     for row in payload.get("respondents") or []:
+        consent = row.get("callback_consent")
+        consent_label = "Yes" if consent is True else ("No" if consent is False else "")
         writer.writerow(
             [
                 row.get("phone") or "",
+                consent_label,
                 row.get("sentiment_label") or "",
                 "Yes" if row.get("flagged") or row.get("is_unhappy") else "No",
                 row.get("location_name") or "",

@@ -341,6 +341,7 @@ def build_respondents(
             {
                 "id": sess.id,
                 "phone": sess.visitor_phone,
+                "callback_consent": sess.callback_consent,
                 "location_id": sess.location_id,
                 "location_name": loc.name if loc else None,
                 "completed_at": sess.completed_at.isoformat() if sess.completed_at else None,

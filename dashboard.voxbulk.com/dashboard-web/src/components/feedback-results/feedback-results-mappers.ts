@@ -70,6 +70,7 @@ export type Respondent = {
   name: string;
   type: "mobile" | "web";
   mobile: string;
+  callbackConsent?: boolean | null;
   completedAt: string;
   completedAtTs: number;
   sentiment: "happy" | "neutral" | "unhappy";
@@ -390,6 +391,8 @@ export function mapFeedbackResults(
       name: displayName(r.phone),
       type: respondentType(r.phone),
       mobile: String(r.phone || "—"),
+      callbackConsent:
+        typeof r.callback_consent === "boolean" ? r.callback_consent : r.callback_consent == null ? null : Boolean(r.callback_consent),
       completedAt: formatRelative(r.completed_at),
       completedAtTs: Number.isNaN(completedTs) ? 0 : completedTs,
       sentiment,

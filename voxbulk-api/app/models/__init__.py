@@ -140,6 +140,7 @@ from app.models.ai_team_email_template import AiTeamEmailTemplate  # noqa: F401
 from app.models.ai_team_inbound_message import AiTeamInboundMessage  # noqa: F401
 from app.models.customer_feedback import (  # noqa: F401
     FeedbackAiFollowUpJob,
+    FeedbackConsentEvent,
     FeedbackIndustry,
     FeedbackIndustryOrganisation,
     FeedbackLocation,

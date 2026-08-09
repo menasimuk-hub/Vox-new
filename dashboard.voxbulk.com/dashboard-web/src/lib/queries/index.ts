@@ -87,6 +87,8 @@ export const queryKeys = {
   feedbackSubscription: ["customer-feedback", "subscription"] as const,
   feedbackEntitlement: ["customer-feedback", "entitlement"] as const,
   feedbackMarketingSubscribers: ["customer-feedback", "marketing-subscribers", "count"] as const,
+  feedbackConsentEvents: (filters: Record<string, string>) =>
+    ["customer-feedback", "consent-events", filters] as const,
   feedbackPromoCampaigns: ["customer-feedback", "promo-campaigns"] as const,
   feedbackPromoDashboard: ["customer-feedback", "promo-campaigns", "dashboard"] as const,
   feedbackPromoTemplates: ["customer-feedback", "promo-campaigns", "templates"] as const,
@@ -304,6 +306,7 @@ export type FeedbackAggregateBlock = {
 export type FeedbackRespondent = {
   id?: string;
   phone?: string | null;
+  callback_consent?: boolean | null;
   location_id?: string;
   location_name?: string | null;
   completed_at?: string | null;
@@ -2493,6 +2496,40 @@ export function useFeedbackMarketingSubscriberCount(enabled = true) {
       return Number(data?.count ?? 0);
     },
     enabled,
+    refetchOnMount: "always",
+  });
+}
+
+export type FeedbackConsentEventRow = {
+  id: string;
+  session_id?: string | null;
+  location_id?: string | null;
+  location_name?: string | null;
+  purpose: string;
+  consent_given: boolean;
+  phone_number: string;
+  question_text_snapshot?: string | null;
+  question_version_id?: string | null;
+  method: string;
+  source_event: string;
+  ip_address?: string | null;
+  user_agent?: string | null;
+  timestamp?: string | null;
+};
+
+export function useFeedbackConsentEvents(filters: { purpose?: string; consent_given?: string } = {}) {
+  const purpose = filters.purpose || "callback_call";
+  const consentGiven = filters.consent_given ?? "true";
+  const key = { purpose, consent_given: consentGiven };
+  return useQuery({
+    queryKey: queryKeys.feedbackConsentEvents(key),
+    queryFn: async () => {
+      const qs = new URLSearchParams({ purpose, consent_given: consentGiven });
+      const data = await apiFetch<{ ok?: boolean; items?: FeedbackConsentEventRow[] }>(
+        `/customer-feedback/consent-events?${qs.toString()}`,
+      );
+      return data?.items || [];
+    },
     refetchOnMount: "always",
   });
 }

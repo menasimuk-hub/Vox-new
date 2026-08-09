@@ -145,6 +145,7 @@ const groups: Group[] = [
     { title: "Saved QR surveys", url: "/feedback", icon: ListChecks },
     { title: "Feedback results", url: "/feedback/results", icon: BarChart3 },
     { title: "Compare locations", url: "/feedback/compare", icon: GitCompare },
+    { title: "Consent", url: "/feedback/consent", icon: Ban },
     { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true, requiresService: "feedbackCampaigns" },
     { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true, requiresService: "feedbackCampaigns" },
   ]},

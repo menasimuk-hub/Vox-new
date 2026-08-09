@@ -9,94 +9,103 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
-import { Route as MeetTokenRouteImport } from './routes/meet.$token'
-import { Route as BookTokenRouteImport } from './routes/book.$token'
-import { Route as AppSurveysRouteImport } from './routes/_app.surveys'
-import { Route as AppRecoveryRouteImport } from './routes/_app.recovery'
-import { Route as AppPackagesRouteImport } from './routes/_app.packages'
-import { Route as AppInterviewsRouteImport } from './routes/_app.interviews'
-import { Route as AppFollowUpRouteImport } from './routes/_app.follow-up'
-import { Route as AppFeedbackRouteImport } from './routes/_app.feedback'
 import { Route as AppAppointmentsRouteImport } from './routes/_app.appointments'
-import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index'
-import { Route as AppSettingsIndexRouteImport } from './routes/_app.settings.index'
-import { Route as AppSalesIndexRouteImport } from './routes/_app.sales.index'
-import { Route as AppPartnerChannelIndexRouteImport } from './routes/_app.partner-channel.index'
-import { Route as AppPartnerChannelWalletRouteImport } from './routes/_app.partner-channel.wallet'
-import { Route as AppPartnerChannelSendOfferRouteImport } from './routes/_app.partner-channel.send-offer'
-import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
-import { Route as AppInterviewsIndexRouteImport } from './routes/_app.interviews.index'
-import { Route as AppFeedbackIndexRouteImport } from './routes/_app.feedback.index'
-import { Route as AppCampaignsIndexRouteImport } from './routes/_app.campaigns.index'
-import { Route as AppAppointmentsIndexRouteImport } from './routes/_app.appointments.index'
-import { Route as AppAccountIndexRouteImport } from './routes/_app.account.index'
-import { Route as AppSurveysResultsRouteImport } from './routes/_app.surveys.results'
-import { Route as AppSurveysReportsRouteImport } from './routes/_app.surveys.reports'
-import { Route as AppSurveysNewRouteImport } from './routes/_app.surveys.new'
-import { Route as AppSurveysIdRouteImport } from './routes/_app.surveys.$id'
-import { Route as AppSettingsTeamRouteImport } from './routes/_app.settings.team'
-import { Route as AppSettingsSystemRouteImport } from './routes/_app.settings.system'
-import { Route as AppSettingsServicesRouteImport } from './routes/_app.settings.services'
-import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.profile'
-import { Route as AppSettingsOptOutRouteImport } from './routes/_app.settings.opt-out'
-import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
-import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
-import { Route as AppSalesWalletRouteImport } from './routes/_app.sales.wallet'
-import { Route as AppSalesNewRouteImport } from './routes/_app.sales.new'
-import { Route as AppSalesDealsRouteImport } from './routes/_app.sales.deals'
-import { Route as AppRecoveryRecallRouteImport } from './routes/_app.recovery.recall'
-import { Route as AppRecoveryOffersRouteImport } from './routes/_app.recovery.offers'
-import { Route as AppRecoveryNoShowRouteImport } from './routes/_app.recovery.no-show'
-import { Route as AppRecoveryEmergencyRouteImport } from './routes/_app.recovery.emergency'
-import { Route as AppInterviewsResultsRouteImport } from './routes/_app.interviews.results'
-import { Route as AppInterviewsReportsRouteImport } from './routes/_app.interviews.reports'
-import { Route as AppInterviewsNewRouteImport } from './routes/_app.interviews.new'
-import { Route as AppInterviewsOrderIdRouteImport } from './routes/_app.interviews.$orderId'
-import { Route as AppFeedbackResultsRouteImport } from './routes/_app.feedback.results'
-import { Route as AppFeedbackNewRouteImport } from './routes/_app.feedback.new'
-import { Route as AppFeedbackCompareRouteImport } from './routes/_app.feedback.compare'
-import { Route as AppCampaignsSendRouteImport } from './routes/_app.campaigns.send'
-import { Route as AppCampaignsNewRouteImport } from './routes/_app.campaigns.new'
-import { Route as AppAppointmentsSetupRouteImport } from './routes/_app.appointments.setup'
-import { Route as AppAppointmentsReportsRouteImport } from './routes/_app.appointments.reports'
-import { Route as AppAccountUsageRouteImport } from './routes/_app.account.usage'
-import { Route as AppAccountSupportRouteImport } from './routes/_app.account.support'
-import { Route as AppAccountPackagesRouteImport } from './routes/_app.account.packages'
-import { Route as AppAccountBillingRouteImport } from './routes/_app.account.billing'
-import { Route as AppInterviewsResultsIndexRouteImport } from './routes/_app.interviews.results.index'
-import { Route as AppFeedbackCampaignsIndexRouteImport } from './routes/_app.feedback.campaigns.index'
-import { Route as AppAccountSupportIndexRouteImport } from './routes/_app.account.support.index'
-import { Route as AppSalesCustomersIdRouteImport } from './routes/_app.sales.customers.$id'
-import { Route as AppInterviewsResultsOrderIdRouteImport } from './routes/_app.interviews.results.$orderId'
-import { Route as AppFeedbackCampaignsSendRouteImport } from './routes/_app.feedback.campaigns.send'
-import { Route as AppFeedbackLocationIdEditRouteImport } from './routes/_app.feedback.$locationId.edit'
-import { Route as AppAccountSupportTicketsRouteImport } from './routes/_app.account.support.tickets'
-import { Route as AppAccountSupportFaqRouteImport } from './routes/_app.account.support.faq'
-import { Route as AppAccountFeedbackPackagesRouteImport } from './routes/_app.account.feedback.packages'
+import { Route as AppExpoRouteImport } from './routes/_app.expo'
+import { Route as AppFeedbackRouteImport } from './routes/_app.feedback'
+import { Route as AppFollowUpRouteImport } from './routes/_app.follow-up'
+import { Route as AppInterviewsRouteImport } from './routes/_app.interviews'
+import { Route as AppPackagesRouteImport } from './routes/_app.packages'
+import { Route as AppRecoveryRouteImport } from './routes/_app.recovery'
 import { Route as AppSmartCardRouteImport } from './routes/_app.smart-card'
+import { Route as AppSurveysRouteImport } from './routes/_app.surveys'
+import { Route as BookTokenRouteImport } from './routes/book.$token'
+import { Route as MeetTokenRouteImport } from './routes/meet.$token'
+import { Route as AppAccountIndexRouteImport } from './routes/_app.account.index'
+import { Route as AppAccountBillingRouteImport } from './routes/_app.account.billing'
+import { Route as AppAccountPackagesRouteImport } from './routes/_app.account.packages'
+import { Route as AppAccountSupportRouteImport } from './routes/_app.account.support'
+import { Route as AppAccountUsageRouteImport } from './routes/_app.account.usage'
+import { Route as AppAppointmentsIndexRouteImport } from './routes/_app.appointments.index'
+import { Route as AppAppointmentsReportsRouteImport } from './routes/_app.appointments.reports'
+import { Route as AppAppointmentsSetupRouteImport } from './routes/_app.appointments.setup'
+import { Route as AppCampaignsIndexRouteImport } from './routes/_app.campaigns.index'
+import { Route as AppCampaignsNewRouteImport } from './routes/_app.campaigns.new'
+import { Route as AppCampaignsSendRouteImport } from './routes/_app.campaigns.send'
+import { Route as AppExpoIndexRouteImport } from './routes/_app.expo.index'
+import { Route as AppExpoCataloguesRouteImport } from './routes/_app.expo.catalogues'
+import { Route as AppExpoLeadsRouteImport } from './routes/_app.expo.leads'
+import { Route as AppExpoNewRouteImport } from './routes/_app.expo.new'
+import { Route as AppFeedbackIndexRouteImport } from './routes/_app.feedback.index'
+import { Route as AppFeedbackCompareRouteImport } from './routes/_app.feedback.compare'
+import { Route as AppFeedbackConsentRouteImport } from './routes/_app.feedback.consent'
+import { Route as AppFeedbackNewRouteImport } from './routes/_app.feedback.new'
+import { Route as AppFeedbackResultsRouteImport } from './routes/_app.feedback.results'
+import { Route as AppInterviewsIndexRouteImport } from './routes/_app.interviews.index'
+import { Route as AppInterviewsOrderIdRouteImport } from './routes/_app.interviews.$orderId'
+import { Route as AppInterviewsNewRouteImport } from './routes/_app.interviews.new'
+import { Route as AppInterviewsReportsRouteImport } from './routes/_app.interviews.reports'
+import { Route as AppInterviewsResultsRouteImport } from './routes/_app.interviews.results'
+import { Route as AppPartnerChannelIndexRouteImport } from './routes/_app.partner-channel.index'
+import { Route as AppPartnerChannelSendOfferRouteImport } from './routes/_app.partner-channel.send-offer'
+import { Route as AppPartnerChannelWalletRouteImport } from './routes/_app.partner-channel.wallet'
+import { Route as AppRecoveryIndexRouteImport } from './routes/_app.recovery.index'
+import { Route as AppRecoveryEmergencyRouteImport } from './routes/_app.recovery.emergency'
+import { Route as AppRecoveryNoShowRouteImport } from './routes/_app.recovery.no-show'
+import { Route as AppRecoveryOffersRouteImport } from './routes/_app.recovery.offers'
+import { Route as AppRecoveryRecallRouteImport } from './routes/_app.recovery.recall'
+import { Route as AppSalesIndexRouteImport } from './routes/_app.sales.index'
+import { Route as AppSalesDealsRouteImport } from './routes/_app.sales.deals'
+import { Route as AppSalesMailRouteImport } from './routes/_app.sales.mail'
+import { Route as AppSalesNewRouteImport } from './routes/_app.sales.new'
+import { Route as AppSalesWalletRouteImport } from './routes/_app.sales.wallet'
+import { Route as AppSettingsIndexRouteImport } from './routes/_app.settings.index'
+import { Route as AppSettingsAuditRouteImport } from './routes/_app.settings.audit'
+import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app.settings.integrations'
+import { Route as AppSettingsOptOutRouteImport } from './routes/_app.settings.opt-out'
+import { Route as AppSettingsProfileRouteImport } from './routes/_app.settings.profile'
+import { Route as AppSettingsServicesRouteImport } from './routes/_app.settings.services'
+import { Route as AppSettingsSystemRouteImport } from './routes/_app.settings.system'
+import { Route as AppSettingsTeamRouteImport } from './routes/_app.settings.team'
 import { Route as AppSmartCardIndexRouteImport } from './routes/_app.smart-card.index'
-import { Route as AppSmartCardCompanyRouteImport } from './routes/_app.smart-card.company'
 import { Route as AppSmartCardCatalogueRouteImport } from './routes/_app.smart-card.catalogue'
-import { Route as AppSmartCardRepresentativesRouteImport } from './routes/_app.smart-card.representatives'
-import { Route as AppSmartCardLeadsRouteImport } from './routes/_app.smart-card.leads'
-import { Route as AppSmartCardDescriptionsRouteImport } from './routes/_app.smart-card.descriptions'
-import { Route as AppSmartCardQuestionsRouteImport } from './routes/_app.smart-card.questions'
 import { Route as AppSmartCardChangeRequestsRouteImport } from './routes/_app.smart-card.change-requests'
+import { Route as AppSmartCardCompanyRouteImport } from './routes/_app.smart-card.company'
+import { Route as AppSmartCardDescriptionsRouteImport } from './routes/_app.smart-card.descriptions'
+import { Route as AppSmartCardLeadsRouteImport } from './routes/_app.smart-card.leads'
 import { Route as AppSmartCardNewRouteImport } from './routes/_app.smart-card.new'
-import { Route as AppSmartCardQrsNewRouteImport } from './routes/_app.smart-card.qrs.new'
-import { Route as AppSmartCardQrsRepIdRouteImport } from './routes/_app.smart-card.qrs.$repId'
+import { Route as AppSmartCardQuestionsRouteImport } from './routes/_app.smart-card.questions'
+import { Route as AppSmartCardRepresentativesRouteImport } from './routes/_app.smart-card.representatives'
+import { Route as AppSurveysIndexRouteImport } from './routes/_app.surveys.index'
+import { Route as AppSurveysIdRouteImport } from './routes/_app.surveys.$id'
+import { Route as AppSurveysNewRouteImport } from './routes/_app.surveys.new'
+import { Route as AppSurveysReportsRouteImport } from './routes/_app.surveys.reports'
+import { Route as AppSurveysResultsRouteImport } from './routes/_app.surveys.results'
+import { Route as AppAccountExpoPackagesRouteImport } from './routes/_app.account.expo.packages'
+import { Route as AppAccountFeedbackPackagesRouteImport } from './routes/_app.account.feedback.packages'
 import { Route as AppAccountSmartCardPackagesRouteImport } from './routes/_app.account.smart-card.packages'
+import { Route as AppAccountSupportIndexRouteImport } from './routes/_app.account.support.index'
+import { Route as AppAccountSupportFaqRouteImport } from './routes/_app.account.support.faq'
+import { Route as AppAccountSupportTicketsRouteImport } from './routes/_app.account.support.tickets'
+import { Route as AppExpoBoothIdEditRouteImport } from './routes/_app.expo.$boothId.edit'
+import { Route as AppFeedbackLocationIdEditRouteImport } from './routes/_app.feedback.$locationId.edit'
+import { Route as AppFeedbackCampaignsIndexRouteImport } from './routes/_app.feedback.campaigns.index'
+import { Route as AppFeedbackCampaignsSendRouteImport } from './routes/_app.feedback.campaigns.send'
+import { Route as AppInterviewsResultsIndexRouteImport } from './routes/_app.interviews.results.index'
+import { Route as AppInterviewsResultsOrderIdRouteImport } from './routes/_app.interviews.results.$orderId'
+import { Route as AppSalesCustomersIdRouteImport } from './routes/_app.sales.customers.$id'
+import { Route as AppSmartCardQrsRepIdRouteImport } from './routes/_app.smart-card.qrs.$repId'
+import { Route as AppSmartCardQrsNewRouteImport } from './routes/_app.smart-card.qrs.new'
 
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppRoute = AppRouteImport.update({
-  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -104,39 +113,14 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
-const MeetTokenRoute = MeetTokenRouteImport.update({
-  id: '/meet/$token',
-  path: '/meet/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BookTokenRoute = BookTokenRouteImport.update({
-  id: '/book/$token',
-  path: '/book/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppSurveysRoute = AppSurveysRouteImport.update({
-  id: '/surveys',
-  path: '/surveys',
+const AppAppointmentsRoute = AppAppointmentsRouteImport.update({
+  id: '/appointments',
+  path: '/appointments',
   getParentRoute: () => AppRoute,
 } as any)
-const AppRecoveryRoute = AppRecoveryRouteImport.update({
-  id: '/recovery',
-  path: '/recovery',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPackagesRoute = AppPackagesRouteImport.update({
-  id: '/packages',
-  path: '/packages',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppInterviewsRoute = AppInterviewsRouteImport.update({
-  id: '/interviews',
-  path: '/interviews',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppFollowUpRoute = AppFollowUpRouteImport.update({
-  id: '/follow-up',
-  path: '/follow-up',
+const AppExpoRoute = AppExpoRouteImport.update({
+  id: '/expo',
+  path: '/expo',
   getParentRoute: () => AppRoute,
 } as any)
 const AppFeedbackRoute = AppFeedbackRouteImport.update({
@@ -144,229 +128,49 @@ const AppFeedbackRoute = AppFeedbackRouteImport.update({
   path: '/feedback',
   getParentRoute: () => AppRoute,
 } as any)
-const AppAppointmentsRoute = AppAppointmentsRouteImport.update({
-  id: '/appointments',
-  path: '/appointments',
+const AppFollowUpRoute = AppFollowUpRouteImport.update({
+  id: '/follow-up',
+  path: '/follow-up',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSurveysIndexRoute = AppSurveysIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppSurveysRoute,
-} as any)
-const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
-  id: '/settings/',
-  path: '/settings/',
+const AppInterviewsRoute = AppInterviewsRouteImport.update({
+  id: '/interviews',
+  path: '/interviews',
   getParentRoute: () => AppRoute,
 } as any)
-const AppSalesIndexRoute = AppSalesIndexRouteImport.update({
-  id: '/sales/',
-  path: '/sales/',
+const AppPackagesRoute = AppPackagesRouteImport.update({
+  id: '/packages',
+  path: '/packages',
   getParentRoute: () => AppRoute,
 } as any)
-const AppPartnerChannelIndexRoute = AppPartnerChannelIndexRouteImport.update({
-  id: '/partner-channel/',
-  path: '/partner-channel/',
+const AppRecoveryRoute = AppRecoveryRouteImport.update({
+  id: '/recovery',
+  path: '/recovery',
   getParentRoute: () => AppRoute,
 } as any)
-const AppPartnerChannelWalletRoute = AppPartnerChannelWalletRouteImport.update({
-  id: '/partner-channel/wallet',
-  path: '/partner-channel/wallet',
+const AppSmartCardRoute = AppSmartCardRouteImport.update({
+  id: '/smart-card',
+  path: '/smart-card',
   getParentRoute: () => AppRoute,
 } as any)
-const AppPartnerChannelSendOfferRoute = AppPartnerChannelSendOfferRouteImport.update({
-  id: '/partner-channel/send-offer',
-  path: '/partner-channel/send-offer',
+const AppSurveysRoute = AppSurveysRouteImport.update({
+  id: '/surveys',
+  path: '/surveys',
   getParentRoute: () => AppRoute,
 } as any)
-const AppRecoveryIndexRoute = AppRecoveryIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppRecoveryRoute,
+const BookTokenRoute = BookTokenRouteImport.update({
+  id: '/book/$token',
+  path: '/book/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const AppInterviewsIndexRoute = AppInterviewsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppInterviewsRoute,
-} as any)
-const AppFeedbackIndexRoute = AppFeedbackIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppFeedbackRoute,
-} as any)
-const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
-  id: '/campaigns/',
-  path: '/campaigns/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAppointmentsIndexRoute = AppAppointmentsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppAppointmentsRoute,
+const MeetTokenRoute = MeetTokenRouteImport.update({
+  id: '/meet/$token',
+  path: '/meet/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppAccountIndexRoute = AppAccountIndexRouteImport.update({
   id: '/account/',
   path: '/account/',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSurveysResultsRoute = AppSurveysResultsRouteImport.update({
-  id: '/results',
-  path: '/results',
-  getParentRoute: () => AppSurveysRoute,
-} as any)
-const AppSurveysReportsRoute = AppSurveysReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => AppSurveysRoute,
-} as any)
-const AppSurveysNewRoute = AppSurveysNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => AppSurveysRoute,
-} as any)
-const AppSurveysIdRoute = AppSurveysIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => AppSurveysRoute,
-} as any)
-const AppSettingsTeamRoute = AppSettingsTeamRouteImport.update({
-  id: '/settings/team',
-  path: '/settings/team',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsSystemRoute = AppSettingsSystemRouteImport.update({
-  id: '/settings/system',
-  path: '/settings/system',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsServicesRoute = AppSettingsServicesRouteImport.update({
-  id: '/settings/services',
-  path: '/settings/services',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
-  id: '/settings/profile',
-  path: '/settings/profile',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsOptOutRoute = AppSettingsOptOutRouteImport.update({
-  id: '/settings/opt-out',
-  path: '/settings/opt-out',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
-  id: '/settings/integrations',
-  path: '/settings/integrations',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
-  id: '/settings/audit',
-  path: '/settings/audit',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSalesWalletRoute = AppSalesWalletRouteImport.update({
-  id: '/sales/wallet',
-  path: '/sales/wallet',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSalesNewRoute = AppSalesNewRouteImport.update({
-  id: '/sales/new',
-  path: '/sales/new',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSalesDealsRoute = AppSalesDealsRouteImport.update({
-  id: '/sales/deals',
-  path: '/sales/deals',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppRecoveryRecallRoute = AppRecoveryRecallRouteImport.update({
-  id: '/recall',
-  path: '/recall',
-  getParentRoute: () => AppRecoveryRoute,
-} as any)
-const AppRecoveryOffersRoute = AppRecoveryOffersRouteImport.update({
-  id: '/offers',
-  path: '/offers',
-  getParentRoute: () => AppRecoveryRoute,
-} as any)
-const AppRecoveryNoShowRoute = AppRecoveryNoShowRouteImport.update({
-  id: '/no-show',
-  path: '/no-show',
-  getParentRoute: () => AppRecoveryRoute,
-} as any)
-const AppRecoveryEmergencyRoute = AppRecoveryEmergencyRouteImport.update({
-  id: '/emergency',
-  path: '/emergency',
-  getParentRoute: () => AppRecoveryRoute,
-} as any)
-const AppInterviewsResultsRoute = AppInterviewsResultsRouteImport.update({
-  id: '/results',
-  path: '/results',
-  getParentRoute: () => AppInterviewsRoute,
-} as any)
-const AppInterviewsReportsRoute = AppInterviewsReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => AppInterviewsRoute,
-} as any)
-const AppInterviewsNewRoute = AppInterviewsNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => AppInterviewsRoute,
-} as any)
-const AppInterviewsOrderIdRoute = AppInterviewsOrderIdRouteImport.update({
-  id: '/$orderId',
-  path: '/$orderId',
-  getParentRoute: () => AppInterviewsRoute,
-} as any)
-const AppFeedbackResultsRoute = AppFeedbackResultsRouteImport.update({
-  id: '/results',
-  path: '/results',
-  getParentRoute: () => AppFeedbackRoute,
-} as any)
-const AppFeedbackNewRoute = AppFeedbackNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => AppFeedbackRoute,
-} as any)
-const AppFeedbackCompareRoute = AppFeedbackCompareRouteImport.update({
-  id: '/compare',
-  path: '/compare',
-  getParentRoute: () => AppFeedbackRoute,
-} as any)
-const AppCampaignsSendRoute = AppCampaignsSendRouteImport.update({
-  id: '/campaigns/send',
-  path: '/campaigns/send',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
-  id: '/campaigns/new',
-  path: '/campaigns/new',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAppointmentsSetupRoute = AppAppointmentsSetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => AppAppointmentsRoute,
-} as any)
-const AppAppointmentsReportsRoute = AppAppointmentsReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => AppAppointmentsRoute,
-} as any)
-const AppAccountUsageRoute = AppAccountUsageRouteImport.update({
-  id: '/account/usage',
-  path: '/account/usage',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAccountSupportRoute = AppAccountSupportRouteImport.update({
-  id: '/account/support',
-  path: '/account/support',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppAccountPackagesRoute = AppAccountPackagesRouteImport.update({
-  id: '/account/packages',
-  path: '/account/packages',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAccountBillingRoute = AppAccountBillingRouteImport.update({
@@ -374,68 +178,225 @@ const AppAccountBillingRoute = AppAccountBillingRouteImport.update({
   path: '/account/billing',
   getParentRoute: () => AppRoute,
 } as any)
-const AppInterviewsResultsIndexRoute =
-  AppInterviewsResultsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AppInterviewsResultsRoute,
-  } as any)
-const AppFeedbackCampaignsIndexRoute =
-  AppFeedbackCampaignsIndexRouteImport.update({
-    id: '/campaigns/',
-    path: '/campaigns/',
-    getParentRoute: () => AppFeedbackRoute,
-  } as any)
-const AppAccountSupportIndexRoute = AppAccountSupportIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AppAccountSupportRoute,
-} as any)
-const AppSalesCustomersIdRoute = AppSalesCustomersIdRouteImport.update({
-  id: '/sales/customers/$id',
-  path: '/sales/customers/$id',
+const AppAccountPackagesRoute = AppAccountPackagesRouteImport.update({
+  id: '/account/packages',
+  path: '/account/packages',
   getParentRoute: () => AppRoute,
 } as any)
-const AppInterviewsResultsOrderIdRoute =
-  AppInterviewsResultsOrderIdRouteImport.update({
-    id: '/$orderId',
-    path: '/$orderId',
-    getParentRoute: () => AppInterviewsResultsRoute,
-  } as any)
-const AppFeedbackCampaignsSendRoute =
-  AppFeedbackCampaignsSendRouteImport.update({
-    id: '/campaigns/send',
-    path: '/campaigns/send',
-    getParentRoute: () => AppFeedbackRoute,
-  } as any)
-const AppFeedbackLocationIdEditRoute =
-  AppFeedbackLocationIdEditRouteImport.update({
-    id: '/$locationId/edit',
-    path: '/$locationId/edit',
-    getParentRoute: () => AppFeedbackRoute,
-  } as any)
-const AppAccountSupportTicketsRoute =
-  AppAccountSupportTicketsRouteImport.update({
-    id: '/tickets',
-    path: '/tickets',
-    getParentRoute: () => AppAccountSupportRoute,
-  } as any)
-const AppAccountSupportFaqRoute = AppAccountSupportFaqRouteImport.update({
-  id: '/faq',
-  path: '/faq',
-  getParentRoute: () => AppAccountSupportRoute,
+const AppAccountSupportRoute = AppAccountSupportRouteImport.update({
+  id: '/account/support',
+  path: '/account/support',
+  getParentRoute: () => AppRoute,
 } as any)
-const AppAccountFeedbackPackagesRoute =
-  AppAccountFeedbackPackagesRouteImport.update({
-    id: '/account/feedback/packages',
-    path: '/account/feedback/packages',
+const AppAccountUsageRoute = AppAccountUsageRouteImport.update({
+  id: '/account/usage',
+  path: '/account/usage',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAppointmentsIndexRoute = AppAppointmentsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAppointmentsRoute,
+} as any)
+const AppAppointmentsReportsRoute = AppAppointmentsReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppAppointmentsRoute,
+} as any)
+const AppAppointmentsSetupRoute = AppAppointmentsSetupRouteImport.update({
+  id: '/setup',
+  path: '/setup',
+  getParentRoute: () => AppAppointmentsRoute,
+} as any)
+const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsNewRoute = AppCampaignsNewRouteImport.update({
+  id: '/campaigns/new',
+  path: '/campaigns/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCampaignsSendRoute = AppCampaignsSendRouteImport.update({
+  id: '/campaigns/send',
+  path: '/campaigns/send',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppExpoIndexRoute = AppExpoIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppExpoRoute,
+} as any)
+const AppExpoCataloguesRoute = AppExpoCataloguesRouteImport.update({
+  id: '/catalogues',
+  path: '/catalogues',
+  getParentRoute: () => AppExpoRoute,
+} as any)
+const AppExpoLeadsRoute = AppExpoLeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => AppExpoRoute,
+} as any)
+const AppExpoNewRoute = AppExpoNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppExpoRoute,
+} as any)
+const AppFeedbackIndexRoute = AppFeedbackIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppFeedbackRoute,
+} as any)
+const AppFeedbackCompareRoute = AppFeedbackCompareRouteImport.update({
+  id: '/compare',
+  path: '/compare',
+  getParentRoute: () => AppFeedbackRoute,
+} as any)
+const AppFeedbackConsentRoute = AppFeedbackConsentRouteImport.update({
+  id: '/consent',
+  path: '/consent',
+  getParentRoute: () => AppFeedbackRoute,
+} as any)
+const AppFeedbackNewRoute = AppFeedbackNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppFeedbackRoute,
+} as any)
+const AppFeedbackResultsRoute = AppFeedbackResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => AppFeedbackRoute,
+} as any)
+const AppInterviewsIndexRoute = AppInterviewsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppInterviewsRoute,
+} as any)
+const AppInterviewsOrderIdRoute = AppInterviewsOrderIdRouteImport.update({
+  id: '/$orderId',
+  path: '/$orderId',
+  getParentRoute: () => AppInterviewsRoute,
+} as any)
+const AppInterviewsNewRoute = AppInterviewsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppInterviewsRoute,
+} as any)
+const AppInterviewsReportsRoute = AppInterviewsReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppInterviewsRoute,
+} as any)
+const AppInterviewsResultsRoute = AppInterviewsResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => AppInterviewsRoute,
+} as any)
+const AppPartnerChannelIndexRoute = AppPartnerChannelIndexRouteImport.update({
+  id: '/partner-channel/',
+  path: '/partner-channel/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerChannelSendOfferRoute =
+  AppPartnerChannelSendOfferRouteImport.update({
+    id: '/partner-channel/send-offer',
+    path: '/partner-channel/send-offer',
     getParentRoute: () => AppRoute,
   } as any)
-
-
-const AppSmartCardRoute = AppSmartCardRouteImport.update({
-  id: '/smart-card',
-  path: '/smart-card',
+const AppPartnerChannelWalletRoute = AppPartnerChannelWalletRouteImport.update({
+  id: '/partner-channel/wallet',
+  path: '/partner-channel/wallet',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRecoveryIndexRoute = AppRecoveryIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppRecoveryRoute,
+} as any)
+const AppRecoveryEmergencyRoute = AppRecoveryEmergencyRouteImport.update({
+  id: '/emergency',
+  path: '/emergency',
+  getParentRoute: () => AppRecoveryRoute,
+} as any)
+const AppRecoveryNoShowRoute = AppRecoveryNoShowRouteImport.update({
+  id: '/no-show',
+  path: '/no-show',
+  getParentRoute: () => AppRecoveryRoute,
+} as any)
+const AppRecoveryOffersRoute = AppRecoveryOffersRouteImport.update({
+  id: '/offers',
+  path: '/offers',
+  getParentRoute: () => AppRecoveryRoute,
+} as any)
+const AppRecoveryRecallRoute = AppRecoveryRecallRouteImport.update({
+  id: '/recall',
+  path: '/recall',
+  getParentRoute: () => AppRecoveryRoute,
+} as any)
+const AppSalesIndexRoute = AppSalesIndexRouteImport.update({
+  id: '/sales/',
+  path: '/sales/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesDealsRoute = AppSalesDealsRouteImport.update({
+  id: '/sales/deals',
+  path: '/sales/deals',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesMailRoute = AppSalesMailRouteImport.update({
+  id: '/sales/mail',
+  path: '/sales/mail',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesNewRoute = AppSalesNewRouteImport.update({
+  id: '/sales/new',
+  path: '/sales/new',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesWalletRoute = AppSalesWalletRouteImport.update({
+  id: '/sales/wallet',
+  path: '/sales/wallet',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsAuditRoute = AppSettingsAuditRouteImport.update({
+  id: '/settings/audit',
+  path: '/settings/audit',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
+  id: '/settings/integrations',
+  path: '/settings/integrations',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsOptOutRoute = AppSettingsOptOutRouteImport.update({
+  id: '/settings/opt-out',
+  path: '/settings/opt-out',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsProfileRoute = AppSettingsProfileRouteImport.update({
+  id: '/settings/profile',
+  path: '/settings/profile',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsServicesRoute = AppSettingsServicesRouteImport.update({
+  id: '/settings/services',
+  path: '/settings/services',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsSystemRoute = AppSettingsSystemRouteImport.update({
+  id: '/settings/system',
+  path: '/settings/system',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsTeamRoute = AppSettingsTeamRouteImport.update({
+  id: '/settings/team',
+  path: '/settings/team',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSmartCardIndexRoute = AppSmartCardIndexRouteImport.update({
@@ -443,39 +404,31 @@ const AppSmartCardIndexRoute = AppSmartCardIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppSmartCardRoute,
 } as any)
-const AppSmartCardCompanyRoute = AppSmartCardCompanyRouteImport.update({
-  id: '/company',
-  path: '/company',
-  getParentRoute: () => AppSmartCardRoute,
-} as any)
 const AppSmartCardCatalogueRoute = AppSmartCardCatalogueRouteImport.update({
   id: '/catalogue',
   path: '/catalogue',
   getParentRoute: () => AppSmartCardRoute,
 } as any)
-const AppSmartCardRepresentativesRoute = AppSmartCardRepresentativesRouteImport.update({
-  id: '/representatives',
-  path: '/representatives',
+const AppSmartCardChangeRequestsRoute =
+  AppSmartCardChangeRequestsRouteImport.update({
+    id: '/change-requests',
+    path: '/change-requests',
+    getParentRoute: () => AppSmartCardRoute,
+  } as any)
+const AppSmartCardCompanyRoute = AppSmartCardCompanyRouteImport.update({
+  id: '/company',
+  path: '/company',
   getParentRoute: () => AppSmartCardRoute,
 } as any)
+const AppSmartCardDescriptionsRoute =
+  AppSmartCardDescriptionsRouteImport.update({
+    id: '/descriptions',
+    path: '/descriptions',
+    getParentRoute: () => AppSmartCardRoute,
+  } as any)
 const AppSmartCardLeadsRoute = AppSmartCardLeadsRouteImport.update({
   id: '/leads',
   path: '/leads',
-  getParentRoute: () => AppSmartCardRoute,
-} as any)
-const AppSmartCardDescriptionsRoute = AppSmartCardDescriptionsRouteImport.update({
-  id: '/descriptions',
-  path: '/descriptions',
-  getParentRoute: () => AppSmartCardRoute,
-} as any)
-const AppSmartCardQuestionsRoute = AppSmartCardQuestionsRouteImport.update({
-  id: '/questions',
-  path: '/questions',
-  getParentRoute: () => AppSmartCardRoute,
-} as any)
-const AppSmartCardChangeRequestsRoute = AppSmartCardChangeRequestsRouteImport.update({
-  id: '/change-requests',
-  path: '/change-requests',
   getParentRoute: () => AppSmartCardRoute,
 } as any)
 const AppSmartCardNewRoute = AppSmartCardNewRouteImport.update({
@@ -483,33 +436,138 @@ const AppSmartCardNewRoute = AppSmartCardNewRouteImport.update({
   path: '/new',
   getParentRoute: () => AppSmartCardRoute,
 } as any)
-const AppSmartCardQrsNewRoute = AppSmartCardQrsNewRouteImport.update({
-  id: '/qrs/new',
-  path: '/qrs/new',
+const AppSmartCardQuestionsRoute = AppSmartCardQuestionsRouteImport.update({
+  id: '/questions',
+  path: '/questions',
   getParentRoute: () => AppSmartCardRoute,
+} as any)
+const AppSmartCardRepresentativesRoute =
+  AppSmartCardRepresentativesRouteImport.update({
+    id: '/representatives',
+    path: '/representatives',
+    getParentRoute: () => AppSmartCardRoute,
+  } as any)
+const AppSurveysIndexRoute = AppSurveysIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppSurveysRoute,
+} as any)
+const AppSurveysIdRoute = AppSurveysIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AppSurveysRoute,
+} as any)
+const AppSurveysNewRoute = AppSurveysNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AppSurveysRoute,
+} as any)
+const AppSurveysReportsRoute = AppSurveysReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => AppSurveysRoute,
+} as any)
+const AppSurveysResultsRoute = AppSurveysResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => AppSurveysRoute,
+} as any)
+const AppAccountExpoPackagesRoute = AppAccountExpoPackagesRouteImport.update({
+  id: '/account/expo/packages',
+  path: '/account/expo/packages',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAccountFeedbackPackagesRoute =
+  AppAccountFeedbackPackagesRouteImport.update({
+    id: '/account/feedback/packages',
+    path: '/account/feedback/packages',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppAccountSmartCardPackagesRoute =
+  AppAccountSmartCardPackagesRouteImport.update({
+    id: '/account/smart-card/packages',
+    path: '/account/smart-card/packages',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppAccountSupportIndexRoute = AppAccountSupportIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppAccountSupportRoute,
+} as any)
+const AppAccountSupportFaqRoute = AppAccountSupportFaqRouteImport.update({
+  id: '/faq',
+  path: '/faq',
+  getParentRoute: () => AppAccountSupportRoute,
+} as any)
+const AppAccountSupportTicketsRoute =
+  AppAccountSupportTicketsRouteImport.update({
+    id: '/tickets',
+    path: '/tickets',
+    getParentRoute: () => AppAccountSupportRoute,
+  } as any)
+const AppExpoBoothIdEditRoute = AppExpoBoothIdEditRouteImport.update({
+  id: '/$boothId/edit',
+  path: '/$boothId/edit',
+  getParentRoute: () => AppExpoRoute,
+} as any)
+const AppFeedbackLocationIdEditRoute =
+  AppFeedbackLocationIdEditRouteImport.update({
+    id: '/$locationId/edit',
+    path: '/$locationId/edit',
+    getParentRoute: () => AppFeedbackRoute,
+  } as any)
+const AppFeedbackCampaignsIndexRoute =
+  AppFeedbackCampaignsIndexRouteImport.update({
+    id: '/campaigns/',
+    path: '/campaigns/',
+    getParentRoute: () => AppFeedbackRoute,
+  } as any)
+const AppFeedbackCampaignsSendRoute =
+  AppFeedbackCampaignsSendRouteImport.update({
+    id: '/campaigns/send',
+    path: '/campaigns/send',
+    getParentRoute: () => AppFeedbackRoute,
+  } as any)
+const AppInterviewsResultsIndexRoute =
+  AppInterviewsResultsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppInterviewsResultsRoute,
+  } as any)
+const AppInterviewsResultsOrderIdRoute =
+  AppInterviewsResultsOrderIdRouteImport.update({
+    id: '/$orderId',
+    path: '/$orderId',
+    getParentRoute: () => AppInterviewsResultsRoute,
+  } as any)
+const AppSalesCustomersIdRoute = AppSalesCustomersIdRouteImport.update({
+  id: '/sales/customers/$id',
+  path: '/sales/customers/$id',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppSmartCardQrsRepIdRoute = AppSmartCardQrsRepIdRouteImport.update({
   id: '/qrs/$repId',
   path: '/qrs/$repId',
   getParentRoute: () => AppSmartCardRoute,
 } as any)
-const AppAccountSmartCardPackagesRoute = AppAccountSmartCardPackagesRouteImport.update({
-  id: '/account/smart-card/packages',
-  path: '/account/smart-card/packages',
-  getParentRoute: () => AppRoute,
+const AppSmartCardQrsNewRoute = AppSmartCardQrsNewRouteImport.update({
+  id: '/qrs/new',
+  path: '/qrs/new',
+  getParentRoute: () => AppSmartCardRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
   '/appointments': typeof AppAppointmentsRouteWithChildren
+  '/expo': typeof AppExpoRouteWithChildren
   '/feedback': typeof AppFeedbackRouteWithChildren
   '/follow-up': typeof AppFollowUpRoute
   '/interviews': typeof AppInterviewsRouteWithChildren
   '/packages': typeof AppPackagesRoute
   '/recovery': typeof AppRecoveryRouteWithChildren
-  '/surveys': typeof AppSurveysRouteWithChildren
   '/smart-card': typeof AppSmartCardRouteWithChildren
+  '/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
   '/meet/$token': typeof MeetTokenRoute
   '/account/billing': typeof AppAccountBillingRoute
@@ -520,22 +578,27 @@ export interface FileRoutesByFullPath {
   '/appointments/setup': typeof AppAppointmentsSetupRoute
   '/campaigns/new': typeof AppCampaignsNewRoute
   '/campaigns/send': typeof AppCampaignsSendRoute
+  '/expo/catalogues': typeof AppExpoCataloguesRoute
+  '/expo/leads': typeof AppExpoLeadsRoute
+  '/expo/new': typeof AppExpoNewRoute
   '/feedback/compare': typeof AppFeedbackCompareRoute
+  '/feedback/consent': typeof AppFeedbackConsentRoute
   '/feedback/new': typeof AppFeedbackNewRoute
   '/feedback/results': typeof AppFeedbackResultsRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/interviews/new': typeof AppInterviewsNewRoute
   '/interviews/reports': typeof AppInterviewsReportsRoute
   '/interviews/results': typeof AppInterviewsResultsRouteWithChildren
+  '/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
+  '/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
   '/recovery/emergency': typeof AppRecoveryEmergencyRoute
   '/recovery/no-show': typeof AppRecoveryNoShowRoute
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
   '/sales/deals': typeof AppSalesDealsRoute
+  '/sales/mail': typeof AppSalesMailRoute
   '/sales/new': typeof AppSalesNewRoute
   '/sales/wallet': typeof AppSalesWalletRoute
-  '/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
-  '/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -543,6 +606,14 @@ export interface FileRoutesByFullPath {
   '/settings/services': typeof AppSettingsServicesRoute
   '/settings/system': typeof AppSettingsSystemRoute
   '/settings/team': typeof AppSettingsTeamRoute
+  '/smart-card/catalogue': typeof AppSmartCardCatalogueRoute
+  '/smart-card/change-requests': typeof AppSmartCardChangeRequestsRoute
+  '/smart-card/company': typeof AppSmartCardCompanyRoute
+  '/smart-card/descriptions': typeof AppSmartCardDescriptionsRoute
+  '/smart-card/leads': typeof AppSmartCardLeadsRoute
+  '/smart-card/new': typeof AppSmartCardNewRoute
+  '/smart-card/questions': typeof AppSmartCardQuestionsRoute
+  '/smart-card/representatives': typeof AppSmartCardRepresentativesRoute
   '/surveys/$id': typeof AppSurveysIdRoute
   '/surveys/new': typeof AppSurveysNewRoute
   '/surveys/reports': typeof AppSurveysReportsRoute
@@ -550,32 +621,27 @@ export interface FileRoutesByFullPath {
   '/account/': typeof AppAccountIndexRoute
   '/appointments/': typeof AppAppointmentsIndexRoute
   '/campaigns/': typeof AppCampaignsIndexRoute
+  '/expo/': typeof AppExpoIndexRoute
   '/feedback/': typeof AppFeedbackIndexRoute
   '/interviews/': typeof AppInterviewsIndexRoute
+  '/partner-channel/': typeof AppPartnerChannelIndexRoute
   '/recovery/': typeof AppRecoveryIndexRoute
   '/sales/': typeof AppSalesIndexRoute
-  '/partner-channel/': typeof AppPartnerChannelIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
+  '/smart-card/': typeof AppSmartCardIndexRoute
   '/surveys/': typeof AppSurveysIndexRoute
+  '/account/expo/packages': typeof AppAccountExpoPackagesRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
   '/account/smart-card/packages': typeof AppAccountSmartCardPackagesRoute
-  '/smart-card/': typeof AppSmartCardIndexRoute
-  '/smart-card/catalogue': typeof AppSmartCardCatalogueRoute
-  '/smart-card/change-requests': typeof AppSmartCardChangeRequestsRoute
-  '/smart-card/company': typeof AppSmartCardCompanyRoute
-  '/smart-card/descriptions': typeof AppSmartCardDescriptionsRoute
-  '/smart-card/leads': typeof AppSmartCardLeadsRoute
-  '/smart-card/questions': typeof AppSmartCardQuestionsRoute
-  '/smart-card/representatives': typeof AppSmartCardRepresentativesRoute
-  '/smart-card/new': typeof AppSmartCardNewRoute
-  '/smart-card/qrs/new': typeof AppSmartCardQrsNewRoute
-  '/smart-card/qrs/$repId': typeof AppSmartCardQrsRepIdRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
   '/account/support/tickets': typeof AppAccountSupportTicketsRoute
+  '/expo/$boothId/edit': typeof AppExpoBoothIdEditRoute
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
   '/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
   '/sales/customers/$id': typeof AppSalesCustomersIdRoute
+  '/smart-card/qrs/$repId': typeof AppSmartCardQrsRepIdRoute
+  '/smart-card/qrs/new': typeof AppSmartCardQrsNewRoute
   '/account/support/': typeof AppAccountSupportIndexRoute
   '/feedback/campaigns/': typeof AppFeedbackCampaignsIndexRoute
   '/interviews/results/': typeof AppInterviewsResultsIndexRoute
@@ -594,21 +660,26 @@ export interface FileRoutesByTo {
   '/appointments/setup': typeof AppAppointmentsSetupRoute
   '/campaigns/new': typeof AppCampaignsNewRoute
   '/campaigns/send': typeof AppCampaignsSendRoute
+  '/expo/catalogues': typeof AppExpoCataloguesRoute
+  '/expo/leads': typeof AppExpoLeadsRoute
+  '/expo/new': typeof AppExpoNewRoute
   '/feedback/compare': typeof AppFeedbackCompareRoute
+  '/feedback/consent': typeof AppFeedbackConsentRoute
   '/feedback/new': typeof AppFeedbackNewRoute
   '/feedback/results': typeof AppFeedbackResultsRoute
   '/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/interviews/new': typeof AppInterviewsNewRoute
   '/interviews/reports': typeof AppInterviewsReportsRoute
+  '/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
+  '/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
   '/recovery/emergency': typeof AppRecoveryEmergencyRoute
   '/recovery/no-show': typeof AppRecoveryNoShowRoute
   '/recovery/offers': typeof AppRecoveryOffersRoute
   '/recovery/recall': typeof AppRecoveryRecallRoute
   '/sales/deals': typeof AppSalesDealsRoute
+  '/sales/mail': typeof AppSalesMailRoute
   '/sales/new': typeof AppSalesNewRoute
   '/sales/wallet': typeof AppSalesWalletRoute
-  '/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
-  '/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -616,6 +687,14 @@ export interface FileRoutesByTo {
   '/settings/services': typeof AppSettingsServicesRoute
   '/settings/system': typeof AppSettingsSystemRoute
   '/settings/team': typeof AppSettingsTeamRoute
+  '/smart-card/catalogue': typeof AppSmartCardCatalogueRoute
+  '/smart-card/change-requests': typeof AppSmartCardChangeRequestsRoute
+  '/smart-card/company': typeof AppSmartCardCompanyRoute
+  '/smart-card/descriptions': typeof AppSmartCardDescriptionsRoute
+  '/smart-card/leads': typeof AppSmartCardLeadsRoute
+  '/smart-card/new': typeof AppSmartCardNewRoute
+  '/smart-card/questions': typeof AppSmartCardQuestionsRoute
+  '/smart-card/representatives': typeof AppSmartCardRepresentativesRoute
   '/surveys/$id': typeof AppSurveysIdRoute
   '/surveys/new': typeof AppSurveysNewRoute
   '/surveys/reports': typeof AppSurveysReportsRoute
@@ -623,20 +702,27 @@ export interface FileRoutesByTo {
   '/account': typeof AppAccountIndexRoute
   '/appointments': typeof AppAppointmentsIndexRoute
   '/campaigns': typeof AppCampaignsIndexRoute
+  '/expo': typeof AppExpoIndexRoute
   '/feedback': typeof AppFeedbackIndexRoute
   '/interviews': typeof AppInterviewsIndexRoute
+  '/partner-channel': typeof AppPartnerChannelIndexRoute
   '/recovery': typeof AppRecoveryIndexRoute
   '/sales': typeof AppSalesIndexRoute
-  '/partner-channel': typeof AppPartnerChannelIndexRoute
   '/settings': typeof AppSettingsIndexRoute
+  '/smart-card': typeof AppSmartCardIndexRoute
   '/surveys': typeof AppSurveysIndexRoute
+  '/account/expo/packages': typeof AppAccountExpoPackagesRoute
   '/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
+  '/account/smart-card/packages': typeof AppAccountSmartCardPackagesRoute
   '/account/support/faq': typeof AppAccountSupportFaqRoute
   '/account/support/tickets': typeof AppAccountSupportTicketsRoute
+  '/expo/$boothId/edit': typeof AppExpoBoothIdEditRoute
   '/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
   '/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
   '/sales/customers/$id': typeof AppSalesCustomersIdRoute
+  '/smart-card/qrs/$repId': typeof AppSmartCardQrsRepIdRoute
+  '/smart-card/qrs/new': typeof AppSmartCardQrsNewRoute
   '/account/support': typeof AppAccountSupportIndexRoute
   '/feedback/campaigns': typeof AppFeedbackCampaignsIndexRoute
   '/interviews/results': typeof AppInterviewsResultsIndexRoute
@@ -646,11 +732,13 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
   '/_app/appointments': typeof AppAppointmentsRouteWithChildren
+  '/_app/expo': typeof AppExpoRouteWithChildren
   '/_app/feedback': typeof AppFeedbackRouteWithChildren
   '/_app/follow-up': typeof AppFollowUpRoute
   '/_app/interviews': typeof AppInterviewsRouteWithChildren
   '/_app/packages': typeof AppPackagesRoute
   '/_app/recovery': typeof AppRecoveryRouteWithChildren
+  '/_app/smart-card': typeof AppSmartCardRouteWithChildren
   '/_app/surveys': typeof AppSurveysRouteWithChildren
   '/book/$token': typeof BookTokenRoute
   '/meet/$token': typeof MeetTokenRoute
@@ -663,22 +751,27 @@ export interface FileRoutesById {
   '/_app/appointments/setup': typeof AppAppointmentsSetupRoute
   '/_app/campaigns/new': typeof AppCampaignsNewRoute
   '/_app/campaigns/send': typeof AppCampaignsSendRoute
+  '/_app/expo/catalogues': typeof AppExpoCataloguesRoute
+  '/_app/expo/leads': typeof AppExpoLeadsRoute
+  '/_app/expo/new': typeof AppExpoNewRoute
   '/_app/feedback/compare': typeof AppFeedbackCompareRoute
+  '/_app/feedback/consent': typeof AppFeedbackConsentRoute
   '/_app/feedback/new': typeof AppFeedbackNewRoute
   '/_app/feedback/results': typeof AppFeedbackResultsRoute
   '/_app/interviews/$orderId': typeof AppInterviewsOrderIdRoute
   '/_app/interviews/new': typeof AppInterviewsNewRoute
   '/_app/interviews/reports': typeof AppInterviewsReportsRoute
   '/_app/interviews/results': typeof AppInterviewsResultsRouteWithChildren
+  '/_app/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
+  '/_app/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
   '/_app/recovery/emergency': typeof AppRecoveryEmergencyRoute
   '/_app/recovery/no-show': typeof AppRecoveryNoShowRoute
   '/_app/recovery/offers': typeof AppRecoveryOffersRoute
   '/_app/recovery/recall': typeof AppRecoveryRecallRoute
   '/_app/sales/deals': typeof AppSalesDealsRoute
+  '/_app/sales/mail': typeof AppSalesMailRoute
   '/_app/sales/new': typeof AppSalesNewRoute
   '/_app/sales/wallet': typeof AppSalesWalletRoute
-  '/_app/partner-channel/wallet': typeof AppPartnerChannelWalletRoute
-  '/_app/partner-channel/send-offer': typeof AppPartnerChannelSendOfferRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/opt-out': typeof AppSettingsOptOutRoute
@@ -686,6 +779,14 @@ export interface FileRoutesById {
   '/_app/settings/services': typeof AppSettingsServicesRoute
   '/_app/settings/system': typeof AppSettingsSystemRoute
   '/_app/settings/team': typeof AppSettingsTeamRoute
+  '/_app/smart-card/catalogue': typeof AppSmartCardCatalogueRoute
+  '/_app/smart-card/change-requests': typeof AppSmartCardChangeRequestsRoute
+  '/_app/smart-card/company': typeof AppSmartCardCompanyRoute
+  '/_app/smart-card/descriptions': typeof AppSmartCardDescriptionsRoute
+  '/_app/smart-card/leads': typeof AppSmartCardLeadsRoute
+  '/_app/smart-card/new': typeof AppSmartCardNewRoute
+  '/_app/smart-card/questions': typeof AppSmartCardQuestionsRoute
+  '/_app/smart-card/representatives': typeof AppSmartCardRepresentativesRoute
   '/_app/surveys/$id': typeof AppSurveysIdRoute
   '/_app/surveys/new': typeof AppSurveysNewRoute
   '/_app/surveys/reports': typeof AppSurveysReportsRoute
@@ -693,20 +794,27 @@ export interface FileRoutesById {
   '/_app/account/': typeof AppAccountIndexRoute
   '/_app/appointments/': typeof AppAppointmentsIndexRoute
   '/_app/campaigns/': typeof AppCampaignsIndexRoute
+  '/_app/expo/': typeof AppExpoIndexRoute
   '/_app/feedback/': typeof AppFeedbackIndexRoute
   '/_app/interviews/': typeof AppInterviewsIndexRoute
+  '/_app/partner-channel/': typeof AppPartnerChannelIndexRoute
   '/_app/recovery/': typeof AppRecoveryIndexRoute
   '/_app/sales/': typeof AppSalesIndexRoute
-  '/_app/partner-channel/': typeof AppPartnerChannelIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
+  '/_app/smart-card/': typeof AppSmartCardIndexRoute
   '/_app/surveys/': typeof AppSurveysIndexRoute
+  '/_app/account/expo/packages': typeof AppAccountExpoPackagesRoute
   '/_app/account/feedback/packages': typeof AppAccountFeedbackPackagesRoute
+  '/_app/account/smart-card/packages': typeof AppAccountSmartCardPackagesRoute
   '/_app/account/support/faq': typeof AppAccountSupportFaqRoute
   '/_app/account/support/tickets': typeof AppAccountSupportTicketsRoute
+  '/_app/expo/$boothId/edit': typeof AppExpoBoothIdEditRoute
   '/_app/feedback/$locationId/edit': typeof AppFeedbackLocationIdEditRoute
   '/_app/feedback/campaigns/send': typeof AppFeedbackCampaignsSendRoute
   '/_app/interviews/results/$orderId': typeof AppInterviewsResultsOrderIdRoute
   '/_app/sales/customers/$id': typeof AppSalesCustomersIdRoute
+  '/_app/smart-card/qrs/$repId': typeof AppSmartCardQrsRepIdRoute
+  '/_app/smart-card/qrs/new': typeof AppSmartCardQrsNewRoute
   '/_app/account/support/': typeof AppAccountSupportIndexRoute
   '/_app/feedback/campaigns/': typeof AppFeedbackCampaignsIndexRoute
   '/_app/interviews/results/': typeof AppInterviewsResultsIndexRoute
@@ -717,11 +825,13 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/appointments'
+    | '/expo'
     | '/feedback'
     | '/follow-up'
     | '/interviews'
     | '/packages'
     | '/recovery'
+    | '/smart-card'
     | '/surveys'
     | '/book/$token'
     | '/meet/$token'
@@ -733,22 +843,27 @@ export interface FileRouteTypes {
     | '/appointments/setup'
     | '/campaigns/new'
     | '/campaigns/send'
+    | '/expo/catalogues'
+    | '/expo/leads'
+    | '/expo/new'
     | '/feedback/compare'
+    | '/feedback/consent'
     | '/feedback/new'
     | '/feedback/results'
     | '/interviews/$orderId'
     | '/interviews/new'
     | '/interviews/reports'
     | '/interviews/results'
+    | '/partner-channel/send-offer'
+    | '/partner-channel/wallet'
     | '/recovery/emergency'
     | '/recovery/no-show'
     | '/recovery/offers'
     | '/recovery/recall'
     | '/sales/deals'
+    | '/sales/mail'
     | '/sales/new'
     | '/sales/wallet'
-    | '/partner-channel/wallet'
-    | '/partner-channel/send-offer'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/opt-out'
@@ -756,6 +871,14 @@ export interface FileRouteTypes {
     | '/settings/services'
     | '/settings/system'
     | '/settings/team'
+    | '/smart-card/catalogue'
+    | '/smart-card/change-requests'
+    | '/smart-card/company'
+    | '/smart-card/descriptions'
+    | '/smart-card/leads'
+    | '/smart-card/new'
+    | '/smart-card/questions'
+    | '/smart-card/representatives'
     | '/surveys/$id'
     | '/surveys/new'
     | '/surveys/reports'
@@ -763,20 +886,27 @@ export interface FileRouteTypes {
     | '/account/'
     | '/appointments/'
     | '/campaigns/'
+    | '/expo/'
     | '/feedback/'
     | '/interviews/'
+    | '/partner-channel/'
     | '/recovery/'
     | '/sales/'
-    | '/partner-channel/'
     | '/settings/'
+    | '/smart-card/'
     | '/surveys/'
+    | '/account/expo/packages'
     | '/account/feedback/packages'
+    | '/account/smart-card/packages'
     | '/account/support/faq'
     | '/account/support/tickets'
+    | '/expo/$boothId/edit'
     | '/feedback/$locationId/edit'
     | '/feedback/campaigns/send'
     | '/interviews/results/$orderId'
     | '/sales/customers/$id'
+    | '/smart-card/qrs/$repId'
+    | '/smart-card/qrs/new'
     | '/account/support/'
     | '/feedback/campaigns/'
     | '/interviews/results/'
@@ -795,21 +925,26 @@ export interface FileRouteTypes {
     | '/appointments/setup'
     | '/campaigns/new'
     | '/campaigns/send'
+    | '/expo/catalogues'
+    | '/expo/leads'
+    | '/expo/new'
     | '/feedback/compare'
+    | '/feedback/consent'
     | '/feedback/new'
     | '/feedback/results'
     | '/interviews/$orderId'
     | '/interviews/new'
     | '/interviews/reports'
+    | '/partner-channel/send-offer'
+    | '/partner-channel/wallet'
     | '/recovery/emergency'
     | '/recovery/no-show'
     | '/recovery/offers'
     | '/recovery/recall'
     | '/sales/deals'
+    | '/sales/mail'
     | '/sales/new'
     | '/sales/wallet'
-    | '/partner-channel/wallet'
-    | '/partner-channel/send-offer'
     | '/settings/audit'
     | '/settings/integrations'
     | '/settings/opt-out'
@@ -817,6 +952,14 @@ export interface FileRouteTypes {
     | '/settings/services'
     | '/settings/system'
     | '/settings/team'
+    | '/smart-card/catalogue'
+    | '/smart-card/change-requests'
+    | '/smart-card/company'
+    | '/smart-card/descriptions'
+    | '/smart-card/leads'
+    | '/smart-card/new'
+    | '/smart-card/questions'
+    | '/smart-card/representatives'
     | '/surveys/$id'
     | '/surveys/new'
     | '/surveys/reports'
@@ -824,20 +967,27 @@ export interface FileRouteTypes {
     | '/account'
     | '/appointments'
     | '/campaigns'
+    | '/expo'
     | '/feedback'
     | '/interviews'
+    | '/partner-channel'
     | '/recovery'
     | '/sales'
-    | '/partner-channel'
     | '/settings'
+    | '/smart-card'
     | '/surveys'
+    | '/account/expo/packages'
     | '/account/feedback/packages'
+    | '/account/smart-card/packages'
     | '/account/support/faq'
     | '/account/support/tickets'
+    | '/expo/$boothId/edit'
     | '/feedback/$locationId/edit'
     | '/feedback/campaigns/send'
     | '/interviews/results/$orderId'
     | '/sales/customers/$id'
+    | '/smart-card/qrs/$repId'
+    | '/smart-card/qrs/new'
     | '/account/support'
     | '/feedback/campaigns'
     | '/interviews/results'
@@ -846,11 +996,13 @@ export interface FileRouteTypes {
     | '/_app'
     | '/login'
     | '/_app/appointments'
+    | '/_app/expo'
     | '/_app/feedback'
     | '/_app/follow-up'
     | '/_app/interviews'
     | '/_app/packages'
     | '/_app/recovery'
+    | '/_app/smart-card'
     | '/_app/surveys'
     | '/book/$token'
     | '/meet/$token'
@@ -863,22 +1015,27 @@ export interface FileRouteTypes {
     | '/_app/appointments/setup'
     | '/_app/campaigns/new'
     | '/_app/campaigns/send'
+    | '/_app/expo/catalogues'
+    | '/_app/expo/leads'
+    | '/_app/expo/new'
     | '/_app/feedback/compare'
+    | '/_app/feedback/consent'
     | '/_app/feedback/new'
     | '/_app/feedback/results'
     | '/_app/interviews/$orderId'
     | '/_app/interviews/new'
     | '/_app/interviews/reports'
     | '/_app/interviews/results'
+    | '/_app/partner-channel/send-offer'
+    | '/_app/partner-channel/wallet'
     | '/_app/recovery/emergency'
     | '/_app/recovery/no-show'
     | '/_app/recovery/offers'
     | '/_app/recovery/recall'
     | '/_app/sales/deals'
+    | '/_app/sales/mail'
     | '/_app/sales/new'
     | '/_app/sales/wallet'
-    | '/_app/partner-channel/wallet'
-    | '/_app/partner-channel/send-offer'
     | '/_app/settings/audit'
     | '/_app/settings/integrations'
     | '/_app/settings/opt-out'
@@ -886,6 +1043,14 @@ export interface FileRouteTypes {
     | '/_app/settings/services'
     | '/_app/settings/system'
     | '/_app/settings/team'
+    | '/_app/smart-card/catalogue'
+    | '/_app/smart-card/change-requests'
+    | '/_app/smart-card/company'
+    | '/_app/smart-card/descriptions'
+    | '/_app/smart-card/leads'
+    | '/_app/smart-card/new'
+    | '/_app/smart-card/questions'
+    | '/_app/smart-card/representatives'
     | '/_app/surveys/$id'
     | '/_app/surveys/new'
     | '/_app/surveys/reports'
@@ -893,20 +1058,27 @@ export interface FileRouteTypes {
     | '/_app/account/'
     | '/_app/appointments/'
     | '/_app/campaigns/'
+    | '/_app/expo/'
     | '/_app/feedback/'
     | '/_app/interviews/'
+    | '/_app/partner-channel/'
     | '/_app/recovery/'
     | '/_app/sales/'
-    | '/_app/partner-channel/'
     | '/_app/settings/'
+    | '/_app/smart-card/'
     | '/_app/surveys/'
+    | '/_app/account/expo/packages'
     | '/_app/account/feedback/packages'
+    | '/_app/account/smart-card/packages'
     | '/_app/account/support/faq'
     | '/_app/account/support/tickets'
+    | '/_app/expo/$boothId/edit'
     | '/_app/feedback/$locationId/edit'
     | '/_app/feedback/campaigns/send'
     | '/_app/interviews/results/$orderId'
     | '/_app/sales/customers/$id'
+    | '/_app/smart-card/qrs/$repId'
+    | '/_app/smart-card/qrs/new'
     | '/_app/account/support/'
     | '/_app/feedback/campaigns/'
     | '/_app/interviews/results/'
@@ -921,18 +1093,18 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/_app': {
       id: '/_app'
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -942,53 +1114,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/meet/$token': {
-      id: '/meet/$token'
-      path: '/meet/$token'
-      fullPath: '/meet/$token'
-      preLoaderRoute: typeof MeetTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/book/$token': {
-      id: '/book/$token'
-      path: '/book/$token'
-      fullPath: '/book/$token'
-      preLoaderRoute: typeof BookTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_app/surveys': {
-      id: '/_app/surveys'
-      path: '/surveys'
-      fullPath: '/surveys'
-      preLoaderRoute: typeof AppSurveysRouteImport
+    '/_app/appointments': {
+      id: '/_app/appointments'
+      path: '/appointments'
+      fullPath: '/appointments'
+      preLoaderRoute: typeof AppAppointmentsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/recovery': {
-      id: '/_app/recovery'
-      path: '/recovery'
-      fullPath: '/recovery'
-      preLoaderRoute: typeof AppRecoveryRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/packages': {
-      id: '/_app/packages'
-      path: '/packages'
-      fullPath: '/packages'
-      preLoaderRoute: typeof AppPackagesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/interviews': {
-      id: '/_app/interviews'
-      path: '/interviews'
-      fullPath: '/interviews'
-      preLoaderRoute: typeof AppInterviewsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/follow-up': {
-      id: '/_app/follow-up'
-      path: '/follow-up'
-      fullPath: '/follow-up'
-      preLoaderRoute: typeof AppFollowUpRouteImport
+    '/_app/expo': {
+      id: '/_app/expo'
+      path: '/expo'
+      fullPath: '/expo'
+      preLoaderRoute: typeof AppExpoRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/feedback': {
@@ -998,319 +1135,67 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFeedbackRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/appointments': {
-      id: '/_app/appointments'
-      path: '/appointments'
-      fullPath: '/appointments'
-      preLoaderRoute: typeof AppAppointmentsRouteImport
+    '/_app/follow-up': {
+      id: '/_app/follow-up'
+      path: '/follow-up'
+      fullPath: '/follow-up'
+      preLoaderRoute: typeof AppFollowUpRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/surveys/': {
-      id: '/_app/surveys/'
-      path: '/'
-      fullPath: '/surveys/'
-      preLoaderRoute: typeof AppSurveysIndexRouteImport
-      parentRoute: typeof AppSurveysRoute
-    }
-    '/_app/settings/': {
-      id: '/_app/settings/'
-      path: '/settings'
-      fullPath: '/settings/'
-      preLoaderRoute: typeof AppSettingsIndexRouteImport
+    '/_app/interviews': {
+      id: '/_app/interviews'
+      path: '/interviews'
+      fullPath: '/interviews'
+      preLoaderRoute: typeof AppInterviewsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/sales/': {
-      id: '/_app/sales/'
-      path: '/sales'
-      fullPath: '/sales/'
-      preLoaderRoute: typeof AppSalesIndexRouteImport
+    '/_app/packages': {
+      id: '/_app/packages'
+      path: '/packages'
+      fullPath: '/packages'
+      preLoaderRoute: typeof AppPackagesRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/partner-channel/': {
-      id: '/_app/partner-channel/'
-      path: '/partner-channel'
-      fullPath: '/partner-channel/'
-      preLoaderRoute: typeof AppPartnerChannelIndexRouteImport
+    '/_app/recovery': {
+      id: '/_app/recovery'
+      path: '/recovery'
+      fullPath: '/recovery'
+      preLoaderRoute: typeof AppRecoveryRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/recovery/': {
-      id: '/_app/recovery/'
-      path: '/'
-      fullPath: '/recovery/'
-      preLoaderRoute: typeof AppRecoveryIndexRouteImport
-      parentRoute: typeof AppRecoveryRoute
-    }
-    '/_app/interviews/': {
-      id: '/_app/interviews/'
-      path: '/'
-      fullPath: '/interviews/'
-      preLoaderRoute: typeof AppInterviewsIndexRouteImport
-      parentRoute: typeof AppInterviewsRoute
-    }
-    '/_app/feedback/': {
-      id: '/_app/feedback/'
-      path: '/'
-      fullPath: '/feedback/'
-      preLoaderRoute: typeof AppFeedbackIndexRouteImport
-      parentRoute: typeof AppFeedbackRoute
-    }
-    '/_app/campaigns/': {
-      id: '/_app/campaigns/'
-      path: '/campaigns'
-      fullPath: '/campaigns/'
-      preLoaderRoute: typeof AppCampaignsIndexRouteImport
+    '/_app/smart-card': {
+      id: '/_app/smart-card'
+      path: '/smart-card'
+      fullPath: '/smart-card'
+      preLoaderRoute: typeof AppSmartCardRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/appointments/': {
-      id: '/_app/appointments/'
-      path: '/'
-      fullPath: '/appointments/'
-      preLoaderRoute: typeof AppAppointmentsIndexRouteImport
-      parentRoute: typeof AppAppointmentsRoute
+    '/_app/surveys': {
+      id: '/_app/surveys'
+      path: '/surveys'
+      fullPath: '/surveys'
+      preLoaderRoute: typeof AppSurveysRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/book/$token': {
+      id: '/book/$token'
+      path: '/book/$token'
+      fullPath: '/book/$token'
+      preLoaderRoute: typeof BookTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/meet/$token': {
+      id: '/meet/$token'
+      path: '/meet/$token'
+      fullPath: '/meet/$token'
+      preLoaderRoute: typeof MeetTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/account/': {
       id: '/_app/account/'
       path: '/account'
       fullPath: '/account/'
       preLoaderRoute: typeof AppAccountIndexRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/surveys/results': {
-      id: '/_app/surveys/results'
-      path: '/results'
-      fullPath: '/surveys/results'
-      preLoaderRoute: typeof AppSurveysResultsRouteImport
-      parentRoute: typeof AppSurveysRoute
-    }
-    '/_app/surveys/reports': {
-      id: '/_app/surveys/reports'
-      path: '/reports'
-      fullPath: '/surveys/reports'
-      preLoaderRoute: typeof AppSurveysReportsRouteImport
-      parentRoute: typeof AppSurveysRoute
-    }
-    '/_app/surveys/new': {
-      id: '/_app/surveys/new'
-      path: '/new'
-      fullPath: '/surveys/new'
-      preLoaderRoute: typeof AppSurveysNewRouteImport
-      parentRoute: typeof AppSurveysRoute
-    }
-    '/_app/surveys/$id': {
-      id: '/_app/surveys/$id'
-      path: '/$id'
-      fullPath: '/surveys/$id'
-      preLoaderRoute: typeof AppSurveysIdRouteImport
-      parentRoute: typeof AppSurveysRoute
-    }
-    '/_app/settings/team': {
-      id: '/_app/settings/team'
-      path: '/settings/team'
-      fullPath: '/settings/team'
-      preLoaderRoute: typeof AppSettingsTeamRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/system': {
-      id: '/_app/settings/system'
-      path: '/settings/system'
-      fullPath: '/settings/system'
-      preLoaderRoute: typeof AppSettingsSystemRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/services': {
-      id: '/_app/settings/services'
-      path: '/settings/services'
-      fullPath: '/settings/services'
-      preLoaderRoute: typeof AppSettingsServicesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/profile': {
-      id: '/_app/settings/profile'
-      path: '/settings/profile'
-      fullPath: '/settings/profile'
-      preLoaderRoute: typeof AppSettingsProfileRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/opt-out': {
-      id: '/_app/settings/opt-out'
-      path: '/settings/opt-out'
-      fullPath: '/settings/opt-out'
-      preLoaderRoute: typeof AppSettingsOptOutRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/integrations': {
-      id: '/_app/settings/integrations'
-      path: '/settings/integrations'
-      fullPath: '/settings/integrations'
-      preLoaderRoute: typeof AppSettingsIntegrationsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings/audit': {
-      id: '/_app/settings/audit'
-      path: '/settings/audit'
-      fullPath: '/settings/audit'
-      preLoaderRoute: typeof AppSettingsAuditRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/sales/wallet': {
-      id: '/_app/sales/wallet'
-      path: '/sales/wallet'
-      fullPath: '/sales/wallet'
-      preLoaderRoute: typeof AppSalesWalletRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/partner-channel/wallet': {
-      id: '/_app/partner-channel/wallet'
-      path: '/partner-channel/wallet'
-      fullPath: '/partner-channel/wallet'
-      preLoaderRoute: typeof AppPartnerChannelWalletRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/partner-channel/send-offer': {
-      id: '/_app/partner-channel/send-offer'
-      path: '/partner-channel/send-offer'
-      fullPath: '/partner-channel/send-offer'
-      preLoaderRoute: typeof AppPartnerChannelSendOfferRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/sales/new': {
-      id: '/_app/sales/new'
-      path: '/sales/new'
-      fullPath: '/sales/new'
-      preLoaderRoute: typeof AppSalesNewRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/sales/deals': {
-      id: '/_app/sales/deals'
-      path: '/sales/deals'
-      fullPath: '/sales/deals'
-      preLoaderRoute: typeof AppSalesDealsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/recovery/recall': {
-      id: '/_app/recovery/recall'
-      path: '/recall'
-      fullPath: '/recovery/recall'
-      preLoaderRoute: typeof AppRecoveryRecallRouteImport
-      parentRoute: typeof AppRecoveryRoute
-    }
-    '/_app/recovery/offers': {
-      id: '/_app/recovery/offers'
-      path: '/offers'
-      fullPath: '/recovery/offers'
-      preLoaderRoute: typeof AppRecoveryOffersRouteImport
-      parentRoute: typeof AppRecoveryRoute
-    }
-    '/_app/recovery/no-show': {
-      id: '/_app/recovery/no-show'
-      path: '/no-show'
-      fullPath: '/recovery/no-show'
-      preLoaderRoute: typeof AppRecoveryNoShowRouteImport
-      parentRoute: typeof AppRecoveryRoute
-    }
-    '/_app/recovery/emergency': {
-      id: '/_app/recovery/emergency'
-      path: '/emergency'
-      fullPath: '/recovery/emergency'
-      preLoaderRoute: typeof AppRecoveryEmergencyRouteImport
-      parentRoute: typeof AppRecoveryRoute
-    }
-    '/_app/interviews/results': {
-      id: '/_app/interviews/results'
-      path: '/results'
-      fullPath: '/interviews/results'
-      preLoaderRoute: typeof AppInterviewsResultsRouteImport
-      parentRoute: typeof AppInterviewsRoute
-    }
-    '/_app/interviews/reports': {
-      id: '/_app/interviews/reports'
-      path: '/reports'
-      fullPath: '/interviews/reports'
-      preLoaderRoute: typeof AppInterviewsReportsRouteImport
-      parentRoute: typeof AppInterviewsRoute
-    }
-    '/_app/interviews/new': {
-      id: '/_app/interviews/new'
-      path: '/new'
-      fullPath: '/interviews/new'
-      preLoaderRoute: typeof AppInterviewsNewRouteImport
-      parentRoute: typeof AppInterviewsRoute
-    }
-    '/_app/interviews/$orderId': {
-      id: '/_app/interviews/$orderId'
-      path: '/$orderId'
-      fullPath: '/interviews/$orderId'
-      preLoaderRoute: typeof AppInterviewsOrderIdRouteImport
-      parentRoute: typeof AppInterviewsRoute
-    }
-    '/_app/feedback/results': {
-      id: '/_app/feedback/results'
-      path: '/results'
-      fullPath: '/feedback/results'
-      preLoaderRoute: typeof AppFeedbackResultsRouteImport
-      parentRoute: typeof AppFeedbackRoute
-    }
-    '/_app/feedback/new': {
-      id: '/_app/feedback/new'
-      path: '/new'
-      fullPath: '/feedback/new'
-      preLoaderRoute: typeof AppFeedbackNewRouteImport
-      parentRoute: typeof AppFeedbackRoute
-    }
-    '/_app/feedback/compare': {
-      id: '/_app/feedback/compare'
-      path: '/compare'
-      fullPath: '/feedback/compare'
-      preLoaderRoute: typeof AppFeedbackCompareRouteImport
-      parentRoute: typeof AppFeedbackRoute
-    }
-    '/_app/campaigns/send': {
-      id: '/_app/campaigns/send'
-      path: '/campaigns/send'
-      fullPath: '/campaigns/send'
-      preLoaderRoute: typeof AppCampaignsSendRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/campaigns/new': {
-      id: '/_app/campaigns/new'
-      path: '/campaigns/new'
-      fullPath: '/campaigns/new'
-      preLoaderRoute: typeof AppCampaignsNewRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/appointments/setup': {
-      id: '/_app/appointments/setup'
-      path: '/setup'
-      fullPath: '/appointments/setup'
-      preLoaderRoute: typeof AppAppointmentsSetupRouteImport
-      parentRoute: typeof AppAppointmentsRoute
-    }
-    '/_app/appointments/reports': {
-      id: '/_app/appointments/reports'
-      path: '/reports'
-      fullPath: '/appointments/reports'
-      preLoaderRoute: typeof AppAppointmentsReportsRouteImport
-      parentRoute: typeof AppAppointmentsRoute
-    }
-    '/_app/account/usage': {
-      id: '/_app/account/usage'
-      path: '/account/usage'
-      fullPath: '/account/usage'
-      preLoaderRoute: typeof AppAccountUsageRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/account/support': {
-      id: '/_app/account/support'
-      path: '/account/support'
-      fullPath: '/account/support'
-      preLoaderRoute: typeof AppAccountSupportRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/account/packages': {
-      id: '/_app/account/packages'
-      path: '/account/packages'
-      fullPath: '/account/packages'
-      preLoaderRoute: typeof AppAccountPackagesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/account/billing': {
@@ -1320,60 +1205,438 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountBillingRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/interviews/results/': {
-      id: '/_app/interviews/results/'
-      path: '/'
-      fullPath: '/interviews/results/'
-      preLoaderRoute: typeof AppInterviewsResultsIndexRouteImport
-      parentRoute: typeof AppInterviewsResultsRoute
+    '/_app/account/packages': {
+      id: '/_app/account/packages'
+      path: '/account/packages'
+      fullPath: '/account/packages'
+      preLoaderRoute: typeof AppAccountPackagesRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/_app/feedback/campaigns/': {
-      id: '/_app/feedback/campaigns/'
+    '/_app/account/support': {
+      id: '/_app/account/support'
+      path: '/account/support'
+      fullPath: '/account/support'
+      preLoaderRoute: typeof AppAccountSupportRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/account/usage': {
+      id: '/_app/account/usage'
+      path: '/account/usage'
+      fullPath: '/account/usage'
+      preLoaderRoute: typeof AppAccountUsageRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/appointments/': {
+      id: '/_app/appointments/'
+      path: '/'
+      fullPath: '/appointments/'
+      preLoaderRoute: typeof AppAppointmentsIndexRouteImport
+      parentRoute: typeof AppAppointmentsRoute
+    }
+    '/_app/appointments/reports': {
+      id: '/_app/appointments/reports'
+      path: '/reports'
+      fullPath: '/appointments/reports'
+      preLoaderRoute: typeof AppAppointmentsReportsRouteImport
+      parentRoute: typeof AppAppointmentsRoute
+    }
+    '/_app/appointments/setup': {
+      id: '/_app/appointments/setup'
+      path: '/setup'
+      fullPath: '/appointments/setup'
+      preLoaderRoute: typeof AppAppointmentsSetupRouteImport
+      parentRoute: typeof AppAppointmentsRoute
+    }
+    '/_app/campaigns/': {
+      id: '/_app/campaigns/'
       path: '/campaigns'
-      fullPath: '/feedback/campaigns/'
-      preLoaderRoute: typeof AppFeedbackCampaignsIndexRouteImport
+      fullPath: '/campaigns/'
+      preLoaderRoute: typeof AppCampaignsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/campaigns/new': {
+      id: '/_app/campaigns/new'
+      path: '/campaigns/new'
+      fullPath: '/campaigns/new'
+      preLoaderRoute: typeof AppCampaignsNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/campaigns/send': {
+      id: '/_app/campaigns/send'
+      path: '/campaigns/send'
+      fullPath: '/campaigns/send'
+      preLoaderRoute: typeof AppCampaignsSendRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/expo/': {
+      id: '/_app/expo/'
+      path: '/'
+      fullPath: '/expo/'
+      preLoaderRoute: typeof AppExpoIndexRouteImport
+      parentRoute: typeof AppExpoRoute
+    }
+    '/_app/expo/catalogues': {
+      id: '/_app/expo/catalogues'
+      path: '/catalogues'
+      fullPath: '/expo/catalogues'
+      preLoaderRoute: typeof AppExpoCataloguesRouteImport
+      parentRoute: typeof AppExpoRoute
+    }
+    '/_app/expo/leads': {
+      id: '/_app/expo/leads'
+      path: '/leads'
+      fullPath: '/expo/leads'
+      preLoaderRoute: typeof AppExpoLeadsRouteImport
+      parentRoute: typeof AppExpoRoute
+    }
+    '/_app/expo/new': {
+      id: '/_app/expo/new'
+      path: '/new'
+      fullPath: '/expo/new'
+      preLoaderRoute: typeof AppExpoNewRouteImport
+      parentRoute: typeof AppExpoRoute
+    }
+    '/_app/feedback/': {
+      id: '/_app/feedback/'
+      path: '/'
+      fullPath: '/feedback/'
+      preLoaderRoute: typeof AppFeedbackIndexRouteImport
       parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/feedback/compare': {
+      id: '/_app/feedback/compare'
+      path: '/compare'
+      fullPath: '/feedback/compare'
+      preLoaderRoute: typeof AppFeedbackCompareRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/feedback/consent': {
+      id: '/_app/feedback/consent'
+      path: '/consent'
+      fullPath: '/feedback/consent'
+      preLoaderRoute: typeof AppFeedbackConsentRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/feedback/new': {
+      id: '/_app/feedback/new'
+      path: '/new'
+      fullPath: '/feedback/new'
+      preLoaderRoute: typeof AppFeedbackNewRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/feedback/results': {
+      id: '/_app/feedback/results'
+      path: '/results'
+      fullPath: '/feedback/results'
+      preLoaderRoute: typeof AppFeedbackResultsRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/interviews/': {
+      id: '/_app/interviews/'
+      path: '/'
+      fullPath: '/interviews/'
+      preLoaderRoute: typeof AppInterviewsIndexRouteImport
+      parentRoute: typeof AppInterviewsRoute
+    }
+    '/_app/interviews/$orderId': {
+      id: '/_app/interviews/$orderId'
+      path: '/$orderId'
+      fullPath: '/interviews/$orderId'
+      preLoaderRoute: typeof AppInterviewsOrderIdRouteImport
+      parentRoute: typeof AppInterviewsRoute
+    }
+    '/_app/interviews/new': {
+      id: '/_app/interviews/new'
+      path: '/new'
+      fullPath: '/interviews/new'
+      preLoaderRoute: typeof AppInterviewsNewRouteImport
+      parentRoute: typeof AppInterviewsRoute
+    }
+    '/_app/interviews/reports': {
+      id: '/_app/interviews/reports'
+      path: '/reports'
+      fullPath: '/interviews/reports'
+      preLoaderRoute: typeof AppInterviewsReportsRouteImport
+      parentRoute: typeof AppInterviewsRoute
+    }
+    '/_app/interviews/results': {
+      id: '/_app/interviews/results'
+      path: '/results'
+      fullPath: '/interviews/results'
+      preLoaderRoute: typeof AppInterviewsResultsRouteImport
+      parentRoute: typeof AppInterviewsRoute
+    }
+    '/_app/partner-channel/': {
+      id: '/_app/partner-channel/'
+      path: '/partner-channel'
+      fullPath: '/partner-channel/'
+      preLoaderRoute: typeof AppPartnerChannelIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-channel/send-offer': {
+      id: '/_app/partner-channel/send-offer'
+      path: '/partner-channel/send-offer'
+      fullPath: '/partner-channel/send-offer'
+      preLoaderRoute: typeof AppPartnerChannelSendOfferRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-channel/wallet': {
+      id: '/_app/partner-channel/wallet'
+      path: '/partner-channel/wallet'
+      fullPath: '/partner-channel/wallet'
+      preLoaderRoute: typeof AppPartnerChannelWalletRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/recovery/': {
+      id: '/_app/recovery/'
+      path: '/'
+      fullPath: '/recovery/'
+      preLoaderRoute: typeof AppRecoveryIndexRouteImport
+      parentRoute: typeof AppRecoveryRoute
+    }
+    '/_app/recovery/emergency': {
+      id: '/_app/recovery/emergency'
+      path: '/emergency'
+      fullPath: '/recovery/emergency'
+      preLoaderRoute: typeof AppRecoveryEmergencyRouteImport
+      parentRoute: typeof AppRecoveryRoute
+    }
+    '/_app/recovery/no-show': {
+      id: '/_app/recovery/no-show'
+      path: '/no-show'
+      fullPath: '/recovery/no-show'
+      preLoaderRoute: typeof AppRecoveryNoShowRouteImport
+      parentRoute: typeof AppRecoveryRoute
+    }
+    '/_app/recovery/offers': {
+      id: '/_app/recovery/offers'
+      path: '/offers'
+      fullPath: '/recovery/offers'
+      preLoaderRoute: typeof AppRecoveryOffersRouteImport
+      parentRoute: typeof AppRecoveryRoute
+    }
+    '/_app/recovery/recall': {
+      id: '/_app/recovery/recall'
+      path: '/recall'
+      fullPath: '/recovery/recall'
+      preLoaderRoute: typeof AppRecoveryRecallRouteImport
+      parentRoute: typeof AppRecoveryRoute
+    }
+    '/_app/sales/': {
+      id: '/_app/sales/'
+      path: '/sales'
+      fullPath: '/sales/'
+      preLoaderRoute: typeof AppSalesIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sales/deals': {
+      id: '/_app/sales/deals'
+      path: '/sales/deals'
+      fullPath: '/sales/deals'
+      preLoaderRoute: typeof AppSalesDealsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sales/mail': {
+      id: '/_app/sales/mail'
+      path: '/sales/mail'
+      fullPath: '/sales/mail'
+      preLoaderRoute: typeof AppSalesMailRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sales/new': {
+      id: '/_app/sales/new'
+      path: '/sales/new'
+      fullPath: '/sales/new'
+      preLoaderRoute: typeof AppSalesNewRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sales/wallet': {
+      id: '/_app/sales/wallet'
+      path: '/sales/wallet'
+      fullPath: '/sales/wallet'
+      preLoaderRoute: typeof AppSalesWalletRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/': {
+      id: '/_app/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AppSettingsIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/audit': {
+      id: '/_app/settings/audit'
+      path: '/settings/audit'
+      fullPath: '/settings/audit'
+      preLoaderRoute: typeof AppSettingsAuditRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/integrations': {
+      id: '/_app/settings/integrations'
+      path: '/settings/integrations'
+      fullPath: '/settings/integrations'
+      preLoaderRoute: typeof AppSettingsIntegrationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/opt-out': {
+      id: '/_app/settings/opt-out'
+      path: '/settings/opt-out'
+      fullPath: '/settings/opt-out'
+      preLoaderRoute: typeof AppSettingsOptOutRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/profile': {
+      id: '/_app/settings/profile'
+      path: '/settings/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AppSettingsProfileRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/services': {
+      id: '/_app/settings/services'
+      path: '/settings/services'
+      fullPath: '/settings/services'
+      preLoaderRoute: typeof AppSettingsServicesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/system': {
+      id: '/_app/settings/system'
+      path: '/settings/system'
+      fullPath: '/settings/system'
+      preLoaderRoute: typeof AppSettingsSystemRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/team': {
+      id: '/_app/settings/team'
+      path: '/settings/team'
+      fullPath: '/settings/team'
+      preLoaderRoute: typeof AppSettingsTeamRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/smart-card/': {
+      id: '/_app/smart-card/'
+      path: '/'
+      fullPath: '/smart-card/'
+      preLoaderRoute: typeof AppSmartCardIndexRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/catalogue': {
+      id: '/_app/smart-card/catalogue'
+      path: '/catalogue'
+      fullPath: '/smart-card/catalogue'
+      preLoaderRoute: typeof AppSmartCardCatalogueRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/change-requests': {
+      id: '/_app/smart-card/change-requests'
+      path: '/change-requests'
+      fullPath: '/smart-card/change-requests'
+      preLoaderRoute: typeof AppSmartCardChangeRequestsRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/company': {
+      id: '/_app/smart-card/company'
+      path: '/company'
+      fullPath: '/smart-card/company'
+      preLoaderRoute: typeof AppSmartCardCompanyRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/descriptions': {
+      id: '/_app/smart-card/descriptions'
+      path: '/descriptions'
+      fullPath: '/smart-card/descriptions'
+      preLoaderRoute: typeof AppSmartCardDescriptionsRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/leads': {
+      id: '/_app/smart-card/leads'
+      path: '/leads'
+      fullPath: '/smart-card/leads'
+      preLoaderRoute: typeof AppSmartCardLeadsRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/new': {
+      id: '/_app/smart-card/new'
+      path: '/new'
+      fullPath: '/smart-card/new'
+      preLoaderRoute: typeof AppSmartCardNewRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/questions': {
+      id: '/_app/smart-card/questions'
+      path: '/questions'
+      fullPath: '/smart-card/questions'
+      preLoaderRoute: typeof AppSmartCardQuestionsRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/representatives': {
+      id: '/_app/smart-card/representatives'
+      path: '/representatives'
+      fullPath: '/smart-card/representatives'
+      preLoaderRoute: typeof AppSmartCardRepresentativesRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/surveys/': {
+      id: '/_app/surveys/'
+      path: '/'
+      fullPath: '/surveys/'
+      preLoaderRoute: typeof AppSurveysIndexRouteImport
+      parentRoute: typeof AppSurveysRoute
+    }
+    '/_app/surveys/$id': {
+      id: '/_app/surveys/$id'
+      path: '/$id'
+      fullPath: '/surveys/$id'
+      preLoaderRoute: typeof AppSurveysIdRouteImport
+      parentRoute: typeof AppSurveysRoute
+    }
+    '/_app/surveys/new': {
+      id: '/_app/surveys/new'
+      path: '/new'
+      fullPath: '/surveys/new'
+      preLoaderRoute: typeof AppSurveysNewRouteImport
+      parentRoute: typeof AppSurveysRoute
+    }
+    '/_app/surveys/reports': {
+      id: '/_app/surveys/reports'
+      path: '/reports'
+      fullPath: '/surveys/reports'
+      preLoaderRoute: typeof AppSurveysReportsRouteImport
+      parentRoute: typeof AppSurveysRoute
+    }
+    '/_app/surveys/results': {
+      id: '/_app/surveys/results'
+      path: '/results'
+      fullPath: '/surveys/results'
+      preLoaderRoute: typeof AppSurveysResultsRouteImport
+      parentRoute: typeof AppSurveysRoute
+    }
+    '/_app/account/expo/packages': {
+      id: '/_app/account/expo/packages'
+      path: '/account/expo/packages'
+      fullPath: '/account/expo/packages'
+      preLoaderRoute: typeof AppAccountExpoPackagesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/account/feedback/packages': {
+      id: '/_app/account/feedback/packages'
+      path: '/account/feedback/packages'
+      fullPath: '/account/feedback/packages'
+      preLoaderRoute: typeof AppAccountFeedbackPackagesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/account/smart-card/packages': {
+      id: '/_app/account/smart-card/packages'
+      path: '/account/smart-card/packages'
+      fullPath: '/account/smart-card/packages'
+      preLoaderRoute: typeof AppAccountSmartCardPackagesRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/account/support/': {
       id: '/_app/account/support/'
       path: '/'
       fullPath: '/account/support/'
       preLoaderRoute: typeof AppAccountSupportIndexRouteImport
-      parentRoute: typeof AppAccountSupportRoute
-    }
-    '/_app/sales/customers/$id': {
-      id: '/_app/sales/customers/$id'
-      path: '/sales/customers/$id'
-      fullPath: '/sales/customers/$id'
-      preLoaderRoute: typeof AppSalesCustomersIdRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/interviews/results/$orderId': {
-      id: '/_app/interviews/results/$orderId'
-      path: '/$orderId'
-      fullPath: '/interviews/results/$orderId'
-      preLoaderRoute: typeof AppInterviewsResultsOrderIdRouteImport
-      parentRoute: typeof AppInterviewsResultsRoute
-    }
-    '/_app/feedback/campaigns/send': {
-      id: '/_app/feedback/campaigns/send'
-      path: '/campaigns/send'
-      fullPath: '/feedback/campaigns/send'
-      preLoaderRoute: typeof AppFeedbackCampaignsSendRouteImport
-      parentRoute: typeof AppFeedbackRoute
-    }
-    '/_app/feedback/$locationId/edit': {
-      id: '/_app/feedback/$locationId/edit'
-      path: '/$locationId/edit'
-      fullPath: '/feedback/$locationId/edit'
-      preLoaderRoute: typeof AppFeedbackLocationIdEditRouteImport
-      parentRoute: typeof AppFeedbackRoute
-    }
-    '/_app/account/support/tickets': {
-      id: '/_app/account/support/tickets'
-      path: '/tickets'
-      fullPath: '/account/support/tickets'
-      preLoaderRoute: typeof AppAccountSupportTicketsRouteImport
       parentRoute: typeof AppAccountSupportRoute
     }
     '/_app/account/support/faq': {
@@ -1383,12 +1646,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountSupportFaqRouteImport
       parentRoute: typeof AppAccountSupportRoute
     }
-    '/_app/account/feedback/packages': {
-      id: '/_app/account/feedback/packages'
-      path: '/account/feedback/packages'
-      fullPath: '/account/feedback/packages'
-      preLoaderRoute: typeof AppAccountFeedbackPackagesRouteImport
+    '/_app/account/support/tickets': {
+      id: '/_app/account/support/tickets'
+      path: '/tickets'
+      fullPath: '/account/support/tickets'
+      preLoaderRoute: typeof AppAccountSupportTicketsRouteImport
+      parentRoute: typeof AppAccountSupportRoute
+    }
+    '/_app/expo/$boothId/edit': {
+      id: '/_app/expo/$boothId/edit'
+      path: '/$boothId/edit'
+      fullPath: '/expo/$boothId/edit'
+      preLoaderRoute: typeof AppExpoBoothIdEditRouteImport
+      parentRoute: typeof AppExpoRoute
+    }
+    '/_app/feedback/$locationId/edit': {
+      id: '/_app/feedback/$locationId/edit'
+      path: '/$locationId/edit'
+      fullPath: '/feedback/$locationId/edit'
+      preLoaderRoute: typeof AppFeedbackLocationIdEditRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/feedback/campaigns/': {
+      id: '/_app/feedback/campaigns/'
+      path: '/campaigns'
+      fullPath: '/feedback/campaigns/'
+      preLoaderRoute: typeof AppFeedbackCampaignsIndexRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/feedback/campaigns/send': {
+      id: '/_app/feedback/campaigns/send'
+      path: '/campaigns/send'
+      fullPath: '/feedback/campaigns/send'
+      preLoaderRoute: typeof AppFeedbackCampaignsSendRouteImport
+      parentRoute: typeof AppFeedbackRoute
+    }
+    '/_app/interviews/results/': {
+      id: '/_app/interviews/results/'
+      path: '/'
+      fullPath: '/interviews/results/'
+      preLoaderRoute: typeof AppInterviewsResultsIndexRouteImport
+      parentRoute: typeof AppInterviewsResultsRoute
+    }
+    '/_app/interviews/results/$orderId': {
+      id: '/_app/interviews/results/$orderId'
+      path: '/$orderId'
+      fullPath: '/interviews/results/$orderId'
+      preLoaderRoute: typeof AppInterviewsResultsOrderIdRouteImport
+      parentRoute: typeof AppInterviewsResultsRoute
+    }
+    '/_app/sales/customers/$id': {
+      id: '/_app/sales/customers/$id'
+      path: '/sales/customers/$id'
+      fullPath: '/sales/customers/$id'
+      preLoaderRoute: typeof AppSalesCustomersIdRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/_app/smart-card/qrs/$repId': {
+      id: '/_app/smart-card/qrs/$repId'
+      path: '/qrs/$repId'
+      fullPath: '/smart-card/qrs/$repId'
+      preLoaderRoute: typeof AppSmartCardQrsRepIdRouteImport
+      parentRoute: typeof AppSmartCardRoute
+    }
+    '/_app/smart-card/qrs/new': {
+      id: '/_app/smart-card/qrs/new'
+      path: '/qrs/new'
+      fullPath: '/smart-card/qrs/new'
+      preLoaderRoute: typeof AppSmartCardQrsNewRouteImport
+      parentRoute: typeof AppSmartCardRoute
     }
   }
 }
@@ -1409,8 +1735,28 @@ const AppAppointmentsRouteWithChildren = AppAppointmentsRoute._addFileChildren(
   AppAppointmentsRouteChildren,
 )
 
+interface AppExpoRouteChildren {
+  AppExpoCataloguesRoute: typeof AppExpoCataloguesRoute
+  AppExpoLeadsRoute: typeof AppExpoLeadsRoute
+  AppExpoNewRoute: typeof AppExpoNewRoute
+  AppExpoIndexRoute: typeof AppExpoIndexRoute
+  AppExpoBoothIdEditRoute: typeof AppExpoBoothIdEditRoute
+}
+
+const AppExpoRouteChildren: AppExpoRouteChildren = {
+  AppExpoCataloguesRoute: AppExpoCataloguesRoute,
+  AppExpoLeadsRoute: AppExpoLeadsRoute,
+  AppExpoNewRoute: AppExpoNewRoute,
+  AppExpoIndexRoute: AppExpoIndexRoute,
+  AppExpoBoothIdEditRoute: AppExpoBoothIdEditRoute,
+}
+
+const AppExpoRouteWithChildren =
+  AppExpoRoute._addFileChildren(AppExpoRouteChildren)
+
 interface AppFeedbackRouteChildren {
   AppFeedbackCompareRoute: typeof AppFeedbackCompareRoute
+  AppFeedbackConsentRoute: typeof AppFeedbackConsentRoute
   AppFeedbackNewRoute: typeof AppFeedbackNewRoute
   AppFeedbackResultsRoute: typeof AppFeedbackResultsRoute
   AppFeedbackIndexRoute: typeof AppFeedbackIndexRoute
@@ -1421,6 +1767,7 @@ interface AppFeedbackRouteChildren {
 
 const AppFeedbackRouteChildren: AppFeedbackRouteChildren = {
   AppFeedbackCompareRoute: AppFeedbackCompareRoute,
+  AppFeedbackConsentRoute: AppFeedbackConsentRoute,
   AppFeedbackNewRoute: AppFeedbackNewRoute,
   AppFeedbackResultsRoute: AppFeedbackResultsRoute,
   AppFeedbackIndexRoute: AppFeedbackIndexRoute,
@@ -1486,6 +1833,38 @@ const AppRecoveryRouteWithChildren = AppRecoveryRoute._addFileChildren(
   AppRecoveryRouteChildren,
 )
 
+interface AppSmartCardRouteChildren {
+  AppSmartCardCatalogueRoute: typeof AppSmartCardCatalogueRoute
+  AppSmartCardChangeRequestsRoute: typeof AppSmartCardChangeRequestsRoute
+  AppSmartCardCompanyRoute: typeof AppSmartCardCompanyRoute
+  AppSmartCardDescriptionsRoute: typeof AppSmartCardDescriptionsRoute
+  AppSmartCardLeadsRoute: typeof AppSmartCardLeadsRoute
+  AppSmartCardNewRoute: typeof AppSmartCardNewRoute
+  AppSmartCardQuestionsRoute: typeof AppSmartCardQuestionsRoute
+  AppSmartCardRepresentativesRoute: typeof AppSmartCardRepresentativesRoute
+  AppSmartCardIndexRoute: typeof AppSmartCardIndexRoute
+  AppSmartCardQrsRepIdRoute: typeof AppSmartCardQrsRepIdRoute
+  AppSmartCardQrsNewRoute: typeof AppSmartCardQrsNewRoute
+}
+
+const AppSmartCardRouteChildren: AppSmartCardRouteChildren = {
+  AppSmartCardCatalogueRoute: AppSmartCardCatalogueRoute,
+  AppSmartCardChangeRequestsRoute: AppSmartCardChangeRequestsRoute,
+  AppSmartCardCompanyRoute: AppSmartCardCompanyRoute,
+  AppSmartCardDescriptionsRoute: AppSmartCardDescriptionsRoute,
+  AppSmartCardLeadsRoute: AppSmartCardLeadsRoute,
+  AppSmartCardNewRoute: AppSmartCardNewRoute,
+  AppSmartCardQuestionsRoute: AppSmartCardQuestionsRoute,
+  AppSmartCardRepresentativesRoute: AppSmartCardRepresentativesRoute,
+  AppSmartCardIndexRoute: AppSmartCardIndexRoute,
+  AppSmartCardQrsRepIdRoute: AppSmartCardQrsRepIdRoute,
+  AppSmartCardQrsNewRoute: AppSmartCardQrsNewRoute,
+}
+
+const AppSmartCardRouteWithChildren = AppSmartCardRoute._addFileChildren(
+  AppSmartCardRouteChildren,
+)
+
 interface AppSurveysRouteChildren {
   AppSurveysIdRoute: typeof AppSurveysIdRoute
   AppSurveysNewRoute: typeof AppSurveysNewRoute
@@ -1521,47 +1900,15 @@ const AppAccountSupportRouteChildren: AppAccountSupportRouteChildren = {
 const AppAccountSupportRouteWithChildren =
   AppAccountSupportRoute._addFileChildren(AppAccountSupportRouteChildren)
 
-interface AppSmartCardRouteChildren {
-  AppSmartCardIndexRoute: typeof AppSmartCardIndexRoute
-  AppSmartCardCompanyRoute: typeof AppSmartCardCompanyRoute
-  AppSmartCardCatalogueRoute: typeof AppSmartCardCatalogueRoute
-  AppSmartCardRepresentativesRoute: typeof AppSmartCardRepresentativesRoute
-  AppSmartCardLeadsRoute: typeof AppSmartCardLeadsRoute
-  AppSmartCardDescriptionsRoute: typeof AppSmartCardDescriptionsRoute
-  AppSmartCardQuestionsRoute: typeof AppSmartCardQuestionsRoute
-  AppSmartCardChangeRequestsRoute: typeof AppSmartCardChangeRequestsRoute
-  AppSmartCardNewRoute: typeof AppSmartCardNewRoute
-  AppSmartCardQrsNewRoute: typeof AppSmartCardQrsNewRoute
-  AppSmartCardQrsRepIdRoute: typeof AppSmartCardQrsRepIdRoute
-}
-
-const AppSmartCardRouteChildren: AppSmartCardRouteChildren = {
-  AppSmartCardIndexRoute: AppSmartCardIndexRoute,
-  AppSmartCardCompanyRoute: AppSmartCardCompanyRoute,
-  AppSmartCardCatalogueRoute: AppSmartCardCatalogueRoute,
-  AppSmartCardRepresentativesRoute: AppSmartCardRepresentativesRoute,
-  AppSmartCardLeadsRoute: AppSmartCardLeadsRoute,
-  AppSmartCardDescriptionsRoute: AppSmartCardDescriptionsRoute,
-  AppSmartCardQuestionsRoute: AppSmartCardQuestionsRoute,
-  AppSmartCardChangeRequestsRoute: AppSmartCardChangeRequestsRoute,
-  AppSmartCardNewRoute: AppSmartCardNewRoute,
-  AppSmartCardQrsNewRoute: AppSmartCardQrsNewRoute,
-  AppSmartCardQrsRepIdRoute: AppSmartCardQrsRepIdRoute,
-}
-
-const AppSmartCardRouteWithChildren = AppSmartCardRoute._addFileChildren(
-  AppSmartCardRouteChildren,
-)
-
 interface AppRouteChildren {
   AppAppointmentsRoute: typeof AppAppointmentsRouteWithChildren
+  AppExpoRoute: typeof AppExpoRouteWithChildren
   AppFeedbackRoute: typeof AppFeedbackRouteWithChildren
-  AppSmartCardRoute: typeof AppSmartCardRouteWithChildren
-  AppAccountSmartCardPackagesRoute: typeof AppAccountSmartCardPackagesRoute
   AppFollowUpRoute: typeof AppFollowUpRoute
   AppInterviewsRoute: typeof AppInterviewsRouteWithChildren
   AppPackagesRoute: typeof AppPackagesRoute
   AppRecoveryRoute: typeof AppRecoveryRouteWithChildren
+  AppSmartCardRoute: typeof AppSmartCardRouteWithChildren
   AppSurveysRoute: typeof AppSurveysRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
   AppAccountBillingRoute: typeof AppAccountBillingRoute
@@ -1570,11 +1917,12 @@ interface AppRouteChildren {
   AppAccountUsageRoute: typeof AppAccountUsageRoute
   AppCampaignsNewRoute: typeof AppCampaignsNewRoute
   AppCampaignsSendRoute: typeof AppCampaignsSendRoute
+  AppPartnerChannelSendOfferRoute: typeof AppPartnerChannelSendOfferRoute
+  AppPartnerChannelWalletRoute: typeof AppPartnerChannelWalletRoute
   AppSalesDealsRoute: typeof AppSalesDealsRoute
+  AppSalesMailRoute: typeof AppSalesMailRoute
   AppSalesNewRoute: typeof AppSalesNewRoute
   AppSalesWalletRoute: typeof AppSalesWalletRoute
-  AppPartnerChannelWalletRoute: typeof AppPartnerChannelWalletRoute
-  AppPartnerChannelSendOfferRoute: typeof AppPartnerChannelSendOfferRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsOptOutRoute: typeof AppSettingsOptOutRoute
@@ -1584,22 +1932,24 @@ interface AppRouteChildren {
   AppSettingsTeamRoute: typeof AppSettingsTeamRoute
   AppAccountIndexRoute: typeof AppAccountIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
-  AppSalesIndexRoute: typeof AppSalesIndexRoute
   AppPartnerChannelIndexRoute: typeof AppPartnerChannelIndexRoute
+  AppSalesIndexRoute: typeof AppSalesIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
+  AppAccountExpoPackagesRoute: typeof AppAccountExpoPackagesRoute
   AppAccountFeedbackPackagesRoute: typeof AppAccountFeedbackPackagesRoute
+  AppAccountSmartCardPackagesRoute: typeof AppAccountSmartCardPackagesRoute
   AppSalesCustomersIdRoute: typeof AppSalesCustomersIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppAppointmentsRoute: AppAppointmentsRouteWithChildren,
+  AppExpoRoute: AppExpoRouteWithChildren,
   AppFeedbackRoute: AppFeedbackRouteWithChildren,
-  AppSmartCardRoute: AppSmartCardRouteWithChildren,
-  AppAccountSmartCardPackagesRoute: AppAccountSmartCardPackagesRoute,
   AppFollowUpRoute: AppFollowUpRoute,
   AppInterviewsRoute: AppInterviewsRouteWithChildren,
   AppPackagesRoute: AppPackagesRoute,
   AppRecoveryRoute: AppRecoveryRouteWithChildren,
+  AppSmartCardRoute: AppSmartCardRouteWithChildren,
   AppSurveysRoute: AppSurveysRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
   AppAccountBillingRoute: AppAccountBillingRoute,
@@ -1608,11 +1958,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountUsageRoute: AppAccountUsageRoute,
   AppCampaignsNewRoute: AppCampaignsNewRoute,
   AppCampaignsSendRoute: AppCampaignsSendRoute,
+  AppPartnerChannelSendOfferRoute: AppPartnerChannelSendOfferRoute,
+  AppPartnerChannelWalletRoute: AppPartnerChannelWalletRoute,
   AppSalesDealsRoute: AppSalesDealsRoute,
+  AppSalesMailRoute: AppSalesMailRoute,
   AppSalesNewRoute: AppSalesNewRoute,
   AppSalesWalletRoute: AppSalesWalletRoute,
-  AppPartnerChannelWalletRoute: AppPartnerChannelWalletRoute,
-  AppPartnerChannelSendOfferRoute: AppPartnerChannelSendOfferRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsOptOutRoute: AppSettingsOptOutRoute,
@@ -1622,10 +1973,12 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsTeamRoute: AppSettingsTeamRoute,
   AppAccountIndexRoute: AppAccountIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
-  AppSalesIndexRoute: AppSalesIndexRoute,
   AppPartnerChannelIndexRoute: AppPartnerChannelIndexRoute,
+  AppSalesIndexRoute: AppSalesIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
+  AppAccountExpoPackagesRoute: AppAccountExpoPackagesRoute,
   AppAccountFeedbackPackagesRoute: AppAccountFeedbackPackagesRoute,
+  AppAccountSmartCardPackagesRoute: AppAccountSmartCardPackagesRoute,
   AppSalesCustomersIdRoute: AppSalesCustomersIdRoute,
 }
 
@@ -1640,13 +1993,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

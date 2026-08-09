@@ -740,16 +740,15 @@ export function PublicFeedbackSurvey({
         if (voiceBlob) {
           setBusy(true);
           try {
-            const voiceRes = (await postVoice(voiceBlob, "transcribe")) as { transcript?: string };
-            const transcript = String(voiceRes.transcript || "").trim();
-            if (!transcript) {
-              setError("Could not transcribe your voice note. Please try again or type your answer.");
+            // Async STT: backend saves under __tell_us_more and advances; do not require inline transcript.
+            const data = (await postVoice(voiceBlob, "answer")) as AdvanceResponse & {
+              saved?: boolean;
+              pending?: boolean;
+            };
+            if (data.saved === false) {
+              setError("Could not save your voice note. Please try again or type your answer.");
               return;
             }
-            const data = (await postAnswer("skip", {
-              reason: transcript,
-              reasonSource: "voice",
-            })) as AdvanceResponse;
             setReasonOverlay(null);
             setReasonChips([]);
             setReasonText("");
@@ -1088,11 +1087,17 @@ export function PublicFeedbackSurvey({
                     setError("");
                     try {
                       if (callbackWants) {
+                        const phone = callbackPhone.trim();
+                        if (!phone) {
+                          setError("Please enter your mobile number so we can call you back.");
+                          setBusy(false);
+                          return;
+                        }
                         await apiFetch(
                           `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/callback-consent${sessionQuery}`,
                           {
                             method: "POST",
-                            body: JSON.stringify({ consent: true, phone: callbackPhone.trim() }),
+                            body: JSON.stringify({ consent: true, phone }),
                           },
                         );
                       } else {

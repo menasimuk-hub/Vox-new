@@ -194,8 +194,12 @@ class FeedbackWebSurveyService:
         token: str,
         consent: bool,
         phone: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> dict[str, Any]:
         """Store web callback phone + consent after survey completion; schedule AI if eligible."""
+        from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
+
         location = FeedbackLocationService.resolve_by_token(db, token)
         if location is None:
             raise ValueError("Survey not found")
@@ -203,11 +207,46 @@ class FeedbackWebSurveyService:
         if session is None or session.location_id != location.id:
             raise ValueError("Session not found")
         if consent:
-            session.visitor_phone = _normalize_callback_phone(phone or "")
+            phone_e164 = _normalize_callback_phone(phone or "")
+            session.visitor_phone = phone_e164
             session.callback_consent = True
+            db.add(session)
+            db.flush()
+            FeedbackConsentEventsService.record(
+                db,
+                org_id=session.org_id,
+                phone_e164=phone_e164,
+                purpose="callback_call",
+                consent_given=True,
+                method="web_form",
+                source_event="grant",
+                session_id=session.id,
+                location_id=location.id,
+                ip_address=ip_address,
+                user_agent=user_agent,
+                commit=False,
+            )
         else:
             session.callback_consent = False
-        db.add(session)
+            db.add(session)
+            db.flush()
+            # No phone required to decline; only log revoke if a real number was already set.
+            phone_existing = str(session.visitor_phone or "").strip()
+            if phone_existing and not phone_existing.startswith("web:"):
+                FeedbackConsentEventsService.record(
+                    db,
+                    org_id=session.org_id,
+                    phone_e164=phone_existing,
+                    purpose="callback_call",
+                    consent_given=False,
+                    method="web_form",
+                    source_event="revoke",
+                    session_id=session.id,
+                    location_id=location.id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    commit=False,
+                )
         db.commit()
         db.refresh(session)
         if consent:
@@ -762,33 +801,8 @@ class FeedbackWebSurveyService:
                     "question": question,
                 }
 
-        if mode == "transcribe":
-            # Still async: create a temp pending row keyed for later client poll by response id.
-            step_index = int(session.current_step or 0)
-            current_step = steps[step_index] if step_index < len(steps) else {"kind": "open_question"}
-            tpl = template_for_step(db, location, current_step, language=session.detected_language) if step_index < len(steps) else None
-            qkey = f"_transcribe_{(tpl.template_key if tpl else 'open')}"
-            _resp, job = create_pending_response_and_job(
-                db,
-                session=session,
-                location_id=session.location_id,
-                survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
-                question_key=qkey,
-                step_order=max(step_index, 0) + 1,
-                audio_file_path=str(path),
-                audio_original_filename=filename or "voice.webm",
-                audio_mime_type=content_type or "audio/webm",
-            )
-            db.commit()
-            enqueue_feedback_voice_job(job.id)
-            return {
-                "transcript": "",
-                "pending": True,
-                "transcription_status": "pending",
-                "response_id": _resp.id,
-                "job_id": job.id,
-            }
-
+        # Prefer tell-us-more / answer / reason paths before bare "transcribe"
+        # so async STT saves under the correct question key and advances the session.
         if is_tell_us_more_pending(state) or mode in {"reason", "reason_prev", "answer"}:
             step_index = int(session.current_step or 0)
             if mode == "reason_prev":
@@ -865,6 +879,38 @@ class FeedbackWebSurveyService:
             db.commit()
             enqueue_feedback_voice_job(job.id)
             return out
+
+        if mode == "transcribe":
+            # Legacy/async-only path: pending row for later STT (prefer answer/reason above).
+            step_index = int(session.current_step or 0)
+            current_step = steps[step_index] if step_index < len(steps) else {"kind": "open_question"}
+            tpl = (
+                template_for_step(db, location, current_step, language=session.detected_language)
+                if step_index < len(steps)
+                else None
+            )
+            qkey = f"_transcribe_{(tpl.template_key if tpl else 'open')}"
+            _resp, job = create_pending_response_and_job(
+                db,
+                session=session,
+                location_id=session.location_id,
+                survey_type_id=str(current_step.get("survey_type_id") or location.survey_type_id),
+                question_key=qkey,
+                step_order=max(step_index, 0) + 1,
+                audio_file_path=str(path),
+                audio_original_filename=filename or "voice.webm",
+                audio_mime_type=content_type or "audio/webm",
+            )
+            db.commit()
+            enqueue_feedback_voice_job(job.id)
+            return {
+                "transcript": "",
+                "pending": True,
+                "transcription_status": "pending",
+                "saved": True,
+                "response_id": _resp.id,
+                "job_id": job.id,
+            }
 
         return {"transcript": "", "saved": False, "stt_error": "unsupported_mode"}
 

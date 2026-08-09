@@ -667,3 +667,78 @@ def launch_promo_campaign(campaign_id: str, db: Session = Depends(get_db), princ
         )
     except FeedbackPromoCampaignError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/consent-events")
+def list_consent_events(
+    purpose: str | None = Query(default="callback_call"),
+    consent_given: bool | None = Query(default=True),
+    limit: int = Query(default=500, ge=1, le=2000),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
+
+    _require_feedback_enabled(db, principal.org_id)
+    items = FeedbackConsentEventsService.list_consents(
+        db,
+        principal.org_id,
+        purpose=purpose,
+        consent_given=consent_given,
+        limit=limit,
+    )
+    return {"ok": True, "items": items}
+
+
+@router.get("/consent-events/export.csv")
+def export_consent_events_csv(
+    purpose: str | None = Query(default="callback_call"),
+    consent_given: bool | None = Query(default=True),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import Response
+
+    from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
+
+    _require_feedback_enabled(db, principal.org_id)
+    csv_text = FeedbackConsentEventsService.export_csv(
+        db,
+        principal.org_id,
+        purpose=purpose,
+        consent_given=consent_given,
+    )
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="feedback-consent-events.csv"'},
+    )
+
+
+@router.post("/consent-events/opt-out")
+def admin_opt_out_consent(
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
+
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_edit_org_profile(
+            db, org_id=principal.org_id, user_id=principal.user_id
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    try:
+        return FeedbackConsentEventsService.admin_opt_out(
+            db,
+            org_id=principal.org_id,
+            phone_e164=str(payload.get("phone_number") or payload.get("phone") or "").strip(),
+            user_id=principal.user_id,
+            session_id=(str(payload.get("session_id") or "").strip() or None),
+            location_id=(str(payload.get("location_id") or "").strip() or None),
+            purpose=str(payload.get("purpose") or "callback_call").strip() or "callback_call",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e

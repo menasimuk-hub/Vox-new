@@ -330,3 +330,25 @@ class FeedbackPromoCampaign(Base):
     created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class FeedbackConsentEvent(Base):
+    """Append-only consent ledger for Customer Feedback (callback + marketing)."""
+
+    __tablename__ = "feedback_consent_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("feedback_sessions.id"), nullable=True, index=True)
+    location_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("feedback_locations.id"), nullable=True, index=True)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, index=True)  # callback_call | marketing
+    consent_given: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    phone_e164: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    question_text_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    method: Mapped[str] = mapped_column(String(32), nullable=False, default="web_form")  # web_form | whatsapp_button | keyword_stop | admin
+    source_event: Mapped[str] = mapped_column(String(16), nullable=False, default="grant")  # grant | revoke
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_by_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, index=True)
