@@ -11,8 +11,8 @@ SURVEY_TOPIC_REPLACEMENTS: dict[str, tuple[str, str]] = {
         "😊 Following your recent visit, how satisfied are you with the service you received today?",
     ),
     "Return intent": (
-        "Visit met your needs",
-        "✅ Following your recent visit, did our service meet your needs today?",
+        "Return intent",
+        "🔁 Following your recent visit, would you return for a future visit?",
     ),
     "Renewal intent": (
         "Tenancy needs met",
@@ -38,10 +38,10 @@ SURVEY_TOPIC_REPLACEMENTS: dict[str, tuple[str, str]] = {
 
 SURVEY_BODY_PATCHES: list[tuple[str, str]] = [
     ("Would you recommend", "Following your recent visit, how satisfied are you with the service you received today?"),
-    ("Would you choose our clinic again", "Following your recent visit, did our service meet your needs today?"),
-    ("How likely are you to dine with us again", "Following your recent visit, did our service meet your needs today?"),
-    ("Would you stay with us again", "Following your recent stay, did our service meet your needs today?"),
-    ("Are you likely to renew your tenancy", "Following your recent tenancy interaction, did our service meet your needs today?"),
+    ("Would you choose our clinic again", "Following your recent visit, would you return for a future visit?"),
+    ("How likely are you to dine with us again", "Following your recent visit, would you return for a future visit?"),
+    ("Would you stay with us again", "Following your recent stay, would you return for a future stay?"),
+    ("Are you likely to renew your tenancy", "Following your recent tenancy interaction, would you return in future?"),
     ("How valuable do you find our loyalty programme", "Following your recent purchase, how clear was the checkout process today?"),
 ]
 
@@ -80,9 +80,9 @@ FEEDBACK_TOPIC_REPLACEMENTS: dict[str, tuple[str, str, list[str]]] = {
         ["Very satisfied", "Satisfied", "Dissatisfied"],
     ),
     "10 – Return intent": (
-        "10 – Visit met your needs",
-        "✅ Following your recent visit, did our service meet your needs today?",
-        ["Yes, fully", "Partly", "No"],
+        "10 – Return intent",
+        "🔁 Following your recent visit, would you return for a future visit?",
+        ["Yes", "No"],
     ),
     "17 – Promotions clarity": (
         "17 – Price label clarity",
@@ -129,7 +129,7 @@ FEEDBACK_BODY_PATCHES: list[tuple[str, str]] = [
     ("We hope you left feeling great. Would you recommend", "Following your recent visit, how satisfied are you with the service you received today?"),
     ("We hope you enjoyed your stay. Would you recommend", "Following your recent stay, how satisfied are you with the service you received?"),
     ("We hope you had a great session. Would you recommend", "Following your recent session, how satisfied are you with the service you received today?"),
-    ("We would love to see you again. Would you visit us again", "Following your recent visit, did our service meet your needs today?"),
+    ("We would love to see you again. Would you visit us again", "Following your recent visit, would you return for a future visit?"),
     ("Did our menu offer enough variety", "Following your recent visit, how satisfied were you with the menu selection available today?"),
     ("Were promotions and discounts clearly displayed", "Following your recent visit, how clear were price labels and charges today?"),
     ("How satisfied are you with our loyalty rewards programme", "Following your recent purchase, how clear was the checkout process today?"),

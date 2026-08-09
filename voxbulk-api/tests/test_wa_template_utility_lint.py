@@ -11,6 +11,18 @@ from app.services.wa_template_utility_lint import (
 )
 
 
+def test_return_intent_body_matches_title_and_passes_lint():
+    from app.services.wa_template_utility_content import return_intent_utility_body
+
+    hotel = return_intent_utility_body(industry_slug="hotels-hospitality", industry_name="Hotels")
+    assert "return for a future stay" in hotel.lower()
+    assert lint_utility_template(body=hotel, buttons=["Yes", "No"], language="en_GB", meta_category="utility").ok
+
+    visit = return_intent_utility_body(industry_slug="restaurants", industry_name="Restaurants")
+    assert "return for a future visit" in visit.lower()
+    assert lint_utility_template(body=visit, buttons=["Yes", "No"], language="en_GB", meta_category="utility").ok
+
+
 def test_utility_body_fails_nps_recommend_likelihood():
     result = lint_utility_body(
         "📋 Based on your recent experience with us, how likely are you to recommend our service? "

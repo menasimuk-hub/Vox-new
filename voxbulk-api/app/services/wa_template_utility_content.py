@@ -230,9 +230,39 @@ def _is_would_recommend_topic(topic_name: str | None) -> bool:
     return key in {"would recommend", "would recommend standard"} or key.startswith("would recommend")
 
 
+def _is_return_intent_topic(topic_name: str | None) -> bool:
+    key = _norm_topic_key(topic_name)
+    return key in {"return intent", "return intent standard"} or key.startswith("return intent")
+
+
 def _is_repeat_purchase_topic(topic_name: str | None) -> bool:
     key = _norm_topic_key(topic_name)
     return key in {"repeat purchase intent", "repeat purchase"} or "repeat purchase" in key
+
+
+_HOTEL_INDUSTRY_SIGNALS = ("hotel", "hospitality", "accommodation", "lodging", "bnb", "resort")
+
+
+def return_intent_utility_body(
+    *,
+    industry_slug: str | None = None,
+    industry_name: str | None = None,
+    emoji: str = "🔁",
+) -> str:
+    """Yes/No return-intent copy that matches the topic title (Meta Utility-safe)."""
+    prefix = f"{emoji} " if emoji else ""
+    blob = f"{industry_slug or ''} {industry_name or ''}".strip().lower().replace("-", "_")
+    if any(sig in blob for sig in _HOTEL_INDUSTRY_SIGNALS):
+        return f"{prefix}Following your recent stay, would you return for a future stay?".strip()
+    frame = resolve_industry_frame(industry_slug, industry_name, language="en")
+    if frame["key"] == "visit":
+        return f"{prefix}Following your recent visit, would you return for a future visit?".strip()
+    return f"{prefix}Following your recent experience with us, would you return in future?".strip()
+
+
+def return_intent_utility_body_ar(*, emoji: str = "🔁") -> str:
+    prefix = f"{emoji} " if emoji else ""
+    return f"{prefix}بعد تجربتك الأخيرة معنا، هل تنوي العودة مستقبلاً؟".strip()
 
 
 _EMPLOYEE_TOPIC_BODIES: dict[str, str] = {
@@ -529,6 +559,13 @@ def utility_body_for_topic(
             "Reply with one option below."
         ).strip()
 
+    if _is_return_intent_topic(topic_name):
+        return return_intent_utility_body(
+            industry_slug=industry_slug,
+            industry_name=industry_name,
+            emoji=emoji or "🔁",
+        )
+
     if _is_repeat_purchase_topic(topic_name):
         return (
             f"{prefix}After your recent visit with us, how satisfied are you with your shopping experience? "
@@ -565,6 +602,8 @@ def utility_body_ar_for_topic(
         original_body=original_body,
     )
     prefix = f"{emoji} " if emoji else ""
+    if _is_return_intent_topic(topic_name):
+        return return_intent_utility_body_ar(emoji=emoji or "🔁")
     if frame["key"] == "employee":
         return f"{prefix}كيف تقيّم {topic} في عملك؟ اختر أحد الخيارات أدناه.".strip()
     if frame["key"] == "visit":
