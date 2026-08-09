@@ -40,7 +40,9 @@ from app.services.customer_feedback.feedback_ai_followup_service import (
 
 
 TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {token}"
-TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6,32})\b", re.IGNORECASE)
+# company/branch slugs may contain hyphens (e.g. rottnest-island-wadj-rottnest-<suffix>).
+# Require ≥2 slug segments + a 6–32 char suffix; prefer the longest match when parsing.
+TOKEN_PATTERN = re.compile(r"\b((?:[a-z0-9]{2,24}-){2,}[a-z0-9]{6,32})\b", re.IGNORECASE)
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
 LANGUAGE_HINT_PATTERN = re.compile(
@@ -616,9 +618,10 @@ class FeedbackLocationService:
     @staticmethod
     def parse_trigger_ref(body: str) -> str | None:
         text = str(body or "")
-        token_match = TOKEN_PATTERN.search(text)
-        if token_match:
-            return str(token_match.group(1)).strip().lower()
+        token_matches = TOKEN_PATTERN.findall(text)
+        if token_matches:
+            # Longest wins so multi-hyphen tokens are not truncated to a mid-string triple.
+            return max((str(m).strip().lower() for m in token_matches), key=len)
         match = REF_PATTERN.search(text) or LEGACY_REF_PATTERN.search(text)
         if not match:
             return None

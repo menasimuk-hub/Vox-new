@@ -258,17 +258,22 @@ def _qr_image_for(booth: ExpoBooth) -> str:
 
 
 # Accept legacy 6-char and new 16-char suffixes (and anything in between for forward compat).
-TOKEN_PATTERN = re.compile(r"\b([a-z0-9]{2,24}-[a-z0-9]{2,24}-[a-z0-9]{6,32})\b", re.IGNORECASE)
+# Prefer the multi-hyphen form — company/branch slugs may contain hyphens.
+TOKEN_PATTERN = re.compile(r"\b((?:[a-z0-9]{2,24}-){2,}[a-z0-9]{6,32})\b", re.IGNORECASE)
 TOKEN_SUFFIX_PATTERN = re.compile(r"\b([a-z0-9]+(?:-[a-z0-9]+)+-[a-z0-9]{6,32})\b", re.IGNORECASE)
 
 
 def extract_expo_token(text: str) -> str | None:
     raw = str(text or "")
-    m = TOKEN_PATTERN.search(raw)
-    if m:
-        return m.group(1).lower()
-    m2 = TOKEN_SUFFIX_PATTERN.search(raw)
-    return m2.group(1).lower() if m2 else None
+    candidates: list[str] = []
+    for pat in (TOKEN_PATTERN, TOKEN_SUFFIX_PATTERN):
+        for m in pat.finditer(raw):
+            tok = m.group(1).lower()
+            if tok not in candidates:
+                candidates.append(tok)
+    if not candidates:
+        return None
+    return max(candidates, key=len)
 
 
 def find_expo_token_in_text(db: Session, text: str) -> str | None:

@@ -66,6 +66,12 @@ def test_parse_trigger_ref():
         "Hi! I'd like to share feedback for Acme at Branch. acme-branch-a3f2b1 (ar)"
     )
     assert with_ar == "acme-branch-a3f2b1"
+    # Multi-hyphen company/branch slugs must not truncate to a mid-token triple.
+    multi = FeedbackLocationService.parse_trigger_ref(
+        "Hi! I'd like to share feedback for Rottnest Island at Wadj Rottnest. "
+        "rottnest-island-wadj-rottnest-7k3yfo6dgfn3kish"
+    )
+    assert multi == "rottnest-island-wadj-rottnest-7k3yfo6dgfn3kish"
 
 
 def test_parse_trigger_language_hint():
