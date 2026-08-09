@@ -30,12 +30,12 @@ import {
   CalendarDays,
   Palette,
   PhoneCall,
-  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
-import { QrStyleControls, qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
+import { FeedbackWebThemePicker } from "@/components/feedback-web-theme-picker";
+import { QrStyleControls, qrStylePayload, withQrStyleQuery, type QrStyleValue } from "@/components/qr-style-controls";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -64,9 +64,8 @@ import {
   CATEGORY_TEMPLATES,
   SEASON_TEMPLATES,
   EVENT_TEMPLATES,
-  type SurveyTemplate,
 } from "@/lib/feedback-templates";
-import { buildWebThemePayload, previewThemeUrl, themePreviewQrUrl, webThemeFromApi } from "@/lib/feedback-theme-preview";
+import { buildWebThemePayload, webThemeFromApi, type WebThemeWizardState } from "@/lib/feedback-theme-preview";
 
 export const Route = createFileRoute("/_app/feedback/new")({
   head: () => ({ meta: [{ title: "Create QR survey — VoxBulk" }] }),
@@ -132,7 +131,6 @@ function buildPreviewMessages(
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 type Branch = { id: string; name: string };
-type OverlayMode = "auto" | "fixed";
 
 const STEPS = [
   { id: 1, title: "Industry", icon: Briefcase },
@@ -143,85 +141,6 @@ const STEPS = [
   { id: 6, title: "AI follow-up", icon: PhoneCall },
   { id: 7, title: "Launch", icon: Rocket },
 ] as const;
-
-function TemplatePreview({ tpl, size = "md" }: { tpl: SurveyTemplate; size?: "sm" | "md" }) {
-  return (
-    <div
-      className={cn(
-        "relative overflow-hidden rounded-lg border border-border bg-gradient-to-br",
-        tpl.gradient,
-        size === "sm" ? "aspect-[4/3]" : "aspect-[4/3]",
-      )}
-    >
-      <div className="absolute inset-2 flex flex-col rounded-md bg-background/85 shadow-sm ring-1 ring-black/5 backdrop-blur-sm">
-        <div className="flex items-center gap-1.5 border-b border-border/60 px-2 py-1.5">
-          <span className="size-1.5 rounded-full bg-red-400" />
-          <span className="size-1.5 rounded-full bg-amber-400" />
-          <span className="size-1.5 rounded-full bg-emerald-400" />
-          <span className={cn("ml-auto text-[10px] leading-none", tpl.accent)}>{tpl.emoji}</span>
-        </div>
-        <div className="flex flex-1 flex-col gap-1 p-2">
-          <div className={cn("flex items-center gap-1 truncate text-[9px] font-semibold uppercase tracking-wider", tpl.accent)}>
-            <span className="truncate">{tpl.label}</span>
-          </div>
-          <div className="h-1 w-full rounded-full bg-muted-foreground/20" />
-          <div className="h-1 w-3/4 rounded-full bg-muted-foreground/20" />
-          <div className="mt-auto flex gap-1">
-            <div className={cn("h-3 flex-1 rounded-sm bg-gradient-to-r opacity-90", tpl.gradient)} />
-            <div className={cn("h-3 flex-1 rounded-sm bg-gradient-to-r opacity-70", tpl.gradient)} />
-            <div className={cn("h-3 flex-1 rounded-sm bg-gradient-to-r opacity-50", tpl.gradient)} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TemplateCard({
-  tpl,
-  active,
-  onClick,
-  badge,
-  compact,
-  previewQr,
-}: {
-  tpl: SurveyTemplate;
-  active: boolean;
-  onClick: () => void;
-  badge?: string;
-  compact?: boolean;
-  previewQr?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "group relative flex flex-col gap-1.5 rounded-xl border p-2 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md",
-        active ? "border-primary bg-primary/5 shadow-sm ring-1 ring-primary/30" : "border-border bg-background/60",
-      )}
-    >
-      {badge ? (
-        <span className="absolute right-1.5 top-1.5 z-10 rounded-full bg-primary px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary-foreground shadow-sm">
-          {badge}
-        </span>
-      ) : null}
-      <TemplatePreview tpl={tpl} size={compact ? "sm" : "md"} />
-      <div className="flex items-center gap-1.5 px-0.5">
-        <span className="text-sm leading-none">{tpl.emoji}</span>
-        <span className="truncate text-[11px] font-semibold leading-tight">{tpl.label}</span>
-        {active ? <Check className="ml-auto size-3.5 shrink-0 text-primary" /> : null}
-      </div>
-      {!compact && tpl.desc ? <p className="px-0.5 text-[10px] leading-snug text-muted-foreground">{tpl.desc}</p> : null}
-      {previewQr ? (
-        <div className="mt-1 flex items-center gap-2 rounded-lg border border-border bg-white p-1.5">
-          <img src={previewQr} alt={`Preview ${tpl.label}`} className="size-14 shrink-0" />
-          <p className="text-[10px] leading-snug text-muted-foreground">Scan to preview on your phone</p>
-        </div>
-      ) : null}
-    </button>
-  );
-}
 
 function CreateFeedback() {
   const { duplicate_from: duplicateFrom } = Route.useSearch();
@@ -254,12 +173,12 @@ function CreateFeedback() {
     cornerStyle: "square",
     frameRound: "none",
   });
-  const [baseTemplateId, setBaseTemplateId] = React.useState("auto");
-  const [overlayIds, setOverlayIds] = React.useState<string[]>([]);
-  const [overlayMode, setOverlayMode] = React.useState<OverlayMode>("auto");
-  const [customEventLabel, setCustomEventLabel] = React.useState("");
-  const toggleOverlay = (id: string) =>
-    setOverlayIds((arr) => (arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]));
+  const [webTheme, setWebTheme] = React.useState<WebThemeWizardState>({
+    baseTemplateId: "auto",
+    overlayIds: [],
+    overlayMode: "auto",
+    customEventLabel: "",
+  });
 
   const duplicateInitialized = React.useRef(false);
   React.useEffect(() => {
@@ -289,11 +208,7 @@ function CreateFeedback() {
     );
     setOpenQuestion(source.open_question_enabled !== false);
     setBranches([{ id: "dup1", name: "" }]);
-    const wt = webThemeFromApi(source.web_theme as Record<string, unknown> | undefined);
-    setBaseTemplateId(wt.baseTemplateId);
-    setOverlayIds(wt.overlayIds);
-    setOverlayMode(wt.overlayMode);
-    setCustomEventLabel(wt.customEventLabel);
+    setWebTheme(webThemeFromApi(source.web_theme as Record<string, unknown> | undefined));
     setAiFollowUp(aiFollowUpFromApi(source.ai_follow_up as Record<string, unknown> | undefined));
     setStep(4);
   }, [duplicateFrom, locationsQ.data, subscriptionQ.data]);
@@ -325,16 +240,8 @@ function CreateFeedback() {
     7: consent,
   };
 
-  const webThemePayload = React.useMemo(
-    () =>
-      buildWebThemePayload({
-        baseTemplateId,
-        overlayIds,
-        overlayMode,
-        customEventLabel,
-      }),
-    [baseTemplateId, overlayIds, overlayMode, customEventLabel],
-  );
+  const webThemePayload = React.useMemo(() => buildWebThemePayload(webTheme), [webTheme]);
+  const { baseTemplateId, overlayIds, overlayMode, customEventLabel } = webTheme;
 
   React.useEffect(() => {
     if ((step !== 4 && step !== 5 && step !== 6 && step !== 7) || !industryId || selectedTypeIds.length === 0) return;
@@ -380,33 +287,20 @@ function CreateFeedback() {
     return created;
   };
 
-  const onSaveQr = async () => {
+  const onActivate = async () => {
     if (!industryId || selectedTypeIds.length === 0) return;
+    if (!subscriptionQ.data?.active) {
+      toast.message("Choose a package to activate your QR survey.");
+      window.location.assign("/account/feedback/packages");
+      return;
+    }
     try {
       const created = await saveLocations();
       setCreatedLocations(created);
-      const live = Boolean(subscriptionQ.data?.active);
-      toast.success(live ? "QR survey is live" : "QR survey saved — you have free test scans");
+      toast.success("QR survey is live");
       setDone(true);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save QR survey");
-    }
-  };
-
-  const onPayAndActivate = async () => {
-    if (!industryId || selectedTypeIds.length === 0) return;
-    try {
-      const created = await saveLocations();
-      setCreatedLocations(created);
-      if (subscriptionQ.data?.active) {
-        toast.success("QR survey is live");
-        setDone(true);
-        return;
-      }
-      toast.success("QR saved. Choose a package to activate.");
-      window.location.assign("/account/feedback/packages");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save QR survey");
+      toast.error(e instanceof Error ? e.message : "Could not activate QR survey");
     }
   };
 
@@ -630,183 +524,15 @@ function CreateFeedback() {
                 Pick the web survey skin customers see when they open the link. Scan a preview QR on your phone before you launch.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <section className="space-y-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">1. Base template</p>
-                    <p className="text-xs text-muted-foreground">Auto picks the best match for your industry.</p>
-                  </div>
-                  {baseTemplateId !== "auto" ? (
-                    <button type="button" onClick={() => setBaseTemplateId("auto")} className="text-[11px] font-medium text-primary hover:underline">
-                      Reset to Auto
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <TemplateCard
-                    active={baseTemplateId === "auto"}
-                    onClick={() => setBaseTemplateId("auto")}
-                    tpl={{
-                      id: "auto",
-                      label: `Auto — ${industry?.name ?? "smart pick"}`,
-                      emoji: "🪄",
-                      kind: "base",
-                      gradient: "from-primary/30 via-fuchsia-400/20 to-amber-300/20",
-                      accent: "text-primary",
-                      desc: "Uses your category template automatically.",
-                    }}
-                    badge="Recommended"
-                    previewQr={themePreviewQrUrl(
-                      industry?.slug
-                        ? CATEGORY_TEMPLATES.find((c) => c.industryId === industry.slug)?.id || "survey-temp"
-                        : "survey-temp",
-                      companyName,
-                    )}
-                  />
-                  <TemplateCard
-                    active={baseTemplateId === BASE_TEMPLATE.id}
-                    onClick={() => setBaseTemplateId(BASE_TEMPLATE.id)}
-                    tpl={BASE_TEMPLATE}
-                    previewQr={themePreviewQrUrl(BASE_TEMPLATE.id, companyName)}
-                  />
-                  {CATEGORY_TEMPLATES.filter((c) => !industry || c.industryId === industry.slug).slice(0, 2).map((c) => (
-                    <TemplateCard
-                      key={c.id}
-                      active={baseTemplateId === c.id}
-                      onClick={() => setBaseTemplateId(c.id)}
-                      tpl={c}
-                      badge={industry && c.industryId === industry.slug ? "Your industry" : undefined}
-                      previewQr={themePreviewQrUrl(c.id, companyName)}
-                    />
-                  ))}
-                </div>
-
-                <details className="group rounded-xl border border-border bg-background/40">
-                  <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-2.5 text-sm">
-                    <span className="font-medium">Browse all category templates ({CATEGORY_TEMPLATES.length})</span>
-                    <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
-                  </summary>
-                  <div className="grid gap-3 border-t border-border p-3 sm:grid-cols-3 lg:grid-cols-4">
-                    {CATEGORY_TEMPLATES.map((c) => (
-                      <TemplateCard
-                        key={c.id}
-                        active={baseTemplateId === c.id}
-                        onClick={() => setBaseTemplateId(c.id)}
-                        tpl={c}
-                        compact
-                        previewQr={themePreviewQrUrl(c.id, companyName)}
-                      />
-                    ))}
-                  </div>
-                </details>
-              </section>
-
-              <section className="space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                <div className="flex items-baseline justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-primary">2. Event &amp; seasonal overlays</p>
-                    <p className="text-xs text-muted-foreground">Multi-select any that apply. Empty = base template all year.</p>
-                  </div>
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-primary">
-                    {overlayIds.length} selected
-                  </span>
-                </div>
-
-                <div>
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Seasons</p>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {SEASON_TEMPLATES.map((s) => (
-                      <TemplateCard
-                        key={s.id}
-                        active={overlayIds.includes(s.id)}
-                        onClick={() => toggleOverlay(s.id)}
-                        tpl={s}
-                        compact
-                        previewQr={themePreviewQrUrl(s.id, companyName)}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Events &amp; holidays</p>
-                  <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                    {EVENT_TEMPLATES.map((e) => (
-                      <TemplateCard
-                        key={e.id}
-                        active={overlayIds.includes(e.id)}
-                        onClick={() => toggleOverlay(e.id)}
-                        tpl={e}
-                        compact
-                        previewQr={themePreviewQrUrl(e.id, companyName)}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-                {overlayIds.length > 0 ? (
-                  <>
-                    <div className="grid gap-3 rounded-lg border border-border bg-background/60 p-3 sm:grid-cols-2">
-                      <label
-                        className={cn(
-                          "flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition",
-                          overlayMode === "auto" ? "border-primary bg-primary/10" : "border-border hover:border-primary/40",
-                        )}
-                      >
-                        <input type="radio" name="overlayMode" checked={overlayMode === "auto"} onChange={() => setOverlayMode("auto")} className="mt-1" />
-                        <div>
-                          <p className="flex items-center gap-1.5 text-sm font-semibold">
-                            <Wand2 className="size-3.5 text-primary" /> Auto swap by date
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">Show each overlay during its window, revert to base otherwise.</p>
-                        </div>
-                      </label>
-                      <label
-                        className={cn(
-                          "flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition",
-                          overlayMode === "fixed" ? "border-primary bg-primary/10" : "border-border hover:border-primary/40",
-                        )}
-                      >
-                        <input type="radio" name="overlayMode" checked={overlayMode === "fixed"} onChange={() => setOverlayMode("fixed")} className="mt-1" />
-                        <div>
-                          <p className="flex items-center gap-1.5 text-sm font-semibold">
-                            <Lock className="size-3.5 text-primary" /> Fixed — always on
-                          </p>
-                          <p className="text-[11px] text-muted-foreground">Keep the selected overlays permanently until you change them.</p>
-                        </div>
-                      </label>
-                    </div>
-
-                    <Input
-                      value={customEventLabel}
-                      onChange={(e) => setCustomEventLabel(e.target.value)}
-                      placeholder="Optional: custom event label (e.g. Store anniversary, National Day)"
-                      className="h-9 text-sm"
-                    />
-                  </>
-                ) : null}
-              </section>
-
-              <p className="text-xs text-muted-foreground">
-                Live preview:{" "}
-                <a
-                  href={previewThemeUrl(
-                    baseTemplateId === "auto"
-                      ? industry?.slug
-                        ? CATEGORY_TEMPLATES.find((c) => c.industryId === industry.slug)?.id || "survey-temp"
-                        : "survey-temp"
-                      : baseTemplateId,
-                    companyName,
-                  )}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary underline-offset-2 hover:underline"
-                >
-                  Open web survey preview
-                </a>
-              </p>
+            <CardContent>
+              <FeedbackWebThemePicker
+                value={webTheme}
+                onChange={setWebTheme}
+                companyName={companyName}
+                industryName={industry?.name}
+                industrySlug={industry?.slug}
+                radioName="createFeedbackOverlayMode"
+              />
             </CardContent>
           </Card>
         )}
@@ -1007,10 +733,10 @@ function CreateFeedback() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Rocket className="size-4 text-primary" /> Step 7 · Save QR survey
+                <Rocket className="size-4 text-primary" /> Step 7 · Activate QR survey
               </CardTitle>
               <CardDescription>
-                Save now and test with free scans, or pay to activate live collection. You can pause anytime.
+                Review your setup, style the QR, then activate. An active Customer Feedback subscription is required.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -1026,9 +752,9 @@ function CreateFeedback() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-warning/40 bg-warning/5 px-4 py-3 text-sm">
-                  <p className="font-medium">Save as preview — 20 free test scans included</p>
+                  <p className="font-medium">Subscription required to activate</p>
                   <p className="text-xs text-muted-foreground">
-                    No package needed to save. Free scans are shared across your organisation. Pay &amp; Activate when you are ready for live responses.
+                    Choose a Customer Feedback package to go live and start collecting responses.
                   </p>
                 </div>
               )}
@@ -1057,26 +783,52 @@ function CreateFeedback() {
 
               <div className="rounded-xl border border-border bg-background/40 p-4">
                 <p className="mb-3 text-sm font-medium">QR style</p>
-                <QrStyleControls value={qrStyle} onChange={setQrStyle} showTransparent />
+                <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(200px,260px)] sm:items-start">
+                  <QrStyleControls value={qrStyle} onChange={setQrStyle} showTransparent />
+                  <div className="flex flex-col items-center gap-2">
+                    {(() => {
+                      const baseQr =
+                        previewQr?.qr_image_url ||
+                        buildQrImageUrl(previewQr?.wa_url || "https://wa.me/", 512);
+                      const styledUrl = previewQr?.qr_image_url
+                        ? withQrStyleQuery(previewQr.qr_image_url, qrStyle, 512)
+                        : baseQr;
+                      const transparentBg = qrStyle.transparent
+                        ? {
+                            backgroundImage:
+                              "linear-gradient(45deg,#e5e7eb 25%,transparent 25%),linear-gradient(-45deg,#e5e7eb 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e5e7eb 75%),linear-gradient(-45deg,transparent 75%,#e5e7eb 75%)",
+                            backgroundSize: "16px 16px",
+                            backgroundPosition: "0 0,0 8px,8px -8px,-8px 0",
+                            backgroundColor: "#fff",
+                          }
+                        : { backgroundColor: `#${qrStyle.bg || "ffffff"}` };
+                      return (
+                        <img
+                          key={styledUrl}
+                          src={styledUrl}
+                          alt="QR preview"
+                          className="w-full max-w-[240px] rounded-lg border p-2"
+                          style={transparentBg}
+                        />
+                      );
+                    })()}
+                    <p className="text-center text-xs text-muted-foreground">Live style preview</p>
+                  </div>
+                </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {branches.map((b, idx) => (
-                    <div key={b.id} className="flex items-center gap-3 rounded-xl border border-border bg-background/40 p-3">
-                      <img
-                        src={idx === 0 && previewQr?.qr_image_url ? previewQr.qr_image_url : buildQrImageUrl(previewQr?.wa_url || "https://wa.me/")}
-                        alt="QR"
-                        className="size-16 rounded bg-white p-1"
-                      />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{b.name || "Unnamed branch"}</p>
-                        <p className="truncate text-[11px] text-muted-foreground">
-                          {idx === 0 && previewQr?.trigger_text ? previewQr.trigger_text : previewTrigger(companyName, b.name || undefined)}
-                        </p>
-                      </div>
+              {branches.length > 1 ? (
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {branches.map((b) => (
+                    <div key={b.id} className="rounded-xl border border-border bg-background/40 px-3 py-2.5">
+                      <p className="truncate text-sm font-medium">{b.name || "Unnamed branch"}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {previewTrigger(companyName, b.name || undefined)}
+                      </p>
                     </div>
                   ))}
-              </div>
+                </div>
+              ) : null}
 
               {aiFollowUp.enabled ? (
                 <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 text-xs text-muted-foreground">
@@ -1097,36 +849,26 @@ function CreateFeedback() {
                     I confirm the QR will only be shown to customers in my own venue with their implicit opt-in.
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Required before save. Customers must scan & send the message themselves to start the survey.
+                    Required before activate. Customers must scan &amp; send the message themselves to start the survey.
                   </p>
                 </div>
               </label>
 
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 {!subscriptionQ.data?.active ? (
+                  <Button asChild size="lg" className="gap-1.5">
+                    <Link to="/account/feedback/packages">Choose a package</Link>
+                  </Button>
+                ) : (
                   <Button
                     size="lg"
-                    variant="outline"
                     className="gap-1.5"
                     disabled={!canNext[7] || createM.isPending}
-                    onClick={() => void onPayAndActivate()}
+                    onClick={() => void onActivate()}
                   >
-                    Pay &amp; Activate
+                    <QrCode className="size-4" /> {createM.isPending ? "Activating…" : "Activate QR survey"}
                   </Button>
-                ) : null}
-                <Button
-                  size="lg"
-                  className="gap-1.5"
-                  disabled={!canNext[7] || createM.isPending}
-                  onClick={() => void onSaveQr()}
-                >
-                  <QrCode className="size-4" />{" "}
-                  {createM.isPending
-                    ? "Saving…"
-                    : subscriptionQ.data?.active
-                      ? "Activate QR survey"
-                      : "Save QR"}
-                </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1235,7 +977,6 @@ function Summary({ label, value }: { label: string; value: string }) {
 }
 
 function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; company: string }) {
-  const isPreview = locations.some((l) => String(l.status || "").toLowerCase() === "preview");
   return (
     <Card className="animate-scale-in">
       <CardContent className="flex flex-col items-center gap-5 py-12 text-center">
@@ -1246,13 +987,9 @@ function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; 
           </div>
         </div>
         <div>
-          <h2 className="text-xl font-semibold">
-            {isPreview ? "Your QR surveys are saved" : "Your QR surveys are live 🎉"}
-          </h2>
+          <h2 className="text-xl font-semibold">Your QR surveys are live 🎉</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isPreview
-              ? "Print and test with free scans. Pay & Activate from Saved QR surveys when you are ready for live responses."
-              : "Print these QR codes and place them in each venue. Responses appear in real-time per branch."}
+            Print these QR codes and place them in each venue. Responses appear in real-time per branch.
           </p>
         </div>
         <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1275,17 +1012,11 @@ function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; 
           ))}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          {isPreview ? (
-            <Button asChild className="gap-1.5">
-              <Link to="/account/feedback/packages">Pay &amp; Activate</Link>
-            </Button>
-          ) : (
-            <Button asChild className="gap-1.5">
-              <Link to="/feedback/results">
-                <BarChart3 className="size-4" /> View live results <ArrowRight className="size-4" />
-              </Link>
-            </Button>
-          )}
+          <Button asChild className="gap-1.5">
+            <Link to="/feedback/results">
+              <BarChart3 className="size-4" /> View live results <ArrowRight className="size-4" />
+            </Link>
+          </Button>
           <Button asChild variant="ghost" className="gap-1.5">
             <Link to="/feedback">
               <QrCode className="size-4" /> Saved QR surveys

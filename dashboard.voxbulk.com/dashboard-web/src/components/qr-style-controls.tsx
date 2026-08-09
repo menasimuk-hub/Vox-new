@@ -109,41 +109,49 @@ export function QrStyleControls({ value, onChange, disabled, showTransparent, cl
   const cornersDisabled = disabled || value.moduleStyle === "dots";
 
   return (
-    <div className={cn("grid gap-3", className)}>
+    <div className={cn("grid gap-4", className)}>
       <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label>Colour</Label>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-muted-foreground">Foreground</Label>
           <Input
             type="color"
             value={`#${value.fg.replace("#", "")}`}
             disabled={disabled}
             onChange={(e) => patch({ fg: e.target.value.replace("#", "") })}
+            className="h-10 cursor-pointer p-1"
           />
         </div>
-        <div className="space-y-2">
-          <Label>Background</Label>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-muted-foreground">Background</Label>
           <Input
             type="color"
             value={`#${value.bg.replace("#", "")}`}
             disabled={disabled || Boolean(value.transparent)}
             onChange={(e) => patch({ bg: e.target.value.replace("#", "") })}
+            className="h-10 cursor-pointer p-1"
           />
         </div>
       </div>
 
       {showTransparent ? (
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/20 px-3 py-2.5 text-sm">
           <Checkbox
             checked={Boolean(value.transparent)}
             disabled={disabled}
             onCheckedChange={(v) => patch({ transparent: Boolean(v) })}
+            className="mt-0.5"
           />
-          Transparent background (PNG with no fill — print on any colour)
+          <span>
+            <span className="font-medium">Transparent background</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              PNG with no fill — print on any colour
+            </span>
+          </span>
         </label>
       ) : null}
 
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Modules</Label>
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">Modules</Label>
         <Seg
           options={MODULE_OPTS}
           value={value.moduleStyle}
@@ -155,8 +163,8 @@ export function QrStyleControls({ value, onChange, disabled, showTransparent, cl
         ) : null}
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Corners</Label>
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">Corners</Label>
         <Seg
           options={CORNER_OPTS}
           value={value.moduleStyle === "dots" ? "square" : value.cornerStyle}
@@ -165,8 +173,8 @@ export function QrStyleControls({ value, onChange, disabled, showTransparent, cl
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Frame</Label>
+      <div className="space-y-2">
+        <Label className="text-xs font-medium text-muted-foreground">Frame</Label>
         <Seg
           options={FRAME_OPTS}
           value={value.frameRound}
