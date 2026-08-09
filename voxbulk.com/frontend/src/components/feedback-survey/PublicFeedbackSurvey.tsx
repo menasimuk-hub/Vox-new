@@ -21,7 +21,7 @@ type SessionStatusResponse = AdvanceResponse & {
   session_status?: string;
 };
 
-type Phase = "loading" | "error" | "choose" | "survey" | "thanks";
+type Phase = "loading" | "error" | "choose" | "survey" | "callback" | "thanks";
 
 type ReasonOverlay = {
   reason_options?: string[];
@@ -426,6 +426,8 @@ export function PublicFeedbackSurvey({
   const [detailHasVoice, setDetailHasVoice] = useState(false);
   const [reasonHasVoice, setReasonHasVoice] = useState(false);
   const [choiceSelection, setChoiceSelection] = useState("");
+  const [callbackPhone, setCallbackPhone] = useState("");
+  const [callbackWants, setCallbackWants] = useState(false);
 
   const sendQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const navEpochRef = useRef(0);
@@ -557,6 +559,16 @@ export function PublicFeedbackSurvey({
     return navEpochRef.current;
   };
 
+  const aiFollowUpEnabled = Boolean(payload?.ai_follow_up?.enabled);
+
+  const goThanksOrCallback = useCallback(() => {
+    if (aiFollowUpEnabled && sessionId && !isPreview) {
+      setPhase("callback");
+      return;
+    }
+    setPhase("thanks");
+  }, [aiFollowUpEnabled, sessionId, isPreview]);
+
   const goToStep = useCallback(
     (
       idx: number,
@@ -573,14 +585,14 @@ export function PublicFeedbackSurvey({
       setChoiceSelection(answersByStepRef.current[idx] ?? "");
       if (idx >= stepCount) {
         setReasonOverlay(null);
-        setPhase("thanks");
+        goThanksOrCallback();
         return;
       }
       setStepIndex(idx);
       setQuestion(opts?.question ?? questions[idx] ?? null);
       setReasonOverlay(opts?.reasonAfter ?? null);
     },
-    [questions, stepCount],
+    [questions, stepCount, goThanksOrCallback],
   );
 
   const applyAdvance = useCallback(
@@ -590,7 +602,7 @@ export function PublicFeedbackSurvey({
         setTellUsMorePending(false);
         setDeadlineAt(null);
         setReasonOverlay(null);
-        setPhase("thanks");
+        goThanksOrCallback();
         return;
       }
       if (data.pending_tell_us_more) {
@@ -607,7 +619,7 @@ export function PublicFeedbackSurvey({
       }
       goToStep(fallbackNext);
     },
-    [goToStep],
+    [goToStep, goThanksOrCallback],
   );
 
   const sessionQuery = `?token=${encodeURIComponent(token)}`;
@@ -1020,6 +1032,102 @@ export function PublicFeedbackSurvey({
       ) : null}
 
       {phase === "thanks" ? <SurveyThankYou theme={theme} copy={copy} Art={Art} /> : null}
+
+      {phase === "callback" && payload ? (
+        <main
+          className={`relative grid min-h-[100svh] place-items-center overflow-hidden px-6 py-10 ${theme.bgClass}`}
+          style={{ color: theme.ink }}
+        >
+          <Art />
+          <div
+            className="relative w-full max-w-md rounded-2xl border p-6 shadow-lift"
+            style={{ background: theme.card, borderColor: theme.border }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: theme.sub }}>
+              Optional callback
+            </p>
+            <h1 className="mt-2 font-display text-[26px] leading-[1.15]">Want us to call you back?</h1>
+            <p className="mt-2 text-[14px] leading-relaxed" style={{ color: theme.sub }}>
+              If something was wrong, we can ring you to help. Your number is only used for this feedback follow-up.
+            </p>
+            <label className="mt-5 flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-1 size-4"
+                checked={callbackWants}
+                onChange={(e) => setCallbackWants(e.target.checked)}
+              />
+              <span className="text-sm">Yes — OK to call me back about this feedback</span>
+            </label>
+            {callbackWants ? (
+              <div className="mt-4 space-y-2">
+                <label className="text-[12px] font-medium" style={{ color: theme.sub }}>
+                  Mobile number
+                </label>
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="+44 7…"
+                  value={callbackPhone}
+                  onChange={(e) => setCallbackPhone(e.target.value)}
+                  className="w-full rounded-xl border px-3 py-2.5 text-sm outline-none"
+                  style={{ borderColor: theme.border, background: "transparent", color: theme.ink }}
+                />
+              </div>
+            ) : null}
+            {error ? <p className="mt-3 text-center text-[13px] text-red-600">{error}</p> : null}
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                disabled={busy}
+                className="flex-1 rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                style={{ background: theme.gradientButton }}
+                onClick={() => {
+                  void (async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      if (callbackWants) {
+                        await apiFetch(
+                          `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/callback-consent${sessionQuery}`,
+                          {
+                            method: "POST",
+                            body: JSON.stringify({ consent: true, phone: callbackPhone.trim() }),
+                          },
+                        );
+                      } else {
+                        await apiFetch(
+                          `/public/feedback/survey/sessions/${encodeURIComponent(sessionId)}/callback-consent${sessionQuery}`,
+                          {
+                            method: "POST",
+                            body: JSON.stringify({ consent: false }),
+                          },
+                        );
+                      }
+                      setPhase("thanks");
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : "Could not save callback preference");
+                    } finally {
+                      setBusy(false);
+                    }
+                  })();
+                }}
+              >
+                {busy ? "Saving…" : "Continue"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="rounded-xl border px-4 py-3 text-sm font-medium"
+                style={{ borderColor: theme.border, color: theme.ink }}
+                onClick={() => setPhase("thanks")}
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        </main>
+      ) : null}
 
       {phase === "survey" && payload && q ? (
         <main className={`relative flex h-[100svh] flex-col overflow-hidden ${theme.bgClass}`} style={{ color: theme.ink }}>

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -375,6 +375,63 @@ def get_results(
         survey_type_id=survey_type_id,
         created_by_user_id=_campaign_owner_user_id(db, principal),
     )
+
+
+@router.get("/results/voice-notes/{job_id}/audio")
+def get_feedback_voice_note_audio(
+    job_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import FileResponse
+
+    _require_feedback_enabled(db, principal.org_id)
+    path = FeedbackResultsService.resolve_voice_audio_path(
+        db, org_id=principal.org_id, job_id=job_id
+    )
+    if path is None:
+        raise HTTPException(status_code=404, detail="Audio not found")
+    media = "audio/webm"
+    suffix = path.suffix.lower()
+    if suffix in {".ogg", ".oga"}:
+        media = "audio/ogg"
+    elif suffix in {".mp3", ".mpeg"}:
+        media = "audio/mpeg"
+    elif suffix == ".wav":
+        media = "audio/wav"
+    elif suffix in {".m4a", ".mp4"}:
+        media = "audio/mp4"
+    return FileResponse(path, media_type=media)
+
+
+@router.post("/results/sessions/{session_id}/ai-follow-up/start")
+def start_session_ai_follow_up(
+    session_id: str,
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_edit_org_profile(
+            db, org_id=principal.org_id, user_id=principal.user_id
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    body = payload or {}
+    from app.services.customer_feedback.feedback_ai_followup_service import start_test_ai_followup
+
+    try:
+        return start_test_ai_followup(
+            db,
+            principal.org_id,
+            session_id,
+            visitor_phone=str(body.get("visitor_phone") or body.get("phone") or "").strip() or None,
+            callback_consent=bool(body.get("callback_consent", True)),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/results/compare")

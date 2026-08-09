@@ -85,6 +85,17 @@ class FeedbackResultsService:
         for resp in all_responses:
             responses_by_session.setdefault(resp.session_id, []).append(resp)
 
+        from app.services.customer_feedback.feedback_voice_note_service import (
+            attach_voice_fields,
+            jobs_by_response_ids,
+        )
+
+        voice_jobs = jobs_by_response_ids(
+            db,
+            org_id=org_id,
+            response_ids=[str(r.id) for r in all_responses],
+        )
+
         table_rows = all_responses[:row_limit]
         flat_rows = []
         for r in table_rows:
@@ -96,29 +107,30 @@ class FeedbackResultsService:
                 survey_type_id=str(r.survey_type_id),
                 question_key=str(r.question_key),
             )
-            flat_rows.append(
-                {
-                    "id": r.id,
-                    "session_id": r.session_id,
-                    "location_id": r.location_id,
-                    "location_name": loc.name if loc else None,
-                    "survey_type_id": r.survey_type_id,
-                    "survey_type_name": st.name if st else None,
-                    "question_key": r.question_key,
-                    "question": question_label,
-                    "answer_text": r.answer_text_en or r.answer_text,
-                    "original_text": r.original_text,
-                    "answer_text_en": r.answer_text_en or r.answer_text,
-                    "translated_text": r.answer_text_en or r.answer_text,
-                    "translation_status": getattr(r, "translation_status", None),
-                    "transcription_status": getattr(r, "transcription_status", None),
-                    "detected_language": getattr(r, "detected_language", None),
-                    "answer_source": getattr(r, "answer_source", None) or "text",
-                    "visitor_phone": sess.visitor_phone if sess else None,
-                    "visitor_language": getattr(sess, "detected_language", None) if sess else None,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                }
-            )
+            row = {
+                "id": r.id,
+                "session_id": r.session_id,
+                "location_id": r.location_id,
+                "location_name": loc.name if loc else None,
+                "survey_type_id": r.survey_type_id,
+                "survey_type_name": st.name if st else None,
+                "question_key": r.question_key,
+                "question": question_label,
+                "answer_text": r.answer_text_en or r.answer_text,
+                "original_text": r.original_text,
+                "answer_text_en": r.answer_text_en or r.answer_text,
+                "translated_text": r.answer_text_en or r.answer_text,
+                "translation_status": getattr(r, "translation_status", None),
+                "transcription_status": getattr(r, "transcription_status", None),
+                "detected_language": getattr(r, "detected_language", None),
+                "answer_source": getattr(r, "answer_source", None) or "text",
+                "visitor_phone": sess.visitor_phone if sess else None,
+                "visitor_language": getattr(sess, "detected_language", None) if sess else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            if str(row["answer_source"]).lower() in {"voice", "voice_note"}:
+                attach_voice_fields(row, response_id=str(r.id), jobs=voice_jobs)
+            flat_rows.append(row)
 
         aggregates = build_aggregates(all_responses, templates)
         respondents = build_respondents(
@@ -126,6 +138,7 @@ class FeedbackResultsService:
             responses_by_session,
             templates,
             locations_by_id,
+            voice_jobs_by_response=voice_jobs,
         )
         from app.services.customer_feedback.feedback_ai_followup_service import (
             attach_ai_followup_to_feedback_respondents,
@@ -140,7 +153,12 @@ class FeedbackResultsService:
             location_id=location_id,
         )
         weekly_trend = build_weekly_trend(sessions, responses_by_session)
-        open_comments = build_open_comments(all_responses, templates, themes=[])
+        open_comments = build_open_comments(
+            all_responses,
+            templates,
+            themes=[],
+            voice_jobs_by_response=voice_jobs,
+        )
 
         return {
             "locations": locations,
@@ -155,6 +173,7 @@ class FeedbackResultsService:
             "templates": templates,
             "rows": flat_rows,
             "survey_types": survey_types_for_locations(db, locations),
+            "voice_jobs_by_response": voice_jobs,
         }
 
     @staticmethod
@@ -208,10 +227,12 @@ class FeedbackResultsService:
             survey_type_id=survey_type_id,
             created_by_user_id=created_by_user_id,
         )
+        voice_jobs = data.get("voice_jobs_by_response") or {}
         open_comments = build_open_comments(
             data["all_responses"],
             data["templates"],
             themes=[],
+            voice_jobs_by_response=voice_jobs,
         )
         ai = FeedbackInsightsService.get_or_generate(
             db,
@@ -227,8 +248,15 @@ class FeedbackResultsService:
                 data["all_responses"],
                 data["templates"],
                 themes=ai.get("themes") if isinstance(ai.get("themes"), list) else [],
+                voice_jobs_by_response=voice_jobs,
             )
         return {"ok": True, "ai": ai, "open_comments": open_comments}
+
+    @staticmethod
+    def resolve_voice_audio_path(db: Session, *, org_id: str, job_id: str):
+        from app.services.customer_feedback.feedback_voice_note_service import resolve_voice_audio_path as _resolve
+
+        return _resolve(db, org_id=org_id, job_id=job_id)
 
     @staticmethod
     def export_payload(

@@ -293,12 +293,32 @@ def _build_followup_instructions(
     return greeting, instructions
 
 
-def _resolve_followback_assistant(db: Session, org_id: str) -> tuple[str, Any | None]:
+def _resolve_followback_assistant(
+    db: Session,
+    org_id: str,
+    *,
+    location: FeedbackLocation | None = None,
+    agent_id: str | None = None,
+) -> tuple[str, Any | None]:
     from app.core.config import get_settings
     from app.core.agent_services import SERVICE_FEEDBACK_FOLLOWUP, SERVICE_SURVEY
     from app.models.agent import AgentDefinition
     from app.services.agent_service_resolver import resolve_agent_for_org_service
     from app.services.telnyx_assistant_service import normalize_telnyx_assistant_id
+
+    configured_agent_id = str(agent_id or "").strip()
+    if not configured_agent_id and location is not None:
+        cfg = load_ai_follow_up_from_location(location)
+        configured_agent_id = str(cfg.get("agent_id") or cfg.get("agentId") or "").strip()
+
+    if configured_agent_id:
+        picked = db.get(AgentDefinition, configured_agent_id)
+        if (
+            picked is not None
+            and bool(getattr(picked, "is_active", False))
+            and str(picked.telnyx_assistant_id or "").strip()
+        ):
+            return normalize_telnyx_assistant_id(picked.telnyx_assistant_id), picked
 
     for service_key in (SERVICE_FEEDBACK_FOLLOWUP, SERVICE_SURVEY):
         try:
@@ -500,12 +520,18 @@ def _settle_followup_call_billing(
     return billing
 
 
+def _session_has_callback_consent(session: FeedbackSession) -> bool:
+    return getattr(session, "callback_consent", None) is True
+
+
 def schedule_if_eligible(db: Session, *, session: FeedbackSession, location: FeedbackLocation) -> bool:
     """Enqueue AI follow-up when config enabled and respondent is eligible."""
     cfg = load_ai_follow_up_from_location(location)
     if not cfg.get("enabled"):
         return False
     if not _callable_phone(session.visitor_phone):
+        return False
+    if not _session_has_callback_consent(session):
         return False
     if _is_arabic_session(session):
         return False
@@ -552,6 +578,7 @@ def schedule_if_eligible(db: Session, *, session: FeedbackSession, location: Fee
             "session_summary": summary,
             "why_unhappy": summary.get("why_unhappy"),
             "scheduled_reason": "low_rating_no_written_reason",
+            "agent_id": str(cfg.get("agent_id") or cfg.get("agentId") or "").strip() or None,
         },
     )
     db.add(job)
@@ -562,6 +589,118 @@ def schedule_if_eligible(db: Session, *, session: FeedbackSession, location: Fee
         scheduled_at.isoformat(),
     )
     return True
+
+
+def start_test_ai_followup(
+    db: Session,
+    org_id: str,
+    session_id: str,
+    *,
+    visitor_phone: str | None = None,
+    callback_consent: bool = True,
+) -> dict[str, Any]:
+    """Create (or reuse) a follow-up job and dispatch immediately for dashboard testing."""
+    from app.models.customer_feedback import FeedbackAiFollowUpJob
+
+    session = db.get(FeedbackSession, session_id)
+    if session is None or str(session.org_id) != str(org_id):
+        raise ValueError("Feedback session not found")
+
+    phone = str(visitor_phone or session.visitor_phone or "").strip()
+    if phone and phone != str(session.visitor_phone or ""):
+        session.visitor_phone = phone
+    if callback_consent:
+        session.callback_consent = True
+    db.add(session)
+    db.flush()
+
+    if not _callable_phone(session.visitor_phone):
+        raise ValueError("A callable phone number is required for AI follow-up")
+    if not _session_has_callback_consent(session):
+        raise ValueError("Callback consent is required for AI follow-up")
+
+    location = db.get(FeedbackLocation, session.location_id)
+    if location is None or str(location.org_id) != str(org_id):
+        raise ValueError("Feedback location not found")
+
+    cfg = dict(load_ai_follow_up_from_location(location) or {})
+    cfg["force_immediate"] = True
+    delay_hours = resolve_followup_delay_hours(cfg)
+    scheduled_at = datetime.now(timezone.utc) + timedelta(hours=delay_hours)
+
+    job = db.execute(
+        select(FeedbackAiFollowUpJob).where(FeedbackAiFollowUpJob.session_id == session.id)
+    ).scalar_one_or_none()
+    now = datetime.utcnow()
+    if job is None:
+        job = FeedbackAiFollowUpJob(
+            id=str(uuid.uuid4()),
+            org_id=session.org_id,
+            location_id=session.location_id,
+            session_id=session.id,
+            visitor_phone=session.visitor_phone,
+            business_context=str(cfg.get("business_context") or cfg.get("businessContext") or "").strip(),
+            promo_enabled=bool(cfg.get("promo_enabled") or cfg.get("promoEnabled")),
+            promo_code=str(cfg.get("promo_code") or cfg.get("promoCode") or "").strip(),
+            promo_description=str(cfg.get("promo_description") or cfg.get("promoDescription") or "").strip(),
+            scheduled_at=scheduled_at.replace(tzinfo=None),
+            status="scheduled",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(job)
+    else:
+        if str(job.status or "").lower() in {"dispatched", "completed"}:
+            raise ValueError(f"AI follow-up already {job.status}")
+        job.visitor_phone = session.visitor_phone
+        job.business_context = str(cfg.get("business_context") or cfg.get("businessContext") or "").strip()
+        job.promo_enabled = bool(cfg.get("promo_enabled") or cfg.get("promoEnabled"))
+        job.promo_code = str(cfg.get("promo_code") or cfg.get("promoCode") or "").strip()
+        job.promo_description = str(cfg.get("promo_description") or cfg.get("promoDescription") or "").strip()
+        job.scheduled_at = scheduled_at.replace(tzinfo=None)
+        job.status = "scheduled"
+        job.updated_at = now
+        db.add(job)
+
+    summary = _build_session_summary(db, session.id)
+    _set_job_outcome(
+        job,
+        {
+            "session_summary": summary,
+            "why_unhappy": summary.get("why_unhappy"),
+            "scheduled_reason": "dashboard_test_force_immediate",
+            "force_immediate": True,
+            "agent_id": str(cfg.get("agent_id") or cfg.get("agentId") or "").strip() or None,
+        },
+    )
+    db.commit()
+    db.refresh(job)
+
+    try:
+        call_id = _dispatch_job(db, job)
+        job.status = "dispatched"
+        job.call_id = call_id
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+    except FollowUpDefer as exc:
+        job.scheduled_at = exc.until or _next_calling_window_utc(db, job.org_id, str(job.visitor_phone or ""))
+        _set_job_outcome(job, {"defer_reason": exc.reason, "deferred_at": datetime.utcnow().isoformat()})
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+    except FollowUpSkip as exc:
+        job.status = exc.status
+        _set_job_outcome(job, {"skip_reason": exc.reason})
+        job.updated_at = datetime.utcnow()
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+        raise ValueError(exc.reason) from exc
+
+    return {"ok": True, "job": job_to_report_dict(job)}
 
 
 def process_due_jobs(db: Session, *, limit: int = 20) -> int:
@@ -626,7 +765,13 @@ def _dispatch_job(db: Session, job) -> str | None:
 
     _pre_dial_guards(db, job, org)
 
-    assistant_id, agent = _resolve_followback_assistant(db, job.org_id)
+    outcome_agent_id = str((_job_outcome(job) or {}).get("agent_id") or "").strip() or None
+    assistant_id, agent = _resolve_followback_assistant(
+        db,
+        job.org_id,
+        location=location,
+        agent_id=outcome_agent_id,
+    )
     if not assistant_id:
         raise RuntimeError("No Telnyx follow-back assistant configured")
 

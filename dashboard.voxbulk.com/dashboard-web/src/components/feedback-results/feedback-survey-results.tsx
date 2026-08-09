@@ -25,6 +25,7 @@ import {
   Filter,
   MessageSquareText,
   Phone,
+  PhoneCall,
   Search,
   Smile,
   Sparkles,
@@ -37,6 +38,7 @@ import {
 
 import { PageHeader } from "@/components/page-header";
 import { AiFollowUpAssistancePanel, AiFollowUpStatusIcon } from "@/components/ai-follow-up-report";
+import { InterviewRecordingPlayer } from "@/components/interview-recording-player";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,6 +50,8 @@ import { MapPin } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { SortHeader, useTableSort } from "@/components/sortable-table";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
+import { toast } from "sonner";
 import type {
   BilingualAnswer,
   FeedbackSurveyResultsData,
@@ -65,6 +69,7 @@ export type FeedbackSurveyResultsProps = {
   onExportCsv: () => void;
   headerActions?: React.ReactNode;
   insightsLoading?: boolean;
+  onRefresh?: () => void;
 };
 
 export function FeedbackSurveyResults({
@@ -76,6 +81,7 @@ export function FeedbackSurveyResults({
   onExportCsv,
   headerActions,
   insightsLoading,
+  onRefresh,
 }: FeedbackSurveyResultsProps) {
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
@@ -486,6 +492,7 @@ export function FeedbackSurveyResults({
         open={!!openRespondent}
         onOpenChange={(v) => !v && setOpenId(null)}
         respondent={openRespondent}
+        onRefresh={onRefresh}
       />
     </div>
   );
@@ -633,8 +640,16 @@ function VoiceCard({ v }: { v: VoiceComment }) {
         </span>
         <Badge variant="outline" className="text-[10px]">{v.reason}</Badge>
       </div>
+      {v.audioUrl ? (
+        <div className="mb-3">
+          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Original audio
+          </p>
+          <InterviewRecordingPlayer playPath={v.audioUrl} durationLabel="Voice note" />
+        </div>
+      ) : null}
       <p className="mb-2 text-[11px] uppercase tracking-wider text-muted-foreground">
-        {transcribing ? "Voice" : "English"} · {v.question}
+        {transcribing ? "Voice" : "Transcript (auto-detected)"} · {v.question}
       </p>
       {transcribing ? (
         <p className="text-sm font-medium text-warning">Transcribing…</p>
@@ -645,7 +660,9 @@ function VoiceCard({ v }: { v: VoiceComment }) {
       )}
       {v.originalTranscript ? (
         <div className="mt-2 space-y-1">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Original</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Original transcript (auto-detected language)
+          </p>
           <p className="rounded-md bg-muted/30 p-2 text-sm leading-relaxed" dir="auto">
             {v.originalTranscript}
           </p>
@@ -808,9 +825,18 @@ function BilingualAnswerBlock({ label, text }: { label: string; text: BilingualA
 }
 
 function RespondentSheet({
-  open, onOpenChange, respondent,
-}: { open: boolean; onOpenChange: (v: boolean) => void; respondent: Respondent | null }) {
+  open, onOpenChange, respondent, onRefresh,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  respondent: Respondent | null;
+  onRefresh?: () => void;
+}) {
+  const [startingCall, setStartingCall] = React.useState(false);
   if (!respondent) return null;
+  const canTestCall =
+    respondent.type === "mobile" ||
+    (Boolean(respondent.mobile) && !String(respondent.mobile).startsWith("web:"));
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
@@ -837,6 +863,39 @@ function RespondentSheet({
               <p className="mt-0.5 text-muted-foreground">This customer answered "no" to recommending you and rated multiple questions poor.</p>
             </div>
           )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              className="gap-1.5"
+              disabled={startingCall || !canTestCall}
+              onClick={() => {
+                void (async () => {
+                  setStartingCall(true);
+                  try {
+                    await apiFetch(`/customer-feedback/results/sessions/${encodeURIComponent(respondent.id)}/ai-follow-up/start`, {
+                      method: "POST",
+                      body: JSON.stringify({
+                        callback_consent: true,
+                        visitor_phone: respondent.type === "mobile" ? respondent.mobile : undefined,
+                      }),
+                    });
+                    toast.success("AI follow-up call started — results appear when the call finishes.");
+                    onRefresh?.();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Could not start AI call");
+                  } finally {
+                    setStartingCall(false);
+                  }
+                })();
+              }}
+            >
+              <PhoneCall className="size-3.5" />
+              {startingCall ? "Starting…" : "Start AI call follow-back"}
+            </Button>
+            {!canTestCall ? (
+              <p className="text-[11px] text-muted-foreground">Needs a mobile number for testing.</p>
+            ) : null}
+          </div>
           <AiFollowUpAssistancePanel report={respondent.aiFollowUp} />
         </SheetHeader>
 

@@ -80,6 +80,7 @@ export type VoiceComment = {
   translationPending?: boolean;
   reason: string;
   question: string;
+  audioUrl?: string | null;
 };
 
 const TRANSLATION_UNAVAILABLE = "[Translation unavailable]";
@@ -398,6 +399,7 @@ export function mapFeedbackResults(
           (english === TRANSLATION_UNAVAILABLE && Boolean(original)),
         reason: String(c.theme || "Feedback"),
         question: c.sentiment === "negative" ? "Why poor?" : "Anything else?",
+        audioUrl: c.audio_url || (c.voice_note_job_id ? `/customer-feedback/results/voice-notes/${c.voice_note_job_id}/audio` : null),
       };
     });
 

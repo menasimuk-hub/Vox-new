@@ -223,7 +223,7 @@ class FeedbackWhatsappService:
             select(FeedbackSession)
             .where(
                 FeedbackSession.visitor_phone == from_phone,
-                FeedbackSession.status == "active",
+                FeedbackSession.status.in_(("active", "awaiting_callback_consent")),
                 FeedbackSession.started_at >= cutoff,
             )
             .order_by(FeedbackSession.started_at.desc())
@@ -289,8 +289,6 @@ class FeedbackWhatsappService:
                 return {"handled": True, "reason": "units_exhausted", "org_id": location.org_id}
 
         FeedbackLocationService.record_scan(db, location)
-        if billing_mode == "preview":
-            FeedbackBillingService.increment_preview_test(db, location.org_id)
         repair_survey_config_if_needed(db, location)
         now = datetime.utcnow()
         session = FeedbackSession(
@@ -357,11 +355,8 @@ class FeedbackWhatsappService:
             db.commit()
             return {"handled": True, "reason": "send_failed", "org_id": location.org_id}
 
-        if billing_mode == "live":
-            FeedbackBillingService.consume_unit(db, location.org_id)
-            session.units_charged = True
-        else:
-            session.units_charged = False
+        FeedbackBillingService.consume_unit(db, location.org_id)
+        session.units_charged = True
         db.add(session)
         db.commit()
         return {
@@ -566,43 +561,9 @@ class FeedbackWhatsappService:
 
         steps = FeedbackWhatsappService._steps_for_location(db, location)
         if int(session.current_step or 0) >= len(steps):
-            session.status = "completed"
-            session.completed_at = datetime.utcnow()
-            db.add(session)
-            db.commit()
-            from app.services.customer_feedback.feedback_ai_followup_service import schedule_if_eligible
-
-            try:
-                schedule_if_eligible(db, session=session, location=location)
-            except Exception:
-                logger.exception("feedback_ai_followup_schedule_failed session_id=%s", session.id)
-            thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
-            thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
-            sent = FeedbackWhatsappService._send_wa(
-                db,
-                to_number=session.visitor_phone,
-                body=thank_body,
-                org_id=session.org_id,
-                tpl=thank_tpl,
-                location=location,
-                require_template=thank_tpl is not None,
+            return FeedbackWhatsappService._finish_or_ask_callback_consent(
+                db, session=session, location=location
             )
-            if not sent and thank_body:
-                logger.error(
-                    "feedback_wa_thank_you_failed session_id=%s location_id=%s",
-                    session.id,
-                    location.id,
-                )
-                FeedbackWhatsappService._send_wa(
-                    db,
-                    to_number=session.visitor_phone,
-                    body=thank_body,
-                    org_id=session.org_id,
-                    tpl=None,
-                    location=location,
-                    require_template=False,
-                )
-            return {"handled": True, "completed": True}
 
         next_step = steps[int(session.current_step or 0)]
         next_tpl = template_for_step(db, location, next_step, language=session.detected_language)
@@ -628,6 +589,74 @@ class FeedbackWhatsappService:
         return {"handled": True, "session_id": session.id}
 
     @staticmethod
+    def _finish_or_ask_callback_consent(
+        db: Session,
+        *,
+        session: FeedbackSession,
+        location: FeedbackLocation,
+    ) -> dict[str, Any]:
+        from app.services.customer_feedback.feedback_ai_followup_service import (
+            load_ai_follow_up_from_location,
+            schedule_if_eligible,
+        )
+
+        cfg = load_ai_follow_up_from_location(location)
+        ai_enabled = bool(cfg.get("enabled"))
+        if ai_enabled and session.callback_consent is None:
+            session.status = "awaiting_callback_consent"
+            db.add(session)
+            db.commit()
+            FeedbackWhatsappService._send_wa(
+                db,
+                to_number=session.visitor_phone,
+                body=(
+                    "Thanks for your feedback. If something was wrong, may we call you back "
+                    "on this number to help? Reply Yes or No."
+                ),
+                org_id=session.org_id,
+                tpl=None,
+                location=location,
+                require_template=False,
+            )
+            return {"handled": True, "awaiting_callback_consent": True, "session_id": session.id}
+
+        session.status = "completed"
+        session.completed_at = datetime.utcnow()
+        db.add(session)
+        db.commit()
+        try:
+            schedule_if_eligible(db, session=session, location=location)
+        except Exception:
+            logger.exception("feedback_ai_followup_schedule_failed session_id=%s", session.id)
+        thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
+        thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
+        sent = FeedbackWhatsappService._send_wa(
+            db,
+            to_number=session.visitor_phone,
+            body=thank_body,
+            org_id=session.org_id,
+            tpl=thank_tpl,
+            location=location,
+            require_template=thank_tpl is not None,
+        )
+        if not sent and thank_body:
+            logger.error(
+                "feedback_wa_thank_you_failed session_id=%s location_id=%s",
+                session.id,
+                location.id,
+            )
+            FeedbackWhatsappService._send_wa(
+                db,
+                to_number=session.visitor_phone,
+                body=thank_body,
+                org_id=session.org_id,
+                tpl=None,
+                location=location,
+                require_template=False,
+            )
+        return {"handled": True, "completed": True}
+
+    @staticmethod
     def _advance_session(
         db: Session,
         *,
@@ -642,6 +671,30 @@ class FeedbackWhatsappService:
             db.add(session)
             db.commit()
             return {"handled": True, "reason": "missing_location"}
+
+        if str(session.status or "") == "awaiting_callback_consent":
+            from app.services.customer_feedback.feedback_answer_service import is_opt_in_no, is_opt_in_yes
+
+            if is_opt_in_yes(db, answer=answer, tpl=None, detected_language=session.detected_language):
+                session.callback_consent = True
+            elif is_opt_in_no(db, answer=answer, tpl=None, detected_language=session.detected_language):
+                session.callback_consent = False
+            else:
+                FeedbackWhatsappService._send_wa(
+                    db,
+                    to_number=session.visitor_phone,
+                    body="Please reply Yes or No — may we call you back on this number?",
+                    org_id=session.org_id,
+                    tpl=None,
+                    location=location,
+                    require_template=False,
+                )
+                return {"handled": True, "awaiting_callback_consent": True, "session_id": session.id}
+            db.add(session)
+            db.commit()
+            return FeedbackWhatsappService._finish_or_ask_callback_consent(
+                db, session=session, location=location
+            )
 
         state = load_feedback_session_state(session)
         if is_tell_us_more_pending(state):

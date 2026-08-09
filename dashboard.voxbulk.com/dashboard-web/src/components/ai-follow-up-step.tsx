@@ -7,7 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
 import { cn } from "@/lib/utils";
+import { agentRegionCode, agentsForRegion, buildRegionMenuOptions } from "@/lib/interview-agents";
+import { pickDefaultInterviewAgent, useInterviewAgents, type InterviewAgent } from "@/lib/queries";
+
+const EMPTY_AGENTS: InterviewAgent[] = [];
 
 export type AiFollowUpConfig = {
   enabled: boolean;
@@ -16,6 +21,7 @@ export type AiFollowUpConfig = {
   promoCode: string;
   promoDescription: string;
   delayHours: "24" | "48";
+  agentId: string;
 };
 
 export function defaultAiFollowUp(): AiFollowUpConfig {
@@ -26,6 +32,7 @@ export function defaultAiFollowUp(): AiFollowUpConfig {
     promoCode: "",
     promoDescription: "",
     delayHours: "24",
+    agentId: "",
   };
 }
 
@@ -37,6 +44,7 @@ export function aiFollowUpToApi(config: AiFollowUpConfig) {
     promo_code: config.promoCode.trim(),
     promo_description: config.promoDescription.trim(),
     delay_hours: Number(config.delayHours),
+    agent_id: config.agentId.trim() || "",
   };
 }
 
@@ -50,6 +58,7 @@ export function aiFollowUpFromApi(raw?: Record<string, unknown> | null): AiFollo
     promoCode: String(raw.promo_code ?? raw.promoCode ?? ""),
     promoDescription: String(raw.promo_description ?? raw.promoDescription ?? ""),
     delayHours: delay === 48 ? "48" : "24",
+    agentId: String(raw.agent_id ?? raw.agentId ?? ""),
   };
 }
 
@@ -64,6 +73,48 @@ export function AiFollowUpStep({
 }) {
   const set = <K extends keyof AiFollowUpConfig>(k: K, v: AiFollowUpConfig[K]) =>
     onChange({ ...config, [k]: v });
+
+  const agentsQ = useInterviewAgents();
+  const agents = agentsQ.data ?? EMPTY_AGENTS;
+  const [selectedRegion, setSelectedRegion] = React.useState("GB");
+  const regionAgents = React.useMemo(() => agentsForRegion(agents, selectedRegion), [agents, selectedRegion]);
+  const defaultAgent = pickDefaultInterviewAgent(regionAgents.length ? regionAgents : agents);
+  const resolvedAgentId = config.agentId || defaultAgent?.id || "";
+
+  React.useEffect(() => {
+    if (!config.enabled || !agents.length) return;
+
+    const regionOptions = buildRegionMenuOptions(agents);
+    if (!regionOptions.length) return;
+
+    let nextRegion = String(selectedRegion || "GB").trim().toUpperCase();
+    if (!regionOptions.some((o) => o.code === nextRegion)) {
+      nextRegion = regionOptions[0]!.code;
+    }
+
+    let nextAgentId = config.agentId;
+    const selectedAgentRow = config.agentId ? agents.find((a) => a.id === config.agentId) : undefined;
+    if (selectedAgentRow) {
+      const agentRegion = agentRegionCode(selectedAgentRow);
+      if (agentsForRegion(agents, agentRegion).some((a) => a.id === config.agentId)) {
+        nextRegion = agentRegion;
+      } else {
+        const pool = agentsForRegion(agents, nextRegion);
+        nextAgentId = pickDefaultInterviewAgent(pool)?.id || pool[0]?.id || "";
+      }
+    } else {
+      const pool = agentsForRegion(agents, nextRegion);
+      nextAgentId = pickDefaultInterviewAgent(pool)?.id || pool[0]?.id || "";
+    }
+
+    if (nextRegion !== selectedRegion) {
+      setSelectedRegion(nextRegion);
+      return;
+    }
+    if (nextAgentId && nextAgentId !== config.agentId) {
+      set("agentId", nextAgentId);
+    }
+  }, [agents, selectedRegion, config.agentId, config.enabled]);
 
   return (
     <Card className="animate-scale-in">
@@ -103,6 +154,14 @@ export function AiFollowUpStep({
 
         {config.enabled && (
           <div className="space-y-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
+            <InterviewAgentPicker
+              agents={agents}
+              selectedRegion={selectedRegion}
+              resolvedAgentId={resolvedAgentId}
+              onSelectAgent={(id) => set("agentId", id)}
+              onRegionChange={setSelectedRegion}
+            />
+
             <div className="space-y-2">
               <Label htmlFor="ai-context" className="text-sm font-semibold">
                 What is your business and what is this survey for?

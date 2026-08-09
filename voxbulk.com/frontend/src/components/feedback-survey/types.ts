@@ -64,4 +64,5 @@ export type SurveyPayload = {
   questions: SurveyQuestion[];
   theme_id?: string;
   web_theme?: WebThemeConfig;
+  ai_follow_up?: { enabled?: boolean } | null;
 };

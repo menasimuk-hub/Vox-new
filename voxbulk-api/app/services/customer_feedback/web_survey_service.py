@@ -59,6 +59,22 @@ def _maybe_schedule_ai_followup(db: Session, session: FeedbackSession, location:
         logger.exception("feedback_ai_followup_schedule_failed session_id=%s", session.id)
 
 
+def _normalize_callback_phone(raw: str) -> str:
+    phone = str(raw or "").strip().replace(" ", "")
+    if not phone:
+        raise ValueError("Mobile number is required")
+    if phone.startswith("00"):
+        phone = f"+{phone[2:]}"
+    if phone.startswith("0") and not phone.startswith("+"):
+        phone = f"+44{phone.lstrip('0')}"
+    if not phone.startswith("+"):
+        phone = f"+{phone}"
+    digits = "".join(ch for ch in phone[1:] if ch.isdigit())
+    if len(digits) < 8:
+        raise ValueError("Enter a valid mobile number with country code")
+    return f"+{digits}"
+
+
 def _web_steps(db: Session, location: FeedbackLocation) -> list[dict[str, Any]]:
     steps = FeedbackWhatsappService._steps_for_location(db, location)
     return [step for step in steps if not is_marketing_survey_step(step)]
@@ -171,6 +187,38 @@ class FeedbackWebSurveyService:
         return path, media_type_for_key(str(storage_key))
 
     @staticmethod
+    def save_callback_consent(
+        db: Session,
+        *,
+        session_id: str,
+        token: str,
+        consent: bool,
+        phone: str | None = None,
+    ) -> dict[str, Any]:
+        """Store web callback phone + consent after survey completion; schedule AI if eligible."""
+        location = FeedbackLocationService.resolve_by_token(db, token)
+        if location is None:
+            raise ValueError("Survey not found")
+        session = db.get(FeedbackSession, session_id)
+        if session is None or session.location_id != location.id:
+            raise ValueError("Session not found")
+        if consent:
+            session.visitor_phone = _normalize_callback_phone(phone or "")
+            session.callback_consent = True
+        else:
+            session.callback_consent = False
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        if consent:
+            _maybe_schedule_ai_followup(db, session, location)
+        return {
+            "callback_consent": bool(session.callback_consent),
+            "visitor_phone": session.visitor_phone,
+            "scheduled": bool(consent and session.callback_consent),
+        }
+
+    @staticmethod
     def start_session(db: Session, token: str) -> dict[str, Any]:
         location = FeedbackLocationService.resolve_by_token(db, token)
         if location is None:
@@ -190,8 +238,6 @@ class FeedbackWebSurveyService:
         visitor_phone = f"web:{visitor_id}"
         dedupe_key = f"{visitor_phone}:{token}"
         FeedbackLocationService.record_scan(db, location)
-        if billing_mode == "preview":
-            FeedbackBillingService.increment_preview_test(db, location.org_id)
         repair_survey_config_if_needed(db, location)
         now = datetime.utcnow()
         session = FeedbackSession(
@@ -210,11 +256,8 @@ class FeedbackWebSurveyService:
         db.commit()
         db.refresh(session)
 
-        if billing_mode == "live":
-            FeedbackBillingService.consume_web_unit(db, location.org_id)
-            session.units_charged = True
-        else:
-            session.units_charged = False
+        FeedbackBillingService.consume_web_unit(db, location.org_id)
+        session.units_charged = True
         db.add(session)
         db.commit()
 

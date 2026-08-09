@@ -251,44 +251,33 @@ class FeedbackLocationService:
     def gate_session_start(db: Session, location: FeedbackLocation) -> tuple[str | None, str | None]:
         """
         Returns (billing_mode, error_message).
-        billing_mode is 'live' or 'preview' when allowed; None when blocked.
+        billing_mode is 'live' when allowed; None when blocked.
         """
         status = str(location.status or "").strip().lower()
         if status == "paused":
             return None, "This Customer Feedback QR is paused."
         if status == "archived":
             return None, "This Customer Feedback QR is no longer available."
+        if status in {"preview", "preview_exhausted"}:
+            # Leftover drafts: only usable after pay activates them.
+            FeedbackLocationService.activate_preview_locations(db, location.org_id)
+            db.refresh(location)
+            status = str(location.status or "").strip().lower()
+        if status != "active":
+            return None, "This Customer Feedback QR is unavailable."
         mode = FeedbackBillingService.access_mode(db, location.org_id)
         renew = "https://dashboard.voxbulk.com/account/feedback/packages"
         if mode == "live":
             return "live", None
-        if status == "active" and mode != "live":
-            # Paid row but sub lapsed — allow preview quota if remaining.
-            pass
-        if mode == "preview_exhausted":
-            if status == "preview":
-                location.status = "preview_exhausted"
-                location.updated_at = datetime.utcnow()
-                db.add(location)
-                db.commit()
-            return (
-                None,
-                f"Free test scans are used up (20). Activate a Customer feedback package to continue: {renew}",
-            )
         if mode == "expired":
             return (
                 None,
                 f"Your Customer feedback package has expired. Renew to continue: {renew}",
             )
-        # preview mode
-        if status not in {"preview", "preview_exhausted", "active"}:
-            return None, "This Customer Feedback QR is unavailable."
-        if status == "preview_exhausted":
-            return (
-                None,
-                f"Free test scans are used up (20). Activate a Customer feedback package to continue: {renew}",
-            )
-        return "preview", None
+        return (
+            None,
+            f"Subscribe to a Customer feedback package to collect responses: {renew}",
+        )
 
     @staticmethod
     def preview_location(db: Session, org_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -328,19 +317,17 @@ class FeedbackLocationService:
         db: Session, org_id: str, payload: dict[str, Any], *, created_by_user_id: str | None = None
     ) -> dict[str, Any]:
         live_sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
-        if live_sub is not None:
-            max_loc = FeedbackBillingService.max_locations(db, org_id)
-            if max_loc <= 0:
-                raise ValueError("Subscribe to a Customer feedback package before adding locations.")
-            current = FeedbackLocationService.count_active_locations(db, org_id)
-            if current >= max_loc:
-                raise ValueError(
-                    f"Location limit reached ({max_loc}). Upgrade your Customer feedback package or contact support."
-                )
-            default_status = "active"
-        else:
-            # Save-before-pay: draft QR usable for free preview scans.
-            default_status = "preview"
+        if live_sub is None:
+            raise ValueError("Subscribe to a Customer feedback package before adding locations.")
+        max_loc = FeedbackBillingService.max_locations(db, org_id)
+        if max_loc <= 0:
+            raise ValueError("Subscribe to a Customer feedback package before adding locations.")
+        current = FeedbackLocationService.count_active_locations(db, org_id)
+        if current >= max_loc:
+            raise ValueError(
+                f"Location limit reached ({max_loc}). Upgrade your Customer feedback package or contact support."
+            )
+        default_status = "active"
         org = db.get(Organisation, org_id)
         zone = country_to_zone(getattr(org, "country", None) if org else None)
         industry_id = str(payload.get("industry_id") or "").strip()
@@ -407,8 +394,8 @@ class FeedbackLocationService:
             created_at=now,
             updated_at=now,
         )
-        if live_sub is None and row.status not in {"preview", "preview_exhausted"}:
-            row.status = "preview"
+        if row.status != "active":
+            row.status = "active"
         from app.services.qr_style_fields import init_qr_style_on_create
 
         init_qr_style_on_create(row, payload, allow_transparent=True)
@@ -495,12 +482,16 @@ class FeedbackLocationService:
     def delete_location(
         db: Session, org_id: str, location_id: str, *, created_by_user_id: str | None = None
     ) -> None:
+        from pathlib import Path
+
         from sqlalchemy import delete, update
 
         from app.models.customer_feedback import (
+            FeedbackAiFollowUpJob,
             FeedbackMarketingSubscriber,
             FeedbackResponse,
             FeedbackSession,
+            FeedbackVoiceNoteJob,
         )
 
         row = FeedbackLocationService.get_location_row(
@@ -516,6 +507,29 @@ class FeedbackLocationService:
             ).scalars().all()
         ]
         if session_ids:
+            voice_jobs = list(
+                db.execute(
+                    select(FeedbackVoiceNoteJob).where(FeedbackVoiceNoteJob.session_id.in_(session_ids))
+                )
+                .scalars()
+                .all()
+            )
+            for job in voice_jobs:
+                raw = str(getattr(job, "audio_file_path", None) or "").strip()
+                if not raw:
+                    continue
+                try:
+                    path = Path(raw)
+                    if path.is_file():
+                        path.unlink()
+                except OSError:
+                    pass
+            db.execute(
+                delete(FeedbackAiFollowUpJob).where(FeedbackAiFollowUpJob.session_id.in_(session_ids))
+            )
+            db.execute(
+                delete(FeedbackVoiceNoteJob).where(FeedbackVoiceNoteJob.session_id.in_(session_ids))
+            )
             db.execute(delete(FeedbackResponse).where(FeedbackResponse.session_id.in_(session_ids)))
         db.execute(delete(FeedbackResponse).where(FeedbackResponse.location_id == loc_id))
         db.execute(delete(FeedbackSession).where(FeedbackSession.location_id == loc_id))

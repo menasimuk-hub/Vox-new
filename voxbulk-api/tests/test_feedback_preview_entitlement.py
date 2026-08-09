@@ -1,4 +1,4 @@
-"""Customer Feedback save-before-pay preview entitlement (20 org free scans)."""
+"""Customer Feedback create requires subscription; preview free-scan path removed."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from sqlalchemy import select
 from app.core.database import get_sessionmaker
 from app.core.security import hash_password
 from app.models.customer_feedback import (
-    FEEDBACK_PREVIEW_TESTS_LIMIT,
     FEEDBACK_SERVICE_CODE,
     FeedbackIndustry,
     FeedbackLocation,
@@ -42,12 +41,11 @@ def _prepare_db():
 
 def _seed_org() -> str:
     with get_sessionmaker()() as db:
-        email = f"cf-prev-{uuid.uuid4().hex[:8]}@example.com"
+        email = f"cf-sub-{uuid.uuid4().hex[:8]}@example.com"
         org = Organisation(
-            name="Preview CF Org",
+            name="CF Sub Org",
             contact_email=email,
             allowed_services_json='{"customer_feedback": true}',
-            feedback_preview_tests_used=0,
         )
         db.add(org)
         db.flush()
@@ -71,18 +69,16 @@ def _industry_and_type(db) -> tuple[str, str]:
     return industry.id, survey_type.id
 
 
-def test_entitlement_preview_default():
+def test_entitlement_inactive_without_subscription():
     org_id = _seed_org()
     with get_sessionmaker()() as db:
-        assert FeedbackBillingService.access_mode(db, org_id) == "preview"
+        assert FeedbackBillingService.access_mode(db, org_id) == "inactive"
         payload = FeedbackBillingService.entitlement_payload(db, org_id)
-        assert payload["mode"] == "preview"
-        assert payload["preview_tests_limit"] == 20
-        assert payload["preview_tests_used"] == 0
-        assert payload["preview_tests_remaining"] == 20
+        assert payload["mode"] == "inactive"
+        assert "preview_tests_limit" not in payload
 
 
-def test_create_location_without_subscription_is_preview():
+def test_create_location_without_subscription_fails():
     org_id = _seed_org()
     with get_sessionmaker()() as db:
         industry_id, type_id = _industry_and_type(db)
@@ -95,8 +91,9 @@ def test_create_location_without_subscription_is_preview():
                 "app.services.customer_feedback.location_service.resolve_feedback_wa_phone_for_qr",
                 return_value="+447700900099",
             ),
+            pytest.raises(ValueError, match="Subscribe"),
         ):
-            item = FeedbackLocationService.create_location(
+            FeedbackLocationService.create_location(
                 db,
                 org_id,
                 {
@@ -105,18 +102,11 @@ def test_create_location_without_subscription_is_preview():
                     "name": "Main branch",
                     "open_question_enabled": False,
                     "marketing_opt_in_enabled": False,
-                    "qr_transparent": True,
                 },
             )
-        assert item["status"] == "preview"
-        assert item["qr_transparent"] is True
-        row = db.get(FeedbackLocation, item["id"])
-        assert row is not None
-        assert row.status == "preview"
-        assert row.qr_transparent is True
 
 
-def test_preview_scans_exhaust_at_limit():
+def test_gate_blocks_without_live_subscription():
     org_id = _seed_org()
     with get_sessionmaker()() as db:
         industry_id, type_id = _industry_and_type(db)
@@ -126,34 +116,21 @@ def test_preview_scans_exhaust_at_limit():
             org_id=org_id,
             industry_id=industry_id,
             survey_type_id=type_id,
-            name="Preview QR",
-            qr_token=f"prev-{uuid.uuid4().hex[:12]}",
+            name="QR",
+            qr_token=f"gate-{uuid.uuid4().hex[:12]}",
             wa_sender_country="gb",
-            status="preview",
+            status="active",
             created_at=now,
             updated_at=now,
         )
         db.add(loc)
-        org = db.get(Organisation, org_id)
-        org.feedback_preview_tests_used = FEEDBACK_PREVIEW_TESTS_LIMIT - 1
-        db.add(org)
         db.commit()
-
         mode, err = FeedbackLocationService.gate_session_start(db, loc)
-        assert mode == "preview"
-        assert err is None
-        FeedbackBillingService.increment_preview_test(db, org_id)
-        db.commit()
-
-        assert FeedbackBillingService.access_mode(db, org_id) == "preview_exhausted"
-        mode2, err2 = FeedbackLocationService.gate_session_start(db, loc)
-        assert mode2 is None
-        assert err2 and "20" in err2
-        db.refresh(loc)
-        assert loc.status == "preview_exhausted"
+        assert mode is None
+        assert err and "Subscribe" in err
 
 
-def test_live_subscription_consumes_units_not_preview():
+def test_live_subscription_consumes_units():
     org_id = _seed_org()
     with get_sessionmaker()() as db:
         FeedbackSeedService.ensure_seeded(db)
@@ -206,12 +183,8 @@ def test_live_subscription_consumes_units_not_preview():
         mode, err = FeedbackLocationService.gate_session_start(db, loc)
         assert mode == "live"
         assert err is None
-
-        used_before = int(db.get(Organisation, org_id).feedback_preview_tests_used or 0)
         FeedbackBillingService.consume_unit(db, org_id)
         db.commit()
-        used_after = int(db.get(Organisation, org_id).feedback_preview_tests_used or 0)
-        assert used_after == used_before
         period_row = db.get(FeedbackUsagePeriod, period.id)
         assert int(period_row.wa_units_used or 0) == 1
 
@@ -255,8 +228,3 @@ def test_activate_preview_locations_after_pay():
         result = FeedbackLocationService.activate_preview_locations(db, org_id)
         max_loc = FeedbackBillingService.max_locations(db, org_id)
         assert result["activated"] == min(2, max_loc)
-        statuses = [
-            r.status
-            for r in db.execute(select(FeedbackLocation).where(FeedbackLocation.org_id == org_id)).scalars().all()
-        ]
-        assert statuses.count("active") == result["activated"]

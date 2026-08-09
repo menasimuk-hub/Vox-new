@@ -164,6 +164,7 @@ class FeedbackSession(Base):
     current_step: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     units_charged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     detected_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    callback_consent: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
     trigger_dedupe_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     session_state_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

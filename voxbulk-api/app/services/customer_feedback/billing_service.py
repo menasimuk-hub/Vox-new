@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.models.billing_invoice import BillingInvoice
 from app.models.customer_feedback import (
-    FEEDBACK_PREVIEW_TESTS_LIMIT,
     FEEDBACK_SERVICE_CODE,
     FeedbackPackage,
     FeedbackUsagePeriod,
@@ -49,32 +48,20 @@ class FeedbackBillingService:
 
     @staticmethod
     def access_mode(db: Session, org_id: str) -> str:
-        """live | preview | preview_exhausted | expired"""
+        """live | expired | inactive — free-scan preview entitlement removed."""
         sub = FeedbackBillingService.get_active_subscription(db, org_id)
-        if sub is not None and str(sub.status or "").lower() in {"active", "trial", "pending_first_payment"}:
-            # pending_first_payment still blocks unit consume via ensure_*; treat as not live for free tests
-            if str(sub.status or "").lower() in {"active", "trial"}:
-                return "live"
-        org = db.get(Organisation, org_id)
-        used = int(getattr(org, "feedback_preview_tests_used", 0) or 0) if org else 0
-        if used >= FEEDBACK_PREVIEW_TESTS_LIMIT:
-            return "preview_exhausted"
+        if sub is not None and str(sub.status or "").lower() in {"active", "trial"}:
+            return "live"
         if sub is not None and str(sub.status or "").lower() in {"cancelled", "expired"}:
-            return "expired" if used >= FEEDBACK_PREVIEW_TESTS_LIMIT else "preview"
-        return "preview"
+            return "expired"
+        return "inactive"
 
     @staticmethod
     def entitlement_payload(db: Session, org_id: str) -> dict[str, Any]:
-        org = db.get(Organisation, org_id)
-        used = int(getattr(org, "feedback_preview_tests_used", 0) or 0) if org else 0
         mode = FeedbackBillingService.access_mode(db, org_id)
         sub_payload = FeedbackBillingService.subscription_payload(db, org_id)
-        remaining = max(0, FEEDBACK_PREVIEW_TESTS_LIMIT - used) if mode != "live" else None
         return {
             "mode": mode,
-            "preview_tests_used": used,
-            "preview_tests_limit": FEEDBACK_PREVIEW_TESTS_LIMIT,
-            "preview_tests_remaining": remaining,
             "renew_url": "https://dashboard.voxbulk.com/account/feedback/packages",
             "subscription": sub_payload,
         }

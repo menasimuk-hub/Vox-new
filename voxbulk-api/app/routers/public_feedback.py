@@ -123,6 +123,28 @@ def submit_web_answer(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/survey/sessions/{session_id}/callback-consent")
+def submit_web_callback_consent(
+    session_id: str,
+    payload: dict,
+    token: str = Query(..., min_length=6),
+    db: Session = Depends(get_db),
+):
+    try:
+        return {
+            "ok": True,
+            **FeedbackWebSurveyService.save_callback_consent(
+                db,
+                session_id=session_id,
+                token=token,
+                consent=bool(payload.get("consent") or payload.get("callback_consent")),
+                phone=(str(payload.get("phone") or payload.get("visitor_phone") or "").strip() or None),
+            ),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/survey/sessions/{session_id}/reason")
 def submit_web_reason(
     session_id: str,

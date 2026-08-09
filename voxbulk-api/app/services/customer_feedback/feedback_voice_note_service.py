@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackResponse, FeedbackSession, FeedbackVoiceNoteJob
@@ -16,6 +17,78 @@ from app.services.voice_transcription_service import VoiceTranscriptionService, 
 
 logger = logging.getLogger(__name__)
 LOG_PREFIX = "[feedback-voice]"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def voice_note_audio_url(job_id: str) -> str:
+    return f"/customer-feedback/results/voice-notes/{job_id}/audio"
+
+
+def resolve_voice_audio_path(db: Session, *, org_id: str, job_id: str) -> Path | None:
+    """Org-scoped path to a stored FeedbackVoiceNoteJob audio file, or None."""
+    job = db.execute(
+        select(FeedbackVoiceNoteJob).where(
+            FeedbackVoiceNoteJob.id == job_id,
+            FeedbackVoiceNoteJob.org_id == org_id,
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        return None
+    raw = str(job.audio_file_path or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute():
+        path = (_REPO_ROOT / raw.replace("\\", "/")).resolve()
+    else:
+        path = path.resolve()
+    try:
+        path.relative_to((_REPO_ROOT / "data").resolve())
+    except ValueError:
+        # Allow configured voice_note_storage_dir outside repo/data when absolute + exists.
+        from app.core.config import get_settings
+
+        root = Path(str(getattr(get_settings(), "voice_note_storage_dir", None) or "data/survey_voice_notes"))
+        if not root.is_absolute():
+            root = (_REPO_ROOT / root).resolve()
+        try:
+            path.relative_to(root.resolve())
+        except ValueError:
+            return None
+    return path if path.is_file() else None
+
+
+def jobs_by_response_ids(db: Session, *, org_id: str, response_ids: list[str]) -> dict[str, FeedbackVoiceNoteJob]:
+    ids = [str(x) for x in response_ids if x]
+    if not ids:
+        return {}
+    rows = (
+        db.execute(
+            select(FeedbackVoiceNoteJob).where(
+                FeedbackVoiceNoteJob.org_id == org_id,
+                FeedbackVoiceNoteJob.response_id.in_(ids),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return {str(j.response_id): j for j in rows}
+
+
+def attach_voice_fields(
+    payload: dict[str, Any],
+    *,
+    response_id: str,
+    jobs: dict[str, FeedbackVoiceNoteJob],
+) -> dict[str, Any]:
+    job = jobs.get(str(response_id))
+    if job is None:
+        payload.setdefault("voice_note_job_id", None)
+        payload.setdefault("audio_url", None)
+        return payload
+    payload["voice_note_job_id"] = job.id
+    payload["audio_url"] = voice_note_audio_url(job.id) if str(job.audio_file_path or "").strip() else None
+    return payload
 
 
 def enqueue_feedback_voice_job(job_id: str) -> None:

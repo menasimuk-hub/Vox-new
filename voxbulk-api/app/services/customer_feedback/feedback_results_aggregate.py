@@ -286,7 +286,12 @@ def build_respondents(
     locations: dict[str, FeedbackLocation],
     *,
     limit: int = 200,
+    voice_jobs_by_response: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    from app.services.customer_feedback.feedback_voice_note_service import attach_voice_fields
+
+    jobs = voice_jobs_by_response or {}
+
     def _session_sort_key(sess: FeedbackSession) -> tuple[int, float]:
         dt = sess.completed_at or sess.started_at
         ts = -dt.timestamp() if dt else 0.0
@@ -309,22 +314,23 @@ def build_respondents(
                 survey_type_id=str(resp.survey_type_id),
                 question_key=str(resp.question_key),
             )
-            answers.append(
-                {
-                    "question": question,
-                    "answer": answer,
-                    "original_text": str(resp.original_text or "").strip() or None,
-                    "answer_text_en": str(resp.answer_text_en or answer or "").strip() or None,
-                    "translated_text": str(resp.answer_text_en or answer or "").strip() or None,
-                    "translation_status": getattr(resp, "translation_status", None),
-                    "transcription_status": getattr(resp, "transcription_status", None),
-                    "detected_language": getattr(resp, "detected_language", None),
-                    "question_key": str(resp.question_key or ""),
-                    "step_order": int(resp.step_order or 0),
-                    "step_role": step_role,
-                    "answer_source": getattr(resp, "answer_source", None) or "text",
-                }
-            )
+            row = {
+                "question": question,
+                "answer": answer,
+                "original_text": str(resp.original_text or "").strip() or None,
+                "answer_text_en": str(resp.answer_text_en or answer or "").strip() or None,
+                "translated_text": str(resp.answer_text_en or answer or "").strip() or None,
+                "translation_status": getattr(resp, "translation_status", None),
+                "transcription_status": getattr(resp, "transcription_status", None),
+                "detected_language": getattr(resp, "detected_language", None),
+                "question_key": str(resp.question_key or ""),
+                "step_order": int(resp.step_order or 0),
+                "step_role": step_role,
+                "answer_source": getattr(resp, "answer_source", None) or "text",
+            }
+            if str(row["answer_source"]).lower() in {"voice", "voice_note"}:
+                attach_voice_fields(row, response_id=str(resp.id), jobs=jobs)
+            answers.append(row)
             pending_voice = str(getattr(resp, "transcription_status", None) or "") == "pending"
             if not quote and step_role in OPEN_STEP_ROLES and (answer or pending_voice):
                 quote = (answer or "Transcribing…")[:200]
@@ -355,7 +361,11 @@ def build_open_comments(
     templates: dict[tuple[str, str], FeedbackWaTemplate],
     *,
     themes: list[dict[str, Any]] | None = None,
+    voice_jobs_by_response: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    from app.services.customer_feedback.feedback_voice_note_service import attach_voice_fields
+
+    jobs = voice_jobs_by_response or {}
     theme_labels = [str(t.get("label") or "") for t in (themes or []) if t.get("label")]
     rows: list[dict[str, Any]] = []
     for resp in responses:
@@ -393,23 +403,24 @@ def build_open_comments(
             sentiment = "negative"
         elif answer and (classify_pge(answer) in {"excellent", "good"} or classify_yn(answer) == "yes"):
             sentiment = "positive"
-        rows.append(
-            {
-                "id": resp.id,
-                "session_id": resp.session_id,
-                "text": display,
-                "original_text": resp.original_text,
-                "answer_text_en": resp.answer_text_en or answer or None,
-                "translated_text": resp.answer_text_en or answer or None,
-                "translation_status": getattr(resp, "translation_status", None),
-                "transcription_status": getattr(resp, "transcription_status", None),
-                "detected_language": getattr(resp, "detected_language", None),
-                "answer_source": source,
-                "theme": theme or None,
-                "sentiment": sentiment,
-                "created_at": resp.created_at.isoformat() if resp.created_at else None,
-            }
-        )
+        comment = {
+            "id": resp.id,
+            "session_id": resp.session_id,
+            "text": display,
+            "original_text": resp.original_text,
+            "answer_text_en": resp.answer_text_en or answer or None,
+            "translated_text": resp.answer_text_en or answer or None,
+            "translation_status": getattr(resp, "translation_status", None),
+            "transcription_status": getattr(resp, "transcription_status", None),
+            "detected_language": getattr(resp, "detected_language", None),
+            "answer_source": source,
+            "theme": theme or None,
+            "sentiment": sentiment,
+            "created_at": resp.created_at.isoformat() if resp.created_at else None,
+        }
+        if str(source).lower() in {"voice", "voice_note"}:
+            attach_voice_fields(comment, response_id=str(resp.id), jobs=jobs)
+        rows.append(comment)
     rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
     return rows[:120]
 

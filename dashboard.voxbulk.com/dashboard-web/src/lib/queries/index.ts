@@ -343,6 +343,8 @@ export type FeedbackOpenComment = {
   theme?: string | null;
   sentiment?: string;
   created_at?: string | null;
+  voice_note_job_id?: string | null;
+  audio_url?: string | null;
 };
 
 export type FeedbackResultsInsightsPayload = {

@@ -94,6 +94,10 @@ function FeedbackResults() {
       onExportPdf={() => void handleExport("pdf")}
       onExportCsv={() => void handleExport("csv")}
       insightsLoading={insightsQ.isLoading}
+      onRefresh={() => {
+        void resultsQ.refetch();
+        void insightsQ.refetch();
+      }}
       headerActions={
         <Button asChild variant="outline" size="sm" className="gap-1.5">
           <Link to="/feedback">
