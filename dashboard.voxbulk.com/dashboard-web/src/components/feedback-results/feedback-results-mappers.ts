@@ -51,7 +51,19 @@ export type BilingualAnswer = {
   original?: string;
   translationPending?: boolean;
   source?: string;
+  audioUrl?: string | null;
 };
+
+function voiceAudioUrl(row: {
+  audio_url?: string | null;
+  voice_note_job_id?: string | null;
+}): string | null {
+  const direct = String(row.audio_url || "").trim();
+  if (direct) return direct;
+  const jobId = String(row.voice_note_job_id || "").trim();
+  if (!jobId) return null;
+  return `/customer-feedback/results/voice-notes/${jobId}/audio`;
+}
 
 export type Respondent = {
   id: string;
@@ -285,7 +297,11 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
       rows.push({
         question,
         type: "open",
-        openText: { ...normalizeBilingual(raw, original, bilingualOpts), source: a.answer_source },
+        openText: {
+          ...normalizeBilingual(raw, original, bilingualOpts),
+          source: a.answer_source,
+          audioUrl: voiceAudioUrl(a),
+        },
       });
       continue;
     }
@@ -309,6 +325,7 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
             translationStatus: followRaw.translation_status,
           }),
           source: followRaw.answer_source,
+          audioUrl: voiceAudioUrl(followRaw),
         };
       }
       rows.push({ question, type: "rating", rating: pge || "poor", followUp });
@@ -319,7 +336,11 @@ function mapRespondentAnswers(r: FeedbackRespondent): RespondentAnswerRow[] {
       rows.push({
         question,
         type: "open",
-        openText: { ...normalizeBilingual(raw, original, bilingualOpts), source: a.answer_source },
+        openText: {
+          ...normalizeBilingual(raw, original, bilingualOpts),
+          source: a.answer_source,
+          audioUrl: voiceAudioUrl(a),
+        },
       });
     }
   }

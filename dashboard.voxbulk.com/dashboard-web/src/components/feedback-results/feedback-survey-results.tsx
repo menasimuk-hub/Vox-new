@@ -800,10 +800,19 @@ function FilterPill({ children, active, onClick, tone }: { children: React.React
 
 function BilingualAnswerBlock({ label, text }: { label: string; text: BilingualAnswer }) {
   const transcribing = text.english === "Transcribing…";
+  const isVoice = Boolean(text.audioUrl) || String(text.source || "").toLowerCase().includes("voice");
   return (
     <div className="mt-2 space-y-2">
+      {text.audioUrl ? (
+        <div>
+          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Original audio
+          </p>
+          <InterviewRecordingPlayer playPath={text.audioUrl} durationLabel="Voice note" />
+        </div>
+      ) : null}
       <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-        {transcribing ? "Voice" : label}
+        {transcribing ? "Voice" : isVoice && label === "English" ? "Transcript" : label}
       </p>
       {transcribing ? (
         <p className="text-sm font-medium text-warning">Transcribing…</p>

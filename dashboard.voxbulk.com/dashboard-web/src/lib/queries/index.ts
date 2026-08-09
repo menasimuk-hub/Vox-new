@@ -323,6 +323,8 @@ export type FeedbackRespondent = {
     step_order?: number;
     step_role?: string | null;
     answer_source?: string;
+    voice_note_job_id?: string | null;
+    audio_url?: string | null;
   }>;
   quote?: string | null;
   ai_follow_up?: Record<string, unknown> | null;

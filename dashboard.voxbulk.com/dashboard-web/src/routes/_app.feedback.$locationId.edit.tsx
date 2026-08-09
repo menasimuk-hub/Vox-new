@@ -1,9 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Check, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
+import { ArrowLeft, MessageSquarePlus, Palette, Sparkles } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { AiFollowUpStep, aiFollowUpFromApi, aiFollowUpToApi, defaultAiFollowUp, type AiFollowUpConfig } from "@/components/ai-follow-up-step";
+import { FeedbackTopicPicker } from "@/components/feedback-topic-picker";
 import { FeedbackWebThemePicker } from "@/components/feedback-web-theme-picker";
 import { QrPreviewPanel } from "@/components/qr-preview-panel";
 import { qrStylePayload, type QrStyleValue } from "@/components/qr-style-controls";
@@ -168,7 +169,7 @@ function EditFeedbackSurvey() {
             <CardHeader>
               <CardTitle className="text-base">Survey topics</CardTitle>
               <CardDescription>
-                Industry: {location.industry_name || "—"}. Choose up to 6 topics visitors answer on WhatsApp.
+                Industry: {location.industry_name || "—"}. Choose up to 6 topics and drag to set ask order on WhatsApp / web.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -177,50 +178,11 @@ function EditFeedbackSurvey() {
               ) : typesQ.isError ? (
                 <p className="text-sm text-destructive">Could not load survey topics.</p>
               ) : (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Selected:{" "}
-                    <span
-                      className={cn(
-                        "font-semibold",
-                        selectedTypeIds.length === 0
-                          ? "text-muted-foreground"
-                          : selectedTypeIds.length >= 6
-                            ? "text-warning"
-                            : "text-primary",
-                      )}
-                    >
-                      {selectedTypeIds.length}
-                    </span>{" "}
-                    / 6
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {surveyTypes.map((t) => {
-                      const active = selectedTypeIds.includes(t.id);
-                      const disabled = !active && selectedTypeIds.length >= 6;
-                      return (
-                        <button
-                          key={t.id}
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => {
-                            setSelectedTypeIds((prev) =>
-                              prev.includes(t.id) ? prev.filter((x) => x !== t.id) : [...prev, t.id],
-                            );
-                          }}
-                          className={cn(
-                            "rounded-full border px-3.5 py-1.5 text-sm transition-all",
-                            active && "border-primary bg-primary text-primary-foreground shadow",
-                            !active && !disabled && "border-border bg-background hover:border-primary/40 hover:bg-primary/5",
-                            disabled && "cursor-not-allowed border-border bg-muted/40 text-muted-foreground/50",
-                          )}
-                        >
-                          {active ? <Check className="mr-1 inline size-3.5" /> : null} {t.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
+                <FeedbackTopicPicker
+                  topics={surveyTypes}
+                  selectedIds={selectedTypeIds}
+                  onChange={setSelectedTypeIds}
+                />
               )}
 
               <div
