@@ -495,12 +495,12 @@ WEB_CHOICE_OPTIONS: dict[str, list[dict[str, str]]] = {
         {"value": "Call", "label": "📞 Call"},
     ],
     "consent_info": [
-        {"value": "Yes", "label": "✅ Yes, please"},
-        {"value": "No", "label": "🙅 No thanks"},
+        {"value": "Yes", "label": "✅ Yes"},
+        {"value": "No", "label": "🙅 No"},
     ],
     "marketing_consent": [
-        {"value": "Yes", "label": "✅ Yes, you may contact me"},
-        {"value": "No", "label": "🙅 No, do not contact me"},
+        {"value": "Yes", "label": "✅ Yes"},
+        {"value": "No", "label": "🙅 No"},
     ],
     "need_price_list": [
         {"value": "Yes", "label": "✅ Yes"},

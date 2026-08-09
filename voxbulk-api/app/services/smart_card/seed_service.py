@@ -160,15 +160,15 @@ QUESTION_TEMPLATES: list[dict] = [
     {
         "question_key": "consent_info",
         "label": "Catalogue / price list",
-        "prompt": "📋 Would you like our catalogue and/or price list? Select all that apply.",
+        "prompt": "📋 Would you like our catalogue and/or price list? (Yes / No)",
         "kind": "selectable",
         "sort_order": 60,
-        "description": "Visitor can request catalogue or price list downloads.",
+        "description": "Yes/No catalogue interest (product pick uses Product request / Need catalogue).",
     },
     {
         "question_key": "marketing_consent",
         "label": "Contact consent (marketing)",
-        "prompt": "📞 Can we contact you about products and offers?",
+        "prompt": "📞 Can we keep your details to send relevant information? (Yes / No)",
         "kind": "selectable",
         "sort_order": 62,
         "description": "UK marketing / PECR-style opt-in — stores proof for your Lead results export.",

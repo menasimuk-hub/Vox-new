@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime
 from typing import Any
@@ -53,11 +54,14 @@ DEFAULT_STEPS = (
 CONTACT_STEPS = frozenset({"contact", "contact_web", "contact_card_only", "contact_manual"})
 
 # Steps that offer the representative's assigned catalogue products instead of a plain Yes/No.
-PRODUCT_MENU_STEPS = frozenset({"consent_info", "products_wanted", "need_catalogue"})
+# consent_info stays Yes/No (WEB_CHOICE_OPTIONS) — product pick is products_wanted / need_catalogue only.
+PRODUCT_MENU_STEPS = frozenset({"products_wanted", "need_catalogue"})
 
 NO_THANKS_VALUE = "No thanks"
 NO_THANKS_LABEL = "🙅 No thanks"
 WA_SKIP_HINT = "Or reply *Skip* to move on (same as web)."
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def _score_lead(*, interest: str | None, timeline: str | None, consent: str | None) -> str:
@@ -66,6 +70,69 @@ def _score_lead(*, interest: str | None, timeline: str | None, consent: str | No
     c = (consent or "").strip().lower()
     consented = c not in {"no", "n", "false", "0"}
     return score_lead(interest=interest, timeline=timeline, consent=consented)
+
+
+def _looks_like_phone(value: str) -> bool:
+    s = str(value or "").strip()
+    if not s or "@" in s:
+        return False
+    digits = sum(ch.isdigit() for ch in s)
+    return digits >= 7 and digits >= max(1, len(s) // 2)
+
+
+def _apply_contact_reply(state: dict[str, Any], text: str) -> None:
+    """Parse contact replies: lone emails update email (never name); pipe format still works."""
+    raw = str(text or "").strip()
+    if not raw:
+        return
+    emails = _EMAIL_RE.findall(raw)
+    parts = [p.strip() for p in raw.replace("\n", "|").split("|") if p.strip()]
+
+    if len(parts) == 1:
+        part = parts[0]
+        if emails:
+            state["visitor_email"] = emails[0]
+            leftover = part
+            for e in emails:
+                leftover = leftover.replace(e, " ")
+            leftover = re.sub(r"(?i)\b(e-?mail|mail|my email)\b\s*:?\s*", " ", leftover).strip(" :,-")
+            if leftover and "@" not in leftover and not _looks_like_phone(leftover):
+                state["name"] = leftover
+            return
+        if _looks_like_phone(part):
+            state["visitor_phone"] = part
+            return
+        state["name"] = part
+        return
+
+    non_special: list[str] = []
+    email = emails[0] if emails else None
+    phone: str | None = None
+    first_part_is_email = bool(parts and _EMAIL_RE.search(parts[0]))
+    for part in parts:
+        found = _EMAIL_RE.search(part)
+        if found:
+            email = found.group(0)
+            continue
+        if _looks_like_phone(part):
+            phone = part
+            continue
+        non_special.append(part)
+    if first_part_is_email:
+        # "email@x.com | Company" → update email/company, keep existing name
+        if non_special:
+            state["company"] = non_special[0]
+        if len(non_special) > 1:
+            state["name"] = non_special[1]
+    else:
+        if non_special:
+            state["name"] = non_special[0]
+        if len(non_special) > 1:
+            state["company"] = non_special[1]
+    if email:
+        state["visitor_email"] = email
+    if phone:
+        state["visitor_phone"] = phone
 
 
 def _normalize_marketing_consent(text: str | None) -> str | None:
@@ -547,18 +614,7 @@ class SmartCardSessionFlowService:
             if any(saved) and looks_affirmative(text):
                 text = " | ".join(str(v).strip() for v in saved if str(v or "").strip()) or "Confirmed"
             else:
-                # Accept "Name | Company | email | phone" or plain name
-                parts = [p.strip() for p in text.replace("\n", "|").split("|") if p.strip()]
-                if parts:
-                    state["name"] = parts[0]
-                if len(parts) > 1:
-                    state["company"] = parts[1]
-                if len(parts) > 2 and "@" in parts[2]:
-                    state["visitor_email"] = parts[2]
-                if len(parts) > 3:
-                    state["visitor_phone"] = parts[3]
-                elif len(parts) > 2 and "@" not in parts[2]:
-                    state["visitor_phone"] = parts[2]
+                _apply_contact_reply(state, text)
         else:
             state.setdefault("answers", {})[step or "unknown"] = text
             if step == "interest":

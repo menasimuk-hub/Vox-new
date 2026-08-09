@@ -1,5 +1,6 @@
 """Smart Card session flow — choice contract, product menus, back navigation, channel notifications."""
 
+import json
 import uuid
 
 import pytest
@@ -14,6 +15,7 @@ from app.models.smart_card import (
     SmartCardResponse,
     SmartCardSession,
 )
+from app.services.smart_card.company_service import SmartCardCompanyService
 from app.services.smart_card.seed_service import SmartCardSeedService
 from app.services.smart_card.session_flow_service import (
     NO_THANKS_VALUE,
@@ -170,28 +172,56 @@ def test_whatsapp_digit_reply_maps_to_option_value(db):
     assert stored.answer_text == "Specifier"
 
 
-def test_consent_step_lists_only_rep_products(db):
+def test_consent_info_is_yes_no_not_product_menu(db):
     rep = _seed_rep(db, with_products=2)
-    started = SmartCardSessionFlowService.start_session(db, rep=rep, channel="web")
+    started = SmartCardSessionFlowService.start_session(db, rep=rep, channel="whatsapp")
     db.commit()
     session = db.get(SmartCardSession, started["session_id"])
     payload = _answer_until(db, session, "consent_info")
 
     assert payload["step"] == "consent_info"
+    assert payload["input"] == "choice"
+    assert [o["value"] for o in payload["options"]] == ["Yes", "No"]
+    assert "1️⃣" in payload["prompt"]
+    assert "Product 1" not in payload["prompt"]
+
+
+def _enable_products_wanted(db, org_id: str) -> None:
+    company = SmartCardCompanyService.get_or_create(db, org_id)
+    company.question_config_json = json.dumps(
+        {
+            "selected_keys": ["interest", "products_wanted"],
+            "contact_capture": "offer_both",
+        }
+    )
+    db.add(company)
+    db.commit()
+
+
+def test_products_wanted_lists_only_rep_products(db):
+    rep = _seed_rep(db, with_products=2)
+    _enable_products_wanted(db, rep.org_id)
+    started = SmartCardSessionFlowService.start_session(db, rep=rep, channel="web")
+    db.commit()
+    session = db.get(SmartCardSession, started["session_id"])
+    payload = _answer_until(db, session, "products_wanted")
+
+    assert payload["step"] == "products_wanted"
     assert payload["input"] == "multi_choice"
     values = [o["value"] for o in payload["options"]]
     assert values == ["Product 1", "Product 2", NO_THANKS_VALUE]
     assert payload["options"][0]["category"] == "Machines"
 
 
-def test_product_digit_reply_selects_products_and_marks_consent(db):
+def test_product_digit_reply_selects_products(db):
     rep = _seed_rep(db, with_products=2)
+    _enable_products_wanted(db, rep.org_id)
     started = SmartCardSessionFlowService.start_session(
         db, rep=rep, channel="whatsapp", visitor_phone="+447700900125"
     )
     db.commit()
     session = db.get(SmartCardSession, started["session_id"])
-    _answer_until(db, session, "consent_info")
+    _answer_until(db, session, "products_wanted")
 
     SmartCardSessionFlowService.advance(db, session=session, answer="1,2")
     db.commit()
@@ -200,30 +230,29 @@ def test_product_digit_reply_selects_products_and_marks_consent(db):
         db.query(SmartCardResponse)
         .filter(
             SmartCardResponse.session_id == session.id,
-            SmartCardResponse.question_key == "consent_info",
+            SmartCardResponse.question_key == "products_wanted",
         )
         .one()
     )
     assert stored.answer_text == "Product 1, Product 2"
     state = SmartCardSessionFlowService._load_state(session)
-    assert state["consent"] == "Yes"
     assert [p["name"] for p in state["selected_products"]] == ["Product 1", "Product 2"]
 
 
 def test_no_thanks_option_declines_products(db):
     rep = _seed_rep(db, with_products=2)
+    _enable_products_wanted(db, rep.org_id)
     started = SmartCardSessionFlowService.start_session(
         db, rep=rep, channel="whatsapp", visitor_phone="+447700900126"
     )
     db.commit()
     session = db.get(SmartCardSession, started["session_id"])
-    _answer_until(db, session, "consent_info")
+    _answer_until(db, session, "products_wanted")
 
     SmartCardSessionFlowService.advance(db, session=session, answer="3")
     db.commit()
 
     state = SmartCardSessionFlowService._load_state(session)
-    assert state["consent"] == "No"
     assert state["selected_products"] == []
 
 
