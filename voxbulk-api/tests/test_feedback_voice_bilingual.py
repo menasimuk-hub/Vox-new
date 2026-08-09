@@ -186,6 +186,7 @@ def test_process_voice_job_fills_original_and_english():
         visitor_phone="+447000000000",
         status="active",
         current_step=1,
+        detected_language="en_GB",
         started_at=datetime.utcnow(),
     )
 
@@ -239,6 +240,9 @@ def test_process_voice_job_fills_original_and_english():
     assert response.answer_text == "The flowers were nice"
     assert response.transcription_status == "completed"
     assert response.translation_status == "completed"
+    assert response.detected_language == "ar"
+    # Phone/country session language must not flip when STT hears Arabic.
+    assert session.detected_language == "en_GB"
 
 
 def test_process_voice_job_stt_fail_sets_failed_without_blanking_later_completed():

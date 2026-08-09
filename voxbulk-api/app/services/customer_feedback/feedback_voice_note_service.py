@@ -260,14 +260,8 @@ def process_voice_job(db: Session, job_id: str) -> dict[str, Any]:
         response.answer_source = "voice"
         db.add(response)
 
-        if session := db.get(FeedbackSession, job.session_id):
-            if detected:
-                from app.services.customer_feedback.locale_service import map_stt_language_code
-
-                mapped = map_stt_language_code(detected)
-                if mapped and mapped != session.detected_language:
-                    session.detected_language = mapped
-                    db.add(session)
+        # Keep session.detected_language from phone/country at start.
+        # STT language is stored on the response/job only (auto transcript + translate).
 
         db.commit()
         logger.info(
