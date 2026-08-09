@@ -408,14 +408,19 @@ def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
     return True, "", "payg"
 
 
-def _pre_dial_guards(db: Session, job, org) -> None:
+def _pre_dial_guards(db: Session, job, org, *, force_immediate: bool = False) -> None:
     from app.core.config import get_settings
     from app.services.uk_compliance_opt_out import should_block_outbound_phone
 
     settings = get_settings()
     outcome = _job_outcome(job) or {}
-    force_immediate = bool(outcome.get("force_immediate") or outcome.get("forceImmediate"))
-    # Dashboard test dials and explicit force_immediate skip quiet-hours (e.g. AU Sunday daytime).
+    # TEMP: results "Start AI call follow-back" sets force_immediate — skip all calling-time rules.
+    force_immediate = bool(
+        force_immediate
+        or outcome.get("force_immediate")
+        or outcome.get("forceImmediate")
+        or outcome.get("skip_calling_hours")
+    )
     if not force_immediate and not bool(getattr(settings, "ai_followup_relax_calling_hours", False)):
         allowed, reason = platform_calling_allowed(db, str(job.visitor_phone or ""))
         if not allowed:
@@ -672,7 +677,9 @@ def start_test_ai_followup(
             "session_summary": summary,
             "why_unhappy": summary.get("why_unhappy"),
             "scheduled_reason": "dashboard_test_force_immediate",
+            # TEMP test override — remove when results test dial is retired.
             "force_immediate": True,
+            "skip_calling_hours": True,
             "agent_id": str(cfg.get("agent_id") or cfg.get("agentId") or "").strip() or None,
         },
     )
@@ -680,7 +687,7 @@ def start_test_ai_followup(
     db.refresh(job)
 
     try:
-        call_id = _dispatch_job(db, job)
+        call_id = _dispatch_job(db, job, force_immediate=True)
         job.status = "dispatched"
         job.call_id = call_id
         job.updated_at = datetime.utcnow()
@@ -754,7 +761,7 @@ def process_due_jobs(db: Session, *, limit: int = 20) -> int:
     return dispatched
 
 
-def _dispatch_job(db: Session, job) -> str | None:
+def _dispatch_job(db: Session, job, *, force_immediate: bool = False) -> str | None:
     """Dial the respondent via Telnyx using the follow-back voice assistant."""
     from app.models.organisation import Organisation
     from app.services.telnyx_api_key import normalize_telnyx_e164, telnyx_outbound_caller_id
@@ -767,7 +774,7 @@ def _dispatch_job(db: Session, job) -> str | None:
     location = db.get(FeedbackLocation, job.location_id)
     org_name = str(org.name or "the business").strip() or "the business"
 
-    _pre_dial_guards(db, job, org)
+    _pre_dial_guards(db, job, org, force_immediate=force_immediate)
 
     outcome_agent_id = str((_job_outcome(job) or {}).get("agent_id") or "").strip() or None
     assistant_id, agent = _resolve_followback_assistant(

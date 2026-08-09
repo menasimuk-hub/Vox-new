@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
 import { agentRegionCode, agentsForRegion, buildRegionMenuOptions } from "@/lib/interview-agents";
 import {
   pickDefaultInterviewAgent,
-  useInterviewAgents,
+  previewFeedbackVoiceAgent,
+  useFeedbackVoiceAgents,
   useOrganisation,
   type InterviewAgent,
 } from "@/lib/queries";
@@ -94,7 +95,7 @@ export function AiFollowUpStep({
     onChange({ ...config, [k]: v });
 
   const orgQ = useOrganisation();
-  const agentsQ = useInterviewAgents();
+  const agentsQ = useFeedbackVoiceAgents();
   const agents = agentsQ.data ?? EMPTY_AGENTS;
   const orgDefaultRegion = regionFromOrgCountry(orgQ.data?.country, orgQ.data?.country_code);
   const [selectedRegion, setSelectedRegion] = React.useState(orgDefaultRegion);
@@ -186,20 +187,20 @@ export function AiFollowUpStep({
           <div className="space-y-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
             <div className="space-y-2">
               <Label className="text-sm font-semibold">Voice agent</Label>
-              <p className="text-xs text-muted-foreground">
-                Same picker as AI interview screening — choose a region/accent, then tap the play button on an agent to hear a sound sample.
-              </p>
               {agentsQ.isLoading ? (
-                <p className="text-xs text-muted-foreground">Loading voice agents…</p>
-              ) : agents.length === 0 ? (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  No voice agents available. Check Integrations / Telnyx assistants, then refresh.
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : agentsQ.isError ? (
+                <p className="text-xs text-destructive">
+                  {agentsQ.error instanceof Error ? agentsQ.error.message : "Could not load voice agents."}
                 </p>
+              ) : agents.length === 0 ? (
+                <p className="text-xs text-destructive">No voice agents returned from the server.</p>
               ) : (
                 <InterviewAgentPicker
                   agents={agents}
                   selectedRegion={selectedRegion}
                   resolvedAgentId={resolvedAgentId}
+                  previewVoice={previewFeedbackVoiceAgent}
                   onSelectAgent={(id) => set("agentId", id)}
                   onRegionChange={setSelectedRegion}
                 />

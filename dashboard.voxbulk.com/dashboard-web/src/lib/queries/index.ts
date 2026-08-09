@@ -1642,6 +1642,23 @@ export function useInterviewAgents() {
   });
 }
 
+/** Interview voice roster for Customer Feedback AI follow-up (does not require Interview service). */
+export function useFeedbackVoiceAgents() {
+  return useQuery({
+    queryKey: ["customer-feedback", "voice-agents"] as const,
+    queryFn: async () => {
+      const data = await apiFetch<{ agents?: InterviewAgent[] }>("/customer-feedback/voice-agents");
+      return data.agents || [];
+    },
+  });
+}
+
+export async function previewFeedbackVoiceAgent(agentId: string) {
+  return apiFetch<InterviewAgentVoicePreview>(
+    `/customer-feedback/voice-agents/${encodeURIComponent(agentId)}/voice-preview`,
+  );
+}
+
 export type SurveyAgent = InterviewAgent;
 
 export function pickDefaultSurveyAgent(agents: SurveyAgent[]): SurveyAgent | undefined {

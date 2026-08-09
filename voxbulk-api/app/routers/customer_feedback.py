@@ -377,6 +377,38 @@ def get_results(
     )
 
 
+@router.get("/voice-agents")
+def list_feedback_voice_agents(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Same interview voice roster + samples as AI interview screening (gated by Customer Feedback)."""
+    _require_feedback_enabled(db, principal.org_id)
+    from app.core.agent_services import SERVICE_INTERVIEW
+    from app.services.survey_voice_agent_service import list_dashboard_agents_for_service
+
+    return {
+        "agents": list_dashboard_agents_for_service(
+            db, service_key=SERVICE_INTERVIEW, org_id=principal.org_id
+        ),
+    }
+
+
+@router.get("/voice-agents/{agent_id}/voice-preview")
+def preview_feedback_voice_agent(
+    agent_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_feedback_enabled(db, principal.org_id)
+    from app.services.interview_agent_display_service import preview_interview_agent_voice
+
+    try:
+        return preview_interview_agent_voice(db, agent_id=agent_id, org_id=principal.org_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/results/voice-notes/{job_id}/audio")
 def get_feedback_voice_note_audio(
     job_id: str,

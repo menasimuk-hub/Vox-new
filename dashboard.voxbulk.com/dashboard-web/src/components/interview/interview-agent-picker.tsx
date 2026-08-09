@@ -28,6 +28,8 @@ type Props = {
   agents: InterviewAgent[];
   selectedRegion: string;
   resolvedAgentId: string;
+  /** Override sample fetch (e.g. Customer Feedback voice-agents path). */
+  previewVoice?: (agentId: string) => Promise<{ content_type: string; audio_base64: string }>;
   onSelectAgent: (id: string) => void;
   onRegionChange: (region: string) => void;
 };
@@ -136,6 +138,7 @@ export function InterviewAgentPicker({
   agents,
   selectedRegion,
   resolvedAgentId,
+  previewVoice,
   onSelectAgent,
   onRegionChange,
 }: Props) {
@@ -168,7 +171,7 @@ export function InterviewAgentPicker({
 
     setPreviewAgentId(agent.id);
     try {
-      const data = await previewInterviewAgentVoice(agent.id);
+      const data = await (previewVoice || previewInterviewAgentVoice)(agent.id);
       const src = `data:${data.content_type};base64,${data.audio_base64}`;
       if (audioRef.current) {
         audioRef.current.pause();
