@@ -382,7 +382,7 @@ def list_feedback_voice_agents(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    """Same interview voice roster + samples as AI interview screening (gated by Customer Feedback)."""
+    """Voice agents available for Customer Feedback AI follow-up calls."""
     _require_feedback_enabled(db, principal.org_id)
     from app.core.agent_services import SERVICE_INTERVIEW
     from app.services.survey_voice_agent_service import list_dashboard_agents_for_service

@@ -157,8 +157,9 @@ export function AiFollowUpStep({
           </span>
         </CardTitle>
         <CardDescription>
-          When a customer gives a <b>low rating</b> but doesn't explain why, our AI voice agent
-          rings them back to understand the problem — and can offer a promo code if you have one.
+          When a customer leaves a <b>low rating</b> without explaining why, an AI voice agent
+          calls them back for your business — to show you value their feedback, learn what went
+          wrong, and (optionally) offer a recovery promo.
         </CardDescription>
       </CardHeader>
 
@@ -187,6 +188,9 @@ export function AiFollowUpStep({
           <div className="space-y-5 rounded-xl border border-primary/20 bg-primary/5 p-4">
             <div className="space-y-2">
               <Label className="text-sm font-semibold">Voice agent</Label>
+              <p className="text-xs text-muted-foreground">
+                Choose region and voice. Tap play on an agent to hear a short sample.
+              </p>
               {agentsQ.isLoading ? (
                 <p className="text-xs text-muted-foreground">Loading…</p>
               ) : agentsQ.isError ? (
@@ -209,21 +213,21 @@ export function AiFollowUpStep({
 
             <div className="space-y-2">
               <Label htmlFor="ai-context" className="text-sm font-semibold">
-                What is your business and what is this survey for?
+                About your business (used on the call)
               </Label>
               <p className="text-xs text-muted-foreground">
-                The AI agent uses this to sound natural and stay on topic.
+                So the agent understands your company and can talk about the low-rated topics naturally.
               </p>
               <Textarea
                 id="ai-context"
                 rows={4}
-                placeholder="Example: We're Northwell Dental, a family dentist in Marina. This survey is about visits from the last 7 days — waiting times, reception, and treatment."
+                placeholder="Example: We're Northwell Dental, a family dentist in Marina. This survey covers recent visits — waiting times, reception, and treatment quality."
                 value={config.businessContext}
                 onChange={(e) => set("businessContext", e.target.value)}
               />
               {config.enabled && !config.businessContext.trim() && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Add a short business description so the AI sounds natural on follow-back calls.
+                  Add a short description so the agent knows your business on follow-up calls.
                 </p>
               )}
             </div>

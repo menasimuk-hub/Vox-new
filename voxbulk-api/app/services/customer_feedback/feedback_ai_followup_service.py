@@ -31,13 +31,16 @@ FOLLOWUP_TERMINAL = frozenset(
 )
 PAYG_MIN_WALLET_MINOR = 500
 RECOVERY_RULES = (
-    "Recovery call rules:\n"
-    "- Open softly: refer to 'recent feedback' — never say 'you gave us a low rating'.\n"
-    "- Ask one open question about the lowest-scoring topic only; do not re-run the survey.\n"
-    "- Listen more than you talk; summarise what you heard and thank them.\n"
-    "- Never argue, defend, or blame the customer or staff by name.\n"
-    "- If they are busy or upset, apologise, offer a human callback, and end politely.\n"
-    "- Keep the call under three minutes. English only."
+    "Your job on this call:\n"
+    "- Speak as a caring representative of THIS business — use the company/venue context below.\n"
+    "- Make the customer feel valued and appreciated for taking time to share feedback.\n"
+    "- Focus only on the survey topics they rated poorly; do not re-run the full survey.\n"
+    "- Your main goal: understand the real reason for the bad experience, in their words.\n"
+    "- Open softly (recent feedback / how we can improve) — never say 'you gave a low rating'.\n"
+    "- Ask one clear open question about the weakest topic, then listen; summarise and thank them.\n"
+    "- Never argue, defend the business, or blame staff by name.\n"
+    "- If they are busy or upset: apologise, offer a human callback, and end politely.\n"
+    "- Keep under three minutes. English only."
 )
 
 
@@ -250,13 +253,13 @@ def _format_session_summary_for_prompt(summary: dict[str, Any]) -> str:
     no_topics = summary.get("no_topics") or []
     lines: list[str] = []
     if poor:
-        lines.append("Rated poorly (focus here): " + "; ".join(poor))
+        lines.append("Low-rated topics (ask about these — find the reason): " + "; ".join(poor))
     if positive:
-        lines.append("Rated well (do not re-ask): " + "; ".join(positive))
+        lines.append("Rated well (acknowledge briefly if natural; do not re-ask): " + "; ".join(positive))
     if no_topics:
         lines.append("Said no to: " + "; ".join(no_topics))
     if not lines:
-        return "Customer gave low ratings but did not leave written detail."
+        return "Customer left low ratings without a written reason — discover what went wrong."
     lines.append("Do not quote raw emoji or button labels to the customer.")
     return "\n".join(lines)
 
@@ -273,22 +276,28 @@ def _build_followup_instructions(
     promo = ""
     if job.promo_enabled and job.promo_code:
         promo = (
-            f"\nIf the customer feels heard and is receptive, you may offer promo code {job.promo_code}"
+            f"\nOnly after they feel heard, if they are receptive, you may offer promo code {job.promo_code}"
             f" ({job.promo_description or 'recovery offer'}). Mention it once only."
         )
+    business_block = context or (
+        "Use the organisation and location details above. "
+        "If detail is thin, stay general but still sound like you represent this business."
+    )
     instructions = (
-        "You are making a service-recovery follow-up call after customer feedback.\n"
-        f"Business: {org_name}\n"
+        "You are the Customer Feedback recovery voice agent for this business — "
+        "an independent follow-up service (not an interview or survey campaign).\n"
+        f"Business name: {org_name}\n"
         f"{org_context}\n"
-        f"Venue context:\n{context or 'General service recovery call.'}\n\n"
-        f"Survey summary (internal — do not read verbatim):\n{summary_text}\n\n"
+        f"What this business does / survey context (know this):\n{business_block}\n\n"
+        f"This customer's survey (internal — do not read aloud):\n{summary_text}\n\n"
         f"{RECOVERY_RULES}"
         f"{promo}"
     )
     greeting = (
-        f"Hi, this is a quick follow-up from {org_name}. "
-        "You recently shared some feedback with us and we wanted to understand how we can do better. "
-        "This call is recorded for quality. Do you have a minute?"
+        f"Hi, this is a quick call from {org_name}. "
+        "Thank you for your recent feedback — we really value it and wanted to understand "
+        "how we can make things better for you. This call is recorded for quality. "
+        "Do you have a minute?"
     )
     return greeting, instructions
 
