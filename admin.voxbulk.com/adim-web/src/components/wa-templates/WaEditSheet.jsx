@@ -195,8 +195,8 @@ function apiTemplateToDraft(tpl, product) {
     language: tpl.language || 'en_GB',
     product,
     active:
-      product === 'interview'
-        ? tpl.active_for_interview !== false
+      product === 'interview' || product === 'demo'
+        ? tpl.active_for_interview !== false && tpl.active_for_demo !== false
         : product === 'appointment'
           ? tpl.active_for_appointment !== false
           : tpl.active_for_survey !== false,
@@ -301,6 +301,9 @@ export default function WaEditSheet({
         }
       } else if (product === 'interview') {
         const data = await apiFetch(`/admin/wa-interview/templates/${editTarget.templateId}`)
+        tpl = data.template || data
+      } else if (product === 'demo') {
+        const data = await apiFetch(`/admin/wa-demo/templates/${editTarget.templateId}`)
         tpl = data.template || data
       } else if (product === 'appointment') {
         const data = await apiFetch(`/admin/wa-appointment/templates/${editTarget.templateId}`)
@@ -453,6 +456,18 @@ export default function WaEditSheet({
             example_values: draft.variables,
           }),
         })
+      } else if (product === 'demo') {
+        await apiFetch(`/admin/wa-demo/templates/${templateId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            display_name: displayName,
+            category,
+            language: draft.language || 'en_GB',
+            active_for_demo: draft.active,
+            components,
+            example_values: draft.variables,
+          }),
+        })
       } else if (product === 'appointment') {
         await apiFetch(`/admin/wa-appointment/templates/${templateId}`, {
           method: 'PUT',
@@ -547,6 +562,8 @@ export default function WaEditSheet({
         await pushSurveyTemplateToProfiles(ids, { forcePush: true })
       } else if (product === 'interview') {
         await apiFetch(`/admin/wa-interview/templates/${ids[0]}/push`, { method: 'POST', body: '{}' })
+      } else if (product === 'demo') {
+        await apiFetch(`/admin/wa-demo/templates/${ids[0]}/push`, { method: 'POST', body: '{}' })
       } else if (product === 'appointment') {
         await apiFetch(`/admin/wa-appointment/templates/${ids[0]}/push`, { method: 'POST', body: '{}' })
       } else if (product === 'feedback') {

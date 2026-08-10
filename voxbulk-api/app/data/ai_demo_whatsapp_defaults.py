@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-# Meta/Telnyx template name when approved; plain fallback uses DEMO_EMAIL_SENT_BODY.
-DEMO_EMAIL_SENT_TEMPLATE_NAME = "voxbulk_demo_email_sent"
+# Meta/Telnyx template name — mirror interview_email_sent_v2 naming.
+DEMO_EMAIL_SENT_TEMPLATE_NAME = "voxbulk_demo_email_sent_v2"
 
 # {{1}} name, {{2}} company, {{3}} from email
 DEMO_EMAIL_SENT_BODY = """Dear {{1}} 👋

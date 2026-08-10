@@ -33,6 +33,7 @@ from app.routers.admin_custom_org import router as admin_custom_org_router
 from app.routers.admin_wa_survey import router as admin_wa_survey_router
 from app.routers.admin_wa_convert import router as admin_wa_convert_router
 from app.routers.admin_wa_interview import router as admin_wa_interview_router
+from app.routers.admin_wa_demo import router as admin_wa_demo_router
 from app.routers.admin_wa_appointment import router as admin_wa_appointment_router
 from app.routers.admin_compliance import router as admin_compliance_router
 from app.routers.admin_support import router as admin_support_router
@@ -756,6 +757,7 @@ app.include_router(admin_custom_org_router)
 app.include_router(admin_wa_survey_router)
 app.include_router(admin_wa_convert_router)
 app.include_router(admin_wa_interview_router)
+app.include_router(admin_wa_demo_router)
 app.include_router(admin_wa_appointment_router)
 app.include_router(admin_compliance_router)
 app.include_router(admin_support_router)

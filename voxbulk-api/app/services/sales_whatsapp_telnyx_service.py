@@ -18,6 +18,7 @@ TELNYX_SALES_TEMPLATE_NAMES: dict[str, str] = {
     "interview_booking_confirm": "interview_confirm_book_v5",
     "interview_booking_cancel": "voxbulk_interview_cancel_v2",
     "interview_job_closed": "voxbulk_interview_job_closed_v2",
+    "demo_email_sent": "voxbulk_demo_email_sent_v2",
 }
 
 TELNYX_SALES_TEMPLATE_LANGUAGE = "en_GB"

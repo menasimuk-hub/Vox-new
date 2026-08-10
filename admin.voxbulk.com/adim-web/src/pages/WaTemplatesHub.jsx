@@ -65,6 +65,7 @@ const EMPTY_JOB = {
 
 const TAGS = [
   { id: 'ai', label: 'AI Interview', icon: Sparkles },
+  { id: 'demo', label: 'AI Demo', icon: Sparkles },
   { id: 'survey', label: 'Survey', icon: ClipboardList },
   { id: 'feedback', label: 'Customer Feedback', icon: MessageSquareHeart },
   { id: 'expo', label: 'Expo', icon: Store },
@@ -98,6 +99,8 @@ const INTERVIEW_TEMPLATE_KEYS = new Set([
   'interview_booking_invite',
 ])
 
+const DEMO_TEMPLATE_KEYS = new Set(['demo_email_sent'])
+
 function templateKey(t) {
   return String(t?.sales_template_key || t?.sales_key || '').toLowerCase().trim()
 }
@@ -109,6 +112,7 @@ function templateName(t) {
 function isInterviewTemplate(t) {
   const key = templateKey(t)
   const name = templateName(t)
+  if (DEMO_TEMPLATE_KEYS.has(key) || key.startsWith('demo_') || name.startsWith('voxbulk_demo_')) return false
   if (INTERVIEW_TEMPLATE_KEYS.has(key)) return true
   if (key.startsWith('interview_')) return true
   if (name.startsWith('voxbulk_interview_')) return true
@@ -116,8 +120,17 @@ function isInterviewTemplate(t) {
   return false
 }
 
+function isDemoTemplate(t) {
+  const key = templateKey(t)
+  const name = templateName(t)
+  if (DEMO_TEMPLATE_KEYS.has(key)) return true
+  if (key.startsWith('demo_')) return true
+  if (name.startsWith('voxbulk_demo_')) return true
+  return false
+}
+
 function isSalesTemplate(t) {
-  if (isInterviewTemplate(t)) return false
+  if (isInterviewTemplate(t) || isDemoTemplate(t)) return false
   const key = templateKey(t)
   const name = templateName(t)
   if (SALES_TEMPLATE_KEYS.has(key)) return true
@@ -127,7 +140,7 @@ function isSalesTemplate(t) {
 }
 
 function isMarketingTemplate(t) {
-  if (isInterviewTemplate(t)) return false
+  if (isInterviewTemplate(t) || isDemoTemplate(t)) return false
   if (isSalesTemplate(t)) return false
   const key = templateKey(t)
   const name = templateName(t)
@@ -154,6 +167,7 @@ export default function WaTemplatesHub() {
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [interviewTemplates, setInterviewTemplates] = useState([])
+  const [demoTemplates, setDemoTemplates] = useState([])
   const [marketingTemplates, setMarketingTemplates] = useState([])
   const [salesTemplates, setSalesTemplates] = useState([])
   const [flatLoading, setFlatLoading] = useState(false)
@@ -353,6 +367,19 @@ export default function WaTemplatesHub() {
     }
   }, [])
 
+  const loadDemo = useCallback(async () => {
+    setFlatLoading(true)
+    try {
+      const data = await apiFetch('/admin/wa-demo/templates')
+      const rows = (Array.isArray(data?.templates) ? data.templates : []).filter(isDemoTemplate)
+      setDemoTemplates(rows.map((t) => toHubRow(t, { rowKind: 'demo' })))
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not load AI demo templates').message)
+    } finally {
+      setFlatLoading(false)
+    }
+  }, [])
+
   const loadMarketing = useCallback(async () => {
     setFlatLoading(true)
     try {
@@ -476,11 +503,12 @@ export default function WaTemplatesHub() {
 
   const refreshTabData = useCallback(() => {
     if (tab === 'ai') void loadInterview()
+    else if (tab === 'demo') void loadDemo()
     else if (tab === 'marketing') void loadMarketing()
     else if (tab === 'sales') void loadSales()
     else if (tab === 'survey') void loadSurveyIndustries()
     else if (tab === 'feedback') void loadFeedbackIndustries()
-  }, [tab, loadInterview, loadMarketing, loadSales, loadSurveyIndustries, loadFeedbackIndustries])
+  }, [tab, loadInterview, loadDemo, loadMarketing, loadSales, loadSurveyIndustries, loadFeedbackIndustries])
 
   useEffect(() => {
     profileSummariesRef.current = {}
@@ -1331,6 +1359,49 @@ export default function WaTemplatesHub() {
     }
   }
 
+  const pushDemo = async (row) => {
+    setError('')
+    setSyncingId(row.id)
+    try {
+      const result = await apiFetch(`/admin/wa-demo/templates/${row.id}/push`, {
+        method: 'POST',
+        body: '{}',
+        timeoutMs: 180000,
+        quietNetworkHint: true,
+      })
+      setMsg(formatActionSuccess(result, 'Synced with Meta').message)
+      await loadDemo()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Sync failed').detailText || e?.message)
+    } finally {
+      setSyncingId(null)
+    }
+  }
+
+  const toggleDemo = async (row) => {
+    try {
+      const active = row.raw?.active_for_demo !== false && row.raw?.active_for_interview !== false
+      await apiFetch(`/admin/wa-demo/templates/${row.id}/set-active`, {
+        method: 'POST',
+        body: JSON.stringify({ active_for_demo: !active }),
+      })
+      await loadDemo()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Could not update status').message)
+    }
+  }
+
+  const deleteDemo = async (row) => {
+    if (!window.confirm(`Delete “${row.name}”?`)) return
+    try {
+      await apiFetch(`/admin/wa-demo/templates/${row.id}`, { method: 'DELETE' })
+      setMsg('Template deleted')
+      await loadDemo()
+    } catch (e) {
+      setError(formatWaSurveyError(e, 'Delete failed').message)
+    }
+  }
+
   const marketingAction = async (row, action) => {
     if (action === 'edit') {
       setError('Marketing templates are managed in Lead sales settings.')
@@ -1533,10 +1604,11 @@ export default function WaTemplatesHub() {
 
   const flatTemplates = useMemo(() => {
     if (tab === 'ai') return interviewTemplates
+    if (tab === 'demo') return demoTemplates
     if (tab === 'marketing') return marketingTemplates
     if (tab === 'sales') return salesTemplates
     return []
-  }, [tab, interviewTemplates, marketingTemplates, salesTemplates])
+  }, [tab, interviewTemplates, demoTemplates, marketingTemplates, salesTemplates])
 
   const showCleanupActions = false
 
@@ -1820,6 +1892,22 @@ export default function WaTemplatesHub() {
                   />
                 ) : null}
 
+                {tg.id === 'demo' ? (
+                  <WaTemplatesTable
+                    templates={flatTemplates}
+                    loading={flatLoading}
+                    onEdit={(row) => setEditTarget({ product: 'demo', templateId: row.id })}
+                    onSync={(row) => void pushDemo(row)}
+                    onToggle={(row) => void toggleDemo(row)}
+                    onDelete={(row) => void deleteDemo(row)}
+                    onReject={setRejectRow}
+                    syncingId={syncingId}
+                    plainNames
+                    showNew={false}
+                    emptyLabel="No AI demo templates yet."
+                  />
+                ) : null}
+
                 {tg.id === 'marketing' ? (
                   <WaTemplatesTable
                     templates={flatTemplates}
@@ -1875,6 +1963,7 @@ export default function WaTemplatesHub() {
         onRequestSyncConfirm={requestSyncConfirm}
         onSaved={() => {
           if (editTarget?.product === 'interview') void loadInterview()
+          if (editTarget?.product === 'demo') void loadDemo()
           setEditTarget(null)
         }}
       />
@@ -1887,6 +1976,7 @@ export default function WaTemplatesHub() {
           setMsg(message)
           void refreshSelectedProfileSummary()
           if (tab === 'ai') void loadInterview()
+          if (tab === 'demo') void loadDemo()
           if (tab === 'survey') void loadSurveyIndustries()
           if (tab === 'feedback') void loadFeedbackIndustries()
         }}

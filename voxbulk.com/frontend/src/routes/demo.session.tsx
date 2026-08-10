@@ -124,6 +124,13 @@ function DemoSessionPage() {
     if (!verified) return;
     setPhase("live");
     try {
+      // Mic first — same as Talk-to-us; unlocks autoplay for remote audio.
+      try {
+        await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        throw new Error("Microphone access is required — allow mic access and try again.");
+      }
+
       const started = await startDemoSession(verified.session_id);
       const agentId = started.telnyx?.agent_id;
       if (!agentId) throw new Error("Demo voice agent is not configured yet.");
@@ -147,14 +154,33 @@ function DemoSessionPage() {
         client.connect();
       });
 
+      const attachRemoteAudio = (call: { remoteStream?: MediaStream | null } | null | undefined) => {
+        const el = document.getElementById(REMOTE_AUDIO_ID) as HTMLAudioElement | null;
+        const stream = call?.remoteStream ?? null;
+        if (!el || !stream) return;
+        if (el.srcObject !== stream) el.srcObject = stream;
+        el.muted = false;
+        el.volume = 1;
+        void el.play().catch(() => {});
+      };
+
+      client.on("telnyx.notification", (notification: { type?: string; call?: { remoteStream?: MediaStream | null; state?: string } }) => {
+        if (notification?.type !== "callUpdate" || !notification.call) return;
+        attachRemoteAudio(notification.call);
+      });
+
+      const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs || [];
+      const opus = codecs.find((c) => c.mimeType.toLowerCase().includes("opus"));
       const call = client.newCall({
         destinationNumber: "",
         audio: true,
         video: false,
         remoteElement: REMOTE_AUDIO_ID,
+        preferred_codecs: opus ? [opus] : undefined,
         customHeaders: started.telnyx?.custom_headers || {},
       });
       callRef.current = call;
+      attachRemoteAudio(call as { remoteStream?: MediaStream | null });
       startedAtRef.current = Date.now();
 
       const minutes = started.soft_cap_minutes || verified.soft_cap_minutes || 7;

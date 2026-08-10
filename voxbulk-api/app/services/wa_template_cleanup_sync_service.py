@@ -30,6 +30,7 @@ CF_META_PREFIXES = ("cfs_",)
 PROTECTED_PREFIXES = (
     "voxbulk_interview_",
     "interview_",
+    "voxbulk_demo_",
     "voxbulk_sales_",
 )
 PROTECTED_SALES_KEYS = frozenset(
@@ -38,9 +39,10 @@ PROTECTED_SALES_KEYS = frozenset(
         "sales_offer",
         "sales_offer_followup",
         "sales_offer_keyword_confirm",
+        "demo_email_sent",
     }
 )
-INTERVIEW_KEY_PREFIXES = ("interview_",)
+INTERVIEW_KEY_PREFIXES = ("interview_", "demo_")
 
 
 def _now_utc() -> datetime:
