@@ -5,6 +5,7 @@ import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { StatsRow, BottomCTA } from "@/components/VOXBULKHome";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
+import { SurveyTemplateGallery } from "@/components/templates/TemplateGallery";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
 
@@ -165,6 +166,12 @@ function FeedbackPage() {
           </div>
         </section>
 
+        {/* Live mobile templates */}
+        <section className="py-20 md:py-24 bg-white">
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <SurveyTemplateGallery />
+          </div>
+        </section>
 
         <section className="py-24 md:py-28 bg-beige">
           <div className="max-w-[1180px] mx-auto px-5 md:px-10">

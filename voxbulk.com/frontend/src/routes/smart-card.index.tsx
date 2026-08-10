@@ -8,6 +8,7 @@ import {
 import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { BottomCTA } from "@/components/VOXBULKHome";
+import { SmartCardGallery } from "@/components/templates/TemplateGallery";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
 
 export const Route = createFileRoute("/smart-card/")({
@@ -363,6 +364,12 @@ function SmartCardPage() {
                 For sales reps every day — subscribe per rep, one QR per person.
               </p>
             </div>
+          </div>
+        </section>
+
+        <section className="py-20 md:py-24 bg-beige">
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <SmartCardGallery />
           </div>
         </section>
 

@@ -8,6 +8,7 @@ import {
 import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { BottomCTA } from "@/components/VOXBULKHome";
+import { SurveyTemplateGallery } from "@/components/templates/TemplateGallery";
 import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
 
 export const Route = createFileRoute("/expo/")({
@@ -379,6 +380,12 @@ function ExpoPage() {
                 Explore Smart Card QR <ArrowRight size={14} />
               </Link>
             </div>
+          </div>
+        </section>
+
+        <section className="py-20 md:py-24 bg-beige">
+          <div className="max-w-[1180px] mx-auto px-5 md:px-10">
+            <SurveyTemplateGallery />
           </div>
         </section>
 

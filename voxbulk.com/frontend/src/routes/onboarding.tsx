@@ -6,13 +6,14 @@ import { toast } from "sonner";
 import {
   Building2, Phone, Globe, Mail, MapPin, Image as ImageIcon,
   Loader2, ArrowRight, ArrowLeft, Check, Upload, X,
-  Briefcase, MessageSquare, PhoneCall, FileText, BarChart3, Headphones, QrCode,
+  Briefcase, MessageSquare, FileText, BarChart3, QrCode,
 } from "lucide-react";
 import {
-  marketingSelectionToEnabled,
-  allowedMarketingServices,
-  type MarketingServiceId,
+  selectionToEnabledServices,
+  activeOnboardingProducts,
+  type OnboardingProductId,
 } from "@/lib/services";
+import { fetchProductVisibility, type ProductVisibilityPayload } from "@/lib/product-visibility";
 import { useAuth } from "@/lib/auth";
 import { apiFetch, apiUpload, getPostLoginHandoffUrl, hasPlatformAdminAccess } from "@/lib/api";
 
@@ -31,16 +32,14 @@ export const Route = createFileRoute("/onboarding")({
   component: CompanyWizard,
 });
 
-type ServiceId = MarketingServiceId;
+type ServiceId = OnboardingProductId;
 
 const ICONS: Record<ServiceId, typeof Briefcase> = {
   recruitment: Briefcase,
-  ai_interviews: PhoneCall,
-  whatsapp_surveys: MessageSquare,
-  ai_calling: Headphones,
-  ats: FileText,
-  customer_success: BarChart3,
-  voxbulk_expo: QrCode,
+  surveys: MessageSquare,
+  feedback: BarChart3,
+  expo: QrCode,
+  smart_card: FileText,
 };
 
 const COUNTRIES = [
@@ -55,7 +54,7 @@ const schema = z.object({
   website: z.string().trim().max(200).optional().or(z.literal("")),
   contact_email: z.string().trim().email("Enter a valid contact email").max(255).optional().or(z.literal("")),
   country: z.string().trim().min(2, "Pick a country"),
-  services: z.array(z.string()).min(1, "Pick at least one service"),
+  services: z.array(z.string()),
 });
 
 function CompanyWizard() {
@@ -65,7 +64,8 @@ function CompanyWizard() {
   const [userEmail, setUserEmail] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [allowedServices, setAllowedServices] = useState<Record<string, boolean> | null>(null);
-  const availableServices = allowedMarketingServices(allowedServices).map((s) => ({
+  const [productVis, setProductVis] = useState<ProductVisibilityPayload | null>(null);
+  const availableServices = activeOnboardingProducts(productVis, allowedServices).map((s) => ({
     ...s,
     Icon: ICONS[s.id],
   }));
@@ -108,6 +108,9 @@ function CompanyWizard() {
         setAllowedServices(org?.allowed_services || null);
       })
       .catch(() => {});
+    void fetchProductVisibility()
+      .then((vis) => setProductVis(vis))
+      .catch(() => setProductVis(null));
   }, [
     auth.loading,
     auth.user?.user_id,
@@ -153,7 +156,9 @@ function CompanyWizard() {
       if (!country) return toast.error("Pick a country");
       setStep(2);
     } else if (step === 2) {
-      if (services.length === 0) return toast.error("Pick at least one service");
+      if (availableServices.length > 0 && services.length === 0) {
+        return toast.error("Pick at least one service");
+      }
       setStep(3);
     }
   };
@@ -177,7 +182,7 @@ function CompanyWizard() {
         }),
       });
 
-      const enabled = marketingSelectionToEnabled(services, allowedServices);
+      const enabled = selectionToEnabledServices(services, allowedServices, availableServices);
       await apiFetch("/organisations/me/enabled-services", {
         method: "PATCH",
         body: JSON.stringify(enabled),
@@ -291,38 +296,46 @@ function CompanyWizard() {
             {step === 2 && (
               <div>
                 <h2 className="text-[18px] sm:text-[20px] font-bold text-heading">What will you use VoxBulk for?</h2>
-                <p className="mt-1 text-[13.5px] text-muted-text">Pick one or more — you can change this later.</p>
-                <div className="mt-5 grid sm:grid-cols-2 gap-3">
-                  {availableServices.map((s) => {
-                    const active = services.includes(s.id);
-                    const ServiceIcon = s.Icon ?? Briefcase;
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => toggleService(s.id)}
-                        className={`relative text-left rounded-2xl p-4 border transition-all ${
-                          active
-                            ? "bg-primary/[0.06] border-primary shadow-[0_8px_20px_-12px_rgba(30,111,217,0.45)]"
-                            : "bg-white border-border hover:border-primary/40"
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-primary text-white" : "bg-secondary text-heading"}`}>
-                            <ServiceIcon size={18} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <h3 className="text-[14.5px] font-bold text-heading truncate">{s.label}</h3>
-                              {active && <Check size={14} className="text-primary shrink-0" strokeWidth={3} />}
+                <p className="mt-1 text-[13.5px] text-muted-text">
+                  Pick what you need now — you can enable more later in Settings → Services.
+                </p>
+                {availableServices.length === 0 ? (
+                  <p className="mt-5 text-[13.5px] text-muted-text rounded-2xl border border-border bg-beige/60 p-4">
+                    No products are available to select yet. Continue to branding — you can enable services later from your dashboard.
+                  </p>
+                ) : (
+                  <div className="mt-5 grid sm:grid-cols-2 gap-3">
+                    {availableServices.map((s) => {
+                      const active = services.includes(s.id);
+                      const ServiceIcon = s.Icon ?? Briefcase;
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => toggleService(s.id)}
+                          className={`relative text-left rounded-2xl p-4 border transition-all ${
+                            active
+                              ? "bg-primary/[0.06] border-primary shadow-[0_8px_20px_-12px_rgba(30,111,217,0.45)]"
+                              : "bg-white border-border hover:border-primary/40"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${active ? "bg-primary text-white" : "bg-secondary text-heading"}`}>
+                              <ServiceIcon size={18} />
                             </div>
-                            <p className="mt-0.5 text-[12.5px] text-body leading-snug break-words">{s.desc}</p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <h3 className="text-[14.5px] font-bold text-heading truncate">{s.label}</h3>
+                                {active && <Check size={14} className="text-primary shrink-0" strokeWidth={3} />}
+                              </div>
+                              <p className="mt-0.5 text-[12.5px] text-body leading-snug break-words">{s.desc}</p>
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
