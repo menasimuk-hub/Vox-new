@@ -424,6 +424,7 @@ class CustomPackagesService:
         db.add(pkg)
         db.flush()
         CustomPackagesService.set_orgs(db, pkg.id, data["org_ids"] or [])
+        CustomPackagesService.ensure_billing_plan(db, pkg)
         db.commit()
         db.refresh(pkg)
         return CustomPackagesService.package_to_dict(db, pkg)
@@ -449,6 +450,7 @@ class CustomPackagesService:
         pkg.updated_at = _now()
         if data["org_ids"] is not None:
             CustomPackagesService.set_orgs(db, pkg.id, data["org_ids"])
+        CustomPackagesService.ensure_billing_plan(db, pkg)
         db.commit()
         db.refresh(pkg)
         return CustomPackagesService.package_to_dict(db, pkg)
@@ -503,6 +505,106 @@ class CustomPackagesService:
         return CustomPackagesService.package_to_dict(db, pkg)
 
     @staticmethod
+    def get_row_for_org(db: Session, org_id: str) -> CustomPackage | None:
+        row = db.execute(
+            select(CustomPackageOrgAssignment).where(
+                CustomPackageOrgAssignment.org_id == org_id,
+                CustomPackageOrgAssignment.is_active.is_(True),
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        pkg = db.get(CustomPackage, row.custom_package_id)
+        if pkg is None or pkg.status != "active":
+            return None
+        return pkg
+
+    @staticmethod
+    def billing_plan_code(package_code: str) -> str:
+        return f"cpkg-{str(package_code or '').strip().lower()}"[:50]
+
+    @staticmethod
+    def ensure_billing_plan(
+        db: Session,
+        pkg: CustomPackage,
+        *,
+        extra_currencies: list[str] | None = None,
+    ):
+        """Create/update a private Plan + PlanPrice so GC/Stripe subscription checkout can reuse Core payment APIs."""
+        from app.models.plan import Plan
+        from app.models.plan_price import PlanPrice
+        from app.services.plan_price_service import PlanPriceService
+
+        code = CustomPackagesService.billing_plan_code(pkg.code)
+        plan = db.execute(select(Plan).where(Plan.code == code)).scalar_one_or_none()
+        now = _now()
+        currency = normalize_currency(pkg.currency)
+        amount = max(0, int(pkg.price_minor or 0))
+        interval = "yearly" if str(pkg.interval or "").lower() == "yearly" else "monthly"
+        active = str(pkg.status or "").lower() == "active"
+
+        if plan is None:
+            plan = Plan(
+                id=str(uuid.uuid4()),
+                code=code,
+                name=str(pkg.name or "Private package")[:255],
+                description=f"Private package ({pkg.code})",
+                price_gbp_pence=amount if currency == "GBP" else None,
+                interval=interval,
+                features_json="[]",
+                service_kind="voxbulk",
+                is_private=True,
+                is_active=active,
+                is_enterprise=False,
+                sort_order=9500,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(plan)
+            db.flush()
+        else:
+            plan.name = str(pkg.name or plan.name)[:255]
+            plan.interval = interval
+            plan.is_private = True
+            plan.is_active = active
+            plan.service_kind = "voxbulk"
+            if currency == "GBP":
+                plan.price_gbp_pence = amount
+            plan.updated_at = now
+
+        currencies = {currency}
+        for item in extra_currencies or []:
+            try:
+                currencies.add(normalize_currency(item))
+            except Exception:
+                continue
+
+        for cur in currencies:
+            row = PlanPriceService.get_price(db, plan.id, cur)
+            if row is None:
+                row = PlanPrice(
+                    id=str(uuid.uuid4()),
+                    plan_id=plan.id,
+                    currency=cur,
+                    created_at=now,
+                    updated_at=now,
+                )
+                db.add(row)
+            if interval == "yearly":
+                row.yearly_price_minor = amount
+                if row.monthly_price_minor is None:
+                    row.monthly_price_minor = amount
+            else:
+                row.monthly_price_minor = amount
+                if row.yearly_price_minor is None:
+                    row.yearly_price_minor = amount * 12
+            row.is_active = True
+            row.updated_at = now
+
+        db.flush()
+        return plan
+
+    @staticmethod
     def _money_display(minor: int, currency: str) -> str:
         from app.services.billing_currency import CURRENCY_SYMBOLS
 
@@ -537,14 +639,29 @@ class CustomPackagesService:
     @staticmethod
     def org_dashboard_payload(db: Session, org_id: str) -> dict[str, Any] | None:
         """Customer-facing Private package page payload (assigned + active only)."""
-        pkg = CustomPackagesService.get_for_org(db, org_id)
-        if pkg is None:
+        pkg_row = CustomPackagesService.get_row_for_org(db, org_id)
+        if pkg_row is None:
             return None
+        pkg = CustomPackagesService.package_to_dict(db, pkg_row)
 
         modules = pkg.get("modules") or {}
         currency = str(pkg.get("currency") or "GBP")
         interval = str(pkg.get("interval") or "monthly")
         price_minor = int(pkg.get("price_minor") or 0)
+
+        org = db.get(Organisation, org_id)
+        extra_currencies: list[str] = []
+        try:
+            from app.services.billing_currency import resolve_org_currency
+
+            if org is not None:
+                extra_currencies.append(resolve_org_currency(db, org))
+        except Exception:
+            pass
+        billing_plan = CustomPackagesService.ensure_billing_plan(
+            db, pkg_row, extra_currencies=extra_currencies
+        )
+        db.commit()
 
         # Live usage where meters already exist (Phase B will sync package caps into them).
         core_used = {"calls": 0, "whatsapp": 0, "cv": 0}
@@ -728,19 +845,46 @@ class CustomPackagesService:
                 )
             )
 
-        # Payment hint from existing Core mandate if present.
+        # Payment: subscribed to this private package plan (not any other Core plan).
         mandate_active = False
         payment_method_label = None
         try:
-            from app.services.subscription_summary_service import SubscriptionSummaryService
+            from app.models.subscription import Subscription
 
-            core_fin = SubscriptionSummaryService.core_summary(db, org_id) or {}
-            status = str(core_fin.get("status") or "").lower()
-            mandate_active = status in {"active", "trial", "pending_first_payment", "past_due"}
-            if mandate_active:
-                payment_method_label = core_fin.get("payment_method_label") or "Direct Debit on file"
+            sub = db.execute(
+                select(Subscription).where(Subscription.org_id == org_id).limit(1)
+            ).scalar_one_or_none()
+            if sub is not None and str(sub.plan_id or "") == str(billing_plan.id):
+                status = str(sub.status or "").lower()
+                mandate_active = status in {
+                    "active",
+                    "trial",
+                    "trialing",
+                    "pending_first_payment",
+                    "past_due",
+                }
+                provider = str(getattr(sub, "payment_provider", None) or "").lower()
+                if "gocardless" in provider or provider == "gc":
+                    payment_method_label = "GoCardless Direct Debit"
+                elif provider in {"stripe", "airwallex"}:
+                    payment_method_label = "Card on file"
+                else:
+                    payment_method_label = "Payment method on file"
         except Exception:
             pass
+
+        payment_options: dict[str, Any] = {}
+        try:
+            from app.services.payment_provider_router import PaymentProviderRouter
+
+            payment_options = PaymentProviderRouter.subscription_options(db, org)
+        except Exception:
+            payment_options = {
+                "gocardless_available": False,
+                "stripe_available": False,
+                "airwallex_available": False,
+                "primary_provider": "gocardless",
+            }
 
         from datetime import timedelta
 
@@ -757,6 +901,10 @@ class CustomPackagesService:
             next_billing_date = (_now() + timedelta(days=30)).date().isoformat()
 
         payment_status = "mandate_ready" if mandate_active else "setup_required"
+        billing_interval = "yearly" if interval == "yearly" else "monthly"
+        can_checkout = bool(
+            payment_options.get("gocardless_available") or payment_options.get("stripe_available")
+        )
 
         return {
             "assigned": True,
@@ -777,14 +925,17 @@ class CustomPackagesService:
             },
             "billing": {
                 "interval": interval,
+                "billing_interval": billing_interval,
                 "currency": currency,
                 "amount_next_payment_minor": price_minor,
                 "amount_next_payment_display": CustomPackagesService._money_display(price_minor, currency),
                 "next_billing_date": next_billing_date,
                 "payment_status": payment_status,
                 "payment_method_label": payment_method_label,
-                "can_setup_payment": payment_status == "setup_required",
-                "setup_path": "/account/billing",
+                "can_setup_payment": payment_status == "setup_required" and can_checkout and price_minor > 0,
+                "billing_plan_id": billing_plan.id,
+                "payment_options": payment_options,
+                "setup_path": "/account/private-package",
             },
             "usage": {
                 "rows": usage_rows,

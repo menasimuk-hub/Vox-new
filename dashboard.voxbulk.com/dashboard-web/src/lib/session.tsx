@@ -288,7 +288,12 @@ function GoCardlessReturnHandler({
             );
             await completeCardSubscription(paymentIntentId);
             clearCardSubscriptionState();
-            toast.success("Subscription activated");
+            const onPrivatePackage = window.location.pathname.includes("/private-package");
+            toast.success(
+              onPrivatePackage
+                ? "Private package payment set up successfully."
+                : "Subscription activated",
+            );
           }
           onComplete();
         } catch (e) {
@@ -538,11 +543,26 @@ function GoCardlessReturnHandler({
 
         clearBillingQuery();
 
-        toast.success("Core platform subscription activated successfully.");
+        let returnTo = "/account/packages";
+        let successMessage = "Core platform subscription activated successfully.";
+        try {
+          const stored = (sessionStorage.getItem("voxbulk_gc_return_to") || "").trim();
+          if (stored) {
+            returnTo = stored;
+            sessionStorage.removeItem("voxbulk_gc_return_to");
+            if (stored.includes("private-package")) {
+              successMessage = "Private package payment set up successfully.";
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+
+        toast.success(successMessage);
 
         onComplete();
 
-        void navigate({ to: "/account/packages", replace: true });
+        void navigate({ to: returnTo, replace: true });
 
       } catch (e) {
 

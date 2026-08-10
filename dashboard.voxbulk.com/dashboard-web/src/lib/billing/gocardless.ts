@@ -5,6 +5,8 @@ export const GC_FEEDBACK_FLOW_KEY = "voxbulk_gc_feedback_redirect_flow_id";
 export const GC_MANDATE_FLOW_KEY = "voxbulk_gc_mandate_redirect_flow_id";
 export const GC_ORDER_FLOW_KEY = "voxbulk_gc_order_redirect_flow_id";
 export const GC_ORDER_ID_KEY = "voxbulk_gc_order_id";
+/** After GC subscription complete, navigate here instead of /account/packages. */
+export const GC_RETURN_TO_KEY = "voxbulk_gc_return_to";
 
 export type BillingReturnParams = {
   billing: string;
@@ -106,7 +108,11 @@ export function clearBillingQuery() {
   }
 }
 
-export async function startGoCardlessSubscription(planId: string, billingInterval: "monthly" | "yearly" = "monthly") {
+export async function startGoCardlessSubscription(
+  planId: string,
+  billingInterval: "monthly" | "yearly" = "monthly",
+  options?: { returnTo?: string },
+) {
   const result = await apiFetch<{
     redirect_flow_id?: string;
     authorization_url?: string;
@@ -121,6 +127,9 @@ export async function startGoCardlessSubscription(planId: string, billingInterva
     throw new Error("GoCardless did not return a checkout URL");
   }
   sessionStorage.setItem(GC_FLOW_KEY, redirectFlowId);
+  if (options?.returnTo) {
+    sessionStorage.setItem(GC_RETURN_TO_KEY, options.returnTo);
+  }
   window.location.assign(authorizationUrl);
 }
 

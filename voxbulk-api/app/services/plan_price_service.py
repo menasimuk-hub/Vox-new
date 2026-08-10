@@ -307,8 +307,10 @@ class PlanPriceService:
         currency = resolve_org_currency(db, org)
         unit = PlanPriceService.get_currency_settings(db, currency)
 
+        # Explicit private plan (e.g. custom-package checkout) must keep its own prices.
+        # Only swap in the org's assigned private catalog plan when pricing a public/catalog plan.
         effective_plan = plan
-        if org is not None:
+        if org is not None and (plan is None or not bool(getattr(plan, "is_private", False))):
             try:
                 from app.services.private_packages_service import PrivatePackagesService
 

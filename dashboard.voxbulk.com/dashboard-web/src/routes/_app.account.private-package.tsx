@@ -1,5 +1,5 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BadgeCheck,
   CalendarClock,
@@ -10,7 +10,13 @@ import {
   Sparkles,
 } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
 
+import {
+  CheckoutConfirmDialog,
+  type CheckoutConfirmDetails,
+} from "@/components/billing/checkout-confirm-dialog";
+import { StripeCardCheckoutDialog } from "@/components/billing/stripe-card-checkout-dialog";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +24,17 @@ import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/status-badge";
 import { apiFetch, ApiError } from "@/lib/api";
+import { startGoCardlessSubscription } from "@/lib/billing/gocardless";
+import {
+  availablePaymentMethods,
+  clearCardSubscriptionState,
+  completeCardSubscription,
+  isStripeElementsCheckout,
+  primarySubscriptionProvider,
+  startCardSubscription,
+  type PaymentMethodChoice,
+  type StripeElementsCheckout,
+} from "@/lib/billing/subscription-payment";
 import { requireBillingAccess } from "@/lib/guards/billing-route";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +73,7 @@ type CustomPackagePayload = {
     interval: string;
     currency: string;
     price_display: string;
+    price_minor?: number;
     status: string;
     enabled_services: string[];
     allowlist_country_count?: number | null;
@@ -63,11 +81,15 @@ type CustomPackagePayload = {
   };
   billing: {
     interval: string;
+    billing_interval?: string;
     amount_next_payment_display: string;
+    amount_next_payment_minor?: number;
     next_billing_date: string | null;
     payment_status: string;
     payment_method_label?: string | null;
     can_setup_payment: boolean;
+    billing_plan_id?: string | null;
+    payment_options?: Record<string, unknown>;
     setup_path: string;
   };
   usage: { rows: UsageRow[]; period_note?: string };
@@ -135,7 +157,9 @@ function MeterCard({ row }: { row: UsageRow }) {
       </div>
       <Progress value={row.included > 0 ? pct : 0} className="h-1.5" />
       {row.remaining != null ? (
-        <p className="text-[11px] text-muted-foreground">{row.remaining.toLocaleString()} {row.unit} remaining</p>
+        <p className="text-[11px] text-muted-foreground">
+          {row.remaining.toLocaleString()} {row.unit} remaining
+        </p>
       ) : null}
     </div>
   );
@@ -143,7 +167,88 @@ function MeterCard({ row }: { row: UsageRow }) {
 
 function PrivatePackagePage() {
   const q = usePrivatePackage();
+  const qc = useQueryClient();
   const data = q.data;
+
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [checkoutDetails, setCheckoutDetails] = React.useState<CheckoutConfirmDetails | null>(null);
+  const [busyCheckout, setBusyCheckout] = React.useState(false);
+  const [stripeCheckout, setStripeCheckout] = React.useState<StripeElementsCheckout | null>(null);
+
+  const paymentOpts = data?.billing?.payment_options || null;
+  const paymentMethods = availablePaymentMethods(
+    paymentOpts ? { payment_options: paymentOpts } : null,
+  );
+  const primaryProvider = primarySubscriptionProvider(
+    paymentOpts ? { payment_options: paymentOpts } : null,
+  );
+  const defaultPayMethod =
+    (paymentMethods.includes(primaryProvider as PaymentMethodChoice)
+      ? (primaryProvider as PaymentMethodChoice)
+      : paymentMethods[0]) || "gocardless";
+
+  const billingInterval = (
+    data?.billing?.billing_interval === "yearly" || data?.package?.interval === "yearly"
+      ? "yearly"
+      : "monthly"
+  ) as "monthly" | "yearly";
+
+  const invalidate = React.useCallback(async () => {
+    await qc.invalidateQueries({ queryKey: ["billing", "custom-package"] });
+  }, [qc]);
+
+  const openPaymentSetup = () => {
+    if (!data?.billing?.billing_plan_id) {
+      toast.error("Payment plan is not ready yet. Try again in a moment.");
+      return;
+    }
+    if (!paymentMethods.length) {
+      toast.error("No subscription payment method is configured for your region.");
+      return;
+    }
+    setCheckoutDetails({
+      planName: data.package.name,
+      intervalLabel: billingInterval === "yearly" ? "Annually" : "Monthly",
+      amountDisplay: data.billing.amount_next_payment_display,
+      amountMinor: data.billing.amount_next_payment_minor ?? data.package.price_minor ?? null,
+      amountNote: "Private package fee",
+      serviceKind: "voxbulk",
+    });
+    setCheckoutOpen(true);
+  };
+
+  const runCheckout = async (paymentMethod?: PaymentMethodChoice) => {
+    const planId = data?.billing?.billing_plan_id;
+    if (!planId) return;
+    setBusyCheckout(true);
+    setCheckoutOpen(false);
+    try {
+      const method = paymentMethod || defaultPayMethod;
+      if (method === "gocardless") {
+        await startGoCardlessSubscription(planId, billingInterval, {
+          returnTo: "/account/private-package",
+        });
+        return;
+      }
+      const result = await startCardSubscription(planId, billingInterval, "stripe", {
+        returnPath: "/account/private-package",
+      });
+      if (result?.provider === "promo_discount" || result?.paid) {
+        toast.success(
+          result.trial_days
+            ? `Trial started — ${result.trial_days} days free`
+            : "Promo applied — subscription activated",
+        );
+        await invalidate();
+      } else if (isStripeElementsCheckout(result)) {
+        setStripeCheckout(result);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start checkout");
+    } finally {
+      setBusyCheckout(false);
+    }
+  };
 
   if (q.isLoading) {
     return (
@@ -207,7 +312,6 @@ function PrivatePackagePage() {
         }
       />
 
-      {/* Hero deal card */}
       <section
         className={cn(
           "relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-background to-emerald-500/5 p-6 shadow-sm",
@@ -248,12 +352,13 @@ function PrivatePackagePage() {
                 /{billing.interval === "yearly" ? "yr" : "mo"}
               </span>
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">{intervalLabel} · {pkg.currency}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {intervalLabel} · {pkg.currency}
+            </p>
           </div>
         </div>
       </section>
 
-      {/* Next payment + payment tools */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card className="border-border/80 shadow-sm">
           <CardHeader className="pb-2">
@@ -279,11 +384,11 @@ function PrivatePackagePage() {
           <CardContent className="space-y-3">
             {needsPayment ? (
               <>
-                <p className="text-sm text-amber-700 dark:text-amber-400">Payment setup required before automatic collection.</p>
-                <Button asChild className="gap-1.5">
-                  <Link to="/account/billing">
-                    <Shield className="size-4" /> Set up payment
-                  </Link>
+                <p className="text-sm text-amber-700 dark:text-amber-400">
+                  Payment setup required before automatic collection.
+                </p>
+                <Button className="gap-1.5" disabled={busyCheckout} onClick={openPaymentSetup}>
+                  <Shield className="size-4" /> Set up payment
                 </Button>
               </>
             ) : (
@@ -316,7 +421,6 @@ function PrivatePackagePage() {
         </Card>
       </div>
 
-      {/* Usage KPIs */}
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-3">
           <div>
@@ -365,6 +469,43 @@ function PrivatePackagePage() {
           </CardContent>
         </Card>
       ) : null}
+
+      <CheckoutConfirmDialog
+        open={checkoutOpen}
+        onOpenChange={(open) => {
+          setCheckoutOpen(open);
+          if (!open) setCheckoutDetails(null);
+        }}
+        details={checkoutDetails}
+        serviceHint="Private package"
+        tintClass="border-emerald-200/80 bg-emerald-50/50 dark:border-emerald-800/40 dark:bg-emerald-950/20"
+        confirmLabel="Continue to payment"
+        paymentMethods={paymentMethods}
+        defaultPaymentMethod={defaultPayMethod}
+        loading={busyCheckout}
+        onConfirm={runCheckout}
+      />
+
+      <StripeCardCheckoutDialog
+        open={Boolean(stripeCheckout)}
+        onOpenChange={(open) => {
+          if (!open) setStripeCheckout(null);
+        }}
+        session={stripeCheckout}
+        title="Pay for private package"
+        onPaid={async (paymentIntentId) => {
+          try {
+            await completeCardSubscription(paymentIntentId);
+            clearCardSubscriptionState();
+            toast.success("Private package payment set up successfully.");
+            setStripeCheckout(null);
+            await invalidate();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Could not activate subscription");
+            throw e;
+          }
+        }}
+      />
     </div>
   );
 }
