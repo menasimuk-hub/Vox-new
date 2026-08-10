@@ -284,11 +284,18 @@ class SmtpMailerService:
         smtp_password: str | None = None,
     ) -> None:
         """Send message with text/html MIME (for DB-backed templates that store HTML)."""
+        html_body = str(body or "")
+        try:
+            from app.data.brand_email_layout import inject_email_preferences_footer
+
+            html_body = inject_email_preferences_footer(html_body)
+        except Exception:
+            logger.exception("smtp_prefs_footer_inject_failed")
         SmtpMailerService._send_message(
             db,
             to_addr=to_addr,
             subject=subject,
-            body=body,
+            body=html_body,
             html=True,
             attachments=attachments,
             from_email=from_email,

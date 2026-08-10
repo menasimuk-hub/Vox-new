@@ -20,6 +20,14 @@ def test_inject_email_preferences_footer_once():
     assert twice.count("Manage Email Preferences") == 1
 
 
+def test_inject_upgrades_legacy_email_preferences_label():
+    body = '<p><a href="https://dashboard.voxbulk.com/settings/team">Email preferences</a></p>'
+    out = inject_email_preferences_footer(body)
+    assert "Manage Email Preferences" in out
+    assert "Email preferences" not in out
+    assert out.count("Manage Email Preferences") == 1
+
+
 def test_pref_key_security_always_on():
     assert EmailPreferenceService.pref_key_for_template("forgot_password") is None
     assert EmailPreferenceService.pref_key_for_template("new_user") is None

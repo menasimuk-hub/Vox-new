@@ -27,8 +27,7 @@ WEEKLY_DIGEST_BODY = wrap_brand_email(
     + cta_button(href="{{dashboard_link}}", label="Open dashboard")
     + """
   <p style="font-size:12px;color:#6b6560;margin-top:20px;">
-    <a href="{{privacy_link}}" style="color:#6b6560;">Privacy</a> ·
-    <a href="{{frequency_link}}" style="color:#6b6560;">Email preferences</a>
+    <a href="{{privacy_link}}" style="color:#6b6560;">Privacy</a>
   </p>""",
     footer="Sent by VOXBULK · careers@voxbulk.com",
 )

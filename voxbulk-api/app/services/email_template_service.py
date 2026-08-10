@@ -174,15 +174,24 @@ class EmailTemplateService:
         }
 
     @staticmethod
-    def ensure_system_templates(db: Session) -> None:
-        """Insert missing system templates only.
+    def _ensure_prefs_footer_in_body(body: str) -> str:
+        """Append/upgrade Manage Email Preferences in HTML bodies only (idempotent)."""
+        text = str(body or "")
+        if not text.strip() or "<" not in text:
+            return text
+        from app.data.brand_email_layout import inject_email_preferences_footer
 
-        Never overwrite body/subject/title/layout of an existing row — Admin edits are sacred.
-        New keys may be created from defaults; existing keys are left untouched (except empty
-        compliance fields: lawful_basis / privacy_notice_url / contact_email).
+        return inject_email_preferences_footer(text)
+
+    @staticmethod
+    def ensure_system_templates(db: Session) -> None:
+        """Insert missing system templates; append Manage Email Preferences footer when absent.
+
+        Does not rewrite Admin copy/layout beyond an idempotent preferences-footer append
+        (or upgrading a legacy “Email preferences” label). Compliance blanks may also be filled.
         """
         global _SYSTEM_TEMPLATES_ENSURED
-        created = False
+        changed = False
         for key in EMAIL_TEMPLATE_KEYS:
             defaults = SYSTEM_EMAIL_DEFAULTS.get(key, {})
             row = EmailTemplateService.get(db, key=key)
@@ -195,16 +204,19 @@ class EmailTemplateService:
                     body=defaults.get("body") or "",
                     is_enabled=True,
                 )
-                created = True
+                changed = True
                 continue
-            # Fill blank compliance metadata only — never touch body/subject/title.
-            before = (row.lawful_basis, row.privacy_notice_url, row.contact_email)
+            before = (row.lawful_basis, row.privacy_notice_url, row.contact_email, row.body)
             EmailTemplateService._apply_compliance_defaults(row, template_key=key)
-            after = (row.lawful_basis, row.privacy_notice_url, row.contact_email)
+            new_body = EmailTemplateService._ensure_prefs_footer_in_body(row.body or "")
+            if new_body != (row.body or ""):
+                row.body = new_body
+                row.updated_at = datetime.utcnow()
+            after = (row.lawful_basis, row.privacy_notice_url, row.contact_email, row.body)
             if after != before:
                 db.add(row)
-                created = True
-        if created:
+                changed = True
+        if changed:
             db.commit()
         _SYSTEM_TEMPLATES_ENSURED = True
 
@@ -315,7 +327,7 @@ class EmailTemplateService:
             template_key=k,
             title=(title or k).strip(),
             subject=(subject or "").strip(),
-            body=body or "",
+            body=EmailTemplateService._ensure_prefs_footer_in_body(body or ""),
             is_enabled=bool(is_enabled),
             lawful_basis=compliance["lawful_basis"],
             privacy_notice_url=compliance["privacy_notice_url"],
@@ -358,7 +370,7 @@ class EmailTemplateService:
         if title is not None:
             row.title = title.strip()
         row.subject = (subject or "").strip()
-        row.body = body or ""
+        row.body = EmailTemplateService._ensure_prefs_footer_in_body(body or "")
         row.is_enabled = bool(is_enabled)
         if lawful_basis is not None:
             row.lawful_basis = EmailTemplateService.normalize_compliance_payload(

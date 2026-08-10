@@ -35,23 +35,29 @@ def email_preferences_footer_html(*, manage_url: str | None = None) -> str:
 
 
 def inject_email_preferences_footer(body: str, *, manage_url: str | None = None) -> str:
-    """Append preferences link to outbound HTML without rewriting Admin-saved templates in DB."""
+    """Ensure Manage Email Preferences appears in HTML (idempotent; safe at send time)."""
     text = str(body or "")
     if not text.strip():
         return text
     lowered = text.lower()
-    if (
-        "manage email preferences" in lowered
-        or "change preferences" in lowered
-        or "email preferences" in lowered
-    ):
+    if "manage email preferences" in lowered or "change preferences" in lowered:
         return text
+    # Upgrade legacy "Email preferences" label so older templates match the new wording.
+    if "email preferences" in lowered:
+        upgraded, n = re.subn(
+            r"(?i)>\s*Email preferences\s*<",
+            ">Manage Email Preferences<",
+            text,
+            count=1,
+        )
+        if n:
+            return upgraded
     snippet = email_preferences_footer_html(manage_url=manage_url)
     close_body = re.search(r"</body\s*>", text, flags=re.I)
     if close_body:
         return text[: close_body.start()] + snippet + text[close_body.start() :]
     # Prefer inserting before the last branded footer cell when present
-    footer_marker = 'border-top:1px solid'
+    footer_marker = "border-top:1px solid"
     idx = text.rfind(footer_marker)
     if idx >= 0:
         td_close = text.find("</td>", idx)
