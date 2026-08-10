@@ -51,7 +51,7 @@ const SVC_META = {
   core: { short: 'CO', label: 'Core / Voice' },
   smart_card: { short: 'SC', label: 'Smart Card' },
   expo: { short: 'EX', label: 'Expo' },
-  survey: { short: 'SU', label: 'Survey' },
+  survey: { short: 'SU', label: 'WA Survey' },
 }
 
 function poundsToMinor(v) {
@@ -74,6 +74,8 @@ function emptyModules() {
       max_locations: 1,
       wa_units_included: 100,
       web_units_included: 100,
+      wa_extra_minor: 0,
+      web_extra_minor: 0,
       notes: '',
       ai_followback: { minutes_included: 0, connection_fee_minor: 0, per_min_minor: 0 },
     },
@@ -104,7 +106,15 @@ function emptyModules() {
       post_event_survey_enabled: false,
       ai_summary_report_enabled: false,
     },
-    survey: { enabled: false },
+    survey: {
+      enabled: false,
+      max_active_campaigns: 5,
+      whatsapp_recipients_included: 500,
+      call_minutes_included: 100,
+      wa_extra_minor: 0,
+      call_overage_per_min_minor: 0,
+      connection_fee_minor: 0,
+    },
   }
 }
 
@@ -484,6 +494,10 @@ export default function CustomPackages() {
                   <div className="cpField"><label>WhatsApp units</label><input type="number" min="0" value={draft.modules.customer_feedback.wa_units_included} onChange={(e) => setModule('customer_feedback', { wa_units_included: Number(e.target.value) })} /></div>
                   <div className="cpField"><label>Web / scan units</label><input type="number" min="0" value={draft.modules.customer_feedback.web_units_included} onChange={(e) => setModule('customer_feedback', { web_units_included: Number(e.target.value) })} /></div>
                 </div>
+                <div className="cpGrid3" style={{ marginTop: 8 }}>
+                  <div className="cpField"><label>WA extra / unit</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.customer_feedback.wa_extra_minor || 0)} onChange={(v) => setModule('customer_feedback', { wa_extra_minor: poundsToMinor(v) })} /></div>
+                  <div className="cpField"><label>Web extra / unit</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.customer_feedback.web_extra_minor || 0)} onChange={(v) => setModule('customer_feedback', { web_extra_minor: poundsToMinor(v) })} /></div>
+                </div>
                 <fieldset style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e2e1de', border: 'none' }}>
                   <legend style={{ fontWeight: 600, fontSize: 12 }}>AI call follow-back</legend>
                   <div className="cpGrid3">
@@ -570,13 +584,22 @@ export default function CustomPackages() {
               <ModuleToggle
                 id="survey"
                 short="SU"
-                title="Survey"
-                desc="Standalone survey entitlements (placeholder)"
-                optional
+                title="WA Survey"
+                desc="WhatsApp survey campaigns — recipients, call minutes, and overage"
                 enabled={draft.modules.survey.enabled}
                 onToggle={(on) => setModule('survey', { enabled: on })}
               >
-                <p className="help" style={{ margin: 0 }}>Survey quotas will appear here once the survey pricing model ships. Enabling grants generic access for now.</p>
+                <div className="cpGrid3">
+                  <div className="cpField"><label>Max active campaigns</label><input type="number" min="0" value={draft.modules.survey.max_active_campaigns ?? 5} onChange={(e) => setModule('survey', { max_active_campaigns: Number(e.target.value) })} /></div>
+                  <div className="cpField"><label>WhatsApp recipients</label><input type="number" min="0" value={draft.modules.survey.whatsapp_recipients_included ?? 0} onChange={(e) => setModule('survey', { whatsapp_recipients_included: Number(e.target.value) })} /></div>
+                  <div className="cpField"><label>Call minutes included</label><input type="number" min="0" value={draft.modules.survey.call_minutes_included ?? 0} onChange={(e) => setModule('survey', { call_minutes_included: Number(e.target.value) })} /></div>
+                </div>
+                <div className="cpGrid3" style={{ marginTop: 8 }}>
+                  <div className="cpField"><label>WA extra / recipient</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.survey.wa_extra_minor || 0)} onChange={(v) => setModule('survey', { wa_extra_minor: poundsToMinor(v) })} /></div>
+                  <div className="cpField"><label>Call overage / min</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.survey.call_overage_per_min_minor || 0)} onChange={(v) => setModule('survey', { call_overage_per_min_minor: poundsToMinor(v) })} /></div>
+                  <div className="cpField"><label>Connection fee</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.survey.connection_fee_minor || 0)} onChange={(v) => setModule('survey', { connection_fee_minor: poundsToMinor(v) })} /></div>
+                </div>
+                <span className="help">Extras after allowance accrue to the next monthly invoice (same currency as Basics).</span>
               </ModuleToggle>
             </div>
 

@@ -49,6 +49,8 @@ def default_modules() -> dict[str, Any]:
             "max_locations": 1,
             "wa_units_included": 100,
             "web_units_included": 100,
+            "wa_extra_minor": 0,
+            "web_extra_minor": 0,
             "notes": "",
             "ai_followback": {
                 "minutes_included": 0,
@@ -89,6 +91,12 @@ def default_modules() -> dict[str, Any]:
         },
         "survey": {
             "enabled": False,
+            "max_active_campaigns": 5,
+            "whatsapp_recipients_included": 500,
+            "call_minutes_included": 100,
+            "wa_extra_minor": 0,
+            "call_overage_per_min_minor": 0,
+            "connection_fee_minor": 0,
         },
     }
 
@@ -162,18 +170,34 @@ class CustomPackagesService:
     def package_to_dict(db: Session, pkg: CustomPackage) -> dict[str, Any]:
         modules = _merge_modules(_loads(pkg.modules_json, {}))
         allowlist = _merge_allowlist(_loads(pkg.allowlist_json, {}))
-        rows = list(
+        # Avoid JOIN on org_id — MySQL collation can differ until 0243 migration runs.
+        assignments = list(
             db.execute(
-                select(CustomPackageOrgAssignment, Organisation)
-                .join(Organisation, Organisation.id == CustomPackageOrgAssignment.org_id)
-                .where(
+                select(CustomPackageOrgAssignment).where(
                     CustomPackageOrgAssignment.custom_package_id == pkg.id,
                     CustomPackageOrgAssignment.is_active.is_(True),
                 )
-            ).all()
+            ).scalars().all()
         )
+        org_ids = [a.org_id for a in assignments]
+        orgs_by_id: dict[str, Organisation] = {}
+        if org_ids:
+            for org in db.execute(select(Organisation).where(Organisation.id.in_(org_ids))).scalars().all():
+                orgs_by_id[str(org.id)] = org
         orgs = []
-        for assignment, org in rows:
+        for assignment in assignments:
+            org = orgs_by_id.get(str(assignment.org_id))
+            if org is None:
+                orgs.append(
+                    {
+                        "org_id": assignment.org_id,
+                        "org_name": assignment.org_id,
+                        "assignment_id": assignment.id,
+                        "preferred_currency": "GBP",
+                        "currency_mismatch": False,
+                    }
+                )
+                continue
             from app.services.billing_currency import resolve_org_currency
 
             try:

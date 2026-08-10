@@ -10,7 +10,8 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.models.custom_package import CustomPackage, CustomPackageOrgAssignment
 from app.models.organisation import Organisation
-from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+from app.services.billing_currency import CURRENCY_SYMBOLS, SUPPORTED_CURRENCIES, normalize_currency
+from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService, default_modules
 
 
 @pytest.fixture()
@@ -42,7 +43,10 @@ def test_create_list_and_assign(db):
             "currency": "GBP",
             "price_minor": 124000,
             "status": "active",
-            "modules": {"customer_feedback": {"enabled": True, "max_locations": 5}},
+            "modules": {
+                "customer_feedback": {"enabled": True, "max_locations": 5},
+                "survey": {"enabled": True, "whatsapp_recipients_included": 2000, "call_minutes_included": 300},
+            },
             "allowlist": {"mode": "custom", "core": ["GB", "USA"], "extra": ["DE"]},
             "org_ids": ["org-1"],
         },
@@ -51,6 +55,8 @@ def test_create_list_and_assign(db):
     assert item["currency"] == "GBP"
     assert item["interval"] == "monthly"
     assert "customer_feedback" in item["enabled_services"]
+    assert "survey" in item["enabled_services"]
+    assert item["modules"]["survey"]["whatsapp_recipients_included"] == 2000
     assert item["org_count"] == 1
     assert item["allowlist_country_count"] == 3
 
@@ -60,6 +66,12 @@ def test_create_list_and_assign(db):
     for_org = CustomPackagesService.get_for_org(db, "org-1")
     assert for_org is not None
     assert for_org["id"] == item["id"]
+
+
+def test_survey_defaults_merged():
+    mods = default_modules()
+    assert mods["survey"]["max_active_campaigns"] == 5
+    assert "wa_extra_minor" in mods["customer_feedback"]
 
 
 def test_rejects_bad_interval(db):
