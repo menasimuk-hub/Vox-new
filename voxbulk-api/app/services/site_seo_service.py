@@ -46,15 +46,33 @@ Sitemap: https://voxbulk.com/sitemap.xml
 """
 
 
+API_ORIGIN = "https://api.voxbulk.com"
+_MEDIA_PATH = "/frontpage/blog-news/media/"
+
+
 def absolute_media_url(url: str | None) -> str | None:
-    """Social/Open Graph crawlers require absolute https URLs."""
+    """Social/Open Graph crawlers require absolute https URLs.
+
+    Blog/SEO uploads are served by the API host, not the marketing site origin.
+    """
     raw = (url or "").strip()
     if not raw:
         return None
     if raw.startswith("https://") or raw.startswith("http://"):
+        # Rewrite legacy marketing-host media URLs to the API.
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(raw)
+            if _MEDIA_PATH in (parsed.path or ""):
+                return f"{API_ORIGIN}{parsed.path}"
+        except Exception:
+            pass
         return raw
     if raw.startswith("//"):
         return f"https:{raw}"
+    if raw.startswith(_MEDIA_PATH) or raw.startswith("/frontpage/blog-news/media/"):
+        return f"{API_ORIGIN}{raw if raw.startswith('/') else '/' + raw}"
     if raw.startswith("/"):
         return f"{SITE_ORIGIN}{raw}"
     return f"{SITE_ORIGIN}/{raw}"

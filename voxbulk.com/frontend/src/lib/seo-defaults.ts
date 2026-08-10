@@ -1,6 +1,6 @@
 /** Canonical marketing SEO copy for VoxBulk public pages. */
 
-import { SITE_ORIGIN } from "@/lib/brand";
+import { DEFAULT_OG_IMAGE, SITE_ORIGIN } from "@/lib/brand";
 
 export const HOME_KEYWORDS =
   "whatsapp survey software, ai interview platform, customer feedback whatsapp, voice ai agents, recruitment automation uk, qr code feedback, multilingual surveys";
@@ -102,11 +102,17 @@ export function pageMeta(
     { name: "twitter:title", content: seo.title },
     { name: "twitter:description", content: seo.ogDescription },
   ];
-  const image = (opts?.ogImage || "").trim();
-  if (image) {
-    const abs = image.startsWith("http") ? image : `${SITE_ORIGIN}${image.startsWith("/") ? image : `/${image}`}`;
-    meta.push({ property: "og:image", content: abs });
-    meta.push({ name: "twitter:image", content: abs });
+  const rawImage = (opts?.ogImage || "").trim() || DEFAULT_OG_IMAGE;
+  const abs = rawImage.startsWith("http")
+    ? rawImage
+    : `${SITE_ORIGIN}${rawImage.startsWith("/") ? rawImage : `/${rawImage}`}`;
+  meta.push({ property: "og:image", content: abs });
+  meta.push({ property: "og:image:type", content: abs.endsWith(".png") ? "image/png" : "image/webp" });
+  meta.push({ name: "twitter:image", content: abs });
+  // Square brand icon reads better as a side thumbnail on WhatsApp/Telegram.
+  if (abs === DEFAULT_OG_IMAGE || abs.includes("/brand/icon-")) {
+    const card = meta.find((m) => m.name === "twitter:card");
+    if (card) card.content = "summary";
   }
   return meta;
 }

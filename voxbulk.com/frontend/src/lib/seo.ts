@@ -1,5 +1,5 @@
 import { frontpageApiFetch } from "@/lib/api";
-import { SITE_ORIGIN } from "@/lib/brand";
+import { DEFAULT_OG_IMAGE, SITE_ORIGIN } from "@/lib/brand";
 
 export type SeoContent = {
   slug: string;
@@ -60,11 +60,9 @@ export function absoluteSeoUrl(url: string | null | undefined): string | undefin
   if (raw.startsWith("https://") || raw.startsWith("http://")) {
     try {
       const u = new URL(raw);
-      if (
-        (u.hostname === "127.0.0.1" || u.hostname === "localhost") &&
-        u.pathname.includes("/frontpage/blog-news/media/")
-      ) {
-        return `https://api.voxbulk.com${u.pathname}`;
+      // Uploaded SEO/blog media is served by the API, not the marketing static host.
+      if (u.pathname.includes("/frontpage/blog-news/media/")) {
+        return `https://api.voxbulk.com${u.pathname}${u.search}`;
       }
     } catch {
       /* keep raw */
@@ -80,17 +78,42 @@ export function absoluteSeoUrl(url: string | null | undefined): string | undefin
   return `${SITE_ORIGIN}/${raw}`;
 }
 
+async function urlReturnsImage(url: string): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    const res = await fetch(url, { method: "HEAD", signal: ctrl.signal, redirect: "follow" });
+    clearTimeout(timer);
+    if (!res.ok) return false;
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    return !ct || ct.startsWith("image/");
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer Admin social image when reachable; otherwise brand icon PNG. */
+export async function resolveOgImage(url?: string | null): Promise<string> {
+  const candidate = absoluteSeoUrl(url);
+  if (candidate && (await urlReturnsImage(candidate))) return candidate;
+  return DEFAULT_OG_IMAGE;
+}
+
+export function syncOgImage(url?: string | null): string {
+  return absoluteSeoUrl(url) || DEFAULT_OG_IMAGE;
+}
+
 export async function fetchSeoSettings(): Promise<PublicSeoSettings> {
   if (settingsCache) return settingsCache;
   try {
     settingsCache = await frontpageApiFetch<PublicSeoSettings>("/frontpage/seo/settings");
-    if (settingsCache?.default_social_image_url) {
-      settingsCache.default_social_image_url = absoluteSeoUrl(settingsCache.default_social_image_url) || null;
-    }
+    settingsCache.default_social_image_url = await resolveOgImage(
+      settingsCache?.default_social_image_url,
+    );
   } catch {
-    settingsCache = {};
+    settingsCache = { default_social_image_url: DEFAULT_OG_IMAGE };
   }
-  return settingsCache || {};
+  return settingsCache || { default_social_image_url: DEFAULT_OG_IMAGE };
 }
 
 export function applyTitleTemplate(title: string, settings: PublicSeoSettings): string {
@@ -132,7 +155,7 @@ export function buildHeadFromSeo(
   const robots = seo.robots || "index,follow";
   const ogTitle = seo.social_title || seo.meta_title || seo.title || title;
   const ogDesc = seo.social_description || description;
-  const ogImage = absoluteSeoUrl(seo.social_image_url || settings.default_social_image_url || undefined);
+  const ogImage = absoluteSeoUrl(seo.social_image_url || settings.default_social_image_url || undefined) || DEFAULT_OG_IMAGE;
 
   const meta: Array<Record<string, string>> = [
     { title },
@@ -142,14 +165,15 @@ export function buildHeadFromSeo(
     { property: "og:description", content: ogDesc },
     { property: "og:type", content: opts?.schemaType === "FAQPage" ? "website" : "article" },
     { property: "og:url", content: canonical },
-    { name: "twitter:card", content: ogImage ? "summary_large_image" : "summary" },
+    {
+      name: "twitter:card",
+      content: ogImage.includes("/brand/icon-") ? "summary" : "summary_large_image",
+    },
     { name: "twitter:title", content: ogTitle },
     { name: "twitter:description", content: ogDesc },
+    { property: "og:image", content: ogImage },
+    { name: "twitter:image", content: ogImage },
   ];
-  if (ogImage) {
-    meta.push({ property: "og:image", content: ogImage });
-    meta.push({ name: "twitter:image", content: ogImage });
-  }
   if (seo.published_at) {
     meta.push({ property: "article:published_time", content: seo.published_at });
   }

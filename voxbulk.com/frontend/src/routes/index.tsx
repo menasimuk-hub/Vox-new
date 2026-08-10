@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import VOXBULKHome, { type HomeFaqItem } from "@/components/VOXBULKHome";
-import { brandAssets, SITE_ORIGIN } from "@/lib/brand";
+import { brandAssets, DEFAULT_OG_IMAGE, SITE_ORIGIN } from "@/lib/brand";
 import { frontpageApiFetch } from "@/lib/api";
 import { fetchSeoSettings } from "@/lib/seo";
 import { PAGE_SEO, pageMeta } from "@/lib/seo-defaults";
@@ -69,6 +69,7 @@ export const Route = createFileRoute("/")({
     return {
       meta: pageMeta("home", {
         url: `${SITE_ORIGIN}/`,
+        ogImage: s.default_social_image_url || DEFAULT_OG_IMAGE,
         override: {
           title: s.home_title,
           description: s.home_description,

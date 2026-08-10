@@ -7,7 +7,7 @@ import { AuthProvider } from "@/lib/auth";
 import { fetchSeoSettings, type PublicSeoSettings, absoluteSeoUrl } from "@/lib/seo";
 import { HOME_KEYWORDS, PAGE_SEO } from "@/lib/seo-defaults";
 
-import { brandAssets, SITE_ORIGIN } from "@/lib/brand";
+import { brandAssets, DEFAULT_OG_IMAGE, SITE_ORIGIN } from "@/lib/brand";
 
 import appCss from "../styles.css?url";
 
@@ -60,20 +60,24 @@ export const Route = createRootRoute({
       { property: "og:type", content: "website" },
       { property: "og:site_name", content: siteName },
       { property: "og:url", content: `${SITE_ORIGIN}/` },
-      { name: "twitter:card", content: s.default_social_image_url ? "summary_large_image" : "summary" },
       { name: "twitter:title", content: title },
       { name: "twitter:description", content: description },
     ];
     if (s.google_site_verification) {
       meta.push({ name: "google-site-verification", content: s.google_site_verification });
     }
-    if (s.default_social_image_url) {
-      const ogImage = absoluteSeoUrl(s.default_social_image_url);
-      if (ogImage) {
-        meta.push({ property: "og:image", content: ogImage });
-        meta.push({ name: "twitter:image", content: ogImage });
-      }
-    }
+    const ogImage = absoluteSeoUrl(s.default_social_image_url) || DEFAULT_OG_IMAGE;
+    const usingBrandIcon = ogImage.includes("/brand/icon-");
+    meta.push({
+      name: "twitter:card",
+      content: usingBrandIcon ? "summary" : "summary_large_image",
+    });
+    meta.push({ property: "og:image", content: ogImage });
+    meta.push({
+      property: "og:image:type",
+      content: ogImage.endsWith(".png") ? "image/png" : "image/webp",
+    });
+    meta.push({ name: "twitter:image", content: ogImage });
 
     const graph: Array<Record<string, unknown>> = [];
     if (s.schema_organization !== false) {
