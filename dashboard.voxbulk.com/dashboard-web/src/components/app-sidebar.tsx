@@ -11,7 +11,7 @@ import {
   Ticket,
   IdCard,
   Settings as SettingsIcon, Layers, User2, Plug, Users, Ban, History,
-  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus, Smile, Mail,
+  Package, CreditCard, LifeBuoy, Handshake, Wallet, Briefcase, UserPlus, Smile, Mail, Gift,
 } from "lucide-react";
 
 import {
@@ -28,6 +28,8 @@ import { initialsFromName, useSession } from "@/lib/session";
 import { canAccessBilling, canManageOrgSettings, canManageTeam, isBillingOnlyRole, normalizeOrgRole } from "@/lib/org-roles";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useOrganisation } from "@/lib/queries";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch, ApiError } from "@/lib/api";
 
 type Item = {
   title: string;
@@ -38,6 +40,8 @@ type Item = {
   addon?: boolean;
   /** When set, item is shown only if this service is visible. */
   requiresService?: ServiceKey;
+  /** Shown only when org has an assigned active custom/private package. */
+  requiresPrivatePackage?: boolean;
 };
 type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "sales" | "partner_channel";
 type Group = {
@@ -187,6 +191,7 @@ const groups: Group[] = [
   ]},
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },
+    { title: "Private package", url: "/account/private-package", icon: Gift, requiresPrivatePackage: true },
     { title: "Billing", url: "/account/billing", icon: CreditCard },
     { title: "Usage", url: "/account/usage", icon: BarChart3 },
     { title: "Support", url: "/account/support", icon: LifeBuoy },
@@ -202,6 +207,22 @@ export function AppSidebar() {
     if (isMobile) setOpenMobile(false);
   }, [isMobile, setOpenMobile]);
   const orgQ = useOrganisation();
+  const privatePkgQ = useQuery({
+    queryKey: ["billing", "custom-package", "nav"],
+    queryFn: async () => {
+      try {
+        await apiFetch("/billing/custom-package");
+        return true;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return false;
+        return false;
+      }
+    },
+    staleTime: 60_000,
+    retry: false,
+    enabled: canAccessBilling(normalizeOrgRole(session?.profile?.role)),
+  });
+  const hasPrivatePackage = Boolean(privatePkgQ.data);
   const orgName = session?.org?.name || session?.org?.display_name || orgQ.data?.name || session?.profile?.email || "Your organisation";
   const planName = session?.subscription?.plan?.name || "Plan";
   const avatar = initialsFromName(orgName);
@@ -222,6 +243,7 @@ export function AppSidebar() {
         });
       }
       items = items.filter((item) => {
+        if (item.requiresPrivatePackage) return hasPrivatePackage;
         if (!item.requiresService) return true;
         if (!loaded) return false;
         return Boolean(visible[item.requiresService]);

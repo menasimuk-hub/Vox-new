@@ -26,6 +26,7 @@ import { Route as MeetTokenRouteImport } from './routes/meet.$token'
 import { Route as AppAccountIndexRouteImport } from './routes/_app.account.index'
 import { Route as AppAccountBillingRouteImport } from './routes/_app.account.billing'
 import { Route as AppAccountPackagesRouteImport } from './routes/_app.account.packages'
+import { Route as AppAccountPrivatePackageRouteImport } from './routes/_app.account.private-package'
 import { Route as AppAccountSupportRouteImport } from './routes/_app.account.support'
 import { Route as AppAccountUsageRouteImport } from './routes/_app.account.usage'
 import { Route as AppAppointmentsIndexRouteImport } from './routes/_app.appointments.index'
@@ -183,6 +184,12 @@ const AppAccountPackagesRoute = AppAccountPackagesRouteImport.update({
   path: '/account/packages',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAccountPrivatePackageRoute =
+  AppAccountPrivatePackageRouteImport.update({
+    id: '/account/private-package',
+    path: '/account/private-package',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppAccountSupportRoute = AppAccountSupportRouteImport.update({
   id: '/account/support',
   path: '/account/support',
@@ -572,6 +579,7 @@ export interface FileRoutesByFullPath {
   '/meet/$token': typeof MeetTokenRoute
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
+  '/account/private-package': typeof AppAccountPrivatePackageRoute
   '/account/support': typeof AppAccountSupportRouteWithChildren
   '/account/usage': typeof AppAccountUsageRoute
   '/appointments/reports': typeof AppAppointmentsReportsRoute
@@ -655,6 +663,7 @@ export interface FileRoutesByTo {
   '/': typeof AppIndexRoute
   '/account/billing': typeof AppAccountBillingRoute
   '/account/packages': typeof AppAccountPackagesRoute
+  '/account/private-package': typeof AppAccountPrivatePackageRoute
   '/account/usage': typeof AppAccountUsageRoute
   '/appointments/reports': typeof AppAppointmentsReportsRoute
   '/appointments/setup': typeof AppAppointmentsSetupRoute
@@ -745,6 +754,7 @@ export interface FileRoutesById {
   '/_app/': typeof AppIndexRoute
   '/_app/account/billing': typeof AppAccountBillingRoute
   '/_app/account/packages': typeof AppAccountPackagesRoute
+  '/_app/account/private-package': typeof AppAccountPrivatePackageRoute
   '/_app/account/support': typeof AppAccountSupportRouteWithChildren
   '/_app/account/usage': typeof AppAccountUsageRoute
   '/_app/appointments/reports': typeof AppAppointmentsReportsRoute
@@ -837,6 +847,7 @@ export interface FileRouteTypes {
     | '/meet/$token'
     | '/account/billing'
     | '/account/packages'
+    | '/account/private-package'
     | '/account/support'
     | '/account/usage'
     | '/appointments/reports'
@@ -920,6 +931,7 @@ export interface FileRouteTypes {
     | '/'
     | '/account/billing'
     | '/account/packages'
+    | '/account/private-package'
     | '/account/usage'
     | '/appointments/reports'
     | '/appointments/setup'
@@ -1009,6 +1021,7 @@ export interface FileRouteTypes {
     | '/_app/'
     | '/_app/account/billing'
     | '/_app/account/packages'
+    | '/_app/account/private-package'
     | '/_app/account/support'
     | '/_app/account/usage'
     | '/_app/appointments/reports'
@@ -1210,6 +1223,13 @@ declare module '@tanstack/react-router' {
       path: '/account/packages'
       fullPath: '/account/packages'
       preLoaderRoute: typeof AppAccountPackagesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/account/private-package': {
+      id: '/_app/account/private-package'
+      path: '/account/private-package'
+      fullPath: '/account/private-package'
+      preLoaderRoute: typeof AppAccountPrivatePackageRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/account/support': {
@@ -1913,6 +1933,7 @@ interface AppRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppAccountBillingRoute: typeof AppAccountBillingRoute
   AppAccountPackagesRoute: typeof AppAccountPackagesRoute
+  AppAccountPrivatePackageRoute: typeof AppAccountPrivatePackageRoute
   AppAccountSupportRoute: typeof AppAccountSupportRouteWithChildren
   AppAccountUsageRoute: typeof AppAccountUsageRoute
   AppCampaignsNewRoute: typeof AppCampaignsNewRoute
@@ -1954,6 +1975,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppAccountBillingRoute: AppAccountBillingRoute,
   AppAccountPackagesRoute: AppAccountPackagesRoute,
+  AppAccountPrivatePackageRoute: AppAccountPrivatePackageRoute,
   AppAccountSupportRoute: AppAccountSupportRouteWithChildren,
   AppAccountUsageRoute: AppAccountUsageRoute,
   AppCampaignsNewRoute: AppCampaignsNewRoute,

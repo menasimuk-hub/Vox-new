@@ -640,6 +640,17 @@ def get_subscriptions_summary(db: Session = Depends(get_db), principal=Depends(r
     return SubscriptionSummaryService.build_org_summary(db, principal.org_id)
 
 
+@router.get("/custom-package")
+def get_org_custom_package(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
+    """Private package deal for the current organisation (404 if not assigned)."""
+    from app.services.custom_packages_service import CustomPackagesService
+
+    payload = CustomPackagesService.org_dashboard_payload(db, principal.org_id)
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No private package assigned")
+    return payload
+
+
 @router.get("/subscription/upgrade-preview")
 def get_subscription_upgrade_preview(
     plan_code: str,

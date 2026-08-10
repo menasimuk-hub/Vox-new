@@ -501,3 +501,298 @@ class CustomPackagesService:
         if pkg is None or pkg.status != "active":
             return None
         return CustomPackagesService.package_to_dict(db, pkg)
+
+    @staticmethod
+    def _money_display(minor: int, currency: str) -> str:
+        from app.services.billing_currency import CURRENCY_SYMBOLS
+
+        sym = CURRENCY_SYMBOLS.get(currency, currency + " ")
+        return f"{sym}{(int(minor or 0) / 100):,.2f}"
+
+    @staticmethod
+    def _usage_row(
+        *,
+        module: str,
+        key: str,
+        label: str,
+        used: int,
+        included: int,
+        unit: str,
+    ) -> dict[str, Any]:
+        used_n = max(0, int(used or 0))
+        included_n = max(0, int(included or 0))
+        remaining = max(0, included_n - used_n) if included_n > 0 else None
+        pct = round((used_n / included_n) * 100, 1) if included_n > 0 else 0.0
+        return {
+            "module": module,
+            "key": key,
+            "label": label,
+            "used": used_n,
+            "included": included_n,
+            "remaining": remaining,
+            "unit": unit,
+            "pct_used": pct,
+        }
+
+    @staticmethod
+    def org_dashboard_payload(db: Session, org_id: str) -> dict[str, Any] | None:
+        """Customer-facing Private package page payload (assigned + active only)."""
+        pkg = CustomPackagesService.get_for_org(db, org_id)
+        if pkg is None:
+            return None
+
+        modules = pkg.get("modules") or {}
+        currency = str(pkg.get("currency") or "GBP")
+        interval = str(pkg.get("interval") or "monthly")
+        price_minor = int(pkg.get("price_minor") or 0)
+
+        # Live usage where meters already exist (Phase B will sync package caps into them).
+        core_used = {"calls": 0, "whatsapp": 0, "cv": 0}
+        feedback_used = {"wa": 0, "web": 0}
+        try:
+            from app.services.usage_wallet_service import UsageWalletService
+
+            period = UsageWalletService.get_current(db, org_id)
+            if period is not None:
+                core_used["calls"] = int(getattr(period, "calls_used", 0) or 0)
+                core_used["whatsapp"] = int(getattr(period, "whatsapp_used", 0) or 0)
+                core_used["cv"] = int(getattr(period, "cv_scans_used", 0) or 0)
+        except Exception:
+            pass
+        try:
+            from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+            fb = FeedbackBillingService.get_current_usage(db, org_id)
+            if isinstance(fb, dict):
+                feedback_used["wa"] = int(fb.get("wa_units_used") or 0)
+                feedback_used["web"] = int(fb.get("web_units_used") or 0)
+            elif fb is not None:
+                feedback_used["wa"] = int(getattr(fb, "wa_units_used", 0) or 0)
+                feedback_used["web"] = int(getattr(fb, "web_units_used", 0) or 0)
+        except Exception:
+            pass
+
+        usage_rows: list[dict[str, Any]] = []
+        cf = modules.get("customer_feedback") or {}
+        if cf.get("enabled"):
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="customer_feedback",
+                    key="locations",
+                    label="Feedback locations",
+                    used=0,
+                    included=int(cf.get("max_locations") or 0),
+                    unit="venues",
+                )
+            )
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="customer_feedback",
+                    key="wa_units",
+                    label="Feedback WhatsApp units",
+                    used=feedback_used["wa"],
+                    included=int(cf.get("wa_units_included") or 0),
+                    unit="units",
+                )
+            )
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="customer_feedback",
+                    key="web_units",
+                    label="Feedback web / scan units",
+                    used=feedback_used["web"],
+                    included=int(cf.get("web_units_included") or 0),
+                    unit="units",
+                )
+            )
+            ai = cf.get("ai_followback") or {}
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="customer_feedback",
+                    key="ai_followback_mins",
+                    label="AI follow-back minutes",
+                    used=0,
+                    included=int(ai.get("minutes_included") or 0),
+                    unit="min",
+                )
+            )
+
+        core = modules.get("core") or {}
+        if core.get("enabled"):
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="core",
+                    key="minutes",
+                    label="Core / interview minutes",
+                    used=core_used["calls"],
+                    included=int(core.get("minutes_included") or 0),
+                    unit="min",
+                )
+            )
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="core",
+                    key="whatsapp",
+                    label="Core WhatsApp",
+                    used=core_used["whatsapp"],
+                    included=int(core.get("whatsapp_included") or 0),
+                    unit="msgs",
+                )
+            )
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="core",
+                    key="cv_scans",
+                    label="CV scans",
+                    used=core_used["cv"],
+                    included=int(core.get("cv_scans_included") or 0),
+                    unit="scans",
+                )
+            )
+
+        survey = modules.get("survey") or {}
+        if survey.get("enabled"):
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="survey",
+                    key="campaigns",
+                    label="Active survey campaigns",
+                    used=0,
+                    included=int(survey.get("max_active_campaigns") or 0),
+                    unit="campaigns",
+                )
+            )
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="survey",
+                    key="recipients",
+                    label="Survey WhatsApp recipients",
+                    used=core_used["whatsapp"],
+                    included=int(survey.get("whatsapp_recipients_included") or 0),
+                    unit="recipients",
+                )
+            )
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="survey",
+                    key="call_minutes",
+                    label="Survey call minutes",
+                    used=core_used["calls"],
+                    included=int(survey.get("call_minutes_included") or 0),
+                    unit="min",
+                )
+            )
+
+        sc = modules.get("smart_card") or {}
+        if sc.get("enabled"):
+            seats_used = 0
+            try:
+                from app.models.smart_card import SmartCardCompany, SmartCardRepresentative
+                from sqlalchemy import func
+
+                company = db.execute(
+                    select(SmartCardCompany).where(SmartCardCompany.org_id == org_id).limit(1)
+                ).scalar_one_or_none()
+                if company is not None:
+                    seats_used = int(
+                        db.scalar(
+                            select(func.count())
+                            .select_from(SmartCardRepresentative)
+                            .where(SmartCardRepresentative.company_id == company.id)
+                        )
+                        or 0
+                    )
+            except Exception:
+                seats_used = 0
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="smart_card",
+                    key="seats",
+                    label="Smart Card seats",
+                    used=seats_used,
+                    included=int(sc.get("seats") or 0),
+                    unit="seats",
+                )
+            )
+
+        expo = modules.get("expo") or {}
+        if expo.get("enabled"):
+            usage_rows.append(
+                CustomPackagesService._usage_row(
+                    module="expo",
+                    key="booths",
+                    label="Expo booths",
+                    used=0,
+                    included=int(expo.get("max_booths") or 0),
+                    unit="booths",
+                )
+            )
+
+        # Payment hint from existing Core mandate if present.
+        mandate_active = False
+        payment_method_label = None
+        try:
+            from app.services.subscription_summary_service import SubscriptionSummaryService
+
+            core_fin = SubscriptionSummaryService.core_summary(db, org_id) or {}
+            status = str(core_fin.get("status") or "").lower()
+            mandate_active = status in {"active", "trial", "pending_first_payment", "past_due"}
+            if mandate_active:
+                payment_method_label = core_fin.get("payment_method_label") or "Direct Debit on file"
+        except Exception:
+            pass
+
+        from datetime import timedelta
+
+        next_billing_date = None
+        try:
+            raw = pkg.get("updated_at") or pkg.get("created_at")
+            if isinstance(raw, str) and raw:
+                base = datetime.fromisoformat(raw.replace("Z", ""))
+            else:
+                base = _now()
+            delta = timedelta(days=365) if interval == "yearly" else timedelta(days=30)
+            next_billing_date = (base + delta).date().isoformat()
+        except Exception:
+            next_billing_date = (_now() + timedelta(days=30)).date().isoformat()
+
+        payment_status = "mandate_ready" if mandate_active else "setup_required"
+
+        return {
+            "assigned": True,
+            "package": {
+                "id": pkg["id"],
+                "name": pkg["name"],
+                "code": pkg["code"],
+                "interval": interval,
+                "currency": currency,
+                "currency_symbol": pkg.get("currency_symbol"),
+                "price_minor": price_minor,
+                "price_display": CustomPackagesService._money_display(price_minor, currency),
+                "status": pkg["status"],
+                "enabled_services": pkg.get("enabled_services") or [],
+                "modules": modules,
+                "allowlist": pkg.get("allowlist"),
+                "allowlist_country_count": pkg.get("allowlist_country_count"),
+            },
+            "billing": {
+                "interval": interval,
+                "currency": currency,
+                "amount_next_payment_minor": price_minor,
+                "amount_next_payment_display": CustomPackagesService._money_display(price_minor, currency),
+                "next_billing_date": next_billing_date,
+                "payment_status": payment_status,
+                "payment_method_label": payment_method_label,
+                "can_setup_payment": payment_status == "setup_required",
+                "setup_path": "/account/billing",
+            },
+            "usage": {
+                "rows": usage_rows,
+                "period_note": "Included amounts are from your private package. Usage meters sync as you use each service.",
+            },
+            "extras": {
+                "estimated_minor": 0,
+                "estimated_display": CustomPackagesService._money_display(0, currency),
+                "note": "Extra usage after allowance will appear on your next monthly invoice.",
+            },
+        }

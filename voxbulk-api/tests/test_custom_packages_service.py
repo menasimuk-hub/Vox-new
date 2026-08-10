@@ -79,6 +79,31 @@ def test_rejects_bad_interval(db):
         CustomPackagesService.create_package(db, {"name": "X", "interval": "one_time", "currency": "GBP"})
 
 
+def test_org_dashboard_payload(db):
+    CustomPackagesService.create_package(
+        db,
+        {
+            "name": "Tourist Bundle",
+            "interval": "monthly",
+            "currency": "GBP",
+            "price_minor": 124000,
+            "status": "active",
+            "modules": {
+                "customer_feedback": {"enabled": True, "max_locations": 5, "wa_units_included": 100},
+                "survey": {"enabled": True, "whatsapp_recipients_included": 500},
+            },
+            "org_ids": ["org-1"],
+        },
+    )
+    payload = CustomPackagesService.org_dashboard_payload(db, "org-1")
+    assert payload is not None
+    assert payload["assigned"] is True
+    assert payload["package"]["name"] == "Tourist Bundle"
+    assert payload["billing"]["amount_next_payment_minor"] == 124000
+    assert any(r["key"] == "wa_units" for r in payload["usage"]["rows"])
+    assert CustomPackagesService.org_dashboard_payload(db, "missing") is None
+
+
 def test_duplicate_clears_orgs(db):
     src = CustomPackagesService.create_package(
         db,
@@ -88,3 +113,4 @@ def test_duplicate_clears_orgs(db):
     assert copy["status"] == "draft"
     assert copy["org_count"] == 0
     assert copy["currency"] == "USD"
+
