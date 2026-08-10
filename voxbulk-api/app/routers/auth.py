@@ -371,6 +371,37 @@ def change_password(
     db.commit()
     return {"ok": True}
 
+
+@router.get("/me/email-preferences")
+def get_email_preferences(
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    from app.services.email_preference_service import EmailPreferenceService
+
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    return EmailPreferenceService.get_for_user(db, user.id)
+
+
+@router.put("/me/email-preferences")
+def put_email_preferences(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    from app.services.email_preference_service import EmailPreferenceService
+
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    prefs = payload.get("preferences") if isinstance(payload, dict) else None
+    if prefs is None and isinstance(payload, dict):
+        prefs = payload
+    return EmailPreferenceService.update_prefs(db, user.id, prefs if isinstance(prefs, dict) else {})
+
+
 @router.post("/register")
 def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db)):
     """

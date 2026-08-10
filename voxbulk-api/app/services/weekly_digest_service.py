@@ -154,7 +154,7 @@ class WeeklyDigestService:
             "survey_results_link": f"{dashboard}/surveys/results",
             "interviews_results_link": f"{dashboard}/interviews/results",
             "privacy_link": f"{public}/privacy",
-            "frequency_link": f"{dashboard}/settings/team",
+            "frequency_link": f"{dashboard}/settings/profile#email-notifications",
             "unsubscribe_link": f"{dashboard}/settings/team",
         }
 

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useServices } from "@/lib/services";
 import {
   useCancelAccountDeletion,
@@ -74,6 +75,12 @@ function ProfileSettings() {
   const [newPassword, setNewPassword] = React.useState("");
   const [confirmPassword, setConfirmPassword] = React.useState("");
   const [changingPassword, setChangingPassword] = React.useState(false);
+  const [emailPrefs, setEmailPrefs] = React.useState<Record<string, boolean>>({});
+  const [emailPrefCategories, setEmailPrefCategories] = React.useState<
+    Array<{ key: string; label: string; description: string; enabled: boolean }>
+  >([]);
+  const [emailPrefsLoading, setEmailPrefsLoading] = React.useState(true);
+  const [emailPrefsSaving, setEmailPrefsSaving] = React.useState(false);
   const deletionQ = useDeletionStatus();
   const requestDeletionM = useRequestAccountDeletion();
   const cancelDeletionM = useCancelAccountDeletion();
@@ -95,6 +102,36 @@ function ProfileSettings() {
     setPostcode(String(org.postcode || ""));
     setCountry(String(org.country || "United Kingdom"));
   }, [orgQ.data]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setEmailPrefsLoading(true);
+      try {
+        const res = await apiFetch<{
+          preferences?: Record<string, boolean>;
+          categories?: Array<{ key: string; label: string; description: string; enabled: boolean }>;
+        }>("/auth/me/email-preferences");
+        if (cancelled) return;
+        setEmailPrefs(res.preferences || {});
+        setEmailPrefCategories(res.categories || []);
+      } catch {
+        if (!cancelled) toast.error("Could not load email preferences");
+      } finally {
+        if (!cancelled) setEmailPrefsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#email-notifications") return;
+    const el = document.getElementById("email-notifications");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [emailPrefsLoading]);
 
   const onLogoSelected = async (file: File | null) => {
     if (!file) return;
@@ -206,6 +243,36 @@ function ProfileSettings() {
     }
   };
 
+  const onToggleEmailPref = async (key: string, enabled: boolean) => {
+    const previous = emailPrefs;
+    const next = { ...emailPrefs, [key]: enabled };
+    setEmailPrefs(next);
+    setEmailPrefCategories((cats) =>
+      cats.map((c) => (c.key === key ? { ...c, enabled } : c)),
+    );
+    setEmailPrefsSaving(true);
+    try {
+      const res = await apiFetch<{
+        preferences?: Record<string, boolean>;
+        categories?: Array<{ key: string; label: string; description: string; enabled: boolean }>;
+      }>("/auth/me/email-preferences", {
+        method: "PUT",
+        body: JSON.stringify({ preferences: next }),
+      });
+      setEmailPrefs(res.preferences || next);
+      if (res.categories?.length) setEmailPrefCategories(res.categories);
+      toast.success("Email preferences saved");
+    } catch (e) {
+      setEmailPrefs(previous);
+      setEmailPrefCategories((cats) =>
+        cats.map((c) => (c.key === key ? { ...c, enabled: previous[key] !== false } : c)),
+      );
+      toast.error(e instanceof Error ? e.message : "Could not save email preferences");
+    } finally {
+      setEmailPrefsSaving(false);
+    }
+  };
+
   return (
     <div className="flex w-full flex-col gap-6">
       <PageHeader
@@ -309,53 +376,96 @@ function ProfileSettings() {
       </Card>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <CardTitle>Change password</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Update the password you use to sign in to the dashboard. You will stay signed in on this device.
+            Update the password you use to sign in. You will stay signed in on this device.
           </p>
-          <div className="grid max-w-md gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="current-password">Current password</Label>
-              <Input
-                id="current-password"
-                type="password"
-                autoComplete="current-password"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="new-password">New password</Label>
-              <Input
-                id="new-password"
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="At least 8 characters"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="confirm-password">Confirm new password</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+            <div className="grid flex-1 gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="current-password">Current password</Label>
+                <Input
+                  id="current-password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="new-password">New password</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="confirm-password">Confirm password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
             </div>
             <Button
-              className="w-fit"
+              className="w-full shrink-0 lg:w-auto"
               disabled={changingPassword}
               onClick={() => void onChangePassword()}
             >
               {changingPassword ? "Saving…" : "Update password"}
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card id="email-notifications">
+        <CardHeader className="pb-3">
+          <CardTitle>Email notification preferences</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Choose which emails we send to your login address. Security and account emails (password reset, invites you must accept, deletion notices) always stay on.
+          </p>
+          {emailPrefsLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : (
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {(emailPrefCategories.length
+                ? emailPrefCategories
+                : Object.keys(emailPrefs).map((key) => ({
+                    key,
+                    label: key.replace(/_/g, " "),
+                    description: "",
+                    enabled: emailPrefs[key] !== false,
+                  }))
+              ).map((item) => (
+                <li key={item.key} className="flex items-start justify-between gap-4 px-4 py-3">
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-sm font-medium">{item.label}</p>
+                    {item.description ? (
+                      <p className="text-xs text-muted-foreground">{item.description}</p>
+                    ) : null}
+                  </div>
+                  <Switch
+                    checked={emailPrefs[item.key] !== false}
+                    disabled={emailPrefsSaving}
+                    onCheckedChange={(checked) => void onToggleEmailPref(item.key, checked)}
+                    aria-label={item.label}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
 

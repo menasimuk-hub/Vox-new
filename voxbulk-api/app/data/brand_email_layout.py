@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from app.services.brand_assets import BRAND_COLORS, BRAND_TAGLINE, email_logo_url
 
 # Production logo URL (HTTPS, works in email clients — not data: URIs)
@@ -16,6 +18,46 @@ def email_logo_html(*, href: str = "https://voxbulk.com", width: int = 140) -> s
         f'style="display:block;border:0;outline:none;max-width:{width}px;height:auto;" />'
         f"</a>"
     )
+
+
+EMAIL_PREFERENCES_MANAGE_URL = "https://dashboard.voxbulk.com/settings/profile#email-notifications"
+
+
+def email_preferences_footer_html(*, manage_url: str | None = None) -> str:
+    """Footer link to dashboard email notification preferences (injected at send time)."""
+    href = (manage_url or EMAIL_PREFERENCES_MANAGE_URL).strip() or EMAIL_PREFERENCES_MANAGE_URL
+    c = BRAND_COLORS
+    return (
+        f'<p style="margin:16px 0 0;font-size:12px;line-height:1.5;color:{c["ink_muted"]};">'
+        f'<a href="{href}" style="color:{c["primary"]};text-decoration:underline;">Manage Email Preferences</a>'
+        f"</p>"
+    )
+
+
+def inject_email_preferences_footer(body: str, *, manage_url: str | None = None) -> str:
+    """Append preferences link to outbound HTML without rewriting Admin-saved templates in DB."""
+    text = str(body or "")
+    if not text.strip():
+        return text
+    lowered = text.lower()
+    if (
+        "manage email preferences" in lowered
+        or "change preferences" in lowered
+        or "email preferences" in lowered
+    ):
+        return text
+    snippet = email_preferences_footer_html(manage_url=manage_url)
+    close_body = re.search(r"</body\s*>", text, flags=re.I)
+    if close_body:
+        return text[: close_body.start()] + snippet + text[close_body.start() :]
+    # Prefer inserting before the last branded footer cell when present
+    footer_marker = 'border-top:1px solid'
+    idx = text.rfind(footer_marker)
+    if idx >= 0:
+        td_close = text.find("</td>", idx)
+        if td_close >= 0:
+            return text[:td_close] + snippet + text[td_close:]
+    return text + snippet
 
 
 def wrap_brand_email(
@@ -37,6 +79,8 @@ def wrap_brand_email(
             f'<span style="float:right;font-size:11px;font-weight:600;letter-spacing:0.06em;'
             f'text-transform:uppercase;color:{c["ink_muted"]};padding-top:4px;">{badge}</span>'
         )
+    prefs_footer = email_preferences_footer_html()
+    footer_block = f"{footer}{prefs_footer}"
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -63,7 +107,7 @@ def wrap_brand_email(
           </tr>
           <tr>
             <td style="padding:16px 28px 24px;border-top:1px solid {c['border']};font-size:12px;color:{c['ink_muted']};">
-              {footer}
+              {footer_block}
             </td>
           </tr>
         </table>

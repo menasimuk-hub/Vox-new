@@ -142,13 +142,33 @@ class BillingEmailService:
         em = (to_email or "").strip().lower()
         if not em:
             return False, "missing_recipient"
+        try:
+            from app.services.email_preference_service import EmailPreferenceService
+
+            if not EmailPreferenceService.allows_template_for_email(
+                db, to_email=em, template_key=template_key
+            ):
+                return False, "preferences_disabled"
+        except Exception:
+            pass
         subject_tpl, body_tpl, is_enabled = TransactionalEmailService.load_template_fields(db, template_key=template_key)
         if not is_enabled:
             return False, "template_disabled"
         if not subject_tpl.strip() or not body_tpl.strip():
             return False, "template_empty"
-        subject = substitute_placeholders(subject_tpl, variables)
-        body = substitute_placeholders(body_tpl, variables)
+        merged = dict(variables or {})
+        merged.setdefault(
+            "frequency_link",
+            "https://dashboard.voxbulk.com/settings/profile#email-notifications",
+        )
+        subject = substitute_placeholders(subject_tpl, merged)
+        body = substitute_placeholders(body_tpl, merged)
+        try:
+            from app.data.brand_email_layout import inject_email_preferences_footer
+
+            body = inject_email_preferences_footer(body, manage_url=merged.get("frequency_link"))
+        except Exception:
+            pass
         try:
             _deliver_billing_message(db, to_addr=em, subject=subject, body=body, attachments=attachments)
             return True, None

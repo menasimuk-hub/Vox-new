@@ -175,10 +175,21 @@ class CareerEmailService:
                     f" (missing: {', '.join(missing)})" if missing else ""
                 )
             return False, "SMTP is disabled in Admin → Email — enable it before sending interview mail"
-        rendered = _render_interview_template(db, template_key=template_key, variables=variables)
+        merged = dict(variables or {})
+        merged.setdefault(
+            "frequency_link",
+            "https://dashboard.voxbulk.com/settings/profile#email-notifications",
+        )
+        rendered = _render_interview_template(db, template_key=template_key, variables=merged)
         if rendered is None:
             return False, "empty_template"
         subject, body = rendered
+        try:
+            from app.data.brand_email_layout import inject_email_preferences_footer
+
+            body = inject_email_preferences_footer(body, manage_url=merged.get("frequency_link"))
+        except Exception:
+            logger.exception("career_email_prefs_footer_failed template_key=%s", template_key)
         try:
             CareerEmailService.send(
                 db,

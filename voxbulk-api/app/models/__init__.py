@@ -6,6 +6,7 @@ Importing model modules here ensures Alembic sees them via Base.metadata.
 from app.models.membership import OrganisationMembership  # noqa: F401
 from app.models.organisation import Organisation  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.user_email_preference import UserEmailPreference  # noqa: F401
 from app.models.branch import Branch  # noqa: F401
 from app.models.patient import Patient  # noqa: F401
 from app.models.dentally_appointment import DentallyAppointment  # noqa: F401

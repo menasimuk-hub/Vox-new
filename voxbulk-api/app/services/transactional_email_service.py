@@ -78,7 +78,7 @@ EMAIL_TEST_VARIABLES: dict[str, str] = {
     "system_alerts": "<p>No billing or support alerts this week.</p>",
     "dashboard_link": "https://dashboard.voxbulk.com",
     "privacy_link": "https://voxbulk.com/privacy",
-    "frequency_link": "https://dashboard.voxbulk.com/settings/team",
+    "frequency_link": "https://dashboard.voxbulk.com/settings/profile#email-notifications",
     "billing_url": "https://dashboard.voxbulk.com/account/billing",
     "mandate_update_url": "https://dashboard.voxbulk.com/account/billing?billing=update_mandate",
     "total": "£49.99",
@@ -213,8 +213,29 @@ class TransactionalEmailService:
         if not to_addr:
             return False, "missing_recipient"
 
-        subject = substitute_placeholders(subject_tpl, variables).strip() or k.replace("_", " ").title()
-        body = substitute_placeholders(body_tpl, variables)
+        try:
+            from app.services.email_preference_service import EmailPreferenceService
+
+            if not EmailPreferenceService.allows_template_for_email(db, to_email=to_addr, template_key=k):
+                logger.info("transactional_skip_user_pref", extra={"template": k, "to_email": to_addr})
+                return False, "preferences_disabled"
+        except Exception:
+            logger.exception("transactional_pref_check_failed", extra={"template": k})
+
+        merged = dict(variables or {})
+        merged.setdefault(
+            "frequency_link",
+            "https://dashboard.voxbulk.com/settings/profile#email-notifications",
+        )
+        subject = substitute_placeholders(subject_tpl, merged).strip() or k.replace("_", " ").title()
+        body = substitute_placeholders(body_tpl, merged)
+        try:
+            from app.data.brand_email_layout import inject_email_preferences_footer
+
+            if _looks_like_html(body):
+                body = inject_email_preferences_footer(body, manage_url=merged.get("frequency_link"))
+        except Exception:
+            logger.exception("transactional_prefs_footer_failed", extra={"template": k})
         # Default From = Emails purpose noreply when caller did not override
         use_from_email = from_email
         use_from_name = from_name
