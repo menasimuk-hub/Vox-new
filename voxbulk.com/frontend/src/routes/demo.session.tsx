@@ -7,6 +7,7 @@ import {
   completeDemoSession,
   DEMO_SERVICES,
   loadTelnyxRtc,
+  normalizeTelnyxCustomHeaders,
   pollDemoEvents,
   startDemoSession,
   verifyDemoToken,
@@ -15,6 +16,15 @@ import {
 } from "@/lib/aiDemo";
 
 const REMOTE_AUDIO_ID = "voxbulk-demo-remote-audio";
+const ACTIVE_TIMEOUT_MS = 45_000;
+
+type TelnyxCall = {
+  id?: string;
+  state?: string;
+  hangup?: () => void;
+  remoteStream?: MediaStream | null;
+  localStream?: MediaStream | null;
+};
 
 export const Route = createFileRoute("/demo/session")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -34,8 +44,11 @@ function DemoSessionPage() {
   const [qr, setQr] = useState<{ data?: string; label?: string } | null>(null);
   const [cta, setCta] = useState(false);
   const [summary, setSummary] = useState("");
-  const callRef = useRef<{ hangup?: () => void } | null>(null);
-  const clientRef = useRef<{ disconnect?: () => void } | null>(null);
+  const callRef = useRef<TelnyxCall | null>(null);
+  const clientRef = useRef<{ disconnect?: () => void; off?: (ev: string, fn: (...args: unknown[]) => void) => void } | null>(null);
+  const notificationHandlerRef = useRef<((...args: unknown[]) => void) | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const activeTimerRef = useRef<number | null>(null);
   const startedAtRef = useRef<number>(0);
   const afterEventIdRef = useRef<string | null>(null);
   const softCapTimerRef = useRef<number | null>(null);
@@ -83,6 +96,22 @@ function DemoSessionPage() {
   }, [token]);
 
   const hangup = useCallback(async () => {
+    if (activeTimerRef.current) {
+      window.clearTimeout(activeTimerRef.current);
+      activeTimerRef.current = null;
+    }
+    if (softCapTimerRef.current) {
+      window.clearTimeout(softCapTimerRef.current);
+      softCapTimerRef.current = null;
+    }
+    try {
+      const client = clientRef.current;
+      const handler = notificationHandlerRef.current;
+      if (client && handler) client.off?.("telnyx.notification", handler);
+    } catch {
+      /* ignore */
+    }
+    notificationHandlerRef.current = null;
     try {
       callRef.current?.hangup?.();
     } catch {
@@ -95,7 +124,12 @@ function DemoSessionPage() {
     }
     callRef.current = null;
     clientRef.current = null;
-    if (softCapTimerRef.current) window.clearTimeout(softCapTimerRef.current);
+    try {
+      localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch {
+      /* ignore */
+    }
+    localStreamRef.current = null;
   }, []);
 
   const finish = useCallback(
@@ -125,8 +159,10 @@ function DemoSessionPage() {
     setPhase("live");
     try {
       // Mic first — same as Talk-to-us; unlocks autoplay for remote audio.
+      let micStream: MediaStream;
       try {
-        await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStreamRef.current = micStream;
       } catch {
         throw new Error("Microphone access is required — allow mic access and try again.");
       }
@@ -139,10 +175,13 @@ function DemoSessionPage() {
       const client = new TelnyxRTC({
         anonymous_login: { target_type: "ai_assistant", target_id: agentId },
       });
-      clientRef.current = client as { disconnect?: () => void };
+      clientRef.current = client as {
+        disconnect?: () => void;
+        off?: (ev: string, fn: (...args: unknown[]) => void) => void;
+      };
 
       await new Promise<void>((resolve, reject) => {
-        const t = window.setTimeout(() => reject(new Error("Telnyx connect timeout")), 25000);
+        const t = window.setTimeout(() => reject(new Error("Telnyx connect timeout")), 30000);
         client.on("telnyx.ready", () => {
           window.clearTimeout(t);
           resolve();
@@ -154,7 +193,7 @@ function DemoSessionPage() {
         client.connect();
       });
 
-      const attachRemoteAudio = (call: { remoteStream?: MediaStream | null } | null | undefined) => {
+      const attachRemoteAudio = (call: TelnyxCall | null | undefined) => {
         const el = document.getElementById(REMOTE_AUDIO_ID) as HTMLAudioElement | null;
         const stream = call?.remoteStream ?? null;
         if (!el || !stream) return;
@@ -164,10 +203,38 @@ function DemoSessionPage() {
         void el.play().catch(() => {});
       };
 
-      client.on("telnyx.notification", (notification: { type?: string; call?: { remoteStream?: MediaStream | null; state?: string } }) => {
+      let wentLive = false;
+      const onNotification = (notification: {
+        type?: string;
+        errorMessage?: string;
+        call?: TelnyxCall;
+      }) => {
+        if (notification?.type === "userMediaError") {
+          void finish("Microphone error");
+          toast.error(notification.errorMessage || "Microphone error");
+          return;
+        }
         if (notification?.type !== "callUpdate" || !notification.call) return;
-        attachRemoteAudio(notification.call);
-      });
+        const call = notification.call;
+        callRef.current = call;
+        attachRemoteAudio(call);
+        const state = String(call.state || "").toLowerCase();
+        if ((state === "active" || state === "answered" || state === "held") && !wentLive) {
+          wentLive = true;
+          if (activeTimerRef.current) {
+            window.clearTimeout(activeTimerRef.current);
+            activeTimerRef.current = null;
+          }
+          startedAtRef.current = Date.now();
+          attachRemoteAudio(call);
+          toast.success("Connected — speak when ready");
+        }
+        if (state === "hangup" || state === "destroy" || state === "destroyed") {
+          void finish("Call ended");
+        }
+      };
+      notificationHandlerRef.current = onNotification as (...args: unknown[]) => void;
+      client.on("telnyx.notification", onNotification);
 
       const codecs = RTCRtpReceiver.getCapabilities("audio")?.codecs || [];
       const opus = codecs.find((c) => c.mimeType.toLowerCase().includes("opus"));
@@ -177,24 +244,31 @@ function DemoSessionPage() {
         video: false,
         remoteElement: REMOTE_AUDIO_ID,
         preferred_codecs: opus ? [opus] : undefined,
-        customHeaders: started.telnyx?.custom_headers || {},
-      });
+        customHeaders: normalizeTelnyxCustomHeaders(started.telnyx?.custom_headers),
+      }) as TelnyxCall;
       callRef.current = call;
-      attachRemoteAudio(call as { remoteStream?: MediaStream | null });
-      startedAtRef.current = Date.now();
+      attachRemoteAudio(call);
+
+      activeTimerRef.current = window.setTimeout(() => {
+        if (!wentLive) {
+          void hangup();
+          setError("The AI agent did not answer — use Resend demo link and try again.");
+          setPhase("error");
+          toast.error("The AI agent did not answer — please try again.");
+        }
+      }, ACTIVE_TIMEOUT_MS);
 
       const minutes = started.soft_cap_minutes || verified.soft_cap_minutes || 7;
       softCapTimerRef.current = window.setTimeout(() => {
         void finish("Soft time limit reached");
       }, minutes * 60 * 1000);
-
-      toast.success("Connected — speak when ready");
     } catch (e) {
+      await hangup();
       setError(e instanceof Error ? e.message : "Could not start demo call");
       setPhase("error");
       toast.error("Connection failed — use Resend demo link in your email");
     }
-  }, [finish, verified]);
+  }, [finish, hangup, verified]);
 
   useEffect(() => {
     if (phase !== "live" || !verified) return;

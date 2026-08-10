@@ -1091,11 +1091,16 @@ class AiDemoService:
                 "prompt_synced": bool(prep.get("prompt_synced")),
                 "first_message": runtime["first_message"],
                 "recording_channels": prep.get("recording_channels", "dual"),
-                "custom_headers": {
-                    "X-Vox-Demo-Session-Id": session.id,
-                    "X-Vox-Demo-Request-Id": req.id,
-                    "X-Vox-Call-Id": lead.id if lead else "",
-                },
+                # Telnyx WebRTC requires [{name, value}, ...] — a plain dict breaks media.
+                "custom_headers": [
+                    row
+                    for row in (
+                        {"name": "X-Vox-Demo-Session-Id", "value": session.id},
+                        {"name": "X-Vox-Demo-Request-Id", "value": req.id},
+                        {"name": "X-Vox-Call-Id", "value": lead.id if lead else ""},
+                    )
+                    if str(row.get("value") or "").strip()
+                ],
             },
         }
 

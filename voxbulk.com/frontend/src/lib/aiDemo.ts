@@ -28,9 +28,27 @@ export type AiDemoStartResponse = {
     agent_id?: string;
     web_calls_enabled?: boolean;
     first_message?: string;
-    custom_headers?: Record<string, string>;
+    custom_headers?: Record<string, string> | Array<{ name: string; value: string }>;
   };
 };
+
+/** Telnyx WebRTC expects [{name, value}] — plain objects break call media. */
+export function normalizeTelnyxCustomHeaders(
+  raw: Record<string, string> | Array<{ name: string; value: string }> | undefined,
+): Array<{ name: string; value: string }> {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.filter((h) => String(h?.name || "").trim() && String(h?.value || "").trim());
+  }
+  return Object.entries(raw)
+    .map(([name, value]) => {
+      const clean = String(value || "").trim();
+      if (!clean) return null;
+      const headerName = name.startsWith("X-") ? name : `X-${name}`;
+      return { name: headerName, value: clean };
+    })
+    .filter((h): h is { name: string; value: string } => h != null);
+}
 
 export type AiDemoUiEvent = {
   id?: string;
