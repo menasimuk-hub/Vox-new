@@ -107,12 +107,23 @@ export function pageMeta(
     ? rawImage
     : `${SITE_ORIGIN}${rawImage.startsWith("/") ? rawImage : `/${rawImage}`}`;
   meta.push({ property: "og:image", content: abs });
-  meta.push({ property: "og:image:type", content: abs.endsWith(".png") ? "image/png" : "image/webp" });
+  const lower = abs.toLowerCase();
+  const imageType = lower.endsWith(".png")
+    ? "image/png"
+    : lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+      ? "image/jpeg"
+      : lower.endsWith(".webp")
+        ? "image/webp"
+        : "image/png";
+  meta.push({ property: "og:image:type", content: imageType });
   meta.push({ name: "twitter:image", content: abs });
   // Square brand icon reads better as a side thumbnail on WhatsApp/Telegram.
   if (abs === DEFAULT_OG_IMAGE || abs.includes("/brand/icon-")) {
     const card = meta.find((m) => m.name === "twitter:card");
     if (card) card.content = "summary";
+  } else {
+    const card = meta.find((m) => m.name === "twitter:card");
+    if (card) card.content = "summary_large_image";
   }
   return meta;
 }

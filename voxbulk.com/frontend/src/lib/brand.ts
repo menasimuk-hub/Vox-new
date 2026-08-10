@@ -18,5 +18,8 @@ export function brandLogoForSurface(surface: BrandSurface, icon = false) {
 
 export const SITE_ORIGIN = "https://voxbulk.com";
 
-/** Default Open Graph / WhatsApp share image (reachable static PNG). */
-export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}${brandAssets.iconBlack}`;
+/**
+ * Default Open Graph / WhatsApp share image.
+ * Must be PNG/JPG — WhatsApp ignores SVG favicons and SVG og:image.
+ */
+export const DEFAULT_OG_IMAGE = `${SITE_ORIGIN}/brand/icon-black.png`;

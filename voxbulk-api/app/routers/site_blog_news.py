@@ -79,7 +79,7 @@ def public_get_news(slug: str, db: Session = Depends(get_db)):
     return svc.item_to_dict(row)
 
 
-@router.get("/blog-news/media/{filename}")
+@router.api_route("/blog-news/media/{filename}", methods=["GET", "HEAD"])
 def public_media(filename: str):
     ensure_media_root()
     path = media_abs_path(filename)

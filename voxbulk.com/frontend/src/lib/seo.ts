@@ -78,36 +78,25 @@ export function absoluteSeoUrl(url: string | null | undefined): string | undefin
   return `${SITE_ORIGIN}/${raw}`;
 }
 
-async function urlReturnsImage(url: string): Promise<boolean> {
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 2500);
-    const res = await fetch(url, { method: "HEAD", signal: ctrl.signal, redirect: "follow" });
-    clearTimeout(timer);
-    if (!res.ok) return false;
-    const ct = (res.headers.get("content-type") || "").toLowerCase();
-    return !ct || ct.startsWith("image/");
-  } catch {
-    return false;
-  }
-}
-
-/** Prefer Admin social image when reachable; otherwise brand icon PNG. */
-export async function resolveOgImage(url?: string | null): Promise<string> {
+/**
+ * Prefer Admin social image when set. Do not HEAD-probe (API FileResponse can hang on HEAD
+ * and wrongly fall back). WhatsApp cannot render SVG — never use brand SVG here.
+ */
+export function resolveOgImage(url?: string | null): string {
   const candidate = absoluteSeoUrl(url);
-  if (candidate && (await urlReturnsImage(candidate))) return candidate;
+  if (candidate && !candidate.toLowerCase().endsWith(".svg")) return candidate;
   return DEFAULT_OG_IMAGE;
 }
 
 export function syncOgImage(url?: string | null): string {
-  return absoluteSeoUrl(url) || DEFAULT_OG_IMAGE;
+  return resolveOgImage(url);
 }
 
 export async function fetchSeoSettings(): Promise<PublicSeoSettings> {
   if (settingsCache) return settingsCache;
   try {
     settingsCache = await frontpageApiFetch<PublicSeoSettings>("/frontpage/seo/settings");
-    settingsCache.default_social_image_url = await resolveOgImage(
+    settingsCache.default_social_image_url = resolveOgImage(
       settingsCache?.default_social_image_url,
     );
   } catch {

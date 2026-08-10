@@ -68,17 +68,25 @@ export const Route = createRootRoute({
     }
     const ogImage = absoluteSeoUrl(s.default_social_image_url) || DEFAULT_OG_IMAGE;
     const usingBrandIcon = ogImage.includes("/brand/icon-");
+    const lower = ogImage.toLowerCase();
+    const imageType = lower.endsWith(".png")
+      ? "image/png"
+      : lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+        ? "image/jpeg"
+        : lower.endsWith(".webp")
+          ? "image/webp"
+          : "image/png";
     meta.push({
       name: "twitter:card",
       content: usingBrandIcon ? "summary" : "summary_large_image",
     });
     meta.push({ property: "og:image", content: ogImage });
-    meta.push({
-      property: "og:image:type",
-      content: ogImage.endsWith(".png") ? "image/png" : "image/webp",
-    });
+    meta.push({ property: "og:image:type", content: imageType });
     meta.push({ name: "twitter:image", content: ogImage });
-
+    if (lower.endsWith(".webp") || lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+      meta.push({ property: "og:image:width", content: usingBrandIcon ? "1024" : "1200" });
+      meta.push({ property: "og:image:height", content: usingBrandIcon ? "1024" : "900" });
+    }
     const graph: Array<Record<string, unknown>> = [];
     if (s.schema_organization !== false) {
       graph.push({
