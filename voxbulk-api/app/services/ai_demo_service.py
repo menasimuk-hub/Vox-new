@@ -1,0 +1,1060 @@
+"""AI Demo Agent — requests, magic links, sessions, tools, sales handoff."""
+
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import logging
+import re
+import secrets
+from datetime import datetime, timedelta
+from typing import Any
+from uuid import uuid4
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.config import get_settings
+from app.data.ai_demo_email_default import DEMO_INVITE_EMAIL_BODY, DEMO_INVITE_EMAIL_SUBJECT
+from app.data.ai_demo_kb_defaults import DEMO_KB_SEED, tool_subset_json
+from app.data.ai_demo_whatsapp_defaults import DEMO_EMAIL_SENT_BODY, DEMO_EMAIL_SENT_TEMPLATE_NAME
+from app.models.demo_knowledge_base import DemoKnowledgeBase
+from app.models.demo_platform_settings import DemoPlatformSettings
+from app.models.demo_request import DemoRequest
+from app.models.demo_session import DemoSession
+from app.models.frontpage_lead_call import FrontpageLeadCall
+from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
+from app.services.telnyx_lead_variables import normalize_lead_phone, resolve_lead_location
+from app.services.transactional_email_service import TransactionalEmailService
+
+logger = logging.getLogger(__name__)
+
+TOKEN_DAYS = 7
+RESEND_MAX_PER_HOUR = 5
+SOFT_CAP_MINUTES_DEFAULT = 7
+SERVICE_CODES = ("recruitment", "surveys", "feedback", "expo", "smart_card")
+SOURCE_DEMO = "ai_demo_agent"
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class AiDemoError(Exception):
+    def __init__(self, message: str, *, status_code: int = 400):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow()
+
+
+def token_hmac(raw_token: str) -> str:
+    key = get_settings().jwt_secret_key.encode("utf-8")
+    return hmac.new(key, raw_token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def resend_signature(request_id: str) -> str:
+    key = get_settings().jwt_secret_key.encode("utf-8")
+    return hmac.new(key, f"demo-resend:{request_id}".encode("utf-8"), hashlib.sha256).hexdigest()[:32]
+
+
+def verify_resend_signature(request_id: str, sig: str) -> bool:
+    expected = resend_signature(request_id)
+    return hmac.compare_digest(expected, str(sig or "").strip())
+
+
+def _json_loads(raw: str | None, default: Any) -> Any:
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except Exception:
+        return default
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, default=str)
+
+
+def _public_origin() -> str:
+    return get_settings().public_app_origin.rstrip("/")
+
+
+def _normalize_lang(value: str | None) -> str:
+    code = str(value or "en").strip().lower()
+    if code.startswith("ar"):
+        return "ar"
+    return "en"
+
+
+def _normalize_website(raw: str) -> str:
+    url = str(raw or "").strip()
+    if not url:
+        raise AiDemoError("Company website is required")
+    if not re.match(r"^https?://", url, re.I):
+        url = f"https://{url}"
+    return url[:512]
+
+
+def _normalize_whatsapp(raw: str) -> str:
+    location = resolve_lead_location(phone=raw)
+    e164, _ = normalize_lead_phone(raw, location)
+    phone = (e164 or str(raw or "").strip()).replace(" ", "")
+    if not phone.startswith("+") or len(phone) < 8:
+        raise AiDemoError("Enter a valid WhatsApp number including country code")
+    return phone[:40]
+
+
+class AiDemoService:
+    @staticmethod
+    def ensure_knowledge_bases(db: Session) -> None:
+        created = False
+        for row in DEMO_KB_SEED:
+            existing = db.execute(
+                select(DemoKnowledgeBase).where(DemoKnowledgeBase.service_code == row["service_code"])
+            ).scalar_one_or_none()
+            if existing is not None:
+                continue
+            db.add(
+                DemoKnowledgeBase(
+                    service_code=row["service_code"],
+                    title=row["title"],
+                    system_prompt=row["system_prompt"],
+                    fact_sheet=row["fact_sheet"],
+                    demo_script=row["demo_script"],
+                    tool_subset=tool_subset_json(row.get("tool_subset")),
+                    sort_order=int(row.get("sort_order") or 0),
+                    is_active=True,
+                )
+            )
+            created = True
+        if created:
+            db.commit()
+
+    @staticmethod
+    def get_settings(db: Session) -> DemoPlatformSettings:
+        row = db.get(DemoPlatformSettings, "default")
+        if row is None:
+            row = DemoPlatformSettings(id="default")
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+        return row
+
+    @staticmethod
+    def update_settings(db: Session, payload: dict[str, Any]) -> DemoPlatformSettings:
+        row = AiDemoService.get_settings(db)
+        if "provider_agent_id" in payload:
+            row.provider_agent_id = (str(payload.get("provider_agent_id") or "").strip() or None)
+        if "default_voice" in payload:
+            row.default_voice = (str(payload.get("default_voice") or "").strip() or None)
+        if "soft_cap_minutes" in payload and payload["soft_cap_minutes"] is not None:
+            row.soft_cap_minutes = max(3, min(30, int(payload["soft_cap_minutes"])))
+        if "from_email" in payload:
+            row.from_email = (str(payload.get("from_email") or "").strip().lower() or None)
+        if "notes" in payload:
+            row.notes = str(payload.get("notes") or "") or None
+        row.updated_at = _utcnow()
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    @staticmethod
+    def create_web_request(
+        db: Session,
+        *,
+        contact_name: str,
+        email: str,
+        company_name: str,
+        whatsapp: str,
+        website: str,
+        preferred_language: str,
+        message: str,
+        honeypot: str | None = None,
+    ) -> DemoRequest | None:
+        if str(honeypot or "").strip():
+            return None  # type: ignore[return-value]
+
+        name = str(contact_name or "").strip()
+        mail = str(email or "").strip().lower()
+        company = str(company_name or "").strip()
+        msg = str(message or "").strip()
+        if len(name) < 2:
+            raise AiDemoError("Please enter your name")
+        if not _EMAIL_RE.match(mail):
+            raise AiDemoError("Enter a valid email")
+        if len(company) < 2:
+            raise AiDemoError("Company name is required")
+        if len(msg) < 10:
+            raise AiDemoError("Please write at least 10 characters")
+
+        pending = db.execute(
+            select(DemoRequest).where(
+                DemoRequest.email == mail,
+                DemoRequest.status == "pending",
+            )
+        ).scalar_one_or_none()
+        if pending is not None:
+            return pending
+
+        req = DemoRequest(
+            source="web",
+            status="pending",
+            contact_name=name[:255],
+            email=mail[:255],
+            company_name=company[:255],
+            whatsapp_e164=_normalize_whatsapp(whatsapp),
+            website=_normalize_website(website),
+            preferred_language=_normalize_lang(preferred_language),
+            message=msg[:4000],
+        )
+        db.add(req)
+        db.commit()
+        db.refresh(req)
+        return req
+
+    @staticmethod
+    def list_requests(
+        db: Session,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+        limit: int = 100,
+    ) -> list[DemoRequest]:
+        q = select(DemoRequest).order_by(DemoRequest.created_at.desc()).limit(max(1, min(limit, 500)))
+        if status:
+            q = q.where(DemoRequest.status == status.strip().lower())
+        if source:
+            q = q.where(DemoRequest.source == source.strip().lower())
+        return list(db.execute(q).scalars().all())
+
+    @staticmethod
+    def get_request(db: Session, request_id: str) -> DemoRequest:
+        row = db.get(DemoRequest, str(request_id or "").strip())
+        if row is None:
+            raise AiDemoError("Demo request not found", status_code=404)
+        return row
+
+    @staticmethod
+    def reject_request(db: Session, request_id: str, *, reason: str | None, admin_id: str | None) -> DemoRequest:
+        req = AiDemoService.get_request(db, request_id)
+        if req.status == "completed" or req.demo_completed_at:
+            raise AiDemoError("Cannot reject a completed demo")
+        req.status = "rejected"
+        req.rejected_at = _utcnow()
+        req.reject_reason = (str(reason or "").strip() or None)
+        req.approved_by = admin_id
+        req.updated_at = _utcnow()
+        db.add(req)
+        db.commit()
+        db.refresh(req)
+        return req
+
+    @staticmethod
+    def _issue_token(db: Session, req: DemoRequest) -> tuple[DemoSession, str]:
+        # Invalidate unused active tokens
+        open_sessions = db.execute(
+            select(DemoSession).where(
+                DemoSession.request_id == req.id,
+                DemoSession.used_at.is_(None),
+                DemoSession.status.in_(("issued", "verified", "active")),
+            )
+        ).scalars().all()
+        now = _utcnow()
+        for s in open_sessions:
+            s.status = "invalidated"
+            s.ended_at = now
+            db.add(s)
+
+        raw = secrets.token_urlsafe(32)
+        session = DemoSession(
+            request_id=req.id,
+            token_hmac=token_hmac(raw),
+            status="issued",
+            language=req.preferred_language or "en",
+            expires_at=now + timedelta(days=TOKEN_DAYS),
+            services_explored=_json_dumps([]),
+            questions_asked=_json_dumps([]),
+            volume_needs=_json_dumps({}),
+            ui_events_log=_json_dumps([]),
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        return session, raw
+
+    @staticmethod
+    def _demo_urls(raw_token: str, request_id: str) -> dict[str, str]:
+        base = _public_origin()
+        return {
+            "demo_link": f"{base}/demo/session?token={raw_token}",
+            "resend_link": f"{base}/demo/resend?request={request_id}&sig={resend_signature(request_id)}",
+        }
+
+    @staticmethod
+    def _send_invite_email(
+        db: Session,
+        req: DemoRequest,
+        *,
+        raw_token: str,
+        subject_override: str | None = None,
+        body_override: str | None = None,
+    ) -> tuple[bool, str | None]:
+        urls = AiDemoService._demo_urls(raw_token, req.id)
+        settings = AiDemoService.get_settings(db)
+        support = settings.from_email or "hello@voxbulk.com"
+        variables = {
+            "contact_name": req.contact_name,
+            "company_name": req.company_name,
+            "preferred_language": "Arabic" if req.preferred_language == "ar" else "English",
+            "demo_link": urls["demo_link"],
+            "resend_link": urls["resend_link"],
+            "support_email": support,
+            "website": req.website,
+        }
+        # Optional admin body override — still go through templated send when possible
+        if subject_override or body_override:
+            from app.services.smtp_mailer_service import SmtpMailerService
+
+            subject = subject_override or DEMO_INVITE_EMAIL_SUBJECT
+            body = body_override or DEMO_INVITE_EMAIL_BODY
+            for key, val in variables.items():
+                subject = subject.replace("{{" + key + "}}", str(val))
+                body = body.replace("{{" + key + "}}", str(val))
+            try:
+                SmtpMailerService.send_html(
+                    db,
+                    to_addr=req.email,
+                    subject=subject,
+                    body=body,
+                    reply_to=support,
+                )
+                return True, None
+            except Exception as exc:
+                logger.exception("demo_invite_override_mail_failed")
+                return False, str(exc)[:240]
+
+        sent, err = TransactionalEmailService.send_templated_optional(
+            db,
+            template_key="demo_invite",
+            to_email=req.email,
+            variables=variables,
+        )
+        return bool(sent), err
+
+    @staticmethod
+    def _send_wa_notice(db: Session, req: DemoRequest) -> None:
+        settings = AiDemoService.get_settings(db)
+        from_email = settings.from_email or "hello@voxbulk.com"
+        body = (
+            DEMO_EMAIL_SENT_BODY.replace("{{1}}", req.contact_name)
+            .replace("{{2}}", req.company_name)
+            .replace("{{3}}", from_email)
+        )
+        try:
+            InterviewWhatsappSendService.send_template_or_plain(
+                db,
+                to_number=req.whatsapp_e164,
+                body=body,
+                org_id=None,
+                template_name=DEMO_EMAIL_SENT_TEMPLATE_NAME,
+                template_components=[
+                    {
+                        "type": "body",
+                        "parameters": [
+                            {"type": "text", "text": req.contact_name[:60]},
+                            {"type": "text", "text": req.company_name[:60]},
+                            {"type": "text", "text": from_email[:60]},
+                        ],
+                    }
+                ],
+                require_template=False,
+                service_code="ai_demo",
+            )
+        except Exception:
+            logger.exception("demo_wa_notice_failed request_id=%s", req.id)
+
+    @staticmethod
+    def approve_and_send(
+        db: Session,
+        request_id: str,
+        *,
+        admin_id: str | None,
+        subject_override: str | None = None,
+        body_override: str | None = None,
+        skip_wa: bool = False,
+    ) -> dict[str, Any]:
+        req = AiDemoService.get_request(db, request_id)
+        if req.status == "rejected":
+            raise AiDemoError("Request was rejected")
+        if req.demo_completed_at:
+            raise AiDemoError("Demo already completed")
+
+        session, raw = AiDemoService._issue_token(db, req)
+        sent, err = AiDemoService._send_invite_email(
+            db,
+            req,
+            raw_token=raw,
+            subject_override=subject_override,
+            body_override=body_override,
+        )
+        if not sent:
+            raise AiDemoError(err or "Failed to send demo invite email", status_code=502)
+
+        if not skip_wa:
+            AiDemoService._send_wa_notice(db, req)
+
+        req.status = "approved"
+        req.approved_at = _utcnow()
+        req.approved_by = admin_id
+        req.updated_at = _utcnow()
+        db.add(req)
+        db.commit()
+        db.refresh(req)
+        urls = AiDemoService._demo_urls(raw, req.id)
+        return {
+            "request": AiDemoService.serialize_request(req),
+            "session_id": session.id,
+            "demo_link": urls["demo_link"],
+            "resend_link": urls["resend_link"],
+            "email_sent": True,
+        }
+
+    @staticmethod
+    def create_manual_and_send(
+        db: Session,
+        *,
+        contact_name: str,
+        email: str,
+        company_name: str,
+        whatsapp: str,
+        website: str,
+        preferred_language: str,
+        message: str | None,
+        admin_id: str | None,
+        lead_sales_task_id: str | None = None,
+        subject_override: str | None = None,
+        body_override: str | None = None,
+        skip_wa: bool = False,
+    ) -> dict[str, Any]:
+        name = str(contact_name or "").strip()
+        mail = str(email or "").strip().lower()
+        company = str(company_name or "").strip()
+        if len(name) < 2 or not _EMAIL_RE.match(mail) or len(company) < 2:
+            raise AiDemoError("Name, email, and company are required")
+
+        req = DemoRequest(
+            source="manual",
+            status="pending",
+            contact_name=name[:255],
+            email=mail[:255],
+            company_name=company[:255],
+            whatsapp_e164=_normalize_whatsapp(whatsapp),
+            website=_normalize_website(website),
+            preferred_language=_normalize_lang(preferred_language),
+            message=(str(message or "").strip() or None),
+            lead_sales_task_id=(str(lead_sales_task_id or "").strip() or None),
+        )
+        db.add(req)
+        db.commit()
+        db.refresh(req)
+        return AiDemoService.approve_and_send(
+            db,
+            req.id,
+            admin_id=admin_id,
+            subject_override=subject_override,
+            body_override=body_override,
+            skip_wa=skip_wa,
+        )
+
+    @staticmethod
+    def admin_resend(db: Session, request_id: str, *, admin_id: str | None, skip_wa: bool = False) -> dict[str, Any]:
+        req = AiDemoService.get_request(db, request_id)
+        if req.demo_completed_at:
+            raise AiDemoError("Demo already completed — resend blocked")
+        if req.status == "rejected":
+            raise AiDemoError("Request was rejected")
+        return AiDemoService.approve_and_send(db, request_id, admin_id=admin_id, skip_wa=skip_wa)
+
+    @staticmethod
+    def public_resend(db: Session, *, request_id: str, sig: str) -> dict[str, Any]:
+        if not verify_resend_signature(request_id, sig):
+            raise AiDemoError("Invalid resend link", status_code=403)
+        req = AiDemoService.get_request(db, request_id)
+        if req.demo_completed_at:
+            raise AiDemoError("This demo is already complete")
+        if req.status not in ("approved", "active", "pending"):
+            raise AiDemoError("Demo invite is not available")
+        if req.status == "pending":
+            raise AiDemoError("Your demo is still awaiting approval")
+
+        since = _utcnow() - timedelta(hours=1)
+        recent = db.execute(
+            select(DemoSession).where(
+                DemoSession.request_id == req.id,
+                DemoSession.created_at >= since,
+            )
+        ).scalars().all()
+        if len(list(recent)) >= RESEND_MAX_PER_HOUR:
+            raise AiDemoError("Too many resend attempts. Please wait and try again.")
+
+        return AiDemoService.approve_and_send(db, req.id, admin_id=None, skip_wa=False)
+
+    @staticmethod
+    def verify_token(db: Session, raw_token: str) -> dict[str, Any]:
+        raw = str(raw_token or "").strip()
+        if len(raw) < 10:
+            raise AiDemoError("Invalid or expired demo link", status_code=403)
+        digest = token_hmac(raw)
+        session = db.execute(select(DemoSession).where(DemoSession.token_hmac == digest)).scalar_one_or_none()
+        if session is None:
+            raise AiDemoError("Invalid or expired demo link", status_code=403)
+        if session.used_at is not None:
+            raise AiDemoError(
+                "This link was already used. Open your email and tap Resend demo link.",
+                status_code=410,
+            )
+        if session.expires_at < _utcnow():
+            session.status = "expired"
+            db.add(session)
+            db.commit()
+            raise AiDemoError(
+                "This link expired. Open your email and tap Resend demo link.",
+                status_code=410,
+            )
+        req = AiDemoService.get_request(db, session.request_id)
+        if req.demo_completed_at:
+            raise AiDemoError("This demo is already complete", status_code=410)
+
+        session.used_at = _utcnow()
+        session.status = "verified"
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+
+        memory = _json_loads(req.conversation_memory, {})
+        return {
+            "session_id": session.id,
+            "request_id": req.id,
+            "contact_name": req.contact_name,
+            "company_name": req.company_name,
+            "email": req.email,
+            "language": session.language or req.preferred_language,
+            "has_memory": bool(memory),
+            "memory": memory,
+            "services": list(SERVICE_CODES),
+            "soft_cap_minutes": AiDemoService.get_settings(db).soft_cap_minutes or SOFT_CAP_MINUTES_DEFAULT,
+        }
+
+    @staticmethod
+    def _build_runtime_prompt(db: Session, req: DemoRequest, session: DemoSession, *, service_code: str | None) -> dict[str, str]:
+        AiDemoService.ensure_knowledge_bases(db)
+        overview = db.execute(
+            select(DemoKnowledgeBase).where(DemoKnowledgeBase.service_code == "platform_overview")
+        ).scalar_one_or_none()
+        code = (service_code or session.active_service_code or "").strip() or None
+        kb = None
+        if code:
+            kb = db.execute(
+                select(DemoKnowledgeBase).where(DemoKnowledgeBase.service_code == code, DemoKnowledgeBase.is_active.is_(True))
+            ).scalar_one_or_none()
+
+        memory = _json_loads(req.conversation_memory, {})
+        lang = session.language or req.preferred_language or "en"
+        lang_line = "Respond in Arabic." if lang == "ar" else "Respond in English."
+
+        parts = [
+            overview.system_prompt if overview else "",
+            overview.fact_sheet if overview else "",
+            lang_line,
+            f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
+            f"Their message: {req.message or '(none)'}.",
+            "Always get recording consent in the greeting.",
+            "Hard soft cap about 7 minutes — wrap up with end_demo when time is up.",
+        ]
+        if memory:
+            parts.append(
+                "RESUME MEMORY (do not restart from scratch): "
+                + _json_dumps(memory)
+            )
+            greeting = (
+                f"Welcome back, {req.contact_name}. Last time we were looking at "
+                f"{memory.get('active_service_code') or 'VoxBulk'}. Shall we continue?"
+            )
+        else:
+            greeting = (
+                f"Hi {req.contact_name}, welcome to your VoxBulk AI demo for {req.company_name}. "
+                "This call may be recorded for our sales team. What would you like to see first — "
+                "Recruitment interviews, Surveys, Feedback, Expo, or Smart Card?"
+            )
+
+        if kb:
+            parts.extend(
+                [
+                    f"ACTIVE PRODUCT KB ({kb.service_code}):",
+                    kb.system_prompt,
+                    "FACTS:",
+                    kb.fact_sheet,
+                    "DEMO SCRIPT:",
+                    kb.demo_script,
+                ]
+            )
+        else:
+            parts.append("No product KB loaded yet — ask what they want and call switch_kb.")
+
+        return {
+            "system_prompt": "\n\n".join(p for p in parts if p).strip(),
+            "first_message": greeting if lang != "ar" else (
+                f"مرحباً {req.contact_name}، أهلاً بك في عرض فوكس بالك التجريبي لـ {req.company_name}. "
+                "قد يتم تسجيل هذه المكالمة لفريق المبيعات. ماذا تود أن ترى أولاً؟"
+                if not memory
+                else f"مرحباً بعودتك {req.contact_name}. هل نكمل من حيث توقفنا؟"
+            ),
+        }
+
+    @staticmethod
+    def start_session(db: Session, *, session_id: str) -> dict[str, Any]:
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        if session.status not in ("verified", "active"):
+            raise AiDemoError("Session is not ready to start", status_code=409)
+        req = AiDemoService.get_request(db, session.request_id)
+        settings = AiDemoService.get_settings(db)
+        assistant_id = (settings.provider_agent_id or "").strip()
+        if not assistant_id:
+            # Fall back to frontpage Talk-to-us Telnyx assistant when demo assistant not set
+            from app.models.frontpage_call_setting import FrontpageCallSetting
+
+            fp = db.get(FrontpageCallSetting, "default")
+            if fp and (fp.voice_provider or "").lower() == "telnyx":
+                assistant_id = str(fp.provider_agent_id or "").strip()
+        if not assistant_id:
+            raise AiDemoError(
+                "Demo Telnyx assistant is not configured. Set it in Admin → Demo requested → Settings.",
+                status_code=503,
+            )
+
+        runtime = AiDemoService._build_runtime_prompt(db, req, session, service_code=session.active_service_code)
+        try:
+            from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
+
+            prep = prepare_telnyx_webrtc_call(
+                db,
+                assistant_id,
+                runtime["system_prompt"],
+                greeting=runtime["first_message"],
+                language="ar" if (session.language or "") == "ar" else "en",
+            )
+        except Exception as exc:
+            raise AiDemoError(str(exc), status_code=503) from exc
+
+        # Create / attach frontpage lead for recording trail
+        lead = None
+        if session.frontpage_lead_call_id:
+            lead = db.get(FrontpageLeadCall, session.frontpage_lead_call_id)
+        if lead is None:
+            from app.services.frontpage_lead_service import generate_lead_code
+
+            lead = FrontpageLeadCall(
+                lead_code=generate_lead_code(),
+                contact_name=req.contact_name,
+                company_name=req.company_name,
+                email=req.email,
+                phone=req.whatsapp_e164,
+                source=SOURCE_DEMO,
+                status="started",
+                voice_provider="telnyx",
+                provider_agent_id=assistant_id,
+                started_at=_utcnow(),
+                lead_data_json=_json_dumps(
+                    {
+                        "demo_request_id": req.id,
+                        "demo_session_id": session.id,
+                        "website": req.website,
+                        "preferred_language": req.preferred_language,
+                        "message": req.message,
+                    }
+                ),
+            )
+            db.add(lead)
+            db.flush()
+            session.frontpage_lead_call_id = lead.id
+            req.frontpage_lead_call_id = lead.id
+
+        session.status = "active"
+        session.started_at = session.started_at or _utcnow()
+        req.status = "active"
+        req.updated_at = _utcnow()
+        db.add(session)
+        db.add(req)
+        db.commit()
+
+        return {
+            "session_id": session.id,
+            "call_id": lead.id if lead else None,
+            "lead_code": lead.lead_code if lead else None,
+            "voice_provider": "telnyx",
+            "soft_cap_minutes": settings.soft_cap_minutes or SOFT_CAP_MINUTES_DEFAULT,
+            "active_service_code": session.active_service_code,
+            "telnyx": {
+                "configured": True,
+                "agent_id": prep.get("assistant_id") or assistant_id,
+                "web_calls_enabled": True,
+                "prompt_synced": bool(prep.get("prompt_synced")),
+                "first_message": runtime["first_message"],
+                "recording_channels": prep.get("recording_channels", "dual"),
+                "custom_headers": {
+                    "X-Vox-Demo-Session-Id": session.id,
+                    "X-Vox-Demo-Request-Id": req.id,
+                    "X-Vox-Call-Id": lead.id if lead else "",
+                },
+            },
+        }
+
+    @staticmethod
+    def _append_ui_event(db: Session, session: DemoSession, event: dict[str, Any]) -> None:
+        events = _json_loads(session.ui_events_log, [])
+        if not isinstance(events, list):
+            events = []
+        event = {**event, "at": _utcnow().isoformat() + "Z", "id": str(uuid4())}
+        events.append(event)
+        session.ui_events_log = _json_dumps(events[-200:])
+        db.add(session)
+
+    @staticmethod
+    def update_memory(db: Session, req: DemoRequest, patch: dict[str, Any]) -> None:
+        memory = _json_loads(req.conversation_memory, {})
+        if not isinstance(memory, dict):
+            memory = {}
+        memory.update({k: v for k, v in patch.items() if v is not None})
+        memory["updated_at"] = _utcnow().isoformat() + "Z"
+        req.conversation_memory = _json_dumps(memory)
+        req.updated_at = _utcnow()
+        db.add(req)
+        db.commit()
+
+    @staticmethod
+    def handle_tool(
+        db: Session,
+        *,
+        tool_name: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        name = str(tool_name or "").strip().lower()
+        dynamic = payload.get("dynamic_variables") if isinstance(payload.get("dynamic_variables"), dict) else {}
+        session_id = (
+            str(payload.get("session_id") or dynamic.get("demo_session_id") or dynamic.get("X-Vox-Demo-Session-Id") or "")
+            .strip()
+        )
+        if not session_id:
+            # Telnyx may pass custom headers differently
+            session_id = str(payload.get("demo_session_id") or "").strip()
+        session = db.get(DemoSession, session_id) if session_id else None
+        if session is None:
+            # Best-effort: latest active session for email match is not available; fail soft for Telnyx
+            logger.warning("demo_tool_missing_session tool=%s payload_keys=%s", name, list(payload.keys())[:20])
+            return {"status": "error", "message": "Unknown demo session"}
+
+        req = AiDemoService.get_request(db, session.request_id)
+        args = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else payload
+
+        if name == "switch_kb":
+            code = str(args.get("service") or args.get("service_code") or "").strip().lower()
+            if code not in SERVICE_CODES:
+                return {"status": "error", "message": f"Unknown service: {code}"}
+            session.active_service_code = code
+            explored = _json_loads(session.services_explored, [])
+            if code not in explored:
+                explored.append(code)
+            session.services_explored = _json_dumps(explored)
+            AiDemoService.update_memory(
+                db,
+                req,
+                {"active_service_code": code, "services_explored": explored, "contact_name": req.contact_name},
+            )
+            runtime = AiDemoService._build_runtime_prompt(db, req, session, service_code=code)
+            settings = AiDemoService.get_settings(db)
+            assistant_id = (settings.provider_agent_id or "").strip()
+            if not assistant_id:
+                from app.models.frontpage_call_setting import FrontpageCallSetting
+
+                fp = db.get(FrontpageCallSetting, "default")
+                assistant_id = str(fp.provider_agent_id or "").strip() if fp else ""
+            if assistant_id:
+                try:
+                    from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
+
+                    prepare_telnyx_webrtc_call(
+                        db,
+                        assistant_id,
+                        runtime["system_prompt"],
+                        greeting=f"Sure — switching to {code.replace('_', ' ')}.",
+                        language="ar" if session.language == "ar" else "en",
+                    )
+                except Exception:
+                    logger.exception("demo_switch_kb_resync_failed")
+            AiDemoService._append_ui_event(
+                db,
+                session,
+                {"type": "switch_kb", "service": code, "transition": f"Switching to {code}"},
+            )
+            db.commit()
+            return {"status": "ok", "service": code, "message": f"Switched to {code}"}
+
+        if name == "show_result_panel":
+            data = args.get("json") if "json" in args else args.get("data") or args
+            AiDemoService._append_ui_event(db, session, {"type": "show_result_panel", "data": data})
+            db.commit()
+            return {"status": "ok"}
+
+        if name == "show_link":
+            AiDemoService._append_ui_event(
+                db,
+                session,
+                {"type": "show_link", "url": args.get("url"), "label": args.get("label") or "Open link"},
+            )
+            db.commit()
+            return {"status": "ok"}
+
+        if name == "show_qr_code":
+            AiDemoService._append_ui_event(
+                db,
+                session,
+                {"type": "show_qr_code", "data": args.get("data"), "label": args.get("label") or "Scan QR"},
+            )
+            db.commit()
+            return {"status": "ok"}
+
+        if name == "set_voice_lang":
+            voice = str(args.get("voice") or "").strip() or None
+            lang = _normalize_lang(args.get("lang") or args.get("language"))
+            session.voice = voice
+            session.language = lang
+            req.preferred_language = lang
+            AiDemoService.update_memory(db, req, {"language": lang, "voice": voice})
+            AiDemoService._append_ui_event(db, session, {"type": "set_voice_lang", "voice": voice, "lang": lang})
+            db.commit()
+            return {"status": "ok", "lang": lang}
+
+        if name == "log_volume_needs":
+            volumes = args.get("volumes") if isinstance(args.get("volumes"), dict) else args
+            session.volume_needs = _json_dumps(volumes)
+            AiDemoService.update_memory(db, req, {"volume_needs": volumes})
+            AiDemoService._append_ui_event(db, session, {"type": "log_volume_needs", "volumes": volumes})
+            db.commit()
+            return {"status": "ok"}
+
+        if name == "end_demo":
+            summary = str(args.get("summary") or "").strip()
+            return AiDemoService.complete_session(
+                db,
+                session_id=session.id,
+                summary=summary,
+                transcript=str(args.get("transcript") or "") or None,
+            )
+
+        return {"status": "error", "message": f"Unknown tool: {name}"}
+
+    @staticmethod
+    def poll_events(db: Session, *, session_id: str, after_id: str | None = None) -> list[dict[str, Any]]:
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        events = _json_loads(session.ui_events_log, [])
+        if not isinstance(events, list):
+            return []
+        if not after_id:
+            return events
+        out: list[dict[str, Any]] = []
+        seen = False
+        for ev in events:
+            if seen:
+                out.append(ev)
+            elif str(ev.get("id") or "") == after_id:
+                seen = True
+        return out
+
+    @staticmethod
+    def complete_session(
+        db: Session,
+        *,
+        session_id: str,
+        summary: str | None = None,
+        transcript: str | None = None,
+        recording_path: str | None = None,
+        duration_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        req = AiDemoService.get_request(db, session.request_id)
+
+        now = _utcnow()
+        session.status = "completed"
+        session.ended_at = now
+        if duration_seconds is not None:
+            session.duration_seconds = int(duration_seconds)
+        if transcript:
+            session.transcript_log = transcript[:50000]
+        AiDemoService._append_ui_event(
+            db,
+            session,
+            {"type": "end_demo", "summary": summary or "", "cta": "book_sales_call"},
+        )
+
+        explored = _json_loads(session.services_explored, [])
+        volumes = _json_loads(session.volume_needs, {})
+        AiDemoService.update_memory(
+            db,
+            req,
+            {
+                "summary": summary,
+                "services_explored": explored,
+                "volume_needs": volumes,
+                "active_service_code": session.active_service_code,
+                "completed": True,
+            },
+        )
+        req.demo_completed_at = now
+        req.status = "completed"
+        req.updated_at = now
+
+        lead = None
+        if session.frontpage_lead_call_id:
+            lead = db.get(FrontpageLeadCall, session.frontpage_lead_call_id)
+        if lead is None:
+            from app.services.frontpage_lead_service import generate_lead_code
+
+            lead = FrontpageLeadCall(
+                lead_code=generate_lead_code(),
+                contact_name=req.contact_name,
+                company_name=req.company_name,
+                email=req.email,
+                phone=req.whatsapp_e164,
+                source=SOURCE_DEMO,
+                status="completed",
+                voice_provider="telnyx",
+                completed_at=now,
+            )
+            db.add(lead)
+            db.flush()
+            session.frontpage_lead_call_id = lead.id
+            req.frontpage_lead_call_id = lead.id
+
+        lead.status = "completed"
+        lead.completed_at = now
+        if transcript:
+            lead.transcript_text = transcript[:50000]
+        if recording_path:
+            lead.recording_path = recording_path[:512]
+        if duration_seconds is not None:
+            lead.duration_seconds = int(duration_seconds)
+        lead_data = _json_loads(lead.lead_data_json, {})
+        if not isinstance(lead_data, dict):
+            lead_data = {}
+        lead_data.update(
+            {
+                "demo_request_id": req.id,
+                "demo_session_id": session.id,
+                "interest_summary": summary or lead_data.get("interest_summary"),
+                "services_explored": explored,
+                "volume_needs": volumes,
+                "website": req.website,
+                "preferred_language": req.preferred_language,
+                "message": req.message,
+                "demo_completed": True,
+            }
+        )
+        lead.lead_data_json = _json_dumps(lead_data)
+        db.add(lead)
+        db.add(session)
+        db.add(req)
+        db.commit()
+
+        try:
+            from app.services.lead_sales_service import create_sales_task_from_lead
+
+            task, _created = create_sales_task_from_lead(db, lead.id)
+            if task is not None:
+                req.lead_sales_task_id = task.id
+                db.add(req)
+                db.commit()
+        except Exception:
+            logger.exception("demo_sales_task_create_failed")
+
+        return {
+            "status": "ok",
+            "session_id": session.id,
+            "request_id": req.id,
+            "lead_id": lead.id,
+            "cta": "book_sales_call",
+            "summary": summary,
+        }
+
+    @staticmethod
+    def serialize_request(req: DemoRequest) -> dict[str, Any]:
+        return {
+            "id": req.id,
+            "source": req.source,
+            "status": req.status,
+            "contact_name": req.contact_name,
+            "email": req.email,
+            "company_name": req.company_name,
+            "whatsapp_e164": req.whatsapp_e164,
+            "website": req.website,
+            "preferred_language": req.preferred_language,
+            "message": req.message,
+            "admin_notes": req.admin_notes,
+            "approved_at": req.approved_at.isoformat() + "Z" if req.approved_at else None,
+            "rejected_at": req.rejected_at.isoformat() + "Z" if req.rejected_at else None,
+            "reject_reason": req.reject_reason,
+            "demo_completed_at": req.demo_completed_at.isoformat() + "Z" if req.demo_completed_at else None,
+            "frontpage_lead_call_id": req.frontpage_lead_call_id,
+            "lead_sales_task_id": req.lead_sales_task_id,
+            "conversation_memory": _json_loads(req.conversation_memory, {}),
+            "created_at": req.created_at.isoformat() + "Z" if req.created_at else None,
+        }
+
+    @staticmethod
+    def list_knowledge_bases(db: Session) -> list[dict[str, Any]]:
+        AiDemoService.ensure_knowledge_bases(db)
+        rows = db.execute(select(DemoKnowledgeBase).order_by(DemoKnowledgeBase.sort_order)).scalars().all()
+        return [
+            {
+                "id": r.id,
+                "service_code": r.service_code,
+                "title": r.title,
+                "system_prompt": r.system_prompt,
+                "fact_sheet": r.fact_sheet,
+                "demo_script": r.demo_script,
+                "tool_subset": _json_loads(r.tool_subset, []),
+                "sort_order": r.sort_order,
+                "is_active": r.is_active,
+                "updated_at": r.updated_at.isoformat() + "Z" if r.updated_at else None,
+            }
+            for r in rows
+        ]
+
+    @staticmethod
+    def update_knowledge_base(db: Session, service_code: str, payload: dict[str, Any]) -> dict[str, Any]:
+        AiDemoService.ensure_knowledge_bases(db)
+        row = db.execute(
+            select(DemoKnowledgeBase).where(DemoKnowledgeBase.service_code == service_code.strip().lower())
+        ).scalar_one_or_none()
+        if row is None:
+            raise AiDemoError("Knowledge base not found", status_code=404)
+        for field in ("title", "system_prompt", "fact_sheet", "demo_script"):
+            if field in payload and payload[field] is not None:
+                setattr(row, field, str(payload[field]))
+        if "tool_subset" in payload and payload["tool_subset"] is not None:
+            row.tool_subset = _json_dumps(payload["tool_subset"])
+        if "is_active" in payload and payload["is_active"] is not None:
+            row.is_active = bool(payload["is_active"])
+        row.updated_at = _utcnow()
+        db.add(row)
+        db.commit()
+        return AiDemoService.list_knowledge_bases(db)

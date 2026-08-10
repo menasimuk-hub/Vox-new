@@ -176,7 +176,7 @@ export function Hero({
   badgeText = "Live now · AI Assistant Platform",
   headline,
   sub,
-  primaryHref = "/contact",
+  primaryHref = "/demo",
   primaryLabel = "Request a demo",
   secondaryLabel = "Talk to us",
   onSecondary,
@@ -1146,7 +1146,7 @@ export function BottomCTA() {
               through the dashboard with your team.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row gap-3">
-              <Link to="/contact" className="btn-primary text-[15px] h-12 px-7">
+              <Link to="/demo" className="btn-primary text-[15px] h-12 px-7">
                 Request a demo <ArrowRight size={16} />
               </Link>
               <a href="#services" className="btn-ghost-light text-[15px] h-12">
@@ -1736,7 +1736,7 @@ export function RiskReversal() {
           ))}
         </div>
         <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
-          <Link to="/contact" className="btn-primary text-[15px] px-6 h-12">
+          <Link to="/demo" className="btn-primary text-[15px] px-6 h-12">
             Start a pilot on one role <ArrowRight size={16} />
           </Link>
           <button onClick={talk.open} className="inline-flex items-center gap-2 h-12 px-5 rounded-xl border border-border bg-white font-semibold text-[14.5px] text-heading hover:bg-beige transition-all">

@@ -485,6 +485,37 @@ export default function LeadSalesEdit() {
               </button>
             )
           })()}
+          <button
+            type='button'
+            className='btn soft'
+            disabled={!!busy}
+            onClick={async () => {
+              setBusy('demo-invite')
+              setMsg('')
+              try {
+                await apiFetch('/admin/ai-demo/requests/manual', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    contact_name: task.contact_name || 'Guest',
+                    email: task.email || '',
+                    company_name: task.company_name || 'Company',
+                    whatsapp: task.phone || task.whatsapp || '',
+                    website: task.website || 'https://voxbulk.com',
+                    preferred_language: 'en',
+                    message: 'Manual invite from Lead Sales',
+                    lead_sales_task_id: taskId,
+                  }),
+                })
+                setMsg('AI demo invite emailed (and WhatsApp notice sent if number valid).')
+              } catch (e) {
+                setMsg(e?.message || 'Failed to send demo invite')
+              } finally {
+                setBusy('')
+              }
+            }}
+          >
+            {busy === 'demo-invite' ? 'Sending demo…' : 'Send AI demo link'}
+          </button>
           {task.status === 'paused' ? (
             <button type='button' className='btn soft' disabled={!!busy} onClick={() => runAction('resume')}>
               Resume

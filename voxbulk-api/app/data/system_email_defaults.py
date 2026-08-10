@@ -6,6 +6,7 @@ from app.data.invoice_document_default import INVOICE_DOCUMENT_BODY, INVOICE_DOC
 from app.data.sales_offer_email_default import SALES_OFFER_EMAIL_BODY, SALES_OFFER_EMAIL_SUBJECT
 from app.data.team_invite_email_default import TEAM_INVITE_EMAIL_BODY, TEAM_INVITE_EMAIL_SUBJECT
 from app.data.weekly_digest_email_default import WEEKLY_DIGEST_BODY, WEEKLY_DIGEST_SUBJECT
+from app.data.ai_demo_email_default import DEMO_INVITE_EMAIL_BODY, DEMO_INVITE_EMAIL_SUBJECT
 
 SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
     "new_user": {
@@ -774,5 +775,10 @@ SYSTEM_EMAIL_DEFAULTS: dict[str, dict[str, str]] = {
   <p style="font-size:13px;color:#6b6560;">Support Disk · VoxBulk</p>""",
             footer="Sent by VOXBULK Support · support@voxbulk.com",
         ),
+    },
+    "demo_invite": {
+        "title": "AI demo invite",
+        "subject": DEMO_INVITE_EMAIL_SUBJECT,
+        "body": DEMO_INVITE_EMAIL_BODY,
     },
 }

@@ -25,6 +25,7 @@ export const PartnersProviderPage = lazy(() => import('../pages/PartnersProvider
 export const SupportSLA = lazy(() => import('../pages/SupportSLA'))
 export const SupportTickets = lazy(() => import('../pages/SupportTickets'))
 export const SupportInbox = lazy(() => import('../pages/SupportInbox'))
+export const DemoRequested = lazy(() => import('../pages/DemoRequested'))
 export const SupportArchive = lazy(() => import('../pages/SupportArchive'))
 export const SupportTicketDetail = lazy(() => import('../pages/SupportTicketDetail'))
 export const SupportHelpCentre = lazy(() => import('../pages/SupportHelpCentre'))

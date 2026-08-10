@@ -77,6 +77,7 @@ EMAIL_TEMPLATE_KEYS: tuple[str, ...] = (
     "support_ticket_reply",
     "support_ticket_status",
     "support_ticket_assigned",
+    "demo_invite",
 )
 
 _TEMPLATE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")

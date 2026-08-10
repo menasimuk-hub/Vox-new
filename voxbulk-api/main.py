@@ -52,6 +52,8 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.dashboard_help import router as dashboard_help_router
 from app.routers.demo import admin_router as admin_demo_router
 from app.routers.demo import router as demo_router
+from app.routers.ai_demo import admin_router as admin_ai_demo_router
+from app.routers.ai_demo import router as ai_demo_router
 from app.routers.faq import router as faq_router
 from app.routers.frontpage import admin_router as admin_frontpage_router
 from app.routers.frontpage import router as frontpage_router
@@ -711,6 +713,10 @@ app.include_router(webhooks_router)
 app.include_router(dashboard_router)
 app.include_router(demo_router)
 app.include_router(admin_demo_router)
+app.include_router(ai_demo_router)
+app.include_router(admin_ai_demo_router)
+app.include_router(ai_demo_router, prefix="/api"))
+app.include_router(admin_ai_demo_router, prefix="/api"))
 app.include_router(billing_router)
 app.include_router(support_router)
 app.include_router(telnyx_router)

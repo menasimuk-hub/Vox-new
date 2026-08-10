@@ -14,6 +14,7 @@ import { Route as KeyDottxtRouteImport } from './routes/$key[.]txt'
 import { Route as BlogRouteImport } from './routes/blog'
 import { Route as ContactRouteImport } from './routes/contact'
 import { Route as CookiesRouteImport } from './routes/cookies'
+import { Route as DemoRouteImport } from './routes/demo'
 import { Route as DpaRouteImport } from './routes/dpa'
 import { Route as ExpoRouteImport } from './routes/expo'
 import { Route as FaqRouteImport } from './routes/faq'
@@ -37,6 +38,9 @@ import { Route as SurveysRouteImport } from './routes/surveys'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as BlogIndexRouteImport } from './routes/blog.index'
 import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
+import { Route as DemoIndexRouteImport } from './routes/demo.index'
+import { Route as DemoResendRouteImport } from './routes/demo.resend'
+import { Route as DemoSessionRouteImport } from './routes/demo.session'
 import { Route as ExpoIndexRouteImport } from './routes/expo.index'
 import { Route as ExpoTokenRouteImport } from './routes/expo.$token'
 import { Route as FaqIndexRouteImport } from './routes/faq.index'
@@ -78,6 +82,11 @@ const ContactRoute = ContactRouteImport.update({
 const CookiesRoute = CookiesRouteImport.update({
   id: '/cookies',
   path: '/cookies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DpaRoute = DpaRouteImport.update({
@@ -195,6 +204,21 @@ const BlogSlugRoute = BlogSlugRouteImport.update({
   path: '/$slug',
   getParentRoute: () => BlogRoute,
 } as any)
+const DemoIndexRoute = DemoIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DemoRoute,
+} as any)
+const DemoResendRoute = DemoResendRouteImport.update({
+  id: '/resend',
+  path: '/resend',
+  getParentRoute: () => DemoRoute,
+} as any)
+const DemoSessionRoute = DemoSessionRouteImport.update({
+  id: '/session',
+  path: '/session',
+  getParentRoute: () => DemoRoute,
+} as any)
 const ExpoIndexRoute = ExpoIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -287,6 +311,7 @@ export interface FileRoutesByFullPath {
   '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
+  '/demo': typeof DemoRouteWithChildren
   '/dpa': typeof DpaRoute
   '/expo': typeof ExpoRouteWithChildren
   '/faq': typeof FaqRouteWithChildren
@@ -309,6 +334,8 @@ export interface FileRoutesByFullPath {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/blog/$slug': typeof BlogSlugRoute
+  '/demo/resend': typeof DemoResendRoute
+  '/demo/session': typeof DemoSessionRoute
   '/expo/$token': typeof ExpoTokenRoute
   '/faq/$slug': typeof FaqSlugRoute
   '/help/articles': typeof HelpArticlesRouteWithChildren
@@ -318,6 +345,7 @@ export interface FileRoutesByFullPath {
   '/smartcard/$token': typeof SmartcardTokenRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/blog/': typeof BlogIndexRoute
+  '/demo/': typeof DemoIndexRoute
   '/expo/': typeof ExpoIndexRoute
   '/faq/': typeof FaqIndexRoute
   '/help/': typeof HelpIndexRoute
@@ -350,6 +378,8 @@ export interface FileRoutesByTo {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/blog/$slug': typeof BlogSlugRoute
+  '/demo/resend': typeof DemoResendRoute
+  '/demo/session': typeof DemoSessionRoute
   '/expo/$token': typeof ExpoTokenRoute
   '/faq/$slug': typeof FaqSlugRoute
   '/help/zoho-recruit': typeof HelpZohoRecruitRoute
@@ -358,6 +388,7 @@ export interface FileRoutesByTo {
   '/smartcard/$token': typeof SmartcardTokenRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/blog': typeof BlogIndexRoute
+  '/demo': typeof DemoIndexRoute
   '/expo': typeof ExpoIndexRoute
   '/faq': typeof FaqIndexRoute
   '/help': typeof HelpIndexRoute
@@ -375,6 +406,7 @@ export interface FileRoutesById {
   '/blog': typeof BlogRouteWithChildren
   '/contact': typeof ContactRoute
   '/cookies': typeof CookiesRoute
+  '/demo': typeof DemoRouteWithChildren
   '/dpa': typeof DpaRoute
   '/expo': typeof ExpoRouteWithChildren
   '/faq': typeof FaqRouteWithChildren
@@ -397,6 +429,8 @@ export interface FileRoutesById {
   '/surveys': typeof SurveysRoute
   '/terms': typeof TermsRoute
   '/blog/$slug': typeof BlogSlugRoute
+  '/demo/resend': typeof DemoResendRoute
+  '/demo/session': typeof DemoSessionRoute
   '/expo/$token': typeof ExpoTokenRoute
   '/faq/$slug': typeof FaqSlugRoute
   '/help/articles': typeof HelpArticlesRouteWithChildren
@@ -406,6 +440,7 @@ export interface FileRoutesById {
   '/smartcard/$token': typeof SmartcardTokenRoute
   '/survey/$token': typeof SurveyTokenRoute
   '/blog/': typeof BlogIndexRoute
+  '/demo/': typeof DemoIndexRoute
   '/expo/': typeof ExpoIndexRoute
   '/faq/': typeof FaqIndexRoute
   '/help/': typeof HelpIndexRoute
@@ -424,6 +459,7 @@ export interface FileRouteTypes {
     | '/blog'
     | '/contact'
     | '/cookies'
+    | '/demo'
     | '/dpa'
     | '/expo'
     | '/faq'
@@ -446,6 +482,8 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/blog/$slug'
+    | '/demo/resend'
+    | '/demo/session'
     | '/expo/$token'
     | '/faq/$slug'
     | '/help/articles'
@@ -455,6 +493,7 @@ export interface FileRouteTypes {
     | '/smartcard/$token'
     | '/survey/$token'
     | '/blog/'
+    | '/demo/'
     | '/expo/'
     | '/faq/'
     | '/help/'
@@ -487,6 +526,8 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/blog/$slug'
+    | '/demo/resend'
+    | '/demo/session'
     | '/expo/$token'
     | '/faq/$slug'
     | '/help/zoho-recruit'
@@ -495,6 +536,7 @@ export interface FileRouteTypes {
     | '/smartcard/$token'
     | '/survey/$token'
     | '/blog'
+    | '/demo'
     | '/expo'
     | '/faq'
     | '/help'
@@ -511,6 +553,7 @@ export interface FileRouteTypes {
     | '/blog'
     | '/contact'
     | '/cookies'
+    | '/demo'
     | '/dpa'
     | '/expo'
     | '/faq'
@@ -533,6 +576,8 @@ export interface FileRouteTypes {
     | '/surveys'
     | '/terms'
     | '/blog/$slug'
+    | '/demo/resend'
+    | '/demo/session'
     | '/expo/$token'
     | '/faq/$slug'
     | '/help/articles'
@@ -542,6 +587,7 @@ export interface FileRouteTypes {
     | '/smartcard/$token'
     | '/survey/$token'
     | '/blog/'
+    | '/demo/'
     | '/expo/'
     | '/faq/'
     | '/help/'
@@ -559,6 +605,7 @@ export interface RootRouteChildren {
   BlogRoute: typeof BlogRouteWithChildren
   ContactRoute: typeof ContactRoute
   CookiesRoute: typeof CookiesRoute
+  DemoRoute: typeof DemoRouteWithChildren
   DpaRoute: typeof DpaRoute
   ExpoRoute: typeof ExpoRouteWithChildren
   FaqRoute: typeof FaqRouteWithChildren
@@ -621,6 +668,13 @@ declare module '@tanstack/react-router' {
       path: '/cookies'
       fullPath: '/cookies'
       preLoaderRoute: typeof CookiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dpa': {
@@ -784,6 +838,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlogSlugRouteImport
       parentRoute: typeof BlogRoute
     }
+    '/demo/': {
+      id: '/demo/'
+      path: '/'
+      fullPath: '/demo/'
+      preLoaderRoute: typeof DemoIndexRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/demo/resend': {
+      id: '/demo/resend'
+      path: '/resend'
+      fullPath: '/demo/resend'
+      preLoaderRoute: typeof DemoResendRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/demo/session': {
+      id: '/demo/session'
+      path: '/session'
+      fullPath: '/demo/session'
+      preLoaderRoute: typeof DemoSessionRouteImport
+      parentRoute: typeof DemoRoute
+    }
     '/expo/': {
       id: '/expo/'
       path: '/'
@@ -918,6 +993,20 @@ const BlogRouteChildren: BlogRouteChildren = {
 
 const BlogRouteWithChildren = BlogRoute._addFileChildren(BlogRouteChildren)
 
+interface DemoRouteChildren {
+  DemoResendRoute: typeof DemoResendRoute
+  DemoSessionRoute: typeof DemoSessionRoute
+  DemoIndexRoute: typeof DemoIndexRoute
+}
+
+const DemoRouteChildren: DemoRouteChildren = {
+  DemoResendRoute: DemoResendRoute,
+  DemoSessionRoute: DemoSessionRoute,
+  DemoIndexRoute: DemoIndexRoute,
+}
+
+const DemoRouteWithChildren = DemoRoute._addFileChildren(DemoRouteChildren)
+
 interface ExpoRouteChildren {
   ExpoTokenRoute: typeof ExpoTokenRoute
   ExpoIndexRoute: typeof ExpoIndexRoute
@@ -1002,6 +1091,7 @@ const rootRouteChildren: RootRouteChildren = {
   BlogRoute: BlogRouteWithChildren,
   ContactRoute: ContactRoute,
   CookiesRoute: CookiesRoute,
+  DemoRoute: DemoRouteWithChildren,
   DpaRoute: DpaRoute,
   ExpoRoute: ExpoRouteWithChildren,
   FaqRoute: FaqRouteWithChildren,

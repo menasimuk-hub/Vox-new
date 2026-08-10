@@ -289,7 +289,7 @@ export function buildSlides(platformVisual?: ReactNode): Slide[] {
       badge: "Live now · AI Assistant Platform",
       headline: <>Intelligent screening. <span className="serif-italic text-gold">Instant results.</span></>,
       sub: <>Five services on one platform — recruitment screening, WhatsApp surveys, customer feedback, exhibition lead capture and smart card QR for sales reps.</>,
-      href: "/contact",
+      href: "/demo",
       cta: "Request a demo",
       facts: [
         { Icon: ShieldCheck, label: "GDPR compliant" },
