@@ -542,6 +542,120 @@ def list_org_private_assignments(org_id: str, db: Session = Depends(get_db), _ad
     return _run_pricing_db(db, work)
 
 
+# ------------------------------------------------------------------ custom multi-service packages
+
+
+@router.get("/custom-packages")
+def list_custom_packages(
+    status_filter: str | None = Query(None, alias="status"),
+    active_only: bool = Query(False),
+    q: str | None = Query(None),
+    service: str | None = Query(None),
+    org_id: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.custom_packages_service import CustomPackagesService
+
+        items = CustomPackagesService.list_packages(
+            db,
+            status=status_filter,
+            active_only=active_only,
+            q=q,
+            service=service,
+            org_id=org_id,
+        )
+        return {"ok": True, "items": items}
+
+    return _run_pricing_db(db, work)
+
+
+@router.get("/custom-packages/org/{org_id}")
+def get_org_custom_package(org_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.custom_packages_service import CustomPackagesService
+
+        return {"ok": True, "item": CustomPackagesService.get_for_org(db, org_id)}
+
+    return _run_pricing_db(db, work)
+
+
+@router.get("/custom-packages/{package_id}")
+def get_custom_package(package_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        try:
+            item = CustomPackagesService.get_package(db, package_id)
+        except CustomPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.post("/custom-packages")
+def create_custom_package(payload: dict = Body(...), db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        try:
+            item = CustomPackagesService.create_package(db, payload if isinstance(payload, dict) else {})
+        except CustomPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.put("/custom-packages/{package_id}")
+def update_custom_package(
+    package_id: str,
+    payload: dict = Body(...),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    def work() -> dict[str, Any]:
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        try:
+            item = CustomPackagesService.update_package(db, package_id, payload if isinstance(payload, dict) else {})
+        except CustomPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.post("/custom-packages/{package_id}/duplicate")
+def duplicate_custom_package(package_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        try:
+            item = CustomPackagesService.duplicate_package(db, package_id)
+        except CustomPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
+@router.delete("/custom-packages/{package_id}")
+def deactivate_custom_package(package_id: str, db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    def work() -> dict[str, Any]:
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        try:
+            item = CustomPackagesService.deactivate_package(db, package_id)
+        except CustomPackagesError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return {"ok": True, "item": item}
+
+    return _run_pricing_db(db, work)
+
+
 # ------------------------------------------------------------------ billing settings (company / VAT / invoice numbering)
 
 

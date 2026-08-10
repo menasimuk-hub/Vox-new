@@ -6,6 +6,7 @@ export const GROUP_ICONS = {
   Onboarding: 'ti-clipboard-check',
   Operations: 'ti-activity',
   'Customer feedback': 'ti-message-circle',
+  'Custom packages': 'ti-package',
   Campaigns: 'ti-ad-2',
   'WA Survey': 'ti-brand-whatsapp',
   'Appointment Manager': 'ti-calendar-event',
@@ -28,6 +29,7 @@ export const GROUP_SECTION = {
   Onboarding: 'Main',
   Operations: 'Main',
   'Customer feedback': 'Products',
+  'Custom packages': 'Products',
   Campaigns: 'Products',
   'WA Survey': 'Products',
   'Appointment Manager': 'Products',
@@ -76,6 +78,10 @@ export const NAV = [
       ['Locations', '/customer-feedback/locations'],
       ['Results', '/customer-feedback/results'],
     ],
+  ],
+  [
+    'Custom packages',
+    [['Custom packages', '/products/custom-packages']],
   ],
   [
     'Campaigns',

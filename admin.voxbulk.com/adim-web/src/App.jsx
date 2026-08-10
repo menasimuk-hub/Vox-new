@@ -157,6 +157,7 @@ export default function App() {
         <Route path='/billing/products/plan/new' element={<P.ProductPlanEdit />} />
         <Route path='/billing/products/plan/:planId/edit' element={<P.ProductPlanEdit />} />
         <Route path='/billing/service-orders' element={<P.ServiceOrdersAdmin />} />
+        <Route path='/products/custom-packages' element={<P.CustomPackages />} />
 
         <Route path='/pricing/*' element={<P.PricingShell />}>
           <Route index element={<Navigate to='/pricing/packages' replace />} />
