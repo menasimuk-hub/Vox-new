@@ -22,48 +22,82 @@ def email_logo_html(*, href: str = "https://voxbulk.com", width: int = 140) -> s
 
 EMAIL_PREFERENCES_MANAGE_URL = "https://dashboard.voxbulk.com/settings/profile#email-notifications"
 
+# Standalone prefs paragraph we inject / strip (muted body style, not branded bottom strip).
+_PREFS_BLOCK_RE = re.compile(
+    r"(?is)<p\b[^>]*>\s*<a\b[^>]*>\s*(?:Manage Email Preferences|Change Preferences|Email preferences)\s*</a>\s*</p>\s*"
+)
+_CONTACT_LINE_RE = re.compile(
+    r"(?is)<p\b[^>]*>[\s\S]*?"
+    r"(?:Questions about this decision|Questions about|Contact us at|contact us at|"
+    r"If you have questions|Questions\?|Need help\?|Need more help\?)"
+    r"[\s\S]*?</p>"
+)
+
 
 def email_preferences_footer_html(*, manage_url: str | None = None) -> str:
-    """Footer link to dashboard email notification preferences (injected at send time)."""
+    """Muted body-style prefs link (same theme as contact/help lines)."""
     href = (manage_url or EMAIL_PREFERENCES_MANAGE_URL).strip() or EMAIL_PREFERENCES_MANAGE_URL
     c = BRAND_COLORS
     return (
-        f'<p style="margin:16px 0 0;font-size:12px;line-height:1.5;color:{c["ink_muted"]};">'
-        f'<a href="{href}" style="color:{c["primary"]};text-decoration:underline;">Manage Email Preferences</a>'
+        f'<p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:{c["ink_muted"]};">'
+        f'<a href="{href}" style="color:{c["ink_muted"]};text-decoration:underline;">Manage Email Preferences</a>'
         f"</p>"
     )
 
 
-def inject_email_preferences_footer(body: str, *, manage_url: str | None = None) -> str:
-    """Ensure Manage Email Preferences appears in HTML (idempotent; safe at send time)."""
-    text = str(body or "")
-    if not text.strip():
-        return text
-    lowered = text.lower()
-    if "manage email preferences" in lowered or "change preferences" in lowered:
-        return text
-    # Upgrade legacy "Email preferences" label so older templates match the new wording.
-    if "email preferences" in lowered:
-        upgraded, n = re.subn(
-            r"(?i)>\s*Email preferences\s*<",
-            ">Manage Email Preferences<",
-            text,
-            count=1,
-        )
-        if n:
-            return upgraded
-    snippet = email_preferences_footer_html(manage_url=manage_url)
+def _strip_prefs_blocks(text: str) -> str:
+    return _PREFS_BLOCK_RE.sub("", text)
+
+
+def _insert_prefs_in_main_content(text: str, snippet: str) -> str:
+    """Place prefs under contact/help copy inside the main body cell — not the bottom strip."""
+    content_td = re.search(
+        r'<td[^>]*style="[^"]*padding:\s*28px[^"]*"[^>]*>',
+        text,
+        flags=re.I,
+    )
+    if content_td:
+        start = content_td.end()
+        footer_mark = text.find("border-top:1px solid", start)
+        search_end = footer_mark if footer_mark > 0 else len(text)
+        close = text.rfind("</td>", start, search_end)
+        if close > start:
+            chunk = text[start:close]
+            contacts = list(_CONTACT_LINE_RE.finditer(chunk))
+            if contacts:
+                insert_at = start + contacts[-1].end()
+                return text[:insert_at] + snippet + text[insert_at:]
+            return text[:close] + snippet + text[close:]
+
+    contacts = list(_CONTACT_LINE_RE.finditer(text))
+    if contacts:
+        insert_at = contacts[-1].end()
+        return text[:insert_at] + snippet + text[insert_at:]
+
     close_body = re.search(r"</body\s*>", text, flags=re.I)
     if close_body:
         return text[: close_body.start()] + snippet + text[close_body.start() :]
-    # Prefer inserting before the last branded footer cell when present
-    footer_marker = "border-top:1px solid"
-    idx = text.rfind(footer_marker)
-    if idx >= 0:
-        td_close = text.find("</td>", idx)
-        if td_close >= 0:
-            return text[:td_close] + snippet + text[td_close:]
     return text + snippet
+
+
+def inject_email_preferences_footer(body: str, *, manage_url: str | None = None) -> str:
+    """Ensure Manage Email Preferences sits under body contact lines (idempotent)."""
+    text = str(body or "")
+    if not text.strip():
+        return text
+    # Relocate/restyle: remove prior injects (including wrong bottom-footer placement).
+    text = _strip_prefs_blocks(text)
+    # Upgrade any remaining legacy label that wasn't a standalone <p><a>…</a></p> block.
+    text, _n = re.subn(
+        r"(?i)>\s*Email preferences\s*<",
+        ">Manage Email Preferences<",
+        text,
+        count=1,
+    )
+    if "manage email preferences" in text.lower() or "change preferences" in text.lower():
+        return text
+    snippet = email_preferences_footer_html(manage_url=manage_url)
+    return _insert_prefs_in_main_content(text, snippet)
 
 
 def wrap_brand_email(
@@ -85,9 +119,8 @@ def wrap_brand_email(
             f'<span style="float:right;font-size:11px;font-weight:600;letter-spacing:0.06em;'
             f'text-transform:uppercase;color:{c["ink_muted"]};padding-top:4px;">{badge}</span>'
         )
-    prefs_footer = email_preferences_footer_html()
-    footer_block = f"{footer}{prefs_footer}"
-    return f"""<!DOCTYPE html>
+    # Prefs sit under body copy (e.g. contact/help lines), not in the bottom “Sent by” strip.
+    html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -113,7 +146,7 @@ def wrap_brand_email(
           </tr>
           <tr>
             <td style="padding:16px 28px 24px;border-top:1px solid {c['border']};font-size:12px;color:{c['ink_muted']};">
-              {footer_block}
+              {footer}
             </td>
           </tr>
         </table>
@@ -122,6 +155,7 @@ def wrap_brand_email(
   </table>
 </body>
 </html>"""
+    return inject_email_preferences_footer(html)
 
 
 def inject_brand_tagline(body: str) -> str | None:
@@ -183,21 +217,13 @@ def calendar_links_html(*, google_url: str, outlook_url: str, ics_url: str) -> s
     outlook_icon = _calendar_icon_url("calendar-outlook")
     apple_icon = _calendar_icon_url("calendar-apple")
     return (
-        f'<div style="{wrap}">'
-        f"{title}"
-        f'<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:0;">'
-        f"<tr>"
-        f'<td style="{cell}">'
-        f'<a href="{google_url}" style="{link}">'
-        f'<img src="{google_icon}" alt="Google Calendar" width="32" height="32" style="{icon}" />'
-        f"Google Calendar</a></td>"
-        f'<td style="{cell}">'
-        f'<a href="{outlook_url}" style="{link}">'
-        f'<img src="{outlook_icon}" alt="Outlook" width="32" height="32" style="{icon}" />'
-        f"Outlook</a></td>"
-        f'<td style="{cell}">'
-        f'<a href="{ics_url}" style="{link}">'
-        f'<img src="{apple_icon}" alt="Apple Calendar" width="32" height="32" style="{icon}" />'
-        f"Apple / .ics</a></td>"
+        f'<div style="{wrap}">{title}'
+        f'<table role="presentation" cellspacing="0" cellpadding="0"><tr>'
+        f'<td style="{cell}"><a href="{google_url}" style="{link}">'
+        f'<img src="{google_icon}" width="32" height="32" alt="" style="{icon}" />Google</a></td>'
+        f'<td style="{cell}"><a href="{outlook_url}" style="{link}">'
+        f'<img src="{outlook_icon}" width="32" height="32" alt="" style="{icon}" />Outlook</a></td>'
+        f'<td style="padding:0;vertical-align:top;"><a href="{ics_url}" style="{link}">'
+        f'<img src="{apple_icon}" width="32" height="32" alt="" style="{icon}" />Apple / ICS</a></td>'
         f"</tr></table></div>"
     )
