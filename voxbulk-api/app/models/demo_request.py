@@ -23,6 +23,8 @@ class DemoRequest(Base):
     whatsapp_e164: Mapped[str | None] = mapped_column(String(40), nullable=True)
     website: Mapped[str] = mapped_column(String(512), nullable=False)
     preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
+    # Admin override: GB / AU / SA / … — when set, session uses that market's agent.
+    voice_region: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)

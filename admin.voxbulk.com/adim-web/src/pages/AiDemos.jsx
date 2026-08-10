@@ -18,6 +18,7 @@ const emptyManual = {
   whatsapp: '',
   website: 'https://voxbulk.com',
   preferred_language: 'en',
+  voice_region: '',
   message: '',
 }
 
@@ -37,6 +38,7 @@ export default function AiDemos() {
   const [manual, setManual] = useState(emptyManual)
   const [batchText, setBatchText] = useState('')
   const [batchLang, setBatchLang] = useState('en')
+  const [batchRegion, setBatchRegion] = useState('')
   const [batchMsg, setBatchMsg] = useState('You are invited to a live VoxBulk AI demo.')
   const [compose, setCompose] = useState(null)
   const [detail, setDetail] = useState(null)
@@ -99,6 +101,7 @@ export default function AiDemos() {
       subject_override: settings._previewSubject || '',
       body_override: settings._previewBody || '',
       skip_wa: !row.whatsapp_e164,
+      voice_region: row.voice_region || '',
     })
   }
 
@@ -124,6 +127,7 @@ export default function AiDemos() {
           subject_override: compose.subject_override || null,
           body_override: compose.body_override || null,
           skip_wa: Boolean(compose.skip_wa),
+          voice_region: compose.voice_region || null,
         }),
       })
       setCompose(null)
@@ -172,6 +176,7 @@ export default function AiDemos() {
           ...manual,
           whatsapp: manual.whatsapp || null,
           skip_wa: !manual.whatsapp,
+          voice_region: manual.voice_region || null,
         }),
       })
       setManual(emptyManual)
@@ -195,6 +200,7 @@ export default function AiDemos() {
           preferred_language: batchLang,
           message: batchMsg,
           skip_wa: true,
+          voice_region: batchRegion || null,
         }),
       })
       setBatchResult(data)
@@ -243,6 +249,45 @@ export default function AiDemos() {
     const rest = agents.filter((a) => String(a.accent_region || '').toUpperCase() !== code)
     return [...preferred, ...rest]
   }
+
+  const voiceRegionOptions = useMemo(() => {
+    const regions = Array.isArray(settings.regions) ? settings.regions : []
+    const map = settings.agent_by_region || {}
+    return regions
+      .filter((r) => r.code !== 'DEFAULT')
+      .map((r) => {
+        const agentId = map[r.code]
+        const agent = agents.find((a) => a.id === agentId)
+        const configured = Boolean(agentId && agent)
+        return {
+          code: r.code,
+          label: configured ? `${r.label} — ${agent.name}` : `${r.label} (not mapped in Settings)`,
+          configured,
+        }
+      })
+  }, [settings.regions, settings.agent_by_region, agents])
+
+  const VoiceRegionSelect = ({ value, onChange, id }) => (
+    <label className='text-sm block'>
+      Voice agent market
+      <select
+        id={id}
+        className='mt-1 h-9 w-full rounded-md border px-2'
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value=''>Auto from WhatsApp country</option>
+        {voiceRegionOptions.map((r) => (
+          <option key={r.code} value={r.code} disabled={!r.configured}>
+            {r.label}
+          </option>
+        ))}
+      </select>
+      <span className='mt-1 block text-xs text-muted-foreground'>
+        Choose GB / AU / Arabic (SA) etc. Uses the agent you mapped in Settings.
+      </span>
+    </label>
+  )
 
   return (
     <div className='space-y-4 p-4 md:p-6'>
@@ -383,6 +428,11 @@ export default function AiDemos() {
                   </option>
                 ))}
               </select>
+              <VoiceRegionSelect
+                id='manual-voice-region'
+                value={manual.voice_region}
+                onChange={(v) => setManual((m) => ({ ...m, voice_region: v }))}
+              />
               <Textarea
                 placeholder='Optional message / notes'
                 value={manual.message}
@@ -412,6 +462,7 @@ export default function AiDemos() {
                   </option>
                 ))}
               </select>
+              <VoiceRegionSelect id='batch-voice-region' value={batchRegion} onChange={setBatchRegion} />
               <Textarea placeholder='Optional note in invite context' value={batchMsg} onChange={(e) => setBatchMsg(e.target.value)} />
               <Button disabled={busy || !batchText.trim()} onClick={sendBatch}>
                 Send batch
@@ -559,6 +610,13 @@ export default function AiDemos() {
               />
               Skip WhatsApp notice
             </label>
+            <div className='mt-3'>
+              <VoiceRegionSelect
+                id='approve-voice-region'
+                value={compose.voice_region}
+                onChange={(v) => setCompose((c) => ({ ...c, voice_region: v }))}
+              />
+            </div>
             <div className='mt-4 flex justify-end gap-2'>
               <Button variant='ghost' onClick={() => setCompose(null)}>
                 Cancel
@@ -571,7 +629,10 @@ export default function AiDemos() {
                   try {
                     await apiFetch(`/admin/ai-demo/requests/${compose.id}/approve`, {
                       method: 'POST',
-                      body: JSON.stringify({ skip_wa: Boolean(compose.skip_wa) }),
+                      body: JSON.stringify({
+                        skip_wa: Boolean(compose.skip_wa),
+                        voice_region: compose.voice_region || null,
+                      }),
                     })
                     setCompose(null)
                     await refresh()

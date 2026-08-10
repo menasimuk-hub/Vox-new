@@ -48,6 +48,7 @@ class ManualDemoIn(BaseModel):
     subject_override: str | None = None
     body_override: str | None = None
     skip_wa: bool = False
+    voice_region: str | None = None
 
 
 class BatchRecipientIn(BaseModel):
@@ -58,6 +59,7 @@ class BatchRecipientIn(BaseModel):
     website: str | None = None
     preferred_language: str | None = None
     message: str | None = None
+    voice_region: str | None = None
 
 
 class BatchDemoIn(BaseModel):
@@ -66,12 +68,14 @@ class BatchDemoIn(BaseModel):
     preferred_language: str = "en"
     message: str | None = None
     skip_wa: bool = True
+    voice_region: str | None = None
 
 
 class ApproveIn(BaseModel):
     subject_override: str | None = None
     body_override: str | None = None
     skip_wa: bool = False
+    voice_region: str | None = None
 
 
 class RejectIn(BaseModel):
@@ -307,6 +311,7 @@ def admin_manual_invite(
             subject_override=payload.subject_override,
             body_override=payload.body_override,
             skip_wa=payload.skip_wa,
+            voice_region=payload.voice_region,
         )
     except AiDemoError as exc:
         raise _http(exc) from exc
@@ -339,6 +344,7 @@ def admin_batch_invite(
             preferred_language=payload.preferred_language,
             message=payload.message,
             skip_wa=payload.skip_wa,
+            voice_region=payload.voice_region,
         )
     except AiDemoError as exc:
         raise _http(exc) from exc
@@ -359,6 +365,7 @@ def admin_approve(
             subject_override=payload.subject_override,
             body_override=payload.body_override,
             skip_wa=payload.skip_wa,
+            voice_region=payload.voice_region,
         )
     except AiDemoError as exc:
         raise _http(exc) from exc

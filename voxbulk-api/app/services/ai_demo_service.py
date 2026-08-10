@@ -275,7 +275,20 @@ class AiDemoService:
         return items
 
     @staticmethod
+    def normalize_voice_region(value: str | None) -> str | None:
+        code = str(value or "").strip().upper()
+        if not code:
+            return None
+        allowed = {c for c, _ in DEMO_AGENT_REGIONS}
+        if code not in allowed:
+            raise AiDemoError(f"Unknown voice region: {code}. Use one of {', '.join(sorted(allowed))}.")
+        return code
+
+    @staticmethod
     def infer_visitor_region(req: DemoRequest) -> str:
+        override = str(getattr(req, "voice_region", None) or "").strip().upper()
+        if override:
+            return override
         phone = str(req.whatsapp_e164 or "").strip()
         if phone:
             digits = phone if phone.startswith("+") else f"+{phone.lstrip('+')}"
@@ -695,12 +708,18 @@ class AiDemoService:
         subject_override: str | None = None,
         body_override: str | None = None,
         skip_wa: bool = False,
+        voice_region: str | None = None,
     ) -> dict[str, Any]:
         req = AiDemoService.get_request(db, request_id)
         if req.status == "rejected":
             raise AiDemoError("Request was rejected")
         if req.demo_completed_at:
             raise AiDemoError("Demo already completed")
+
+        if voice_region is not None:
+            req.voice_region = AiDemoService.normalize_voice_region(voice_region)
+            db.add(req)
+            db.flush()
 
         session, raw = AiDemoService._issue_token(db, req)
         sent, err = AiDemoService._send_invite_email(
@@ -749,6 +768,7 @@ class AiDemoService:
         body_override: str | None = None,
         skip_wa: bool = False,
         source: str = "manual",
+        voice_region: str | None = None,
     ) -> dict[str, Any]:
         name = str(contact_name or "").strip()
         mail = str(email or "").strip().lower()
@@ -758,6 +778,7 @@ class AiDemoService:
         if len(name) < 2:
             name = mail.split("@")[0][:255] or "Guest"
 
+        region = AiDemoService.normalize_voice_region(voice_region)
         req = DemoRequest(
             source=source[:20],
             status="pending",
@@ -767,6 +788,7 @@ class AiDemoService:
             whatsapp_e164=_normalize_whatsapp(whatsapp, required=False),
             website=_normalize_website(website or "https://voxbulk.com"),
             preferred_language=_normalize_lang(preferred_language),
+            voice_region=region,
             message=(str(message or "").strip() or None),
             lead_sales_task_id=(str(lead_sales_task_id or "").strip() or None),
         )
@@ -791,6 +813,7 @@ class AiDemoService:
         preferred_language: str = "en",
         message: str | None = None,
         skip_wa: bool = True,
+        voice_region: str | None = None,
     ) -> dict[str, Any]:
         if not recipients:
             raise AiDemoError("Add at least one email")
@@ -814,6 +837,7 @@ class AiDemoService:
                     admin_id=admin_id,
                     skip_wa=skip_wa or not str(raw.get("whatsapp") or "").strip(),
                     source="manual_batch",
+                    voice_region=str(raw.get("voice_region") or voice_region or "").strip() or None,
                 )
                 results.append({"email": email, "ok": True, "request_id": out["request"]["id"]})
             except AiDemoError as exc:
@@ -1058,7 +1082,7 @@ class AiDemoService:
             "call_id": lead.id if lead else None,
             "lead_code": lead.lead_code if lead else None,
             "voice_provider": "telnyx",
-            "soft_cap_minutes": settings.soft_cap_minutes or SOFT_CAP_MINUTES_DEFAULT,
+            "soft_cap_minutes": AiDemoService.get_settings(db).soft_cap_minutes or SOFT_CAP_MINUTES_DEFAULT,
             "active_service_code": session.active_service_code,
             "telnyx": {
                 "configured": True,
@@ -1362,6 +1386,7 @@ class AiDemoService:
             "whatsapp_e164": req.whatsapp_e164,
             "website": req.website,
             "preferred_language": req.preferred_language,
+            "voice_region": req.voice_region,
             "message": req.message,
             "admin_notes": req.admin_notes,
             "approved_at": req.approved_at.isoformat() + "Z" if req.approved_at else None,
