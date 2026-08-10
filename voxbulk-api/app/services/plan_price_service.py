@@ -184,48 +184,28 @@ class PlanPriceService:
 
     @staticmethod
     def ensure_seeded(db: Session) -> None:
-        """Create plan price rows from legacy GBP fields, and currency settings for all markets."""
+        """Ensure currency settings + GBP plan prices from legacy fields.
+
+        Does not clone GBP minors into AUD/CAD/EUR/USD — Admin must set real market prices.
+        Existing non-GBP rows are left unchanged.
+        """
         for currency in SUPPORTED_CURRENCIES:
             PlanPriceService.get_currency_settings(db, currency)
         plans = list(db.execute(select(Plan).where(Plan.service_kind == "voxbulk")).scalars().all())
         now = datetime.utcnow()
         created = False
-        gbp_by_plan: dict[str, PlanPrice] = {}
         for plan in plans:
             existing_gbp = PlanPriceService.get_price(db, plan.id, "GBP")
             if existing_gbp is None:
-                existing_gbp = PlanPrice(
-                    id=str(uuid.uuid4()),
-                    plan_id=plan.id,
-                    currency="GBP",
-                    monthly_price_minor=plan.price_gbp_pence,
-                    per_min_minor=int(getattr(plan, "per_min_pence", 0) or 0),
-                    extra_per_min_minor=int(plan.overage_per_min_pence or 0),
-                    is_active=bool(plan.is_active),
-                    created_at=now,
-                    updated_at=now,
-                )
-                db.add(existing_gbp)
-                created = True
-            gbp_by_plan[plan.id] = existing_gbp
-        for plan in plans:
-            gbp_row = gbp_by_plan.get(plan.id)
-            if gbp_row is None:
-                continue
-            for currency in SUPPORTED_CURRENCIES:
-                if currency == "GBP":
-                    continue
-                if PlanPriceService.get_price(db, plan.id, currency) is not None:
-                    continue
                 db.add(
                     PlanPrice(
                         id=str(uuid.uuid4()),
                         plan_id=plan.id,
-                        currency=currency,
-                        monthly_price_minor=gbp_row.monthly_price_minor,
-                        per_min_minor=int(gbp_row.per_min_minor or 0),
-                        extra_per_min_minor=int(gbp_row.extra_per_min_minor or 0),
-                        is_active=bool(gbp_row.is_active),
+                        currency="GBP",
+                        monthly_price_minor=plan.price_gbp_pence,
+                        per_min_minor=int(getattr(plan, "per_min_pence", 0) or 0),
+                        extra_per_min_minor=int(plan.overage_per_min_pence or 0),
+                        is_active=bool(plan.is_active),
                         created_at=now,
                         updated_at=now,
                     )
@@ -288,10 +268,42 @@ class PlanPriceService:
         return currency, int(monthly or 0), "monthly"
 
     @staticmethod
+    def _custom_package_plan_currency(db: Session, plan: Plan) -> str | None:
+        """Deal currency for cpkg-* shadow plans (single market on the custom package)."""
+        code = str(getattr(plan, "code", None) or "").strip().lower()
+        if not code.startswith("cpkg-"):
+            return None
+        try:
+            from app.models.custom_package import CustomPackage
+
+            pkg_code = code[5:]
+            from sqlalchemy import func
+
+            pkg = db.execute(
+                select(CustomPackage).where(func.lower(CustomPackage.code) == pkg_code)
+            ).scalar_one_or_none()
+            if pkg is not None:
+                return normalize_currency(pkg.currency)
+        except Exception:
+            pass
+        rows = list(
+            db.execute(
+                select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.is_active.is_(True))
+            ).scalars().all()
+        )
+        if not rows:
+            return None
+        for row in rows:
+            cur = normalize_currency(row.currency)
+            if cur != "GBP" or len(rows) == 1:
+                return cur
+        return normalize_currency(rows[0].currency)
+
+    @staticmethod
     def monthly_minor_for_org(db: Session, org: Organisation | None, plan: Plan) -> tuple[str, int]:
         """Resolve billing currency and monthly plan amount without cross-currency GBP fallback."""
         rates = PlanPriceService.rates_for_org(db, org, plan=plan)
-        currency = str(rates.get("currency") or "GBP").upper()[:3]
+        currency = normalize_currency(rates.get("currency"))
         monthly = rates.get("monthly_price_minor")
         if monthly is None and currency == "GBP":
             monthly = plan.price_gbp_pence
@@ -301,12 +313,10 @@ class PlanPriceService:
     def rates_for_org(db: Session, org: Organisation | None, *, plan: Plan | None = None) -> dict[str, Any]:
         """Resolve the effective billing currency + unit rates for an org.
 
-        Private org package overrides (if assigned) win; else org custom pricing (GBP);
-        else plan prices + currency defaults. Missing fields fall back to defaults.
+        Custom-package (cpkg-*) private plans use the deal's PlanPrice currency.
+        Other private catalog plans keep their own prices when passed explicitly.
+        Public/catalog plans use org country currency via resolve_org_currency.
         """
-        currency = resolve_org_currency(db, org)
-        unit = PlanPriceService.get_currency_settings(db, currency)
-
         # Explicit private plan (e.g. custom-package checkout) must keep its own prices.
         # Only swap in the org's assigned private catalog plan when pricing a public/catalog plan.
         effective_plan = plan
@@ -320,11 +330,21 @@ class PlanPriceService:
             except Exception:
                 pass
 
+        currency = resolve_org_currency(db, org)
+        if effective_plan is not None:
+            deal_currency = PlanPriceService._custom_package_plan_currency(db, effective_plan)
+            if deal_currency:
+                currency = deal_currency
+
+        unit = PlanPriceService.get_currency_settings(db, currency)
+
         plan_price = PlanPriceService.get_price(db, effective_plan.id, currency) if effective_plan is not None else None
 
         per_min = int(plan_price.per_min_minor or 0) if plan_price else 0
         extra_per_min = int(plan_price.extra_per_min_minor or 0) if plan_price else 0
-        monthly = plan_price.monthly_price_minor if plan_price else (effective_plan.price_gbp_pence if effective_plan is not None and currency == "GBP" else None)
+        monthly = plan_price.monthly_price_minor if plan_price else (
+            effective_plan.price_gbp_pence if effective_plan is not None and currency == "GBP" else None
+        )
         if per_min <= 0:
             per_min = int(unit.interview_per_min_minor or 0)
         if extra_per_min <= 0:

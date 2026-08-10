@@ -518,7 +518,7 @@ function PackagesPage() {
   const walletBalance = walletQ.data?.wallet_balance_gbp || walletQ.data?.wallet_balance_display || "—";
   const feedbackPackages = (feedbackPackagesQ.data || []).slice().sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
   const feedbackSub = feedbackSubQ.data;
-  const orgCurrency = String(orgQ.data?.billing_currency || orgQ.data?.currency || "GBP").toUpperCase();
+  const orgCurrency = String(orgQ.data?.billing_currency || orgQ.data?.currency || "USD").toUpperCase();
   const currentFeedbackPlanId = feedbackSub?.active ? feedbackSub.plan_id : null;
 
   React.useEffect(() => {

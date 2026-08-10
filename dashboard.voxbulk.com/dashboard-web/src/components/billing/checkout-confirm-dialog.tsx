@@ -26,6 +26,8 @@ export type CheckoutConfirmDetails = {
   /** Catalog amount in minor units before promo/VAT (enables live re-quote). */
   amountMinor?: number | null;
   serviceKind?: string | null;
+  /** When set, quote/format uses this currency instead of org default. */
+  currency?: string | null;
 };
 
 type QuoteOut = {
@@ -96,6 +98,7 @@ export function CheckoutConfirmDialog({
         body: JSON.stringify({
           amount_minor: details.amountMinor,
           service_kind: details.serviceKind,
+          ...(details.currency ? { currency: details.currency } : {}),
         }),
       });
       setQuote(res);
@@ -104,7 +107,7 @@ export function CheckoutConfirmDialog({
     } finally {
       setQuoting(false);
     }
-  }, [details?.amountMinor, details?.serviceKind]);
+  }, [details?.amountMinor, details?.serviceKind, details?.currency]);
 
   React.useEffect(() => {
     if (!open) {

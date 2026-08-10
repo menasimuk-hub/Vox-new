@@ -82,12 +82,15 @@ type CustomPackagePayload = {
   billing: {
     interval: string;
     billing_interval?: string;
+    currency?: string;
     amount_next_payment_display: string;
     amount_next_payment_minor?: number;
     next_billing_date: string | null;
     payment_status: string;
     payment_method_label?: string | null;
     can_setup_payment: boolean;
+    currency_mismatch?: boolean;
+    payment_block_reason?: string | null;
     billing_plan_id?: string | null;
     payment_options?: Record<string, unknown>;
     setup_path: string;
@@ -213,6 +216,7 @@ function PrivatePackagePage() {
       amountMinor: data.billing.amount_next_payment_minor ?? data.package.price_minor ?? null,
       amountNote: "Private package fee",
       serviceKind: "voxbulk",
+      currency: data.package.currency || data.billing.currency || null,
     });
     setCheckoutOpen(true);
   };
@@ -389,6 +393,13 @@ function PrivatePackagePage() {
                 </p>
                 <Button className="gap-1.5" disabled={busyCheckout} onClick={openPaymentSetup}>
                   <Shield className="size-4" /> Set up payment
+                </Button>
+              </>
+            ) : billing.payment_block_reason ? (
+              <>
+                <p className="text-sm text-amber-700 dark:text-amber-400">{billing.payment_block_reason}</p>
+                <Button asChild variant="outline" size="sm" className="gap-1.5">
+                  <Link to="/account/billing">Billing & invoices</Link>
                 </Button>
               </>
             ) : (

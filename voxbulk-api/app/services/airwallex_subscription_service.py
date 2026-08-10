@@ -32,6 +32,14 @@ class AirwallexSubscriptionService:
     ) -> dict[str, Any]:
         if not AirwallexPaymentService.is_available(db):
             raise AirwallexSubscriptionError("Airwallex is not configured for subscriptions.")
+        from app.services.billing_currency import charge_currency_for_org
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        charge_currency_for_org(db, org, persist=True)
+        try:
+            CustomPackagesService.assert_checkout_allowed(db, org, plan)
+        except CustomPackagesError as e:
+            raise AirwallexSubscriptionError(str(e)) from e
         currency, amount_minor, interval = PlanPriceService.billing_amount_for_org(
             db,
             org,

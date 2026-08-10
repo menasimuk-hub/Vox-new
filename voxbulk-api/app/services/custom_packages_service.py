@@ -193,7 +193,7 @@ class CustomPackagesService:
                         "org_id": assignment.org_id,
                         "org_name": assignment.org_id,
                         "assignment_id": assignment.id,
-                        "preferred_currency": "GBP",
+                        "preferred_currency": "USD",
                         "currency_mismatch": False,
                     }
                 )
@@ -203,14 +203,14 @@ class CustomPackagesService:
             try:
                 preferred = resolve_org_currency(db, org)
             except Exception:
-                preferred = getattr(org, "billing_currency", None) or "GBP"
+                preferred = getattr(org, "billing_currency", None) or "USD"
             orgs.append(
                 {
                     "org_id": org.id,
                     "org_name": org.name,
                     "assignment_id": assignment.id,
-                    "preferred_currency": str(preferred or "GBP").upper(),
-                    "currency_mismatch": str(preferred or "GBP").upper() != str(pkg.currency or "GBP").upper(),
+                    "preferred_currency": str(preferred or "USD").upper(),
+                    "currency_mismatch": str(preferred or "USD").upper() != str(pkg.currency or "USD").upper(),
                 }
             )
         country_count = 0
@@ -527,10 +527,11 @@ class CustomPackagesService:
     def ensure_billing_plan(
         db: Session,
         pkg: CustomPackage,
-        *,
-        extra_currencies: list[str] | None = None,
     ):
-        """Create/update a private Plan + PlanPrice so GC/Stripe subscription checkout can reuse Core payment APIs."""
+        """Create/update a private Plan + PlanPrice so GC/Stripe subscription checkout can reuse Core payment APIs.
+
+        PlanPrice is written only for the package's single deal currency (no cross-currency seeding).
+        """
         from app.models.plan import Plan
         from app.models.plan_price import PlanPrice
         from app.services.plan_price_service import PlanPriceService
@@ -572,37 +573,61 @@ class CustomPackagesService:
                 plan.price_gbp_pence = amount
             plan.updated_at = now
 
-        currencies = {currency}
-        for item in extra_currencies or []:
-            try:
-                currencies.add(normalize_currency(item))
-            except Exception:
-                continue
-
-        for cur in currencies:
-            row = PlanPriceService.get_price(db, plan.id, cur)
-            if row is None:
-                row = PlanPrice(
-                    id=str(uuid.uuid4()),
-                    plan_id=plan.id,
-                    currency=cur,
-                    created_at=now,
-                    updated_at=now,
-                )
-                db.add(row)
-            if interval == "yearly":
-                row.yearly_price_minor = amount
-                if row.monthly_price_minor is None:
-                    row.monthly_price_minor = amount
-            else:
+        row = PlanPriceService.get_price(db, plan.id, currency)
+        if row is None:
+            row = PlanPrice(
+                id=str(uuid.uuid4()),
+                plan_id=plan.id,
+                currency=currency,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+        if interval == "yearly":
+            row.yearly_price_minor = amount
+            if row.monthly_price_minor is None:
                 row.monthly_price_minor = amount
-                if row.yearly_price_minor is None:
-                    row.yearly_price_minor = amount * 12
-            row.is_active = True
-            row.updated_at = now
+        else:
+            row.monthly_price_minor = amount
+            if row.yearly_price_minor is None:
+                row.yearly_price_minor = amount * 12
+        row.is_active = True
+        row.updated_at = now
+
+        # Disable leftover cross-seeded prices in other currencies on this shadow plan.
+        for other in db.execute(
+            select(PlanPrice).where(PlanPrice.plan_id == plan.id, PlanPrice.currency != currency)
+        ).scalars().all():
+            if other.is_active:
+                other.is_active = False
+                other.updated_at = now
 
         db.flush()
         return plan
+
+    @staticmethod
+    def assert_checkout_allowed(db: Session, org: Organisation | None, plan) -> None:
+        """Raise CustomPackagesError when locked org currency mismatches the private deal currency."""
+        from app.models.plan import Plan
+        from app.services.billing_currency import billing_currency_is_locked, resolve_org_currency
+        from app.services.plan_price_service import PlanPriceService
+
+        if plan is None or not isinstance(plan, Plan):
+            return
+        code = str(plan.code or "").strip().lower()
+        if not code.startswith("cpkg-"):
+            return
+        if org is None:
+            return
+        deal = PlanPriceService._custom_package_plan_currency(db, plan)
+        if not deal:
+            return
+        org_currency = resolve_org_currency(db, org, persist=False)
+        if billing_currency_is_locked(db, org) and org_currency != deal:
+            raise CustomPackagesError(
+                f"This private package is priced in {deal}, but your organisation billing currency "
+                f"is locked to {org_currency}. Ask your account manager to align the deal currency."
+            )
 
     @staticmethod
     def _money_display(minor: int, currency: str) -> str:
@@ -645,22 +670,35 @@ class CustomPackagesService:
         pkg = CustomPackagesService.package_to_dict(db, pkg_row)
 
         modules = pkg.get("modules") or {}
-        currency = str(pkg.get("currency") or "GBP")
+        currency = str(pkg.get("currency") or "USD")
         interval = str(pkg.get("interval") or "monthly")
         price_minor = int(pkg.get("price_minor") or 0)
 
         org = db.get(Organisation, org_id)
-        extra_currencies: list[str] = []
-        try:
-            from app.services.billing_currency import resolve_org_currency
-
-            if org is not None:
-                extra_currencies.append(resolve_org_currency(db, org))
-        except Exception:
-            pass
-        billing_plan = CustomPackagesService.ensure_billing_plan(
-            db, pkg_row, extra_currencies=extra_currencies
+        from app.services.billing_currency import (
+            billing_currency_is_locked,
+            normalize_currency,
+            resolve_org_currency,
         )
+
+        deal_currency = normalize_currency(currency)
+        currency_mismatch = False
+        payment_block_reason = None
+        if org is not None:
+            if not billing_currency_is_locked(db, org):
+                # New / unlocked profile: align billing currency to the deal.
+                org.billing_currency = deal_currency
+                db.add(org)
+            else:
+                org_currency = resolve_org_currency(db, org, persist=False)
+                if org_currency != deal_currency:
+                    currency_mismatch = True
+                    payment_block_reason = (
+                        f"This private package is priced in {deal_currency}, but your organisation "
+                        f"billing currency is locked to {org_currency}. Ask your account manager to align the deal."
+                    )
+
+        billing_plan = CustomPackagesService.ensure_billing_plan(db, pkg_row)
         db.commit()
 
         # Live usage where meters already exist (Phase B will sync package caps into them).
@@ -905,6 +943,12 @@ class CustomPackagesService:
         can_checkout = bool(
             payment_options.get("gocardless_available") or payment_options.get("stripe_available")
         )
+        can_setup_payment = (
+            payment_status == "setup_required"
+            and can_checkout
+            and price_minor > 0
+            and not currency_mismatch
+        )
 
         return {
             "assigned": True,
@@ -932,7 +976,9 @@ class CustomPackagesService:
                 "next_billing_date": next_billing_date,
                 "payment_status": payment_status,
                 "payment_method_label": payment_method_label,
-                "can_setup_payment": payment_status == "setup_required" and can_checkout and price_minor > 0,
+                "can_setup_payment": can_setup_payment,
+                "currency_mismatch": currency_mismatch,
+                "payment_block_reason": payment_block_reason,
                 "billing_plan_id": billing_plan.id,
                 "payment_options": payment_options,
                 "setup_path": "/account/private-package",

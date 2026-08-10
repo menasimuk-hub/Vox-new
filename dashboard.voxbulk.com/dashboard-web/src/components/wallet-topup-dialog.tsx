@@ -61,7 +61,7 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
   const confirmM = useWalletTopupConfirm();
 
   const options = optionsQ.data;
-  const currency = String(options?.currency || "GBP");
+  const currency = String(options?.currency || "USD");
   const symbol = { GBP: "£", USD: "$", CAD: "CA$", AUD: "A$" }[currency] || currency;
   const minMinor = Number(options?.min_amount_minor || 500);
 

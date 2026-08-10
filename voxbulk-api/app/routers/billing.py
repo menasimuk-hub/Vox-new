@@ -247,9 +247,16 @@ def checkout_quote(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organisation not found")
     amount = int(payload.get("amount_minor") or payload.get("amount_pence") or 0)
     service_kind = str(payload.get("service_kind") or "voxbulk").strip()
+    currency = payload.get("currency")
     if amount < 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="amount_minor must be >= 0")
-    return CheckoutQuoteService.quote(db, org=org, service_kind=service_kind, amount_minor=amount)
+    return CheckoutQuoteService.quote(
+        db,
+        org=org,
+        service_kind=service_kind,
+        amount_minor=amount,
+        currency=str(currency).strip().upper() if currency else None,
+    )
 
 
 @router.post("/wallet/topup/intent")

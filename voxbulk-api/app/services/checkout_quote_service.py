@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.organisation import Organisation
 from app.models.promo_offer import PromoOffer
-from app.services.billing_currency import money_display, resolve_org_currency
+from app.services.billing_currency import money_display, normalize_currency
 from app.services.country_vat_service import CountryVatService
 from app.services.promo_discount_service import PromoDiscountService, normalize_service_kind
 
@@ -21,10 +21,17 @@ class CheckoutQuoteService:
         org: Organisation,
         service_kind: str,
         amount_minor: int,
+        currency: str | None = None,
     ) -> dict[str, Any]:
         sk = normalize_service_kind(service_kind)
         catalog = max(0, int(amount_minor or 0))
-        currency = resolve_org_currency(db, org)
+        from app.services.billing_currency import charge_currency_for_org
+
+        if currency:
+            resolved = normalize_currency(currency)
+        else:
+            resolved = charge_currency_for_org(db, org, persist=True)
+        currency = resolved
         country = CountryVatService.resolve_org_country_code(db, org)
         rate, country_name = CountryVatService.get_rate(db, country)
 

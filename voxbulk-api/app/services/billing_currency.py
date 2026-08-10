@@ -60,10 +60,10 @@ def currency_symbol(currency: str | None) -> str:
     return CURRENCY_SYMBOLS.get(normalize_currency(currency), "$")
 
 
-def money_display(amount_minor: int | None, currency: str | None = "GBP") -> str:
+def money_display(amount_minor: int | None, currency: str | None = None) -> str:
     if amount_minor is None:
         return "Custom"
-    sym = currency_symbol(currency)
+    sym = currency_symbol(currency or _DEFAULT_CURRENCY)
     return f"{sym}{(int(amount_minor) / 100):,.2f}"
 
 
@@ -145,3 +145,8 @@ def resolve_org_currency(db: Session, org: Organisation | None, *, persist: bool
         db.add(org)
         db.commit()
     return currency
+
+
+def charge_currency_for_org(db: Session, org: Organisation | None, *, persist: bool = True) -> str:
+    """Currency for customer charges. Persists country-derived currency for new profiles when unset."""
+    return resolve_org_currency(db, org, persist=persist)

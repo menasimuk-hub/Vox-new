@@ -984,7 +984,7 @@ class BillingService:
         org_id: str,
         amount_pence: int,
         description: str,
-        currency: str = "GBP",
+        currency: str = "USD",
         metadata: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         """Charge an existing GoCardless direct-debit mandate (subscription customers)."""
@@ -999,10 +999,12 @@ class BillingService:
         config = BillingService._get_gocardless_config(db)
         headers = BillingService._gocardless_headers(config["access_token"])
         meta_fields = {"org_id": org_id, **(metadata or {})}
+        from app.services.billing_currency import normalize_currency
+
         payment_payload = {
             "payments": {
                 "amount": charge_pence,
-                "currency": str(currency or "GBP").upper()[:3],
+                "currency": normalize_currency(currency),
                 "description": str(description or "VOXBULK usage overage")[:255],
                 "links": {"mandate": mandate_id},
                 "metadata": BillingService._gocardless_metadata(**meta_fields),
@@ -1069,6 +1071,17 @@ class BillingService:
         user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
         if user is None:
             raise ValueError("Unknown user")
+
+        from app.models.organisation import Organisation
+        from app.services.billing_currency import charge_currency_for_org
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        org = db.get(Organisation, org_id)
+        charge_currency_for_org(db, org, persist=True)
+        try:
+            CustomPackagesService.assert_checkout_allowed(db, org, plan)
+        except CustomPackagesError as e:
+            raise ValueError(str(e)) from e
 
         config = BillingService._get_gocardless_config(db)
         session_token = secrets.token_urlsafe(32)

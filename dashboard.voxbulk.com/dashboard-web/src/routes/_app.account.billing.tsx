@@ -50,7 +50,7 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 };
 
 function currencySymbol(code?: string | null) {
-  return CURRENCY_SYMBOLS[String(code || "GBP").toUpperCase()] || "$";
+  return CURRENCY_SYMBOLS[String(code || "USD").toUpperCase()] || "$";
 }
 
 function moneyFromPence(pence?: number, currency?: string | null, display?: string | null) {
@@ -132,7 +132,7 @@ function BillingPage() {
   const feedbackSub = feedbackSubQ.data;
   const hasActiveFeedbackSub = Boolean(feedbackSub?.active && feedbackSub.plan_id);
   const monitor = (usageQ.data?.billing_monitor || {}) as BillingMonitorPayload;
-  const billingCurrency = String(monitor.currency || usageQ.data?.billing_currency || "GBP");
+  const billingCurrency = String(monitor.currency || usageQ.data?.billing_currency || "USD");
   const commercial = monitor.commercial || {};
   const status = monitor.status || {};
   const nextInvoice = status.next_invoice || {};
