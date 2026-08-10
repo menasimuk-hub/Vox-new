@@ -92,6 +92,7 @@ class CompleteIn(BaseModel):
 
 class SettingsIn(BaseModel):
     provider_agent_id: str | None = None
+    agent_by_region: dict[str, str] | None = None
     default_voice: str | None = None
     soft_cap_minutes: int | None = None
     from_email: str | None = None
@@ -391,14 +392,7 @@ def admin_resend(
 
 @admin_router.get("/settings")
 def admin_get_settings(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
-    row = AiDemoService.get_settings(db)
-    return {
-        "provider_agent_id": row.provider_agent_id,
-        "default_voice": row.default_voice,
-        "soft_cap_minutes": row.soft_cap_minutes,
-        "from_email": row.from_email,
-        "notes": row.notes,
-    }
+    return AiDemoService.serialize_settings(AiDemoService.get_settings(db))
 
 
 @admin_router.put("/settings")
@@ -408,13 +402,12 @@ def admin_put_settings(
     _admin: User = Depends(require_platform_admin),
 ):
     row = AiDemoService.update_settings(db, payload.model_dump(exclude_unset=True))
-    return {
-        "provider_agent_id": row.provider_agent_id,
-        "default_voice": row.default_voice,
-        "soft_cap_minutes": row.soft_cap_minutes,
-        "from_email": row.from_email,
-        "notes": row.notes,
-    }
+    return AiDemoService.serialize_settings(row)
+
+
+@admin_router.get("/agents")
+def admin_list_demo_agents(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+    return {"items": AiDemoService.list_voice_agents(db)}
 
 
 @admin_router.get("/knowledge-bases")

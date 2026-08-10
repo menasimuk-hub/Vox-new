@@ -36,6 +36,31 @@ SOFT_CAP_MINUTES_DEFAULT = 7
 SERVICE_CODES = ("recruitment", "surveys", "feedback", "expo", "smart_card")
 SOURCE_DEMO = "ai_demo_agent"
 
+# Admin Settings regions — visitor WhatsApp country → which agent talks.
+DEMO_AGENT_REGIONS: tuple[tuple[str, str], ...] = (
+    ("DEFAULT", "Default (fallback)"),
+    ("GB", "United Kingdom"),
+    ("AU", "Australia"),
+    ("CA", "Canada"),
+    ("US", "United States"),
+    ("IE", "Ireland"),
+    ("SC", "Scotland"),
+    ("SA", "Saudi Arabia"),
+    ("EG", "Egypt / Arabic"),
+    ("AE", "United Arab Emirates"),
+)
+
+# Longest-prefix match for E.164 → region code.
+_DIAL_PREFIX_TO_REGION: tuple[tuple[str, str], ...] = (
+    ("+353", "IE"),
+    ("+971", "AE"),
+    ("+966", "SA"),
+    ("+61", "AU"),
+    ("+44", "GB"),
+    ("+20", "EG"),
+    ("+1", "US"),
+)
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -149,10 +174,56 @@ class AiDemoService:
         return row
 
     @staticmethod
+    def _loads_agent_by_region(row: DemoPlatformSettings) -> dict[str, str]:
+        try:
+            raw = json.loads(row.agent_by_region_json or "{}")
+        except Exception:
+            raw = {}
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, str] = {}
+        for key, value in raw.items():
+            k = str(key or "").strip().upper()
+            v = str(value or "").strip()
+            if k and v:
+                out[k] = v
+        return out
+
+    @staticmethod
+    def serialize_settings(row: DemoPlatformSettings) -> dict[str, Any]:
+        return {
+            "provider_agent_id": row.provider_agent_id,
+            "agent_by_region": AiDemoService._loads_agent_by_region(row),
+            "default_voice": row.default_voice,
+            "soft_cap_minutes": row.soft_cap_minutes,
+            "from_email": row.from_email,
+            "notes": row.notes,
+            "regions": [{"code": code, "label": label} for code, label in DEMO_AGENT_REGIONS],
+        }
+
+    @staticmethod
     def update_settings(db: Session, payload: dict[str, Any]) -> DemoPlatformSettings:
         row = AiDemoService.get_settings(db)
         if "provider_agent_id" in payload:
             row.provider_agent_id = (str(payload.get("provider_agent_id") or "").strip() or None)
+        if "agent_by_region" in payload:
+            raw = payload.get("agent_by_region")
+            cleaned: dict[str, str] = {}
+            if isinstance(raw, dict):
+                allowed = {code for code, _ in DEMO_AGENT_REGIONS}
+                for key, value in raw.items():
+                    k = str(key or "").strip().upper()
+                    v = str(value or "").strip()
+                    if k in allowed and v:
+                        cleaned[k] = v
+            row.agent_by_region_json = json.dumps(cleaned) if cleaned else None
+            # Keep legacy single field in sync with DEFAULT when present.
+            if cleaned.get("DEFAULT"):
+                from app.models.agent import AgentDefinition
+
+                agent = db.get(AgentDefinition, cleaned["DEFAULT"])
+                if agent and str(agent.telnyx_assistant_id or "").strip():
+                    row.provider_agent_id = str(agent.telnyx_assistant_id).strip()
         if "default_voice" in payload:
             row.default_voice = (str(payload.get("default_voice") or "").strip() or None)
         if "soft_cap_minutes" in payload and payload["soft_cap_minutes"] is not None:
@@ -166,6 +237,109 @@ class AiDemoService:
         db.commit()
         db.refresh(row)
         return row
+
+    @staticmethod
+    def list_voice_agents(db: Session) -> list[dict[str, Any]]:
+        """Active Admin → Agents that have a Telnyx assistant id (for Settings pickers)."""
+        from app.models.agent import AgentDefinition
+
+        rows = list(
+            db.execute(
+                select(AgentDefinition)
+                .where(AgentDefinition.is_active.is_(True))
+                .order_by(AgentDefinition.accent_region.asc(), AgentDefinition.name.asc())
+            ).scalars()
+        )
+        items: list[dict[str, Any]] = []
+        for a in rows:
+            telnyx_id = str(a.telnyx_assistant_id or "").strip()
+            if not telnyx_id:
+                continue
+            region = str(a.accent_region or "").strip().upper() or None
+            items.append(
+                {
+                    "id": a.id,
+                    "name": a.name,
+                    "slug": a.slug,
+                    "accent_region": region,
+                    "gender": a.gender,
+                    "voice_label": a.voice_label,
+                    "telnyx_assistant_id": telnyx_id,
+                    "label": (
+                        f"{a.name}"
+                        + (f" · {region}" if region else "")
+                        + (f" · {a.gender}" if a.gender else "")
+                    ),
+                }
+            )
+        return items
+
+    @staticmethod
+    def infer_visitor_region(req: DemoRequest) -> str:
+        phone = str(req.whatsapp_e164 or "").strip()
+        if phone:
+            digits = phone if phone.startswith("+") else f"+{phone.lstrip('+')}"
+            for prefix, region in _DIAL_PREFIX_TO_REGION:
+                if digits.startswith(prefix):
+                    return region
+        lang = str(req.preferred_language or "").strip().lower()
+        if lang.startswith("ar"):
+            return "SA"
+        return "GB"
+
+    @staticmethod
+    def resolve_assistant_for_request(db: Session, req: DemoRequest) -> dict[str, Any]:
+        """Pick Telnyx assistant from per-region map → DEFAULT → legacy id → Talk-to-us."""
+        from app.models.agent import AgentDefinition
+        from app.models.frontpage_call_setting import FrontpageCallSetting
+
+        settings = AiDemoService.get_settings(db)
+        region = AiDemoService.infer_visitor_region(req)
+        mapping = AiDemoService._loads_agent_by_region(settings)
+
+        def _from_agent_id(agent_id: str | None) -> tuple[str | None, AgentDefinition | None]:
+            aid = str(agent_id or "").strip()
+            if not aid:
+                return None, None
+            agent = db.get(AgentDefinition, aid)
+            if agent is None:
+                return None, None
+            telnyx = str(agent.telnyx_assistant_id or "").strip()
+            return (telnyx or None), agent
+
+        assistant_id: str | None = None
+        agent_row: AgentDefinition | None = None
+        source = "none"
+
+        for key in (region, "DEFAULT"):
+            mapped = mapping.get(key)
+            if not mapped:
+                continue
+            assistant_id, agent_row = _from_agent_id(mapped)
+            if assistant_id:
+                source = f"region:{key}"
+                break
+
+        if not assistant_id:
+            legacy = str(settings.provider_agent_id or "").strip()
+            if legacy:
+                assistant_id = legacy
+                source = "legacy_provider_agent_id"
+
+        if not assistant_id:
+            fp = db.get(FrontpageCallSetting, "default")
+            if fp and (fp.voice_provider or "").lower() == "telnyx":
+                assistant_id = str(fp.provider_agent_id or "").strip() or None
+                if assistant_id:
+                    source = "frontpage_talk_to_us"
+
+        return {
+            "assistant_id": assistant_id,
+            "region": region,
+            "source": source,
+            "agent_id": agent_row.id if agent_row else None,
+            "agent_name": agent_row.name if agent_row else None,
+        }
 
     @staticmethod
     def _ensure_tracking_token(db: Session, req: DemoRequest) -> str:
@@ -807,20 +981,22 @@ class AiDemoService:
         if session.status not in ("verified", "active"):
             raise AiDemoError("Session is not ready to start", status_code=409)
         req = AiDemoService.get_request(db, session.request_id)
-        settings = AiDemoService.get_settings(db)
-        assistant_id = (settings.provider_agent_id or "").strip()
-        if not assistant_id:
-            # Fall back to frontpage Talk-to-us Telnyx assistant when demo assistant not set
-            from app.models.frontpage_call_setting import FrontpageCallSetting
-
-            fp = db.get(FrontpageCallSetting, "default")
-            if fp and (fp.voice_provider or "").lower() == "telnyx":
-                assistant_id = str(fp.provider_agent_id or "").strip()
+        resolved = AiDemoService.resolve_assistant_for_request(db, req)
+        assistant_id = str(resolved.get("assistant_id") or "").strip()
         if not assistant_id:
             raise AiDemoError(
-                "Demo Telnyx assistant is not configured. Set it in Admin → Demo requested → Settings.",
+                "Demo Telnyx assistant is not configured. "
+                "Set region agents in Admin → AI Marketing → AI Demos → Settings.",
                 status_code=503,
             )
+        logger.info(
+            "demo_start_assistant session=%s region=%s source=%s agent=%s assistant=%s",
+            session.id,
+            resolved.get("region"),
+            resolved.get("source"),
+            resolved.get("agent_name"),
+            assistant_id,
+        )
 
         runtime = AiDemoService._build_runtime_prompt(db, req, session, service_code=session.active_service_code)
         try:
@@ -961,13 +1137,8 @@ class AiDemoService:
                 {"active_service_code": code, "services_explored": explored, "contact_name": req.contact_name},
             )
             runtime = AiDemoService._build_runtime_prompt(db, req, session, service_code=code)
-            settings = AiDemoService.get_settings(db)
-            assistant_id = (settings.provider_agent_id or "").strip()
-            if not assistant_id:
-                from app.models.frontpage_call_setting import FrontpageCallSetting
-
-                fp = db.get(FrontpageCallSetting, "default")
-                assistant_id = str(fp.provider_agent_id or "").strip() if fp else ""
+            resolved = AiDemoService.resolve_assistant_for_request(db, req)
+            assistant_id = str(resolved.get("assistant_id") or "").strip()
             if assistant_id:
                 try:
                     from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call

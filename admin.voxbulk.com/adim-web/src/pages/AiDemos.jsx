@@ -40,7 +40,14 @@ export default function AiDemos() {
   const [batchMsg, setBatchMsg] = useState('You are invited to a live VoxBulk AI demo.')
   const [compose, setCompose] = useState(null)
   const [detail, setDetail] = useState(null)
-  const [settings, setSettings] = useState({ provider_agent_id: '', from_email: '', soft_cap_minutes: 7 })
+  const [settings, setSettings] = useState({
+    provider_agent_id: '',
+    from_email: '',
+    soft_cap_minutes: 7,
+    agent_by_region: {},
+    regions: [],
+  })
+  const [agents, setAgents] = useState([])
   const [busy, setBusy] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
 
@@ -49,17 +56,21 @@ export default function AiDemos() {
     setError('')
     try {
       const q = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : ''
-      const [list, st, preview] = await Promise.all([
+      const [list, st, preview, agentList] = await Promise.all([
         apiFetch(`/admin/ai-demo/requests${q}`),
         apiFetch('/admin/ai-demo/settings'),
         apiFetch('/admin/ai-demo/invite-preview').catch(() => null),
+        apiFetch('/admin/ai-demo/agents').catch(() => ({ items: [] })),
       ])
       setItems(list.items || [])
+      setAgents(Array.isArray(agentList?.items) ? agentList.items : [])
       setSettings({
         provider_agent_id: st.provider_agent_id || '',
         from_email: st.from_email || '',
         soft_cap_minutes: st.soft_cap_minutes || 7,
         notes: st.notes || '',
+        agent_by_region: st.agent_by_region && typeof st.agent_by_region === 'object' ? st.agent_by_region : {},
+        regions: Array.isArray(st.regions) ? st.regions : [],
         _previewSubject: preview?.subject || '',
         _previewBody: preview?.body || '',
       })
@@ -202,10 +213,10 @@ export default function AiDemos() {
       await apiFetch('/admin/ai-demo/settings', {
         method: 'PUT',
         body: JSON.stringify({
-          provider_agent_id: settings.provider_agent_id,
           from_email: settings.from_email,
           soft_cap_minutes: Number(settings.soft_cap_minutes) || 7,
           notes: settings.notes || '',
+          agent_by_region: settings.agent_by_region || {},
         }),
       })
       await refresh()
@@ -214,6 +225,23 @@ export default function AiDemos() {
     } finally {
       setBusy(false)
     }
+  }
+
+  const setRegionAgent = (code, agentId) => {
+    setSettings((s) => {
+      const next = { ...(s.agent_by_region || {}) }
+      if (!agentId) delete next[code]
+      else next[code] = agentId
+      return { ...s, agent_by_region: next }
+    })
+  }
+
+  const agentsForRegion = (code) => {
+    if (!agents.length) return []
+    if (code === 'DEFAULT') return agents
+    const preferred = agents.filter((a) => String(a.accent_region || '').toUpperCase() === code)
+    const rest = agents.filter((a) => String(a.accent_region || '').toUpperCase() !== code)
+    return [...preferred, ...rest]
   }
 
   return (
@@ -266,39 +294,61 @@ export default function AiDemos() {
       {tab === 'settings' && (
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>Telnyx / email settings</CardTitle>
+            <CardTitle className='text-base'>Voice agents by market</CardTitle>
           </CardHeader>
-          <CardContent className='grid gap-3 md:grid-cols-3'>
-            <label className='text-sm'>
-              Telnyx assistant ID
-              <Input
-                className='mt-1'
-                value={settings.provider_agent_id}
-                onChange={(e) => setSettings((s) => ({ ...s, provider_agent_id: e.target.value }))}
-                placeholder='Falls back to Talk-to-us assistant if empty'
-              />
-            </label>
-            <label className='text-sm'>
-              From / reply email
-              <Input
-                className='mt-1'
-                value={settings.from_email}
-                onChange={(e) => setSettings((s) => ({ ...s, from_email: e.target.value }))}
-                placeholder='hello@voxbulk.com'
-              />
-            </label>
-            <label className='text-sm'>
-              Soft cap (minutes)
-              <Input
-                className='mt-1'
-                type='number'
-                min={3}
-                max={30}
-                value={settings.soft_cap_minutes}
-                onChange={(e) => setSettings((s) => ({ ...s, soft_cap_minutes: e.target.value }))}
-              />
-            </label>
-            <div className='md:col-span-3'>
+          <CardContent className='grid gap-4'>
+            <p className='text-sm text-muted-foreground'>
+              Pick which Admin → Agents voice talks for each market. Visitors are matched from their WhatsApp country
+              code (+44 → GB, +61 → AU, +1 → US, +353 → IE, +966 → SA, +20 → EG). Unmapped markets use Default, then
+              Talk-to-us.
+            </p>
+            {!agents.length ? (
+              <p className='text-sm text-amber-700'>
+                No agents with a Telnyx assistant ID found. Create/activate agents under Admin → Agents first.
+              </p>
+            ) : null}
+            <div className='grid gap-3 md:grid-cols-2'>
+              {(settings.regions || []).map((r) => (
+                <label key={r.code} className='text-sm'>
+                  {r.label}
+                  <select
+                    className='mt-1 h-9 w-full rounded-md border px-2'
+                    value={settings.agent_by_region?.[r.code] || ''}
+                    onChange={(e) => setRegionAgent(r.code, e.target.value)}
+                  >
+                    <option value=''>— Not set —</option>
+                    {agentsForRegion(r.code).map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <div className='grid gap-3 md:grid-cols-2 border-t pt-4'>
+              <label className='text-sm'>
+                From / reply email
+                <Input
+                  className='mt-1'
+                  value={settings.from_email}
+                  onChange={(e) => setSettings((s) => ({ ...s, from_email: e.target.value }))}
+                  placeholder='hello@voxbulk.com'
+                />
+              </label>
+              <label className='text-sm'>
+                Soft cap (minutes)
+                <Input
+                  className='mt-1'
+                  type='number'
+                  min={3}
+                  max={30}
+                  value={settings.soft_cap_minutes}
+                  onChange={(e) => setSettings((s) => ({ ...s, soft_cap_minutes: e.target.value }))}
+                />
+              </label>
+            </div>
+            <div>
               <Button onClick={saveSettings} disabled={busy}>
                 Save settings
               </Button>
