@@ -16,6 +16,8 @@ export default defineConfig({
         "/billing": { target: "http://127.0.0.1:8000", changeOrigin: true },
         "/organisations": { target: "http://127.0.0.1:8000", changeOrigin: true },
         "/frontpage": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/ai-demo": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/public": { target: "http://127.0.0.1:8000", changeOrigin: true },
       },
     },
     preview: {
@@ -28,6 +30,8 @@ export default defineConfig({
         "/billing": { target: "http://127.0.0.1:8000", changeOrigin: true },
         "/organisations": { target: "http://127.0.0.1:8000", changeOrigin: true },
         "/frontpage": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/ai-demo": { target: "http://127.0.0.1:8000", changeOrigin: true },
+        "/public": { target: "http://127.0.0.1:8000", changeOrigin: true },
       },
     },
   },

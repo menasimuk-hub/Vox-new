@@ -37,17 +37,35 @@ class DemoRequestIn(BaseModel):
 
 
 class ManualDemoIn(BaseModel):
-    contact_name: str
+    contact_name: str = ""
     email: str
-    company_name: str
-    whatsapp: str
-    website: str
+    company_name: str = "—"
+    whatsapp: str | None = None
+    website: str | None = "https://voxbulk.com"
     preferred_language: str = "en"
     message: str | None = None
     lead_sales_task_id: str | None = None
     subject_override: str | None = None
     body_override: str | None = None
     skip_wa: bool = False
+
+
+class BatchRecipientIn(BaseModel):
+    email: str
+    contact_name: str | None = None
+    company_name: str | None = None
+    whatsapp: str | None = None
+    website: str | None = None
+    preferred_language: str | None = None
+    message: str | None = None
+
+
+class BatchDemoIn(BaseModel):
+    emails_text: str | None = None
+    recipients: list[BatchRecipientIn] | None = None
+    preferred_language: str = "en"
+    message: str | None = None
+    skip_wa: bool = True
 
 
 class ApproveIn(BaseModel):
@@ -262,7 +280,7 @@ def admin_get_request(
     _admin: User = Depends(require_platform_admin),
 ):
     try:
-        return AiDemoService.serialize_request(AiDemoService.get_request(db, request_id))
+        return AiDemoService.get_request_detail(db, request_id)
     except AiDemoError as exc:
         raise _http(exc) from exc
 
@@ -287,6 +305,38 @@ def admin_manual_invite(
             lead_sales_task_id=payload.lead_sales_task_id,
             subject_override=payload.subject_override,
             body_override=payload.body_override,
+            skip_wa=payload.skip_wa,
+        )
+    except AiDemoError as exc:
+        raise _http(exc) from exc
+
+
+@admin_router.post("/requests/batch")
+def admin_batch_invite(
+    payload: BatchDemoIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_platform_admin),
+):
+    recipients: list[dict[str, Any]] = []
+    if payload.recipients:
+        for r in payload.recipients:
+            recipients.append(r.model_dump())
+    text = str(payload.emails_text or "").strip()
+    if text:
+        for line in text.replace(",", "\n").splitlines():
+            email = line.strip().lower()
+            if not email or "@" not in email:
+                continue
+            if any(str(x.get("email") or "").lower() == email for x in recipients):
+                continue
+            recipients.append({"email": email})
+    try:
+        return AiDemoService.batch_send(
+            db,
+            recipients=recipients,
+            admin_id=admin.id,
+            preferred_language=payload.preferred_language,
+            message=payload.message,
             skip_wa=payload.skip_wa,
         )
     except AiDemoError as exc:

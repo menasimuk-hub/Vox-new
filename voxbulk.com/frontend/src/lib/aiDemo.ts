@@ -1,4 +1,4 @@
-import { frontpageApiFetch } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { loadTelnyxRtc } from "@/lib/talkToUs";
 
 export { loadTelnyxRtc };
@@ -53,7 +53,7 @@ export async function submitDemoRequest(input: {
   preferred_language: string;
   message: string;
 }) {
-  return frontpageApiFetch<{ ok: boolean; id?: string; status?: string; skipped?: boolean }>(
+  return apiFetch<{ ok: boolean; id?: string; status?: string; skipped?: boolean }>(
     "/ai-demo/requests",
     {
       method: "POST",
@@ -66,13 +66,13 @@ export async function submitDemoRequest(input: {
 }
 
 export async function verifyDemoToken(token: string) {
-  return frontpageApiFetch<AiDemoVerifyResponse>(
+  return apiFetch<AiDemoVerifyResponse>(
     `/ai-demo/verify?token=${encodeURIComponent(token)}`,
   );
 }
 
 export async function startDemoSession(sessionId: string) {
-  return frontpageApiFetch<AiDemoStartResponse>("/ai-demo/start-session", {
+  return apiFetch<AiDemoStartResponse>("/ai-demo/start-session", {
     method: "POST",
     body: JSON.stringify({ session_id: sessionId }),
   });
@@ -84,7 +84,7 @@ export async function completeDemoSession(input: {
   transcript?: string;
   duration_seconds?: number;
 }) {
-  return frontpageApiFetch("/ai-demo/complete", {
+  return apiFetch("/ai-demo/complete", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -92,13 +92,13 @@ export async function completeDemoSession(input: {
 
 export async function pollDemoEvents(sessionId: string, afterId?: string | null) {
   const q = afterId ? `?after_id=${encodeURIComponent(afterId)}` : "";
-  return frontpageApiFetch<{ events: AiDemoUiEvent[] }>(
+  return apiFetch<{ events: AiDemoUiEvent[] }>(
     `/ai-demo/events/${encodeURIComponent(sessionId)}${q}`,
   );
 }
 
 export async function resendDemoLink(requestId: string, sig: string) {
-  return frontpageApiFetch<{ ok: boolean }>(
+  return apiFetch<{ ok: boolean }>(
     `/ai-demo/resend?request=${encodeURIComponent(requestId)}&sig=${encodeURIComponent(sig)}`,
     { method: "POST" },
   );

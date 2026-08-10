@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -20,7 +20,7 @@ class DemoRequest(Base):
     contact_name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    whatsapp_e164: Mapped[str] = mapped_column(String(40), nullable=False)
+    whatsapp_e164: Mapped[str | None] = mapped_column(String(40), nullable=True)
     website: Mapped[str] = mapped_column(String(512), nullable=False)
     preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -33,5 +33,11 @@ class DemoRequest(Base):
     lead_sales_task_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     frontpage_lead_call_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     demo_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    tracking_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True, index=True)
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    open_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    link_clicked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    click_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

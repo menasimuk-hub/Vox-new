@@ -16,6 +16,7 @@ from app.models.demo_platform_settings import DemoPlatformSettings  # noqa: F401
 from app.models.demo_request import DemoRequest  # noqa: F401
 from app.models.demo_session import DemoSession  # noqa: F401
 from app.services.ai_demo_service import AiDemoError, AiDemoService, resend_signature, token_hmac
+from sqlalchemy import select
 
 
 @pytest.fixture()
@@ -101,3 +102,23 @@ def test_ensure_knowledge_bases_seeds_five_products(db):
     codes = {i["service_code"] for i in items}
     assert "platform_overview" in codes
     assert {"recruitment", "surveys", "feedback", "expo", "smart_card"} <= codes
+
+
+def test_batch_send_and_open_tracking(db):
+    with patch.object(AiDemoService, "_send_invite_email", return_value=(True, None)), patch.object(
+        AiDemoService, "_send_wa_notice", return_value=None
+    ):
+        out = AiDemoService.batch_send(
+            db,
+            recipients=[{"email": "a@example.com"}, {"email": "b@example.com"}],
+            admin_id="admin-1",
+            skip_wa=True,
+        )
+    assert out["sent"] == 2
+    assert out["failed"] == 0
+    req = db.execute(select(DemoRequest).where(DemoRequest.email == "a@example.com")).scalar_one()
+    token = AiDemoService._ensure_tracking_token(db, req)
+    AiDemoService.record_open(db, token)
+    db.refresh(req)
+    assert req.open_count >= 1
+    assert req.opened_at is not None

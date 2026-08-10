@@ -98,10 +98,15 @@ def _normalize_website(raw: str) -> str:
     return url[:512]
 
 
-def _normalize_whatsapp(raw: str) -> str:
-    location = resolve_lead_location(phone=raw)
-    e164, _ = normalize_lead_phone(raw, location)
-    phone = (e164 or str(raw or "").strip()).replace(" ", "")
+def _normalize_whatsapp(raw: str | None, *, required: bool = True) -> str | None:
+    text = str(raw or "").strip()
+    if not text:
+        if required:
+            raise AiDemoError("Enter a valid WhatsApp number including country code")
+        return None
+    location = resolve_lead_location(phone=text)
+    e164, _ = normalize_lead_phone(text, location)
+    phone = (e164 or text).replace(" ", "")
     if not phone.startswith("+") or len(phone) < 8:
         raise AiDemoError("Enter a valid WhatsApp number including country code")
     return phone[:40]
@@ -163,6 +168,97 @@ class AiDemoService:
         return row
 
     @staticmethod
+    def _ensure_tracking_token(db: Session, req: DemoRequest) -> str:
+        token = str(req.tracking_token or "").strip()
+        if token:
+            return token
+        token = secrets.token_urlsafe(24)
+        req.tracking_token = token
+        db.add(req)
+        db.commit()
+        db.refresh(req)
+        return token
+
+    @staticmethod
+    def _api_origin() -> str:
+        from app.services.brand_assets import api_public_origin
+
+        return (api_public_origin().rstrip("/") or "https://api.voxbulk.com")
+
+    @staticmethod
+    def _tracked_demo_link(tracking_token: str, raw_demo_url: str) -> str:
+        from urllib.parse import quote
+
+        api = AiDemoService._api_origin()
+        return f"{api}/public/ai-demo/c/{tracking_token}?u={quote(raw_demo_url, safe='')}"
+
+    @staticmethod
+    def _open_pixel_url(tracking_token: str) -> str:
+        api = AiDemoService._api_origin()
+        return f"{api}/public/ai-demo/o/{tracking_token}.gif"
+
+    @staticmethod
+    def _apply_email_tracking(html: str, tracking_token: str) -> str:
+        """Inject open pixel (links already use tracked demo_link var)."""
+        out = str(html or "")
+        token = str(tracking_token or "").strip()
+        if not token or not out.strip():
+            return out
+        if "o.gif" in out and "/public/ai-demo/" in out:
+            return out
+        pixel = (
+            f'<img src="{AiDemoService._open_pixel_url(token)}" width="1" height="1" '
+            f'alt="" style="display:none!important;width:1px;height:1px;border:0;" />'
+        )
+        if re.search(r"</body\s*>", out, re.I):
+            return re.sub(r"</body\s*>", pixel + "</body>", out, count=1, flags=re.I)
+        return out + pixel
+
+    @staticmethod
+    def record_open(db: Session, tracking_token: str) -> None:
+        token = str(tracking_token or "").strip()
+        if not token:
+            return
+        req = db.execute(select(DemoRequest).where(DemoRequest.tracking_token == token)).scalar_one_or_none()
+        if req is None:
+            return
+        now = _utcnow()
+        if req.opened_at is None:
+            req.opened_at = now
+        req.open_count = int(req.open_count or 0) + 1
+        req.updated_at = now
+        db.add(req)
+        db.commit()
+
+    @staticmethod
+    def record_click_and_destination(db: Session, tracking_token: str, destination: str) -> str:
+        from urllib.parse import unquote
+
+        token = str(tracking_token or "").strip()
+        dest = unquote(str(destination or "").strip())
+        public = _public_origin()
+        fallback = f"{public}/demo"
+        if not dest.startswith("http://") and not dest.startswith("https://"):
+            dest = fallback
+        # Only allow our public site destinations
+        if not dest.startswith(public) and "voxbulk.com" not in dest:
+            dest = fallback
+
+        req = db.execute(select(DemoRequest).where(DemoRequest.tracking_token == token)).scalar_one_or_none()
+        if req is not None:
+            now = _utcnow()
+            if req.link_clicked_at is None:
+                req.link_clicked_at = now
+            req.click_count = int(req.click_count or 0) + 1
+            if req.opened_at is None:
+                req.opened_at = now
+                req.open_count = max(int(req.open_count or 0), 1)
+            req.updated_at = now
+            db.add(req)
+            db.commit()
+        return dest
+
+    @staticmethod
     def create_web_request(
         db: Session,
         *,
@@ -206,7 +302,7 @@ class AiDemoService:
             contact_name=name[:255],
             email=mail[:255],
             company_name=company[:255],
-            whatsapp_e164=_normalize_whatsapp(whatsapp),
+            whatsapp_e164=_normalize_whatsapp(whatsapp, required=True),
             website=_normalize_website(website),
             preferred_language=_normalize_lang(preferred_language),
             message=msg[:4000],
@@ -303,19 +399,20 @@ class AiDemoService:
         subject_override: str | None = None,
         body_override: str | None = None,
     ) -> tuple[bool, str | None]:
+        tracking = AiDemoService._ensure_tracking_token(db, req)
         urls = AiDemoService._demo_urls(raw_token, req.id)
+        tracked_demo = AiDemoService._tracked_demo_link(tracking, urls["demo_link"])
         settings = AiDemoService.get_settings(db)
         support = settings.from_email or "hello@voxbulk.com"
         variables = {
             "contact_name": req.contact_name,
             "company_name": req.company_name,
             "preferred_language": "Arabic" if req.preferred_language == "ar" else "English",
-            "demo_link": urls["demo_link"],
+            "demo_link": tracked_demo,
             "resend_link": urls["resend_link"],
             "support_email": support,
             "website": req.website,
         }
-        # Optional admin body override — still go through templated send when possible
         if subject_override or body_override:
             from app.services.smtp_mailer_service import SmtpMailerService
 
@@ -324,6 +421,7 @@ class AiDemoService:
             for key, val in variables.items():
                 subject = subject.replace("{{" + key + "}}", str(val))
                 body = body.replace("{{" + key + "}}", str(val))
+            body = AiDemoService._apply_email_tracking(body, tracking)
             try:
                 SmtpMailerService.send_html(
                     db,
@@ -332,21 +430,58 @@ class AiDemoService:
                     body=body,
                     reply_to=support,
                 )
+                req.email_sent_at = _utcnow()
+                db.add(req)
+                db.commit()
                 return True, None
             except Exception as exc:
                 logger.exception("demo_invite_override_mail_failed")
                 return False, str(exc)[:240]
 
-        sent, err = TransactionalEmailService.send_templated_optional(
-            db,
-            template_key="demo_invite",
-            to_email=req.email,
-            variables=variables,
-        )
-        return bool(sent), err
+        # Load template then inject tracking (do not rely on DB body already having pixel)
+        from app.services.email_template_service import EmailTemplateService
+
+        EmailTemplateService.ensure_system_templates(db)
+        subject, body, enabled = EmailTemplateService.get_send_content(db, key="demo_invite")
+        if not enabled and not (subject or body):
+            subject, body = DEMO_INVITE_EMAIL_SUBJECT, DEMO_INVITE_EMAIL_BODY
+        for key, val in variables.items():
+            subject = subject.replace("{{" + key + "}}", str(val))
+            body = body.replace("{{" + key + "}}", str(val))
+        body = AiDemoService._apply_email_tracking(body, tracking)
+        try:
+            from app.services.smtp_mailer_service import SmtpMailerService
+
+            SmtpMailerService.send_html(
+                db,
+                to_addr=req.email,
+                subject=subject or DEMO_INVITE_EMAIL_SUBJECT,
+                body=body or DEMO_INVITE_EMAIL_BODY,
+                reply_to=support,
+            )
+            req.email_sent_at = _utcnow()
+            db.add(req)
+            db.commit()
+            return True, None
+        except Exception as exc:
+            logger.exception("demo_invite_mail_failed")
+            # Fallback to transactional helper without tracking injection
+            sent, err = TransactionalEmailService.send_templated_optional(
+                db,
+                template_key="demo_invite",
+                to_email=req.email,
+                variables=variables,
+            )
+            if sent:
+                req.email_sent_at = _utcnow()
+                db.add(req)
+                db.commit()
+            return bool(sent), err or str(exc)[:240]
 
     @staticmethod
     def _send_wa_notice(db: Session, req: DemoRequest) -> None:
+        if not str(req.whatsapp_e164 or "").strip():
+            return
         settings = AiDemoService.get_settings(db)
         from_email = settings.from_email or "hello@voxbulk.com"
         body = (
@@ -357,7 +492,7 @@ class AiDemoService:
         try:
             InterviewWhatsappSendService.send_template_or_plain(
                 db,
-                to_number=req.whatsapp_e164,
+                to_number=str(req.whatsapp_e164),
                 body=body,
                 org_id=None,
                 template_name=DEMO_EMAIL_SENT_TEMPLATE_NAME,
@@ -404,7 +539,7 @@ class AiDemoService:
         if not sent:
             raise AiDemoError(err or "Failed to send demo invite email", status_code=502)
 
-        if not skip_wa:
+        if not skip_wa and str(req.whatsapp_e164 or "").strip():
             AiDemoService._send_wa_notice(db, req)
 
         req.status = "approved"
@@ -430,8 +565,8 @@ class AiDemoService:
         contact_name: str,
         email: str,
         company_name: str,
-        whatsapp: str,
-        website: str,
+        whatsapp: str | None,
+        website: str | None,
         preferred_language: str,
         message: str | None,
         admin_id: str | None,
@@ -439,21 +574,24 @@ class AiDemoService:
         subject_override: str | None = None,
         body_override: str | None = None,
         skip_wa: bool = False,
+        source: str = "manual",
     ) -> dict[str, Any]:
         name = str(contact_name or "").strip()
         mail = str(email or "").strip().lower()
-        company = str(company_name or "").strip()
-        if len(name) < 2 or not _EMAIL_RE.match(mail) or len(company) < 2:
-            raise AiDemoError("Name, email, and company are required")
+        company = str(company_name or "").strip() or "—"
+        if not _EMAIL_RE.match(mail):
+            raise AiDemoError("Valid email is required")
+        if len(name) < 2:
+            name = mail.split("@")[0][:255] or "Guest"
 
         req = DemoRequest(
-            source="manual",
+            source=source[:20],
             status="pending",
             contact_name=name[:255],
             email=mail[:255],
             company_name=company[:255],
-            whatsapp_e164=_normalize_whatsapp(whatsapp),
-            website=_normalize_website(website),
+            whatsapp_e164=_normalize_whatsapp(whatsapp, required=False),
+            website=_normalize_website(website or "https://voxbulk.com"),
             preferred_language=_normalize_lang(preferred_language),
             message=(str(message or "").strip() or None),
             lead_sales_task_id=(str(lead_sales_task_id or "").strip() or None),
@@ -467,8 +605,54 @@ class AiDemoService:
             admin_id=admin_id,
             subject_override=subject_override,
             body_override=body_override,
-            skip_wa=skip_wa,
+            skip_wa=skip_wa or not str(req.whatsapp_e164 or "").strip(),
         )
+
+    @staticmethod
+    def batch_send(
+        db: Session,
+        *,
+        recipients: list[dict[str, Any]],
+        admin_id: str | None,
+        preferred_language: str = "en",
+        message: str | None = None,
+        skip_wa: bool = True,
+    ) -> dict[str, Any]:
+        if not recipients:
+            raise AiDemoError("Add at least one email")
+        if len(recipients) > 50:
+            raise AiDemoError("Batch limit is 50 emails per send")
+
+        results: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        for raw in recipients:
+            email = str(raw.get("email") or "").strip().lower()
+            try:
+                out = AiDemoService.create_manual_and_send(
+                    db,
+                    contact_name=str(raw.get("contact_name") or "").strip() or email.split("@")[0],
+                    email=email,
+                    company_name=str(raw.get("company_name") or "").strip() or "—",
+                    whatsapp=str(raw.get("whatsapp") or "").strip() or None,
+                    website=str(raw.get("website") or "").strip() or "https://voxbulk.com",
+                    preferred_language=str(raw.get("preferred_language") or preferred_language),
+                    message=str(raw.get("message") or message or "").strip() or "AI demo invite",
+                    admin_id=admin_id,
+                    skip_wa=skip_wa or not str(raw.get("whatsapp") or "").strip(),
+                    source="manual_batch",
+                )
+                results.append({"email": email, "ok": True, "request_id": out["request"]["id"]})
+            except AiDemoError as exc:
+                errors.append({"email": email, "error": exc.message})
+            except Exception as exc:
+                logger.exception("demo_batch_send_failed email=%s", email)
+                errors.append({"email": email, "error": str(exc)[:200]})
+        return {
+            "sent": len(results),
+            "failed": len(errors),
+            "results": results,
+            "errors": errors,
+        }
 
     @staticmethod
     def admin_resend(db: Session, request_id: str, *, admin_id: str | None, skip_wa: bool = False) -> dict[str, Any]:
@@ -1016,8 +1200,58 @@ class AiDemoService:
             "frontpage_lead_call_id": req.frontpage_lead_call_id,
             "lead_sales_task_id": req.lead_sales_task_id,
             "conversation_memory": _json_loads(req.conversation_memory, {}),
+            "email_sent_at": req.email_sent_at.isoformat() + "Z" if req.email_sent_at else None,
+            "opened_at": req.opened_at.isoformat() + "Z" if req.opened_at else None,
+            "open_count": int(req.open_count or 0),
+            "link_clicked_at": req.link_clicked_at.isoformat() + "Z" if req.link_clicked_at else None,
+            "click_count": int(req.click_count or 0),
             "created_at": req.created_at.isoformat() + "Z" if req.created_at else None,
         }
+
+    @staticmethod
+    def get_request_detail(db: Session, request_id: str) -> dict[str, Any]:
+        req = AiDemoService.get_request(db, request_id)
+        out = AiDemoService.serialize_request(req)
+        sessions = db.execute(
+            select(DemoSession).where(DemoSession.request_id == req.id).order_by(DemoSession.created_at.desc())
+        ).scalars().all()
+        out["sessions"] = [
+            {
+                "id": s.id,
+                "status": s.status,
+                "active_service_code": s.active_service_code,
+                "services_explored": _json_loads(s.services_explored, []),
+                "volume_needs": _json_loads(s.volume_needs, {}),
+                "started_at": s.started_at.isoformat() + "Z" if s.started_at else None,
+                "ended_at": s.ended_at.isoformat() + "Z" if s.ended_at else None,
+                "used_at": s.used_at.isoformat() + "Z" if s.used_at else None,
+                "expires_at": s.expires_at.isoformat() + "Z" if s.expires_at else None,
+                "duration_seconds": s.duration_seconds,
+                "transcript_log": (s.transcript_log or "")[:20000] or None,
+            }
+            for s in sessions
+        ]
+        lead = None
+        if req.frontpage_lead_call_id:
+            lead = db.get(FrontpageLeadCall, req.frontpage_lead_call_id)
+        if lead is not None:
+            lead_data = _json_loads(lead.lead_data_json, {})
+            out["lead"] = {
+                "id": lead.id,
+                "lead_code": lead.lead_code,
+                "status": lead.status,
+                "recommendation": lead.recommendation,
+                "sentiment": lead.sentiment,
+                "transcript_text": lead.transcript_text,
+                "recording_path": lead.recording_path,
+                "duration_seconds": lead.duration_seconds,
+                "interest_summary": lead_data.get("interest_summary") if isinstance(lead_data, dict) else None,
+                "services_explored": lead_data.get("services_explored") if isinstance(lead_data, dict) else None,
+                "volume_needs": lead_data.get("volume_needs") if isinstance(lead_data, dict) else None,
+            }
+        else:
+            out["lead"] = None
+        return out
 
     @staticmethod
     def list_knowledge_bases(db: Session) -> list[dict[str, Any]]:

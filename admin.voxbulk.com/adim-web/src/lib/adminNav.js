@@ -129,6 +129,7 @@ export const NAV = [
       ['Apify', '/marketing/apify'],
       ['Lead sources', '/marketing/lead-sources'],
       ['Lead sales', '/marketing/lead-sales'],
+      ['AI Demos', '/marketing/ai-demos'],
       ['Sales Team', '/marketing/salesmen'],
       ['Promo offers', '/marketing/promo-offers'],
       ['Sales setup (AI + KB)', '/marketing/lead-sales/settings'],
@@ -204,7 +205,7 @@ export const NAV = [
     'Support',
     [
       ['Support Inbox', '/support/inbox'],
-      ['Demo requested', '/support/demo-requested'],
+      ['Demo requested', '/marketing/ai-demos'],
       ['Open Tickets', '/support/tickets'],
       ['Archive', '/support/archive'],
       ['Help Centre', '/support/help-centre'],

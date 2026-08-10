@@ -93,6 +93,31 @@ function frontpageApiUrl(path: string) {
   return `${base}${p}`;
 }
 
+function formatApiDetail(data: unknown, fallback: string): string {
+  if (data && typeof data === "object" && "detail" in data) {
+    const detail = (data as { detail: unknown }).detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (Array.isArray(detail)) {
+      const parts = detail
+        .map((item) => {
+          if (!item || typeof item !== "object") return String(item ?? "");
+          const row = item as { msg?: unknown; loc?: unknown };
+          const msg = String(row.msg || "").trim();
+          const loc = Array.isArray(row.loc)
+            ? row.loc.filter((p) => p !== "body").map(String).join(".")
+            : "";
+          if (msg && loc) return `${loc}: ${msg}`;
+          return msg || loc;
+        })
+        .filter(Boolean);
+      if (parts.length) return parts.join("; ");
+    }
+    if (detail != null && detail !== "") return String(detail);
+  }
+  if (typeof data === "string" && data.trim()) return data;
+  return fallback;
+}
+
 export async function frontpageApiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = buildAuthHeaders(options.headers);
   if (options.body && !headers.has("Content-Type") && typeof options.body === "string") {
@@ -102,11 +127,7 @@ export async function frontpageApiFetch<T = unknown>(path: string, options: Requ
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const detail =
-      (data && typeof data === "object" && "detail" in data && String((data as { detail: unknown }).detail)) ||
-      (typeof data === "string" ? data : "") ||
-      res.statusText ||
-      "Request failed";
+    const detail = formatApiDetail(data, res.statusText || "Request failed");
     throw new ApiError(detail, { status: res.status, data });
   }
   return (data ?? {}) as T;
@@ -229,11 +250,7 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit =
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const detail =
-      (data && typeof data === "object" && "detail" in data && String((data as { detail: unknown }).detail)) ||
-      (typeof data === "string" ? data : "") ||
-      res.statusText ||
-      "Request failed";
+    const detail = formatApiDetail(data, res.statusText || "Request failed");
     throw new ApiError(detail, { status: res.status, data });
   }
   return (data ?? {}) as T;
@@ -255,10 +272,7 @@ export async function apiUpload<T = unknown>(
   const text = await res.text();
   const data = text ? safeJson(text) : null;
   if (!res.ok) {
-    const detail =
-      (data && typeof data === "object" && "detail" in data && String((data as { detail: unknown }).detail)) ||
-      res.statusText ||
-      "Upload failed";
+    const detail = formatApiDetail(data, res.statusText || "Upload failed");
     throw new ApiError(detail, { status: res.status, data });
   }
   return (data ?? {}) as T;

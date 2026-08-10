@@ -90,6 +90,7 @@ from app.routers.interview_booking_public import router as interview_booking_pub
 from app.routers.partner_v1 import router as partner_v1_router
 from app.routers.admin_ai_team import router as admin_ai_team_router
 from app.routers.public_ai_team import router as public_ai_team_router
+from app.routers.public_ai_demo import router as public_ai_demo_router
 from app.routers.admin_sales_reps import router as admin_sales_reps_router
 from app.routers.sales import router as sales_router
 from app.routers.sales_mail import router as sales_mail_router
@@ -766,6 +767,8 @@ app.include_router(admin_ai_team_router)
 app.include_router(admin_ai_team_router, prefix="/api")
 app.include_router(public_ai_team_router)
 app.include_router(public_ai_team_router, prefix="/api")
+app.include_router(public_ai_demo_router)
+app.include_router(public_ai_demo_router, prefix="/api")
 app.include_router(brand_public_router)
 app.include_router(admin_platform_services_router)
 app.include_router(admin_products_router)
