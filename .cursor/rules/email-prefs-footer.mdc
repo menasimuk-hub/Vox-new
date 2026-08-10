@@ -1,0 +1,14 @@
+---
+description: Manage Email Preferences must sit in the last footer card of every HTML email
+alwaysApply: true
+---
+
+# Email template footer — Manage Email Preferences
+
+When creating or editing **any** HTML email template (system defaults, Admin templates, `wrap_brand_email`):
+
+1. **Always** include a **Manage Email Preferences** link in the **last footer card** — directly under the `Sent via VOXBULK …` / `Sent by VOXBULK …` line (same muted `#6b6560` / 12px theme as that strip).
+2. Do **not** place it mid-body, under CTAs, or as a primary-colored button.
+3. Use `wrap_brand_email(...)` for new branded templates — it injects the link automatically.
+4. `EmailTemplateService.create` / `upsert` / `ensure_system_templates` and `SmtpMailerService.send_html` also enforce this via `inject_email_preferences_footer`.
+5. Fallback only if there is no Sent footer: under a trailing `Questions? Contact …` line.

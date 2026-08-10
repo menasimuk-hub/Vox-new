@@ -22,24 +22,30 @@ def email_logo_html(*, href: str = "https://voxbulk.com", width: int = 140) -> s
 
 EMAIL_PREFERENCES_MANAGE_URL = "https://dashboard.voxbulk.com/settings/profile#email-notifications"
 
-# Standalone prefs paragraph we inject / strip (muted body style, not branded bottom strip).
+# Rule: every branded HTML email gets Manage Email Preferences in the last footer
+# card (under "Sent via/by VOXBULK …"), same muted 12px theme — never mid-body.
 _PREFS_BLOCK_RE = re.compile(
     r"(?is)<p\b[^>]*>\s*<a\b[^>]*>\s*(?:Manage Email Preferences|Change Preferences|Email preferences)\s*</a>\s*</p>\s*"
 )
-_CONTACT_LINE_RE = re.compile(
-    r"(?is)<p\b[^>]*>[\s\S]*?"
-    r"(?:Questions about this decision|Questions about|Contact us at|contact us at|"
-    r"If you have questions|Questions\?|Need help\?|Need more help\?)"
-    r"[\s\S]*?</p>"
+_PREFS_ANCHOR_RE = re.compile(
+    r"(?is)<a\b[^>]*>\s*(?:Manage Email Preferences|Change Preferences|Email preferences)\s*</a>"
+)
+_SENT_FOOTER_RE = re.compile(
+    r"(?is)(Sent\s+(?:via|by)\s+VOXBULK[^\n<]*)",
+)
+_QUESTIONS_LINE_RE = re.compile(
+    r"(?is)(<p\b[^>]*>[\s\S]*?"
+    r"(?:Questions\?\s*Contact|Questions about[\s\S]*?Contact us)"
+    r"[\s\S]*?</p>)",
 )
 
 
 def email_preferences_footer_html(*, manage_url: str | None = None) -> str:
-    """Muted body-style prefs link (same theme as contact/help lines)."""
+    """Muted 12px link matching the Sent via / Sent by footer strip (all products)."""
     href = (manage_url or EMAIL_PREFERENCES_MANAGE_URL).strip() or EMAIL_PREFERENCES_MANAGE_URL
     c = BRAND_COLORS
     return (
-        f'<p style="margin:8px 0 0;font-size:13px;line-height:1.5;color:{c["ink_muted"]};">'
+        f'<p style="margin:8px 0 0;font-size:12px;line-height:1.5;color:{c["ink_muted"]};">'
         f'<a href="{href}" style="color:{c["ink_muted"]};text-decoration:underline;">Manage Email Preferences</a>'
         f"</p>"
     )
@@ -49,29 +55,38 @@ def _strip_prefs_blocks(text: str) -> str:
     return _PREFS_BLOCK_RE.sub("", text)
 
 
-def _insert_prefs_in_main_content(text: str, snippet: str) -> str:
-    """Place prefs under contact/help copy inside the main body cell — not the bottom strip."""
-    content_td = re.search(
-        r'<td[^>]*style="[^"]*padding:\s*28px[^"]*"[^>]*>',
-        text,
-        flags=re.I,
-    )
-    if content_td:
-        start = content_td.end()
-        footer_mark = text.find("border-top:1px solid", start)
-        search_end = footer_mark if footer_mark > 0 else len(text)
-        close = text.rfind("</td>", start, search_end)
-        if close > start:
-            chunk = text[start:close]
-            contacts = list(_CONTACT_LINE_RE.finditer(chunk))
-            if contacts:
-                insert_at = start + contacts[-1].end()
-                return text[:insert_at] + snippet + text[insert_at:]
-            return text[:close] + snippet + text[close:]
+def _prefs_in_last_footer_card(text: str) -> bool:
+    footer_mark = text.rfind("border-top:1px solid")
+    if footer_mark < 0:
+        return False
+    td_close = text.find("</td>", footer_mark)
+    if td_close < 0:
+        return False
+    cell = text[footer_mark:td_close].lower()
+    return "manage email preferences" in cell or "change preferences" in cell
 
-    contacts = list(_CONTACT_LINE_RE.finditer(text))
-    if contacts:
-        insert_at = contacts[-1].end()
+
+def _insert_prefs_in_last_cards(text: str, snippet: str) -> str:
+    """
+    Place prefs in the last email cards for every product template:
+    1) Preferred — under "Sent via/by VOXBULK …" in the bottom footer strip
+    2) Fallback — under a trailing "Questions? Contact …" line
+    3) Else — before </body>
+    """
+    footer_mark = text.rfind("border-top:1px solid")
+    if footer_mark >= 0:
+        td_close = text.find("</td>", footer_mark)
+        if td_close > footer_mark:
+            cell = text[footer_mark:td_close]
+            sent = _SENT_FOOTER_RE.search(cell)
+            if sent:
+                abs_at = footer_mark + sent.end()
+                return text[:abs_at] + snippet + text[abs_at:]
+            return text[:td_close] + snippet + text[td_close:]
+
+    questions = list(_QUESTIONS_LINE_RE.finditer(text))
+    if questions:
+        insert_at = questions[-1].end()
         return text[:insert_at] + snippet + text[insert_at:]
 
     close_body = re.search(r"</body\s*>", text, flags=re.I)
@@ -81,23 +96,17 @@ def _insert_prefs_in_main_content(text: str, snippet: str) -> str:
 
 
 def inject_email_preferences_footer(body: str, *, manage_url: str | None = None) -> str:
-    """Ensure Manage Email Preferences sits under body contact lines (idempotent)."""
+    """Idempotent: prefs link always lives in the last footer card (all emails)."""
     text = str(body or "")
     if not text.strip():
         return text
-    # Relocate/restyle: remove prior injects (including wrong bottom-footer placement).
     text = _strip_prefs_blocks(text)
-    # Upgrade any remaining legacy label that wasn't a standalone <p><a>…</a></p> block.
-    text, _n = re.subn(
-        r"(?i)>\s*Email preferences\s*<",
-        ">Manage Email Preferences<",
-        text,
-        count=1,
-    )
-    if "manage email preferences" in text.lower() or "change preferences" in text.lower():
+    if _prefs_in_last_footer_card(text):
         return text
+    # Remove leftover mid-body / wrong-place anchors then re-insert in the footer card.
+    text = _PREFS_ANCHOR_RE.sub("", text)
     snippet = email_preferences_footer_html(manage_url=manage_url)
-    return _insert_prefs_in_main_content(text, snippet)
+    return _insert_prefs_in_last_cards(text, snippet)
 
 
 def wrap_brand_email(
@@ -107,6 +116,7 @@ def wrap_brand_email(
     footer: str = "Sent by VOXBULK · careers@voxbulk.com",
     badge: str | None = None,
 ) -> str:
+    """Build a branded email. Always includes Manage Email Preferences under the Sent footer."""
     logo = email_logo_html()
     c = BRAND_COLORS
     tagline_html = (
@@ -119,7 +129,6 @@ def wrap_brand_email(
             f'<span style="float:right;font-size:11px;font-weight:600;letter-spacing:0.06em;'
             f'text-transform:uppercase;color:{c["ink_muted"]};padding-top:4px;">{badge}</span>'
         )
-    # Prefs sit under body copy (e.g. contact/help lines), not in the bottom “Sent by” strip.
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>

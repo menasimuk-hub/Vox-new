@@ -175,7 +175,7 @@ class EmailTemplateService:
 
     @staticmethod
     def _ensure_prefs_footer_in_body(body: str) -> str:
-        """Append/upgrade Manage Email Preferences in HTML bodies only (idempotent)."""
+        """Rule: every HTML template gets Manage Email Preferences in the last footer card."""
         text = str(body or "")
         if not text.strip() or "<" not in text:
             return text
