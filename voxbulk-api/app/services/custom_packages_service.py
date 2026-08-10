@@ -20,6 +20,9 @@ STATUSES = frozenset({"draft", "active", "inactive"})
 CORE_ALLOWLIST = ("GB", "AU", "CA", "USA")
 MODULE_KEYS = ("customer_feedback", "core", "smart_card", "expo", "survey")
 
+# Shared Survey + Customer Feedback AI follow-back rates (top-level in modules_json).
+AI_FOLLOWBACK_KEYS = ("minutes_included", "connection_fee_minor", "per_min_minor")
+
 
 class CustomPackagesError(ValueError):
     pass
@@ -42,8 +45,17 @@ def _dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def default_ai_followback() -> dict[str, int]:
+    return {
+        "minutes_included": 0,
+        "connection_fee_minor": 0,
+        "per_min_minor": 0,
+    }
+
+
 def default_modules() -> dict[str, Any]:
     return {
+        "ai_followback": default_ai_followback(),
         "customer_feedback": {
             "enabled": False,
             "max_locations": 1,
@@ -52,11 +64,6 @@ def default_modules() -> dict[str, Any]:
             "wa_extra_minor": 0,
             "web_extra_minor": 0,
             "notes": "",
-            "ai_followback": {
-                "minutes_included": 0,
-                "connection_fee_minor": 0,
-                "per_min_minor": 0,
-            },
         },
         "core": {
             "enabled": False,
@@ -105,6 +112,54 @@ def default_allowlist() -> dict[str, Any]:
     return {"mode": "default", "core": ["GB", "AU", "CA", "USA"], "extra": []}
 
 
+def _coerce_ai_followback(raw: Any) -> dict[str, int]:
+    base = default_ai_followback()
+    if not isinstance(raw, dict):
+        return base
+    out = dict(base)
+    for key in AI_FOLLOWBACK_KEYS:
+        try:
+            out[key] = max(0, int(raw.get(key) or 0))
+        except (TypeError, ValueError):
+            out[key] = 0
+    return out
+
+
+def ai_followback_config(modules: dict[str, Any] | None) -> dict[str, int]:
+    """Resolve shared AI follow-back rates; promote legacy customer_feedback.ai_followback."""
+    mods = modules if isinstance(modules, dict) else {}
+    top = mods.get("ai_followback")
+    if isinstance(top, dict) and any(k in top for k in AI_FOLLOWBACK_KEYS):
+        return _coerce_ai_followback(top)
+    cf = mods.get("customer_feedback") if isinstance(mods.get("customer_feedback"), dict) else {}
+    legacy = cf.get("ai_followback") if isinstance(cf.get("ai_followback"), dict) else None
+    return _coerce_ai_followback(legacy)
+
+
+def _promote_ai_followback(modules: dict[str, Any], *, incoming: Any = None) -> dict[str, Any]:
+    """Ensure top-level ai_followback; drop nested CF copy on write/normalize."""
+    src = incoming if isinstance(incoming, dict) else {}
+    chosen: Any = None
+    if isinstance(src.get("ai_followback"), dict):
+        chosen = src.get("ai_followback")
+    else:
+        src_cf = src.get("customer_feedback")
+        if isinstance(src_cf, dict) and isinstance(src_cf.get("ai_followback"), dict):
+            chosen = src_cf.get("ai_followback")
+        else:
+            mod_cf = modules.get("customer_feedback")
+            if isinstance(mod_cf, dict) and isinstance(mod_cf.get("ai_followback"), dict):
+                chosen = mod_cf.get("ai_followback")
+            elif isinstance(modules.get("ai_followback"), dict):
+                chosen = modules.get("ai_followback")
+
+    modules["ai_followback"] = _coerce_ai_followback(chosen)
+    cf = modules.get("customer_feedback")
+    if isinstance(cf, dict) and "ai_followback" in cf:
+        modules["customer_feedback"] = {k: v for k, v in cf.items() if k != "ai_followback"}
+    return modules
+
+
 def _merge_modules(raw: Any) -> dict[str, Any]:
     base = default_modules()
     if not isinstance(raw, dict):
@@ -114,13 +169,13 @@ def _merge_modules(raw: Any) -> dict[str, Any]:
         if not isinstance(incoming, dict):
             continue
         merged = {**base[key], **incoming}
-        if key == "customer_feedback" and isinstance(incoming.get("ai_followback"), dict):
-            merged["ai_followback"] = {**base[key]["ai_followback"], **incoming["ai_followback"]}
         if key == "core" and isinstance(incoming.get("unit_rates"), dict):
             merged["unit_rates"] = {**base[key]["unit_rates"], **incoming["unit_rates"]}
+        # Legacy nested CF rates are promoted below — do not keep nested key in defaults.
+        merged.pop("ai_followback", None)
         merged["enabled"] = bool(incoming.get("enabled", merged.get("enabled")))
         base[key] = merged
-    return base
+    return _promote_ai_followback(base, incoming=raw)
 
 
 def _merge_allowlist(raw: Any) -> dict[str, Any]:
@@ -520,6 +575,133 @@ class CustomPackagesService:
         return pkg
 
     @staticmethod
+    def modules_for_org(db: Session, org_id: str) -> dict[str, Any] | None:
+        pkg = CustomPackagesService.get_row_for_org(db, org_id)
+        if pkg is None:
+            return None
+        return _merge_modules(_loads(pkg.modules_json, {}))
+
+    @staticmethod
+    def package_followback_rates_for_org(db: Session, org_id: str) -> dict[str, Any] | None:
+        """Return shared AI follow-back rates when org has an active custom package."""
+        modules = CustomPackagesService.modules_for_org(db, org_id)
+        if modules is None:
+            return None
+        rates = ai_followback_config(modules)
+        currency = "USD"
+        pkg = CustomPackagesService.get_row_for_org(db, org_id)
+        if pkg is not None:
+            currency = normalize_currency(pkg.currency)
+        return {**rates, "currency": currency, "modules": modules}
+
+    @staticmethod
+    def followback_period_start(db: Session, org_id: str) -> datetime:
+        try:
+            from app.services.usage_wallet_service import UsageWalletService
+
+            period = UsageWalletService.get_current(db, org_id)
+            if period is not None and getattr(period, "period_start", None):
+                return period.period_start
+        except Exception:
+            pass
+        now = _now()
+        return datetime(now.year, now.month, 1)
+
+    @staticmethod
+    def _billable_mins_from_job_outcome(outcome_raw: str | None) -> int:
+        data = _loads(outcome_raw, {})
+        if not isinstance(data, dict):
+            return 0
+        billing = data.get("billing") if isinstance(data.get("billing"), dict) else {}
+        try:
+            mins = billing.get("billable_minutes")
+            if mins is not None:
+                return max(0, int(mins))
+        except (TypeError, ValueError):
+            pass
+        try:
+            duration = billing.get("duration_seconds")
+            if duration is None:
+                duration = data.get("duration_seconds")
+            if duration is not None:
+                from app.services.billing_call_minutes import billable_call_minutes
+
+                return billable_call_minutes(int(duration or 0))
+        except Exception:
+            pass
+        return 0
+
+    @staticmethod
+    def followback_minutes_used(db: Session, org_id: str, period_start: datetime | None = None) -> int:
+        """Sum answered follow-back billable minutes (Survey + CF) in the period."""
+        start = period_start or CustomPackagesService.followback_period_start(db, org_id)
+        total = 0
+        try:
+            from app.models.customer_feedback import FeedbackAiFollowUpJob
+            from app.models.survey_ai_follow_up_job import SurveyAiFollowUpJob
+
+            for model in (FeedbackAiFollowUpJob, SurveyAiFollowUpJob):
+                rows = (
+                    db.execute(
+                        select(model).where(
+                            model.org_id == org_id,
+                            model.status == "completed",
+                            model.updated_at >= start,
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for job in rows:
+                    total += CustomPackagesService._billable_mins_from_job_outcome(
+                        getattr(job, "outcome_json", None)
+                    )
+        except Exception:
+            return total
+        return total
+
+    @staticmethod
+    def estimate_followback_charge(
+        *,
+        billable_mins: int,
+        minutes_included: int,
+        minutes_used: int,
+        connection_fee_minor: int,
+        per_min_minor: int,
+        currency: str = "USD",
+    ) -> dict[str, Any]:
+        """Included minutes first; overage = connection fee + per_min × overage minutes."""
+        mins = max(0, int(billable_mins or 0))
+        included = max(0, int(minutes_included or 0))
+        used = max(0, int(minutes_used or 0))
+        remaining = max(0, included - used)
+        covered = min(remaining, mins)
+        overage = max(0, mins - covered)
+        conn = max(0, int(connection_fee_minor or 0))
+        per_min = max(0, int(per_min_minor or 0))
+        amount = 0
+        if overage > 0:
+            amount = conn + overage * per_min
+        return {
+            "channel": "ai_call_follow_back",
+            "billable_minutes": mins,
+            "covered_minutes": covered,
+            "overage_minutes": overage,
+            "minutes_included": included,
+            "minutes_used": used,
+            "minutes_remaining": remaining,
+            "connection_fee_minor": conn if overage > 0 else 0,
+            "per_min_minor": per_min,
+            "amount_due_minor": amount,
+            "catalog_cost_minor": amount,
+            "payment_method": "wallet" if amount > 0 else "included",
+            "currency": normalize_currency(currency),
+            "source": "custom_package",
+            "can_launch": True,
+            "block_reason": None,
+        }
+
+    @staticmethod
     def billing_plan_code(package_code: str) -> str:
         return f"cpkg-{str(package_code or '').strip().lower()}"[:50]
 
@@ -760,13 +942,19 @@ class CustomPackagesService:
                     unit="units",
                 )
             )
-            ai = cf.get("ai_followback") or {}
+
+        ai = ai_followback_config(modules)
+        survey_on = bool((modules.get("survey") or {}).get("enabled"))
+        cf_on = bool(cf.get("enabled"))
+        if cf_on or survey_on or any(int(ai.get(k) or 0) > 0 for k in AI_FOLLOWBACK_KEYS):
+            period_start = CustomPackagesService.followback_period_start(db, org_id)
+            ai_used = CustomPackagesService.followback_minutes_used(db, org_id, period_start)
             usage_rows.append(
                 CustomPackagesService._usage_row(
-                    module="customer_feedback",
+                    module="ai_followback",
                     key="ai_followback_mins",
-                    label="AI follow-back minutes",
-                    used=0,
+                    label="AI follow-back minutes (Survey + Feedback)",
+                    used=ai_used,
                     included=int(ai.get("minutes_included") or 0),
                     unit="min",
                 )

@@ -69,6 +69,7 @@ function formatMoney(minor, currency) {
 
 function emptyModules() {
   return {
+    ai_followback: { minutes_included: 0, connection_fee_minor: 0, per_min_minor: 0 },
     customer_feedback: {
       enabled: false,
       max_locations: 1,
@@ -77,7 +78,6 @@ function emptyModules() {
       wa_extra_minor: 0,
       web_extra_minor: 0,
       notes: '',
-      ai_followback: { minutes_included: 0, connection_fee_minor: 0, per_min_minor: 0 },
     },
     core: {
       enabled: false,
@@ -140,15 +140,19 @@ function packageToDraft(pkg) {
   const incoming = pkg.modules || {}
   const modules = emptyModules()
   for (const key of Object.keys(base)) {
+    if (key === 'ai_followback') continue
     const src = incoming[key]
     if (!src || typeof src !== 'object') continue
     modules[key] = { ...base[key], ...src }
-    if (key === 'customer_feedback' && src.ai_followback) {
-      modules[key].ai_followback = { ...base[key].ai_followback, ...src.ai_followback }
-    }
     if (key === 'core' && src.unit_rates) {
       modules[key].unit_rates = { ...base[key].unit_rates, ...src.unit_rates }
     }
+  }
+  const legacyFb = incoming?.customer_feedback?.ai_followback
+  modules.ai_followback = {
+    ...base.ai_followback,
+    ...(incoming.ai_followback || {}),
+    ...(legacyFb && !incoming.ai_followback ? legacyFb : {}),
   }
   return {
     id: pkg.id,
@@ -171,6 +175,11 @@ function packageToDraft(pkg) {
 }
 
 function draftToPayload(draft, { status } = {}) {
+  const modules = { ...(draft.modules || {}) }
+  if (modules.customer_feedback && modules.customer_feedback.ai_followback) {
+    const { ai_followback: _drop, ...cfRest } = modules.customer_feedback
+    modules.customer_feedback = cfRest
+  }
   return {
     name: draft.name,
     code: draft.code || undefined,
@@ -179,7 +188,7 @@ function draftToPayload(draft, { status } = {}) {
     price_minor: poundsToMinor(draft.price_major),
     status: status || draft.status || 'draft',
     admin_notes: draft.admin_notes || null,
-    modules: draft.modules,
+    modules,
     allowlist: draft.allowlist,
     internal_cost_notes: draft.internal_cost_notes || null,
     org_ids: draft.org_ids,
@@ -498,16 +507,42 @@ export default function CustomPackages() {
                   <div className="cpField"><label>WA extra / unit</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.customer_feedback.wa_extra_minor || 0)} onChange={(v) => setModule('customer_feedback', { wa_extra_minor: poundsToMinor(v) })} /></div>
                   <div className="cpField"><label>Web extra / unit</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.customer_feedback.web_extra_minor || 0)} onChange={(v) => setModule('customer_feedback', { web_extra_minor: poundsToMinor(v) })} /></div>
                 </div>
-                <fieldset style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e2e1de', border: 'none' }}>
-                  <legend style={{ fontWeight: 600, fontSize: 12 }}>AI call follow-back</legend>
-                  <div className="cpGrid3">
-                    <div className="cpField"><label>Allowance (min)</label><input type="number" min="0" value={draft.modules.customer_feedback.ai_followback.minutes_included} onChange={(e) => setNested('customer_feedback', 'ai_followback', { minutes_included: Number(e.target.value) })} /></div>
-                    <div className="cpField"><label>Connection fee</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.customer_feedback.ai_followback.connection_fee_minor)} onChange={(v) => setNested('customer_feedback', 'ai_followback', { connection_fee_minor: poundsToMinor(v) })} /></div>
-                    <div className="cpField"><label>Cost per minute (extra)</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.customer_feedback.ai_followback.per_min_minor)} onChange={(v) => setNested('customer_feedback', 'ai_followback', { per_min_minor: poundsToMinor(v) })} /></div>
-                  </div>
-                  <span className="help">Extras after allowance accrue to the next monthly invoice.</span>
-                </fieldset>
               </ModuleToggle>
+
+              <div className="cpCard" style={{ marginTop: 14, boxShadow: 'none', border: '1px solid #e2e1de' }}>
+                <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>AI follow-back (Survey + Customer Feedback)</h3>
+                <p className="cpHint" style={{ marginTop: 0 }}>
+                  Shared pool and rates for low-score AI callback calls. Included minutes apply across both products; connection fee and per-minute apply only to overage.
+                </p>
+                <div className="cpGrid3">
+                  <div className="cpField">
+                    <label>Allowance (min)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={draft.modules.ai_followback?.minutes_included ?? 0}
+                      onChange={(e) => setModule('ai_followback', { minutes_included: Number(e.target.value) })}
+                    />
+                  </div>
+                  <div className="cpField">
+                    <label>Connection fee</label>
+                    <MoneyInput
+                      currency={currency}
+                      value={minorToMajor(draft.modules.ai_followback?.connection_fee_minor || 0)}
+                      onChange={(v) => setModule('ai_followback', { connection_fee_minor: poundsToMinor(v) })}
+                    />
+                  </div>
+                  <div className="cpField">
+                    <label>Cost per minute (extra)</label>
+                    <MoneyInput
+                      currency={currency}
+                      value={minorToMajor(draft.modules.ai_followback?.per_min_minor || 0)}
+                      onChange={(v) => setModule('ai_followback', { per_min_minor: poundsToMinor(v) })}
+                    />
+                  </div>
+                </div>
+                <span className="help">Extras after allowance are charged to the wallet (or next invoice when on DD).</span>
+              </div>
 
               <ModuleToggle
                 id="core"

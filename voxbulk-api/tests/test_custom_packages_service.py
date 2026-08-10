@@ -10,7 +10,6 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base
 from app.models.custom_package import CustomPackage, CustomPackageOrgAssignment
 from app.models.organisation import Organisation
-from app.services.billing_currency import CURRENCY_SYMBOLS, SUPPORTED_CURRENCIES, normalize_currency
 from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService, default_modules
 
 
@@ -21,7 +20,7 @@ def db():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(bind=engine, tables=[Organisation.__table__, CustomPackage.__table__, CustomPackageOrgAssignment.__table__])
+    Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
     session = Session()
     org = Organisation(id="org-1", name="Tourist Co")
@@ -72,6 +71,58 @@ def test_survey_defaults_merged():
     mods = default_modules()
     assert mods["survey"]["max_active_campaigns"] == 5
     assert "wa_extra_minor" in mods["customer_feedback"]
+    assert "ai_followback" in mods
+    assert "ai_followback" not in mods["customer_feedback"]
+    assert mods["ai_followback"]["minutes_included"] == 0
+
+
+def test_ai_followback_promotes_legacy_cf_and_strips_nested():
+    from app.services.custom_packages_service import _merge_modules, ai_followback_config
+
+    merged = _merge_modules(
+        {
+            "customer_feedback": {
+                "enabled": True,
+                "ai_followback": {
+                    "minutes_included": 40,
+                    "connection_fee_minor": 50,
+                    "per_min_minor": 25,
+                },
+            }
+        }
+    )
+    assert merged["ai_followback"]["minutes_included"] == 40
+    assert merged["ai_followback"]["connection_fee_minor"] == 50
+    assert "ai_followback" not in merged["customer_feedback"]
+    assert ai_followback_config(merged)["per_min_minor"] == 25
+
+
+def test_estimate_followback_charge_extra_cost_model():
+    covered = CustomPackagesService.estimate_followback_charge(
+        billable_mins=5,
+        minutes_included=10,
+        minutes_used=0,
+        connection_fee_minor=100,
+        per_min_minor=50,
+        currency="GBP",
+    )
+    assert covered["amount_due_minor"] == 0
+    assert covered["payment_method"] == "included"
+    assert covered["covered_minutes"] == 5
+
+    partial = CustomPackagesService.estimate_followback_charge(
+        billable_mins=5,
+        minutes_included=10,
+        minutes_used=8,
+        connection_fee_minor=100,
+        per_min_minor=50,
+        currency="GBP",
+    )
+    # 2 remaining included → 3 overage → connection 100 + 3*50 = 250
+    assert partial["covered_minutes"] == 2
+    assert partial["overage_minutes"] == 3
+    assert partial["amount_due_minor"] == 250
+    assert partial["payment_method"] == "wallet"
 
 
 def test_rejects_bad_interval(db):
@@ -101,6 +152,7 @@ def test_org_dashboard_payload(db):
     assert payload["package"]["name"] == "Tourist Bundle"
     assert payload["billing"]["amount_next_payment_minor"] == 124000
     assert any(r["key"] == "wa_units" for r in payload["usage"]["rows"])
+    assert any(r["key"] == "ai_followback_mins" and r["module"] == "ai_followback" for r in payload["usage"]["rows"])
     assert CustomPackagesService.org_dashboard_payload(db, "missing") is None
 
 

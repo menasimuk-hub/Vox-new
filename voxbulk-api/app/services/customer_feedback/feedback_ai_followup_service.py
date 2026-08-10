@@ -620,9 +620,38 @@ def _next_calling_window_utc(db: Session, org_id: str, phone: str | None = None)
 
 def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
     from app.services.billing_access_service import BillingAccessService
+    from app.services.billing_currency import money_display, resolve_org_currency
+    from app.services.custom_packages_service import CustomPackagesService
     from app.services.launch_billing_service import LaunchBillingService
     from app.services.usage_wallet_service import UsageWalletService
     from app.services.wallet_service import WalletService
+
+    pkg_rates = CustomPackagesService.package_followback_rates_for_org(db, org.id)
+    if pkg_rates is not None:
+        used = CustomPackagesService.followback_minutes_used(db, org.id)
+        est = CustomPackagesService.estimate_followback_charge(
+            billable_mins=3,
+            minutes_included=int(pkg_rates.get("minutes_included") or 0),
+            minutes_used=used,
+            connection_fee_minor=int(pkg_rates.get("connection_fee_minor") or 0),
+            per_min_minor=int(pkg_rates.get("per_min_minor") or 0),
+            currency=str(pkg_rates.get("currency") or resolve_org_currency(db, org)),
+        )
+        amount = int(est.get("amount_due_minor") or 0)
+        if amount <= 0:
+            return True, "", "custom_package"
+        spendable = WalletService.spendable_minor(org, allow_promo=True)
+        if spendable < amount:
+            currency = str(est.get("currency") or resolve_org_currency(db, org))
+            return (
+                False,
+                (
+                    f"Wallet balance must cover estimated AI follow-back overage "
+                    f"({money_display(amount, currency)}; {money_display(spendable, currency)} available)."
+                ),
+                "wallet",
+            )
+        return True, "", "custom_package"
 
     block = BillingAccessService.launch_block_reason(db, org)
     sub = BillingAccessService.get_valid_core_subscription(db, org.id)
@@ -640,8 +669,6 @@ def _pre_dial_billing_allowed(db: Session, org) -> tuple[bool, str, str]:
 
     if block:
         return False, block, "blocked"
-
-    from app.services.billing_currency import money_display, resolve_org_currency
 
     # 5.00 in the org billing currency (GBP/EUR/USD/CAD/AUD minor units).
     # Welcome/promo wallet credit is allowed for AI follow-back (unlike campaign launches).
@@ -696,8 +723,8 @@ def _pre_dial_guards(db: Session, job, org, *, force_immediate: bool = False) ->
     if skip:
         raise FollowUpSkip(skip, status="opted_out")
 
-    session = db.get(FeedbackSession, job.session_id)
-    if _is_arabic_session(session):
+    session = db.get(FeedbackSession, job.session_id) if getattr(job, "session_id", None) else None
+    if session is not None and _is_arabic_session(session):
         raise FollowUpSkip("Arabic session — English-only follow-back skipped", status="cancelled")
 
     billing_ok, billing_reason, billing_mode = _pre_dial_billing_allowed(db, org)
@@ -720,6 +747,7 @@ def _settle_followup_call_billing(
 ) -> dict[str, Any]:
     from app.services.billing_access_service import BillingAccessService
     from app.services.billing_call_minutes import billable_call_minutes
+    from app.services.custom_packages_service import CustomPackagesService
     from app.services.launch_billing_service import LaunchBillingService
     from app.services.usage_wallet_service import UsageWalletService
     from app.services.wallet_service import InsufficientWalletBalance, WalletService
@@ -728,6 +756,58 @@ def _settle_followup_call_billing(
         return {"billing_skipped": True, "reason": "not_answered"}
 
     billable_mins = billable_call_minutes(int(duration_seconds or 0))
+
+    pkg_rates = CustomPackagesService.package_followback_rates_for_org(db, org.id)
+    if pkg_rates is not None:
+        used = CustomPackagesService.followback_minutes_used(db, org.id)
+        est = CustomPackagesService.estimate_followback_charge(
+            billable_mins=max(1, billable_mins),
+            minutes_included=int(pkg_rates.get("minutes_included") or 0),
+            minutes_used=used,
+            connection_fee_minor=int(pkg_rates.get("connection_fee_minor") or 0),
+            per_min_minor=int(pkg_rates.get("per_min_minor") or 0),
+            currency=str(pkg_rates.get("currency") or "USD"),
+        )
+        amount_due = int(est.get("amount_due_minor") or 0)
+        method = str(est.get("payment_method") or "included")
+        billing: dict[str, Any] = {
+            "channel": "ai_call_follow_back",
+            "billable_minutes": billable_mins,
+            "amount_due_minor": amount_due,
+            "payment_method": method,
+            "catalog_cost_minor": int(est.get("catalog_cost_minor") or 0),
+            "source": "custom_package",
+            "covered_minutes": int(est.get("covered_minutes") or 0),
+            "overage_minutes": int(est.get("overage_minutes") or 0),
+            "connection_fee_minor": int(est.get("connection_fee_minor") or 0),
+            "per_min_minor": int(est.get("per_min_minor") or 0),
+            "duration_seconds": int(duration_seconds or 0),
+        }
+        if amount_due > 0 and method == "wallet":
+            phone_tail = str(job.visitor_phone or "")[-4:]
+            try:
+                tx = WalletService.debit(
+                    db,
+                    org,
+                    amount_minor=amount_due,
+                    kind="ai_call_follow_back",
+                    description=f"AI follow-back · …{phone_tail} · {billable_mins}m"[:500],
+                    metadata={
+                        "job_id": job.id,
+                        "session_id": getattr(job, "session_id", None),
+                        "recipient_id": getattr(job, "recipient_id", None),
+                        "order_id": getattr(job, "order_id", None),
+                        "call_log_id": call_log_id,
+                        "billable_minutes": billable_mins,
+                        "source": "custom_package",
+                    },
+                    restrict_promo_spend=False,
+                )
+                billing["wallet_transaction_id"] = tx.id
+            except InsufficientWalletBalance as exc:
+                billing["wallet_debit_failed"] = str(exc)
+        return billing
+
     block = BillingAccessService.launch_block_reason(db, org)
     sub = BillingAccessService.get_valid_core_subscription(db, org.id)
     has_subscription = sub is not None and block is None
@@ -756,12 +836,13 @@ def _settle_followup_call_billing(
 
     amount_due = int(est.get("amount_due_minor") or 0)
     method = str(est.get("payment_method") or "")
-    billing: dict[str, Any] = {
+    billing = {
         "channel": "ai_call_follow_back",
         "billable_minutes": billable_mins,
         "amount_due_minor": amount_due,
         "payment_method": method,
         "catalog_cost_minor": int(est.get("catalog_cost_minor") or 0),
+        "duration_seconds": int(duration_seconds or 0),
     }
 
     if amount_due > 0 and method == "wallet":
