@@ -26,6 +26,7 @@ export type AiDemoStartResponse = {
   selected_services?: string[];
   real_dashboard?: boolean;
   dashboard_url?: string | null;
+  thanks_url?: string | null;
   demo_org_id?: string | null;
   telnyx?: {
     configured?: boolean;

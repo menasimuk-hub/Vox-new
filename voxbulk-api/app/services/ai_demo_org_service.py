@@ -321,13 +321,22 @@ class AiDemoOrgService:
         *,
         demo_session_id: str,
         start_path: str = "/settings/services",
-        expires_minutes: int = 60,
+        expires_minutes: int | None = None,
     ) -> dict[str, Any]:
         ensured = AiDemoOrgService.ensure_demo_org(db)
         org_id = str(ensured["org_id"])
         user_id = str(ensured["owner_user_id"])
-        token = create_access_token(subject=user_id, org_id=org_id, expires_minutes=expires_minutes)
+        # Short-lived: demo soft-cap is ~7m — do not leave a 60m shared-org JWT lying around.
+        ttl = int(expires_minutes) if expires_minutes is not None else 12
+        ttl = max(8, min(ttl, 20))
+        token = create_access_token(
+            subject=user_id,
+            org_id=org_id,
+            expires_minutes=ttl,
+            extra_claims={"demo_session_id": str(demo_session_id), "demo_access": True},
+        )
         origin = (get_settings().dashboard_app_origin or "https://dashboard.voxbulk.com").rstrip("/")
+        public = str(getattr(get_settings(), "public_site_base_url", None) or "https://voxbulk.com").rstrip("/")
         path = start_path if start_path.startswith("/") else f"/{start_path}"
         query = urlencode({"demo_session": demo_session_id})
         hash_params = urlencode(
@@ -338,10 +347,13 @@ class AiDemoOrgService:
             }
         )
         dashboard_url = f"{origin}{path}?{query}#{hash_params}"
+        thanks_url = f"{public}/demo/thanks?session={demo_session_id}"
         return {
             "dashboard_url": dashboard_url,
+            "thanks_url": thanks_url,
             "org_id": org_id,
             "user_id": user_id,
             "start_path": path,
+            "token_expires_minutes": ttl,
             "feedback_locations": ensured.get("feedback_locations") or [],
         }

@@ -3,9 +3,12 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { GripVertical, Loader2, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
 
+import { clearAllSessionStorage } from "@/lib/session-storage";
 import {
   clearCachedDemoStart,
   completeDemoSession,
+  demoThanksUrl,
+  fetchDemoSessionGate,
   loadTelnyxRtc,
   normalizeTelnyxCustomHeaders,
   pollDemoEvents,
@@ -66,6 +69,17 @@ function readSavedPos(): WidgetPos {
   return { x: 12, y: 12 };
 }
 
+function wipeDemoAuthAndLeave(sessionId: string, thanksUrl?: string | null) {
+  clearCachedDemoStart(sessionId);
+  stripDemoSessionQuery();
+  try {
+    clearAllSessionStorage();
+  } catch {
+    /* ignore */
+  }
+  window.location.replace(demoThanksUrl(sessionId, thanksUrl));
+}
+
 export function AiDemoCallWidget() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -94,6 +108,8 @@ export function AiDemoCallWidget() {
   const softCapTimerRef = useRef<number | null>(null);
   const startedAtRef = useRef<number>(0);
   const startedRef = useRef(false);
+  const exitingRef = useRef(false);
+  const thanksUrlRef = useRef<string | null>(null);
 
   const navigateRoute = useCallback(
     (route: string) => {
@@ -102,28 +118,6 @@ export function AiDemoCallWidget() {
       void navigate({ to: path as never });
     },
     [navigate, pathname],
-  );
-
-  const applyEvents = useCallback(
-    (events: AiDemoUiEvent[]) => {
-      for (const ev of events) {
-        if (ev.id) afterEventIdRef.current = ev.id;
-        const route = String(ev.route || "").trim();
-        // Any tool event that carries a route should move the real dashboard menus.
-        if (route) {
-          const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
-          window.setTimeout(() => navigateRoute(route), delay);
-        }
-        if (ev.type === "request_sales_offer") {
-          toast.message("Sales will follow up with the best offer");
-        }
-        if (ev.type === "end_demo") {
-          setPhase("ended");
-          setStatusLine("Demo ended");
-        }
-      }
-    },
-    [navigateRoute],
   );
 
   const hangup = useCallback(async () => {
@@ -165,26 +159,48 @@ export function AiDemoCallWidget() {
 
   const finish = useCallback(
     async (note?: string) => {
-      if (!sessionId) return;
+      if (!sessionId || exitingRef.current) return;
+      exitingRef.current = true;
+      setPhase("ended");
+      setStatusLine("Demo ended");
       const duration = startedAtRef.current
         ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
         : undefined;
+      let thanks: string | null = thanksUrlRef.current;
       try {
-        await completeDemoSession({
+        const res = await completeDemoSession({
           session_id: sessionId,
           summary: note || "Demo session ended",
           duration_seconds: duration,
         });
+        if (res?.thanks_url) thanks = String(res.thanks_url);
       } catch {
-        /* still end UI */
+        /* still leave dashboard — session may already be completed */
       }
       await hangup();
-      clearCachedDemoStart(sessionId);
-      stripDemoSessionQuery();
-      setPhase("ended");
-      setStatusLine("Demo ended");
+      wipeDemoAuthAndLeave(sessionId, thanks);
     },
     [hangup, sessionId],
+  );
+
+  const applyEvents = useCallback(
+    (events: AiDemoUiEvent[]) => {
+      for (const ev of events) {
+        if (ev.id) afterEventIdRef.current = ev.id;
+        const route = String(ev.route || "").trim();
+        if (route && !exitingRef.current) {
+          const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
+          window.setTimeout(() => navigateRoute(route), delay);
+        }
+        if (ev.type === "request_sales_offer") {
+          toast.message("Sales will follow up with the best offer");
+        }
+        if (ev.type === "end_demo") {
+          void finish("Agent ended demo");
+        }
+      }
+    },
+    [finish, navigateRoute],
   );
 
   useEffect(() => {
@@ -202,11 +218,13 @@ export function AiDemoCallWidget() {
       setStatusLine("Connecting…");
       try {
         const cached = readCachedDemoStart(sessionId);
+        if (cached?.thanks_url) thanksUrlRef.current = String(cached.thanks_url);
         const started =
           cached?.telnyx?.agent_id
             ? cached
             : await startDemoSession(sessionId, cached?.selected_services || []);
         if (cancelled) return;
+        if (started.thanks_url) thanksUrlRef.current = String(started.thanks_url);
         const agentId = started.telnyx?.agent_id;
         if (!agentId) throw new Error("Demo voice agent is not configured.");
 
@@ -314,6 +332,8 @@ export function AiDemoCallWidget() {
         const msg = e instanceof Error ? e.message : "Could not start AI demo call";
         setStatusLine(msg);
         toast.error(msg);
+        // Failed start still must not leave a dangling demo JWT on the dashboard.
+        wipeDemoAuthAndLeave(sessionId, thanksUrlRef.current);
       }
     })();
 
@@ -327,9 +347,19 @@ export function AiDemoCallWidget() {
     let cancelled = false;
     const tick = async () => {
       try {
-        const res = await pollDemoEvents(sessionId, afterEventIdRef.current);
-        if (cancelled) return;
-        if (res.events?.length) applyEvents(res.events);
+        const [eventsRes, gate] = await Promise.all([
+          pollDemoEvents(sessionId, afterEventIdRef.current),
+          fetchDemoSessionGate(sessionId).catch(() => null),
+        ]);
+        if (cancelled || exitingRef.current) return;
+        if (gate && !gate.active) {
+          exitingRef.current = true;
+          setPhase("ended");
+          await hangup();
+          wipeDemoAuthAndLeave(sessionId, gate.thanks_url || thanksUrlRef.current);
+          return;
+        }
+        if (eventsRes.events?.length) applyEvents(eventsRes.events);
       } catch {
         /* ignore poll blips */
       }
@@ -340,7 +370,7 @@ export function AiDemoCallWidget() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [applyEvents, phase, sessionId]);
+  }, [applyEvents, hangup, phase, sessionId]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
@@ -394,7 +424,10 @@ export function AiDemoCallWidget() {
     >
       <audio id={REMOTE_AUDIO_ID} autoPlay playsInline className="hidden" />
       <div className="flex items-center gap-1.5 rounded-full border border-border bg-background/95 py-1 pl-1.5 pr-1 shadow-lg backdrop-blur">
-        <span className="inline-flex h-7 w-5 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing" title="Drag">
+        <span
+          className="inline-flex h-7 w-5 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing"
+          title="Drag"
+        >
           <GripVertical className="h-3.5 w-3.5" />
         </span>
         {phase === "connecting" ? (

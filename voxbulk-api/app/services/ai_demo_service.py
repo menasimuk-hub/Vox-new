@@ -1664,6 +1664,7 @@ class AiDemoService:
             "selected_services": cleaned or AiDemoService._selected_services_from_memory(req, session),
             "real_dashboard": True,
             "dashboard_url": handoff["dashboard_url"],
+            "thanks_url": handoff.get("thanks_url"),
             "demo_org_id": handoff["org_id"],
             "telnyx": {
                 "configured": True,
@@ -2129,6 +2130,9 @@ class AiDemoService:
         except Exception:
             logger.exception("demo_sales_task_create_failed")
 
+        from app.core.config import get_settings as _cfg
+
+        public = str(getattr(_cfg(), "public_site_base_url", None) or "https://voxbulk.com").rstrip("/")
         return {
             "status": "ok",
             "session_id": session.id,
@@ -2136,6 +2140,24 @@ class AiDemoService:
             "lead_id": lead.id,
             "cta": "book_sales_call",
             "summary": summary,
+            "thanks_url": f"{public}/demo/thanks?session={session.id}",
+        }
+
+    @staticmethod
+    def session_gate(db: Session, *, session_id: str) -> dict[str, Any]:
+        """Public gate: whether a demo dashboard JWT is still allowed."""
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        status_val = str(session.status or "").strip().lower()
+        from app.core.config import get_settings as _cfg
+
+        public = str(getattr(_cfg(), "public_site_base_url", None) or "https://voxbulk.com").rstrip("/")
+        return {
+            "session_id": session.id,
+            "status": status_val,
+            "active": status_val == "active",
+            "thanks_url": f"{public}/demo/thanks?session={session.id}",
         }
 
     @staticmethod

@@ -229,6 +229,14 @@ def poll_demo_events(
         raise _http(exc) from exc
 
 
+@router.get("/sessions/{session_id}/status")
+def demo_session_status(session_id: str, db: Session = Depends(get_db)):
+    try:
+        return AiDemoService.session_gate(db, session_id=session_id)
+    except AiDemoError as exc:
+        raise _http(exc) from exc
+
+
 @router.post("/complete")
 def complete_demo(payload: CompleteIn, db: Session = Depends(get_db)):
     try:

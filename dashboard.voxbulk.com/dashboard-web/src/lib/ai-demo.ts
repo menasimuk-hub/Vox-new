@@ -6,6 +6,7 @@ export type AiDemoStartResponse = {
   selected_services?: string[];
   real_dashboard?: boolean;
   dashboard_url?: string | null;
+  thanks_url?: string | null;
   telnyx?: {
     configured?: boolean;
     agent_id?: string;
@@ -27,6 +28,20 @@ export type AiDemoUiEvent = {
   summary?: string;
   recommendation?: string;
   data?: unknown;
+};
+
+export type AiDemoCompleteResponse = {
+  status?: string;
+  session_id?: string;
+  thanks_url?: string | null;
+  cta?: string;
+};
+
+export type AiDemoSessionGate = {
+  session_id: string;
+  status: string;
+  active: boolean;
+  thanks_url?: string | null;
 };
 
 export function normalizeTelnyxCustomHeaders(
@@ -62,7 +77,7 @@ export async function completeDemoSession(input: {
   transcript?: string;
   duration_seconds?: number;
 }) {
-  return publicApiFetch("/ai-demo/complete", {
+  return publicApiFetch<AiDemoCompleteResponse>("/ai-demo/complete", {
     method: "POST",
     body: JSON.stringify(input),
   });
@@ -73,6 +88,33 @@ export async function pollDemoEvents(sessionId: string, afterId?: string | null)
   return publicApiFetch<{ events: AiDemoUiEvent[] }>(
     `/ai-demo/events/${encodeURIComponent(sessionId)}${q}`,
   );
+}
+
+export async function fetchDemoSessionGate(sessionId: string) {
+  return publicApiFetch<AiDemoSessionGate>(
+    `/ai-demo/sessions/${encodeURIComponent(sessionId)}/status`,
+  );
+}
+
+export function demoThanksUrl(sessionId: string, preferred?: string | null) {
+  const fromApi = String(preferred || "").trim();
+  if (fromApi.startsWith("http://") || fromApi.startsWith("https://")) return fromApi;
+  const productionDefault =
+    typeof window !== "undefined" && window.location.hostname === "dashboard.voxbulk.com"
+      ? "https://voxbulk.com"
+      : "http://localhost:5173";
+  const raw = String(import.meta.env.VITE_PUBLIC_APP_URL || productionDefault)
+    .trim()
+    .replace(/\/+$/, "");
+  let origin = productionDefault;
+  try {
+    const u = new URL(raw.includes("://") ? raw : `http://${raw}`);
+    origin = u.origin;
+  } catch {
+    origin = productionDefault;
+  }
+  const q = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
+  return `${origin}/demo/thanks${q}`;
 }
 
 export function readCachedDemoStart(sessionId: string): AiDemoStartResponse | null {

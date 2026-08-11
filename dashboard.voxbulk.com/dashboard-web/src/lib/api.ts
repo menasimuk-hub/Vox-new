@@ -315,8 +315,35 @@ export function redirectToSignIn() {
 }
 
 export function handleUnauthorizedApiError(err: ApiError, { redirect = true } = {}) {
-  if (err.status !== 401 && !/invalid authentication credentials/i.test(String(err.message || ""))) {
+  const msg = String(err.message || "");
+  if (err.status !== 401 && !/invalid authentication credentials/i.test(msg)) {
     return false;
+  }
+  // AI Demo JWT revoked after hangup — leave dashboard, do not bounce to sign-in.
+  if (/demo session ended/i.test(msg)) {
+    try {
+      clearAllSessionStorage();
+    } catch {
+      /* ignore */
+    }
+    if (redirect) {
+      const productionDefault =
+        typeof window !== "undefined" && window.location.hostname === "dashboard.voxbulk.com"
+          ? "https://voxbulk.com"
+          : "http://localhost:5173";
+      const raw = String(import.meta.env.VITE_PUBLIC_APP_URL || productionDefault)
+        .trim()
+        .replace(/\/+$/, "");
+      let origin = productionDefault;
+      try {
+        const u = new URL(raw.includes("://") ? raw : `http://${raw}`);
+        origin = u.origin;
+      } catch {
+        origin = productionDefault;
+      }
+      setTimeout(() => window.location.replace(`${origin}/demo/thanks`), 200);
+    }
+    return true;
   }
   if (redirect) setTimeout(() => redirectToSignIn(), 800);
   return true;

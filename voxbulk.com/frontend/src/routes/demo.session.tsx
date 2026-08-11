@@ -79,6 +79,7 @@ function DemoSessionPage() {
             session_id: started.session_id,
             soft_cap_minutes: started.soft_cap_minutes,
             selected_services: started.selected_services || selected,
+            thanks_url: started.thanks_url || null,
             telnyx: started.telnyx,
           }),
         );

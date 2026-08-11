@@ -35,6 +35,7 @@ def create_access_token(
     org_id: str,
     expires_minutes: int | None = None,
     token_version: int = 0,
+    extra_claims: dict[str, Any] | None = None,
 ) -> str:
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(
@@ -49,6 +50,13 @@ def create_access_token(
         "type": "access",
         "tv": int(token_version or 0),
     }
+    if isinstance(extra_claims, dict):
+        for key, value in extra_claims.items():
+            if key in {"sub", "org_id", "exp", "iat", "type", "tv"}:
+                continue
+            if value is None:
+                continue
+            to_encode[str(key)] = value
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

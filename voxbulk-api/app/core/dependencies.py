@@ -56,6 +56,19 @@ def _principal_from_token(request: Request, db: Session, token: str) -> CurrentP
     if membership_id is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied")
 
+    # AI Demo handoff tokens are bound to a live DemoSession — reject after the call ends.
+    demo_session_id = str(payload.get("demo_session_id") or "").strip()
+    if demo_session_id:
+        from app.models.demo_session import DemoSession
+
+        demo = db.get(DemoSession, demo_session_id)
+        status_val = str(getattr(demo, "status", "") or "").strip().lower() if demo is not None else ""
+        if demo is None or status_val not in {"active"}:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Demo session ended — please request a new demo",
+            )
+
     return CurrentPrincipal(user_id=str(user_id), org_id=str(org_id), token_payload=payload)
 
 
