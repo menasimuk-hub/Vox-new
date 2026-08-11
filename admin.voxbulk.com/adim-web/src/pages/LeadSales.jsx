@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/Badge'
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Modal } from '@/components/ui/Modal'
+import LeadSalesPipelineStrip, { leadSalesEditUrl } from '../components/LeadSalesPipelineStrip'
 import {
   CheckCircle2,
   XCircle,
@@ -54,8 +55,7 @@ function DetailField({ label, value }) {
   )
 }
 
-export default function LeadSales() {
-  const navigate = useNavigate()
+export default function LeadSales({ embedded = false }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
@@ -68,20 +68,36 @@ export default function LeadSales() {
   const [detailTask, setDetailTask] = useState(null)
   const [selectedIds, setSelectedIds] = useState([])
 
+  const openDetail = (task) => {
+    setDetailTask(task)
+    if (!task?.id) return
+    const next = new URLSearchParams(searchParams)
+    next.set('task', String(task.id))
+    setSearchParams(next, { replace: true })
+  }
+
+  const closeDetail = () => {
+    setDetailTask(null)
+    const next = new URLSearchParams(searchParams)
+    next.delete('task')
+    setSearchParams(next, { replace: true })
+  }
+
   const load = async () => {
     setLoading(true)
     setMsg('')
     try {
       const res = await apiFetch('/admin/frontpage/lead-sales/tasks')
-      setTasks(res?.tasks || [])
+      const rows = res?.tasks || []
+      setTasks(rows)
       
       // Calculate stats
       const now = new Date()
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      const pending = (res?.tasks || []).filter(t => t.status === 'pending_approval').length
-      const approved = (res?.tasks || []).filter(t => t.status === 'approved' && t.callback_consent === true).length
-      const needsConsent = (res?.tasks || []).filter(t => t.callback_consent !== true && t.status !== 'rejected').length
-      const doneToday = (res?.tasks || []).filter(t => {
+      const pending = rows.filter(t => t.status === 'pending_approval').length
+      const approved = rows.filter(t => t.status === 'approved' && t.callback_consent === true).length
+      const needsConsent = rows.filter(t => t.callback_consent !== true && t.status !== 'rejected').length
+      const doneToday = rows.filter(t => {
         const updated = new Date(t.updated_at)
         return t.status === 'completed' && updated >= todayStart
       }).length
@@ -92,6 +108,12 @@ export default function LeadSales() {
         needs_consent: needsConsent,
         done_today: doneToday,
       })
+
+      const taskId = String(searchParams.get('task') || '').trim()
+      if (taskId) {
+        const match = rows.find((t) => String(t.id) === taskId)
+        if (match) setDetailTask(match)
+      }
     } catch (e) {
       const hint =
         e?.status === 404
@@ -108,6 +130,13 @@ export default function LeadSales() {
   useEffect(() => {
     load()
   }, [])
+
+  useEffect(() => {
+    const taskId = String(searchParams.get('task') || '').trim()
+    if (!taskId || !tasks.length) return
+    const match = tasks.find((t) => String(t.id) === taskId)
+    if (match && detailTask?.id !== match.id) setDetailTask(match)
+  }, [searchParams, tasks])
 
   const runTaskAction = async (task, action) => {
     setBusyId(`${task.id}-${action}`)
@@ -136,7 +165,7 @@ export default function LeadSales() {
       setTasks((rows) => rows.filter((r) => r.id !== task.id))
       setMsg('Task deleted.')
       if (detailTask?.id === task.id) {
-        setDetailTask(null)
+        closeDetail()
       }
     } catch (e) {
       setMsg(e?.message || 'Delete failed')
@@ -199,15 +228,30 @@ export default function LeadSales() {
 
   return (
     <>
-      <div className='pageTop'>
-        <div>
-          <h1>Lead sales</h1>
-          <p>
-            Consent-gated outbound sales tasks. Approve, verify consent, then call. Configure the master script under{' '}
-            <Link to='/marketing/lead-sales/settings'>Sales setup</Link>.
-          </p>
-        </div>
-        <div className='actions'>
+      {!embedded ? (
+        <>
+          <div className='pageTop'>
+            <div>
+              <h1>Sales tasks</h1>
+              <p>
+                Consent-gated outbound sales tasks. Approve, verify consent, then call. Configure the master script under{' '}
+                <Link to='/marketing/lead-sales/settings'>Sales setup</Link>.
+              </p>
+            </div>
+            <div className='actions'>
+              <Button variant="soft" size="sm" onClick={load} disabled={loading}>
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+                {loading ? 'Loading…' : 'Refresh'}
+              </Button>
+              <Button variant="soft" size="sm" asChild>
+                <Link to='/marketing/lead-sales/settings'>Sales setup</Link>
+              </Button>
+            </div>
+          </div>
+          <LeadSalesPipelineStrip active="sales" />
+        </>
+      ) : (
+        <div className='actions' style={{ marginBottom: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="soft" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             {loading ? 'Loading…' : 'Refresh'}
@@ -216,7 +260,7 @@ export default function LeadSales() {
             <Link to='/marketing/lead-sales/settings'>Sales setup</Link>
           </Button>
         </div>
-      </div>
+      )}
 
       {msg ? (
         <div className={`note ${/fail|error/i.test(msg) ? 'noteWarn' : ''}`} style={{ marginBottom: 16 }}>
@@ -420,7 +464,7 @@ export default function LeadSales() {
                           ) : null}
                           <button
                             type="button"
-                            onClick={() => setDetailTask(task)}
+                            onClick={() => openDetail(task)}
                             style={{ background: 'var(--ds-surface-secondary)', border: '1px solid var(--ds-border)', borderRadius: '30px', padding: '0.15rem 0.6rem', fontSize: '0.72rem', fontWeight: 500, cursor: 'pointer' }}
                           >
                             <FileText className="inline h-3 w-3 mr-1" />
@@ -464,7 +508,7 @@ export default function LeadSales() {
       <Modal
         open={!!detailTask}
         onOpenChange={(open) => {
-          if (!open) setDetailTask(null)
+          if (!open) closeDetail()
         }}
         title={
           detailTask
@@ -507,7 +551,7 @@ export default function LeadSales() {
                 {busyId === `${detailTask.id}-call-now` ? 'Calling…' : 'Call now'}
               </Button>
               <Button size="sm" variant="outline" asChild>
-                <Link to={`/marketing/lead-sales/${detailTask.id}`}>Edit lead</Link>
+                <Link to={leadSalesEditUrl(detailTask.id)}>Full editor</Link>
               </Button>
             </div>
           ) : null

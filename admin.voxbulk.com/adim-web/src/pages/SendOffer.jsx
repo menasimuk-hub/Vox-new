@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import LeadSalesPipelineStrip from '../components/LeadSalesPipelineStrip'
 import {
   Send,
   RefreshCw,
@@ -40,7 +41,7 @@ const SERVICE_LABELS = {
   smart_card: 'Smart Card',
 }
 
-export default function SendOffer() {
+export default function SendOffer({ embedded = false }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
@@ -184,27 +185,42 @@ export default function SendOffer() {
 
   return (
     <>
-      <div className='pageTop'>
-        <div>
-          <h1>Send offer</h1>
-          <p>
-            Send pricing offers to leads after successful sales calls. Configure templates under{' '}
-            <Link to='/marketing/lead-sales/offer-templates'>Offer templates</Link>.
-          </p>
-        </div>
-        <div className='actions'>
+      {!embedded ? (
+        <>
+          <div className='pageTop'>
+            <div>
+              <h1>Offers</h1>
+              <p>
+                Send pricing offers after successful sales calls. Configure templates under{' '}
+                <Link to='/marketing/lead-sales/offer-templates'>Offer templates</Link>.
+              </p>
+            </div>
+            <div className='actions'>
+              <Button variant="soft" size="sm" onClick={load} disabled={loading}>
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+                {loading ? 'Loading…' : 'Refresh'}
+              </Button>
+              <Button variant="soft" size="sm" asChild>
+                <Link to='/marketing/leads/tasks'>Sales tasks</Link>
+              </Button>
+              <Button variant="soft" size="sm" asChild>
+                <Link to='/marketing/lead-sales/offer-templates'>Offer templates</Link>
+              </Button>
+            </div>
+          </div>
+          <LeadSalesPipelineStrip active="offer" />
+        </>
+      ) : (
+        <div className='actions' style={{ marginBottom: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <Button variant="soft" size="sm" onClick={load} disabled={loading}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             {loading ? 'Loading…' : 'Refresh'}
           </Button>
           <Button variant="soft" size="sm" asChild>
-            <Link to='/marketing/lead-sales'>Lead sales</Link>
-          </Button>
-          <Button variant="soft" size="sm" asChild>
             <Link to='/marketing/lead-sales/offer-templates'>Offer templates</Link>
           </Button>
         </div>
-      </div>
+      )}
 
       {msg ? (
         <div className={`note ${/fail|error/i.test(msg) ? 'noteWarn' : ''}`} style={{ marginBottom: 16 }}>
@@ -394,7 +410,7 @@ export default function SendOffer() {
             </table>
             {!loading && !filteredTasks.length ? (
               <p className='muted' style={{ padding: 24, textAlign: 'center' }}>
-                No offers waiting. Complete a call on <Link to='/marketing/lead-sales'>Lead sales</Link> to populate this queue.
+                No offers waiting. Complete a call on <Link to='/marketing/leads/tasks'>Sales tasks</Link> to populate this queue.
               </p>
             ) : null}
             {loading ? <p className='muted' style={{ padding: 24, textAlign: 'center' }}>Loading…</p> : null}

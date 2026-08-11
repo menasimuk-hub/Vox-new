@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Bot,
   Check,
@@ -28,6 +29,7 @@ import {
   X,
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import LeadSalesPipelineStrip, { leadSalesListUrl } from '../components/LeadSalesPipelineStrip'
 import './ai-demos.css'
 
 const LANGS = [
@@ -73,7 +75,7 @@ function statusBadgeClass(status) {
   return map[status] || ''
 }
 
-export default function AiDemos() {
+export default function AiDemos({ embedded = false }) {
   const [tab, setTab] = useState('inbox')
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -366,16 +368,31 @@ export default function AiDemos() {
 
   return (
     <div className="ai-demos-page">
-      <div className="aid-page-header">
-        <div className="aid-header-left">
-          <h1 className="aid-page-title">
-            <Bot /> AI Demos
-          </h1>
-          <p className="aid-page-desc">
-            Approve website requests, send invites, track opens/clicks/sessions/transcripts.
-          </p>
-        </div>
-        <div className="aid-header-actions">
+      {!embedded ? (
+        <>
+          <div className="aid-page-header">
+            <div className="aid-header-left">
+              <h1 className="aid-page-title">
+                <Bot /> AI Demos
+              </h1>
+              <p className="aid-page-desc">
+                Approve requests and send magic-link invites. When a demo completes, a Lead sales task is created in this
+                same pipeline.
+              </p>
+            </div>
+            <div className="aid-header-actions">
+              <button type="button" className="aid-btn aid-btn-outline aid-btn-sm" onClick={() => refresh()} disabled={loading || busy}>
+                <RefreshCw /> Refresh
+              </button>
+              <button type="button" className="aid-btn aid-btn-primary aid-btn-sm" onClick={() => setTab('send')}>
+                <Send /> Send invites
+              </button>
+            </div>
+          </div>
+          <LeadSalesPipelineStrip active="demo" />
+        </>
+      ) : (
+        <div className="aid-header-actions" style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button type="button" className="aid-btn aid-btn-outline aid-btn-sm" onClick={() => refresh()} disabled={loading || busy}>
             <RefreshCw /> Refresh
           </button>
@@ -383,7 +400,7 @@ export default function AiDemos() {
             <Send /> Send invites
           </button>
         </div>
-      </div>
+      )}
 
       {error ? <div className="aid-error">{error}</div> : null}
 
@@ -789,18 +806,18 @@ export default function AiDemos() {
                           {row.frontpage_lead_call_id || row.lead_sales_task_id ? (
                             <span className="aid-action-group">
                               {row.frontpage_lead_call_id ? (
-                                <a className="aid-action-icon link" href="/marketing/lead-sources" title="Lead sources">
+                                <Link className="aid-action-icon link" to="/marketing/leads/inbound" title="Inbound calls">
                                   <Link2 />
-                                </a>
+                                </Link>
                               ) : null}
                               {row.lead_sales_task_id ? (
-                                <a
+                                <Link
                                   className="aid-action-icon link"
-                                  href={`/marketing/lead-sales/${row.lead_sales_task_id}`}
-                                  title="Lead sales"
+                                  to={leadSalesListUrl(row.lead_sales_task_id)}
+                                  title="Open sales task"
                                 >
                                   <ListTodo />
-                                </a>
+                                </Link>
                               ) : null}
                             </span>
                           ) : null}
@@ -1027,14 +1044,14 @@ export default function AiDemos() {
                 </>
               ) : null}
               {detail.frontpage_lead_call_id ? (
-                <a className="aid-btn aid-btn-outline aid-btn-sm" href="/marketing/lead-sources">
-                  <Link2 /> Lead sources
-                </a>
+                <Link className="aid-btn aid-btn-outline aid-btn-sm" to="/marketing/leads/inbound">
+                  <Link2 /> Inbound calls
+                </Link>
               ) : null}
               {detail.lead_sales_task_id ? (
-                <a className="aid-btn aid-btn-outline aid-btn-sm" href={`/marketing/lead-sales/${detail.lead_sales_task_id}`}>
+                <Link className="aid-btn aid-btn-outline aid-btn-sm" to={leadSalesListUrl(detail.lead_sales_task_id)}>
                   <ListTodo /> Sales task
-                </a>
+                </Link>
               ) : null}
               <button type="button" className="aid-btn aid-btn-primary aid-btn-sm" onClick={() => setDetail(null)}>
                 Close

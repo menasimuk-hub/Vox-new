@@ -292,8 +292,8 @@ export default function LeadSalesSettings() {
     <>
       <div className='pageTop'>
         <div>
-          <Link to='/marketing/lead-sales' className='muted' style={{ fontSize: 13 }}>
-            ← Back to lead sales
+          <Link to='/marketing/leads/tasks' className='muted' style={{ fontSize: 13 }}>
+            ← Back to Sales tasks
           </Link>
           <h1 style={{ marginTop: 8 }}>Lead sales setup</h1>
           <p className='muted'>
@@ -535,8 +535,8 @@ export default function LeadSalesSettings() {
           <h3 style={{ marginTop: 0 }}>How it works</h3>
           <ol className='muted' style={{ margin: 0, paddingLeft: 20 }}>
             <li>Visitor completes <Link to='/marketing/frontpage-call-leads'>Talk to us</Link> and requests a sales callback.</li>
-            <li>A row appears in <Link to='/marketing/lead-sources'>Lead sources</Link>.</li>
-            <li>If assistant ID is set, a task is created in <Link to='/marketing/lead-sales'>Lead sales</Link>.</li>
+            <li>A row appears in <Link to='/marketing/leads/inbound'>Inbound calls</Link>.</li>
+            <li>If assistant ID is set, a task is created in <Link to='/marketing/leads/tasks'>Sales tasks</Link>.</li>
             <li>DeepSeek writes a <strong>per-lead prompt</strong> from your master script + lead transcript/data.</li>
             <li>Scheduler or <strong>Run</strong> dials via Telnyx at the scheduled time (within calling hours).</li>
           </ol>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { leadSalesListUrl } from '../components/LeadSalesPipelineStrip'
 import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -303,7 +304,7 @@ export default function PromoOffers() {
             {loading ? 'Loading…' : 'Refresh'}
           </Button>
           <Button asChild variant="outline" size="sm" className="h-8">
-            <Link to="/marketing/lead-sales">Lead sales</Link>
+            <Link to="/marketing/leads/tasks">Lead sales</Link>
           </Button>
           <Button asChild variant="outline" size="sm" className="h-8">
             <Link to="/billing/products?tab=subscription">Subscription plans</Link>
@@ -491,7 +492,7 @@ export default function PromoOffers() {
                       </Button>
                       {row.lead_sales_task_id ? (
                         <Button asChild size="sm" variant="ghost" className="h-7 w-7 p-0" title="Open lead sales task">
-                          <Link to={`/marketing/lead-sales/${row.lead_sales_task_id}`}>
+                          <Link to={leadSalesListUrl(row.lead_sales_task_id)}>
                             <i className="ti ti-phone-call text-[14px]" />
                           </Link>
                         </Button>

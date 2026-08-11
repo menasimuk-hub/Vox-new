@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { leadSalesListUrl } from '../components/LeadSalesPipelineStrip'
 import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Card'
@@ -123,13 +124,13 @@ function CallCostDetailModal({ sessionId, onClose }) {
             {call.source_id ? (
               <div className="text-[12px]">
                 {call.source_type === 'intake' ? (
-                  <Link to="/marketing/lead-sources" className="font-medium underline-offset-2 hover:underline">
+                  <Link to="/marketing/leads/inbound" className="font-medium underline-offset-2 hover:underline">
                     Open intake leads
                   </Link>
                 ) : null}
                 {call.source_type === 'sales' ? (
                   <Link
-                    to={`/marketing/lead-sales/${call.source_id}`}
+                    to={leadSalesListUrl(call.source_id)}
                     className="font-medium underline-offset-2 hover:underline"
                   >
                     Open sales task

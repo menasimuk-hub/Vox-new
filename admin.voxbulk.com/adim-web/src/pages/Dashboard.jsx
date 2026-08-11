@@ -884,7 +884,7 @@ export default function Dashboard() {
       <div className="grid gap-3 lg:grid-cols-3">
         {/* Three pending cards */}
         <Link
-          to="/marketing/lead-sales?status=pending_approval"
+          to="/marketing/leads/tasks?status=pending_approval"
           className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
         >
           <div className="flex items-center justify-between gap-2">
@@ -906,7 +906,7 @@ export default function Dashboard() {
         </Link>
 
         <Link
-          to="/marketing/send-offer?status=ready_after_call"
+          to="/marketing/leads/offers?status=ready_after_call"
           className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
         >
           <div className="flex items-center justify-between gap-2">
@@ -928,7 +928,7 @@ export default function Dashboard() {
         </Link>
 
         <Link
-          to="/marketing/ai-demos"
+          to="/marketing/leads/demos"
           className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
         >
           <div className="flex items-center justify-between gap-2">

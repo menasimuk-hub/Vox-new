@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { apiFetch, resolveApiUrl } from '../lib/api'
 import { readAdminAccessToken, readSharedAccessToken } from '../lib/sessionStorage'
 import { downloadAdminCsv } from '../lib/csvDownload'
+import LeadSalesPipelineStrip, { leadSalesListUrl } from '../components/LeadSalesPipelineStrip'
 
 const TelnyxDualWaveform = lazy(() => import('../components/TelnyxDualWaveform'))
 
@@ -109,7 +110,7 @@ function LeadModal({ title, onClose, children, footer }) {
   )
 }
 
-export default function LeadSources() {
+export default function LeadSources({ embedded = false }) {
   const [loading, setLoading] = useState(true)
   const [msg, setMsg] = useState('')
   const [leads, setLeads] = useState([])
@@ -351,8 +352,8 @@ export default function LeadSources() {
       if (data?.task) mergeLead({ ...lead, sales_task: data.task })
       setMsg(
         data?.already_exists
-          ? 'Sales task already exists — open Lead sales to edit.'
-          : 'Sales task created — open Lead sales to review the prompt and schedule.',
+          ? 'Sales task already exists — open Sales tasks to review.'
+          : 'Sales task created — open Sales tasks to review the prompt and schedule.',
       )
     } catch (e) {
       setMsg(e?.message || 'Could not create sales task')
@@ -404,12 +405,33 @@ export default function LeadSources() {
 
   return (
     <div className='leadSourcesPage'>
-      <div className='pageTop'>
-        <div>
-          <h1>Lead sources</h1>
-          <p className='leadSourcesIntro'>Talk-to-us intake calls — transcript and recording from Vapi or Telnyx.</p>
-        </div>
-        <div className='actions'>
+      {!embedded ? (
+        <>
+          <div className='pageTop'>
+            <div>
+              <h1>Inbound calls</h1>
+              <p className='leadSourcesIntro'>
+                Talk-to-us website intake — transcript and recording. Create or open a sales task in the same pipeline as
+                AI demos.
+              </p>
+            </div>
+            <div className='actions'>
+              <select className='input' style={{ width: 'auto', minWidth: 160 }} value={filterSales} onChange={(e) => setFilterSales(e.target.value)}>
+                <option value='all'>All leads</option>
+                <option value='sales'>Sales callback</option>
+                <option value='no_sales'>No sales callback</option>
+              </select>
+              <button type='button' className='btn soft' onClick={exportCsv} disabled={exporting || loading}>
+                {exporting ? 'Exporting…' : 'Export CSV'}
+              </button>
+              <button type='button' className='btn soft' onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+              <Link className='btn soft' to='/marketing/leads/tasks'>Sales tasks</Link>
+            </div>
+          </div>
+          <LeadSalesPipelineStrip active="inbound" />
+        </>
+      ) : (
+        <div className='actions' style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
           <select className='input' style={{ width: 'auto', minWidth: 160 }} value={filterSales} onChange={(e) => setFilterSales(e.target.value)}>
             <option value='all'>All leads</option>
             <option value='sales'>Sales callback</option>
@@ -419,14 +441,29 @@ export default function LeadSources() {
             {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
           <button type='button' className='btn soft' onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
-          <Link className='btn soft' to='/marketing/lead-sales'>Lead sales</Link>
         </div>
-      </div>
+      )}
 
       {msg ? <div className='note' style={{ marginBottom: 16 }}>{msg}</div> : null}
 
       <section className='card leadSourcesCard'>
         <div className='cardBody' style={{ padding: 0 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '1rem 1.5rem',
+              padding: '0.75rem 1.25rem',
+              borderBottom: '1px solid var(--ds-border)',
+              fontSize: '0.85rem',
+              color: 'var(--ds-text-secondary)',
+            }}
+          >
+            <span>
+              <strong style={{ color: 'var(--ds-text-primary)' }}>{filteredLeads.length}</strong> shown
+            </span>
+            <span>Open Sales opens the shared Sales tasks detail (same UI as the sidebar hub).</span>
+          </div>
           <div className='leadSourcesTableWrap'>
             <table className='leadSourcesTable'>
               <thead>
@@ -466,7 +503,7 @@ export default function LeadSources() {
                         {lead.sales_task?.id ? (
                           <Link
                             className='leadPlayBtn leadPlayBtnLink'
-                            to={`/marketing/lead-sales/${lead.sales_task.id}`}
+                            to={leadSalesListUrl(lead.sales_task.id)}
                             title={lead.sales_task.outcome_label || lead.sales_task.status || 'Open sales task'}
                           >
                             {lead.sales_task.outcome_label || lead.sales_task.status || 'Open'}
@@ -550,7 +587,7 @@ export default function LeadSources() {
               <button type='button' className='btn soft' onClick={() => openTranscriptModal(selected)}>View transcript</button>
               <button type='button' className='btn soft' onClick={() => openAudioModal(selected)}>Play recording</button>
               {selected.sales_task?.id ? (
-                <Link className='btn soft' to={`/marketing/lead-sales/${selected.sales_task.id}`}>
+                <Link className='btn soft' to={leadSalesListUrl(selected.sales_task.id)}>
                   Open sales task
                 </Link>
               ) : (
@@ -573,7 +610,7 @@ export default function LeadSources() {
                   {syncingTelnyxId === selected.id ? 'Syncing…' : 'Sync Telnyx'}
                 </button>
               ) : null}
-              <Link className='btn soft' to='/marketing/lead-sales'>Lead sales</Link>
+              <Link className='btn soft' to='/marketing/leads/tasks'>Sales tasks</Link>
             </div>
             <div className='note'>
               <strong>Structured lead data</strong>

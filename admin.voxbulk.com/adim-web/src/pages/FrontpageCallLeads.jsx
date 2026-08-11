@@ -286,12 +286,12 @@ export default function FrontpageCallLeads() {
     <>
       <div className='pageTop'>
         <div>
-          <h1>Front page call leads</h1>
+          <h1>Talk-to-us agent setup</h1>
           <p>Configure Talk to us: Vapi (WebRTC) or Telnyx (WebRTC — STT, LLM, and TTS on Telnyx; only your script is synced from here).</p>
         </div>
         <div className='actions'>
-          <Link className='btn soft' to='/marketing/lead-sources'>Lead sources</Link>
-          <Link className='btn soft' to='/marketing/lead-sales'>Lead sales</Link>
+          <Link className='btn soft' to='/marketing/leads/inbound'>Inbound calls</Link>
+          <Link className='btn soft' to='/marketing/leads/tasks'>Sales tasks</Link>
           <button className='btn soft' type='button' onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
           <button className='btn primary' type='button' onClick={saveSettings} disabled={saving || loading}>{saving ? 'Saving…' : 'Save settings'}</button>
         </div>
@@ -428,7 +428,7 @@ export default function FrontpageCallLeads() {
         </div>
         <div className='cardBody frontpagePromptFull'>
           <p className='muted' style={{ marginTop: 0 }}>
-            Calls → <Link to='/marketing/lead-sources'>Lead sources</Link>
+            Calls → <Link to='/marketing/leads/inbound'>Inbound calls</Link>
           </p>
           <label className='label'>What should the agent do?</label>
           <textarea className='input frontpageDescTextarea' rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />

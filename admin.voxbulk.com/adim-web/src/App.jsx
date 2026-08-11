@@ -1,11 +1,17 @@
 import React from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/layout/Layout'
 import * as P from './lib/lazyPages'
 import { defaultAdminHome } from './lib/adminPaths'
 import { useAdminProfile } from './context/AdminProfileContext'
 
 const G = (title) => <P.GenericPage title={title} />
+
+/** Preserve query string when redirecting old list URLs into the hub. */
+function LeadSalesListRedirect({ to = '/marketing/leads/tasks' }) {
+  const { search } = useLocation()
+  return <Navigate to={`${to}${search || ''}`} replace />
+}
 
 function HomeRedirect() {
   const { loading, adminRole } = useAdminProfile()
@@ -75,9 +81,16 @@ export default function App() {
         <Route path='/operations/manual-retry' element={<Navigate to='/operations/failed-jobs' replace />} />
         <Route path='/operations/recovery-events' element={<P.OperationsQueue mode='recovery-events' />} />
 
-        <Route path='/marketing/lead-sources' element={<P.LeadSources />} />
-        <Route path='/marketing/lead-sales' element={<P.LeadSales />} />
-        <Route path='/marketing/send-offer' element={<P.SendOffer />} />
+        <Route path='/marketing/leads' element={<P.LeadsHub />}>
+          <Route index element={<Navigate to='tasks' replace />} />
+          <Route path='demos' element={<P.AiDemos embedded />} />
+          <Route path='inbound' element={<P.LeadSources embedded />} />
+          <Route path='tasks' element={<P.LeadSales embedded />} />
+          <Route path='offers' element={<P.SendOffer embedded />} />
+        </Route>
+        <Route path='/marketing/lead-sources' element={<Navigate to='/marketing/leads/inbound' replace />} />
+        <Route path='/marketing/lead-sales' element={<LeadSalesListRedirect />} />
+        <Route path='/marketing/send-offer' element={<LeadSalesListRedirect to="/marketing/leads/offers" />} />
         <Route path='/marketing/lead-sales/settings' element={<P.LeadSalesSettings />} />
         <Route path='/marketing/lead-sales/offer-templates' element={<P.SalesOfferTemplates />} />
         <Route path='/marketing/salesmen' element={<P.Salesmen />} />
@@ -96,9 +109,9 @@ export default function App() {
         <Route path='/marketing/news-blog' element={<P.NewsBlog />} />
         <Route path='/marketing/seo-control' element={<P.SeoControl />} />
         {/* Legacy paths (old admin builds used /ai-marketing/…) */}
-        <Route path='/ai-marketing/leads' element={<Navigate to='/marketing/lead-sources' replace />} />
-        <Route path='/ai-marketing/lead-sources' element={<Navigate to='/marketing/lead-sources' replace />} />
-        <Route path='/ai-marketing/lead-sales' element={<Navigate to='/marketing/lead-sales' replace />} />
+        <Route path='/ai-marketing/leads' element={<Navigate to='/marketing/leads/inbound' replace />} />
+        <Route path='/ai-marketing/lead-sources' element={<Navigate to='/marketing/leads/inbound' replace />} />
+        <Route path='/ai-marketing/lead-sales' element={<Navigate to='/marketing/leads/tasks' replace />} />
         <Route path='/marketing/apollo' element={<Navigate to='/marketing/ai-team' replace />} />
         <Route path='/marketing/clay' element={<Navigate to='/marketing/ai-team' replace />} />
         <Route path='/marketing/instantly' element={<Navigate to='/marketing/ai-team' replace />} />
@@ -177,8 +190,8 @@ export default function App() {
         </Route>
 
         <Route path='/support/inbox' element={<P.SupportInbox />} />
-        <Route path='/support/demo-requested' element={<Navigate to='/marketing/ai-demos' replace />} />
-        <Route path='/marketing/ai-demos' element={<P.AiDemos />} />
+        <Route path='/support/demo-requested' element={<Navigate to='/marketing/leads/demos' replace />} />
+        <Route path='/marketing/ai-demos' element={<Navigate to='/marketing/leads/demos' replace />} />
         <Route path='/support/tickets' element={<P.SupportTickets />} />
         <Route path='/support/archive' element={<P.SupportArchive />} />
         <Route path='/support/tickets/:ticketId' element={<P.SupportTicketDetail />} />

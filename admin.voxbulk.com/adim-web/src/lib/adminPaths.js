@@ -41,9 +41,12 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/marketing/ai-team') ||
       isUnder('/marketing/apify') ||
       isUnder('/marketing/frontpage-call-leads') ||
+      isUnder('/marketing/leads') ||
       isUnder('/marketing/lead-sources') ||
       isUnder('/marketing/lead-sales') ||
       isUnder('/marketing/lead-sales/settings') ||
+      isUnder('/marketing/send-offer') ||
+      isUnder('/marketing/ai-demos') ||
       isUnder('/marketing/promo-offers')
     )
   }
@@ -60,6 +63,7 @@ export function canAccessAdminPath(role, pathname) {
       isUnder('/ai/connection-profiles') ||
       p === '/ai/agent-demo' ||
       isUnder('/marketing/frontpage-call-leads') ||
+      isUnder('/marketing/leads') ||
       isUnder('/marketing/lead-sources') ||
       isUnder('/marketing/lead-sales') ||
       isUnder('/marketing/lead-sales/settings')
@@ -69,10 +73,12 @@ export function canAccessAdminPath(role, pathname) {
   if (r === 'support') {
     return (
       isUnder('/support') ||
+      isUnder('/marketing/leads') ||
       isUnder('/marketing/lead-sources') ||
       isUnder('/marketing/lead-sales') ||
       isUnder('/marketing/frontpage-call-leads') ||
-      isUnder('/marketing/lead-sales/settings')
+      isUnder('/marketing/lead-sales/settings') ||
+      isUnder('/marketing/ai-demos')
     )
   }
 

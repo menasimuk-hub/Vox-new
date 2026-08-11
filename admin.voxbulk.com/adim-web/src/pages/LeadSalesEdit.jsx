@@ -5,6 +5,7 @@ import { readAdminAccessToken, readSharedAccessToken } from '../lib/sessionStora
 import TelnyxDualWaveform from '../components/TelnyxDualWaveform'
 import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 import TelnyxPromptPreview from '../components/TelnyxPromptPreview'
+import LeadSalesPipelineStrip from '../components/LeadSalesPipelineStrip'
 import {
   ArrowLeft,
   Save,
@@ -419,7 +420,7 @@ function RecordingsPanel({ lead, taskId, callDone }) {
       badge={lead?.lead_code && <Badge>{lead.lead_code}</Badge>}
       actions={
         <Button variant="soft" size="sm" asChild>
-          <Link to="/marketing/lead-sources">Lead sources</Link>
+          <Link to="/marketing/leads/inbound">Inbound calls</Link>
         </Button>
       }
     >
@@ -704,7 +705,7 @@ export default function LeadSalesEdit() {
         }}
       >
         <p>{msg || 'Task not found'}</p>
-        <Link to="/marketing/lead-sales" style={{ color: '#991b1b', textDecoration: 'underline' }}>
+          <Link to="/marketing/leads/tasks" style={{ color: '#991b1b', textDecoration: 'underline' }}>
           Back to list
         </Link>
       </div>
@@ -718,9 +719,10 @@ export default function LeadSalesEdit() {
 
   return (
     <>
+      <LeadSalesPipelineStrip active="sales" />
       <div style={{ marginBottom: '1.5rem' }}>
         <Link
-          to="/marketing/lead-sales"
+          to="/marketing/leads/tasks"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -732,11 +734,14 @@ export default function LeadSalesEdit() {
           }}
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Lead sales
+          Back to Sales tasks
         </Link>
 
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
+            <p style={{ margin: '0 0 0.35rem', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ds-text-secondary)' }}>
+              Full editor · same pipeline as Sales tasks list
+            </p>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 600, margin: '0 0 0.5rem', color: 'var(--ds-text-primary)' }}>
               {task.contact_name || 'Sales lead'}
             </h1>
@@ -937,7 +942,7 @@ export default function LeadSalesEdit() {
             )}
           </div>
         )}
-        <Link to={`/marketing/send-offer`} style={{ textDecoration: 'none' }}>
+        <Link to={`/marketing/leads/offers`} style={{ textDecoration: 'none' }}>
           <Button variant="soft">Go to Send offer page</Button>
         </Link>
       </Panel>
