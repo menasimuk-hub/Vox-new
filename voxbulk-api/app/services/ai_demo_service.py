@@ -86,10 +86,14 @@ def _extract_demo_session_id(arguments: dict[str, Any], dynamic: dict[str, Any],
         arguments.get("demo_session_id"),
         dynamic.get("session_id"),
         dynamic.get("demo_session_id"),
+        # Telnyx maps X-Demo-Session-Id → demo_session_id, X-Vox-Demo-Session-Id → vox_demo_session_id
+        dynamic.get("vox_demo_session_id"),
         dynamic.get("X-Vox-Demo-Session-Id"),
         dynamic.get("x-vox-demo-session-id"),
+        dynamic.get("X-Demo-Session-Id"),
         payload.get("session_id"),
         payload.get("demo_session_id"),
+        payload.get("_query_session_id"),
     )
     for item in candidates:
         sid = str(item or "").strip()
@@ -1475,8 +1479,34 @@ class AiDemoService:
             from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
             from app.services.ai_demo_telnyx_tools import ensure_ai_demo_assistant_tools
 
-            # Keep webhook tools attached on the dedicated demo assistant (idempotent).
-            ensure_ai_demo_assistant_tools(db, assistant_id)
+            # Keep webhook tools attached (idempotent). Never send hangup in the body —
+            # Telnyx auto-attaches hangup and rejects duplicates (HTTP 400).
+            tools_sync = ensure_ai_demo_assistant_tools(db, assistant_id, force=True)
+            if not tools_sync.get("ok"):
+                logger.error(
+                    "demo_start_tools_sync_failed session=%s assistant=%s err=%s",
+                    session.id,
+                    assistant_id,
+                    tools_sync.get("error"),
+                )
+                # Soft-fail only when highlight_dashboard is already present from a prior sync.
+                try:
+                    from app.services.telnyx_assistant_service import fetch_telnyx_assistant
+
+                    live_tools = fetch_telnyx_assistant(db, assistant_id).get("tools") or []
+                    has_highlight = any(
+                        isinstance(t, dict)
+                        and str((t.get("webhook") or {}).get("name") or "") == "highlight_dashboard"
+                        for t in live_tools
+                    )
+                except Exception:
+                    has_highlight = False
+                if not has_highlight:
+                    raise AiDemoError(
+                        "Demo agent tools could not be attached (menus would not open). "
+                        f"{str(tools_sync.get('error') or '')[:180]}",
+                        status_code=503,
+                    )
 
             prep = prepare_telnyx_webrtc_call(
                 db,
@@ -1575,6 +1605,8 @@ class AiDemoService:
                 "custom_headers": [
                     row
                     for row in (
+                        # Telnyx maps X-Demo-Session-Id → {{demo_session_id}}
+                        {"name": "X-Demo-Session-Id", "value": session.id},
                         {"name": "X-Vox-Demo-Session-Id", "value": session.id},
                         {"name": "X-Vox-Demo-Request-Id", "value": req.id},
                         {"name": "X-Vox-Call-Id", "value": lead.id if lead else ""},

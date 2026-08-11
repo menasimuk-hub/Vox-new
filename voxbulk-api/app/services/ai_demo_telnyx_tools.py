@@ -223,7 +223,12 @@ def _webhook_tool_name(tool: dict[str, Any]) -> str | None:
 
 
 def merge_ai_demo_tools(existing_tools: list[Any] | None) -> list[dict[str, Any]]:
-    """Replace AI Demo webhook tools by name; keep hangup + unrelated tools."""
+    """Replace AI Demo webhook tools by name; keep unrelated tools.
+
+    Important: do NOT include a hangup tool in the PATCH/POST body. Telnyx
+    auto-attaches hangup; sending hangup while one already exists returns
+    HTTP 400 ("Only one tool of type hangup is allowed").
+    """
     current = [t for t in (existing_tools or []) if isinstance(t, dict)]
     desired_webhooks = {
         name: tool
@@ -233,13 +238,10 @@ def merge_ai_demo_tools(existing_tools: list[Any] | None) -> list[dict[str, Any]
     desired_names = set(desired_webhooks.keys())
 
     kept: list[dict[str, Any]] = []
-    has_hangup = False
     for tool in current:
         ttype = str(tool.get("type") or "").lower()
         if ttype == "hangup":
-            has_hangup = True
-            kept.append(tool)
-            continue
+            continue  # Telnyx owns hangup — never re-send
         name = _webhook_tool_name(tool)
         if name and name in desired_names:
             continue  # replaced below
@@ -249,8 +251,6 @@ def merge_ai_demo_tools(existing_tools: list[Any] | None) -> list[dict[str, Any]
         tool = desired_webhooks.get(name)
         if tool:
             kept.append(tool)
-    if not has_hangup:
-        kept.append(_HANGUP_TOOL)
     return kept
 
 
@@ -259,21 +259,18 @@ def ensure_ai_demo_assistant_tools(
     assistant_id: str,
     *,
     existing: dict[str, Any] | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """PATCH Telnyx assistant tools with AI Demo webhook endpoints + hangup."""
+    """PATCH Telnyx assistant tools with AI Demo webhook endpoints (no hangup in body)."""
     clean_id = normalize_telnyx_assistant_id(assistant_id)
     live = existing if isinstance(existing, dict) else fetch_telnyx_assistant(db, clean_id)
     current_tools = live.get("tools") if isinstance(live.get("tools"), list) else []
     desired = merge_ai_demo_tools(current_tools)
 
-    # Skip update if already equivalent by webhook name+url set
-    def _sig(tools: list[Any]) -> set[str]:
+    def _webhook_sig(tools: list[Any]) -> set[str]:
         out: set[str] = set()
         for t in tools:
             if not isinstance(t, dict):
-                continue
-            if str(t.get("type") or "").lower() == "hangup":
-                out.add("hangup")
                 continue
             name = _webhook_tool_name(t)
             if not name:
@@ -283,9 +280,8 @@ def ensure_ai_demo_assistant_tools(
             out.add(f"{name}|{url}")
         return out
 
-    if _sig(current_tools) >= _sig(desired) and all(
-        f"{n}|{ai_demo_tool_webhook_urls()[n]}" in _sig(current_tools) for n in DEFAULT_TOOL_SUBSET
-    ):
+    base_urls = {f"{n}|{ai_demo_tool_webhook_urls()[n]}" for n in DEFAULT_TOOL_SUBSET}
+    if not force and base_urls <= _webhook_sig(current_tools):
         return {
             "ok": True,
             "changed": False,
@@ -305,13 +301,20 @@ def ensure_ai_demo_assistant_tools(
             "urls": ai_demo_tool_webhook_urls(),
         }
     except Exception as exc:
-        logger.warning("ensure_ai_demo_tools_failed assistant_id=%s err=%s", clean_id, exc)
+        detail = str(exc)
+        try:
+            resp = getattr(exc, "response", None)
+            if resp is not None:
+                detail = f"{detail} body={resp.text[:500]}"
+        except Exception:
+            pass
+        logger.warning("ensure_ai_demo_tools_failed assistant_id=%s err=%s", clean_id, detail)
         return {
             "ok": False,
             "changed": False,
             "assistant_id": clean_id,
             "tool_count": len(current_tools),
-            "error": str(exc)[:400],
+            "error": detail[:500],
         }
 
 

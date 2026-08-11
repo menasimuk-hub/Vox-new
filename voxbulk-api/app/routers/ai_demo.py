@@ -300,7 +300,19 @@ async def _verified_tool_payload(request: Request, db: Session) -> dict[str, Any
 @router.post("/tools/{tool_name}")
 async def demo_tool_webhook(tool_name: str, request: Request, db: Session = Depends(get_db)):
     payload = await _verified_tool_payload(request, db)
-    result = AiDemoService.handle_tool(db, tool_name=tool_name, payload=payload if isinstance(payload, dict) else {})
+    if not isinstance(payload, dict):
+        payload = {}
+    # Bind session from query string when Telnyx omits dynamic variables.
+    q_session = str(request.query_params.get("session_id") or "").strip()
+    if q_session and not payload.get("session_id"):
+        payload = {**payload, "session_id": q_session, "_query_session_id": q_session}
+    logger.info(
+        "demo_tool_hit tool=%s session=%s keys=%s",
+        tool_name,
+        payload.get("session_id") or (payload.get("dynamic_variables") or {}).get("demo_session_id"),
+        list(payload.keys())[:20],
+    )
+    result = AiDemoService.handle_tool(db, tool_name=tool_name, payload=payload)
     return result
 
 
