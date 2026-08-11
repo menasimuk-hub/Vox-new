@@ -33,6 +33,8 @@ AGENTS = (
         "name": "survey_GB-Amelia",
         "voice_label": "Amelia",
         "voice_type_label": "British English · warm female",
+        "accent_region": "GB",
+        "gender": "female",
         "telnyx_assistant_id": DEFAULT_TELNYX,
         "is_default_survey": True,
         "service_survey_role": (
@@ -50,6 +52,8 @@ AGENTS = (
         "name": "survey_GB-James",
         "voice_label": "James",
         "voice_type_label": "British English · professional male",
+        "accent_region": "GB",
+        "gender": "male",
         "telnyx_assistant_id": DEFAULT_TELNYX_MALE,
         "is_default_survey": False,
         "service_survey_role": (
@@ -99,6 +103,8 @@ def _upsert_agent(db, spec: dict, *, kb_text: str, now: datetime) -> AgentDefini
     agent.call_workflow = CALL_WORKFLOW
     agent.voice_label = spec["voice_label"]
     agent.voice_type_label = spec["voice_type_label"]
+    agent.accent_region = str(spec.get("accent_region") or "GB").strip().upper() or "GB"
+    agent.gender = str(spec.get("gender") or "").strip().lower() or None
     telnyx_id = str(spec.get("telnyx_assistant_id") or "").strip()
     if telnyx_id:
         agent.telnyx_assistant_id = telnyx_id
@@ -115,10 +121,10 @@ def _upsert_agent(db, spec: dict, *, kb_text: str, now: datetime) -> AgentDefini
     agent.disclosure_for_interview = False
     agent.disclosure_mandatory = True
     agent.retry_policy_notes = "Retry once after 2 hours for busy or no answer."
-        agent.interruption_behavior_notes = (
-            "If interrupted during the opening disclosure, repeat the full disclosure verbatim including "
-            "that the call is recorded. If interrupted during intro or a question, repeat that step from the start."
-        )
+    agent.interruption_behavior_notes = (
+        "If interrupted during the opening disclosure, repeat the full disclosure verbatim including "
+        "that the call is recorded. If interrupted during intro or a question, repeat that step from the start."
+    )
     agent.voicemail_behavior = "leave_message"
     agent.opt_out_policy_notes = "If remove me or stop calling, acknowledge, end call, never retry."
     agent.is_active = True

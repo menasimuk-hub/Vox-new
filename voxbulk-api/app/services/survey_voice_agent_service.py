@@ -250,6 +250,21 @@ def _agent_dashboard_gender(agent: AgentDefinition) -> str:
     return "unknown"
 
 
+def is_phone_survey_campaign_agent(agent: AgentDefinition) -> bool:
+    """True for customer AI-call survey roster agents (excludes follow-back / sales demo)."""
+    slug = str(getattr(agent, "slug", None) or "").strip().lower()
+    return slug.startswith("survey-")
+
+
+def filter_canonical_survey_agents(agents: list[AgentDefinition]) -> list[AgentDefinition]:
+    """Dashboard survey picker: only `survey-*` campaign agents.
+
+    Follow-back (`feedback-followback-*`) and salesman demo (`sales-ai-survey`) also set
+    `supports_survey` for their own product paths — they must not appear in AI Call Survey.
+    """
+    return [a for a in agents if is_phone_survey_campaign_agent(a)]
+
+
 def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: str) -> list[dict[str, Any]]:
     from app.services.market_zone import country_to_zone
     from app.services.recovery_service import OrganisationService
@@ -286,6 +301,8 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
         dash_logger = logging.getLogger(__name__)
         if service_key == SERVICE_INTERVIEW:
             agents = filter_canonical_interview_agents(agents)
+        elif service_key == SERVICE_SURVEY:
+            agents = filter_canonical_survey_agents(agents)
         dash_logger.info(
             "%s_agents org=%s count=%d slugs=%s",
             service_key,
@@ -340,16 +357,21 @@ def resolve_survey_agent_for_order(db: Session, order: ServiceOrder, config: dic
     agent_id = str(config.get("agent_id") or config.get("survey_agent_id") or "").strip()
     if agent_id:
         agent = db.get(AgentDefinition, agent_id)
-        if agent and agent.is_active and agent.supports_survey:
+        if agent and agent.is_active and agent.supports_survey and is_phone_survey_campaign_agent(agent):
             return agent
 
     assigned = resolve_agent_for_org_service(db, org_id=order.org_id, service_key=SERVICE_SURVEY, require_active=True)
-    if assigned and assigned.supports_survey:
+    if assigned and assigned.supports_survey and is_phone_survey_campaign_agent(assigned):
         return assigned
 
     default = db.execute(
         select(AgentDefinition)
-        .where(AgentDefinition.is_active.is_(True), AgentDefinition.supports_survey.is_(True), AgentDefinition.is_default_survey.is_(True))
+        .where(
+            AgentDefinition.is_active.is_(True),
+            AgentDefinition.supports_survey.is_(True),
+            AgentDefinition.is_default_survey.is_(True),
+            AgentDefinition.slug.like("survey-%"),
+        )
         .limit(1)
     ).scalar_one_or_none()
     if default:
@@ -357,7 +379,11 @@ def resolve_survey_agent_for_order(db: Session, order: ServiceOrder, config: dic
 
     return db.execute(
         select(AgentDefinition)
-        .where(AgentDefinition.is_active.is_(True), AgentDefinition.supports_survey.is_(True))
+        .where(
+            AgentDefinition.is_active.is_(True),
+            AgentDefinition.supports_survey.is_(True),
+            AgentDefinition.slug.like("survey-%"),
+        )
         .order_by(AgentDefinition.created_at.asc())
         .limit(1)
     ).scalar_one_or_none()
