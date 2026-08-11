@@ -86,6 +86,9 @@ def _norm_header(k: str) -> str:
         "code": "dial_code",
         "prefix": "prefix",
         "destination_prefix": "prefix",
+        "destination_prefixes": "prefix",
+        "dest_prefix": "prefix",
+        "dest_prefixes": "prefix",
         "npanxx": "prefix",
         "description": "description",
         "destination": "description",
@@ -93,7 +96,11 @@ def _norm_header(k: str) -> str:
         "rate": "rate",
         "rate_per_minute": "rate",
         "price": "rate",
+        "price_per_minute": "rate",
         "amount": "rate",
+        # Telnyx global_conver decks use "Rate" for per-minute; ignore connection fee column.
+        "price_per_call": "price_per_call",
+        "connection_fee": "price_per_call",
         "voice_out": "voice_outbound",
         "voice_in": "voice_inbound",
         "sms_out": "sms_outbound",
@@ -356,10 +363,14 @@ class TelnyxDestinationRateService:
             return result
 
         # --- Telnyx global rate deck: aggregate by country ---
-        # Per ISO: track min/max outbound voice (or SMS), name, prefixes
+        # Per ISO: track positive min/max outbound voice (or SMS), name, prefixes.
+        # Freephone / $0.0 rows must NOT become the displayed "starting at" rate —
+        # Telnyx decks often include Freephone Local at 0.0 (AU 611800, GB, DE, …).
+        # Prefer the shortest destination prefix rate (country “General”) when present.
         agg: dict[str, dict[str, Any]] = {}
         rows_read = 0
         skipped = 0
+        zero_rate_rows = 0
 
         for rec in reader:
             rows_read += 1
@@ -387,10 +398,13 @@ class TelnyxDestinationRateService:
                     "prefixes": set(),
                     "voice_out_min": None,
                     "voice_out_max": None,
+                    # (prefix_len, rate_minor) — shortest positive prefix = General rate
+                    "voice_out_anchor": None,
                     "voice_in_min": None,
                     "sms_out_min": None,
                     "sms_out_max": None,
                     "count": 0,
+                    "zero_rates": 0,
                 },
             )
             if name and name != iso:
@@ -401,6 +415,12 @@ class TelnyxDestinationRateService:
 
             sms = _is_sms_row(desc, norms)
             inbound = _is_inbound_row(desc)
+
+            # $0 Freephone / promotional rows: keep for dial/prefix inventory only.
+            if rate_minor <= 0:
+                bucket["zero_rates"] += 1
+                zero_rate_rows += 1
+                continue
 
             if sms:
                 cur_min = bucket["sms_out_min"]
@@ -415,6 +435,15 @@ class TelnyxDestinationRateService:
                 cur_max = bucket["voice_out_max"]
                 bucket["voice_out_min"] = rate_minor if cur_min is None else min(cur_min, rate_minor)
                 bucket["voice_out_max"] = rate_minor if cur_max is None else max(cur_max, rate_minor)
+                # Prefer General / country-code row (shortest destination prefix).
+                plen = len(prefix) if prefix.isdigit() else 10_000
+                anchor = bucket["voice_out_anchor"]
+                if (
+                    anchor is None
+                    or plen < anchor[0]
+                    or (plen == anchor[0] and rate_minor < anchor[1])
+                ):
+                    bucket["voice_out_anchor"] = (plen, rate_minor)
 
         if not agg:
             return {
@@ -435,11 +464,19 @@ class TelnyxDestinationRateService:
         for iso, b in agg.items():
             vo_min = b["voice_out_min"]
             vo_max = b["voice_out_max"]
+            anchor = b.get("voice_out_anchor")
+            # Display General (shortest prefix) when available; else positive min.
+            vo_display = anchor[1] if anchor is not None else vo_min
             note_parts = [f"Telnyx deck: {b['count']} prefixes"]
+            if b.get("zero_rates"):
+                note_parts.append(f"ignored {b['zero_rates']} free/$0 rows")
             if vo_min is not None and vo_max is not None and vo_max != vo_min:
+                label = "showing general" if (anchor is not None and vo_display != vo_min) else "showing min"
                 note_parts.append(
-                    f"voice out ${vo_min / RATE_SCALE:.4f}–${vo_max / RATE_SCALE:.4f}/min (showing min)"
+                    f"voice out ${vo_min / RATE_SCALE:.4f}–${vo_max / RATE_SCALE:.4f}/min ({label})"
                 )
+            elif vo_display is not None and vo_min is not None and vo_display == vo_min:
+                pass
             if b["sms_out_min"] is not None and b["sms_out_max"] is not None and b["sms_out_max"] != b["sms_out_min"]:
                 note_parts.append(
                     f"SMS ${b['sms_out_min'] / RATE_SCALE:.4f}–${b['sms_out_max'] / RATE_SCALE:.4f}"
@@ -449,7 +486,7 @@ class TelnyxDestinationRateService:
                     "country_iso": iso,
                     "country_name": b["name"],
                     "dial_code": _infer_dial(iso, b["prefixes"]),
-                    "voice_outbound_per_min_minor": vo_min,
+                    "voice_outbound_per_min_minor": vo_display,
                     "voice_inbound_per_min_minor": b["voice_in_min"],
                     "sms_outbound_per_msg_minor": b["sms_out_min"],
                     "currency": "USD",
@@ -463,8 +500,11 @@ class TelnyxDestinationRateService:
         result["rows_read"] = rows_read
         result["countries"] = len(upsert_rows)
         result["skipped"] = skipped
+        result["zero_rate_rows_ignored"] = zero_rate_rows
         result["message"] = (
             f"Aggregated {rows_read} Telnyx prefix rows → {len(upsert_rows)} countries "
-            f"({result.get('created', 0)} new, {result.get('updated', 0)} updated)."
+            f"({result.get('created', 0)} new, {result.get('updated', 0)} updated"
+            + (f", ignored {zero_rate_rows} free/$0 rows" if zero_rate_rows else "")
+            + ")."
         )
         return result

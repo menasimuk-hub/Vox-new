@@ -112,9 +112,37 @@ XX,Bad,,,,
 
     cn = TelnyxDestinationRateService.get(db, "CN")
     assert cn is not None
-    assert cn.voice_outbound_per_min_minor == 350  # min $0.035
+    assert cn.voice_outbound_per_min_minor == 350  # general (shortest prefix) $0.035
     assert cn.source == "csv_import"
     assert "prefixes" in (cn.notes or "")
+
+    gb = TelnyxDestinationRateService.get(db, "GB")
+    assert gb is not None
+    assert gb.voice_outbound_per_min_minor == 50
+    assert gb.dial_code == "44"
+
+
+def test_import_telnyx_global_conver_ignores_freephone_zero(db):
+    """New Telnyx global_conver CSV: Destination Prefixes + Freephone Local at $0.0."""
+    csv_text = """ISO,Country,Origination Prefixes,Destination Prefixes,Description,Interval 1,Interval N,Rate,Price Per Call,Exact Match
+AU,Australia,,61,Trunking Outbound Minute - Australia,60,60,0.0134,,
+AU,Australia,local,612,Trunking Outbound Minute - Australia - Fixed - Local,60,60,0.0119,,
+AU,Australia,,614,Trunking Outbound Minute - Australia - Mobile,60,60,0.0362,,
+AU,Australia,local,611800,Trunking Outbound Minute - Australia - Freephone - Local,60,60,0.0,,
+GB,United Kingdom,,44,Trunking Outbound Minute - United Kingdom,60,60,0.005,,
+GB,United Kingdom,local,44800,Trunking Outbound Minute - United Kingdom - Freephone - Local,60,60,0.0,,
+"""
+    result = TelnyxDestinationRateService.import_csv(db, csv_text)
+    assert result["ok"] is True
+    assert result["mode"] == "telnyx_deck_aggregated"
+    assert result.get("zero_rate_rows_ignored") == 2
+
+    au = TelnyxDestinationRateService.get(db, "AU")
+    assert au is not None
+    # General (prefix 61), not Fixed Local min and not Freephone $0
+    assert au.voice_outbound_per_min_minor == 134
+    assert au.dial_code == "61"
+    assert "ignored" in (au.notes or "").lower() or "free" in (au.notes or "").lower()
 
     gb = TelnyxDestinationRateService.get(db, "GB")
     assert gb is not None
