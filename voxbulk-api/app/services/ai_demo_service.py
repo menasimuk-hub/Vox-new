@@ -56,6 +56,18 @@ CONVERSATION_STYLE_GUIDE = (
     "- Hard stop on goodbye: if they say thanks / bye / that's all, end cleanly with end_demo — no trailing script."
 )
 
+OPENING_GATE = (
+    "OPENING GATE (mandatory — do not skip):\n"
+    "Turn 1 (the greeting already covers this — do not add a product pitch after it):\n"
+    "  1) Welcome the visitor by name\n"
+    "  2) Introduce yourself by your spoken first name from VoxBulk\n"
+    "  3) State that this call is recorded (quality + sales follow-up) and ask consent\n"
+    "  4) Ask if they are ready to start — then STOP and listen\n"
+    "Do NOT call highlight_dashboard, show_pricing, switch_kb, or name product features "
+    "until they clearly confirm (yes / OK / go / ready / sure / fine).\n"
+    "After they confirm: briefly name the first selected product, one sales hook, THEN open the page with highlight_dashboard."
+)
+
 
 def _is_system_slug_name(value: str) -> bool:
     raw = str(value or "").strip()
@@ -1545,6 +1557,9 @@ class AiDemoService:
         forbidden = [c for c in SERVICE_CODES if c not in (selected or ([code] if code else []))]
         forbidden_labels = [SERVICE_DISPLAY_NAMES.get(c, c) for c in forbidden]
 
+        first_code = (selected[0] if selected else code) or ""
+        first_label = SERVICE_DISPLAY_NAMES.get(first_code, first_code.replace("_", " ") or "VoxBulk")
+
         # When the visitor already picked services, do NOT load the platform overview
         # that lists all five products (that causes "interview" mentions in the intro).
         if selected:
@@ -1556,6 +1571,7 @@ class AiDemoService:
                     "Never say leverage/seamless/solutions. Calm pace."
                 ),
                 CONVERSATION_STYLE_GUIDE,
+                OPENING_GATE,
                 lang_line,
                 f"Your spoken name is {agent_name}. Never say your system id or slug.",
                 f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
@@ -1575,29 +1591,19 @@ class AiDemoService:
                     + "Especially never open with AI interviews unless recruitment was selected."
                 ),
                 (
-                    f"OPENING BEAT (strict order — wait between steps): "
-                    f"1) Welcome {req.contact_name} by name. "
-                    f"2) Introduce yourself as {agent_name} from VoxBulk. "
-                    "3) Consent: this call is recorded for quality and so sales can follow up — ask if that is OK. "
-                    "4) Ask if they are ready to start. "
-                    "5) Do NOT open product pages, call highlight_dashboard, or pitch until they confirm "
-                    "(yes / go / ready / sure / OK)."
+                    f"AFTER they confirm ready (not before): start with {first_label} → "
+                    "one sharp sales hook → THEN call highlight_dashboard with step= "
+                    "(feedback_list|feedback_create|feedback_results|surveys|recruitment|expo|smart_card|"
+                    "services|packages_feedback) BEFORE you say look here. Always include a short label."
                 ),
                 (
-                    "AFTER they are ready: name the FIRST selected service in plain English → one sharp sales hook → "
-                    "THEN call highlight_dashboard with step= (preferred: feedback_list, feedback_create, feedback_results, "
-                    "surveys, recruitment, expo, smart_card, services, packages_feedback) BEFORE you say look here. "
-                    "Always include a short label. Pointer is on by default."
-                ),
-                (
-                    "HOW TO EXPLAIN: speak like a closer — outcomes and stakes, not feature lists. "
+                    "HOW TO EXPLAIN (only after ready): speak like a closer — outcomes and stakes, not feature lists. "
                     "Example tone for Feedback: 'This is how you catch a bad review before it goes online — "
                     "QR on the table, WhatsApp chat, you see the dip by location first.' "
                     "Then prove it on the real page. Bridge every screen back to THEIR business."
                 ),
-                "UI RULES: Prefer step= curated IDs over inventing selectors. "
-                "Call highlight_dashboard BEFORE 'look here'. Set pointer=true when asking them to click. "
-                "Open the FIRST selected product page only after consent + ready.",
+                "UI RULES: Prefer step= curated IDs. Call highlight_dashboard BEFORE 'look here'. "
+                "Never navigate or highlight during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service=active product so the correct tab opens.",
@@ -1610,6 +1616,7 @@ class AiDemoService:
                 overview.system_prompt if overview else "",
                 overview.fact_sheet if overview else "",
                 CONVERSATION_STYLE_GUIDE,
+                OPENING_GATE,
                 lang_line,
                 f"Your spoken name is {agent_name}. Introduce yourself as {agent_name} on the first turn. Never say a system slug.",
                 f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
@@ -1617,67 +1624,64 @@ class AiDemoService:
                 f"DEMO_SESSION_ID={session.id}",
                 "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
                 (
-                    f"OPENING BEAT: welcome {req.contact_name} → introduce as {agent_name} from VoxBulk → "
-                    "recording consent → wait until they are ready → then discover pain and switch_kb."
+                    f"OPENING GATE reminder: welcome {req.contact_name} → introduce as {agent_name} from VoxBulk → "
+                    "recording consent → wait until they say ready → only then discover pain and switch_kb."
                 ),
                 f"Hard soft cap about {soft_cap} minutes — wrap up with end_demo when time is up.",
                 "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
-                "UI RULES: Prefer highlight_dashboard step= curated IDs. Call BEFORE you say 'look here'.",
+                "UI RULES: Prefer highlight_dashboard step= curated IDs. Call BEFORE you say 'look here'. "
+                "Never navigate during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service= the product in context.",
                 "Close promise: sales will send the best offer — never invent promo codes or discounts.",
-                "No services pre-selected — ask what is hurting (customers, hiring, leads, or an event), then switch_kb.",
+                "No services pre-selected — after ready, ask what is hurting (customers, hiring, leads, or an event), then switch_kb.",
             ]
 
         if feature_lines:
             parts.append(
-                "SALES HOOKS FOR SELECTED SERVICES (paraphrase — do not read verbatim):\n"
+                "SALES HOOKS FOR SELECTED SERVICES (use only after ready — paraphrase, do not read verbatim):\n"
                 + "\n".join(feature_lines)
             )
 
         if memory:
             parts.append("RESUME MEMORY (do not restart from scratch): " + _json_dumps(memory))
 
-        first_code = (selected[0] if selected else code) or ""
-        first_label = SERVICE_DISPLAY_NAMES.get(first_code, first_code.replace("_", " ") or "VoxBulk")
-        first_hook = SERVICE_SALES_HOOKS.get(first_code, "")
-
+        # Telnyx speaks first_message once, then waits — welcome + intro + consent + ready only.
         if selected:
             greeting = (
-                f"Hi {req.contact_name}, welcome — I'm {agent_name} from VoxBulk. "
-                "You're on a live product demo in our real dashboard. "
+                f"Hi {req.contact_name}, welcome. "
+                f"I'm {agent_name} from VoxBulk. "
                 "This call is recorded for quality and so our sales team can follow up — is that OK with you? "
-                "When you're ready, just say go and we'll start."
+                "When you're ready to start the demo, just say go."
             )
         elif memory and memory.get("active_service_code"):
-            prev = str(memory.get("active_service_code") or "")
             greeting = (
-                f"Hey {req.contact_name}, it's {agent_name} again from VoxBulk — welcome back. "
-                "This call is recorded for quality and sales follow-up — still OK? "
-                f"Last time we were on {SERVICE_DISPLAY_NAMES.get(prev, prev.replace('_', ' '))}. "
-                "Say ready when you want to pick up there."
+                f"Hi {req.contact_name}, welcome back — I'm {agent_name} from VoxBulk. "
+                "This call is recorded for quality and sales follow-up — still OK with you? "
+                "Say ready when you want to continue."
             )
         else:
             greeting = (
-                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — welcome. "
-                "You're in our live dashboard. This call is recorded for quality and sales follow-up — is that OK? "
-                "When you're ready, tell me what is costing you most — unhappy customers, slow hiring, dead leads, or a show."
+                f"Hi {req.contact_name}, welcome. "
+                f"I'm {agent_name} from VoxBulk. "
+                "This call is recorded for quality and so our sales team can follow up — is that OK? "
+                "When you're ready to start, just say go."
             )
 
         if kb:
             parts.extend(
                 [
-                    f"ACTIVE PRODUCT KB ({kb.service_code}) — use for proof points, speak as a salesperson:",
+                    f"ACTIVE PRODUCT KB ({kb.service_code}) — use ONLY AFTER the visitor confirms ready:",
                     kb.system_prompt,
-                    "FACTS (cite, don't recite as a list):",
+                    "FACTS (cite after ready, don't recite as a list):",
                     kb.fact_sheet,
-                    "DEMO BEAT (flexible — adapt to them):",
+                    "DEMO BEAT (only after ready — adapt to them):",
                     kb.demo_script,
                 ]
             )
         elif not selected:
-            parts.append("No product KB loaded yet — ask what they need and call switch_kb.")
+            parts.append("No product KB loaded yet — after ready, ask what they need and call switch_kb.")
 
         return {
             "system_prompt": sanitize_user_facing_text("\n\n".join(p for p in parts if p).strip()),
@@ -1685,9 +1689,10 @@ class AiDemoService:
                 greeting
                 if lang != "ar"
                 else (
-                    f"مرحباً {req.contact_name}، أهلاً بك — أنا {agent_name} من VoxBulk. "
-                    "هذه مكالمة تجريبية مباشرة. المكالمة تُسجَّل للجودة ومتابعة المبيعات — هل هذا مناسب؟ "
-                    "عندما تكون جاهزاً قل ابدأ وسننطلق."
+                    f"مرحباً {req.contact_name}، أهلاً بك. "
+                    f"أنا {agent_name} من VoxBulk. "
+                    "هذه المكالمة تُسجَّل للجودة ومتابعة المبيعات — هل هذا مناسب؟ "
+                    "عندما تكون جاهزاً للبدء قل ابدأ."
                 )
             ),
         }
@@ -1853,28 +1858,14 @@ class AiDemoService:
         db.add(req)
         db.commit()
 
-        from app.services.ai_demo_org_service import AiDemoOrgService, SERVICE_START_PATHS, resolve_demo_route
+        from app.services.ai_demo_org_service import AiDemoOrgService
 
-        first_selected = (cleaned or AiDemoService._selected_services_from_memory(req, session) or [None])[0]
-        start_path = SERVICE_START_PATHS.get(str(first_selected or ""), "/settings/services")
+        # Neutral home during welcome + recording consent. Product pages open only after
+        # the visitor says ready (agent calls highlight_dashboard).
         handoff = AiDemoOrgService.build_dashboard_handoff(
             db,
             demo_session_id=session.id,
-            start_path=start_path,
-        )
-        # Opening navigate: land on the first selected product (not a generic interview tour).
-        open_section = str(first_selected or "services")
-        open_route = resolve_demo_route(section=open_section, service=open_section) or start_path
-        AiDemoService._append_ui_event(
-            db,
-            session,
-            {
-                "type": "highlight_dashboard",
-                "action": "navigate",
-                "section": open_section,
-                "route": open_route,
-                "delay_ms": 200,
-            },
+            start_path="/dashboard",
         )
         db.commit()
 

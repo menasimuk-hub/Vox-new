@@ -94,3 +94,12 @@ def test_resolve_demo_ui_step_catalog():
     assert "Create" in step["label"]
     assert resolve_demo_ui_step("packages_feedback")["route"] == "/account/packages?tab=feedback"
     assert resolve_demo_ui_step("nope") is None
+
+
+def test_opening_gate_and_consent_first_greeting():
+    from app.services.ai_demo_service import OPENING_GATE
+
+    assert "Welcome the visitor" in OPENING_GATE or "welcome" in OPENING_GATE.lower()
+    assert "recorded" in OPENING_GATE.lower()
+    assert "ready" in OPENING_GATE.lower()
+    assert "highlight_dashboard" in OPENING_GATE
