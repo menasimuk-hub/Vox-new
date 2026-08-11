@@ -1865,7 +1865,7 @@ class AiDemoService:
         handoff = AiDemoOrgService.build_dashboard_handoff(
             db,
             demo_session_id=session.id,
-            start_path="/dashboard",
+            start_path="/",
         )
         db.commit()
 

@@ -10,8 +10,10 @@ from fastapi import HTTPException
 
 from app.core.dependencies import _assert_demo_writes_blocked
 from app.services.ai_demo_org_service import (
+    normalize_demo_start_path,
     packages_route_for_service,
     pricing_tab_for_service,
+    resolve_demo_route,
     resolve_demo_ui_step,
 )
 from app.services.ai_demo_service import AiDemoError, resolve_spoken_display_name, sanitize_user_facing_text
@@ -103,3 +105,15 @@ def test_opening_gate_and_consent_first_greeting():
     assert "recorded" in OPENING_GATE.lower()
     assert "ready" in OPENING_GATE.lower()
     assert "highlight_dashboard" in OPENING_GATE
+
+
+def test_normalize_demo_start_path_rejects_fake_dashboard():
+    assert normalize_demo_start_path("/dashboard") == "/"
+    assert normalize_demo_start_path("/dashboard?x=1") == "/?x=1"
+    assert normalize_demo_start_path("/") == "/"
+    assert normalize_demo_start_path("/feedback") == "/feedback"
+    assert normalize_demo_start_path("/account/packages?tab=feedback") == "/account/packages?tab=feedback"
+    assert normalize_demo_start_path("/nope") == "/"
+    assert resolve_demo_route(section="dashboard") == "/"
+    assert resolve_demo_route(section="home") == "/"
+    assert resolve_demo_route(target="/dashboard") == "/"

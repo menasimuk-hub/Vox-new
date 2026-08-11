@@ -99,8 +99,8 @@ DEMO_SECTION_ROUTES: dict[str, str] = {
     "smartcard": "/smart-card",
     "smart_card_qr": "/smart-card",
     "platform_overview": "/settings/services",
-    "dashboard": "/dashboard",
-    "home": "/dashboard",
+    "dashboard": "/",
+    "home": "/",
 }
 
 # Curated demo coachmarks — agent should prefer step= over free-form selectors.
@@ -225,11 +225,12 @@ def resolve_demo_route(*, section: str | None = None, target: str | None = None,
         if not raw:
             continue
         if raw.startswith("/"):
-            # Keep query string for pricing tabs etc.
-            return raw[:180]
+            return normalize_demo_start_path(raw[:180])
         code = raw.lower().replace("-", "_").replace(" ", "_").replace("/", "_")
         if code in ("pricing", "packages", "show_pricing", "account_packages"):
             return packages_route_for_service(service)
+        if code in ("dashboard", "home"):
+            return "/"
         if code in DEMO_SECTION_ROUTES:
             return DEMO_SECTION_ROUTES[code]
         # Tolerate aliases like settings/services
@@ -248,6 +249,37 @@ SERVICE_START_PATHS: dict[str, str] = {
     "expo": "/expo",
     "smart_card": "/smart-card",
 }
+
+# Real TanStack SPA paths used by AI Demo handoff / highlight (never invent /dashboard).
+DEMO_VALID_START_PATHS: frozenset[str] = frozenset(
+    {
+        "/",
+        "/settings/services",
+        "/account/packages",
+        "/feedback",
+        "/feedback/new",
+        "/feedback/results",
+        "/feedback/compare",
+        "/surveys",
+        "/interviews",
+        "/expo",
+        "/smart-card",
+    }
+)
+
+
+def normalize_demo_start_path(start_path: str | None) -> str:
+    """Map aliases to real SPA paths. Home is `/` — `/dashboard` does not exist."""
+    raw = str(start_path or "").strip() or "/"
+    if not raw.startswith("/"):
+        raw = f"/{raw}"
+    path_only, _, qs = raw.partition("?")
+    path_only = path_only.rstrip("/") or "/"
+    if path_only in ("/dashboard", "/home", "/app", "/app/dashboard"):
+        path_only = "/"
+    if path_only not in DEMO_VALID_START_PATHS:
+        path_only = "/"
+    return f"{path_only}?{qs}" if qs else path_only
 
 
 class AiDemoOrgService:
@@ -457,7 +489,7 @@ class AiDemoOrgService:
         )
         origin = (get_settings().dashboard_app_origin or "https://dashboard.voxbulk.com").rstrip("/")
         public = str(getattr(get_settings(), "public_site_base_url", None) or "https://voxbulk.com").rstrip("/")
-        path = start_path if start_path.startswith("/") else f"/{start_path}"
+        path = normalize_demo_start_path(start_path)
         query = urlencode({"demo_session": demo_session_id})
         hash_params = urlencode(
             {
@@ -466,7 +498,12 @@ class AiDemoOrgService:
                 "user_id": user_id,
             }
         )
-        dashboard_url = f"{origin}{path}?{query}#{hash_params}"
+        # path may include ?tab=… — merge query carefully
+        if "?" in path:
+            base_path, _, existing_qs = path.partition("?")
+            dashboard_url = f"{origin}{base_path}?{existing_qs}&{query}#{hash_params}"
+        else:
+            dashboard_url = f"{origin}{path}?{query}#{hash_params}"
         thanks_url = f"{public}/demo/thanks?session={demo_session_id}"
         return {
             "dashboard_url": dashboard_url,
