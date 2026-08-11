@@ -274,7 +274,8 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
         return (assigned_prio, platform_prio, region_prio, agent.accent_region or "", agent.gender or "", agent.name or "")
 
     agents = sorted(agents, key=_sort_key)
-    if service_key == SERVICE_INTERVIEW:
+    # Interview + survey pickers need region / dialect / voice-preview metadata.
+    if service_key in (SERVICE_INTERVIEW, SERVICE_SURVEY):
         import logging
 
         from app.services.interview_agent_display_service import (
@@ -282,10 +283,12 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
             filter_canonical_interview_agents,
         )
 
-        interview_logger = logging.getLogger(__name__)
-        agents = filter_canonical_interview_agents(agents)
-        interview_logger.info(
-            "interview_agents org=%s count=%d slugs=%s",
+        dash_logger = logging.getLogger(__name__)
+        if service_key == SERVICE_INTERVIEW:
+            agents = filter_canonical_interview_agents(agents)
+        dash_logger.info(
+            "%s_agents org=%s count=%d slugs=%s",
+            service_key,
             org_id,
             len(agents),
             [a.slug for a in agents],

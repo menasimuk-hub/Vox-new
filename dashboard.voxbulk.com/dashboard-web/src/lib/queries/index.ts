@@ -1685,6 +1685,12 @@ export async function previewFeedbackVoiceAgent(agentId: string) {
 
 export type SurveyAgent = InterviewAgent;
 
+export async function previewSurveyAgentVoice(agentId: string) {
+  return apiFetch<InterviewAgentVoicePreview>(
+    `/service-orders/survey-agents/${encodeURIComponent(agentId)}/voice-preview`,
+  );
+}
+
 export function pickDefaultSurveyAgent(agents: SurveyAgent[]): SurveyAgent | undefined {
   if (!agents.length) return undefined;
   return (

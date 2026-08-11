@@ -361,6 +361,26 @@ def list_interview_agents_for_dashboard(db: Session = Depends(get_db), principal
     }
 
 
+@router.get("/survey-agents/{agent_id}/voice-preview")
+def preview_survey_agent_voice_route(
+    agent_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi import HTTPException
+
+    from app.core.agent_services import SERVICE_SURVEY
+    from app.services.interview_agent_display_service import preview_interview_agent_voice
+
+    _require_org_service(db, principal.org_id, "survey")
+    try:
+        return preview_interview_agent_voice(
+            db, agent_id=agent_id, org_id=principal.org_id, service_key=SERVICE_SURVEY
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/interview-agents/{agent_id}/voice-preview")
 def preview_interview_agent_voice_route(
     agent_id: str,

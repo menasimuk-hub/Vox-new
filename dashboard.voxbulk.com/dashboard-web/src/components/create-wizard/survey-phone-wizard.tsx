@@ -3,7 +3,14 @@ import { Download, Lock, Phone, Rocket, RotateCcw, Sparkles, Target, Upload, Use
 import { toast } from "sonner";
 
 import { parseScriptQuestions } from "@/lib/interview-script";
-import type { SurveyAgent } from "@/lib/queries";
+import {
+  pickDefaultSurveyAgent,
+  previewSurveyAgentVoice,
+  useOrganisation,
+  type SurveyAgent,
+} from "@/lib/queries";
+import { agentRegionCode, agentsForRegion, buildRegionMenuOptions } from "@/lib/interview-agents";
+import { InterviewAgentPicker } from "@/components/interview/interview-agent-picker";
 import { StatusBadge } from "@/components/status-badge";
 import { SurveyIdentityHeader } from "@/components/survey-identity-header";
 import { Stepper, Summary, WizardNav, type WizardStepDef } from "@/components/create-wizard";
@@ -20,7 +27,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -30,6 +36,20 @@ const PHONE_STEPS: WizardStepDef[] = [
   { id: 2, title: "Contacts", subtitle: "Upload list", icon: Users },
   { id: 3, title: "Launch", subtitle: "Schedule & go", icon: Rocket },
 ];
+
+function regionFromOrgCountry(country?: string | null, countryCode?: string | null): string {
+  const code = String(countryCode || "").trim().toUpperCase();
+  if (code === "AU" || code === "US" || code === "CA" || code === "IE" || code === "GB") return code;
+  if (code === "UK") return "GB";
+  const c = String(country || "").trim().toLowerCase();
+  if (!c) return "GB";
+  if (c === "au" || c === "aus" || c.includes("australia")) return "AU";
+  if (c === "us" || c === "usa" || c.includes("united states") || c.includes("america")) return "US";
+  if (c === "ca" || c === "can" || c.includes("canada")) return "CA";
+  if (c === "ie" || c.includes("ireland")) return "IE";
+  if (c === "gb" || c === "uk" || c.includes("united kingdom") || c.includes("britain")) return "GB";
+  return "GB";
+}
 
 export type SurveyPhoneWizardProps = {
   onBack: () => void;
@@ -97,9 +117,61 @@ function Field({ label, children, error }: { label: string; children: React.Reac
 export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
   const [step, setStep] = React.useState(1);
   const [contactSource, setContactSource] = React.useState<"csv" | "crm">("csv");
+  const orgQ = useOrganisation();
+  const orgDefaultRegion = regionFromOrgCountry(orgQ.data?.country, orgQ.data?.country_code);
+  const [selectedRegion, setSelectedRegion] = React.useState(orgDefaultRegion);
+  const [regionSeeded, setRegionSeeded] = React.useState(false);
+  const { agentId, setAgentId, agents } = props;
 
-  const selectedAgent = props.agents.find((a) => a.id === props.agentId);
+  const regionAgents = React.useMemo(() => agentsForRegion(agents, selectedRegion), [agents, selectedRegion]);
+  const defaultAgent = pickDefaultSurveyAgent(regionAgents.length ? regionAgents : agents);
+  const resolvedAgentId = agentId || defaultAgent?.id || "";
+  const selectedAgent = agents.find((a) => a.id === resolvedAgentId) || agents.find((a) => a.id === agentId);
   const agentLabel = selectedAgent?.voice_label || selectedAgent?.name || "Survey agent";
+
+  React.useEffect(() => {
+    if (regionSeeded || !orgQ.isFetched) return;
+    setSelectedRegion(orgDefaultRegion);
+    setRegionSeeded(true);
+  }, [orgQ.isFetched, orgDefaultRegion, regionSeeded]);
+
+  React.useEffect(() => {
+    if (!agents.length) return;
+
+    const regionOptions = buildRegionMenuOptions(agents);
+    if (!regionOptions.length) return;
+
+    let nextRegion = String(selectedRegion || orgDefaultRegion || "GB").trim().toUpperCase();
+    if (!regionOptions.some((o) => o.code === nextRegion)) {
+      nextRegion = regionOptions.some((o) => o.code === orgDefaultRegion)
+        ? orgDefaultRegion
+        : regionOptions[0]!.code;
+    }
+
+    let nextAgentId = agentId;
+    const selectedAgentRow = agentId ? agents.find((a) => a.id === agentId) : undefined;
+    if (selectedAgentRow) {
+      const agentRegion = agentRegionCode(selectedAgentRow);
+      if (agentsForRegion(agents, agentRegion).some((a) => a.id === agentId)) {
+        nextRegion = agentRegion;
+      } else {
+        const pool = agentsForRegion(agents, nextRegion);
+        nextAgentId = pickDefaultSurveyAgent(pool)?.id || pool[0]?.id || "";
+      }
+    } else {
+      const pool = agentsForRegion(agents, nextRegion);
+      nextAgentId = pickDefaultSurveyAgent(pool)?.id || pool[0]?.id || "";
+    }
+
+    if (nextRegion !== selectedRegion) {
+      setSelectedRegion(nextRegion);
+      return;
+    }
+    if (nextAgentId && nextAgentId !== agentId) {
+      setAgentId(nextAgentId);
+    }
+  }, [agents, selectedRegion, agentId, setAgentId, orgDefaultRegion]);
+
   const questionCount = React.useMemo(() => parseScriptQuestions(props.script).length, [props.script]);
   const missingCallingWindow = !props.startAt || !props.endAt;
   const launchBlockers = props.launchBlockers || [];
@@ -113,7 +185,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
         props.goal.trim().length > 0 &&
         props.script.trim().length > 0 &&
         props.approved &&
-        Boolean(props.agentId)
+        Boolean(resolvedAgentId)
       );
     }
     if (step === 2) return hasContacts && uploadReady;
@@ -124,7 +196,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
     props.goal,
     props.script,
     props.approved,
-    props.agentId,
+    resolvedAgentId,
     hasContacts,
     uploadReady,
   ]);
@@ -135,7 +207,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
         toast.error("Enter a survey name before continuing");
       } else if (step === 1 && !props.approved) {
         toast.error("Approve your script before continuing");
-      } else if (step === 1 && !props.agentId) {
+      } else if (step === 1 && !resolvedAgentId) {
         toast.error("Select a survey voice agent");
       } else if (step === 1) {
         toast.error("Add a survey goal and script before continuing");
@@ -213,29 +285,30 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 <Textarea rows={3} value={props.goal} onChange={(e) => props.setGoal(e.target.value)} />
               </Field>
 
-              <Field label="AI voice agent">
-                {props.agentsLoading ? (
-                  <Skeleton className="h-10 w-full" />
-                ) : props.agents.length === 0 ? (
+              {props.agentsLoading ? (
+                <div className="space-y-2">
+                  <Label className="text-xs">Language &amp; AI voice agent</Label>
+                  <Skeleton className="h-9 w-full max-w-md" />
+                </div>
+              ) : agents.length === 0 ? (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Language &amp; AI voice agent</Label>
                   <p className="text-xs text-muted-foreground">
                     No survey agents configured yet. Ask your admin to enable survey voice agents.
                   </p>
-                ) : (
-                  <Select value={props.agentId} onValueChange={props.setAgentId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select survey agent" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {props.agents.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.voice_label || a.name}
-                          {a.is_default_for_org ? " · default" : a.is_zone_match ? " · GB" : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </Field>
+                </div>
+              ) : (
+                <InterviewAgentPicker
+                  agents={agents}
+                  selectedRegion={selectedRegion}
+                  resolvedAgentId={resolvedAgentId}
+                  previewVoice={previewSurveyAgentVoice}
+                  label="Language & AI voice agent"
+                  hint="Choose the accent your contacts will hear. Tap ▶ to preview."
+                  onSelectAgent={setAgentId}
+                  onRegionChange={setSelectedRegion}
+                />
+              )}
 
               <Field label="Survey script">
                 <Textarea rows={10} value={props.script} onChange={(e) => props.setScript(e.target.value)} className="font-mono text-sm" />
@@ -256,7 +329,7 @@ export function SurveyPhoneWizard(props: SurveyPhoneWizardProps) {
                 <Button
                   variant="outline"
                   className="gap-1.5"
-                  disabled={props.generatePending || !props.goal.trim() || !props.agentId}
+                  disabled={props.generatePending || !props.goal.trim() || !resolvedAgentId}
                   onClick={() => void props.onGenerateScript()}
                 >
                   <Wand2 className="size-4" /> {props.generatePending ? "Generating…" : "AI write survey script"}

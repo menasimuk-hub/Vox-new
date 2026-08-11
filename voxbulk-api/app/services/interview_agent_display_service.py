@@ -17,9 +17,9 @@ from app.constants.interview_agent_regions import (
     region_meta_for_agent,
     voice_env_key_for_region_gender,
 )
-from app.core.agent_services import SERVICE_INTERVIEW
+from app.core.agent_services import SERVICE_INTERVIEW, SERVICE_SURVEY
 from app.models.agent import AgentDefinition
-from app.services.survey_voice_agent_service import list_agents_for_service
+from app.services.survey_voice_agent_service import _service_support_field, list_agents_for_service
 
 logger = logging.getLogger(__name__)
 
@@ -328,22 +328,55 @@ def dashboard_agent_row(
     }
 
 
-def get_interview_agent_for_org(db: Session, *, agent_id: str, org_id: str) -> AgentDefinition | None:
-    allowed = {a.id for a in list_agents_for_service(db, service_key=SERVICE_INTERVIEW, org_id=org_id)}
+def get_service_agent_for_org(
+    db: Session,
+    *,
+    agent_id: str,
+    org_id: str,
+    service_key: str,
+) -> AgentDefinition | None:
+    allowed = {a.id for a in list_agents_for_service(db, service_key=service_key, org_id=org_id)}
     if agent_id not in allowed:
         return None
     agent = db.get(AgentDefinition, agent_id)
-    if agent is None or not agent.is_active or not agent.supports_interview:
+    if agent is None or not agent.is_active:
+        return None
+    support_field = _service_support_field(service_key)
+    if not support_field or not bool(getattr(agent, support_field, False)):
         return None
     return agent
 
 
-def preview_interview_agent_voice(db: Session, *, agent_id: str, org_id: str) -> dict[str, Any]:
+def get_interview_agent_for_org(db: Session, *, agent_id: str, org_id: str) -> AgentDefinition | None:
+    return get_service_agent_for_org(
+        db, agent_id=agent_id, org_id=org_id, service_key=SERVICE_INTERVIEW
+    )
+
+
+def get_survey_agent_for_org(db: Session, *, agent_id: str, org_id: str) -> AgentDefinition | None:
+    return get_service_agent_for_org(
+        db, agent_id=agent_id, org_id=org_id, service_key=SERVICE_SURVEY
+    )
+
+
+def preview_interview_agent_voice(
+    db: Session,
+    *,
+    agent_id: str,
+    org_id: str,
+    service_key: str = SERVICE_INTERVIEW,
+) -> dict[str, Any]:
     """Synthesize a short TTS sample using the agent's Telnyx/ElevenLabs voice."""
-    agent = get_interview_agent_for_org(db, agent_id=agent_id, org_id=org_id)
+    agent = get_service_agent_for_org(db, agent_id=agent_id, org_id=org_id, service_key=service_key)
     if agent is None:
-        logger.warning("interview_voice_preview org=%s agent=%s result=not_found", org_id, agent_id)
-        raise ValueError("Interview agent not found")
+        label = "Survey" if service_key == SERVICE_SURVEY else "Interview"
+        logger.warning(
+            "%s_voice_preview org=%s agent=%s result=not_found",
+            service_key,
+            org_id,
+            agent_id,
+        )
+        raise ValueError(f"{label} agent not found")
 
     dialect = interview_agent_dialect_meta(agent)
     sample_text = dialect["sample_phrase"]

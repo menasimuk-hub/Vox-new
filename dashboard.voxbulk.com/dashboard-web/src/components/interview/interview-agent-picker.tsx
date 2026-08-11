@@ -28,8 +28,12 @@ type Props = {
   agents: InterviewAgent[];
   selectedRegion: string;
   resolvedAgentId: string;
-  /** Override sample fetch (e.g. Customer Feedback voice-agents path). */
+  /** Override sample fetch (e.g. Customer Feedback / Survey voice-agents path). */
   previewVoice?: (agentId: string) => Promise<{ content_type: string; audio_base64: string }>;
+  /** Optional picker heading (defaults to interview wording). */
+  label?: string;
+  /** Optional helper under the heading. */
+  hint?: string;
   onSelectAgent: (id: string) => void;
   onRegionChange: (region: string) => void;
 };
@@ -139,6 +143,8 @@ export function InterviewAgentPicker({
   selectedRegion,
   resolvedAgentId,
   previewVoice,
+  label = "Language & AI voice agent",
+  hint = "Choose the accent your candidates will hear. Tap ▶ to preview.",
   onSelectAgent,
   onRegionChange,
 }: Props) {
@@ -202,8 +208,8 @@ export function InterviewAgentPicker({
 
   return (
     <div className="md:col-span-2 space-y-2">
-      <Label className="text-xs">Language &amp; AI voice agent</Label>
-      <p className="text-[10px] text-muted-foreground">Choose the accent your candidates will hear. Tap ▶ to preview.</p>
+      <Label className="text-xs">{label}</Label>
+      <p className="text-[10px] text-muted-foreground">{hint}</p>
 
       {agents.length === 0 ? (
         <p className="text-xs text-muted-foreground">No voice agents configured — ask your admin.</p>
