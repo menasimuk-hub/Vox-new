@@ -57,50 +57,64 @@ def _body(properties: dict[str, Any], required: list[str] | None = None) -> dict
 
 def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
     urls = ai_demo_tool_webhook_urls()
+    session_prop = _str_prop("Required: DEMO_SESSION_ID from the system prompt (demo session UUID)")
     specs: list[tuple[str, str, dict[str, Any]]] = [
         (
             "switch_kb",
-            "Switch the active product knowledge base and dashboard tab "
+            "Switch the active product knowledge base and open that dashboard page "
             "(recruitment, surveys, feedback, expo, smart_card).",
             _body(
                 {
+                    "session_id": session_prop,
                     "service": _str_prop("Product code: recruitment|surveys|feedback|expo|smart_card"),
                     "service_code": _str_prop("Alias for service"),
                 },
-                ["service"],
+                ["session_id", "service"],
             ),
         ),
         (
             "highlight_dashboard",
-            "Drive the live demo dashboard: highlight, navigate, filter, or open a chart "
-            "when you say here/this chart/these locations. Call BEFORE or AS you speak.",
+            "Navigate the live demo dashboard menus. Call BEFORE you say look here / open this. "
+            "Use section=services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card.",
             _body(
                 {
-                    "action": _str_prop("highlight|navigate|filter|open_chart"),
-                    "section": _str_prop("Service section e.g. feedback"),
-                    "target": _str_prop("data-demo-target id e.g. leeds-chart, locations-overview"),
+                    "session_id": session_prop,
+                    "action": _str_prop("highlight|navigate|filter|open_chart — prefer navigate"),
+                    "section": _str_prop("Menu/section to open e.g. services, feedback, expo"),
+                    "target": _str_prop("Optional alias or path e.g. /expo"),
+                    "menu": _str_prop("Alias for section"),
+                    "page": _str_prop("Alias for section"),
+                    "route": _str_prop("Optional absolute path"),
                     "location": _str_prop("Location filter e.g. Leeds"),
                     "range": _str_prop("Optional range e.g. 6mo"),
                     "view": _str_prop("Optional smart_card view: rep|manager"),
-                    "delay_ms": {"type": "integer", "description": "UI lead delay ms (300-500)"},
+                    "delay_ms": {"type": "integer", "description": "UI lead delay ms (200-500)"},
                 },
-                ["action"],
+                ["session_id", "section"],
             ),
         ),
         (
             "show_result_panel",
             "Show a JSON/result panel on the demo UI (legacy companion panel).",
-            _body({"data": {"type": "object", "description": "Panel payload"}, "json": {"type": "object"}}),
+            _body(
+                {
+                    "session_id": session_prop,
+                    "data": {"type": "object", "description": "Panel payload"},
+                    "json": {"type": "object"},
+                },
+                ["session_id"],
+            ),
         ),
         (
             "show_link",
             "Show an external link card on the demo UI.",
             _body(
                 {
+                    "session_id": session_prop,
                     "url": _str_prop("Absolute https URL"),
                     "label": _str_prop("Button label"),
                 },
-                ["url"],
+                ["session_id", "url"],
             ),
         ),
         (
@@ -109,23 +123,27 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
             "Go quiet while they scan.",
             _body(
                 {
+                    "session_id": session_prop,
                     "service": _str_prop("feedback|expo|smart_card"),
                     "label": _str_prop("QR card title"),
                     "data": _str_prop("Optional absolute URL override"),
                     "url": _str_prop("Optional absolute URL override"),
                 },
+                ["session_id"],
             ),
         ),
         (
             "show_pricing",
-            "Open the pricing panel. Explain package differences and recommend. "
+            "Open Packages pricing. Explain differences and recommend. "
             "Never invent discounts — sales will send the best offer.",
             _body(
                 {
+                    "session_id": session_prop,
                     "recommendation": _str_prop("e.g. Growth"),
                     "recommend": _str_prop("Alias for recommendation"),
                     "service": _str_prop("Product context"),
                 },
+                ["session_id"],
             ),
         ),
         (
@@ -133,10 +151,12 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
             "Flag the lead so sales will send the best offer. Do not email a promo yourself.",
             _body(
                 {
+                    "session_id": session_prop,
                     "note": _str_prop("Short note for sales"),
                     "summary": _str_prop("Alias for note"),
                     "volumes": {"type": "object", "description": "Optional volume needs"},
                 },
+                ["session_id"],
             ),
         ),
         (
@@ -144,10 +164,12 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
             "Switch spoken language / voice preference for the session.",
             _body(
                 {
+                    "session_id": session_prop,
                     "lang": _str_prop("en|ar"),
                     "language": _str_prop("Alias for lang"),
                     "voice": _str_prop("Optional voice id"),
                 },
+                ["session_id"],
             ),
         ),
         (
@@ -155,15 +177,23 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
             "End the demo session with a short summary and book-sales CTA.",
             _body(
                 {
+                    "session_id": session_prop,
                     "summary": _str_prop("Needs summary for sales"),
                     "transcript": _str_prop("Optional transcript snippet"),
                 },
+                ["session_id"],
             ),
         ),
         (
             "log_volume_needs",
             "Capture expected volumes (locations, interviews/month, show size, team size).",
-            _body({"volumes": {"type": "object", "description": "Volume needs object"}}),
+            _body(
+                {
+                    "session_id": session_prop,
+                    "volumes": {"type": "object", "description": "Volume needs object"},
+                },
+                ["session_id"],
+            ),
         ),
     ]
 

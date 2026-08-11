@@ -18,6 +18,11 @@ from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
 from app.services.demo_account_seed_service import DemoAccountSeedService
+from app.services.ai_demo_dashboard_seed import ensure_expo_and_smart_card_demo_data
+from app.services.org_enabled_services import (
+    serialize_allowed_services,
+    serialize_enabled_services,
+)
 from app.services.org_logo_storage_service import (
     normalize_logo_tone,
     save_logo_bytes,
@@ -29,6 +34,19 @@ logger = logging.getLogger(__name__)
 
 DEMO_ORG_NAME = "Voxbulk Demo"
 DEMO_OWNER_EMAIL = "voxbulk-demo@voxbulk.com"
+# Live demo modules only — hide add-ons / unfinished products from Services + sidebar.
+AI_DEMO_ACTIVE_MODULES: dict[str, bool] = {
+    "interview": True,
+    "survey": True,
+    "customer_feedback": True,
+    "feedback_campaigns": False,  # Add-on · Send campaign — not ready
+    "expo": True,
+    "smart_card": True,
+    "appointments": False,
+    "recovery": False,
+    "follow_up": False,
+    "campaigns": False,
+}
 DEMO_ORG_PROFILE = {
     "address_line1": "VoxBulk Ltd",
     "address_line2": "Registered in England and Wales",
@@ -50,12 +68,16 @@ DEMO_SECTION_ROUTES: dict[str, str] = {
     "enable_services": "/settings/services",
     "settings_services": "/settings/services",
     "settings": "/settings/services",
+    "sidebar": "/settings/services",
+    "menu": "/settings/services",
+    "modules": "/settings/services",
     "pricing": "/account/packages",
     "packages": "/account/packages",
     "show_pricing": "/account/packages",
     "account_packages": "/account/packages",
     "feedback": "/feedback",
     "feedback_list": "/feedback",
+    "customer_feedback": "/feedback",
     "feedback_new": "/feedback/new",
     "create_feedback": "/feedback/new",
     "feedback_results": "/feedback/results",
@@ -63,12 +85,41 @@ DEMO_SECTION_ROUTES: dict[str, str] = {
     "results": "/feedback/results",
     "compare": "/feedback/compare",
     "surveys": "/surveys",
+    "wa_survey": "/surveys",
+    "whatsapp_surveys": "/surveys",
     "recruitment": "/interviews",
     "interviews": "/interviews",
+    "ai_interview": "/interviews",
+    "ai_interviews": "/interviews",
+    "interview": "/interviews",
     "expo": "/expo",
+    "voxbulk_expo": "/expo",
+    "booth": "/expo",
     "smart_card": "/smart-card",
+    "smartcard": "/smart-card",
+    "smart_card_qr": "/smart-card",
     "platform_overview": "/settings/services",
+    "dashboard": "/dashboard",
+    "home": "/dashboard",
 }
+
+
+def resolve_demo_route(*, section: str | None = None, target: str | None = None, service: str | None = None) -> str | None:
+    for key in (section, target, service):
+        raw = str(key or "").strip()
+        if not raw:
+            continue
+        if raw.startswith("/"):
+            return raw.split("?")[0][:120]
+        code = raw.lower().replace("-", "_").replace(" ", "_").replace("/", "_")
+        if code in DEMO_SECTION_ROUTES:
+            return DEMO_SECTION_ROUTES[code]
+        # Tolerate aliases like settings/services
+        slash = raw.lower().strip("/")
+        if slash in ("settings/services", "account/packages", "feedback", "surveys", "interviews", "expo", "smart-card"):
+            return f"/{slash}"
+    return None
+
 
 SERVICE_START_PATHS: dict[str, str] = {
     "feedback": "/feedback",
@@ -77,16 +128,6 @@ SERVICE_START_PATHS: dict[str, str] = {
     "expo": "/expo",
     "smart_card": "/smart-card",
 }
-
-
-def resolve_demo_route(*, section: str | None = None, target: str | None = None, service: str | None = None) -> str | None:
-    for key in (section, target, service):
-        code = str(key or "").strip().lower().replace("-", "_").replace(" ", "_")
-        if not code:
-            continue
-        if code in DEMO_SECTION_ROUTES:
-            return DEMO_SECTION_ROUTES[code]
-    return None
 
 
 class AiDemoOrgService:
@@ -174,6 +215,16 @@ class AiDemoOrgService:
         return False
 
     @staticmethod
+    def apply_active_modules(db: Session, org: Organisation) -> None:
+        """Keep Voxbulk Demo on live products only (no unfinished add-ons)."""
+        org.allowed_services_json = serialize_allowed_services(dict(AI_DEMO_ACTIVE_MODULES))
+        org.enabled_services_json = serialize_enabled_services(dict(AI_DEMO_ACTIVE_MODULES))
+        org.onboarding_state = "onboarding_completed"
+        db.add(org)
+        db.commit()
+        db.refresh(org)
+
+    @staticmethod
     def ensure_demo_org(db: Session, *, reseeds: bool = False) -> dict[str, Any]:
         """Idempotent create/update Voxbulk Demo org, owner, logo, and sales demo seed."""
         created = False
@@ -200,6 +251,15 @@ class AiDemoOrgService:
             # Soft: seed_for_org skips if already seeded; caller can wipe separately.
             pass
         seed = DemoAccountSeedService.seed_for_org(db, org_id=org.id, user_id=owner.id)
+        # Always re-apply live-module grants (seed may turn all modules on).
+        AiDemoOrgService.apply_active_modules(db, org)
+        expo_smart = ensure_expo_and_smart_card_demo_data(db, org_id=org.id, user_id=owner.id)
+        try:
+            from app.services.ai_demo_service import AiDemoService
+
+            AiDemoService.upsert_knowledge_bases(db)
+        except Exception:
+            logger.exception("ai_demo_kb_upsert_failed")
         locations = AiDemoOrgService.feedback_prompt_numbers(db, org.id)
 
         return {
@@ -211,6 +271,7 @@ class AiDemoOrgService:
             "owner_email": owner.email,
             "logo_set": logo_set or bool(org.logo_storage_key),
             "seed": seed,
+            "expo_smart_card": expo_smart,
             "feedback_locations": locations,
         }
 
@@ -241,9 +302,13 @@ class AiDemoOrgService:
             )
         lines = [
             f"REAL DASHBOARD (dashboard.voxbulk.com — org '{DEMO_ORG_NAME}'):",
-            "Navigate with highlight_dashboard using section values: services, packages, feedback, "
-            "feedback_new, feedback_results, surveys, recruitment, expo, smart_card.",
-            "Tour order: /settings/services → /account/packages → /feedback → /feedback/new → /feedback/results.",
+            "You MUST call highlight_dashboard before you say look here / open this / on this page.",
+            "section values that work: services, packages, feedback, feedback_new, feedback_results, "
+            "surveys, recruitment, interviews, expo, smart_card.",
+            "Always pass session_id from DEMO_SESSION_ID on every tool call.",
+            "Tour order: /settings/services → product page for the selected service → packages if pricing comes up.",
+            "Only the live modules are enabled: AI Interviews, Surveys, Customer Feedback, Expo, Smart Card "
+            "(no Send-campaign add-on, appointments, recovery, or broadcast campaigns).",
             "Customer Feedback locations on this org (cite these names/scans only):",
         ]
         for loc in locs:

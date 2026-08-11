@@ -26,9 +26,100 @@ from app.models.demo_session import DemoSession
 from app.models.frontpage_lead_call import FrontpageLeadCall
 from app.services.interview_whatsapp_send_service import InterviewWhatsappSendService
 from app.services.telnyx_lead_variables import normalize_lead_phone, resolve_lead_location
+from app.services.telnyx_voice_service import _decode_client_state
 from app.services.transactional_email_service import TransactionalEmailService
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_display_name(agent_name: str | None) -> str:
+    """Prefer a friendly first name (Leo) from Admin agent labels."""
+    raw = str(agent_name or "").strip()
+    if not raw:
+        return "Leo"
+    # "AI Demo — Leo" / "Leo (GB)" / "Leo"
+    cleaned = raw.replace("AI Demo —", "").replace("AI Demo -", "").replace("AI Demo", "").strip(" -—")
+    first = cleaned.split()[0] if cleaned else "Leo"
+    return first or "Leo"
+
+
+def _parse_demo_tool_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Extract Telnyx tool arguments + dynamic variables from varied webhook shapes."""
+    arguments: dict[str, Any] = {}
+    dynamic: dict[str, Any] = {}
+
+    if isinstance(payload.get("arguments"), dict):
+        arguments.update(payload["arguments"])
+    if isinstance(payload.get("dynamic_variables"), dict):
+        dynamic.update(payload["dynamic_variables"])
+
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    record = data.get("payload") if isinstance(data.get("payload"), dict) else data
+    if isinstance(record, dict):
+        if isinstance(record.get("arguments"), dict):
+            arguments = {**arguments, **record["arguments"]}
+        if isinstance(record.get("dynamic_variables"), dict):
+            dynamic = {**dynamic, **record["dynamic_variables"]}
+        state_raw = record.get("client_state")
+        if isinstance(state_raw, str) and state_raw.strip():
+            parsed = _decode_client_state(state_raw)
+            if isinstance(parsed, dict):
+                dynamic = {**dynamic, **{k: v for k, v in parsed.items() if v is not None}}
+        meta = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        for key, value in meta.items():
+            if value is not None and key not in dynamic:
+                dynamic[str(key)] = value
+
+    # Custom headers sometimes arrive flattened on the payload
+    for key, value in list(payload.items()):
+        lk = str(key)
+        if lk.lower().startswith("x-vox") or lk in ("session_id", "demo_session_id"):
+            if value is not None and lk not in dynamic:
+                dynamic[lk] = value
+
+    return arguments, dynamic
+
+
+def _extract_demo_session_id(arguments: dict[str, Any], dynamic: dict[str, Any], payload: dict[str, Any]) -> str:
+    candidates = (
+        arguments.get("session_id"),
+        arguments.get("demo_session_id"),
+        dynamic.get("session_id"),
+        dynamic.get("demo_session_id"),
+        dynamic.get("X-Vox-Demo-Session-Id"),
+        dynamic.get("x-vox-demo-session-id"),
+        payload.get("session_id"),
+        payload.get("demo_session_id"),
+    )
+    for item in candidates:
+        sid = str(item or "").strip()
+        if sid:
+            return sid
+    return ""
+
+
+SERVICE_FEATURE_BLURBS: dict[str, str] = {
+    "recruitment": (
+        "AI Interview Screening auto-calls candidates, scores skills/communication/fit, "
+        "and builds a shortlist so hiring managers only talk to strong fits."
+    ),
+    "surveys": (
+        "WhatsApp Surveys land in the chat people actually open (~98%), finish in under a minute, "
+        "and show segment results live — push questions to a list instead of waiting for a QR scan."
+    ),
+    "feedback": (
+        "Customer Feedback puts one QR on the table/counter: customers chat on WhatsApp, "
+        "you compare locations and catch score dips before Google reviews do."
+    ),
+    "expo": (
+        "VoxBulk Expo turns booth QR scans into scored Hot/Warm/Cold leads with export — "
+        "ideal when you pay once per show and need same-week follow-up."
+    ),
+    "smart_card": (
+        "Smart Card gives every rep a personal QR so every scan is attributed — "
+        "reps see their own pipeline; owners see the whole team's Hot/Warm/Cold."
+    ),
+}
 
 TOKEN_DAYS = 7
 RESEND_MAX_PER_HOUR = 5
@@ -1209,6 +1300,9 @@ class AiDemoService:
         lang = session.language or req.preferred_language or "en"
         lang_line = "Respond in Arabic." if lang == "ar" else "Respond in English."
 
+        resolved = AiDemoService.resolve_assistant_for_request(db, req)
+        agent_name = _agent_display_name(resolved.get("agent_name"))
+
         demo_org = AiDemoOrgService.find_demo_org(db)
         real_dash_block = (
             AiDemoOrgService.prompt_numbers_block(db, demo_org.id)
@@ -1219,52 +1313,72 @@ class AiDemoService:
             )
         )
 
+        feature_lines = []
+        for svc in selected or ([code] if code else []):
+            blurb = SERVICE_FEATURE_BLURBS.get(str(svc))
+            if blurb:
+                feature_lines.append(f"- {svc}: {blurb}")
+
         parts = [
             overview.system_prompt if overview else "",
             overview.fact_sheet if overview else "",
             lang_line,
+            f"Your spoken name is {agent_name}. Introduce yourself as {agent_name} on the first turn.",
             f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
             f"Their message: {req.message or '(none)'}.",
+            f"DEMO_SESSION_ID={session.id}",
+            "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above. "
+            "Without it the dashboard will not navigate.",
             "Recording: one brief consent clause in the greeting — not a lecture.",
             "Hard soft cap about 7 minutes — wrap up with end_demo when time is up.",
-            "UI RULES: You are driving the REAL customer dashboard (sidebar, Settings → Services, Packages, Feedback). "
+            "INTRO BEAT: greet by name → say you are {agent} from VoxBulk → welcome them into the live dashboard → "
+            "ask what their business does / who they serve → listen → then explain how the selected service helps "
+            "with concrete features → call highlight_dashboard to open the matching menu BEFORE you say look here.".format(
+                agent=agent_name
+            ),
+            "UI RULES: You are driving the REAL customer dashboard (sidebar, Settings → Services, product pages). "
             "Call highlight_dashboard BEFORE you say 'look here' so the page navigates. "
+            "If a menu does not change, call highlight_dashboard again with section=services|feedback|surveys|recruitment|expo|smart_card|packages. "
             "Do not invent fake mock panels. Do not auto-fill forms — open /feedback/new and narrate the steps.",
             real_dash_block,
             "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
             "Close promise: sales will send the best offer — never invent promo codes or discounts.",
         ]
+        if feature_lines:
+            parts.append("SELECTED SERVICE VALUE PROPS (explain these in plain English):\n" + "\n".join(feature_lines))
         if selected:
             parts.append(
                 "PRE-SELECTED SERVICES (cover in this order, one fully then transition): "
                 + ", ".join(selected)
-                + ". Start at Settings → Services, then Packages, then the first product walkthrough — do not ask them to pick from all five."
+                + ". After the business question, open Settings → Services once, then open the first product page "
+                "and explain how it helps — do not ask them to pick from all five again."
             )
         else:
             parts.append(
-                "No services pre-selected — ask one discovery question about customers/candidates/leads/event, then switch_kb."
+                "No services pre-selected — ask what their business is, then one discovery question about "
+                "customers/candidates/leads/event, then switch_kb."
             )
 
         if memory:
             parts.append("RESUME MEMORY (do not restart from scratch): " + _json_dumps(memory))
 
+        first_service = (selected[0] if selected else code or "").replace("_", " ")
         if selected:
-            first = selected[0].replace("_", " ")
             greeting = (
-                f"Hi {req.contact_name} — you're in the real VoxBulk dashboard now. "
-                f"Quick one before we jump into {first}: what's the annoying part for you right now? "
+                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — welcome to the live dashboard. "
+                f"Before we open {first_service}, quick one: what does your business do, and who do you mainly serve? "
                 "This call may be recorded for our sales team."
             )
         elif memory and memory.get("active_service_code"):
             greeting = (
-                f"Hey {req.contact_name}, welcome back to the real dashboard. Last time we were on "
+                f"Hey {req.contact_name}, it's {agent_name} again — welcome back. Last time we were on "
                 f"{str(memory.get('active_service_code')).replace('_', ' ')}. Want to pick up there?"
             )
         else:
             greeting = (
-                f"Hi {req.contact_name} — good to meet you. You're in the real VoxBulk dashboard. "
-                "This call may be recorded for sales. "
-                "What's actually costing you time right now — customers, candidates, sales leads, or an event?"
+                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — good to meet you. "
+                "You're in the live VoxBulk dashboard. This call may be recorded for sales. "
+                "What does your business do, and what's actually costing you time right now?"
             )
 
         if kb:
@@ -1284,8 +1398,9 @@ class AiDemoService:
         return {
             "system_prompt": "\n\n".join(p for p in parts if p).strip(),
             "first_message": greeting if lang != "ar" else (
-                f"مرحباً {req.contact_name}، مكالمة قصيرة وقد تُسجَّل لفريق المبيعات. "
-                "ما الذي يزعجك الآن — العملاء، المرشحون، العملاء المحتملون، أم فعالية؟"
+                f"مرحباً {req.contact_name}، أنا {agent_name} من VoxBulk. "
+                "هذه مكالمة قصيرة وقد تُسجَّل لفريق المبيعات. "
+                "ماذا يفعل عملك، وما الذي يزعجك الآن؟"
             ),
         }
 
@@ -1492,6 +1607,30 @@ class AiDemoService:
         db.commit()
 
     @staticmethod
+    def _resolve_tool_session(db: Session, payload: dict[str, Any]) -> DemoSession | None:
+        arguments, dynamic = _parse_demo_tool_payload(payload if isinstance(payload, dict) else {})
+        session_id = _extract_demo_session_id(arguments, dynamic, payload if isinstance(payload, dict) else {})
+        if session_id:
+            row = db.get(DemoSession, session_id)
+            if row is not None:
+                return row
+        # Fallback for WebRTC tool webhooks that omit custom headers: latest live session.
+        cutoff = _utcnow() - timedelta(minutes=30)
+        row = db.execute(
+            select(DemoSession)
+            .where(DemoSession.status == "active", DemoSession.started_at.is_not(None), DemoSession.started_at >= cutoff)
+            .order_by(DemoSession.started_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if row is not None:
+            logger.warning(
+                "demo_tool_session_fallback session=%s payload_keys=%s",
+                row.id,
+                list((payload or {}).keys())[:20],
+            )
+        return row
+
+    @staticmethod
     def handle_tool(
         db: Session,
         *,
@@ -1499,22 +1638,19 @@ class AiDemoService:
         payload: dict[str, Any],
     ) -> dict[str, Any]:
         name = str(tool_name or "").strip().lower()
-        dynamic = payload.get("dynamic_variables") if isinstance(payload.get("dynamic_variables"), dict) else {}
-        session_id = (
-            str(payload.get("session_id") or dynamic.get("demo_session_id") or dynamic.get("X-Vox-Demo-Session-Id") or "")
-            .strip()
-        )
-        if not session_id:
-            # Telnyx may pass custom headers differently
-            session_id = str(payload.get("demo_session_id") or "").strip()
-        session = db.get(DemoSession, session_id) if session_id else None
+        arguments, dynamic = _parse_demo_tool_payload(payload if isinstance(payload, dict) else {})
+        session = AiDemoService._resolve_tool_session(db, payload if isinstance(payload, dict) else {})
         if session is None:
-            # Best-effort: latest active session for email match is not available; fail soft for Telnyx
             logger.warning("demo_tool_missing_session tool=%s payload_keys=%s", name, list(payload.keys())[:20])
             return {"status": "error", "message": "Unknown demo session"}
 
         req = AiDemoService.get_request(db, session.request_id)
-        args = payload.get("arguments") if isinstance(payload.get("arguments"), dict) else payload
+        args = arguments if arguments else (payload.get("arguments") if isinstance(payload.get("arguments"), dict) else payload)
+        if not isinstance(args, dict):
+            args = {}
+        # Prefer nested arguments when Telnyx nests parameters
+        if isinstance(args.get("arguments"), dict):
+            args = {**args, **args["arguments"]}
 
         if name == "switch_kb":
             code = str(args.get("service") or args.get("service_code") or "").strip().lower()
@@ -1620,27 +1756,42 @@ class AiDemoService:
             action = str(args.get("action") or "highlight").strip().lower()
             if action not in ("highlight", "navigate", "filter", "open_chart"):
                 action = "highlight"
-            section = args.get("section") or session.active_service_code
-            target = args.get("target")
+            section = args.get("section") or args.get("menu") or args.get("page") or session.active_service_code
+            target = args.get("target") or args.get("route")
             route = resolve_demo_route(
                 section=str(section) if section else None,
                 target=str(target) if target else None,
                 service=session.active_service_code,
             )
+            if route is None and session.active_service_code:
+                route = resolve_demo_route(service=session.active_service_code)
             event = {
                 "type": "highlight_dashboard",
-                "action": action if route is None else "navigate",
+                "action": "navigate" if route else action,
                 "section": section,
                 "target": target,
                 "route": route,
                 "location": args.get("location"),
                 "range": args.get("range") or args.get("range_key"),
                 "view": args.get("view"),
-                "delay_ms": int(args.get("delay_ms") or 400),
+                "delay_ms": int(args.get("delay_ms") or 250),
             }
             AiDemoService._append_ui_event(db, session, event)
             db.commit()
-            return {"status": "ok", "action": event["action"], "route": route}
+            if not route:
+                logger.warning(
+                    "demo_highlight_no_route session=%s section=%s target=%s",
+                    session.id,
+                    section,
+                    target,
+                )
+                return {
+                    "status": "ok",
+                    "action": event["action"],
+                    "route": None,
+                    "message": "No matching route — retry with section=services|feedback|surveys|recruitment|expo|smart_card|packages",
+                }
+            return {"status": "ok", "action": event["action"], "route": route, "message": f"Opening {route}"}
 
         if name == "show_pricing":
             from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH

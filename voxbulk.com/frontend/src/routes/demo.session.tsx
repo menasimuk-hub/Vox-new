@@ -116,14 +116,16 @@ function DemoSessionPage() {
         {phase === "ready" && verified && (
           <>
             <div>
-              <p className="text-sm uppercase tracking-wide text-amber-300/90">AI product demo</p>
-              <h1 className="mt-1 text-3xl font-semibold tracking-tight">
+              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[var(--primary,#1e6fd9)]">
+                AI product demo
+              </p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-tight text-white">
                 Hi {verified.contact_name} — start in the real dashboard
               </h1>
               <p className="mt-3 text-sm text-white/65">
-                Pick what you want to see. When you start, we open your live VoxBulk dashboard (
-                <span className="text-white/90">Voxbulk Demo</span>) and the AI agent joins on a floating call —
-                real sidebar, services, packages, and Feedback data.
+                Pick the live products you care about. When you start, we open the real VoxBulk dashboard (
+                <span className="text-white/90">Voxbulk Demo</span>) and Leo joins on a floating call — real
+                menus, real sample data, and a guided walkthrough.
               </p>
             </div>
             <ServicePicker
@@ -138,7 +140,7 @@ function DemoSessionPage() {
             <button
               type="button"
               onClick={() => void startCall()}
-              className="inline-flex h-12 items-center justify-center rounded-full bg-amber-400 px-8 text-sm font-semibold text-black hover:bg-amber-300"
+              className="inline-flex h-12 items-center justify-center rounded-full bg-[var(--primary,#1e6fd9)] px-8 text-sm font-semibold text-white hover:brightness-110"
             >
               Start demo call
             </button>

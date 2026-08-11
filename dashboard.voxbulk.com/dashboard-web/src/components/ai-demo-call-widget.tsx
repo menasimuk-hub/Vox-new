@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Loader2, PhoneOff } from "lucide-react";
+import { GripVertical, Loader2, PhoneOff } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -16,6 +16,7 @@ import {
 
 const REMOTE_AUDIO_ID = "voxbulk-ai-demo-remote-audio";
 const ACTIVE_TIMEOUT_MS = 45_000;
+const POS_KEY = "voxbulk_ai_demo_widget_pos";
 
 type TelnyxCall = {
   id?: string;
@@ -24,6 +25,8 @@ type TelnyxCall = {
   remoteStream?: MediaStream | null;
   localStream?: MediaStream | null;
 };
+
+type WidgetPos = { x: number; y: number };
 
 function demoSessionFromLocation(): string {
   if (typeof window === "undefined") return "";
@@ -46,12 +49,39 @@ function stripDemoSessionQuery() {
   }
 }
 
+function readSavedPos(): WidgetPos {
+  try {
+    const raw = localStorage.getItem(POS_KEY);
+    if (!raw) return { x: 12, y: 12 };
+    const parsed = JSON.parse(raw) as WidgetPos;
+    if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+      return {
+        x: Math.max(8, Math.min(parsed.x, window.innerWidth - 160)),
+        y: Math.max(8, Math.min(parsed.y, window.innerHeight - 56)),
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { x: 12, y: 12 };
+}
+
 export function AiDemoCallWidget() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [sessionId, setSessionId] = useState(() => demoSessionFromLocation());
   const [phase, setPhase] = useState<"idle" | "connecting" | "live" | "ended">("idle");
   const [statusLine, setStatusLine] = useState("AI demo call");
+  const [pos, setPos] = useState<WidgetPos>(() =>
+    typeof window === "undefined" ? { x: 12, y: 12 } : readSavedPos(),
+  );
+  const dragRef = useRef<{
+    active: boolean;
+    ox: number;
+    oy: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
   const callRef = useRef<TelnyxCall | null>(null);
   const clientRef = useRef<{
     disconnect?: () => void;
@@ -79,8 +109,9 @@ export function AiDemoCallWidget() {
       for (const ev of events) {
         if (ev.id) afterEventIdRef.current = ev.id;
         const route = String(ev.route || "").trim();
-        if (route && (ev.type === "highlight_dashboard" || ev.type === "switch_kb" || ev.type === "show_pricing")) {
-          const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 200;
+        // Any tool event that carries a route should move the real dashboard menus.
+        if (route) {
+          const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
           window.setTimeout(() => navigateRoute(route), delay);
         }
         if (ev.type === "request_sales_offer") {
@@ -168,7 +199,7 @@ export function AiDemoCallWidget() {
 
     (async () => {
       setPhase("connecting");
-      setStatusLine("Connecting AI demo…");
+      setStatusLine("Connecting…");
       try {
         const cached = readCachedDemoStart(sessionId);
         const started =
@@ -243,7 +274,7 @@ export function AiDemoCallWidget() {
             }
             startedAtRef.current = Date.now();
             setPhase("live");
-            setStatusLine("Live with AI — speak naturally");
+            setStatusLine("Live with Leo");
             toast.success("AI demo connected");
           }
           if (state === "hangup" || state === "destroy" || state === "destroyed") {
@@ -304,44 +335,90 @@ export function AiDemoCallWidget() {
       }
     };
     void tick();
-    const id = window.setInterval(() => void tick(), 1500);
+    const id = window.setInterval(() => void tick(), 700);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
   }, [applyEvents, phase, sessionId]);
 
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button")) return;
+    dragRef.current = {
+      active: true,
+      ox: pos.x,
+      oy: pos.y,
+      startX: e.clientX,
+      startY: e.clientY,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag?.active) return;
+    const next = {
+      x: Math.max(8, Math.min(drag.ox + (e.clientX - drag.startX), window.innerWidth - 160)),
+      y: Math.max(8, Math.min(drag.oy + (e.clientY - drag.startY), window.innerHeight - 56)),
+    };
+    setPos(next);
+  };
+
+  const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current?.active) return;
+    dragRef.current.active = false;
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify(pos));
+    } catch {
+      /* ignore */
+    }
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  };
+
   if (!sessionId || phase === "idle") return null;
   if (phase === "ended") return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-[80] flex max-w-sm flex-col gap-2 rounded-2xl border border-border bg-background/95 p-3 shadow-xl backdrop-blur">
+    <div
+      className="fixed z-[80] select-none touch-none"
+      style={{ left: pos.x, top: pos.y }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
       <audio id={REMOTE_AUDIO_ID} autoPlay playsInline className="hidden" />
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 rounded-full border border-border bg-background/95 py-1 pl-1.5 pr-1 shadow-lg backdrop-blur">
+        <span className="inline-flex h-7 w-5 cursor-grab items-center justify-center text-muted-foreground active:cursor-grabbing" title="Drag">
+          <GripVertical className="h-3.5 w-3.5" />
+        </span>
         {phase === "connecting" ? (
-          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
         ) : (
-          <span className="relative flex h-2.5 w-2.5">
+          <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
         )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">AI Demo</p>
-          <p className="truncate text-xs text-muted-foreground">{statusLine}</p>
+        <div className="min-w-0 max-w-[110px]">
+          <p className="truncate text-[11px] font-semibold leading-tight">AI Demo</p>
+          <p className="truncate text-[10px] leading-tight text-muted-foreground">{statusLine}</p>
         </div>
         <button
           type="button"
-          className="inline-flex h-9 items-center gap-1 rounded-full bg-destructive px-3 text-xs font-medium text-destructive-foreground"
+          className="inline-flex h-7 items-center gap-1 rounded-full bg-destructive px-2.5 text-[11px] font-medium text-destructive-foreground"
           onClick={() => void finish("Visitor hung up")}
+          title="End call"
         >
-          <PhoneOff className="h-3.5 w-3.5" />
+          <PhoneOff className="h-3 w-3" />
           End
         </button>
       </div>
-      <p className="text-[11px] text-muted-foreground">
-        You are in the real Voxbulk Demo workspace. The agent will open Services, Packages, and Feedback pages as it talks.
-      </p>
     </div>
   );
 }
