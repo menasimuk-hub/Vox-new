@@ -103,6 +103,103 @@ DEMO_SECTION_ROUTES: dict[str, str] = {
     "home": "/dashboard",
 }
 
+# Curated demo coachmarks — agent should prefer step= over free-form selectors.
+DEMO_UI_STEPS: dict[str, dict[str, str]] = {
+    "services": {
+        "route": "/settings/services",
+        "target_element_id": "settings-services",
+        "label": "Your modules — turn products on/off",
+    },
+    "feedback_list": {
+        "route": "/feedback",
+        "target_element_id": "feedback-list",
+        "label": "Saved QR surveys list",
+    },
+    "feedback_create": {
+        "route": "/feedback/new",
+        "target_element_id": "feedback-new",
+        "label": "Create QR survey",
+    },
+    "feedback_new": {
+        "route": "/feedback/new",
+        "target_element_id": "feedback-new",
+        "label": "Create QR survey",
+    },
+    "feedback_results": {
+        "route": "/feedback/results",
+        "target_element_id": "feedback-results",
+        "label": "Feedback results",
+    },
+    "surveys": {
+        "route": "/surveys",
+        "target_element_id": "surveys-list",
+        "label": "WhatsApp surveys",
+    },
+    "recruitment": {
+        "route": "/interviews",
+        "target_element_id": "interviews-list",
+        "label": "AI interviews",
+    },
+    "interviews": {
+        "route": "/interviews",
+        "target_element_id": "interviews-list",
+        "label": "AI interviews",
+    },
+    "expo": {
+        "route": "/expo",
+        "target_element_id": "expo-list",
+        "label": "Expo booths",
+    },
+    "smart_card": {
+        "route": "/smart-card",
+        "target_element_id": "smart-card-list",
+        "label": "Smart Card QR",
+    },
+    "packages_core": {
+        "route": "/account/packages?tab=core",
+        "target_element_id": "packages-tab-core",
+        "label": "Core packages tab",
+    },
+    "packages_feedback": {
+        "route": "/account/packages?tab=feedback",
+        "target_element_id": "packages-tab-feedback",
+        "label": "Customer Feedback pricing",
+    },
+    "packages_expo": {
+        "route": "/account/packages?tab=expo",
+        "target_element_id": "packages-tab-expo",
+        "label": "Expo pricing",
+    },
+    "packages_smart_card": {
+        "route": "/account/packages?tab=smartCard",
+        "target_element_id": "packages-tab-smartCard",
+        "label": "Smart Card pricing",
+    },
+}
+
+
+def resolve_demo_ui_step(step: str | None) -> dict[str, str] | None:
+    raw = str(step or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw:
+        return None
+    if raw in DEMO_UI_STEPS:
+        return dict(DEMO_UI_STEPS[raw])
+    # Tolerate aliases
+    aliases = {
+        "feedback": "feedback_list",
+        "create_feedback": "feedback_create",
+        "pricing_feedback": "packages_feedback",
+        "pricing_core": "packages_core",
+        "pricing_expo": "packages_expo",
+        "pricing_smart_card": "packages_smart_card",
+        "settings": "services",
+        "modules": "services",
+    }
+    mapped = aliases.get(raw)
+    if mapped and mapped in DEMO_UI_STEPS:
+        return dict(DEMO_UI_STEPS[mapped])
+    return None
+
 
 def pricing_tab_for_service(service: str | None) -> str:
     """Map product code → /account/packages ?tab= value."""

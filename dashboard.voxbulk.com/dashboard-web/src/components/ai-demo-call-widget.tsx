@@ -17,7 +17,7 @@ import {
   startDemoSession,
   type AiDemoUiEvent,
 } from "@/lib/ai-demo";
-import { applyDemoHighlight, parseDemoRoute } from "@/lib/ai-demo-highlight";
+import { parseDemoRoute, scheduleDemoHighlight } from "@/lib/ai-demo-highlight";
 
 const REMOTE_AUDIO_ID = "voxbulk-ai-demo-remote-audio";
 const ACTIVE_TIMEOUT_MS = 45_000;
@@ -115,20 +115,25 @@ export function AiDemoCallWidget() {
   const thanksUrlRef = useRef<string | null>(null);
 
   const navigateRoute = useCallback(
-    (route: string, highlight?: { target?: string | null; pointer?: boolean }) => {
+    (route: string, highlight?: { target?: string | null; pointer?: boolean; label?: string | null }) => {
       const { pathname: path, search } = parseDemoRoute(route);
       const runHighlight = () => {
         if (!highlight?.target) return;
-        window.setTimeout(() => {
-          applyDemoHighlight({
+        scheduleDemoHighlight(
+          {
             targetElementId: highlight.target,
-            pointer: Boolean(highlight.pointer),
+            pointer: highlight.pointer !== false,
+            label: highlight.label,
             warnMissing: true,
-          });
-        }, 400);
+          },
+          350,
+        );
       };
       const currentPath = typeof window !== "undefined" ? window.location.pathname : pathname;
-      const needsNav = path !== currentPath || Object.keys(search).length > 0;
+      const currentSearch =
+        typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "";
+      const nextSearch = new URLSearchParams(search).toString();
+      const needsNav = path !== currentPath || (nextSearch && nextSearch !== currentSearch);
       if (needsNav) {
         void navigate({
           to: path as never,
@@ -184,6 +189,8 @@ export function AiDemoCallWidget() {
       exitingRef.current = true;
       setPhase("ended");
       setStatusLine("Demo ended");
+      // Kill the voice call first so the agent stops speaking immediately.
+      await hangup();
       const duration = startedAtRef.current
         ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
         : undefined;
@@ -198,7 +205,6 @@ export function AiDemoCallWidget() {
       } catch {
         /* still leave dashboard — session may already be completed */
       }
-      await hangup();
       wipeDemoAuthAndLeave(sessionId, thanks);
     },
     [hangup, sessionId],
@@ -210,13 +216,14 @@ export function AiDemoCallWidget() {
         if (ev.id) afterEventIdRef.current = ev.id;
         const route = String(ev.route || "").trim();
         const target = String(ev.target_element_id || "").trim() || null;
-        const pointer = Boolean(ev.pointer);
+        const pointer = ev.pointer !== false;
+        const label = String(ev.label || "").trim() || null;
         if (route && !exitingRef.current) {
           const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
-          window.setTimeout(() => navigateRoute(route, { target, pointer }), delay);
+          window.setTimeout(() => navigateRoute(route, { target, pointer, label }), delay);
         } else if (target && !exitingRef.current) {
-          window.setTimeout(
-            () => applyDemoHighlight({ targetElementId: target, pointer, warnMissing: true }),
+          scheduleDemoHighlight(
+            { targetElementId: target, pointer, label, warnMissing: true },
             typeof ev.delay_ms === "number" ? ev.delay_ms : 150,
           );
         }

@@ -74,30 +74,34 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "highlight_dashboard",
-            "Navigate the live demo dashboard menus. Call BEFORE you say look here / open this. "
-            "Use section=services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card. "
-            "Pass target_element_id matching a data-demo-target marker; set pointer=true when asking them to click.",
+            "Navigate and spotlight a live dashboard control. Call BEFORE you say look here / click this. "
+            "PREFERRED: pass step=feedback_list|feedback_create|feedback_results|surveys|recruitment|expo|smart_card|"
+            "services|packages_core|packages_feedback|packages_expo|packages_smart_card. "
+            "Pointer defaults on; include a short label for the coachmark.",
             _body(
                 {
                     "session_id": session_prop,
+                    "step": _str_prop(
+                        "Preferred curated step id e.g. feedback_list, feedback_create, packages_feedback"
+                    ),
+                    "demo_step": _str_prop("Alias for step"),
                     "action": _str_prop("highlight|navigate|filter|open_chart — prefer navigate"),
-                    "section": _str_prop("Menu/section to open e.g. services, feedback, expo"),
+                    "section": _str_prop("Fallback menu/section if step omitted"),
                     "target": _str_prop("Optional alias or path e.g. /expo"),
                     "menu": _str_prop("Alias for section"),
                     "page": _str_prop("Alias for section"),
                     "route": _str_prop("Optional absolute path"),
-                    "target_element_id": _str_prop(
-                        "data-demo-target id e.g. feedback-list, packages-tab-feedback, settings-services"
-                    ),
+                    "target_element_id": _str_prop("data-demo-target id if not using step="),
                     "element_id": _str_prop("Alias for target_element_id"),
-                    "pointer": {"type": "boolean", "description": "Show animated pointer on the target"},
+                    "label": _str_prop("Short on-screen coachmark text e.g. Create QR survey"),
+                    "pointer": {"type": "boolean", "description": "Show pointer (default true)"},
                     "show_pointer": {"type": "boolean", "description": "Alias for pointer"},
                     "location": _str_prop("Location filter e.g. Leeds"),
                     "range": _str_prop("Optional range e.g. 6mo"),
                     "view": _str_prop("Optional smart_card view: rep|manager"),
                     "delay_ms": {"type": "integer", "description": "UI lead delay ms (200-500)"},
                 },
-                ["session_id", "section"],
+                ["session_id"],
             ),
         ),
         (

@@ -39,10 +39,11 @@ _TALK = (
 
 _SALES = (
     "Sales beat: name the product they chose with a sharp hook, prove it on the REAL dashboard "
-    "(highlight_dashboard with session_id=DEMO_SESSION_ID, matching section, and target_element_id "
-    "for data-demo-target markers; pointer=true when telling them to click), "
+    "(highlight_dashboard with session_id=DEMO_SESSION_ID and step=feedback_list|feedback_create|"
+    "feedback_results|surveys|recruitment|expo|smart_card|services|packages_feedback — preferred over free selectors; "
+    "pointer defaults on; include label), "
     "bridge to their business, soft close. "
-    "Open the selected product page early — do not lecture Settings for a minute first. "
+    "Open the selected product page only AFTER welcome + recording consent + ready. "
     "Pricing: show_pricing with service=active product so the correct packages tab opens; "
     "sales sends the best offer — never invent discounts. "
     "On buy interest: request_sales_offer + log_volume_needs, then end_demo with book-a-call CTA."

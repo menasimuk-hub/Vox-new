@@ -1562,7 +1562,6 @@ class AiDemoService:
                 f"Their message: {req.message or '(none)'}.",
                 f"DEMO_SESSION_ID={session.id}",
                 "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
-                "Recording: one short clause in the greeting — not a lecture.",
                 f"Hard soft cap about {soft_cap} minutes — wrap with end_demo when time is up.",
                 (
                     "SELECTED SERVICES ONLY — the visitor already chose these. "
@@ -1576,24 +1575,29 @@ class AiDemoService:
                     + "Especially never open with AI interviews unless recruitment was selected."
                 ),
                 (
-                    "SALES INTRO (not a script — use your own words): "
-                    "Greet by name → you're {agent} from VoxBulk → welcome to the live dashboard → "
-                    "name the FIRST selected service in plain English → give ONE sharp sales hook "
-                    "(why it matters / pain it kills) → invite a quick yes/no or one-line from them → "
-                    "THEN open the matching dashboard page with highlight_dashboard BEFORE you say look here "
-                    "(include target_element_id when pointing at a control)."
-                ).format(agent=agent_name),
+                    f"OPENING BEAT (strict order — wait between steps): "
+                    f"1) Welcome {req.contact_name} by name. "
+                    f"2) Introduce yourself as {agent_name} from VoxBulk. "
+                    "3) Consent: this call is recorded for quality and so sales can follow up — ask if that is OK. "
+                    "4) Ask if they are ready to start. "
+                    "5) Do NOT open product pages, call highlight_dashboard, or pitch until they confirm "
+                    "(yes / go / ready / sure / OK)."
+                ),
+                (
+                    "AFTER they are ready: name the FIRST selected service in plain English → one sharp sales hook → "
+                    "THEN call highlight_dashboard with step= (preferred: feedback_list, feedback_create, feedback_results, "
+                    "surveys, recruitment, expo, smart_card, services, packages_feedback) BEFORE you say look here. "
+                    "Always include a short label. Pointer is on by default."
+                ),
                 (
                     "HOW TO EXPLAIN: speak like a closer — outcomes and stakes, not feature lists. "
                     "Example tone for Feedback: 'This is how you catch a bad review before it goes online — "
                     "QR on the table, WhatsApp chat, you see the dip by location first.' "
                     "Then prove it on the real page. Bridge every screen back to THEIR business."
                 ),
-                "UI RULES: Call highlight_dashboard BEFORE 'look here'. "
-                "Pass target_element_id for data-demo-target markers (e.g. feedback-list, feedback-new, packages-tab-feedback). "
-                "Set pointer=true when telling them to click. "
-                "section values: services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card. "
-                "Open the FIRST selected product page early (not a long Settings lecture).",
+                "UI RULES: Prefer step= curated IDs over inventing selectors. "
+                "Call highlight_dashboard BEFORE 'look here'. Set pointer=true when asking them to click. "
+                "Open the FIRST selected product page only after consent + ready.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service=active product so the correct tab opens.",
@@ -1612,10 +1616,13 @@ class AiDemoService:
                 f"Their message: {req.message or '(none)'}.",
                 f"DEMO_SESSION_ID={session.id}",
                 "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
-                "Recording: one brief consent clause in the greeting — not a lecture.",
+                (
+                    f"OPENING BEAT: welcome {req.contact_name} → introduce as {agent_name} from VoxBulk → "
+                    "recording consent → wait until they are ready → then discover pain and switch_kb."
+                ),
                 f"Hard soft cap about {soft_cap} minutes — wrap up with end_demo when time is up.",
                 "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
-                "UI RULES: Call highlight_dashboard BEFORE you say 'look here'. Include target_element_id when pointing.",
+                "UI RULES: Prefer highlight_dashboard step= curated IDs. Call BEFORE you say 'look here'.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service= the product in context.",
@@ -1638,24 +1645,24 @@ class AiDemoService:
 
         if selected:
             greeting = (
-                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — welcome in. "
-                f"You picked {first_label}, so we'll go straight there. "
-                f"{first_hook} "
-                "This call may be recorded for our sales team — sound fair? "
-                "Quick one: what kind of business are you running?"
+                f"Hi {req.contact_name}, welcome — I'm {agent_name} from VoxBulk. "
+                "You're on a live product demo in our real dashboard. "
+                "This call is recorded for quality and so our sales team can follow up — is that OK with you? "
+                "When you're ready, just say go and we'll start."
             )
         elif memory and memory.get("active_service_code"):
             prev = str(memory.get("active_service_code") or "")
             greeting = (
-                f"Hey {req.contact_name}, it's {agent_name} again — welcome back. "
+                f"Hey {req.contact_name}, it's {agent_name} again from VoxBulk — welcome back. "
+                "This call is recorded for quality and sales follow-up — still OK? "
                 f"Last time we were on {SERVICE_DISPLAY_NAMES.get(prev, prev.replace('_', ' '))}. "
-                "Want to pick up there?"
+                "Say ready when you want to pick up there."
             )
         else:
             greeting = (
-                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — good to meet you. "
-                "You're in the live dashboard. This call may be recorded for sales. "
-                "What's actually costing you right now — unhappy customers, slow hiring, dead leads, or a show?"
+                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — welcome. "
+                "You're in our live dashboard. This call is recorded for quality and sales follow-up — is that OK? "
+                "When you're ready, tell me what is costing you most — unhappy customers, slow hiring, dead leads, or a show."
             )
 
         if kb:
@@ -1678,9 +1685,9 @@ class AiDemoService:
                 greeting
                 if lang != "ar"
                 else (
-                    f"مرحباً {req.contact_name}، أنا {agent_name} من VoxBulk. "
-                    f"اخترت {first_label} وسنبدأ به مباشرة. "
-                    "هذه المكالمة قد تُسجَّل لفريق المبيعات. ما نوع عملك؟"
+                    f"مرحباً {req.contact_name}، أهلاً بك — أنا {agent_name} من VoxBulk. "
+                    "هذه مكالمة تجريبية مباشرة. المكالمة تُسجَّل للجودة ومتابعة المبيعات — هل هذا مناسب؟ "
+                    "عندما تكون جاهزاً قل ابدأ وسننطلق."
                 )
             ),
         }
@@ -2071,11 +2078,17 @@ class AiDemoService:
             return {"status": "ok", "url": raw_data}
 
         if name == "highlight_dashboard":
-            from app.services.ai_demo_org_service import pricing_tab_for_service, resolve_demo_route
+            from app.services.ai_demo_org_service import (
+                pricing_tab_for_service,
+                resolve_demo_route,
+                resolve_demo_ui_step,
+            )
 
             action = str(args.get("action") or "highlight").strip().lower()
             if action not in ("highlight", "navigate", "filter", "open_chart"):
                 action = "highlight"
+            step_key = str(args.get("step") or args.get("demo_step") or args.get("ui_step") or "").strip() or None
+            step = resolve_demo_ui_step(step_key)
             section = args.get("section") or args.get("menu") or args.get("page") or session.active_service_code
             target = args.get("target") or args.get("route")
             target_element_id = str(
@@ -2083,14 +2096,25 @@ class AiDemoService:
                 or args.get("element_id")
                 or args.get("selector")
                 or args.get("demo_target")
+                or (step or {}).get("target_element_id")
                 or ""
             ).strip() or None
-            pointer = bool(args.get("pointer") or args.get("show_pointer") or False)
-            route = resolve_demo_route(
-                section=str(section) if section else None,
-                target=str(target) if target else None,
-                service=session.active_service_code,
-            )
+            label = str(args.get("label") or args.get("caption") or (step or {}).get("label") or "").strip() or None
+            # Default ON — demos need a clear click cue unless the model turns it off.
+            pointer_raw = args.get("pointer", args.get("show_pointer", True))
+            if isinstance(pointer_raw, str):
+                pointer = pointer_raw.strip().lower() not in ("0", "false", "no", "off")
+            else:
+                pointer = bool(pointer_raw) if pointer_raw is not None else True
+            route = None
+            if step and step.get("route"):
+                route = step["route"]
+            if route is None:
+                route = resolve_demo_route(
+                    section=str(section) if section else None,
+                    target=str(target) if target else None,
+                    service=session.active_service_code,
+                )
             if route is None and session.active_service_code:
                 route = resolve_demo_route(service=session.active_service_code)
             # Default demo targets by section when the model forgets
@@ -2110,13 +2134,19 @@ class AiDemoService:
                     "pricing": f"packages-tab-{pricing_tab_for_service(session.active_service_code)}",
                 }
                 target_element_id = defaults.get(sec)
+                if not label and target_element_id:
+                    label = f"Look here: {sec.replace('_', ' ')}"
+            if not label and target_element_id:
+                label = target_element_id.replace("-", " ")
             event = {
                 "type": "highlight_dashboard",
                 "action": "navigate" if route else action,
                 "section": section,
+                "step": step_key,
                 "target": target,
                 "target_element_id": target_element_id,
                 "pointer": pointer,
+                "label": label,
                 "route": route,
                 "location": args.get("location"),
                 "range": args.get("range") or args.get("range_key"),
@@ -2127,23 +2157,29 @@ class AiDemoService:
             db.commit()
             if not route:
                 logger.warning(
-                    "demo_highlight_no_route session=%s section=%s target=%s",
+                    "demo_highlight_no_route session=%s section=%s target=%s step=%s",
                     session.id,
                     section,
                     target,
+                    step_key,
                 )
                 return {
                     "status": "ok",
                     "action": event["action"],
                     "route": None,
-                    "message": "No matching route — retry with section=services|feedback|surveys|recruitment|expo|smart_card|packages",
+                    "message": (
+                        "No matching route — retry with step=feedback_list|feedback_create|feedback_results|"
+                        "surveys|recruitment|expo|smart_card|services|packages_feedback (preferred), "
+                        "or section=services|feedback|..."
+                    ),
                 }
             return {
                 "status": "ok",
                 "action": event["action"],
                 "route": route,
                 "target_element_id": target_element_id,
-                "message": f"Opening {route}",
+                "label": label,
+                "message": f"Opening {route}" + (f" → {label}" if label else ""),
             }
 
         if name == "show_pricing":
@@ -2163,7 +2199,8 @@ class AiDemoService:
                     "section": "packages",
                     "route": route,
                     "target_element_id": f"packages-tab-{tab}",
-                    "pointer": False,
+                    "pointer": True,
+                    "label": f"Packages — {tab} tab",
                     "delay_ms": 200,
                 },
             )
@@ -2178,6 +2215,8 @@ class AiDemoService:
                     "tab": tab,
                     "route": route,
                     "target_element_id": f"packages-panel-{tab}",
+                    "pointer": True,
+                    "label": "Plan details for this product",
                 },
             )
             AiDemoService.update_memory(

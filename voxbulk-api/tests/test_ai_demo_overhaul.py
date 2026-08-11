@@ -9,7 +9,11 @@ import pytest
 from fastapi import HTTPException
 
 from app.core.dependencies import _assert_demo_writes_blocked
-from app.services.ai_demo_org_service import packages_route_for_service, pricing_tab_for_service
+from app.services.ai_demo_org_service import (
+    packages_route_for_service,
+    pricing_tab_for_service,
+    resolve_demo_ui_step,
+)
 from app.services.ai_demo_service import AiDemoError, resolve_spoken_display_name, sanitize_user_facing_text
 
 
@@ -80,3 +84,13 @@ def test_demo_jwt_allows_get_and_ai_demo_writes():
 
 def test_normal_jwt_can_mutate():
     _assert_demo_writes_blocked(_request("POST", "/organisations/me"), _principal(demo=False))
+
+
+def test_resolve_demo_ui_step_catalog():
+    step = resolve_demo_ui_step("feedback_create")
+    assert step is not None
+    assert step["route"] == "/feedback/new"
+    assert step["target_element_id"] == "feedback-new"
+    assert "Create" in step["label"]
+    assert resolve_demo_ui_step("packages_feedback")["route"] == "/account/packages?tab=feedback"
+    assert resolve_demo_ui_step("nope") is None
