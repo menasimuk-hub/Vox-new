@@ -11,36 +11,41 @@ if [[ ! -d dist/client ]]; then
   exit 1
 fi
 
-# Vite preview loads vite.config.ts via a temp write under node_modules/.vite-temp.
+# Vite preview always writes bundled config under node_modules/.vite-temp (TMPDIR is ignored).
 # Root-owned leftovers from a prior sudo deploy cause EACCES crash-loops under systemd (User=qusay).
 # Never rely on interactive sudo here — the unit runs as User=qusay with no TTY.
 _vite_temp="$PUBLIC_DIR/node_modules/.vite-temp"
-_vite_fallback="${TMPDIR:-/tmp}/voxbulk-vite-temp-$(id -un)"
 if [[ -d "$PUBLIC_DIR/node_modules" ]]; then
-  # Drop a root-owned temp dir when we can recreate it as the service user.
-  if [[ -e "$_vite_temp" && ! -w "$_vite_temp" ]]; then
-    echo "[voxbulk-public] $_vite_temp not writable — recreating …" >&2
-    rm -rf "$_vite_temp" 2>/dev/null || true
-  fi
-  mkdir -p "$_vite_temp" 2>/dev/null || true
-  if [[ ! -w "$_vite_temp" ]]; then
-    echo "[voxbulk-public] using fallback vite temp: $_vite_fallback" >&2
-    mkdir -p "$_vite_fallback"
-    export TMPDIR="$_vite_fallback"
-    # Best-effort passwordless sudo (NOPASSWD); ignore failure.
+  _ensure_vite_temp() {
+    mkdir -p "$_vite_temp" 2>/dev/null || true
+    [[ -d "$_vite_temp" && -w "$_vite_temp" ]]
+  }
+
+  if ! _ensure_vite_temp; then
+    echo "[voxbulk-public] $_vite_temp not writable — recovering …" >&2
+    # Parent node_modules is often qusay-owned while .vite-temp is root:755 — mv works, rm may not.
+    if [[ -w "$PUBLIC_DIR/node_modules" ]]; then
+      mv "$_vite_temp" "${_vite_temp}.root-stale.$$" 2>/dev/null || true
+      rm -rf "$_vite_temp" 2>/dev/null || true
+    fi
+    # Best-effort passwordless sudo (NOPASSWD); ignore failure / auth noise.
     if command -v sudo >/dev/null 2>&1; then
       sudo -n chown -R "$(id -un):$(id -gn)" "$_vite_temp" 2>/dev/null \
         || sudo -n chown -R "$(id -un):$(id -gn)" "$PUBLIC_DIR/node_modules" 2>/dev/null \
         || true
-      mkdir -p "$_vite_temp" 2>/dev/null || true
+      sudo -n rm -rf "$_vite_temp" 2>/dev/null || true
     fi
+    _ensure_vite_temp || true
   fi
+
   if [[ ! -d "$_vite_temp" || ! -w "$_vite_temp" ]]; then
-    if [[ ! -d "$_vite_fallback" || ! -w "$_vite_fallback" ]]; then
-      echo "[voxbulk-public] FAIL: cannot write vite temp. Run once: sudo chown -R $(whoami) $PUBLIC_DIR/node_modules" >&2
-      exit 1
-    fi
+    echo "[voxbulk-public] FAIL: cannot write $_vite_temp. Run once: sudo chown -R $(whoami) $PUBLIC_DIR/node_modules && sudo rm -rf $_vite_temp" >&2
+    exit 1
   fi
+
+  # Drop stale root leftovers from prior recoveries (best-effort).
+  find "$PUBLIC_DIR/node_modules" -maxdepth 1 -type d -name '.vite-temp.root-stale.*' \
+    -user "$(id -un)" -exec rm -rf {} + 2>/dev/null || true
 fi
 
 # Free :5173 if an orphan nohup/vite preview still holds it (systemd would otherwise
