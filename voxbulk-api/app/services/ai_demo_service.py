@@ -102,28 +102,40 @@ def _extract_demo_session_id(arguments: dict[str, Any], dynamic: dict[str, Any],
     return ""
 
 
-SERVICE_FEATURE_BLURBS: dict[str, str] = {
+SERVICE_DISPLAY_NAMES: dict[str, str] = {
+    "recruitment": "AI Interview Screening",
+    "surveys": "WhatsApp Surveys",
+    "feedback": "Customer Feedback",
+    "expo": "VoxBulk Expo",
+    "smart_card": "Smart Card",
+}
+
+# Sales hooks — speak these ideas, never read them like a script.
+SERVICE_SALES_HOOKS: dict[str, str] = {
     "recruitment": (
-        "AI Interview Screening auto-calls candidates, scores skills/communication/fit, "
-        "and builds a shortlist so hiring managers only talk to strong fits."
+        "Stop burning your managers' mornings on weak candidates. "
+        "The AI screens everyone overnight — skills, communication, fit — and you only meet the shortlist."
     ),
     "surveys": (
-        "WhatsApp Surveys land in the chat people actually open (~98%), finish in under a minute, "
-        "and show segment results live — push questions to a list instead of waiting for a QR scan."
+        "Email surveys die in the inbox. WhatsApp gets opened — people finish in under a minute, "
+        "and you see answers while the campaign is still warm."
     ),
     "feedback": (
-        "Customer Feedback puts one QR on the table/counter: customers chat on WhatsApp, "
-        "you compare locations and catch score dips before Google reviews do."
+        "The best way to catch a bad review before it goes online. "
+        "One QR on the table, they chat on WhatsApp, you see the dip by location before Google does."
     ),
     "expo": (
-        "VoxBulk Expo turns booth QR scans into scored Hot/Warm/Cold leads with export — "
-        "ideal when you pay once per show and need same-week follow-up."
+        "Booth business cards in a drawer help nobody. Visitors scan your QR, leave details on WhatsApp, "
+        "and you walk out with Hot/Warm/Cold leads ready for same-week follow-up."
     ),
     "smart_card": (
-        "Smart Card gives every rep a personal QR so every scan is attributed — "
-        "reps see their own pipeline; owners see the whole team's Hot/Warm/Cold."
+        "Every handshake should belong to the rep who earned it. "
+        "Personal QR per salesperson — attributed leads, and the owner sees the whole team's pipeline."
     ),
 }
+
+SERVICE_FEATURE_BLURBS = SERVICE_SALES_HOOKS  # back-compat alias
+
 
 TOKEN_DAYS = 7
 RESEND_MAX_PER_HOUR = 5
@@ -1319,92 +1331,140 @@ class AiDemoService:
 
         feature_lines = []
         for svc in selected or ([code] if code else []):
-            blurb = SERVICE_FEATURE_BLURBS.get(str(svc))
-            if blurb:
-                feature_lines.append(f"- {svc}: {blurb}")
+            hook = SERVICE_SALES_HOOKS.get(str(svc))
+            label = SERVICE_DISPLAY_NAMES.get(str(svc), str(svc))
+            if hook:
+                feature_lines.append(f"- {label} ({svc}): {hook}")
 
-        parts = [
-            overview.system_prompt if overview else "",
-            overview.fact_sheet if overview else "",
-            lang_line,
-            f"Your spoken name is {agent_name}. Introduce yourself as {agent_name} on the first turn.",
-            f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
-            f"Their message: {req.message or '(none)'}.",
-            f"DEMO_SESSION_ID={session.id}",
-            "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above. "
-            "Without it the dashboard will not navigate.",
-            "Recording: one brief consent clause in the greeting — not a lecture.",
-            "Hard soft cap about 7 minutes — wrap up with end_demo when time is up.",
-            "INTRO BEAT: greet by name → say you are {agent} from VoxBulk → welcome them into the live dashboard → "
-            "ask what their business does / who they serve → listen → then explain how the selected service helps "
-            "with concrete features → call highlight_dashboard to open the matching menu BEFORE you say look here.".format(
-                agent=agent_name
-            ),
-            "UI RULES: You are driving the REAL customer dashboard (sidebar, Settings → Services, product pages). "
-            "Call highlight_dashboard BEFORE you say 'look here' so the page navigates. "
-            "If a menu does not change, call highlight_dashboard again with section=services|feedback|surveys|recruitment|expo|smart_card|packages. "
-            "Do not invent fake mock panels. Do not auto-fill forms — open /feedback/new and narrate the steps.",
-            real_dash_block,
-            "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
-            "Close promise: sales will send the best offer — never invent promo codes or discounts.",
-        ]
-        if feature_lines:
-            parts.append("SELECTED SERVICE VALUE PROPS (explain these in plain English):\n" + "\n".join(feature_lines))
+        forbidden = [c for c in SERVICE_CODES if c not in (selected or ([code] if code else []))]
+        forbidden_labels = [SERVICE_DISPLAY_NAMES.get(c, c) for c in forbidden]
+
+        # When the visitor already picked services, do NOT load the platform overview
+        # that lists all five products (that causes "interview" mentions in the intro).
         if selected:
-            parts.append(
-                "PRE-SELECTED SERVICES (cover in this order, one fully then transition): "
-                + ", ".join(selected)
-                + ". After the business question, open Settings → Services once, then open the first product page "
-                "and explain how it helps — do not ask them to pick from all five again."
-            )
+            parts = [
+                (
+                    f"You are {agent_name}, a VoxBulk salesperson on a live browser demo — not a tour guide reading a script. "
+                    "Sound confident, warm, and commercial. Sell the outcome, then prove it on screen. "
+                    "Short punchy lines. Contractions. React to what they say. Never monologue brochure text. "
+                    "Never say leverage/seamless/solutions. Calm pace."
+                ),
+                lang_line,
+                f"Your spoken name is {agent_name}.",
+                f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
+                f"Their message: {req.message or '(none)'}.",
+                f"DEMO_SESSION_ID={session.id}",
+                "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
+                "Recording: one short clause in the greeting — not a lecture.",
+                "Hard soft cap about 7 minutes — wrap with end_demo when time is up.",
+                (
+                    "SELECTED SERVICES ONLY — the visitor already chose these. "
+                    "Talk ONLY about: " + ", ".join(SERVICE_DISPLAY_NAMES.get(s, s) for s in selected) + ". "
+                    "Do NOT mention, suggest, or compare any other VoxBulk product. "
+                    + (
+                        "Forbidden on this call: " + ", ".join(forbidden_labels) + ". "
+                        if forbidden_labels
+                        else ""
+                    )
+                    + "Especially never open with AI interviews unless recruitment was selected."
+                ),
+                (
+                    "SALES INTRO (not a script — use your own words): "
+                    "Greet by name → you're {agent} from VoxBulk → welcome to the live dashboard → "
+                    "name the FIRST selected service in plain English → give ONE sharp sales hook "
+                    "(why it matters / pain it kills) → invite a quick yes/no or one-line from them → "
+                    "THEN open the matching dashboard page with highlight_dashboard BEFORE you say look here."
+                ).format(agent=agent_name),
+                (
+                    "HOW TO EXPLAIN: speak like a closer — outcomes and stakes, not feature lists. "
+                    "Example tone for Feedback: 'This is how you catch a bad review before it goes online — "
+                    "QR on the table, WhatsApp chat, you see the dip by location first.' "
+                    "Then prove it on the real page. Bridge every screen back to THEIR business."
+                ),
+                "UI RULES: Call highlight_dashboard BEFORE 'look here'. "
+                "section values: services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card. "
+                "Open the FIRST selected product page early (not a long Settings lecture).",
+                real_dash_block,
+                "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
+                "Close: sales will send the best offer — never invent promo codes or discounts. "
+                "On interest call request_sales_offer + log_volume_needs, then end_demo with book-a-call CTA.",
+                "Cover selected services in this order (one fully, then transition): " + ", ".join(selected) + ".",
+            ]
         else:
+            parts = [
+                overview.system_prompt if overview else "",
+                overview.fact_sheet if overview else "",
+                lang_line,
+                f"Your spoken name is {agent_name}. Introduce yourself as {agent_name} on the first turn.",
+                f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
+                f"Their message: {req.message or '(none)'}.",
+                f"DEMO_SESSION_ID={session.id}",
+                "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
+                "Recording: one brief consent clause in the greeting — not a lecture.",
+                "Hard soft cap about 7 minutes — wrap up with end_demo when time is up.",
+                "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
+                "UI RULES: Call highlight_dashboard BEFORE you say 'look here'.",
+                real_dash_block,
+                "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
+                "Close promise: sales will send the best offer — never invent promo codes or discounts.",
+                "No services pre-selected — ask what is hurting (customers, hiring, leads, or an event), then switch_kb.",
+            ]
+
+        if feature_lines:
             parts.append(
-                "No services pre-selected — ask what their business is, then one discovery question about "
-                "customers/candidates/leads/event, then switch_kb."
+                "SALES HOOKS FOR SELECTED SERVICES (paraphrase — do not read verbatim):\n"
+                + "\n".join(feature_lines)
             )
 
         if memory:
             parts.append("RESUME MEMORY (do not restart from scratch): " + _json_dumps(memory))
 
-        first_service = (selected[0] if selected else code or "").replace("_", " ")
+        first_code = (selected[0] if selected else code) or ""
+        first_label = SERVICE_DISPLAY_NAMES.get(first_code, first_code.replace("_", " ") or "VoxBulk")
+        first_hook = SERVICE_SALES_HOOKS.get(first_code, "")
+
         if selected:
             greeting = (
-                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — welcome to the live dashboard. "
-                f"Before we open {first_service}, quick one: what does your business do, and who do you mainly serve? "
-                "This call may be recorded for our sales team."
+                f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — welcome in. "
+                f"You picked {first_label}, so we'll go straight there. "
+                f"{first_hook} "
+                "This call may be recorded for our sales team — sound fair? "
+                "Quick one: what kind of business are you running?"
             )
         elif memory and memory.get("active_service_code"):
+            prev = str(memory.get("active_service_code") or "")
             greeting = (
-                f"Hey {req.contact_name}, it's {agent_name} again — welcome back. Last time we were on "
-                f"{str(memory.get('active_service_code')).replace('_', ' ')}. Want to pick up there?"
+                f"Hey {req.contact_name}, it's {agent_name} again — welcome back. "
+                f"Last time we were on {SERVICE_DISPLAY_NAMES.get(prev, prev.replace('_', ' '))}. "
+                "Want to pick up there?"
             )
         else:
             greeting = (
                 f"Hi {req.contact_name}, I'm {agent_name} from VoxBulk — good to meet you. "
-                "You're in the live VoxBulk dashboard. This call may be recorded for sales. "
-                "What does your business do, and what's actually costing you time right now?"
+                "You're in the live dashboard. This call may be recorded for sales. "
+                "What's actually costing you right now — unhappy customers, slow hiring, dead leads, or a show?"
             )
 
         if kb:
             parts.extend(
                 [
-                    f"ACTIVE PRODUCT KB ({kb.service_code}):",
+                    f"ACTIVE PRODUCT KB ({kb.service_code}) — use for proof points, speak as a salesperson:",
                     kb.system_prompt,
-                    "FACTS:",
+                    "FACTS (cite, don't recite as a list):",
                     kb.fact_sheet,
-                    "DEMO BEAT:",
+                    "DEMO BEAT (flexible — adapt to them):",
                     kb.demo_script,
                 ]
             )
-        else:
+        elif not selected:
             parts.append("No product KB loaded yet — ask what they need and call switch_kb.")
 
         return {
             "system_prompt": "\n\n".join(p for p in parts if p).strip(),
             "first_message": greeting if lang != "ar" else (
                 f"مرحباً {req.contact_name}، أنا {agent_name} من VoxBulk. "
-                "هذه مكالمة قصيرة وقد تُسجَّل لفريق المبيعات. "
-                "ماذا يفعل عملك، وما الذي يزعجك الآن؟"
+                f"اخترت {first_label} وسنبدأ به مباشرة. "
+                "هذه المكالمة قد تُسجَّل لفريق المبيعات. ما نوع عملك؟"
             ),
         }
 
@@ -1478,6 +1538,12 @@ class AiDemoService:
         try:
             from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
             from app.services.ai_demo_telnyx_tools import ensure_ai_demo_assistant_tools
+
+            # Refresh salesman KB copy (selected-service prompts) without blocking if upsert fails.
+            try:
+                AiDemoService.upsert_knowledge_bases(db)
+            except Exception:
+                logger.exception("demo_kb_upsert_failed")
 
             # Keep webhook tools attached (idempotent). Never send hangup in the body —
             # Telnyx auto-attaches hangup and rejects duplicates (HTTP 400).
@@ -1563,22 +1629,26 @@ class AiDemoService:
         db.add(req)
         db.commit()
 
-        from app.services.ai_demo_org_service import AiDemoOrgService
+        from app.services.ai_demo_org_service import AiDemoOrgService, SERVICE_START_PATHS, resolve_demo_route
 
+        first_selected = (cleaned or AiDemoService._selected_services_from_memory(req, session) or [None])[0]
+        start_path = SERVICE_START_PATHS.get(str(first_selected or ""), "/settings/services")
         handoff = AiDemoOrgService.build_dashboard_handoff(
             db,
             demo_session_id=session.id,
-            start_path="/settings/services",
+            start_path=start_path,
         )
-        # Append an opening navigate so the dashboard lands on Services when the widget connects.
+        # Opening navigate: land on the first selected product (not a generic interview tour).
+        open_section = str(first_selected or "services")
+        open_route = resolve_demo_route(section=open_section, service=open_section) or start_path
         AiDemoService._append_ui_event(
             db,
             session,
             {
                 "type": "highlight_dashboard",
                 "action": "navigate",
-                "section": "services",
-                "route": "/settings/services",
+                "section": open_section,
+                "route": open_route,
                 "delay_ms": 200,
             },
         )
