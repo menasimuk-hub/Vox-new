@@ -123,7 +123,7 @@ PRICING_WALKTHROUGH: dict[str, Any] = {
         "feedback": "Feedback plans are location-based with WhatsApp + web response allowances — compare on /pricing.",
         "expo": "Expo is typically pay-once-per-show — different from monthly core packages.",
         "recruitment": "Interview packages are usage-based on screens — recommend Growth unless volume is tiny.",
-    ],
+    },
     "recommend_rules": [
         "One location / light trial → Starter.",
         "Multi-site Feedback or regular Surveys → Growth.",
