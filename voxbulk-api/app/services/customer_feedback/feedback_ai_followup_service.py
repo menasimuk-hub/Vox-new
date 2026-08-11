@@ -579,9 +579,40 @@ def _resolve_followback_assistant(
             agent = resolve_agent_for_org_service(db, org_id=org_id, service_key=service_key, require_active=True)
         except ValueError:
             agent = None
-        if agent and str(agent.telnyx_assistant_id or "").strip():
+        if (
+            agent
+            and str(agent.telnyx_assistant_id or "").strip()
+            and str(agent.slug or "").startswith("survey-")
+        ):
             return normalize_telnyx_assistant_id(agent.telnyx_assistant_id), agent
 
+    default = db.execute(
+        select(AgentDefinition)
+        .where(
+            AgentDefinition.is_active.is_(True),
+            AgentDefinition.supports_survey.is_(True),
+            AgentDefinition.is_default_survey.is_(True),
+            AgentDefinition.slug.like("survey-%"),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if default and str(default.telnyx_assistant_id or "").strip():
+        return normalize_telnyx_assistant_id(default.telnyx_assistant_id), default
+
+    first_survey = db.execute(
+        select(AgentDefinition)
+        .where(
+            AgentDefinition.is_active.is_(True),
+            AgentDefinition.supports_survey.is_(True),
+            AgentDefinition.slug.like("survey-%"),
+        )
+        .order_by(AgentDefinition.created_at.asc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if first_survey and str(first_survey.telnyx_assistant_id or "").strip():
+        return normalize_telnyx_assistant_id(first_survey.telnyx_assistant_id), first_survey
+
+    # Legacy fallback only — not shown in survey/follow-back pickers.
     dedicated = db.execute(
         select(AgentDefinition)
         .where(
@@ -594,22 +625,10 @@ def _resolve_followback_assistant(
     if dedicated and str(dedicated.telnyx_assistant_id or "").strip():
         return normalize_telnyx_assistant_id(dedicated.telnyx_assistant_id), dedicated
 
-    default = db.execute(
-        select(AgentDefinition)
-        .where(
-            AgentDefinition.is_active.is_(True),
-            AgentDefinition.supports_survey.is_(True),
-            AgentDefinition.is_default_survey.is_(True),
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-    if default and str(default.telnyx_assistant_id or "").strip():
-        return normalize_telnyx_assistant_id(default.telnyx_assistant_id), default
-
     configured = str(get_settings().survey_telnyx_assistant_id or "").strip()
     if configured:
-        return normalize_telnyx_assistant_id(configured), dedicated or default
-    return "", dedicated or default
+        return normalize_telnyx_assistant_id(configured), first_survey or dedicated or default
+    return "", first_survey or dedicated or default
 
 
 def _next_calling_window_utc(db: Session, org_id: str, phone: str | None = None) -> datetime:

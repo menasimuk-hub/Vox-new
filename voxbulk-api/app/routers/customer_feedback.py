@@ -382,14 +382,14 @@ def list_feedback_voice_agents(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    """Voice agents available for Customer Feedback AI follow-up calls."""
+    """Voice agents for Customer Feedback AI follow-up — same survey-* roster as AI Call Survey."""
     _require_feedback_enabled(db, principal.org_id)
-    from app.core.agent_services import SERVICE_INTERVIEW
+    from app.core.agent_services import SERVICE_SURVEY
     from app.services.survey_voice_agent_service import list_dashboard_agents_for_service
 
     return {
         "agents": list_dashboard_agents_for_service(
-            db, service_key=SERVICE_INTERVIEW, org_id=principal.org_id
+            db, service_key=SERVICE_SURVEY, org_id=principal.org_id
         ),
     }
 
@@ -401,10 +401,13 @@ def preview_feedback_voice_agent(
     principal=Depends(get_current_principal),
 ):
     _require_feedback_enabled(db, principal.org_id)
+    from app.core.agent_services import SERVICE_SURVEY
     from app.services.interview_agent_display_service import preview_interview_agent_voice
 
     try:
-        return preview_interview_agent_voice(db, agent_id=agent_id, org_id=principal.org_id)
+        return preview_interview_agent_voice(
+            db, agent_id=agent_id, org_id=principal.org_id, service_key=SERVICE_SURVEY
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
