@@ -483,6 +483,16 @@ def admin_sync_demo_telnyx_tools(
     return sync_tools_for_all_ai_demo_agents(db)
 
 
+@admin_router.post("/ensure-demo-org")
+def admin_ensure_demo_org(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_platform_admin),
+):
+    from app.services.ai_demo_org_service import AiDemoOrgService
+
+    return AiDemoOrgService.ensure_demo_org(db)
+
+
 @admin_router.post("/knowledge-bases/upsert-defaults")
 def admin_upsert_kb_defaults(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
     result = AiDemoService.upsert_knowledge_bases(db)

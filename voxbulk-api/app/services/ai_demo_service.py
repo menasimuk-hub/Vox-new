@@ -1180,7 +1180,8 @@ class AiDemoService:
 
     @staticmethod
     def _build_runtime_prompt(db: Session, req: DemoRequest, session: DemoSession, *, service_code: str | None) -> dict[str, str]:
-        from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH, prompt_numbers_for_service
+        from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH
+        from app.services.ai_demo_org_service import AiDemoOrgService
 
         AiDemoService.ensure_knowledge_bases(db)
         overview = db.execute(
@@ -1198,6 +1199,16 @@ class AiDemoService:
         lang = session.language or req.preferred_language or "en"
         lang_line = "Respond in Arabic." if lang == "ar" else "Respond in English."
 
+        demo_org = AiDemoOrgService.find_demo_org(db)
+        real_dash_block = (
+            AiDemoOrgService.prompt_numbers_block(db, demo_org.id)
+            if demo_org is not None
+            else (
+                "REAL DASHBOARD: Visitor is inside dashboard.voxbulk.com for Voxbulk Demo. "
+                "Use highlight_dashboard section=services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card."
+            )
+        )
+
         parts = [
             overview.system_prompt if overview else "",
             overview.fact_sheet if overview else "",
@@ -1206,6 +1217,10 @@ class AiDemoService:
             f"Their message: {req.message or '(none)'}.",
             "Recording: one brief consent clause in the greeting — not a lecture.",
             "Hard soft cap about 7 minutes — wrap up with end_demo when time is up.",
+            "UI RULES: You are driving the REAL customer dashboard (sidebar, Settings → Services, Packages, Feedback). "
+            "Call highlight_dashboard BEFORE you say 'look here' so the page navigates. "
+            "Do not invent fake mock panels. Do not auto-fill forms — open /feedback/new and narrate the steps.",
+            real_dash_block,
             "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
             "Close promise: sales will send the best offer — never invent promo codes or discounts.",
         ]
@@ -1213,7 +1228,7 @@ class AiDemoService:
             parts.append(
                 "PRE-SELECTED SERVICES (cover in this order, one fully then transition): "
                 + ", ".join(selected)
-                + ". After a short need question for the first one, go straight into that walkthrough — do not ask them to pick from all five."
+                + ". Start at Settings → Services, then Packages, then the first product walkthrough — do not ask them to pick from all five."
             )
         else:
             parts.append(
@@ -1223,25 +1238,22 @@ class AiDemoService:
         if memory:
             parts.append("RESUME MEMORY (do not restart from scratch): " + _json_dumps(memory))
 
-        if code:
-            nums = prompt_numbers_for_service(code)
-            if nums:
-                parts.append(nums)
-
         if selected:
             first = selected[0].replace("_", " ")
             greeting = (
-                f"Hi {req.contact_name} — quick one before we jump into {first}: "
-                "what's the annoying part for you right now? This call may be recorded for our sales team."
+                f"Hi {req.contact_name} — you're in the real VoxBulk dashboard now. "
+                f"Quick one before we jump into {first}: what's the annoying part for you right now? "
+                "This call may be recorded for our sales team."
             )
         elif memory and memory.get("active_service_code"):
             greeting = (
-                f"Hey {req.contact_name}, welcome back. Last time we were on "
+                f"Hey {req.contact_name}, welcome back to the real dashboard. Last time we were on "
                 f"{str(memory.get('active_service_code')).replace('_', ' ')}. Want to pick up there?"
             )
         else:
             greeting = (
-                f"Hi {req.contact_name} — good to meet you. This call may be recorded for sales. "
+                f"Hi {req.contact_name} — good to meet you. You're in the real VoxBulk dashboard. "
+                "This call may be recorded for sales. "
                 "What's actually costing you time right now — customers, candidates, sales leads, or an event?"
             )
 
@@ -1389,6 +1401,27 @@ class AiDemoService:
         db.add(req)
         db.commit()
 
+        from app.services.ai_demo_org_service import AiDemoOrgService
+
+        handoff = AiDemoOrgService.build_dashboard_handoff(
+            db,
+            demo_session_id=session.id,
+            start_path="/settings/services",
+        )
+        # Append an opening navigate so the dashboard lands on Services when the widget connects.
+        AiDemoService._append_ui_event(
+            db,
+            session,
+            {
+                "type": "highlight_dashboard",
+                "action": "navigate",
+                "section": "services",
+                "route": "/settings/services",
+                "delay_ms": 200,
+            },
+        )
+        db.commit()
+
         return {
             "session_id": session.id,
             "call_id": lead.id if lead else None,
@@ -1397,6 +1430,9 @@ class AiDemoService:
             "soft_cap_minutes": AiDemoService.get_settings(db).soft_cap_minutes or SOFT_CAP_MINUTES_DEFAULT,
             "active_service_code": session.active_service_code,
             "selected_services": cleaned or AiDemoService._selected_services_from_memory(req, session),
+            "real_dashboard": True,
+            "dashboard_url": handoff["dashboard_url"],
+            "demo_org_id": handoff["org_id"],
             "telnyx": {
                 "configured": True,
                 "agent_id": prep.get("assistant_id") or assistant_id,
@@ -1493,13 +1529,33 @@ class AiDemoService:
                     )
                 except Exception:
                     logger.exception("demo_switch_kb_resync_failed")
+            from app.services.ai_demo_org_service import resolve_demo_route
+
+            route = resolve_demo_route(section=code, service=code)
             AiDemoService._append_ui_event(
                 db,
                 session,
-                {"type": "switch_kb", "service": code, "transition": f"Switching to {code}"},
+                {
+                    "type": "switch_kb",
+                    "service": code,
+                    "route": route,
+                    "transition": f"Switching to {code}",
+                },
             )
+            if route:
+                AiDemoService._append_ui_event(
+                    db,
+                    session,
+                    {
+                        "type": "highlight_dashboard",
+                        "action": "navigate",
+                        "section": code,
+                        "route": route,
+                        "delay_ms": 300,
+                    },
+                )
             db.commit()
-            return {"status": "ok", "service": code, "message": f"Switched to {code}"}
+            return {"status": "ok", "service": code, "route": route, "message": f"Switched to {code}"}
 
         if name == "show_result_panel":
             data = args.get("json") if "json" in args else args.get("data") or args
@@ -1542,14 +1598,24 @@ class AiDemoService:
             return {"status": "ok", "url": raw_data}
 
         if name == "highlight_dashboard":
+            from app.services.ai_demo_org_service import resolve_demo_route
+
             action = str(args.get("action") or "highlight").strip().lower()
             if action not in ("highlight", "navigate", "filter", "open_chart"):
                 action = "highlight"
+            section = args.get("section") or session.active_service_code
+            target = args.get("target")
+            route = resolve_demo_route(
+                section=str(section) if section else None,
+                target=str(target) if target else None,
+                service=session.active_service_code,
+            )
             event = {
                 "type": "highlight_dashboard",
-                "action": action,
-                "section": args.get("section") or session.active_service_code,
-                "target": args.get("target"),
+                "action": action if route is None else "navigate",
+                "section": section,
+                "target": target,
+                "route": route,
                 "location": args.get("location"),
                 "range": args.get("range") or args.get("range_key"),
                 "view": args.get("view"),
@@ -1557,7 +1623,7 @@ class AiDemoService:
             }
             AiDemoService._append_ui_event(db, session, event)
             db.commit()
-            return {"status": "ok", "action": action}
+            return {"status": "ok", "action": event["action"], "route": route}
 
         if name == "show_pricing":
             from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH
@@ -1567,10 +1633,22 @@ class AiDemoService:
                 db,
                 session,
                 {
+                    "type": "highlight_dashboard",
+                    "action": "navigate",
+                    "section": "packages",
+                    "route": "/account/packages",
+                    "delay_ms": 200,
+                },
+            )
+            AiDemoService._append_ui_event(
+                db,
+                session,
+                {
                     "type": "show_pricing",
                     "data": PRICING_WALKTHROUGH,
                     "recommendation": recommendation,
                     "service": args.get("service") or session.active_service_code,
+                    "route": "/account/packages",
                 },
             )
             AiDemoService.update_memory(

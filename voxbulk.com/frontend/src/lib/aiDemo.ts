@@ -24,6 +24,9 @@ export type AiDemoStartResponse = {
   soft_cap_minutes?: number;
   active_service_code?: string | null;
   selected_services?: string[];
+  real_dashboard?: boolean;
+  dashboard_url?: string | null;
+  demo_org_id?: string | null;
   telnyx?: {
     configured?: boolean;
     agent_id?: string;
@@ -64,6 +67,7 @@ export type AiDemoUiEvent = {
   action?: string;
   section?: string;
   target?: string;
+  route?: string;
   location?: string;
   range?: string;
   view?: string;

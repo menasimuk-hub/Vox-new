@@ -10,6 +10,7 @@ import { SessionProvider } from "@/lib/session";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { PwaInstallBanner, PwaInstallHelpDialog, PwaInstallProvider } from "@/components/pwa-install";
+import { AiDemoCallWidget } from "@/components/ai-demo-call-widget";
 
 export const Route = createFileRoute("/_app")({ component: AppLayout });
 
@@ -32,6 +33,7 @@ function AppLayout() {
                   </main>
                 </SidebarInset>
                 <LiveChatFab />
+                <AiDemoCallWidget />
               </SidebarProvider>
               <PwaInstallBanner />
               <PwaInstallHelpDialog />

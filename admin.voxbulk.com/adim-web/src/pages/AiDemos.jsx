@@ -265,6 +265,28 @@ export default function AiDemos() {
     }
   }
 
+  const ensureVoxbulkDemoOrg = async () => {
+    if (
+      !window.confirm(
+        'Create or refresh the shared “Voxbulk Demo” organisation (logo, address, seed Feedback/Surveys/Interviews) used by the real-dashboard AI demo?',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/ai-demo/ensure-demo-org', { method: 'POST' })
+      const locs = data?.feedback_locations?.length ?? 0
+      alert(
+        `Voxbulk Demo ready.\norg=${data?.org_id}\nowner=${data?.owner_email}\nseed_skipped=${Boolean(data?.seed?.skipped)}\nfeedback_locations=${locs}`,
+      )
+    } catch (e) {
+      alert(e?.message || 'Ensure demo org failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const upsertKbDefaults = async () => {
     if (!window.confirm('Refresh all AI Demo knowledge bases with the latest talk/sales prompts from code?')) return
     setBusy(true)
@@ -448,6 +470,9 @@ export default function AiDemos() {
               <Button variant='outline' onClick={syncDemoTelnyxTools} disabled={busy}>
                 Sync Telnyx demo tools
               </Button>
+              <Button variant='outline' onClick={ensureVoxbulkDemoOrg} disabled={busy}>
+                Ensure Voxbulk Demo org
+              </Button>
               <Button variant='outline' onClick={upsertKbDefaults} disabled={busy}>
                 Refresh KB talk/sales copy
               </Button>
@@ -455,7 +480,8 @@ export default function AiDemos() {
             <p className='text-xs text-muted-foreground'>
               Duplicate creates new Telnyx assistants named “AI Demo — …”. Sync Telnyx demo tools attaches webhook tools
               (highlight_dashboard, show_qr_code, show_pricing, …) to those assistants only — interview agents stay
-              untouched.
+              untouched. Ensure Voxbulk Demo org creates the shared real-dashboard workspace (logo, address, seed data)
+              that magic-link Start opens.
             </p>
           </CardContent>
         </Card>
