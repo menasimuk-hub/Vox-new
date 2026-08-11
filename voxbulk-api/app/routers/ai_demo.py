@@ -33,6 +33,7 @@ class DemoRequestIn(BaseModel):
     website: str = Field(min_length=3, max_length=512)
     preferred_language: str = Field(default="en", max_length=10)
     message: str = Field(min_length=10, max_length=4000)
+    callback_consent: bool = False
     website_hp: str | None = Field(default="", description="Honeypot")
 
 
@@ -136,6 +137,7 @@ def create_demo_request(payload: DemoRequestIn, db: Session = Depends(get_db)):
             preferred_language=payload.preferred_language,
             message=payload.message,
             honeypot=payload.website_hp,
+            callback_consent=bool(payload.callback_consent),
         )
     except AiDemoError as exc:
         raise _http(exc) from exc

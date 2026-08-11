@@ -17,6 +17,21 @@ def process_promo_followups_task() -> dict:
     return stats
 
 
+@celery_app.task(name="sales.cleanup_expired_promos")
+def cleanup_expired_promos_task() -> dict:
+    """Delete every expired promo offer (ongoing hygiene)."""
+    from sqlalchemy import text
+
+    with get_sessionmaker()() as db:
+        result = db.execute(
+            text("DELETE FROM promo_offers WHERE expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP()")
+        )
+        db.commit()
+        deleted = int(result.rowcount or 0)
+    logger.info("sales_expired_promos_cleaned", extra={"deleted": deleted})
+    return {"ok": True, "deleted": deleted}
+
+
 @celery_app.task(name="sales.retry_post_call_automation")
 def retry_post_call_automation_task(task_id: str) -> dict:
     """Re-sync Telnyx transcript/outcome and run post-call offer automation."""

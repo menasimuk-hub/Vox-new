@@ -28,6 +28,7 @@ export async function startTalkToUsCall(input: {
   company_name: string;
   email: string;
   phone: string;
+  callback_consent: boolean;
   geo?: GeoHint;
 }) {
   const geo = input.geo || (await detectGeoHint());
@@ -38,6 +39,7 @@ export async function startTalkToUsCall(input: {
       company_name: input.company_name.trim() || "—",
       email: input.email.trim(),
       phone: input.phone.trim(),
+      callback_consent: input.callback_consent,
       source: "frontpage_talk_to_us",
       ...clientGeoPayload(geo),
     }),

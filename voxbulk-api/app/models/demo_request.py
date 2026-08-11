@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -21,6 +21,7 @@ class DemoRequest(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     whatsapp_e164: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    callback_consent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     website: Mapped[str] = mapped_column(String(512), nullable=False)
     preferred_language: Mapped[str] = mapped_column(String(10), nullable=False, default="en")
     # Admin override: GB / AU / SA / … — when set, session uses that market's agent.

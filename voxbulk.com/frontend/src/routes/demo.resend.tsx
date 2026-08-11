@@ -14,38 +14,46 @@ export const Route = createFileRoute("/demo/resend")({
 
 function DemoResendPage() {
   const { request, sig } = Route.useSearch();
-  const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
+  const [status, setStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      if (!request || !sig) {
-        setStatus("error");
-        setMessage("Invalid resend link.");
-        return;
-      }
-      try {
-        await resendDemoLink(request, sig);
-        if (cancelled) return;
-        setStatus("ok");
-        setMessage("A fresh demo link has been emailed to you. Check your inbox (and spam).");
-      } catch (e) {
-        if (cancelled) return;
-        setStatus("error");
-        setMessage(e instanceof Error ? e.message : "Could not resend the demo link.");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    if (!request || !sig) {
+      setStatus("error");
+      setMessage("Invalid resend link.");
+    }
   }, [request, sig]);
+
+  const handleResend = async () => {
+    if (!request || !sig) return;
+    setStatus("loading");
+    try {
+      await resendDemoLink(request, sig);
+      setStatus("ok");
+      setMessage("A fresh demo link has been emailed to you. Check your inbox (and spam).");
+    } catch (e) {
+      setStatus("error");
+      setMessage(e instanceof Error ? e.message : "Could not resend the demo link.");
+    }
+  };
 
   return (
     <div className="bg-background text-body antialiased min-h-screen flex flex-col">
       <SiteHeader />
       <main className="flex-1 pt-[130px] pb-24">
         <div className="max-w-[520px] mx-auto px-5 text-center">
+          {status === "idle" && (
+            <>
+              <h1 className="text-[28px] font-bold text-heading">Resend your demo link</h1>
+              <p className="mt-3 text-[15px] text-body">Click below to receive a fresh demo link by email.</p>
+              <button
+                onClick={handleResend}
+                className="mt-6 inline-flex items-center gap-2 px-6 h-11 rounded-xl bg-primary text-white text-[14px] font-semibold hover:bg-primary-dark transition-colors"
+              >
+                Resend demo link
+              </button>
+            </>
+          )}
           {status === "loading" && (
             <div className="inline-flex items-center gap-2 text-muted-text">
               <Loader2 className="animate-spin" size={18} /> Sending a new link…

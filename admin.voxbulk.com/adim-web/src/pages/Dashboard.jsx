@@ -14,8 +14,10 @@ import {
   LifeBuoy,
   Megaphone,
   MessageSquare,
+  Phone,
   QrCode,
   RefreshCw,
+  Send,
   Server,
   Settings2,
   Sparkles,
@@ -189,7 +191,7 @@ export default function Dashboard() {
         apiFetch('/admin/dashboard/provider-balances').catch(() => null),
         apiFetch('/admin/platform-services/surveys/overview').catch(() => null),
         apiFetch('/admin/platform-services/interviews/overview').catch(() => null),
-        apiFetch('/admin/ops-pending').catch(() => ({ pending_approval: 0, offer_queue_ready: 0, demo_requests: 0 })),
+        apiFetch('/admin/frontpage/ops-pending').catch(() => ({ pending_approval: 0, offer_queue_ready: 0, demo_requests: 0 })),
       ])
 
       setBilling(billingRes)
@@ -882,7 +884,7 @@ export default function Dashboard() {
       <div className="grid gap-3 lg:grid-cols-3">
         {/* Three pending cards */}
         <Link
-          to="/marketing/lead-sales?status=pending"
+          to="/marketing/lead-sales?status=pending_approval"
           className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
         >
           <div className="flex items-center justify-between gap-2">
@@ -890,7 +892,7 @@ export default function Dashboard() {
               <Phone className="h-3.5 w-3.5" /> Pending sales approval
             </span>
             <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
-              <StatusDot tone="warn" />
+              <StatusDot tone={(stats.pending_approval || 0) > 0 ? 'warn' : 'ok'} />
               {stats.pending_approval || 0}
             </Badge>
           </div>
@@ -904,7 +906,7 @@ export default function Dashboard() {
         </Link>
 
         <Link
-          to="/marketing/send-offer"
+          to="/marketing/send-offer?status=ready_after_call"
           className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
         >
           <div className="flex items-center justify-between gap-2">
@@ -912,8 +914,8 @@ export default function Dashboard() {
               <Send className="h-3.5 w-3.5" /> Offers ready to send
             </span>
             <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
-              <StatusDot tone="ok" />
-              {operations?.offer_queue_ready || 0}
+              <StatusDot tone={(stats.offer_queue_ready || 0) > 0 ? 'warn' : 'ok'} />
+              {stats.offer_queue_ready || 0}
             </Badge>
           </div>
           <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
@@ -934,8 +936,8 @@ export default function Dashboard() {
               <Bot className="h-3.5 w-3.5" /> AI demos requested
             </span>
             <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
-              <StatusDot tone={support?.demo_requests > 0 ? 'warn' : 'ok'} />
-              {support?.demo_requests || 0}
+              <StatusDot tone={(stats.demo_requests || 0) > 0 ? 'warn' : 'ok'} />
+              {stats.demo_requests || 0}
             </Badge>
           </div>
           <p className="mt-1 text-[11px] leading-snug text-muted-foreground">

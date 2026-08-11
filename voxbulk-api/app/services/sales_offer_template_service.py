@@ -21,6 +21,7 @@ def template_to_dict(row: SalesOfferTemplate) -> dict[str, Any]:
         "id": row.id,
         "name": row.name,
         "offer_type": row.offer_type,
+        "service_code": getattr(row, "service_code", None),
         "plan_code": row.plan_code,
         "trial_days": int(row.trial_days or 0),
         "survey_contacts_included": int(row.survey_contacts_included or 0),
@@ -33,10 +34,18 @@ def template_to_dict(row: SalesOfferTemplate) -> dict[str, Any]:
     }
 
 
-def list_templates(db: Session, *, active_only: bool = False) -> list[SalesOfferTemplate]:
+def list_templates(
+    db: Session,
+    *,
+    active_only: bool = False,
+    service_code: str | None = None,
+) -> list[SalesOfferTemplate]:
     q = select(SalesOfferTemplate).order_by(SalesOfferTemplate.sort_order.asc(), SalesOfferTemplate.name.asc())
     if active_only:
         q = q.where(SalesOfferTemplate.is_active.is_(True))
+    code = str(service_code or "").strip().lower()
+    if code:
+        q = q.where(SalesOfferTemplate.service_code == code)
     return list(db.execute(q).scalars().all())
 
 
@@ -53,11 +62,12 @@ def _normalize_offer_type(raw: str) -> str:
 
 def create_template(db: Session, payload: dict[str, Any]) -> SalesOfferTemplate:
     now = datetime.utcnow()
-    offer_type = _normalize_offer_type(str(payload.get("offer_type") or "dental_trial"))
+    offer_type = _normalize_offer_type(str(payload.get("offer_type") or "subscription_trial"))
     row = SalesOfferTemplate(
         id=str(uuid.uuid4()),
         name=str(payload.get("name") or "Sales offer template").strip()[:128],
         offer_type=offer_type,
+        service_code=str(payload.get("service_code") or "").strip().lower() or None,
         plan_code=str(payload.get("plan_code") or "").strip().lower() or None,
         trial_days=max(0, int(payload.get("trial_days") or 15)),
         survey_contacts_included=max(0, int(payload.get("survey_contacts_included") or 0)),
@@ -83,6 +93,8 @@ def update_template(db: Session, template_id: str, payload: dict[str, Any]) -> S
         row.name = str(payload.get("name") or row.name).strip()[:128]
     if "offer_type" in payload:
         row.offer_type = _normalize_offer_type(str(payload.get("offer_type") or row.offer_type))
+    if "service_code" in payload:
+        row.service_code = str(payload.get("service_code") or "").strip().lower() or None
     if "plan_code" in payload:
         row.plan_code = str(payload.get("plan_code") or "").strip().lower() or None
     if "trial_days" in payload:
@@ -165,36 +177,45 @@ def resolve_template_for_task(
             return row
 
     offer_type_by_cat = {
-        "subscription": "dental_trial",
+        "subscription": "subscription_trial",
         "survey": "survey_credits",
         "interview": "interview_credits",
     }
-    want_type = offer_type_by_cat.get(cat, "dental_trial")
+    want_type = offer_type_by_cat.get(cat, "subscription_trial")
     active = [row for row in list_templates(db, active_only=True) if _normalize_offer_type(row.offer_type) == want_type]
     return active[0] if active else None
 
 
-def ensure_default_offer_templates(db: Session) -> bool:
-    """Seed subscription/survey/interview templates when missing (e.g. migration 0062 not applied)."""
-    if list_templates(db):
-        return False
+SERVICE_TEMPLATE_SEEDS = [
+    ("recruitment", "Recruitment — 3 interview credits", "interview_credits", None, 0, 0, 3, 10),
+    ("surveys", "Surveys — 3 survey contacts", "survey_credits", None, 0, 3, 0, 20),
+    ("feedback", "Feedback — Starter trial 14 days", "subscription_trial", "cf_starter_gb", 14, 0, 0, 30),
+    ("expo", "Expo — 3-day trial", "expo_trial", "expo_day3", 3, 0, 0, 40),
+    ("smart_card", "Smart Card — 1 seat credit", "smart_card_credit", "smart_card_seat", 0, 0, 0, 50),
+]
 
+
+def ensure_default_offer_templates(db: Session) -> bool:
+    """Seed the five service offer templates when missing."""
+    existing_codes = {
+        str(r.service_code or "").strip().lower()
+        for r in list_templates(db)
+        if getattr(r, "service_code", None)
+    }
     settings = get_lead_sales_settings(db)
     now = datetime.utcnow()
     created = False
-    mapping: dict[str, str] = {}
-    rows = [
-        ("subscription", "Subscription sale 1", "dental_trial", "dental_1", 15, 0, 0, 10),
-        ("survey", "Survey sale 1", "survey_credits", None, 0, 3, 0, 20),
-        ("interview", "Interview sale 1", "interview_credits", None, 0, 0, 3, 30),
-    ]
-    for key, name, offer_type, plan, trial, survey, interview, order in rows:
+    created_by_service: dict[str, str] = {}
+    for service_code, name, offer_type, plan, trial, survey, interview, order in SERVICE_TEMPLATE_SEEDS:
+        if service_code in existing_codes:
+            continue
         tid = str(uuid.uuid4())
         db.add(
             SalesOfferTemplate(
                 id=tid,
                 name=name,
                 offer_type=offer_type,
+                service_code=service_code,
                 plan_code=plan,
                 trial_days=trial,
                 survey_contacts_included=survey,
@@ -207,19 +228,17 @@ def ensure_default_offer_templates(db: Session) -> bool:
                 updated_at=now,
             )
         )
-        mapping[key] = tid
+        created_by_service[service_code] = tid
         created = True
 
-    if not created:
-        return False
-
-    if not getattr(settings, "sales_template_subscription_id", None):
-        settings.sales_template_subscription_id = mapping["subscription"]
-    if not getattr(settings, "sales_template_survey_id", None):
-        settings.sales_template_survey_id = mapping["survey"]
-    if not getattr(settings, "sales_template_interview_id", None):
-        settings.sales_template_interview_id = mapping["interview"]
-    settings.updated_at = now
-    db.add(settings)
-    db.commit()
-    return True
+    if created:
+        if not getattr(settings, "sales_template_subscription_id", None) and created_by_service.get("feedback"):
+            settings.sales_template_subscription_id = created_by_service["feedback"]
+        if not getattr(settings, "sales_template_survey_id", None) and created_by_service.get("surveys"):
+            settings.sales_template_survey_id = created_by_service["surveys"]
+        if not getattr(settings, "sales_template_interview_id", None) and created_by_service.get("recruitment"):
+            settings.sales_template_interview_id = created_by_service["recruitment"]
+        settings.updated_at = now
+        db.add(settings)
+        db.commit()
+    return created

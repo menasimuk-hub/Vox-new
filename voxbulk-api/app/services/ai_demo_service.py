@@ -689,6 +689,7 @@ class AiDemoService:
         preferred_language: str,
         message: str,
         honeypot: str | None = None,
+        callback_consent: bool = False,
     ) -> DemoRequest | None:
         if str(honeypot or "").strip():
             return None  # type: ignore[return-value]
@@ -713,6 +714,12 @@ class AiDemoService:
             )
         ).scalar_one_or_none()
         if pending is not None:
+            if callback_consent and not bool(getattr(pending, "callback_consent", False)):
+                pending.callback_consent = True
+                pending.updated_at = _utcnow()
+                db.add(pending)
+                db.commit()
+                db.refresh(pending)
             return pending
 
         req = DemoRequest(
@@ -725,6 +732,7 @@ class AiDemoService:
             website=_normalize_website(website),
             preferred_language=_normalize_lang(preferred_language),
             message=msg[:4000],
+            callback_consent=bool(callback_consent),
         )
         db.add(req)
         db.commit()
@@ -1126,28 +1134,30 @@ class AiDemoService:
         session = db.execute(select(DemoSession).where(DemoSession.token_hmac == digest)).scalar_one_or_none()
         if session is None:
             raise AiDemoError("Invalid or expired demo link", status_code=403)
-        if session.used_at is not None:
-            raise AiDemoError(
-                "This link was already used. Open your email and tap Resend demo link.",
-                status_code=410,
-            )
         if session.expires_at < _utcnow():
             session.status = "expired"
             db.add(session)
             db.commit()
             raise AiDemoError(
-                "This link expired. Open your email and tap Resend demo link.",
+                "This link expired. Open your email and tap Resend demo link (use the newest email).",
                 status_code=410,
             )
         req = AiDemoService.get_request(db, session.request_id)
         if req.demo_completed_at:
             raise AiDemoError("This demo is already complete", status_code=410)
 
-        session.used_at = _utcnow()
-        session.status = "verified"
-        db.add(session)
-        db.commit()
-        db.refresh(session)
+        # used_at is set only when Start demo call runs — page refresh before that is OK.
+        if session.used_at is not None:
+            raise AiDemoError(
+                "This link was already used. Open your newest email and tap Resend demo link, then use the new Start link.",
+                status_code=410,
+            )
+
+        if session.status in ("issued", "verified"):
+            session.status = "verified"
+            db.add(session)
+            db.commit()
+            db.refresh(session)
 
         memory = _json_loads(req.conversation_memory, {})
         return {
@@ -1293,6 +1303,10 @@ class AiDemoService:
             raise AiDemoError("Session is not ready to start", status_code=409)
         req = AiDemoService.get_request(db, session.request_id)
 
+        # Consume invite when the call actually starts (not on page open).
+        if session.used_at is None:
+            session.used_at = _utcnow()
+
         cleaned: list[str] = []
         for item in selected_services or []:
             code = str(item or "").strip().lower()
@@ -1385,6 +1399,9 @@ class AiDemoService:
                         "preferred_language": req.preferred_language,
                         "message": req.message,
                         "selected_services": cleaned,
+                        "callback_consent": bool(getattr(req, "callback_consent", False)),
+                        "wants_sales_call": True,
+                        "source_label": "AI demo",
                     }
                 ),
             )
@@ -1837,6 +1854,9 @@ class AiDemoService:
                 "preferred_language": req.preferred_language,
                 "message": req.message,
                 "demo_completed": True,
+                "callback_consent": bool(getattr(req, "callback_consent", False)),
+                "wants_sales_call": True,
+                "source_label": "AI demo",
             }
         )
         lead.lead_data_json = _json_dumps(lead_data)
@@ -1879,6 +1899,7 @@ class AiDemoService:
             "preferred_language": req.preferred_language,
             "voice_region": req.voice_region,
             "message": req.message,
+            "callback_consent": bool(getattr(req, "callback_consent", False)),
             "admin_notes": req.admin_notes,
             "approved_at": req.approved_at.isoformat() + "Z" if req.approved_at else None,
             "rejected_at": req.rejected_at.isoformat() + "Z" if req.rejected_at else None,

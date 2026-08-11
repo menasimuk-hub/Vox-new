@@ -50,6 +50,10 @@ celery_app.conf.update(
             "task": "sales.process_promo_followups",
             "schedule": 3600.0,
         },
+        "sales-cleanup-expired-promos-daily": {
+            "task": "sales.cleanup_expired_promos",
+            "schedule": 86400.0,
+        },
         "ai-team-followups-hourly": {
             "task": "ai_team.process_followups",
             "schedule": 3600.0,

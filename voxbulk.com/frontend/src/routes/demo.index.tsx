@@ -53,6 +53,7 @@ function DemoRequestPage() {
   const [website, setWebsite] = useState("");
   const [preferredLanguage, setPreferredLanguage] = useState<"en" | "ar">("en");
   const [message, setMessage] = useState("");
+  const [callbackConsent, setCallbackConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -88,6 +89,10 @@ function DemoRequestPage() {
 
   const submit = async () => {
     setError(null);
+    if (!callbackConsent) {
+      setError("Please confirm that we may call you back on your WhatsApp number.");
+      return;
+    }
     const local = whatsappLocal.replace(/\s+/g, "").replace(/^0+/, "");
     const parsed = schema.safeParse({
       contact_name: contactName,
@@ -112,6 +117,7 @@ function DemoRequestPage() {
         website: parsed.data.website,
         preferred_language: parsed.data.preferred_language,
         message: parsed.data.message,
+        callback_consent: callbackConsent,
       });
       setStep(totalSteps);
       toast.success("Request received — we'll email your demo link shortly.");
@@ -251,19 +257,32 @@ function DemoRequestPage() {
               </div>
             )}
             {step === 5 && (
-              <div>
-                <label htmlFor="demo-message" className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-text mb-3">
-                  <MessageSquare size={18} /> Your message
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="demo-message" className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-text mb-3">
+                    <MessageSquare size={18} /> Your message
+                  </label>
+                  <textarea
+                    id="demo-message"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    rows={5}
+                    placeholder="What would you like to see in the demo?"
+                    className="w-full rounded-xl border border-border bg-secondary/30 px-4 py-3.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                    autoFocus
+                  />
+                </div>
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={callbackConsent}
+                    onChange={(e) => setCallbackConsent(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/30"
+                  />
+                  <span className="text-[13.5px] text-body leading-snug">
+                    I agree that VoxBulk may call me back on the WhatsApp number I provided about this demo. <span className="text-primary">*</span>
+                  </span>
                 </label>
-                <textarea
-                  id="demo-message"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  rows={5}
-                  placeholder="What would you like to see in the demo?"
-                  className="w-full rounded-xl border border-border bg-secondary/30 px-4 py-3.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                  autoFocus
-                />
               </div>
             )}
             {step === totalSteps && (

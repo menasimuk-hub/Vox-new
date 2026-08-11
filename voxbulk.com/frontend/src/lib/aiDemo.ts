@@ -83,6 +83,7 @@ export async function submitDemoRequest(input: {
   website: string;
   preferred_language: string;
   message: string;
+  callback_consent: boolean;
 }) {
   return apiFetch<{ ok: boolean; id?: string; status?: string; skipped?: boolean }>(
     "/ai-demo/requests",

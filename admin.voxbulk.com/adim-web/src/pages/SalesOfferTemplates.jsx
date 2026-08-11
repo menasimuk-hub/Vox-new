@@ -6,8 +6,9 @@ import { SALES_OFFER_TYPES } from '../lib/salesOfferTypes'
 
 const EMPTY = {
   name: '',
-  offer_type: 'dental_trial',
-  plan_code: '',
+  offer_type: 'subscription_trial',
+  service_code: '',
+  plan_code: 'starter',
   trial_days: 15,
   survey_contacts_included: 3,
   interview_contacts_included: 3,

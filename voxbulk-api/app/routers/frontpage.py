@@ -65,6 +65,7 @@ class TalkToUsStartCallIn(BaseModel):
     company_name: str
     email: str
     phone: str | None = None
+    callback_consent: bool = False
     client_timezone: str | None = None
     client_locale: str | None = None
     client_country: str | None = None
@@ -489,6 +490,14 @@ def start_frontpage_talk_to_us_call(
         status="created",
         voice_provider=settings.voice_provider,
         provider_agent_id=settings.provider_agent_id,
+        lead_data_json=json.dumps(
+            {
+                "callback_consent": bool(payload.callback_consent),
+                "wants_sales_call": bool(payload.callback_consent),
+                "phone": phone_e164 or payload.phone,
+                "source_label": "Talk to us",
+            }
+        ),
     )
     db.add(lead_call)
     lead_call.status = "started"
@@ -1474,13 +1483,24 @@ def update_lead_sales_settings_route(
     if payload.sales_automation_enabled is not None:
         row.sales_automation_enabled = bool(payload.sales_automation_enabled)
     if payload.sales_auto_plan_code is not None:
-        row.sales_auto_plan_code = str(payload.sales_auto_plan_code or "dental_1").strip().lower() or "dental_1"
+        code = str(payload.sales_auto_plan_code or "starter").strip().lower() or "starter"
+        if code in {"dental_1", "dental_2", "practice", "group"}:
+            code = "starter"
+        row.sales_auto_plan_code = code
     if payload.sales_auto_trial_days is not None:
         row.sales_auto_trial_days = max(0, int(payload.sales_auto_trial_days))
     if payload.sales_auto_offer_type is not None:
-        offer_type = str(payload.sales_auto_offer_type or "dental_trial").strip().lower()
-        if offer_type not in {"dental_trial", "survey_credits", "interview_credits"}:
-            offer_type = "dental_trial"
+        offer_type = str(payload.sales_auto_offer_type or "subscription_trial").strip().lower()
+        if offer_type == "dental_trial":
+            offer_type = "subscription_trial"
+        if offer_type not in {
+            "subscription_trial",
+            "survey_credits",
+            "interview_credits",
+            "expo_trial",
+            "smart_card_credit",
+        }:
+            offer_type = "subscription_trial"
         row.sales_auto_offer_type = offer_type
     if payload.sales_auto_survey_contacts is not None:
         row.sales_auto_survey_contacts = max(1, int(payload.sales_auto_survey_contacts))
@@ -1729,6 +1749,38 @@ def resume_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _a
     return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
 
 
+@admin_router.post("/lead-sales/tasks/{task_id}/approve")
+def approve_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.lead_sales_service import approve_sales_task
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    try:
+        row = approve_sales_task(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    lead = db.get(FrontpageLeadCall, row.lead_id)
+    return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
+
+
+@admin_router.post("/lead-sales/tasks/{task_id}/reject")
+def reject_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.lead_sales_service import reject_sales_task
+
+    row = db.get(LeadSalesTask, task_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
+    try:
+        row = reject_sales_task(db, row)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    lead = db.get(FrontpageLeadCall, row.lead_id)
+    return {"task": _sales_task_out(db, row, lead_code=lead.lead_code if lead else None)}
+
+
 @admin_router.post("/lead-sales/tasks/{task_id}/call-now")
 def call_now_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     from app.models.lead_sales_task import LeadSalesTask
@@ -1817,11 +1869,83 @@ def delete_lead_sales_task_route(task_id: str, db: Session = Depends(get_db), _a
 
 
 @admin_router.get("/lead-sales/offer-templates")
-def list_lead_sales_offer_templates(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+def list_lead_sales_offer_templates(
+    service: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
     from app.services.sales_offer_template_service import list_templates, template_to_dict
 
-    rows = list_templates(db, active_only=False)
+    rows = list_templates(db, active_only=False, service_code=service)
     return {"templates": [template_to_dict(r) for r in rows]}
+
+
+@admin_router.get("/lead-sales/offer-queue")
+def list_lead_sales_offer_queue(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from app.models.lead_sales_task import LeadSalesTask
+    from app.services.lead_sales_service import get_lead_sales_settings, lead_sales_task_out
+
+    settings = get_lead_sales_settings(db)
+    rows = list(
+        db.execute(
+            select(LeadSalesTask).order_by(LeadSalesTask.updated_at.desc()).limit(500)
+        ).scalars().all()
+    )
+    lead_ids = [r.lead_id for r in rows if r.lead_id]
+    leads = {}
+    if lead_ids:
+        for lead in db.execute(select(FrontpageLeadCall).where(FrontpageLeadCall.id.in_(lead_ids))).scalars().all():
+            leads[lead.id] = lead
+    tasks = []
+    for row in rows:
+        if not (
+            row.offer_sent_at
+            or getattr(row, "offer_queue_status", None)
+            or row.status in {"completed", "failed", "no_answer"}
+        ):
+            continue
+        lead = leads.get(row.lead_id)
+        out = lead_sales_task_out(row, lead_code=lead.lead_code if lead else None, settings=settings)
+        out["call_outcome"] = out.get("outcome_label")
+        tasks.append(out)
+    return {"tasks": tasks}
+
+
+@admin_router.get("/ops-pending")
+def ops_pending_counts(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
+    from datetime import datetime as dt
+
+    from app.models.demo_request import DemoRequest
+    from app.models.lead_sales_task import LeadSalesTask
+    from sqlalchemy import func
+
+    pending_calls = db.execute(
+        select(func.count()).select_from(LeadSalesTask).where(LeadSalesTask.status == "pending_approval")
+    ).scalar() or 0
+    waiting_dial = db.execute(
+        select(func.count())
+        .select_from(LeadSalesTask)
+        .where(LeadSalesTask.status == "approved", LeadSalesTask.callback_consent.is_(True))
+    ).scalar() or 0
+    ready_offers = db.execute(
+        select(func.count())
+        .select_from(LeadSalesTask)
+        .where(LeadSalesTask.offer_queue_status == "ready_after_call", LeadSalesTask.offer_sent_at.is_(None))
+    ).scalar() or 0
+    pending_demos = db.execute(
+        select(func.count()).select_from(DemoRequest).where(DemoRequest.status == "pending")
+    ).scalar() or 0
+    return {
+        "ok": True,
+        "pending_approval": int(pending_calls),
+        "pending_call_approvals": int(pending_calls),
+        "waiting_to_dial": int(waiting_dial),
+        "offer_queue_ready": int(ready_offers),
+        "ready_offers": int(ready_offers),
+        "demo_requests": int(pending_demos),
+        "pending_ai_demos": int(pending_demos),
+        "checked_at": dt.utcnow().isoformat() + "Z",
+    }
 
 
 @admin_router.post("/lead-sales/offer-templates")
@@ -1870,10 +1994,13 @@ def send_lead_sales_offer(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sales task not found")
     body = payload
     template_id = str(body.get("template_id") or "").strip() or None
+    service_code = str(body.get("service_code") or "").strip().lower() or None
     resend_only = body.get("resend_only", False) is True
-    force_resend = body.get("force_resend", False) is True
+    force_resend = body.get("force_resend", False) is True or body.get("force", False) is True
     email = str(body.get("email") or "").strip() or None
     phone = str(body.get("phone") or "").strip() or None
+    send_email = body.get("send_email")
+    send_whatsapp = body.get("send_whatsapp")
     try:
         result = SalesAutomationService.send_offer_for_task(
             db,
@@ -1881,9 +2008,12 @@ def send_lead_sales_offer(
             source="manual",
             resend_only=resend_only,
             template_id=template_id,
+            service_code=service_code,
             email=email,
             phone=phone,
             force_resend=force_resend,
+            send_email=None if send_email is None else bool(send_email),
+            send_whatsapp=None if send_whatsapp is None else bool(send_whatsapp),
         )
     except Exception as exc:
         get_logger(__name__).exception("send_offer_failed task_id=%s", task_id)

@@ -405,6 +405,32 @@ class SalesAutomationService:
         return {"ok": ok, "error": err, "stage": row.stage}
 
     @staticmethod
+    def _phone_offer_cooldown(
+        db: Session,
+        *,
+        phone: str | None,
+        exclude_task_id: str | None = None,
+        days: int = 7,
+    ) -> LeadSalesTask | None:
+        clean = str(phone or "").strip()
+        if not clean:
+            return None
+        cutoff = SalesAutomationService._now() - timedelta(days=days)
+        q = (
+            select(LeadSalesTask)
+            .where(
+                LeadSalesTask.phone == clean,
+                LeadSalesTask.offer_sent_at.is_not(None),
+                LeadSalesTask.offer_sent_at >= cutoff,
+            )
+            .order_by(LeadSalesTask.offer_sent_at.desc())
+            .limit(1)
+        )
+        if exclude_task_id:
+            q = q.where(LeadSalesTask.id != exclude_task_id)
+        return db.execute(q).scalar_one_or_none()
+
+    @staticmethod
     def send_offer_for_task(
         db: Session,
         task: LeadSalesTask,
@@ -412,11 +438,14 @@ class SalesAutomationService:
         source: str = "manual",
         resend_only: bool = False,
         template_id: str | None = None,
+        service_code: str | None = None,
         email: str | None = None,
         phone: str | None = None,
         force_resend: bool = False,
+        send_email: bool | None = None,
+        send_whatsapp: bool | None = None,
     ) -> dict[str, Any]:
-        from app.services.sales_offer_template_service import resolve_template_for_task
+        from app.services.sales_offer_template_service import get_template, list_templates, resolve_template_for_task
 
         clean_email = str(email or "").strip().lower() or None
         clean_phone = str(phone or "").strip() or None
@@ -429,6 +458,26 @@ class SalesAutomationService:
             db.add(task)
             db.commit()
             db.refresh(task)
+
+        want_email = bool(task.email) if send_email is None else bool(send_email and task.email)
+        want_whatsapp = bool(task.phone) if send_whatsapp is None else bool(send_whatsapp and task.phone)
+        if not want_email and not want_whatsapp:
+            return {"ok": False, "error": "Select at least one channel with a valid email or phone"}
+
+        service = str(service_code or "").strip().lower() or None
+        if source == "manual" and not service and not resend_only:
+            return {"ok": False, "error": "Pick a service before sending an offer"}
+
+        if not force_resend and not resend_only:
+            recent = SalesAutomationService._phone_offer_cooldown(db, phone=task.phone, exclude_task_id=task.id)
+            if recent is not None:
+                return {
+                    "ok": False,
+                    "error": "Offer already sent to this phone within 7 days. Enable Force to send again.",
+                    "cooldown": True,
+                    "previous_task_id": recent.id,
+                    "previous_sent_at": recent.offer_sent_at.isoformat() + "Z" if recent.offer_sent_at else None,
+                }
 
         if task.offer_sent_at and task.offer_promo_code and resend_only:
             from app.services.promo_offer_service import PromoOfferService
@@ -462,60 +511,34 @@ class SalesAutomationService:
                 db.commit()
             return {"ok": ok, "resent": True, "signup_url": signup_url, "error": err}
 
-        template = resolve_template_for_task(db, task, template_id=template_id)
+        template = None
+        if template_id:
+            template = get_template(db, template_id)
+            if template is None or not template.is_active:
+                return {"ok": False, "error": "Offer template not found or inactive"}
+            if service and str(getattr(template, "service_code", None) or "").strip().lower() not in ("", service):
+                return {"ok": False, "error": "Selected template does not match the chosen service"}
+        elif service:
+            matches = list_templates(db, active_only=True, service_code=service)
+            if not matches:
+                return {"ok": False, "error": f"No active offer template for service “{service}”"}
+            template = matches[0]
+        else:
+            template = resolve_template_for_task(db, task, template_id=template_id)
+
         if template is None:
-            settings = get_lead_sales_settings(db)
-            try:
-                result = SalesOfferSendService.send_for_task(
-                    db,
-                    task=task,
-                    offer_type=str(settings.sales_auto_offer_type or "dental_trial"),
-                    plan_code=str(settings.sales_auto_plan_code or "dental_1"),
-                    trial_days=int(settings.sales_auto_trial_days or 15),
-                    send_email=bool(task.email),
-                    send_whatsapp=bool(task.phone),
-                )
-            except SalesOfferSendError as exc:
-                category = SalesAutomationService._parse_outcome(task).get("recommended_offer") or "subscription"
-                SalesAutomationService._set_task_error(db, task, str(exc))
-                return {
-                    "ok": False,
-                    "error": (
-                        f"{exc} Also check Lead sales → Offer templates for {category} "
-                        "and Admin → Email settings (SMTP)."
-                    ),
-                }
-            result["template_id"] = None
-            result["template_name"] = "Settings default offer"
-            result["offer_type"] = str(settings.sales_auto_offer_type or "dental_trial")
-            result["recommended_offer"] = SalesAutomationService._parse_outcome(task).get("recommended_offer")
-            promo = None
-            if task.offer_promo_code:
-                promo = db.execute(select(PromoOffer).where(PromoOffer.code == task.offer_promo_code)).scalar_one_or_none()
-            SalesAutomationService.mark_offer_sent(db, task=task, promo=promo)
-            meta = {"last_offer_source": source}
-            row = SalesAutomationService.get_state(db, task.id)
-            if row is not None:
-                row.meta_json = json.dumps(meta)
-                row.last_error = None
-                db.add(row)
-                db.commit()
-            task.last_error = None
-            if result.get("partial_errors"):
-                task.last_error = "; ".join(result["partial_errors"])[:2000]
-                db.add(task)
-                db.commit()
-            result["automation"] = True
-            result["ok"] = True
-            return result
+            return {
+                "ok": False,
+                "error": "No offer template available. Create one under Marketing → Offer templates.",
+            }
 
         try:
             result = SalesOfferSendService.send_for_task_with_template(
                 db,
                 task=task,
                 template=template,
-                send_email=bool(task.email),
-                send_whatsapp=bool(task.phone),
+                send_email=want_email,
+                send_whatsapp=want_whatsapp,
             )
         except SalesOfferSendError as exc:
             SalesAutomationService._set_task_error(db, task, str(exc))
@@ -524,30 +547,47 @@ class SalesAutomationService:
         result["template_id"] = template.id
         result["template_name"] = template.name
         result["offer_type"] = template.offer_type
+        result["service_code"] = getattr(template, "service_code", None) or service
         result["recommended_offer"] = SalesAutomationService._parse_outcome(task).get("recommended_offer")
 
         promo = None
         if task.offer_promo_code:
             promo = db.execute(select(PromoOffer).where(PromoOffer.code == task.offer_promo_code)).scalar_one_or_none()
         SalesAutomationService.mark_offer_sent(db, task=task, promo=promo)
-        meta = {"last_offer_source": source}
+        task.offer_queue_status = "sent"
+        task.updated_at = SalesAutomationService._now()
+        db.add(task)
+        meta = {"last_offer_source": source, "service_code": service, "force": bool(force_resend)}
         row = SalesAutomationService.get_state(db, task.id)
         if row is not None:
             row.meta_json = json.dumps(meta)
             row.last_error = None
             db.add(row)
-            db.commit()
         task.last_error = None
         if result.get("partial_errors"):
             task.last_error = "; ".join(result["partial_errors"])[:2000]
             db.add(task)
-            db.commit()
+        db.commit()
         result["automation"] = True
         result["ok"] = True
         return result
 
     @staticmethod
     def handle_post_call(db: Session, task: LeadSalesTask, *, call_status: str = "completed") -> dict[str, Any]:
+        # Manual Send offer only — never auto-send WA/email after a call.
+        if call_status == "completed" and not task.offer_sent_at:
+            task.offer_queue_status = "ready_after_call"
+            task.updated_at = SalesAutomationService._now()
+            db.add(task)
+            db.commit()
+        logger.info(
+            "post_call_automation_skipped_manual_only",
+            extra={"task_id": task.id, "call_status": call_status},
+        )
+        return {"ok": True, "skipped": True, "reason": "manual_send_only", "offer_queue_status": "ready_after_call"}
+
+    @staticmethod
+    def _handle_post_call_legacy_disabled(db: Session, task: LeadSalesTask, *, call_status: str = "completed") -> dict[str, Any]:
         settings = get_lead_sales_settings(db)
         if not settings.sales_automation_enabled or task.automation_paused:
             reason = "automation_disabled" if not settings.sales_automation_enabled else "automation_paused"

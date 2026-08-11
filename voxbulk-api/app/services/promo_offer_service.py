@@ -51,7 +51,7 @@ class PromoOfferService:
 
     @staticmethod
     def is_subscription_offer(offer_type: str | None) -> bool:
-        clean = str(offer_type or "dental_trial").strip() or "dental_trial"
+        clean = str(offer_type or "subscription_trial").strip() or "subscription_trial"
         return clean in SUBSCRIPTION_OFFER_TYPES
 
     @staticmethod
@@ -60,11 +60,13 @@ class PromoOfferService:
 
     @staticmethod
     def normalize_offer_type(raw: str | None) -> str:
-        clean = str(raw or "dental_trial").strip() or "dental_trial"
+        clean = str(raw or "subscription_trial").strip() or "subscription_trial"
+        if clean == "dental_trial":
+            return "subscription_trial"
         if clean in SUBSCRIPTION_OFFER_TYPES | SERVICE_CREDIT_OFFER_TYPES | WALLET_VOUCHER_OFFER_TYPES:
             return clean
         if clean in {"subscription", "plan"}:
-            return "dental_trial"
+            return "subscription_trial"
         if clean in {"survey", "survey_contacts"}:
             return "survey_credits"
         if clean in {"interview", "interview_sessions"}:
@@ -755,8 +757,8 @@ class PromoOfferService:
         contact_name: str | None,
         email: str | None,
         phone: str | None,
-        offer_type: str = "dental_trial",
-        plan_code: str = "dental_1",
+        offer_type: str = "subscription_trial",
+        plan_code: str = "starter",
         trial_days: int = 15,
         free_call_credits: int = 0,
         survey_contacts_included: int = 0,

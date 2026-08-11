@@ -68,8 +68,8 @@ export default function LeadSales() {
       const now = new Date()
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       const pending = (res?.tasks || []).filter(t => t.status === 'pending_approval').length
-      const approved = (res?.tasks || []).filter(t => t.status === 'approved' && t.sales_consent !== true).length
-      const needsConsent = (res?.tasks || []).filter(t => t.sales_consent !== true && t.status !== 'rejected').length
+      const approved = (res?.tasks || []).filter(t => t.status === 'approved' && t.callback_consent === true).length
+      const needsConsent = (res?.tasks || []).filter(t => t.callback_consent !== true && t.status !== 'rejected').length
       const doneToday = (res?.tasks || []).filter(t => {
         const updated = new Date(t.updated_at)
         return t.status === 'completed' && updated >= todayStart
@@ -170,14 +170,20 @@ export default function LeadSales() {
     }
     if (statusFilter !== 'all' && task.status !== statusFilter) return false
     if (consentFilter !== 'all') {
-      if (consentFilter === 'yes' && task.sales_consent !== true) return false
-      if (consentFilter === 'no' && task.sales_consent === true) return false
+      if (consentFilter === 'yes' && task.callback_consent !== true) return false
+      if (consentFilter === 'no' && task.callback_consent === true) return false
     }
     return true
   })
 
   const canCall = (task) => {
-    return task.status === 'approved' && task.sales_consent === true
+    if (typeof task.can_call === 'boolean') return task.can_call
+    return task.status === 'approved' && task.callback_consent === true
+  }
+
+  const canApprove = (task) => {
+    if (typeof task.can_approve === 'boolean') return task.can_approve
+    return task.status === 'pending_approval' && task.callback_consent === true
   }
 
   return (
@@ -353,7 +359,7 @@ export default function LeadSales() {
                         </div>
                       </td>
                       <td style={{ padding: '0.5rem 0.4rem' }}>
-                        {task.sales_consent === true ? (
+                        {task.callback_consent === true ? (
                           <span style={{ color: '#1a7a3a', fontWeight: 500, background: '#e6f7ec', padding: '0.1rem 0.6rem', borderRadius: '30px', fontSize: '0.7rem', display: 'inline-block' }}>
                             Yes
                           </span>
@@ -365,7 +371,7 @@ export default function LeadSales() {
                       </td>
                       <td style={{ padding: '0.5rem 0.4rem' }}>
                         <div style={{ maxWidth: '150px', fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {task.sales_why_call || '—'}
+                          {task.why_call || task.interest_summary || '—'}
                         </div>
                       </td>
                       <td style={{ padding: '0.5rem 0.4rem' }}>
@@ -374,7 +380,7 @@ export default function LeadSales() {
                         </span>
                       </td>
                       <td style={{ padding: '0.5rem 0.4rem', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-                        {formatWhen(task.preferred_callback_time)}
+                        {formatWhen(task.scheduled_at)}
                       </td>
                       <td style={{ padding: '0.5rem 0.4rem' }}>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 0.35rem', alignItems: 'center' }}>
@@ -383,8 +389,9 @@ export default function LeadSales() {
                               <button
                                 type="button"
                                 onClick={() => runTaskAction(task, 'approve')}
-                                disabled={busy}
-                                style={{ background: '#e6f7ec', border: '1px solid #b7dfc9', borderRadius: '30px', padding: '0.15rem 0.6rem', fontSize: '0.72rem', fontWeight: 500, color: '#0f5c3a', cursor: 'pointer' }}
+                                disabled={busy || !canApprove(task)}
+                                title={!canApprove(task) ? 'Consent required before approve' : undefined}
+                                style={{ background: canApprove(task) ? '#e6f7ec' : 'var(--ds-surface-secondary)', border: '1px solid #b7dfc9', borderRadius: '30px', padding: '0.15rem 0.6rem', fontSize: '0.72rem', fontWeight: 500, color: canApprove(task) ? '#0f5c3a' : 'var(--ds-text-tertiary)', cursor: canApprove(task) ? 'pointer' : 'not-allowed', opacity: canApprove(task) ? 1 : 0.45 }}
                               >
                                 <CheckCircle2 className="inline h-3 w-3 mr-1" />
                                 {busyId === `${task.id}-approve` ? '…' : 'Approve'}
@@ -473,19 +480,19 @@ export default function LeadSales() {
               <div>
                 <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Source</div>
                 <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.source || '—'}
+                  {detailTask.source_label || detailTask.source || '—'}
                 </div>
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
                 <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Why call / interest summary</div>
                 <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.6rem 0.8rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.sales_why_call || '—'}
+                  {detailTask.why_call || detailTask.interest_summary || '—'}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Consent</div>
                 <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.sales_consent === true ? (
+                  {detailTask.callback_consent === true ? (
                     <span style={{ color: '#1a7a3a', fontWeight: 500, background: '#e6f7ec', padding: '0.1rem 0.6rem', borderRadius: '30px', fontSize: '0.7rem', display: 'inline-block' }}>
                       Yes
                     </span>
@@ -510,8 +517,9 @@ export default function LeadSales() {
                   <Button
                     size="sm"
                     onClick={() => runTaskAction(detailTask, 'approve')}
-                    disabled={busyId.startsWith(`${detailTask.id}-`)}
-                    style={{ background: '#e6f7ec', color: '#0f5c3a' }}
+                    disabled={busyId.startsWith(`${detailTask.id}-`) || !canApprove(detailTask)}
+                    title={!canApprove(detailTask) ? 'Consent required before approve' : undefined}
+                    style={{ background: canApprove(detailTask) ? '#e6f7ec' : undefined, color: canApprove(detailTask) ? '#0f5c3a' : undefined }}
                   >
                     <CheckCircle2 className="h-4 w-4 mr-1" />
                     {busyId === `${detailTask.id}-approve` ? 'Approving…' : 'Approve call'}

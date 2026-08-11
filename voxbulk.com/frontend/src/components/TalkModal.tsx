@@ -70,6 +70,7 @@ function TalkModal({ onClose }: { onClose: () => void }) {
   const [company, setCompany] = useState("");
   const [email, setEmail] = useState("");
   const [mobile, setMobile] = useState("");
+  const [callbackConsent, setCallbackConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [callPhase, setCallPhase] = useState<CallPhase>("form");
   const [statusLine, setStatusLine] = useState("");
@@ -287,6 +288,10 @@ function TalkModal({ onClose }: { onClose: () => void }) {
       toast.error("Please fill in name, email and mobile number.");
       return;
     }
+    if (!callbackConsent) {
+      toast.error("Please confirm that we may call you back on this mobile number if needed.");
+      return;
+    }
     setLoading(true);
     setCallPhase("connecting");
     try {
@@ -295,6 +300,7 @@ function TalkModal({ onClose }: { onClose: () => void }) {
         company_name: company,
         email,
         phone: mobile,
+        callback_consent: callbackConsent,
       });
       setCallId(session.call_id);
 
@@ -422,6 +428,18 @@ function TalkModal({ onClose }: { onClose: () => void }) {
             <Field label="Company name" value={company} onChange={setCompany} placeholder="Acme Ltd" />
             <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="you@company.com" required />
             <Field label="Mobile number" type="tel" value={mobile} onChange={setMobile} placeholder="+44 7…" required />
+
+            <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+              <input
+                type="checkbox"
+                checked={callbackConsent}
+                onChange={(e) => setCallbackConsent(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-border text-primary focus:ring-2 focus:ring-primary/30"
+              />
+              <span className="text-[12px] text-body leading-snug">
+                I agree that VoxBulk may call me back on this mobile number if needed. <span className="text-primary">*</span>
+              </span>
+            </label>
 
             <p className="flex items-start gap-2 text-[12px] text-muted-text pt-1">
               <ShieldCheck size={14} className="mt-0.5 text-teal shrink-0" />

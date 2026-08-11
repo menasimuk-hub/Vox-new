@@ -35,7 +35,20 @@ from app.utils.callback_timezone import resolve_callback_timezone
 SALES_KB_MARKER = "## Sales knowledge base"
 
 
-TASK_STATUSES = {"scheduled", "calling", "paused", "completed", "failed", "cancelled", "no_answer"}
+TASK_STATUSES = {
+    "pending_approval",
+    "approved",
+    "scheduled",  # legacy; no auto-dial
+    "calling",
+    "paused",
+    "completed",
+    "failed",
+    "cancelled",
+    "no_answer",
+    "rejected",
+}
+
+OFFER_QUEUE_STATUSES = {"ready_after_call", "pending_send", "sent", "failed"}
 
 logger = get_logger(__name__)
 
@@ -70,10 +83,10 @@ def lead_sales_settings_out(row: LeadSalesSetting) -> dict[str, Any]:
         "calling_days": str(row.calling_days or "1,2,3,4,5"),
         "assistant_configured": bool(str(row.telnyx_assistant_id or "").strip()),
         "master_prompt_configured": bool(str(row.system_prompt or "").strip()),
-        "sales_automation_enabled": bool(getattr(row, "sales_automation_enabled", True)),
-        "sales_auto_plan_code": str(getattr(row, "sales_auto_plan_code", None) or "dental_1"),
+        "sales_automation_enabled": bool(getattr(row, "sales_automation_enabled", False)),
+        "sales_auto_plan_code": str(getattr(row, "sales_auto_plan_code", None) or "starter"),
         "sales_auto_trial_days": int(getattr(row, "sales_auto_trial_days", None) or 15),
-        "sales_auto_offer_type": str(getattr(row, "sales_auto_offer_type", None) or "dental_trial"),
+        "sales_auto_offer_type": str(getattr(row, "sales_auto_offer_type", None) or "subscription_trial"),
         "sales_auto_survey_contacts": int(getattr(row, "sales_auto_survey_contacts", None) or 3),
         "sales_auto_interview_contacts": int(getattr(row, "sales_auto_interview_contacts", None) or 3),
         "sales_template_subscription_id": getattr(row, "sales_template_subscription_id", None),
@@ -383,6 +396,16 @@ def _parse_outcome(row: LeadSalesTask) -> dict[str, Any] | None:
 def _table_status_label(task: LeadSalesTask, settings: LeadSalesSetting) -> str:
     if task.status == "calling":
         return "Calling now"
+    if task.status == "pending_approval":
+        if not task.callback_consent:
+            return "Needs consent — cannot approve call"
+        return "Pending approval"
+    if task.status == "approved":
+        if not task.callback_consent:
+            return "Approved but no consent — cannot call"
+        return "Approved — press Call now"
+    if task.status == "rejected":
+        return "Rejected"
     if task.status == "paused":
         return "Paused"
     if task.status == "cancelled":
@@ -395,15 +418,10 @@ def _table_status_label(task: LeadSalesTask, settings: LeadSalesSetting) -> str:
     if task.status == "completed":
         label = _outcome_label(_parse_outcome(task), task.status)
         return label or "Call completed"
-    if task.status == "scheduled":
+    if task.status in {"scheduled", "approved"}:
         if not str(task.telnyx_assistant_id or settings.telnyx_assistant_id or "").strip():
             return "Needs Telnyx assistant ID"
-        ok, err = _within_calling_hours(task, settings)
-        if not ok:
-            return err or "Outside calling hours"
-        if task.scheduled_at and task.scheduled_at > datetime.utcnow():
-            return "Scheduled — waiting for callback time"
-        return "Ready to call"
+        return "Approved — press Call now"
     return str(task.status or "unknown")
 
 
@@ -423,6 +441,15 @@ def lead_sales_task_out(
             updated_at=datetime.utcnow(),
         )
     within_hours, hours_note = _within_calling_hours(row, settings)
+    services: list[str] = []
+    raw_services = getattr(row, "services_json", None)
+    if raw_services:
+        try:
+            parsed = json.loads(raw_services)
+            if isinstance(parsed, list):
+                services = [str(x) for x in parsed if str(x).strip()]
+        except json.JSONDecodeError:
+            services = []
     return {
         "id": row.id,
         "lead_id": row.lead_id,
@@ -438,6 +465,11 @@ def lead_sales_task_out(
         "scheduled_at": row.scheduled_at,
         "callback_timezone": row.callback_timezone,
         "callback_consent": row.callback_consent,
+        "approved_at": getattr(row, "approved_at", None),
+        "services": services,
+        "offer_queue_status": getattr(row, "offer_queue_status", None),
+        "source_label": getattr(row, "source_label", None) or "Lead",
+        "why_call": (row.interest_summary or row.sales_intent or "").strip() or None,
         "telnyx_assistant_id": row.telnyx_assistant_id,
         "sales_prompt": row.sales_prompt,
         "sales_prompt_version": row.sales_prompt_version,
@@ -458,6 +490,10 @@ def lead_sales_task_out(
         "offer_send_log": _parse_json_field(row.offer_send_log_json),
         "automation_paused": bool(getattr(row, "automation_paused", False)),
         "automation": None,
+        "can_approve": bool(row.callback_consent) and row.status == "pending_approval",
+        "can_call": bool(row.callback_consent)
+        and row.status in {"approved", "scheduled"}
+        and row.status not in {"calling", "completed", "cancelled", "rejected"},
         "created_at": row.created_at,
         "updated_at": row.updated_at,
     }
@@ -549,8 +585,23 @@ def should_auto_create_sales_task(extracted: dict[str, Any]) -> bool:
     consent = bool(extracted.get("callback_consent"))
     scheduled = bool(str(extracted.get("scheduled_callback_at") or "").strip())
     advance = str(extracted.get("recommendation") or "").strip().lower() == "advance"
-    # Sales task when they want a callback and gave consent; scheduled time or "advance" is a bonus, not required.
-    return consent or scheduled or advance
+    # Still create a visible task when they want a call; consent gates Approve/Call.
+    return consent or scheduled or advance or wants
+
+
+def _services_json_from_extracted(extracted: dict[str, Any]) -> str | None:
+    raw = extracted.get("selected_services") or extracted.get("services_explored") or []
+    if isinstance(extracted.get("lead_payload"), dict):
+        payload = extracted["lead_payload"]
+        raw = raw or payload.get("selected_services") or payload.get("services_explored") or []
+    if not isinstance(raw, list):
+        return None
+    codes = []
+    for item in raw:
+        code = str(item or "").strip().lower()
+        if code and code not in codes:
+            codes.append(code)
+    return json.dumps(codes) if codes else None
 
 
 def _build_task_from_lead(
@@ -578,7 +629,7 @@ def _build_task_from_lead(
     task = LeadSalesTask(
         id=str(uuid.uuid4()),
         lead_id=lead.id,
-        status="scheduled",
+        status="pending_approval",
         contact_name=str(extracted.get("contact_name") or lead.contact_name or "").strip() or lead.contact_name,
         company_name=str(extracted.get("company_name") or lead.company_name or "").strip() or lead.company_name,
         email=str(extracted.get("email") or lead.email or "").strip() or lead.email,
@@ -592,6 +643,8 @@ def _build_task_from_lead(
             country=str(extracted.get("country") or "").strip() or None,
         ),
         callback_consent=bool(extracted.get("callback_consent")),
+        services_json=_services_json_from_extracted(extracted),
+        source_label=str(extracted.get("source_label") or lead.source or "Talk to us").strip()[:64] or "Talk to us",
         telnyx_assistant_id=assistant_id,
         sales_prompt_version=1,
         created_at=datetime.utcnow(),
@@ -789,10 +842,18 @@ def execute_sales_outbound_call(
     *,
     ignore_calling_hours: bool = False,
 ) -> LeadSalesTask:
+    if not bool(task.callback_consent):
+        raise ValueError("Customer did not consent to a callback — cannot call")
+    if task.status == "pending_approval":
+        raise ValueError("Task needs admin approval before calling")
+    if task.status in {"rejected", "cancelled"}:
+        raise ValueError(f"Task is {task.status}")
     if task.status == "paused":
         raise ValueError("Task is paused — resume it before calling")
-    if task.status in {"cancelled", "completed", "no_answer"}:
-        raise ValueError(f"Task is {task.status}")
+    if task.status not in {"approved", "scheduled", "failed", "no_answer"}:
+        if task.status in {"completed", "calling"}:
+            raise ValueError(f"Task is {task.status}")
+        raise ValueError("Approve this task before calling")
 
     settings = get_lead_sales_settings(db)
     if not ignore_calling_hours:
@@ -843,6 +904,42 @@ def execute_sales_outbound_call(
     return task
 
 
+def approve_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
+    if not bool(task.callback_consent):
+        raise ValueError("Cannot approve — customer did not consent to a callback")
+    if task.status in {"calling", "completed", "cancelled", "rejected"}:
+        raise ValueError(f"Cannot approve a task that is {task.status}")
+    now = datetime.utcnow()
+    task.status = "approved"
+    task.approved_at = now
+    task.updated_at = now
+    task.last_error = None
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def reject_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
+    if task.status == "calling" and task.provider_call_id:
+        try:
+            config = _telnyx_config(db)
+            TelnyxVoiceAdapter.hangup_call(call_control_id=task.provider_call_id, config=config)
+        except Exception:
+            pass
+    task.status = "rejected"
+    task.updated_at = datetime.utcnow()
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def process_due_lead_sales_tasks(db: Session) -> int:
+    """Auto-dial disabled — admin must press Call now after Approve + consent."""
+    return 0
+
+
 def pause_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     if task.status == "calling" and task.provider_call_id:
         try:
@@ -862,7 +959,9 @@ def pause_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
 def resume_sales_task(db: Session, task: LeadSalesTask) -> LeadSalesTask:
     if task.status != "paused":
         raise ValueError("Only paused tasks can be resumed")
-    task.status = "scheduled"
+    if not bool(task.callback_consent):
+        raise ValueError("Cannot resume — customer did not consent to a callback")
+    task.status = "approved"
     task.paused_at = None
     task.updated_at = datetime.utcnow()
     db.add(task)
@@ -897,39 +996,10 @@ def _is_permanent_dial_error(message: str) -> bool:
         "task is cancelled",
         "task is completed",
         "task is no_answer",
+        "did not consent",
+        "needs admin approval",
     )
     return any(n in low for n in needles)
-
-
-def process_due_lead_sales_tasks(db: Session) -> int:
-    now = datetime.utcnow()
-    rows = list(
-        db.execute(
-            select(LeadSalesTask)
-            .where(LeadSalesTask.status == "scheduled")
-            .where(LeadSalesTask.scheduled_at.is_not(None))
-            .where(LeadSalesTask.scheduled_at <= now)
-            .order_by(LeadSalesTask.scheduled_at.asc())
-            .limit(10)
-        ).scalars()
-    )
-    settings = get_lead_sales_settings(db)
-    started = 0
-    for task in rows:
-        try:
-            ok_hours, _ = _within_calling_hours(task, settings)
-            if not ok_hours:
-                continue
-            execute_sales_outbound_call(db, task)
-            started += 1
-        except Exception as exc:
-            task.last_error = str(exc)
-            if _is_permanent_dial_error(str(exc)):
-                task.status = "failed"
-            task.updated_at = datetime.utcnow()
-            db.add(task)
-            db.commit()
-    return started
 
 
 def handle_lead_sales_telnyx_event(db: Session, payload: dict[str, Any]) -> None:

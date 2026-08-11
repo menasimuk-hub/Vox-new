@@ -201,8 +201,8 @@ class SalesOfferSendService:
         db: Session,
         *,
         task: LeadSalesTask,
-        offer_type: str = "dental_trial",
-        plan_code: str = "dental_1",
+        offer_type: str = "subscription_trial",
+        plan_code: str = "starter",
         trial_days: int = 15,
         free_call_credits: int = 0,
         survey_contacts_included: int = 0,
@@ -318,7 +318,7 @@ class SalesOfferSendService:
         from app.services.promo_offer_service import PromoOfferService
 
         offer_type = PromoOfferService.normalize_offer_type(template.offer_type)
-        plan_code = str(template.plan_code or "dental_1")
+        plan_code = str(template.plan_code or "starter")
         return SalesOfferSendService.send_for_task(
             db,
             task=task,

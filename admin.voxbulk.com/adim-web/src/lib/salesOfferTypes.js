@@ -1,6 +1,6 @@
 export const SALES_OFFER_TYPES = [
   {
-    value: 'dental_trial',
+    value: 'subscription_trial',
     label: 'Subscription trial',
     blurb: 'Plan + trial days after signup',
     icon: 'ti-credit-card',
@@ -16,6 +16,18 @@ export const SALES_OFFER_TYPES = [
     label: 'Free interviews',
     blurb: 'Interview contacts credited on signup',
     icon: 'ti-users',
+  },
+  {
+    value: 'expo_trial',
+    label: 'Expo trial',
+    blurb: 'Expo day pass / trial',
+    icon: 'ti-building-store',
+  },
+  {
+    value: 'smart_card_credit',
+    label: 'Smart Card credit',
+    blurb: 'Smart Card seat credit',
+    icon: 'ti-id',
   },
 ]
 

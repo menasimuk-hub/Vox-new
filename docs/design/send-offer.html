@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin · Send Offer · VoxBulk</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    }
+
+    body {
+      background: #f4f6f9;
+      display: flex;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+      min-height: 100vh;
+    }
+
+    .voxbulk-send {
+      max-width: 1480px;
+      width: 100%;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.03), 0 2px 6px rgba(0, 0, 0, 0.05);
+      padding: 1.75rem 1.5rem 2rem;
+    }
+
+    /* ----- top bar: title + tabs/filters ----- */
+    .send-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem 1.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #e8ecf0;
+      margin-bottom: 1.5rem;
+    }
+
+    .send-header h2 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #0b1e33;
+      letter-spacing: -0.01em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-right: 0.5rem;
+    }
+    .send-header h2 i {
+      color: #475569;
+      font-size: 1rem;
+    }
+
+    .queue-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem 0.1rem;
+      background: #f1f4f9;
+      border-radius: 40px;
+      padding: 0.2rem;
+    }
+    .queue-tabs .tab {
+      padding: 0.3rem 1rem;
+      border-radius: 30px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #475569;
+      cursor: default;
+      transition: 0.05s;
+      background: transparent;
+      border: none;
+    }
+    .queue-tabs .tab.active {
+      background: #ffffff;
+      color: #0b1e33;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .queue-tabs .tab .badge {
+      background: #d0d8e0;
+      color: #1e293b;
+      border-radius: 30px;
+      padding: 0.02rem 0.5rem;
+      font-size: 0.65rem;
+      margin-left: 0.3rem;
+      font-weight: 500;
+    }
+    .queue-tabs .tab.active .badge {
+      background: #e2e8f0;
+    }
+
+    /* ----- search + filter bar ----- */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.6rem 1rem;
+      margin-bottom: 1.25rem;
+      padding: 0.25rem 0 0.25rem 0;
+    }
+
+    .filter-bar .search-wrap {
+      display: flex;
+      align-items: center;
+      background: #f1f4f9;
+      border-radius: 40px;
+      padding: 0.1rem 0.1rem 0.1rem 1rem;
+      border: 1px solid #dce2ea;
+      transition: 0.1s;
+      flex: 0 1 240px;
+    }
+    .filter-bar .search-wrap:focus-within {
+      border-color: #6b7f94;
+      background: #ffffff;
+    }
+    .filter-bar .search-wrap i {
+      color: #64748b;
+      font-size: 0.8rem;
+    }
+    .filter-bar .search-wrap input {
+      border: none;
+      background: transparent;
+      padding: 0.4rem 0.6rem;
+      font-size: 0.82rem;
+      width: 180px;
+      outline: none;
+      color: #0b1e33;
+    }
+    .filter-bar .search-wrap input::placeholder {
+      color: #94a3b8;
+    }
+
+    .filter-bar .filter-select {
+      background: #f1f4f9;
+      border: 1px solid #dce2ea;
+      border-radius: 40px;
+      padding: 0.3rem 1rem 0.3rem 1.2rem;
+      font-size: 0.78rem;
+      color: #1e293b;
+      outline: none;
+      cursor: pointer;
+      font-weight: 450;
+    }
+    .filter-bar .filter-select:focus {
+      border-color: #6b7f94;
+    }
+
+    .filter-bar .filter-label {
+      font-size: 0.78rem;
+      color: #475569;
+      font-weight: 450;
+    }
+
+    /* ----- two-column layout: table + send panel ----- */
+    .send-layout {
+      display: flex;
+      gap: 1.75rem;
+      align-items: stretch;
+    }
+
+    .table-col {
+      flex: 2.2;
+      min-width: 0;
+      overflow-x: auto;
+    }
+
+    .panel-col {
+      flex: 1.3;
+      min-width: 320px;
+      background: #f9fafc;
+      border-radius: 16px;
+      padding: 1.25rem 1.25rem 1.5rem;
+      border: 1px solid #e8ecf0;
+      height: fit-content;
+      position: sticky;
+      top: 1rem;
+    }
+
+    /* ----- compact table ----- */
+    .leads-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      color: #1e293b;
+      min-width: 700px;
+    }
+
+    .leads-table thead th {
+      text-align: left;
+      padding: 0.5rem 0.4rem 0.5rem 0.4rem;
+      font-weight: 550;
+      color: #334155;
+      border-bottom: 1px solid #e2e8f0;
+      background: #fafbfc;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .leads-table tbody td {
+      padding: 0.45rem 0.4rem;
+      border-bottom: 1px solid #ecf0f4;
+      vertical-align: middle;
+      background-color: #ffffff;
+    }
+
+    .leads-table tbody tr.hidden {
+      display: none;
+    }
+
+    .leads-table tbody tr:hover {
+      background: #f9fafc;
+    }
+
+    .cell-company { font-weight: 500; color: #0b1e33; }
+    .cell-contact { color: #1e293b; }
+    .cell-phone { color: #334155; font-feature-settings: "tnum"; }
+    .cell-email { color: #475569; font-size: 0.75rem; }
+    .cell-outcome {
+      font-size: 0.75rem;
+      color: #475569;
+      max-width: 120px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .service-chip {
+      background: #eef2f6;
+      padding: 0.05rem 0.6rem;
+      border-radius: 30px;
+      font-size: 0.7rem;
+      color: #1e293b;
+      white-space: nowrap;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 0.1rem 0.6rem;
+      border-radius: 30px;
+      font-size: 0.65rem;
+      font-weight: 500;
+    }
+    .status-ready { background: #dbeafe; color: #004085; }
+    .status-pending { background: #fef3c7; color: #8a6d1f; }
+    .status-sent { background: #d4edda; color: #0b5e2e; }
+    .status-failed { background: #f8d7da; color: #842029; }
+
+    .btn-select {
+      background: #eef2f6;
+      border: 1px solid #ccd4de;
+      border-radius: 30px;
+      padding: 0.1rem 0.8rem;
+      font-size: 0.7rem;
+      color: #1e293b;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: 0.05s;
+    }
+    .btn-select:hover {
+      background: #e2e8f0;
+    }
+    .btn-select.active {
+      background: #dbeafe;
+      border-color: #b6cef0;
+      color: #004187;
+    }
+
+    /* ----- send panel (right) ----- */
+    .panel-title {
+      font-weight: 600;
+      font-size: 1rem;
+      color: #0b1e33;
+      margin-bottom: 0.1rem;
+    }
+    .panel-sub {
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-bottom: 1.25rem;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 0.6rem;
+    }
+
+    .field-group {
+      margin-bottom: 1rem;
+    }
+    .field-group label {
+      display: block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      color: #475569;
+      font-weight: 500;
+      margin-bottom: 0.2rem;
+    }
+
+    .service-radios {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem 0.5rem;
+    }
+    .service-radios .radio-chip {
+      background: #f1f4f9;
+      border: 1px solid #dce2ea;
+      border-radius: 30px;
+      padding: 0.15rem 0.9rem;
+      font-size: 0.8rem;
+      color: #1e293b;
+      cursor: default;
+      transition: 0.05s;
+    }
+    .service-radios .radio-chip.active {
+      background: #dbeafe;
+      border-color: #6b8fc4;
+      color: #004187;
+    }
+
+    .template-select, .channel-select {
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid #dce2ea;
+      border-radius: 30px;
+      padding: 0.35rem 1rem;
+      font-size: 0.82rem;
+      color: #0b1e33;
+      outline: none;
+    }
+    .template-select:focus, .channel-select:focus {
+      border-color: #6b7f94;
+    }
+
+    .preview-box {
+      background: #f1f5f9;
+      border-radius: 12px;
+      padding: 0.6rem 0.9rem;
+      font-size: 0.82rem;
+      color: #1e293b;
+      border-left: 3px solid #94a3b8;
+      margin: 0.25rem 0 0.5rem;
+      min-height: 50px;
+      line-height: 1.5;
+    }
+    .preview-box .promo-summary {
+      font-size: 0.75rem;
+      color: #475569;
+      margin-top: 0.3rem;
+      border-top: 1px dashed #d0d8e0;
+      padding-top: 0.3rem;
+    }
+
+    .btn-send {
+      background: #1e4a7a;
+      border: none;
+      color: white;
+      font-weight: 500;
+      font-size: 0.9rem;
+      padding: 0.5rem 1.8rem;
+      border-radius: 40px;
+      width: 100%;
+      margin-top: 0.5rem;
+      cursor: default;
+      transition: 0.05s;
+    }
+    .btn-send:hover {
+      background: #143a60;
+    }
+    .btn-send:disabled {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .block-message {
+      background: #fee9e7;
+      border-radius: 30px;
+      padding: 0.3rem 1rem;
+      font-size: 0.75rem;
+      color: #991b1b;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.3rem;
+      border: 1px solid #f5c2c2;
+    }
+    .block-message .force-link {
+      color: #1e4a7a;
+      font-weight: 500;
+      text-decoration: underline;
+      cursor: pointer;
+      margin-left: auto;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 2.5rem 0.5rem;
+      color: #64748b;
+      font-size: 0.9rem;
+    }
+    .empty-state i {
+      font-size: 2rem;
+      color: #cbd5e1;
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    /* responsive */
+    @media (max-width: 1024px) {
+      .send-layout { flex-direction: column; }
+      .panel-col { position: static; }
+    }
+  </style>
+</head>
+<body>
+<div class="voxbulk-send">
+  <!-- header: title + queue tabs -->
+  <div class="send-header">
+    <h2><i class="fas fa-paper-plane"></i> Send offer</h2>
+    <div class="queue-tabs">
+      <span class="tab active" data-tab="ready">Ready after call <span class="badge">2</span></span>
+      <span class="tab" data-tab="pending">Pending send <span class="badge">1</span></span>
+      <span class="tab" data-tab="sent">Sent <span class="badge">1</span></span>
+      <span class="tab" data-tab="failed">Failed <span class="badge">1</span></span>
+    </div>
+  </div>
+
+  <!-- search + filter bar -->
+  <div class="filter-bar">
+    <div class="search-wrap">
+      <i class="fas fa-search"></i>
+      <input type="text" placeholder="Search company, contact..." id="searchInput">
+    </div>
+    <span class="filter-label">Status:</span>
+    <select class="filter-select" id="statusFilter">
+      <option value="all">All status</option>
+      <option value="ready">Ready</option>
+      <option value="pending">Pending</option>
+      <option value="sent">Sent</option>
+      <option value="failed">Failed</option>
+    </select>
+    <span class="filter-label">Service:</span>
+    <select class="filter-select" id="serviceFilter">
+      <option value="all">All services</option>
+      <option value="recruitment">Recruitment</option>
+      <option value="surveys">Surveys</option>
+      <option value="feedback">Feedback</option>
+      <option value="expo">Expo</option>
+      <option value="smartcard">Smart Card</option>
+    </select>
+  </div>
+
+  <!-- two-column layout -->
+  <div class="send-layout">
+    <!-- left: table -->
+    <div class="table-col">
+      <table class="leads-table">
+        <thead>
+          <tr>
+            <th>Company / contact</th>
+            <th>Phone / email</th>
+            <th>Linked lead task</th>
+            <th>Recommended service</th>
+            <th>Last call outcome</th>
+            <th>Status</th>
+            <th style="width:80px;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <!-- row 1: ready -->
+          <tr data-status="ready" data-service="recruitment">
+            <td><span class="cell-company">AcmeCorp</span><br><span class="cell-contact">Lena Schmidt</span></td>
+            <td><span class="cell-phone">+1 212 555 0142</span><br><span class="cell-email">l.schmidt@acme.io</span></td>
+            <td><span style="font-size:0.75rem;">Lead #101 · AI demo</span></td>
+            <td><span class="service-chip">Recruitment</span></td>
+            <td class="cell-outcome">Interested, asked for pricing</td>
+            <td><span class="status-badge status-ready">Ready</span></td>
+            <td><span class="btn-select active" data-idx="0">Select</span></td>
+          </tr>
+          <!-- row 2: pending -->
+          <tr data-status="pending" data-service="smartcard">
+            <td><span class="cell-company">DataSphere</span><br><span class="cell-contact">Marcus Chen</span></td>
+            <td><span class="cell-phone">+1 415 555 8923</span><br><span class="cell-email">m.chen@datasphere.com</span></td>
+            <td><span style="font-size:0.75rem;">Lead #203 · Talk to us</span></td>
+            <td><span class="service-chip">Smart Card chips</span></td>
+            <td class="cell-outcome">Needs follow-up, consent missing</td>
+            <td><span class="status-badge status-pending">Pending</span></td>
+            <td><span class="btn-select" data-idx="1">Select</span></td>
+          </tr>
+          <!-- row 3: ready -->
+          <tr data-status="ready" data-service="feedback">
+            <td><span class="cell-company">GreenLeaf</span><br><span class="cell-contact">Aisha Patel</span></td>
+            <td><span class="cell-phone">+44 20 7946 0321</span><br><span class="cell-email">a.patel@greenleaf.uk</span></td>
+            <td><span style="font-size:0.75rem;">Lead #307 · Lead sources</span></td>
+            <td><span class="service-chip">Feedback</span></td>
+            <td class="cell-outcome">Wants Slack integration</td>
+            <td><span class="status-badge status-ready">Ready</span></td>
+            <td><span class="btn-select" data-idx="2">Select</span></td>
+          </tr>
+          <!-- row 4: sent -->
+          <tr data-status="sent" data-service="recruitment">
+            <td><span class="cell-company">NexGen</span><br><span class="cell-contact">James Okafor</span></td>
+            <td><span class="cell-phone">+1 512 555 7012</span><br><span class="cell-email">j.okafor@nexgen.tech</span></td>
+            <td><span style="font-size:0.75rem;">Lead #412 · AI demo</span></td>
+            <td><span class="service-chip">Recruitment</span></td>
+            <td class="cell-outcome">Demo completed, interested</td>
+            <td><span class="status-badge status-sent">Sent</span></td>
+            <td><span class="btn-select" data-idx="3">Select</span></td>
+          </tr>
+          <!-- row 5: failed -->
+          <tr data-status="failed" data-service="surveys">
+            <td><span class="cell-company">CloudSync</span><br><span class="cell-contact">Elena Vogt</span></td>
+            <td><span class="cell-phone">+49 30 1234567</span><br><span class="cell-email">e.vogt@cloudsync.de</span></td>
+            <td><span style="font-size:0.75rem;">Lead #518 · Talk to us</span></td>
+            <td><span class="service-chip">Surveys</span></td>
+            <td class="cell-outcome">Asked about enterprise plan</td>
+            <td><span class="status-badge status-failed">Failed</span></td>
+            <td><span class="btn-select" data-idx="4">Select</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <div style="margin-top: 1.2rem; font-size:0.75rem; color: #94a3b8; border-top:1px solid #eef2f6; padding-top:0.7rem;">
+        <i class="far fa-circle"></i> No offers waiting? Approve and complete a call on Lead Sales, or add a contact.
+      </div>
+    </div>
+
+    <!-- right: send panel (sticky) -->
+    <div class="panel-col">
+      <div class="panel-title">Send offer</div>
+      <div class="panel-sub" id="panelSub">Selected: <strong>AcmeCorp</strong> · Lena Schmidt</div>
+
+      <!-- service required (radios/chips) -->
+      <div class="field-group">
+        <label>Service required</label>
+        <div class="service-radios">
+          <span class="radio-chip active">Recruitment</span>
+          <span class="radio-chip">Surveys</span>
+          <span class="radio-chip">Feedback</span>
+          <span class="radio-chip">Expo</span>
+          <span class="radio-chip">Smart Card</span>
+        </div>
+      </div>
+
+      <!-- template dropdown -->
+      <div class="field-group">
+        <label>Offer template</label>
+        <select class="template-select">
+          <option>Recruitment starter (AI screening)</option>
+          <option>Recruitment pro + analytics</option>
+          <option>Survey basic</option>
+          <option>Feedback enterprise</option>
+          <option>Smart Card integration</option>
+        </select>
+      </div>
+
+      <!-- channel -->
+      <div class="field-group">
+        <label>Channel</label>
+        <select class="channel-select">
+          <option>WhatsApp</option>
+          <option>Email</option>
+          <option>Both</option>
+        </select>
+      </div>
+
+      <!-- preview -->
+      <div class="field-group">
+        <label>Preview</label>
+        <div class="preview-box">
+          <div>Hi Lena,</div>
+          <div style="margin-top: 0.2rem;">We’d love to offer you a <strong>Recruitment AI</strong> trial. Get started with automated screening &amp; scheduling.</div>
+          <div class="promo-summary"><i class="fas fa-tag"></i> Promo: 30-day free trial · 200 candidate credits</div>
+        </div>
+      </div>
+
+      <!-- block: recently sent (demo) -->
+      <div class="block-message" id="blockMessage">
+        <i class="fas fa-exclamation-triangle"></i> Already sent to this phone on 2026-08-10
+        <span class="force-link" id="forceLink">Force send (admin)</span>
+      </div>
+
+      <!-- send button -->
+      <button class="btn-send" id="sendBtn" disabled style="opacity:0.5;">Send offer</button>
+      <div style="font-size:0.7rem; color:#94a3b8; margin-top:0.3rem; text-align:center;">Enable by selecting a ready lead</div>
+
+      <!-- small note: no defaults -->
+      <div style="margin-top: 1rem; font-size: 0.65rem; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top:0.6rem;">
+        <i class="fas fa-info-circle"></i> No auto-send. Templates filtered by service.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function() {
+    const selectBtns = document.querySelectorAll('.btn-select');
+    const panelSub = document.getElementById('panelSub');
+    const sendBtn = document.getElementById('sendBtn');
+    const blockMsg = document.getElementById('blockMessage');
+    const forceLink = document.getElementById('forceLink');
+
+    // row data for panel update
+    const rowData = [
+      { company: 'AcmeCorp', contact: 'Lena Schmidt', status: 'ready' },
+      { company: 'DataSphere', contact: 'Marcus Chen', status: 'pending' },
+      { company: 'GreenLeaf', contact: 'Aisha Patel', status: 'ready' },
+      { company: 'NexGen', contact: 'James Okafor', status: 'sent' },
+      { company: 'CloudSync', contact: 'Elena Vogt', status: 'failed' }
+    ];
+
+    // Function to update panel based on selected row
+    function updatePanel(idx) {
+      const data = rowData[idx];
+      if (!data) return;
+      panelSub.innerHTML = `Selected: <strong>${data.company}</strong> · ${data.contact}`;
+
+      // Enable send button only if status is 'ready'
+      if (data.status === 'ready') {
+        sendBtn.disabled = false;
+        sendBtn.style.opacity = '1';
+        // Show block message for demo (only for some rows)
+        if (idx === 0 || idx === 2) {
+          blockMsg.style.display = 'flex';
+        } else {
+          blockMsg.style.display = 'flex';
+        }
+      } else {
+        sendBtn.disabled = true;
+        sendBtn.style.opacity = '0.5';
+        blockMsg.style.display = 'flex';
+      }
+    }
+
+    // Select button click handler
+    selectBtns.forEach((btn) => {
+      btn.addEventListener('click', function(e) {
+        // Deselect all
+        selectBtns.forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+
+        const idx = parseInt(this.getAttribute('data-idx'));
+        if (!isNaN(idx)) {
+          updatePanel(idx);
+        }
+      });
+    });
+
+    // Force link: alert
+    forceLink.addEventListener('click', function(e) {
+      e.preventDefault();
+      alert('Admin force send — bypass block.');
+    });
+
+    // ----- SEARCH + FILTER -----
+    const searchInput = document.getElementById('searchInput');
+    const statusFilter = document.getElementById('statusFilter');
+    const serviceFilter = document.getElementById('serviceFilter');
+    const tableRows = document.querySelectorAll('#tableBody tr');
+
+    function filterTable() {
+      const search = searchInput.value.toLowerCase().trim();
+      const status = statusFilter.value;
+      const service = serviceFilter.value;
+
+      tableRows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        const rowStatus = row.getAttribute('data-status') || '';
+        const rowService = row.getAttribute('data-service') || '';
+
+        let show = true;
+        if (search && !text.includes(search)) show = false;
+        if (status !== 'all' && rowStatus !== status) show = false;
+        if (service !== 'all' && rowService !== service) show = false;
+
+        row.classList.toggle('hidden', !show);
+      });
+
+      // If the selected row is hidden, deselect and reset panel
+      const activeBtn = document.querySelector('.btn-select.active');
+      if (activeBtn) {
+        const idx = parseInt(activeBtn.getAttribute('data-idx'));
+        const row = tableRows[idx];
+        if (row && row.classList.contains('hidden')) {
+          activeBtn.classList.remove('active');
+          panelSub.innerHTML = 'Selected: <em>none</em>';
+          sendBtn.disabled = true;
+          sendBtn.style.opacity = '0.5';
+        }
+      }
+    }
+
+    searchInput.addEventListener('input', filterTable);
+    statusFilter.addEventListener('change', filterTable);
+    serviceFilter.addEventListener('change', filterTable);
+
+    // ----- QUEUE TAB FILTER (click to filter status) -----
+    const tabs = document.querySelectorAll('.tab');
+    tabs.forEach(tab => {
+      tab.addEventListener('click', function() {
+        tabs.forEach(t => t.classList.remove('active'));
+        this.classList.add('active');
+        const tabStatus = this.getAttribute('data-tab');
+        if (tabStatus === 'ready') statusFilter.value = 'ready';
+        else if (tabStatus === 'pending') statusFilter.value = 'pending';
+        else if (tabStatus === 'sent') statusFilter.value = 'sent';
+        else if (tabStatus === 'failed') statusFilter.value = 'failed';
+        filterTable();
+      });
+    });
+
+    // Initial: select first row by default
+    if (selectBtns.length) {
+      selectBtns[0].click();
+    }
+  })();
+</script>
+</body>
+</html>

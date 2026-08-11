@@ -13,7 +13,8 @@ class SalesOfferTemplate(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    offer_type: Mapped[str] = mapped_column(String(32), nullable=False, default="dental_trial")
+    offer_type: Mapped[str] = mapped_column(String(32), nullable=False, default="subscription_trial")
+    service_code: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     plan_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     trial_days: Mapped[int] = mapped_column(Integer, nullable=False, default=15)
     survey_contacts_included: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

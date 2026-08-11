@@ -63,6 +63,20 @@ def test_web_request_and_token_single_use(db):
     assert verified["session_id"]
     assert verified["contact_name"] == "Alex Demo"
 
+    # Opening the link again must stay valid until the demo call starts.
+    verified_again = AiDemoService.verify_token(db, token)
+    assert verified_again["session_id"] == verified["session_id"]
+
+    from datetime import datetime
+
+    from app.models.demo_session import DemoSession
+
+    session = db.get(DemoSession, verified["session_id"])
+    assert session is not None
+    session.used_at = datetime.utcnow()
+    db.add(session)
+    db.commit()
+
     with pytest.raises(AiDemoError):
         AiDemoService.verify_token(db, token)
 
