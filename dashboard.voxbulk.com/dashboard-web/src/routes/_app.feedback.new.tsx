@@ -271,7 +271,7 @@ function CreateFeedback() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6" data-demo-target="feedback-new">
       <PageHeader
         eyebrow="Customer feedback"
         title={duplicateMode ? "Duplicate QR survey" : "Create QR feedback survey"}

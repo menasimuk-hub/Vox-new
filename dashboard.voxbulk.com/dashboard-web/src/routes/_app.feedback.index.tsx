@@ -67,13 +67,13 @@ function SavedFeedback() {
   };
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6" data-demo-target="feedback-list">
       <PageHeader
         eyebrow="Customer feedback"
         title="Saved QR surveys"
         description="Print these QR codes in your venue — customers scan, send the message, and the WhatsApp survey starts automatically."
         actions={
-          <Button asChild className="gap-1.5">
+          <Button asChild className="gap-1.5" data-demo-target="feedback-new">
             <Link to="/feedback/new">
               <Plus className="size-4" /> Create QR survey
             </Link>

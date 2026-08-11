@@ -395,6 +395,25 @@ function apiErrorMessage(data: unknown, fallback: string): string {
 }
 
 export async function apiFetch<T = unknown>(path: string, options: RequestInit & { redirectOn401?: boolean } = {}) {
+  const method = String(options.method || "GET").toUpperCase();
+  // AI Demo handoff: view-only client backstop (server also rejects demo_access writes).
+  if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    try {
+      const demoMode =
+        typeof window !== "undefined" &&
+        (sessionStorage.getItem("voxbulk_ai_demo_mode") === "1" ||
+          Boolean(new URLSearchParams(window.location.search).get("demo_session")));
+      if (demoMode) {
+        throw new ApiError("Demo sessions are view-only — changes are blocked", {
+          status: 403,
+          data: { detail: "demo_view_only" },
+        });
+      }
+    } catch (e) {
+      if (e instanceof ApiError) throw e;
+    }
+  }
+
   const baseUrl = getApiBaseUrl();
   const url = baseUrl ? `${baseUrl}${path}` : path;
 

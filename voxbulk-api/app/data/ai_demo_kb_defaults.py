@@ -31,15 +31,20 @@ _TALK = (
     "Short punchy sentences, contractions, natural energy. Sell the pain and the win. "
     "One beat → listen → show the screen → tie it back to them. Never monologue feature lists. "
     "Never list products they did not pick. No corporate filler (leverage, seamless, solutions). "
-    "Calm pace — never rush."
+    "Calm pace — never rush. "
+    "Yield on interruption and acknowledge corrections before continuing. "
+    "Vary openers — never reuse 'Here — this is your X. You can Y.' every turn. "
+    "Answer the literal ask first. Hard-stop on goodbye with end_demo."
 )
 
 _SALES = (
     "Sales beat: name the product they chose with a sharp hook, prove it on the REAL dashboard "
-    "(highlight_dashboard with session_id=DEMO_SESSION_ID and the matching section), "
+    "(highlight_dashboard with session_id=DEMO_SESSION_ID, matching section, and target_element_id "
+    "for data-demo-target markers; pointer=true when telling them to click), "
     "bridge to their business, soft close. "
     "Open the selected product page early — do not lecture Settings for a minute first. "
-    "Pricing: show_pricing only if asked or natural; sales sends the best offer — never invent discounts. "
+    "Pricing: show_pricing with service=active product so the correct packages tab opens; "
+    "sales sends the best offer — never invent discounts. "
     "On buy interest: request_sales_offer + log_volume_needs, then end_demo with book-a-call CTA."
 )
 
@@ -55,7 +60,7 @@ DEMO_KB_SEED: list[dict] = [
             "If selected_services exist: ONLY discuss those — never mention others (especially not interviews "
             "unless recruitment was selected). Lead with a sales hook, then prove on screen. "
             "If none selected: ask what hurts — unhappy customers, slow hiring, dead leads, or a show — then switch_kb. "
-            "Soft cap ~7 minutes."
+            "Soft cap uses Admin soft_cap_minutes (typically ~7)."
         ),
         "fact_sheet": (
             "Real dashboard org: Voxbulk Demo. Navigate real routes only. "

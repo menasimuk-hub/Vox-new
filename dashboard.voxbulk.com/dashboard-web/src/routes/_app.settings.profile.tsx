@@ -40,6 +40,7 @@ import { requireNonBillingOnlySettings } from "@/lib/guards/settings-route";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useSession } from "@/lib/session";
 import { apiFetch } from "@/lib/api";
+import { isAiDemoMode } from "@/lib/ai-demo";
 
 export const Route = createFileRoute("/_app/settings/profile")({
   head: () => ({ meta: [{ title: "Organisation profile — VoxBulk" }] }),
@@ -375,6 +376,7 @@ function ProfileSettings() {
         </CardContent>
       </Card>
 
+      {!isAiDemoMode() ? (
       <Card>
         <CardHeader className="pb-3">
           <CardTitle>Change password</CardTitle>
@@ -427,6 +429,7 @@ function ProfileSettings() {
           </div>
         </CardContent>
       </Card>
+      ) : null}
 
       <Card id="email-notifications">
         <CardHeader className="pb-3">

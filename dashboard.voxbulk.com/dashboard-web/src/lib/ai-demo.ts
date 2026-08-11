@@ -24,6 +24,9 @@ export type AiDemoUiEvent = {
   action?: string;
   section?: string;
   target?: string;
+  target_element_id?: string;
+  pointer?: boolean;
+  tab?: string;
   delay_ms?: number;
   summary?: string;
   recommendation?: string;
@@ -133,6 +136,26 @@ export function clearCachedDemoStart(sessionId: string) {
   } catch {
     /* ignore */
   }
+}
+
+export function markAiDemoMode(active: boolean) {
+  try {
+    if (active) sessionStorage.setItem("voxbulk_ai_demo_mode", "1");
+    else sessionStorage.removeItem("voxbulk_ai_demo_mode");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function isAiDemoMode(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    if (sessionStorage.getItem("voxbulk_ai_demo_mode") === "1") return true;
+    if (new URLSearchParams(window.location.search).get("demo_session")) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 export async function loadTelnyxRtc() {

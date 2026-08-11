@@ -72,6 +72,34 @@ def _principal_from_token(request: Request, db: Session, token: str) -> CurrentP
     return CurrentPrincipal(user_id=str(user_id), org_id=str(org_id), token_payload=payload)
 
 
+_DEMO_WRITE_ALLOW_PREFIXES = (
+    "/ai-demo/",
+    "/api/ai-demo/",
+    "/auth/logout",
+    "/api/auth/logout",
+    "/health",
+    "/api/health",
+)
+
+
+def _assert_demo_writes_blocked(request: Request, principal: CurrentPrincipal) -> None:
+    """Demo handoff JWTs are view-only — block mutating dashboard APIs."""
+    payload = principal.token_payload or {}
+    if not (payload.get("demo_access") or payload.get("demo_session_id")):
+        return
+    method = str(request.method or "GET").upper()
+    if method in {"GET", "HEAD", "OPTIONS"}:
+        return
+    path = str(request.url.path or "")
+    for prefix in _DEMO_WRITE_ALLOW_PREFIXES:
+        if path == prefix.rstrip("/") or path.startswith(prefix):
+            return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Demo sessions are view-only — saving or changing account data is blocked",
+    )
+
+
 def _assert_user_access(user: User | None, *, allow_pending: bool = False) -> User:
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
@@ -96,6 +124,7 @@ def get_current_principal(
     principal = _principal_from_token(request, db, token)
     user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
     _assert_user_access(user, allow_pending=False)
+    _assert_demo_writes_blocked(request, principal)
     return principal
 
 
@@ -108,6 +137,7 @@ def get_current_principal_allow_pending(
     principal = _principal_from_token(request, db, token)
     user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
     _assert_user_access(user, allow_pending=True)
+    _assert_demo_writes_blocked(request, principal)
     return principal
 
 

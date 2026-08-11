@@ -196,7 +196,7 @@ function ExpoHub() {
   ].filter((d) => d.value > 0);
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6" data-demo-target="expo-list">
       <PageHeader
         eyebrow="VoxBulk Expo"
         title="Saved booths"

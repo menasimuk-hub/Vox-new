@@ -104,19 +104,42 @@ DEMO_SECTION_ROUTES: dict[str, str] = {
 }
 
 
+def pricing_tab_for_service(service: str | None) -> str:
+    """Map product code → /account/packages ?tab= value."""
+    s = str(service or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if s in ("feedback", "customer_feedback"):
+        return "feedback"
+    if s in ("expo", "voxbulk_expo", "booth"):
+        return "expo"
+    if s in ("smart_card", "smartcard", "smart_card_qr"):
+        return "smartCard"
+    if s in ("recruitment", "surveys", "interview", "interviews", "ai_interview", "core", "platform"):
+        return "core"
+    return "core"
+
+
+def packages_route_for_service(service: str | None) -> str:
+    return f"/account/packages?tab={pricing_tab_for_service(service)}"
+
+
 def resolve_demo_route(*, section: str | None = None, target: str | None = None, service: str | None = None) -> str | None:
     for key in (section, target, service):
         raw = str(key or "").strip()
         if not raw:
             continue
         if raw.startswith("/"):
-            return raw.split("?")[0][:120]
+            # Keep query string for pricing tabs etc.
+            return raw[:180]
         code = raw.lower().replace("-", "_").replace(" ", "_").replace("/", "_")
+        if code in ("pricing", "packages", "show_pricing", "account_packages"):
+            return packages_route_for_service(service)
         if code in DEMO_SECTION_ROUTES:
             return DEMO_SECTION_ROUTES[code]
         # Tolerate aliases like settings/services
         slash = raw.lower().strip("/")
         if slash in ("settings/services", "account/packages", "feedback", "surveys", "interviews", "expo", "smart-card"):
+            if slash == "account/packages":
+                return packages_route_for_service(service)
             return f"/{slash}"
     return None
 

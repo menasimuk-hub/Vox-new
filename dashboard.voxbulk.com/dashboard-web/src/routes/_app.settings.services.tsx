@@ -76,7 +76,7 @@ function ServicesSettings() {
   });
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6" data-demo-target="settings-services">
       <PageHeader
         eyebrow="Settings"
         title="Services"
@@ -84,7 +84,7 @@ function ServicesSettings() {
       />
       <Card>
         <CardHeader><CardTitle className="text-base">Your modules</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3" data-demo-target="settings-services-list">
           {!loaded ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : available.length === 0 ? (

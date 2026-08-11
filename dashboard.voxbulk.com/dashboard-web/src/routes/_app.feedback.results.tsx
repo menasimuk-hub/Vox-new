@@ -86,25 +86,27 @@ function FeedbackResults() {
   const locations = resultsQ.data.locations.map((l) => ({ id: l.id, name: l.name }));
 
   return (
-    <FeedbackSurveyResults
-      data={mapped}
-      locationId={locationId}
-      locations={locations}
-      onLocationChange={setLocationId}
-      onExportPdf={() => void handleExport("pdf")}
-      onExportCsv={() => void handleExport("csv")}
-      insightsLoading={insightsQ.isLoading}
-      onRefresh={() => {
-        void resultsQ.refetch();
-        void insightsQ.refetch();
-      }}
-      headerActions={
-        <Button asChild variant="outline" size="sm" className="gap-1.5">
-          <Link to="/feedback">
-            <QrCode className="size-4" /> Saved QR surveys
-          </Link>
-        </Button>
-      }
-    />
+    <div data-demo-target="feedback-results">
+      <FeedbackSurveyResults
+        data={mapped}
+        locationId={locationId}
+        locations={locations}
+        onLocationChange={setLocationId}
+        onExportPdf={() => void handleExport("pdf")}
+        onExportCsv={() => void handleExport("csv")}
+        insightsLoading={insightsQ.isLoading}
+        onRefresh={() => {
+          void resultsQ.refetch();
+          void insightsQ.refetch();
+        }}
+        headerActions={
+          <Button asChild variant="outline" size="sm" className="gap-1.5">
+            <Link to="/feedback">
+              <QrCode className="size-4" /> Saved QR surveys
+            </Link>
+          </Button>
+        }
+      />
+    </div>
   );
 }

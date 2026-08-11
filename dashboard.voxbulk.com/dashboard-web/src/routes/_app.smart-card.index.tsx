@@ -103,7 +103,7 @@ function SmartCardSavedQrsPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-demo-target="smart-card-list">
       <PageHeader
         eyebrow="Smart Card QR"
         title="Saved QR codes"

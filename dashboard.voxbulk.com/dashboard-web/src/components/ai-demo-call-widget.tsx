@@ -10,12 +10,14 @@ import {
   demoThanksUrl,
   fetchDemoSessionGate,
   loadTelnyxRtc,
+  markAiDemoMode,
   normalizeTelnyxCustomHeaders,
   pollDemoEvents,
   readCachedDemoStart,
   startDemoSession,
   type AiDemoUiEvent,
 } from "@/lib/ai-demo";
+import { applyDemoHighlight, parseDemoRoute } from "@/lib/ai-demo-highlight";
 
 const REMOTE_AUDIO_ID = "voxbulk-ai-demo-remote-audio";
 const ACTIVE_TIMEOUT_MS = 45_000;
@@ -71,6 +73,7 @@ function readSavedPos(): WidgetPos {
 
 function wipeDemoAuthAndLeave(sessionId: string, thanksUrl?: string | null) {
   clearCachedDemoStart(sessionId);
+  markAiDemoMode(false);
   stripDemoSessionQuery();
   try {
     clearAllSessionStorage();
@@ -112,10 +115,28 @@ export function AiDemoCallWidget() {
   const thanksUrlRef = useRef<string | null>(null);
 
   const navigateRoute = useCallback(
-    (route: string) => {
-      const path = route.startsWith("/") ? route : `/${route}`;
-      if (pathname === path) return;
-      void navigate({ to: path as never });
+    (route: string, highlight?: { target?: string | null; pointer?: boolean }) => {
+      const { pathname: path, search } = parseDemoRoute(route);
+      const runHighlight = () => {
+        if (!highlight?.target) return;
+        window.setTimeout(() => {
+          applyDemoHighlight({
+            targetElementId: highlight.target,
+            pointer: Boolean(highlight.pointer),
+            warnMissing: true,
+          });
+        }, 400);
+      };
+      const currentPath = typeof window !== "undefined" ? window.location.pathname : pathname;
+      const needsNav = path !== currentPath || Object.keys(search).length > 0;
+      if (needsNav) {
+        void navigate({
+          to: path as never,
+          search: (Object.keys(search).length ? search : undefined) as never,
+        }).then(() => runHighlight());
+      } else {
+        runHighlight();
+      }
     },
     [navigate, pathname],
   );
@@ -188,9 +209,16 @@ export function AiDemoCallWidget() {
       for (const ev of events) {
         if (ev.id) afterEventIdRef.current = ev.id;
         const route = String(ev.route || "").trim();
+        const target = String(ev.target_element_id || "").trim() || null;
+        const pointer = Boolean(ev.pointer);
         if (route && !exitingRef.current) {
           const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
-          window.setTimeout(() => navigateRoute(route), delay);
+          window.setTimeout(() => navigateRoute(route, { target, pointer }), delay);
+        } else if (target && !exitingRef.current) {
+          window.setTimeout(
+            () => applyDemoHighlight({ targetElementId: target, pointer, warnMissing: true }),
+            typeof ev.delay_ms === "number" ? ev.delay_ms : 150,
+          );
         }
         if (ev.type === "request_sales_offer") {
           toast.message("Sales will follow up with the best offer");
@@ -216,6 +244,7 @@ export function AiDemoCallWidget() {
     (async () => {
       setPhase("connecting");
       setStatusLine("Connecting…");
+      markAiDemoMode(true);
       try {
         const cached = readCachedDemoStart(sessionId);
         if (cached?.thanks_url) thanksUrlRef.current = String(cached.thanks_url);

@@ -595,7 +595,19 @@ function PackagesPage() {
         </div>
       </div>
 
-      <Tabs value={packagesTab} onValueChange={(v) => setPackagesTab(v as ServiceTab)} className="w-full">
+      <Tabs
+        value={packagesTab}
+        onValueChange={(v) => {
+          const next = v as ServiceTab;
+          setPackagesTab(next);
+          void navigate({
+            to: "/account/packages",
+            search: (prev) => ({ ...prev, tab: next }),
+            replace: true,
+          });
+        }}
+        className="w-full"
+      >
         <TabsList className="mb-4 grid h-auto w-full grid-cols-2 gap-2 rounded-2xl border border-border bg-muted/40 p-2 lg:grid-cols-4">
           {visibleTabs.map((key) => {
             const s = SERVICE_TABS[key];
@@ -605,6 +617,7 @@ function PackagesPage() {
               <TabsTrigger
                 key={key}
                 value={key}
+                data-demo-target={`packages-tab-${key}`}
                 className={`group relative flex h-auto items-center gap-3 overflow-hidden rounded-xl border px-3 py-3 text-left transition-all duration-300 hover:-translate-y-0.5 ${
                   on
                     ? `border-transparent bg-background shadow-md ring-2 ${s.ring} bg-gradient-to-br ${s.bg} to-transparent`
@@ -631,6 +644,7 @@ function PackagesPage() {
             <TabsContent
               key={key}
               value={key}
+              data-demo-target={`packages-panel-${key}`}
               className={`mt-4 space-y-6`}
             >
               <ServicePackageShell

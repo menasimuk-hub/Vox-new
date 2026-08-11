@@ -32,15 +32,89 @@ from app.services.transactional_email_service import TransactionalEmailService
 logger = logging.getLogger(__name__)
 
 
-def _agent_display_name(agent_name: str | None) -> str:
-    """Prefer a friendly first name (Leo) from Admin agent labels."""
-    raw = str(agent_name or "").strip()
+class AiDemoError(Exception):
+    def __init__(self, message: str, *, status_code: int = 400):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+_PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}|\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+_SLUG_NAME_RE = re.compile(
+    r"(?i)^(interview|ai[-_]?demo|agent)[-_]|_"
+)
+
+CONVERSATION_STYLE_GUIDE = (
+    "CONVERSATION STYLE (mandatory):\n"
+    "- Yield on interruption: if they talk over you or correct you, acknowledge first "
+    "(\"ah, let me back up\" / \"sorry — not that one\") before continuing. Never restart the previous canned line verbatim.\n"
+    "- Vary openers — ban defaulting every turn to \"Here — this is your X. You can Y.\" "
+    "Rotate alternatives like: \"Right — over here…\", \"Quick look at this…\", \"On this screen…\", "
+    "\"See this bit?…\", \"I’ll show you the live view…\".\n"
+    "- Answer the literal question first (e.g. feedback pricing, not a general tour) before any upsell or recap.\n"
+    "- Sound like a live rep: contractions and light fillers are fine (\"yep\", \"that one's easy\").\n"
+    "- Hard stop on goodbye: if they say thanks / bye / that's all, end cleanly with end_demo — no trailing script."
+)
+
+
+def _is_system_slug_name(value: str) -> bool:
+    raw = str(value or "").strip()
     if not raw:
-        return "Leo"
-    # "AI Demo — Leo" / "Leo (GB)" / "Leo"
-    cleaned = raw.replace("AI Demo —", "").replace("AI Demo -", "").replace("AI Demo", "").strip(" -—")
-    first = cleaned.split()[0] if cleaned else "Leo"
-    return first or "Leo"
+        return True
+    if "_" in raw:
+        return True
+    if _SLUG_NAME_RE.search(raw):
+        return True
+    if re.match(r"(?i)^ai\s*demo", raw):
+        return True
+    return False
+
+
+def resolve_spoken_display_name(
+    *,
+    voice_label: str | None = None,
+    agent_name: str | None = None,
+    agent_id: str | None = None,
+) -> str:
+    """Human spoken name only — never agent slug/id. Fail loudly if missing."""
+    for candidate in (voice_label,):
+        clean = str(candidate or "").strip()
+        if not clean or _is_system_slug_name(clean):
+            continue
+        # "Leo (GB)" → Leo
+        token = clean.split()[0].strip(" -—()")
+        if token and not _is_system_slug_name(token):
+            return token[:80]
+        return clean[:80]
+
+    logger.error(
+        "ai_demo_missing_display_name voice_label=%r agent_name=%r agent_id=%r",
+        voice_label,
+        agent_name,
+        agent_id,
+    )
+    raise AiDemoError(
+        "Demo agent has no spoken display name (set voice_label on the AI Demo agent, e.g. Leo). "
+        "Refusing to use the system slug in customer speech.",
+        status_code=503,
+    )
+
+
+def sanitize_user_facing_text(text: str) -> str:
+    """Never leave raw {placeholders} in greetings / spoken copy."""
+    out = str(text or "")
+    if not out:
+        return out
+    if _PLACEHOLDER_RE.search(out):
+        logger.error("ai_demo_unresolved_placeholder text=%r", out[:240])
+        out = _PLACEHOLDER_RE.sub("", out)
+        out = re.sub(r"\s{2,}", " ", out).strip()
+    return out
+
+
+def _agent_display_name(agent_name: str | None, *, voice_label: str | None = None) -> str:
+    """Back-compat wrapper — prefers voice_label, never returns a slug silently."""
+    return resolve_spoken_display_name(voice_label=voice_label, agent_name=agent_name)
 
 
 def _parse_demo_tool_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -180,13 +254,6 @@ def _is_ai_demo_agent(agent: Any) -> bool:
     slug = str(getattr(agent, "slug", None) or "")
     name = str(getattr(agent, "name", None) or "")
     return slug.startswith("ai-demo-") or name.startswith("AI Demo")
-
-
-class AiDemoError(Exception):
-    def __init__(self, message: str, *, status_code: int = 400):
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
 
 
 def _utcnow() -> datetime:
@@ -821,6 +888,7 @@ class AiDemoService:
             "source": source,
             "agent_id": agent_row.id if agent_row else None,
             "agent_name": agent_row.name if agent_row else None,
+            "voice_label": getattr(agent_row, "voice_label", None) if agent_row else None,
         }
 
     @staticmethod
@@ -1447,7 +1515,13 @@ class AiDemoService:
         lang_line = "Respond in Arabic." if lang == "ar" else "Respond in English."
 
         resolved = AiDemoService.resolve_assistant_for_request(db, req)
-        agent_name = _agent_display_name(resolved.get("agent_name"))
+        soft_cap = int(AiDemoService.get_settings(db).soft_cap_minutes or SOFT_CAP_MINUTES_DEFAULT)
+        soft_cap = max(3, min(30, soft_cap))
+        agent_name = resolve_spoken_display_name(
+            voice_label=resolved.get("voice_label"),
+            agent_name=resolved.get("agent_name"),
+            agent_id=str(resolved.get("agent_id") or "") or None,
+        )
 
         demo_org = AiDemoOrgService.find_demo_org(db)
         real_dash_block = (
@@ -1455,7 +1529,9 @@ class AiDemoService:
             if demo_org is not None
             else (
                 "REAL DASHBOARD: Visitor is inside dashboard.voxbulk.com for Voxbulk Demo. "
-                "Use highlight_dashboard section=services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card."
+                "Use highlight_dashboard section=services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card "
+                "and pass target_element_id (data-demo-target) when describing a control. "
+                "For pricing call show_pricing with service= the active product."
             )
         )
 
@@ -1479,14 +1555,15 @@ class AiDemoService:
                     "Short punchy lines. Contractions. React to what they say. Never monologue brochure text. "
                     "Never say leverage/seamless/solutions. Calm pace."
                 ),
+                CONVERSATION_STYLE_GUIDE,
                 lang_line,
-                f"Your spoken name is {agent_name}.",
+                f"Your spoken name is {agent_name}. Never say your system id or slug.",
                 f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
                 f"Their message: {req.message or '(none)'}.",
                 f"DEMO_SESSION_ID={session.id}",
                 "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
                 "Recording: one short clause in the greeting — not a lecture.",
-                "Hard soft cap about 7 minutes — wrap with end_demo when time is up.",
+                f"Hard soft cap about {soft_cap} minutes — wrap with end_demo when time is up.",
                 (
                     "SELECTED SERVICES ONLY — the visitor already chose these. "
                     "Talk ONLY about: " + ", ".join(SERVICE_DISPLAY_NAMES.get(s, s) for s in selected) + ". "
@@ -1503,7 +1580,8 @@ class AiDemoService:
                     "Greet by name → you're {agent} from VoxBulk → welcome to the live dashboard → "
                     "name the FIRST selected service in plain English → give ONE sharp sales hook "
                     "(why it matters / pain it kills) → invite a quick yes/no or one-line from them → "
-                    "THEN open the matching dashboard page with highlight_dashboard BEFORE you say look here."
+                    "THEN open the matching dashboard page with highlight_dashboard BEFORE you say look here "
+                    "(include target_element_id when pointing at a control)."
                 ).format(agent=agent_name),
                 (
                     "HOW TO EXPLAIN: speak like a closer — outcomes and stakes, not feature lists. "
@@ -1512,10 +1590,13 @@ class AiDemoService:
                     "Then prove it on the real page. Bridge every screen back to THEIR business."
                 ),
                 "UI RULES: Call highlight_dashboard BEFORE 'look here'. "
+                "Pass target_element_id for data-demo-target markers (e.g. feedback-list, feedback-new, packages-tab-feedback). "
+                "Set pointer=true when telling them to click. "
                 "section values: services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card. "
                 "Open the FIRST selected product page early (not a long Settings lecture).",
                 real_dash_block,
-                "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
+                "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
+                + " Use show_pricing with service=active product so the correct tab opens.",
                 "Close: sales will send the best offer — never invent promo codes or discounts. "
                 "On interest call request_sales_offer + log_volume_needs, then end_demo with book-a-call CTA.",
                 "Cover selected services in this order (one fully, then transition): " + ", ".join(selected) + ".",
@@ -1524,18 +1605,20 @@ class AiDemoService:
             parts = [
                 overview.system_prompt if overview else "",
                 overview.fact_sheet if overview else "",
+                CONVERSATION_STYLE_GUIDE,
                 lang_line,
-                f"Your spoken name is {agent_name}. Introduce yourself as {agent_name} on the first turn.",
+                f"Your spoken name is {agent_name}. Introduce yourself as {agent_name} on the first turn. Never say a system slug.",
                 f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
                 f"Their message: {req.message or '(none)'}.",
                 f"DEMO_SESSION_ID={session.id}",
                 "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
                 "Recording: one brief consent clause in the greeting — not a lecture.",
-                "Hard soft cap about 7 minutes — wrap up with end_demo when time is up.",
+                f"Hard soft cap about {soft_cap} minutes — wrap up with end_demo when time is up.",
                 "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
-                "UI RULES: Call highlight_dashboard BEFORE you say 'look here'.",
+                "UI RULES: Call highlight_dashboard BEFORE you say 'look here'. Include target_element_id when pointing.",
                 real_dash_block,
-                "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
+                "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
+                + " Use show_pricing with service= the product in context.",
                 "Close promise: sales will send the best offer — never invent promo codes or discounts.",
                 "No services pre-selected — ask what is hurting (customers, hiring, leads, or an event), then switch_kb.",
             ]
@@ -1590,11 +1673,15 @@ class AiDemoService:
             parts.append("No product KB loaded yet — ask what they need and call switch_kb.")
 
         return {
-            "system_prompt": "\n\n".join(p for p in parts if p).strip(),
-            "first_message": greeting if lang != "ar" else (
-                f"مرحباً {req.contact_name}، أنا {agent_name} من VoxBulk. "
-                f"اخترت {first_label} وسنبدأ به مباشرة. "
-                "هذه المكالمة قد تُسجَّل لفريق المبيعات. ما نوع عملك؟"
+            "system_prompt": sanitize_user_facing_text("\n\n".join(p for p in parts if p).strip()),
+            "first_message": sanitize_user_facing_text(
+                greeting
+                if lang != "ar"
+                else (
+                    f"مرحباً {req.contact_name}، أنا {agent_name} من VoxBulk. "
+                    f"اخترت {first_label} وسنبدأ به مباشرة. "
+                    "هذه المكالمة قد تُسجَّل لفريق المبيعات. ما نوع عملك؟"
+                )
             ),
         }
 
@@ -1984,13 +2071,21 @@ class AiDemoService:
             return {"status": "ok", "url": raw_data}
 
         if name == "highlight_dashboard":
-            from app.services.ai_demo_org_service import resolve_demo_route
+            from app.services.ai_demo_org_service import pricing_tab_for_service, resolve_demo_route
 
             action = str(args.get("action") or "highlight").strip().lower()
             if action not in ("highlight", "navigate", "filter", "open_chart"):
                 action = "highlight"
             section = args.get("section") or args.get("menu") or args.get("page") or session.active_service_code
             target = args.get("target") or args.get("route")
+            target_element_id = str(
+                args.get("target_element_id")
+                or args.get("element_id")
+                or args.get("selector")
+                or args.get("demo_target")
+                or ""
+            ).strip() or None
+            pointer = bool(args.get("pointer") or args.get("show_pointer") or False)
             route = resolve_demo_route(
                 section=str(section) if section else None,
                 target=str(target) if target else None,
@@ -1998,11 +2093,30 @@ class AiDemoService:
             )
             if route is None and session.active_service_code:
                 route = resolve_demo_route(service=session.active_service_code)
+            # Default demo targets by section when the model forgets
+            if not target_element_id and section:
+                sec = str(section).strip().lower().replace("-", "_")
+                defaults = {
+                    "feedback": "feedback-list",
+                    "feedback_new": "feedback-new",
+                    "feedback_results": "feedback-results",
+                    "surveys": "surveys-list",
+                    "recruitment": "interviews-list",
+                    "interviews": "interviews-list",
+                    "expo": "expo-list",
+                    "smart_card": "smart-card-list",
+                    "services": "settings-services",
+                    "packages": f"packages-tab-{pricing_tab_for_service(session.active_service_code)}",
+                    "pricing": f"packages-tab-{pricing_tab_for_service(session.active_service_code)}",
+                }
+                target_element_id = defaults.get(sec)
             event = {
                 "type": "highlight_dashboard",
                 "action": "navigate" if route else action,
                 "section": section,
                 "target": target,
+                "target_element_id": target_element_id,
+                "pointer": pointer,
                 "route": route,
                 "location": args.get("location"),
                 "range": args.get("range") or args.get("range_key"),
@@ -2024,12 +2138,22 @@ class AiDemoService:
                     "route": None,
                     "message": "No matching route — retry with section=services|feedback|surveys|recruitment|expo|smart_card|packages",
                 }
-            return {"status": "ok", "action": event["action"], "route": route, "message": f"Opening {route}"}
+            return {
+                "status": "ok",
+                "action": event["action"],
+                "route": route,
+                "target_element_id": target_element_id,
+                "message": f"Opening {route}",
+            }
 
         if name == "show_pricing":
             from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH
+            from app.services.ai_demo_org_service import packages_route_for_service, pricing_tab_for_service
 
             recommendation = str(args.get("recommendation") or args.get("recommend") or "").strip() or None
+            service = str(args.get("service") or session.active_service_code or "").strip() or None
+            route = packages_route_for_service(service)
+            tab = pricing_tab_for_service(service)
             AiDemoService._append_ui_event(
                 db,
                 session,
@@ -2037,7 +2161,9 @@ class AiDemoService:
                     "type": "highlight_dashboard",
                     "action": "navigate",
                     "section": "packages",
-                    "route": "/account/packages",
+                    "route": route,
+                    "target_element_id": f"packages-tab-{tab}",
+                    "pointer": False,
                     "delay_ms": 200,
                 },
             )
@@ -2048,17 +2174,24 @@ class AiDemoService:
                     "type": "show_pricing",
                     "data": PRICING_WALKTHROUGH,
                     "recommendation": recommendation,
-                    "service": args.get("service") or session.active_service_code,
-                    "route": "/account/packages",
+                    "service": service,
+                    "tab": tab,
+                    "route": route,
+                    "target_element_id": f"packages-panel-{tab}",
                 },
             )
             AiDemoService.update_memory(
                 db,
                 req,
-                {"pricing_shown": True, "pricing_recommendation": recommendation},
+                {"pricing_shown": True, "pricing_recommendation": recommendation, "pricing_tab": tab},
             )
             db.commit()
-            return {"status": "ok", "message": "Pricing panel shown. Explain differences and recommend."}
+            return {
+                "status": "ok",
+                "route": route,
+                "tab": tab,
+                "message": f"Pricing tab '{tab}' shown. Explain differences and recommend.",
+            }
 
         if name == "request_sales_offer":
             note = str(args.get("note") or args.get("summary") or "").strip()

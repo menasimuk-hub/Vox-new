@@ -75,7 +75,8 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         (
             "highlight_dashboard",
             "Navigate the live demo dashboard menus. Call BEFORE you say look here / open this. "
-            "Use section=services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card.",
+            "Use section=services|packages|feedback|feedback_new|feedback_results|surveys|recruitment|expo|smart_card. "
+            "Pass target_element_id matching a data-demo-target marker; set pointer=true when asking them to click.",
             _body(
                 {
                     "session_id": session_prop,
@@ -85,6 +86,12 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
                     "menu": _str_prop("Alias for section"),
                     "page": _str_prop("Alias for section"),
                     "route": _str_prop("Optional absolute path"),
+                    "target_element_id": _str_prop(
+                        "data-demo-target id e.g. feedback-list, packages-tab-feedback, settings-services"
+                    ),
+                    "element_id": _str_prop("Alias for target_element_id"),
+                    "pointer": {"type": "boolean", "description": "Show animated pointer on the target"},
+                    "show_pointer": {"type": "boolean", "description": "Alias for pointer"},
                     "location": _str_prop("Location filter e.g. Leeds"),
                     "range": _str_prop("Optional range e.g. 6mo"),
                     "view": _str_prop("Optional smart_card view: rep|manager"),
@@ -134,14 +141,14 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "show_pricing",
-            "Open Packages pricing. Explain differences and recommend. "
-            "Never invent discounts — sales will send the best offer.",
+            "Open Packages pricing on the correct service tab (core|feedback|expo|smartCard). "
+            "Explain differences and recommend. Never invent discounts — sales will send the best offer.",
             _body(
                 {
                     "session_id": session_prop,
                     "recommendation": _str_prop("e.g. Growth"),
                     "recommend": _str_prop("Alias for recommendation"),
-                    "service": _str_prop("Product context"),
+                    "service": _str_prop("Product context — maps to packages ?tab="),
                 },
                 ["session_id"],
             ),
