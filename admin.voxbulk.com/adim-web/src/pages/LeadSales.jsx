@@ -43,6 +43,17 @@ function formatWhen(value) {
   return d.toLocaleString()
 }
 
+function DetailField({ label, value }) {
+  return (
+    <div>
+      <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+        {value || '—'}
+      </div>
+    </div>
+  )
+}
+
 export default function LeadSales() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -450,68 +461,20 @@ export default function LeadSales() {
       </section>
 
       {/* Detail modal */}
-      {detailTask ? (
-        <Modal
-          isOpen={!!detailTask}
-          onClose={() => setDetailTask(null)}
-          title={`${detailTask.company_name || 'Unknown'} · ${detailTask.contact_name || 'Unknown'}`}
-          size="large"
-        >
-          <div style={{ padding: '1rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem 2rem', marginBottom: '1.5rem' }}>
-              <div>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Contact</div>
-                <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.contact_name || '—'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Phone</div>
-                <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.phone || '—'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Email</div>
-                <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.email || '—'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Source</div>
-                <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.source_label || detailTask.source || '—'}
-                </div>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Why call / interest summary</div>
-                <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.6rem 0.8rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.why_call || detailTask.interest_summary || '—'}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Consent</div>
-                <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.callback_consent === true ? (
-                    <span style={{ color: '#1a7a3a', fontWeight: 500, background: '#e6f7ec', padding: '0.1rem 0.6rem', borderRadius: '30px', fontSize: '0.7rem', display: 'inline-block' }}>
-                      Yes
-                    </span>
-                  ) : (
-                    <span style={{ color: '#b91c1c', fontWeight: 600, background: '#fee9e7', padding: '0.1rem 0.6rem', borderRadius: '30px', fontSize: '0.7rem', display: 'inline-block', border: '1px solid #fecaca' }}>
-                      No
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--ds-text-tertiary)', fontWeight: 500, marginBottom: '0.2rem' }}>Status</div>
-                <div style={{ fontSize: '0.95rem', color: 'var(--ds-text-primary)', fontWeight: 450, background: 'var(--ds-surface-secondary)', padding: '0.3rem 0.6rem', borderRadius: '8px', borderLeft: '3px solid var(--ds-border)' }}>
-                  {detailTask.status_label || detailTask.status}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--ds-border)' }}>
+      <Modal
+        open={!!detailTask}
+        onOpenChange={(open) => {
+          if (!open) setDetailTask(null)
+        }}
+        title={
+          detailTask
+            ? `${detailTask.company_name || 'Unknown'} · ${detailTask.contact_name || 'Unknown'}`
+            : 'Lead details'
+        }
+        className="max-w-2xl"
+        footer={
+          detailTask ? (
+            <div className="flex w-full flex-wrap gap-2">
               {detailTask.status === 'pending_approval' ? (
                 <>
                   <Button
@@ -519,19 +482,17 @@ export default function LeadSales() {
                     onClick={() => runTaskAction(detailTask, 'approve')}
                     disabled={busyId.startsWith(`${detailTask.id}-`) || !canApprove(detailTask)}
                     title={!canApprove(detailTask) ? 'Consent required before approve' : undefined}
-                    style={{ background: canApprove(detailTask) ? '#e6f7ec' : undefined, color: canApprove(detailTask) ? '#0f5c3a' : undefined }}
                   >
-                    <CheckCircle2 className="h-4 w-4 mr-1" />
-                    {busyId === `${detailTask.id}-approve` ? 'Approving…' : 'Approve call'}
+                    <CheckCircle2 className="h-4 w-4" />
+                    {busyId === `${detailTask.id}-approve` ? 'Approving…' : 'Approve'}
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => runTaskAction(detailTask, 'reject')}
                     disabled={busyId.startsWith(`${detailTask.id}-`)}
-                    style={{ background: '#fde8e8', color: '#a13030' }}
                   >
-                    <XCircle className="h-4 w-4 mr-1" />
+                    <XCircle className="h-4 w-4" />
                     {busyId === `${detailTask.id}-reject` ? 'Rejecting…' : 'Reject'}
                   </Button>
                 </>
@@ -542,16 +503,52 @@ export default function LeadSales() {
                 onClick={() => runTaskAction(detailTask, 'call-now')}
                 disabled={busyId.startsWith(`${detailTask.id}-`) || !canCall(detailTask)}
               >
-                <Phone className="h-4 w-4 mr-1" />
+                <Phone className="h-4 w-4" />
                 {busyId === `${detailTask.id}-call-now` ? 'Calling…' : 'Call now'}
               </Button>
-              <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--ds-text-tertiary)' }}>
-                Consent editable via Edit
-              </span>
+              <Button size="sm" variant="outline" asChild>
+                <Link to={`/marketing/lead-sales/${detailTask.id}`}>Open full page</Link>
+              </Button>
             </div>
+          ) : null
+        }
+      >
+        {detailTask ? (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <DetailField label="Contact" value={detailTask.contact_name} />
+            <DetailField label="Company" value={detailTask.company_name} />
+            <DetailField label="Phone" value={detailTask.phone} />
+            <DetailField label="Email" value={detailTask.email} />
+            <DetailField label="Source" value={detailTask.source_label || detailTask.source} />
+            <DetailField label="Status" value={detailTask.status_label || detailTask.status} />
+            <DetailField
+              label="Consent"
+              value={detailTask.callback_consent === true ? 'Yes' : 'No'}
+            />
+            <DetailField label="Preferred callback" value={formatWhen(detailTask.scheduled_at)} />
+            <div className="sm:col-span-2">
+              <DetailField
+                label="Services"
+                value={(detailTask.services || []).length ? (detailTask.services || []).join(', ') : '—'}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <DetailField
+                label="Why call / interest"
+                value={detailTask.why_call || detailTask.interest_summary || detailTask.sales_intent}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <DetailField label="Outcome" value={detailTask.outcome_label} />
+            </div>
+            {detailTask.last_error ? (
+              <div className="sm:col-span-2">
+                <DetailField label="Last error" value={detailTask.last_error} />
+              </div>
+            ) : null}
           </div>
-        </Modal>
-      ) : null}
+        ) : null}
+      </Modal>
     </>
   )
 }

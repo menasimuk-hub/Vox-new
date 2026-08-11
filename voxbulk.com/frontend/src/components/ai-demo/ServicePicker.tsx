@@ -40,10 +40,11 @@ export function ServicePicker({
   selected: string[];
   onToggle: (code: string) => void;
 }) {
+  const selectedCodes = Array.isArray(selected) ? selected : [];
   return (
     <div className="grid sm:grid-cols-2 gap-3">
       {DEMO_SERVICE_CARDS.map((card) => {
-        const on = selected.includes(card.code);
+        const on = selectedCodes.includes(card.code);
         return (
           <button
             key={card.code}

@@ -126,7 +126,14 @@ function DemoSessionPage() {
                 real sidebar, services, packages, and Feedback data.
               </p>
             </div>
-            <ServicePicker value={selected} onChange={setSelected} />
+            <ServicePicker
+              selected={selected}
+              onToggle={(code) =>
+                setSelected((prev) =>
+                  prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+                )
+              }
+            />
             {error && <p className="text-sm text-red-300">{error}</p>}
             <button
               type="button"

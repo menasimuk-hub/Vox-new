@@ -403,14 +403,16 @@ export default function SendOffer() {
       </section>
 
       {/* Send offer modal */}
-      {sendTask ? (
-        <Modal
-          isOpen={!!sendTask}
-          onClose={() => setSendTask(null)}
-          title={`Send offer · ${sendTask.company_name || 'Unknown'}`}
-          size="medium"
-        >
-          <div style={{ padding: '1rem' }}>
+      <Modal
+        open={!!sendTask}
+        onOpenChange={(open) => {
+          if (!open) setSendTask(null)
+        }}
+        title={sendTask ? `Send offer · ${sendTask.company_name || 'Unknown'}` : 'Send offer'}
+        className="max-w-xl"
+      >
+        {sendTask ? (
+          <div style={{ padding: '0.25rem 0' }}>
             <div style={{ marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid var(--ds-border)' }}>
               <div style={{ fontSize: '0.9rem', color: 'var(--ds-text-secondary)', marginBottom: '0.4rem' }}>
                 <strong>{sendTask.contact_name || 'Unknown'}</strong> · {sendTask.phone || 'no phone'} · {sendTask.email || 'no email'}
@@ -556,8 +558,8 @@ export default function SendOffer() {
               ) : null}
             </div>
           </div>
-        </Modal>
-      ) : null}
+        ) : null}
+      </Modal>
     </>
   )
 }
