@@ -473,6 +473,16 @@ def admin_duplicate_demo_agents(
         raise _http(exc) from exc
 
 
+@admin_router.post("/agents/sync-telnyx-tools")
+def admin_sync_demo_telnyx_tools(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_platform_admin),
+):
+    from app.services.ai_demo_telnyx_tools import sync_tools_for_all_ai_demo_agents
+
+    return sync_tools_for_all_ai_demo_agents(db)
+
+
 @admin_router.post("/knowledge-bases/upsert-defaults")
 def admin_upsert_kb_defaults(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
     result = AiDemoService.upsert_knowledge_bases(db)

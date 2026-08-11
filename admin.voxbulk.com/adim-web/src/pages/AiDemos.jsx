@@ -253,6 +253,18 @@ export default function AiDemos() {
     }
   }
 
+  const syncDemoTelnyxTools = async () => {
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/ai-demo/agents/sync-telnyx-tools', { method: 'POST' })
+      alert(`Telnyx tools synced on ${data?.synced || 0}/${data?.total || 0} AI Demo agents`)
+    } catch (e) {
+      alert(e?.message || 'Tool sync failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const upsertKbDefaults = async () => {
     if (!window.confirm('Refresh all AI Demo knowledge bases with the latest talk/sales prompts from code?')) return
     setBusy(true)
@@ -433,14 +445,17 @@ export default function AiDemos() {
               <Button variant='outline' onClick={duplicateDemoAgents} disabled={busy}>
                 Duplicate → AI Demo agents only
               </Button>
+              <Button variant='outline' onClick={syncDemoTelnyxTools} disabled={busy}>
+                Sync Telnyx demo tools
+              </Button>
               <Button variant='outline' onClick={upsertKbDefaults} disabled={busy}>
                 Refresh KB talk/sales copy
               </Button>
             </div>
             <p className='text-xs text-muted-foreground'>
-              Duplicate creates new Telnyx assistants named “AI Demo — …” and remaps this page so interview agents are
-              never overwritten by demo prompts. Configure Telnyx webhook tools on those demo assistants to{' '}
-              <code className='text-[11px]'>https://api.voxbulk.com/ai-demo/tools/&#123;tool&#125;</code>.
+              Duplicate creates new Telnyx assistants named “AI Demo — …”. Sync Telnyx demo tools attaches webhook tools
+              (highlight_dashboard, show_qr_code, show_pricing, …) to those assistants only — interview agents stay
+              untouched.
             </p>
           </CardContent>
         </Card>

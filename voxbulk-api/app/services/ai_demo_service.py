@@ -428,6 +428,13 @@ class AiDemoService:
                 results.append({"region": region, "ok": False, "error": "telnyx_create_failed", "raw": created})
                 continue
 
+            try:
+                from app.services.ai_demo_telnyx_tools import ensure_ai_demo_assistant_tools
+
+                tools_out = ensure_ai_demo_assistant_tools(db, new_telnyx)
+            except Exception as exc:
+                tools_out = {"ok": False, "error": str(exc)[:200]}
+
             if existing_copy:
                 copy = existing_copy
                 copy.name = demo_name
@@ -479,6 +486,7 @@ class AiDemoService:
                     "telnyx_assistant_id": new_telnyx,
                     "cloned_from": source.id,
                     "cloned_from_telnyx": src_telnyx,
+                    "tools": tools_out,
                 }
             )
 
@@ -1324,6 +1332,10 @@ class AiDemoService:
         )
         try:
             from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
+            from app.services.ai_demo_telnyx_tools import ensure_ai_demo_assistant_tools
+
+            # Keep webhook tools attached on the dedicated demo assistant (idempotent).
+            ensure_ai_demo_assistant_tools(db, assistant_id)
 
             prep = prepare_telnyx_webrtc_call(
                 db,
