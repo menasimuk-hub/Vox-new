@@ -507,7 +507,7 @@ export default function LeadSales() {
                 {busyId === `${detailTask.id}-call-now` ? 'Calling…' : 'Call now'}
               </Button>
               <Button size="sm" variant="outline" asChild>
-                <Link to={`/marketing/lead-sales/${detailTask.id}`}>Open full page</Link>
+                <Link to={`/marketing/lead-sales/${detailTask.id}`}>Edit lead</Link>
               </Button>
             </div>
           ) : null

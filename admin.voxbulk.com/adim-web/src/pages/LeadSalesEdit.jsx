@@ -2,11 +2,21 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { apiFetch, resolveApiUrl } from '../lib/api'
 import { readAdminAccessToken, readSharedAccessToken } from '../lib/sessionStorage'
-import { resolveTemplateForLead, templateSummary } from '../lib/salesOfferResolve'
-import { categoryLabel } from '../lib/salesOfferTypes'
 import TelnyxDualWaveform from '../components/TelnyxDualWaveform'
 import TelnyxInsightsModal from '../components/TelnyxInsightsModal'
 import TelnyxPromptPreview from '../components/TelnyxPromptPreview'
+import {
+  ArrowLeft,
+  Save,
+  CheckCircle2,
+  XCircle,
+  Phone,
+  RefreshCw,
+  Bot,
+  Eye,
+  EyeOff,
+  Sparkles,
+} from 'lucide-react'
 
 async function resolveAdminBearerToken() {
   if (typeof window === 'undefined') return ''
@@ -27,17 +37,162 @@ function displayWhen(value) {
   return d.toLocaleString()
 }
 
-function statusClass(status) {
-  const map = {
-    scheduled: 'leadPill leadPillHold',
-    calling: 'leadPill leadPillAdvance',
-    paused: 'leadPill leadPillNeutral',
-    completed: 'leadPill leadPillAdvance',
-    failed: 'leadPill leadPillDecline',
-    cancelled: 'leadPill',
-    no_answer: 'leadPill leadPillDecline',
+function statusBadgeStyle(status) {
+  const styles = {
+    pending_approval: { bg: '#fef3c7', color: '#92400e', border: '#fde68a' },
+    approved: { bg: '#dbeafe', color: '#1e4a7a', border: '#bfdbfe' },
+    calling: { bg: '#e0e7ff', color: '#4338ca', border: '#c7d2fe' },
+    completed: { bg: '#dcfce7', color: '#14532d', border: '#bbf7d0' },
+    rejected: { bg: '#fee2e2', color: '#991b1b', border: '#fecaca' },
+    no_answer: { bg: '#fee2e2', color: '#991b1b', border: '#fecaca' },
+    failed: { bg: '#fee2e2', color: '#991b1b', border: '#fecaca' },
   }
-  return map[status] || 'leadPill'
+  return styles[status] || { bg: 'var(--ds-surface-muted)', color: 'var(--ds-text-secondary)', border: 'var(--ds-border)' }
+}
+
+function Badge({ children, variant = 'default' }) {
+  let style = {}
+  if (variant === 'success') {
+    style = { background: '#dcfce7', color: '#14532d', border: '1px solid #bbf7d0' }
+  } else if (variant === 'danger') {
+    style = { background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca' }
+  } else {
+    style = { background: 'var(--ds-surface-muted)', color: 'var(--ds-text-primary)', border: '1px solid var(--ds-border)' }
+  }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        borderRadius: '30px',
+        padding: '0.15rem 0.7rem',
+        fontSize: '0.7rem',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+        ...style,
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+function Button({ children, onClick, disabled, variant = 'default', size = 'default', className = '', ...props }) {
+  let baseStyle = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.5rem',
+    borderRadius: '8px',
+    fontWeight: 500,
+    fontSize: size === 'sm' ? '0.8rem' : '0.875rem',
+    padding: size === 'sm' ? '0.4rem 0.8rem' : '0.5rem 1rem',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1,
+    border: '1px solid transparent',
+    transition: 'all 0.15s',
+  }
+
+  if (variant === 'primary') {
+    baseStyle.background = 'var(--ds-primary)'
+    baseStyle.color = 'var(--ds-primary-foreground)'
+  } else if (variant === 'soft') {
+    baseStyle.background = 'var(--ds-surface-muted)'
+    baseStyle.color = 'var(--ds-text-primary)'
+    baseStyle.border = '1px solid var(--ds-border)'
+  } else if (variant === 'success') {
+    baseStyle.background = '#dcfce7'
+    baseStyle.color = '#14532d'
+    baseStyle.border = '1px solid #bbf7d0'
+  } else if (variant === 'danger') {
+    baseStyle.background = '#fee2e2'
+    baseStyle.color = '#991b1b'
+    baseStyle.border = '1px solid #fecaca'
+  } else {
+    baseStyle.background = 'var(--ds-surface-muted)'
+    baseStyle.color = 'var(--ds-text-primary)'
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={baseStyle}
+      className={className}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
+function Panel({ title, badge, actions, children }) {
+  return (
+    <section
+      style={{
+        background: 'var(--ds-surface)',
+        border: '1px solid var(--ds-border)',
+        borderRadius: '14px',
+        marginTop: '16px',
+        overflow: 'hidden',
+      }}
+    >
+      {title && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            padding: '1rem 1.5rem',
+            borderBottom: '1px solid var(--ds-border)',
+            background: 'var(--ds-surface-muted)',
+          }}
+        >
+          <h3 style={{ fontSize: '0.95rem', fontWeight: 600, margin: 0, color: 'var(--ds-text-primary)' }}>{title}</h3>
+          {badge}
+          {actions && <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>{actions}</div>}
+        </div>
+      )}
+      <div style={{ padding: '1.5rem' }}>{children}</div>
+    </section>
+  )
+}
+
+function Input({ label, type = 'text', value, onChange, placeholder, className = '' }) {
+  return (
+    <label style={{ display: 'block' }}>
+      {label && (
+        <span
+          style={{
+            display: 'block',
+            fontSize: '0.8rem',
+            fontWeight: 500,
+            marginBottom: '0.4rem',
+            color: 'var(--ds-text-primary)',
+          }}
+        >
+          {label}
+        </span>
+      )}
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className={className}
+        style={{
+          width: '100%',
+          padding: '0.5rem 0.75rem',
+          fontSize: '0.875rem',
+          borderRadius: '8px',
+          border: '1px solid var(--ds-border)',
+          background: 'transparent',
+          color: 'var(--ds-text-primary)',
+        }}
+      />
+    </label>
+  )
 }
 
 function OutcomeResults({ task, onSync, syncing, onViewInsight }) {
@@ -46,91 +201,177 @@ function OutcomeResults({ task, onSync, syncing, onViewInsight }) {
 
   if (!callDone) {
     return (
-      <section className='card' style={{ marginTop: 14 }}>
-        <div className='cardHead'>
-          <h3>Call results</h3>
-          <span className='pill p-cyan'>Pending</span>
-        </div>
-        <div className='cardBody'>
-          <p className='muted' style={{ margin: 0 }}>
-            Results appear here after the outbound call completes. Use <strong>Run</strong> on the list or{' '}
-            <strong>Call now</strong> below.
-          </p>
-        </div>
-      </section>
+      <Panel
+        title="Call results"
+        badge={<Badge>Pending</Badge>}
+      >
+        <p style={{ margin: 0, color: 'var(--ds-text-secondary)', fontSize: '0.875rem' }}>
+          Results appear here after the outbound call completes. Use <strong>Call now</strong> to start the call.
+        </p>
+      </Panel>
     )
   }
 
   return (
-    <section className='card salesResultsCard' style={{ marginTop: 18 }}>
-      <div className='cardHead'>
-        <h3>Call results</h3>
-        <span className='salesDoneBadge'>Call done</span>
-        <button type='button' className='btn soft' style={{ marginLeft: 12 }} onClick={onViewInsight}>
-          Assistant result
-        </button>
-        <button type='button' className='btn soft' style={{ marginLeft: 'auto' }} onClick={onSync} disabled={syncing}>
-          {syncing ? 'Syncing…' : 'Refresh from Telnyx'}
-        </button>
-      </div>
-      <div className='cardBody'>
-        {!outcome ? (
-          <p className='muted'>
-            Call finished — click <strong>Refresh from Telnyx</strong> to load transcript and analyse with DeepSeek.
-          </p>
-        ) : (
-          <>
-            <div className='salesOutcomeGrid'>
-              <div className={`salesOutcomeTile${outcome.demo_agreed ? ' isPositive' : ''}`}>
-                <span className='salesOutcomeTileLabel'>Demo</span>
-                <strong>{outcome.demo_agreed ? 'Agreed' : 'No demo'}</strong>
-                {outcome.demo_scheduled_at ? (
-                  <span className='muted'>{displayWhen(outcome.demo_scheduled_at)}</span>
-                ) : null}
+    <Panel
+      title="Call results"
+      badge={<Badge variant="success">Call done</Badge>}
+      actions={
+        <>
+          <Button variant="soft" size="sm" onClick={onViewInsight}>
+            <Bot className="h-4 w-4" />
+            Assistant result
+          </Button>
+          <Button variant="soft" size="sm" onClick={onSync} disabled={syncing}>
+            <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing…' : 'Refresh from Telnyx'}
+          </Button>
+        </>
+      }
+    >
+      {!outcome ? (
+        <p style={{ color: 'var(--ds-text-secondary)', fontSize: '0.875rem' }}>
+          Call finished — click <strong>Refresh from Telnyx</strong> to load transcript and analyse with DeepSeek.
+        </p>
+      ) : (
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '1rem',
+            }}
+          >
+            <div
+              style={{
+                background: outcome.demo_agreed ? '#dcfce7' : 'var(--ds-surface-muted)',
+                padding: '1rem',
+                borderRadius: '10px',
+                border: outcome.demo_agreed ? '1px solid #bbf7d0' : '1px solid var(--ds-border)',
+              }}
+            >
+              <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ds-text-secondary)', marginBottom: '0.4rem' }}>
+                Demo
               </div>
-              <div className={`salesOutcomeTile${outcome.interested_to_buy ? ' isPositive' : ''}`}>
-                <span className='salesOutcomeTileLabel'>Purchase intent</span>
-                <strong>{outcome.interested_to_buy ? 'Interested to buy' : 'Not ready'}</strong>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: outcome.demo_agreed ? '#14532d' : 'var(--ds-text-primary)' }}>
+                {outcome.demo_agreed ? 'Agreed' : 'No demo'}
               </div>
-              <div className='salesOutcomeTile'>
-                <span className='salesOutcomeTileLabel'>Stage</span>
-                <strong>{String(outcome.deal_stage || '—').replace(/_/g, ' ')}</strong>
+              {outcome.demo_scheduled_at && (
+                <div style={{ fontSize: '0.75rem', color: 'var(--ds-text-secondary)', marginTop: '0.3rem' }}>
+                  {displayWhen(outcome.demo_scheduled_at)}
+                </div>
+              )}
+            </div>
+
+            <div
+              style={{
+                background: outcome.interested_to_buy ? '#dcfce7' : 'var(--ds-surface-muted)',
+                padding: '1rem',
+                borderRadius: '10px',
+                border: outcome.interested_to_buy ? '1px solid #bbf7d0' : '1px solid var(--ds-border)',
+              }}
+            >
+              <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ds-text-secondary)', marginBottom: '0.4rem' }}>
+                Purchase intent
               </div>
-              <div className='salesOutcomeTile'>
-                <span className='salesOutcomeTileLabel'>Sentiment</span>
-                <strong>{outcome.sentiment || '—'}</strong>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: outcome.interested_to_buy ? '#14532d' : 'var(--ds-text-primary)' }}>
+                {outcome.interested_to_buy ? 'Interested to buy' : 'Not ready'}
               </div>
             </div>
-            <div className='note' style={{ marginTop: 16 }}>
-              <strong>Summary</strong>
-              <p style={{ margin: '8px 0 0', whiteSpace: 'pre-wrap' }}>{outcome.outcome_summary || '—'}</p>
-            </div>
-            <div className='grid two' style={{ marginTop: 12, gap: 12 }}>
-              <div className='note'>
-                <strong>Next step</strong>
-                <p style={{ margin: '8px 0 0' }}>{outcome.next_step || '—'}</p>
+
+            <div style={{ background: 'var(--ds-surface-muted)', padding: '1rem', borderRadius: '10px', border: '1px solid var(--ds-border)' }}>
+              <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ds-text-secondary)', marginBottom: '0.4rem' }}>
+                Stage
               </div>
-              <div className='note'>
-                <strong>Objections</strong>
-                <p style={{ margin: '8px 0 0' }}>
-                  {(outcome.objections || []).length ? outcome.objections.join(' · ') : 'None recorded'}
-                </p>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--ds-text-primary)' }}>
+                {String(outcome.deal_stage || '—').replace(/_/g, ' ')}
               </div>
             </div>
-          </>
-        )}
-        {task.sales_transcript_text ? (
-          <details style={{ marginTop: 16 }}>
-            <summary className='muted' style={{ cursor: 'pointer', fontWeight: 600 }}>
-              Sales call transcript
-            </summary>
-            <pre className='frontpagePromptPreview' style={{ marginTop: 8 }}>
-              {task.sales_transcript_text}
-            </pre>
-          </details>
-        ) : null}
-      </div>
-    </section>
+
+            <div style={{ background: 'var(--ds-surface-muted)', padding: '1rem', borderRadius: '10px', border: '1px solid var(--ds-border)' }}>
+              <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', fontWeight: 600, color: 'var(--ds-text-secondary)', marginBottom: '0.4rem' }}>
+                Sentiment
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--ds-text-primary)' }}>
+                {outcome.sentiment || '—'}
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: '1rem',
+              padding: '1rem',
+              background: 'var(--ds-surface-muted)',
+              borderRadius: '8px',
+              border: '1px solid var(--ds-border)',
+            }}
+          >
+            <strong style={{ fontSize: '0.875rem', color: 'var(--ds-text-primary)' }}>Summary</strong>
+            <p style={{ margin: '0.5rem 0 0', whiteSpace: 'pre-wrap', fontSize: '0.875rem', lineHeight: 1.6, color: 'var(--ds-text-primary)' }}>
+              {outcome.outcome_summary || '—'}
+            </p>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+            <div
+              style={{
+                padding: '1rem',
+                background: 'var(--ds-surface-muted)',
+                borderRadius: '8px',
+                border: '1px solid var(--ds-border)',
+              }}
+            >
+              <strong style={{ fontSize: '0.875rem', color: 'var(--ds-text-primary)' }}>Next step</strong>
+              <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--ds-text-primary)' }}>{outcome.next_step || '—'}</p>
+            </div>
+            <div
+              style={{
+                padding: '1rem',
+                background: 'var(--ds-surface-muted)',
+                borderRadius: '8px',
+                border: '1px solid var(--ds-border)',
+              }}
+            >
+              <strong style={{ fontSize: '0.875rem', color: 'var(--ds-text-primary)' }}>Objections</strong>
+              <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--ds-text-primary)' }}>
+                {(outcome.objections || []).length ? outcome.objections.join(' · ') : 'None recorded'}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {task.sales_transcript_text && (
+        <details style={{ marginTop: '1rem' }}>
+          <summary
+            style={{
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              color: 'var(--ds-text-secondary)',
+              paddingBottom: '0.5rem',
+            }}
+          >
+            Sales call transcript
+          </summary>
+          <pre
+            style={{
+              marginTop: '0.5rem',
+              padding: '1rem',
+              background: 'var(--ds-surface-muted)',
+              borderRadius: '8px',
+              fontSize: '0.8rem',
+              whiteSpace: 'pre-wrap',
+              border: '1px solid var(--ds-border)',
+              color: 'var(--ds-text-primary)',
+            }}
+          >
+            {task.sales_transcript_text}
+          </pre>
+        </details>
+      )}
+    </Panel>
   )
 }
 
@@ -173,75 +414,142 @@ function RecordingsPanel({ lead, taskId, callDone }) {
   if (!lead && !hasSales) return null
 
   return (
-    <section className='card salesRecordingsCard' style={{ marginTop: 14 }}>
-      <div className='cardHead'>
-        <h3>Recordings</h3>
-        {lead?.lead_code ? <span className='pill p-cyan'>{lead.lead_code}</span> : null}
-        <Link className='btn soft' style={{ marginLeft: 'auto' }} to='/marketing/lead-sources'>
-          Lead sources
-        </Link>
+    <Panel
+      title="Recordings"
+      badge={lead?.lead_code && <Badge>{lead.lead_code}</Badge>}
+      actions={
+        <Button variant="soft" size="sm" asChild>
+          <Link to="/marketing/lead-sources">Lead sources</Link>
+        </Button>
+      }
+    >
+      <div
+        style={{
+          display: 'flex',
+          gap: '0.5rem',
+          marginBottom: '1rem',
+          borderBottom: '1px solid var(--ds-border)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            setMediaError('')
+            setTab('intake')
+          }}
+          disabled={!hasIntake}
+          style={{
+            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+            background: tab === 'intake' ? 'var(--ds-surface)' : 'transparent',
+            color: tab === 'intake' ? 'var(--ds-text-primary)' : 'var(--ds-text-secondary)',
+            border: 'none',
+            borderBottom: tab === 'intake' ? '2px solid var(--ds-primary)' : '2px solid transparent',
+            cursor: hasIntake ? 'pointer' : 'not-allowed',
+            opacity: hasIntake ? 1 : 0.5,
+          }}
+        >
+          Website call
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setMediaError('')
+            setTab('sales')
+          }}
+          disabled={!hasSales}
+          style={{
+            padding: '0.5rem 1rem',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+            background: tab === 'sales' ? 'var(--ds-surface)' : 'transparent',
+            color: tab === 'sales' ? 'var(--ds-text-primary)' : 'var(--ds-text-secondary)',
+            border: 'none',
+            borderBottom: tab === 'sales' ? '2px solid var(--ds-primary)' : '2px solid transparent',
+            cursor: hasSales ? 'pointer' : 'not-allowed',
+            opacity: hasSales ? 1 : 0.5,
+          }}
+        >
+          Outbound sales
+        </button>
       </div>
-      <div className='cardBody'>
-        <div className='salesRecordingTabs' role='tablist'>
-          <button
-            type='button'
-            role='tab'
-            aria-selected={tab === 'intake'}
-            className={`salesRecordingTab${tab === 'intake' ? ' isActive' : ''}`}
-            disabled={!hasIntake}
-            onClick={() => {
-              setMediaError('')
-              setTab('intake')
-            }}
-          >
-            Website call
-          </button>
-          <button
-            type='button'
-            role='tab'
-            aria-selected={tab === 'sales'}
-            className={`salesRecordingTab${tab === 'sales' ? ' isActive' : ''}`}
-            disabled={!hasSales}
-            onClick={() => {
-              setMediaError('')
-              setTab('sales')
-            }}
-          >
-            Outbound sales
-          </button>
+
+      {!hasIntake && !hasSales ? (
+        <p style={{ margin: 0, color: 'var(--ds-text-secondary)', fontSize: '0.875rem' }}>
+          No recording yet. Intake appears after the website call; outbound audio after the sales call completes.
+        </p>
+      ) : null}
+
+      {activeSrc ? (
+        <TelnyxDualWaveform
+          key={activeSrc}
+          ref={waveRef}
+          src={activeSrc}
+          authToken={authToken}
+          onError={(message) => setMediaError(message)}
+        />
+      ) : tab === 'sales' && !callDone ? (
+        <p style={{ marginTop: '0.5rem', color: 'var(--ds-text-secondary)', fontSize: '0.875rem' }}>
+          Run the outbound call first — recording appears when the call finishes.
+        </p>
+      ) : hasIntake || hasSales ? (
+        <p style={{ marginTop: '0.5rem', color: 'var(--ds-text-secondary)', fontSize: '0.875rem' }}>
+          Recording not available for this tab yet.
+        </p>
+      ) : null}
+
+      {mediaError && (
+        <div
+          style={{
+            marginTop: '0.75rem',
+            padding: '0.75rem',
+            background: '#fee2e2',
+            border: '1px solid #fecaca',
+            borderRadius: '8px',
+            color: '#991b1b',
+            fontSize: '0.875rem',
+          }}
+        >
+          {mediaError}
         </div>
-        {!hasIntake && !hasSales ? (
-          <p className='muted' style={{ margin: 0 }}>
-            No recording yet. Intake appears after the website call; outbound audio after the sales call completes.
-          </p>
-        ) : null}
-        {activeSrc ? (
-          <TelnyxDualWaveform
-            key={activeSrc}
-            ref={waveRef}
-            src={activeSrc}
-            authToken={authToken}
-            onError={(message) => setMediaError(message)}
-          />
-        ) : tab === 'sales' && !callDone ? (
-          <p className='muted' style={{ marginTop: 8 }}>Run the outbound call first — recording appears when the call finishes.</p>
-        ) : hasIntake || hasSales ? (
-          <p className='muted' style={{ marginTop: 8 }}>Recording not available for this tab yet.</p>
-        ) : null}
-        {mediaError ? <div className='note noteWarn' style={{ marginTop: 10 }}>{mediaError}</div> : null}
-        {tab === 'intake' && transcript ? (
-          <details className='salesRecordingTranscript'>
-            <summary className='muted'>Intake transcript</summary>
-            <pre className='frontpagePromptPreview'>{transcript}</pre>
-          </details>
-        ) : null}
-        {tab === 'sales' && callDone ? (
-          <p className='muted' style={{ fontSize: 12, marginTop: 10, marginBottom: 0 }}>
-            Sales transcript is in <strong>Call results</strong> below after you refresh from Telnyx.
-          </p>
-        ) : null}
-      </div>
-    </section>
+      )}
+
+      {tab === 'intake' && transcript && (
+        <details style={{ marginTop: '1rem' }}>
+          <summary
+            style={{
+              cursor: 'pointer',
+              color: 'var(--ds-text-secondary)',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+            }}
+          >
+            Intake transcript
+          </summary>
+          <pre
+            style={{
+              marginTop: '0.5rem',
+              padding: '1rem',
+              background: 'var(--ds-surface-muted)',
+              borderRadius: '8px',
+              fontSize: '0.8rem',
+              whiteSpace: 'pre-wrap',
+              border: '1px solid var(--ds-border)',
+              color: 'var(--ds-text-primary)',
+            }}
+          >
+            {transcript}
+          </pre>
+        </details>
+      )}
+
+      {tab === 'sales' && callDone && (
+        <p style={{ fontSize: '0.75rem', marginTop: '0.75rem', marginBottom: 0, color: 'var(--ds-text-secondary)' }}>
+          Sales transcript is in <strong>Call results</strong> below after you refresh from Telnyx.
+        </p>
+      )}
+    </Panel>
   )
 }
 
@@ -258,10 +566,6 @@ export default function LeadSalesEdit() {
   const [syncingOutcome, setSyncingOutcome] = useState(false)
   const [showPrompt, setShowPrompt] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
-  const [offerTemplates, setOfferTemplates] = useState([])
-  const [salesSettings, setSalesSettings] = useState({})
-  const [sendingOffer, setSendingOffer] = useState(false)
-  const [lastOfferResult, setLastOfferResult] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -292,29 +596,6 @@ export default function LeadSalesEdit() {
   useEffect(() => {
     load()
   }, [taskId])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const [tplData, settingsData] = await Promise.all([
-          apiFetch('/admin/frontpage/lead-sales/offer-templates'),
-          apiFetch('/admin/frontpage/lead-sales/settings'),
-        ])
-        if (cancelled) return
-        setOfferTemplates(Array.isArray(tplData?.templates) ? tplData.templates : [])
-        setSalesSettings(settingsData?.settings || {})
-      } catch {
-        if (!cancelled) {
-          setOfferTemplates([])
-          setSalesSettings({})
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const saveDetails = async () => {
     setBusy('save')
@@ -362,12 +643,7 @@ export default function LeadSalesEdit() {
     try {
       const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/sync-outcome`, { method: 'POST' })
       if (data?.task) setTask(data.task)
-      const auto = data?.automation
-      let extra = ''
-      if (auto?.ok) extra = ' Offer sent automatically (WhatsApp + email).'
-      else if (auto?.error) extra = ` Auto-send failed: ${auto.error}`
-      else if (auto?.skipped && auto?.reason) extra = ` Auto-send skipped: ${auto.reason}.`
-      setMsg(`Results updated from Telnyx + DeepSeek.${extra}`)
+      setMsg('Results updated from Telnyx + DeepSeek.')
     } catch (e) {
       setMsg(e?.message || 'Could not sync results')
     } finally {
@@ -375,231 +651,268 @@ export default function LeadSalesEdit() {
     }
   }
 
-  const sendOfferLink = async ({ resendOnly = false, forceResend = false } = {}) => {
-    setSendingOffer(true)
+  const sendDemoInvite = async () => {
+    setBusy('demo-invite')
     setMsg('')
     try {
-      await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          ...form,
-          scheduled_at: form.scheduled_at ? new Date(form.scheduled_at).toISOString() : null,
-        }),
-      })
-      const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/send-offer`, {
+      await apiFetch('/admin/ai-demo/requests/manual', {
         method: 'POST',
         body: JSON.stringify({
-          resend_only: resendOnly,
-          force_resend: forceResend,
-          email: form.email?.trim() || null,
-          phone: form.phone?.trim() || null,
-          template_id: autoOffer.template?.id || null,
+          contact_name: task.contact_name || 'Guest',
+          email: task.email || '',
+          company_name: task.company_name || 'Company',
+          whatsapp: task.phone || task.whatsapp || '',
+          website: task.website || 'https://voxbulk.com',
+          preferred_language: 'en',
+          message: 'Manual invite from Lead Sales',
+          lead_sales_task_id: taskId,
         }),
       })
-      if (data?.task) setTask(data.task)
-      setLastOfferResult(data?.send || data)
-      const send = data?.send || {}
-      const emailOk = send?.email?.ok
-      const waOk = send?.whatsapp?.ok
-      const partial = Array.isArray(send?.partial_errors) ? send.partial_errors.join('; ') : ''
-      const templateName = send?.template_name || autoOffer.template?.name || 'template'
-      setMsg(
-        `${resendOnly ? 'WhatsApp link resent' : `Offer sent (${templateName})`}${
-          emailOk ? ' · email OK' : send?.email?.error ? ` · email failed: ${send.email.error}` : ''
-        }${waOk ? ' · WhatsApp OK' : send?.whatsapp?.error ? ` · WhatsApp failed: ${send.whatsapp.error}` : ''}${
-          send?.signup_url ? ` · Link: ${send.signup_url}` : ''
-        }${partial ? ` · ${partial}` : ''}`,
-      )
+      setMsg('AI demo invite emailed (and WhatsApp notice sent if number valid).')
     } catch (e) {
-      setMsg(e?.message || 'Could not send offer')
-    } finally {
-      setSendingOffer(false)
-    }
-  }
-
-  const toggleAutomation = async () => {
-    const paused = !(task.automation_paused || task.automation?.automation_paused)
-    setBusy('automation')
-    setMsg('')
-    try {
-      const data = await apiFetch(`/admin/frontpage/lead-sales/tasks/${taskId}/automation/pause`, {
-        method: 'POST',
-        body: JSON.stringify({ paused }),
-      })
-      if (data?.task) setTask(data.task)
-      setMsg(paused ? 'WhatsApp automation paused for this lead.' : 'WhatsApp automation resumed.')
-    } catch (e) {
-      setMsg(e?.message || 'Could not update automation')
+      setMsg(e?.message || 'Failed to send demo invite')
     } finally {
       setBusy('')
     }
   }
 
-  const autoOffer = useMemo(
-    () => resolveTemplateForLead(offerTemplates, salesSettings, task?.outcome, task),
-    [offerTemplates, salesSettings, task],
-  )
+  const canCall = (t) => {
+    if (typeof t?.can_call === 'boolean') return t.can_call
+    return t?.callback_consent === true && t?.status === 'approved'
+  }
+
+  const canApprove = (t) => {
+    if (typeof t?.can_approve === 'boolean') return t.can_approve
+    return t?.callback_consent === true && t?.status === 'pending_approval'
+  }
 
   if (loading) {
-    return <p className='muted' style={{ padding: 24 }}>Loading…</p>
+    return (
+      <p style={{ padding: '1.5rem', color: 'var(--ds-text-secondary)' }}>Loading…</p>
+    )
   }
 
   if (!task) {
     return (
-      <div className='note noteWarn'>
+      <div
+        style={{
+          padding: '1rem',
+          background: '#fee2e2',
+          border: '1px solid #fecaca',
+          borderRadius: '8px',
+          color: '#991b1b',
+        }}
+      >
         <p>{msg || 'Task not found'}</p>
-        <Link to='/marketing/lead-sales'>Back to list</Link>
+        <Link to="/marketing/lead-sales" style={{ color: '#991b1b', textDecoration: 'underline' }}>
+          Back to list
+        </Link>
       </div>
     )
   }
 
+  const badgeStyle = statusBadgeStyle(task.status)
+  const consentBadgeStyle = task.callback_consent === true
+    ? { bg: '#dcfce7', color: '#14532d', border: '#bbf7d0' }
+    : { bg: '#fee2e2', color: '#991b1b', border: '#fecaca' }
+
   return (
     <>
-      <div className='pageTop'>
-        <div>
-          <Link to='/marketing/lead-sales' className='muted' style={{ fontSize: 13 }}>
-            ← Back to sales leads
-          </Link>
-          <h1 style={{ marginTop: 8 }}>{task.contact_name || 'Sales lead'}</h1>
-          <p className='muted'>
-            {task.lead_code ? `${task.lead_code} · ` : ''}
-            {task.company_name || '—'} · <span className={statusClass(task.status)}>{task.status_label || task.status}</span>
-            {task.callback_timezone ? ` · ${task.callback_timezone}` : ''}
-            {task.call_done ? <span className='salesDoneBadge'>Call done</span> : null}
-          </p>
-        </div>
-        <div className='actions'>
-          {(() => {
-            const canCallAgain = task.call_done || ['completed', 'no_answer', 'failed'].includes(task.status)
-            const callAction = canCallAgain ? 'call-again' : 'call-now'
-            const callLabel =
-              busy === callAction ? 'Calling…' : canCallAgain ? 'Call again' : 'Call now'
-            return (
-              <button
-                type='button'
-                className='btn primary'
-                disabled={!!busy || task.status === 'calling'}
-                onClick={() => runAction(callAction)}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <Link
+          to="/marketing/lead-sales"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.3rem',
+            fontSize: '0.85rem',
+            color: 'var(--ds-text-secondary)',
+            textDecoration: 'none',
+            marginBottom: '0.75rem',
+          }}
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Lead sales
+        </Link>
+
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 600, margin: '0 0 0.5rem', color: 'var(--ds-text-primary)' }}>
+              {task.contact_name || 'Sales lead'}
+            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', fontSize: '0.875rem', color: 'var(--ds-text-secondary)' }}>
+              <span>{task.company_name || '—'}</span>
+              <span
+                style={{
+                  background: badgeStyle.bg,
+                  color: badgeStyle.color,
+                  border: `1px solid ${badgeStyle.border}`,
+                  padding: '0.15rem 0.7rem',
+                  borderRadius: '30px',
+                  fontSize: '0.7rem',
+                  fontWeight: 600,
+                }}
               >
-                {callLabel}
-              </button>
-            )
-          })()}
-          <button
-            type='button'
-            className='btn soft'
-            disabled={!!busy}
-            onClick={async () => {
-              setBusy('demo-invite')
-              setMsg('')
-              try {
-                await apiFetch('/admin/ai-demo/requests/manual', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    contact_name: task.contact_name || 'Guest',
-                    email: task.email || '',
-                    company_name: task.company_name || 'Company',
-                    whatsapp: task.phone || task.whatsapp || '',
-                    website: task.website || 'https://voxbulk.com',
-                    preferred_language: 'en',
-                    message: 'Manual invite from Lead Sales',
-                    lead_sales_task_id: taskId,
-                  }),
-                })
-                setMsg('AI demo invite emailed (and WhatsApp notice sent if number valid).')
-              } catch (e) {
-                setMsg(e?.message || 'Failed to send demo invite')
-              } finally {
-                setBusy('')
-              }
-            }}
-          >
-            {busy === 'demo-invite' ? 'Sending demo…' : 'Send AI demo link'}
-          </button>
-          {task.status === 'paused' ? (
-            <button type='button' className='btn soft' disabled={!!busy} onClick={() => runAction('resume')}>
-              Resume
-            </button>
-          ) : (
-            <button type='button' className='btn soft' disabled={!!busy} onClick={() => runAction('pause')}>
-              Stop
-            </button>
-          )}
+                {task.status_label || task.status}
+              </span>
+              <span
+                style={{
+                  background: consentBadgeStyle.bg,
+                  color: consentBadgeStyle.color,
+                  border: `1px solid ${consentBadgeStyle.border}`,
+                  padding: '0.15rem 0.7rem',
+                  borderRadius: '30px',
+                  fontSize: '0.7rem',
+                  fontWeight: 600,
+                }}
+              >
+                Consent: {task.callback_consent ? 'Yes' : 'No'}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {task.status === 'pending_approval' && (
+              <>
+                <Button
+                  variant="success"
+                  onClick={() => runAction('approve')}
+                  disabled={!!busy || !canApprove(task)}
+                  title={!canApprove(task) ? 'Consent required before approve' : undefined}
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  {busy === 'approve' ? 'Approving…' : 'Approve'}
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => runAction('reject')}
+                  disabled={!!busy}
+                >
+                  <XCircle className="h-4 w-4" />
+                  {busy === 'reject' ? 'Rejecting…' : 'Reject'}
+                </Button>
+              </>
+            )}
+            <Button
+              variant="primary"
+              onClick={() => runAction(task.call_done ? 'call-again' : 'call-now')}
+              disabled={!!busy || !canCall(task) || task.status === 'calling'}
+              title={!canCall(task) ? 'Consent + approval required to call' : undefined}
+            >
+              <Phone className="h-4 w-4" />
+              {busy === 'call-now' || busy === 'call-again'
+                ? 'Calling…'
+                : task.call_done
+                  ? 'Call again'
+                  : 'Call now'}
+            </Button>
+            <Button variant="soft" onClick={sendDemoInvite} disabled={!!busy}>
+              <Bot className="h-4 w-4" />
+              {busy === 'demo-invite' ? 'Sending…' : 'Send AI demo'}
+            </Button>
+            {task.status === 'paused' ? (
+              <Button variant="soft" onClick={() => runAction('resume')} disabled={!!busy}>
+                Resume
+              </Button>
+            ) : (
+              <Button variant="soft" onClick={() => runAction('pause')} disabled={!!busy}>
+                Pause
+              </Button>
+            )}
+            <Button variant="primary" onClick={saveDetails} disabled={busy === 'save'}>
+              <Save className="h-4 w-4" />
+              {busy === 'save' ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
         </div>
       </div>
 
-      {msg ? <div className='note' style={{ marginBottom: 16 }}>{msg}</div> : null}
+      {msg && (
+        <div
+          style={{
+            padding: '0.75rem 1rem',
+            marginBottom: '1rem',
+            background: /fail|error/i.test(msg) ? '#fee2e2' : '#dcfce7',
+            border: /fail|error/i.test(msg) ? '1px solid #fecaca' : '1px solid #bbf7d0',
+            borderRadius: '8px',
+            color: /fail|error/i.test(msg) ? '#991b1b' : '#14532d',
+            fontSize: '0.875rem',
+          }}
+        >
+          {msg}
+        </div>
+      )}
 
-      <section className='card salesLeadDetailsCard'>
-        <div className='cardHead salesLeadDetailsHead'>
-          <h3>Lead details</h3>
-          <button type='button' className='btn primary salesLeadSaveBtn' onClick={saveDetails} disabled={busy === 'save'}>
-            {busy === 'save' ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-        <div className='cardBody salesLeadDetailsBody'>
-          <div className='salesLeadDetailsGrid'>
-            <label className='salesLeadField'>
-              <span>Name</span>
-              <input className='input inputCompact' value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} />
-            </label>
-            <label className='salesLeadField'>
-              <span>Company</span>
-              <input className='input inputCompact' value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
-            </label>
-            <label className='salesLeadField'>
-              <span>Email</span>
-              <input className='input inputCompact' type='email' value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            </label>
-            <label className='salesLeadField'>
-              <span>Phone</span>
-              <input className='input inputCompact' value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            </label>
-            <label className='salesLeadField'>
-              <span>Callback</span>
-              <input
-                className='input inputCompact'
-                type='datetime-local'
-                value={form.scheduled_at}
-                onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })}
-              />
-            </label>
-            <label className='salesLeadField'>
-              <span>Timezone</span>
-              <input
-                className='input inputCompact'
-                value={form.callback_timezone}
-                onChange={(e) => setForm({ ...form, callback_timezone: e.target.value })}
-                placeholder='Europe/London'
-              />
-            </label>
-            <label className='salesLeadField salesLeadFieldWide'>
-              <span>Interest</span>
-              <input
-                className='input inputCompact'
-                value={form.interest_summary}
-                onChange={(e) => setForm({ ...form, interest_summary: e.target.value })}
-              />
-            </label>
-            <label className='salesLeadField salesLeadFieldWide'>
-              <span>Sales intent</span>
-              <input
-                className='input inputCompact'
-                value={form.sales_intent}
-                onChange={(e) => setForm({ ...form, sales_intent: e.target.value })}
-              />
-            </label>
-            <label className='salesLeadConsent'>
-              <input
-                type='checkbox'
-                checked={form.callback_consent}
-                onChange={(e) => setForm({ ...form, callback_consent: e.target.checked })}
-              />
-              <span>Consent recorded</span>
-            </label>
+      <Panel title="Lead details">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem' }}>
+          <Input
+            label="Name"
+            value={form.contact_name}
+            onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
+          />
+          <Input
+            label="Company"
+            value={form.company_name}
+            onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+          />
+          <Input
+            label="Email"
+            type="email"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
+          <Input
+            label="Phone"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+          />
+          <Input
+            label="Callback time"
+            type="datetime-local"
+            value={form.scheduled_at}
+            onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })}
+          />
+          <Input
+            label="Timezone"
+            value={form.callback_timezone}
+            onChange={(e) => setForm({ ...form, callback_timezone: e.target.value })}
+            placeholder="Europe/London"
+          />
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Input
+              label="Interest summary"
+              value={form.interest_summary}
+              onChange={(e) => setForm({ ...form, interest_summary: e.target.value })}
+            />
           </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Input
+              label="Sales intent"
+              value={form.sales_intent}
+              onChange={(e) => setForm({ ...form, sales_intent: e.target.value })}
+            />
+          </div>
+          <label
+            style={{
+              gridColumn: '1 / -1',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              fontSize: '0.875rem',
+              color: 'var(--ds-text-primary)',
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={form.callback_consent}
+              onChange={(e) => setForm({ ...form, callback_consent: e.target.checked })}
+              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+            />
+            <span>Consent recorded</span>
+          </label>
         </div>
-      </section>
+      </Panel>
 
       <RecordingsPanel lead={lead} taskId={taskId} callDone={task.call_done} />
 
@@ -610,171 +923,87 @@ export default function LeadSalesEdit() {
         onViewInsight={() => setShowInsights(true)}
       />
 
-      <section className='card' style={{ marginTop: 16 }}>
-        <div className='cardHead'>
-          <h3>WhatsApp automation</h3>
-          <span className='pill p-cyan'>{task.automation?.stage || 'pending'}</span>
-        </div>
-        <div className='cardBody'>
-          <p className='muted' style={{ marginTop: 0 }}>
-            After the call, the system can send an opt-in message or auto-offer. Customer replies <strong>SEND OFFER</strong> to
-            get the link; confused replies get DeepSeek help. Configure defaults in{' '}
-            <Link to='/marketing/lead-sales/settings'>Sales setup</Link>.
-          </p>
-          <div className='salesOutcomeGrid' style={{ marginTop: 12 }}>
-            <div className='salesOutcomeTile'>
-              <span className='salesOutcomeTileLabel'>Stage</span>
-              <strong>{task.automation?.stage || '—'}</strong>
-            </div>
-            <div className='salesOutcomeTile'>
-              <span className='salesOutcomeTileLabel'>Opt-in sent</span>
-              <strong>{task.automation?.opt_in_sent_at ? displayWhen(task.automation.opt_in_sent_at) : '—'}</strong>
-            </div>
-            <div className='salesOutcomeTile'>
-              <span className='salesOutcomeTileLabel'>Follow-up due</span>
-              <strong>{task.automation?.followup_due_at ? displayWhen(task.automation.followup_due_at) : '—'}</strong>
-            </div>
-            <div className='salesOutcomeTile'>
-              <span className='salesOutcomeTileLabel'>Last inbound</span>
-              <strong>{task.automation?.last_inbound_at ? displayWhen(task.automation.last_inbound_at) : '—'}</strong>
-            </div>
-          </div>
-          {task.automation?.last_error ? (
-            <p className='muted' style={{ marginTop: 12, color: 'var(--danger, #b42318)' }}>
-              Last error: {task.automation.last_error}
-            </p>
-          ) : null}
-          <div className='actions' style={{ marginTop: 12 }}>
-            <button
-              type='button'
-              className='btn soft'
-              disabled={busy === 'automation'}
-              onClick={toggleAutomation}
-            >
-              {busy === 'automation'
-                ? 'Updating…'
-                : task.automation_paused || task.automation?.automation_paused
-                  ? 'Resume automation'
-                  : 'Pause automation'}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className='card salesOfferCard' style={{ marginTop: 16 }}>
-        <div className='cardHead'>
-          <h3>Auto offer</h3>
-          {task.offer_promo_code ? <span className='pill p-green'>Sent · {task.offer_promo_code}</span> : <span className='pill p-cyan'>Automatic</span>}
-        </div>
-        <div className='cardBody'>
-          <p className='muted salesOfferIntro'>
-            After the call, AI picks the offer type and sends the matching template. Configure under{' '}
-            <Link to='/marketing/lead-sales/offer-templates'>Offer templates</Link>.
-          </p>
-          <div className='salesAutoOfferGrid'>
-            <div className='salesAutoOfferTile'>
-              <span className='muted'>AI recommendation</span>
-              <strong>{categoryLabel(autoOffer.category)}</strong>
-              <span className='muted'>{task.outcome?.recommended_offer ? 'From call analysis' : 'Default until outcome synced'}</span>
-            </div>
-            <div className='salesAutoOfferTile'>
-              <span className='muted'>Template to send</span>
-              <strong>{autoOffer.template?.name || '—'}</strong>
-              <span className='muted'>{templateSummary(autoOffer.template)}</span>
-            </div>
-            <div className='salesAutoOfferTile'>
-              <span className='muted'>Delivery</span>
-              <strong>WhatsApp + email</strong>
-              <span className='muted'>After interested call or manual send</span>
-            </div>
-          </div>
-          <div className='actions' style={{ marginTop: 14 }}>
-            {!task.offer_promo_code ? (
-              <button
-                type='button'
-                className='btn primary'
-                disabled={sendingOffer || (!form.email && !form.phone) || !autoOffer.template}
-                onClick={() => sendOfferLink()}
-              >
-                {sendingOffer ? 'Sending…' : 'Send offer now (AI template)'}
-              </button>
-            ) : (
-              <>
-                <button
-                  type='button'
-                  className='btn primary'
-                  disabled={sendingOffer || (!form.email && !form.phone) || !autoOffer.template}
-                  onClick={() => sendOfferLink({ forceResend: true })}
-                >
-                  {sendingOffer ? 'Sending…' : 'Resend offer (email + WhatsApp)'}
-                </button>
-                <button
-                  type='button'
-                  className='btn soft'
-                  disabled={sendingOffer || !form.phone}
-                  onClick={() => sendOfferLink({ resendOnly: true })}
-                >
-                  {sendingOffer ? 'Sending…' : 'Resend link on WhatsApp only'}
-                </button>
-              </>
+      <Panel title="Send offer">
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.875rem', color: 'var(--ds-text-secondary)' }}>
+          Offers are sent manually. Use the <strong>Marketing → Send offer</strong> page to send promo offers to this lead.
+        </p>
+        {task.offer_promo_code && (
+          <div style={{ marginBottom: '0.75rem' }}>
+            <Badge variant="success">Offer sent: {task.offer_promo_code}</Badge>
+            {task.offer_sent_at && (
+              <span style={{ marginLeft: '0.5rem', fontSize: '0.8rem', color: 'var(--ds-text-secondary)' }}>
+                {displayWhen(task.offer_sent_at)}
+              </span>
             )}
           </div>
-          {!autoOffer.template ? (
-            <p className='muted' style={{ marginTop: 8 }}>Add active templates and map them in Lead sales setup.</p>
-          ) : null}
-          {!form.email && !form.phone ? (
-            <p className='muted' style={{ marginTop: 8 }}>Add an email or phone on this lead before sending.</p>
-          ) : null}
-          {task.offer_sent_at ? (
-            <p className='muted' style={{ marginTop: 8 }}>Last sent {new Date(task.offer_sent_at).toLocaleString()}</p>
-          ) : null}
-          {lastOfferResult?.signup_url ? (
-            <p className='muted' style={{ marginTop: 8, wordBreak: 'break-all' }}>
-              Signup URL: <a href={lastOfferResult.signup_url} target='_blank' rel='noreferrer'>{lastOfferResult.signup_url}</a>
-            </p>
-          ) : null}
-        </div>
-      </section>
+        )}
+        <Link to={`/marketing/send-offer`} style={{ textDecoration: 'none' }}>
+          <Button variant="soft">Go to Send offer page</Button>
+        </Link>
+      </Panel>
 
-      {showInsights ? (
+      <div ref={promptRef}>
+      <Panel
+        title="Sales call prompt"
+        badge={<Badge>v{task.sales_prompt_version || 1} · DeepSeek</Badge>}
+      >
+        <p style={{ marginTop: 0, marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--ds-text-secondary)' }}>
+          Saved prompt includes master script + lead section + sales KB. Before each call the full text is pushed to Telnyx{' '}
+          <strong>instructions</strong>; the opening line goes to Telnyx <strong>greeting</strong> (separate field).
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <Button variant="primary" onClick={generatePrompt} disabled={generatingPrompt}>
+            <Sparkles className="h-4 w-4" />
+            {generatingPrompt ? 'Generating…' : 'Generate prompt with AI'}
+          </Button>
+          <Button
+            variant="soft"
+            onClick={() => setShowPrompt((v) => !v)}
+            disabled={!task.sales_prompt}
+          >
+            {showPrompt ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showPrompt ? 'Hide' : 'View'} saved prompt
+          </Button>
+        </div>
+
+        {showPrompt && task.sales_prompt ? (
+          <pre
+            style={{
+              padding: '1rem',
+              background: 'var(--ds-surface-muted)',
+              borderRadius: '8px',
+              fontSize: '0.8rem',
+              whiteSpace: 'pre-wrap',
+              border: '1px solid var(--ds-border)',
+              color: 'var(--ds-text-primary)',
+              marginBottom: '1rem',
+            }}
+          >
+            {task.sales_prompt}
+          </pre>
+        ) : (
+          !task.sales_prompt && (
+            <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--ds-text-secondary)' }}>
+              No prompt yet — generate with AI before calling.
+            </p>
+          )
+        )}
+
+        <TelnyxPromptPreview
+          previewUrl={`/admin/frontpage/lead-sales/tasks/${taskId}/telnyx-preview`}
+          resyncUrl={`/admin/frontpage/lead-sales/tasks/${taskId}/resync-telnyx`}
+          onResyncDone={() => setMsg('Full prompt + greeting pushed to Telnyx for this lead.')}
+        />
+      </Panel>
+      </div>
+
+      {showInsights && (
         <TelnyxInsightsModal
           taskId={taskId}
           title={task.contact_name || task.company_name || 'Sales call result'}
           onClose={() => setShowInsights(false)}
         />
-      ) : null}
-
-      <section ref={promptRef} className='card frontpagePromptCard' style={{ marginTop: 18 }}>
-        <div className='cardHead'>
-          <h3>Sales call prompt</h3>
-          <span className='pill p-cyan'>v{task.sales_prompt_version || 1} · DeepSeek</span>
-        </div>
-        <div className='cardBody frontpagePromptFull'>
-          <p className='muted' style={{ marginTop: 0 }}>
-            Saved prompt includes master script + lead section + sales KB. Before each call the full text is pushed to Telnyx{' '}
-            <strong>instructions</strong>; the opening line goes to Telnyx <strong>greeting</strong> (separate field).
-          </p>
-          <div className='actions' style={{ gap: 8 }}>
-            <button type='button' className='btn primary' onClick={generatePrompt} disabled={generatingPrompt}>
-              {generatingPrompt ? 'Generating…' : 'Generate prompt with AI'}
-            </button>
-            <button type='button' className='btn soft' onClick={() => setShowPrompt((v) => !v)} disabled={!task.sales_prompt}>
-              {showPrompt ? 'Hide' : 'View'} saved prompt
-            </button>
-          </div>
-          {showPrompt && task.sales_prompt ? (
-            <pre className='frontpagePromptPreview'>{task.sales_prompt}</pre>
-          ) : (
-            !task.sales_prompt && <p className='muted' style={{ marginBottom: 0 }}>No prompt yet — generate with AI before calling.</p>
-          )}
-          <TelnyxPromptPreview
-            previewUrl={`/admin/frontpage/lead-sales/tasks/${taskId}/telnyx-preview`}
-            resyncUrl={`/admin/frontpage/lead-sales/tasks/${taskId}/resync-telnyx`}
-            onResyncDone={() => setMsg('Full prompt + greeting pushed to Telnyx for this lead.')}
-          />
-        </div>
-      </section>
-
+      )}
     </>
   )
 }

@@ -2581,61 +2581,10 @@ a.leadPlayBtnLink{
   cursor:pointer;
   font-weight:600;
 }
-.salesLeadDetailsCard .cardBody{
-  padding:12px 16px 14px;
-}
-.salesLeadDetailsHead{
-  padding:10px 16px;
-}
-.salesLeadDetailsHead h3{
-  margin:0;
-}
-.salesLeadSaveBtn{
-  margin-left:auto;
-  padding:6px 14px;
-  font-size:13px;
-}
-.salesLeadDetailsGrid{
-  display:grid;
-  grid-template-columns:repeat(4, minmax(0, 1fr));
-  gap:10px 12px;
-  align-items:end;
-}
-.salesLeadField{
-  display:flex;
-  flex-direction:column;
-  gap:4px;
-  min-width:0;
-}
-.salesLeadField span{
-  font-size:11px;
-  font-weight:600;
-  color:var(--muted);
-  text-transform:uppercase;
-  letter-spacing:.03em;
-}
-.salesLeadFieldWide{
-  grid-column:span 2;
-}
-.salesLeadConsent{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  font-size:13px;
-  white-space:nowrap;
-}
 .inputCompact{
   padding:7px 10px;
   font-size:13px;
   min-height:34px;
-}
-@media (max-width: 960px){
-  .salesLeadDetailsGrid{
-    grid-template-columns:repeat(2, minmax(0, 1fr));
-  }
-  .salesLeadFieldWide{
-    grid-column:span 2;
-  }
 }
 .leadAudioElement{
   width:100%;
