@@ -315,6 +315,27 @@ export default function AiDemos({ embedded = false }) {
     }
   }
 
+  const provisionDemoAgents = async () => {
+    if (
+      !window.confirm(
+        'Clone interview voice agents into dedicated AI Demo agents (new Telnyx assistants). Interview agents are not changed. Continue?',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      const out = await apiFetch('/admin/ai-demo/agents/duplicate-for-demo', { method: 'POST' })
+      const ok = (out?.results || []).filter((r) => r.ok).length
+      alert(`AI Demo agents ready: ${ok} market(s) mapped.`)
+      await refresh()
+    } catch (e) {
+      alert(e?.message || 'Could not provision AI Demo agents')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const setRegionAgent = (code, agentId) => {
     setSettings((s) => {
       const next = { ...(s.agent_by_region || {}) }
@@ -461,15 +482,23 @@ export default function AiDemos({ embedded = false }) {
             <Mic /> Voice agents by market
           </h4>
           <p className="aid-text-muted" style={{ marginBottom: 16 }}>
-            Visitors are matched from WhatsApp country (+44 → GB, +61 → AU, +1 → US, +353 → IE, +966 → SA, +20 → EG,
-            +971 → AE). Unmapped markets use Default, then Talk-to-us.
+            Only dedicated AI Demo agents appear here (not interview or survey). Visitors match from WhatsApp country
+            (+44 → GB, +61 → AU, +1 → US, +353 → IE, +966 → SA, +20 → EG, +971 → AE). Unmapped markets use Default.
           </p>
           {!agents.length ? (
             <div className="aid-warn-box">
               <TriangleAlert />
-              <span>No agents with a Telnyx assistant ID found. Create/activate agents under Admin → Agents first.</span>
+              <span>
+                No dedicated AI Demo agents yet. Clone them from the interview roster (new Telnyx assistants — interview
+                agents stay untouched).
+              </span>
             </div>
           ) : null}
+          <div style={{ marginBottom: 16 }}>
+            <button type="button" className="aid-btn aid-btn-outline" onClick={provisionDemoAgents} disabled={busy}>
+              <Bot /> {agents.length ? 'Refresh / re-clone AI Demo agents' : 'Create dedicated AI Demo agents'}
+            </button>
+          </div>
           {(settings.regions || []).map((r) => (
             <div key={r.code} className="aid-setting-row">
               <label htmlFor={`region-${r.code}`}>{r.label}</label>
@@ -478,6 +507,7 @@ export default function AiDemos({ embedded = false }) {
                 className="aid-form-control"
                 value={settings.agent_by_region?.[r.code] || ''}
                 onChange={(e) => setRegionAgent(r.code, e.target.value)}
+                disabled={!agents.length}
               >
                 <option value="">Not set</option>
                 {agentsForRegion(r.code).map((a) => (

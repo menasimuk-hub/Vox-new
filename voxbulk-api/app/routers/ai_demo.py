@@ -474,7 +474,10 @@ def admin_put_settings(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_platform_admin),
 ):
-    row = AiDemoService.update_settings(db, payload.model_dump(exclude_unset=True))
+    try:
+        row = AiDemoService.update_settings(db, payload.model_dump(exclude_unset=True))
+    except AiDemoError as exc:
+        raise _http(exc) from exc
     return AiDemoService.serialize_settings(row)
 
 

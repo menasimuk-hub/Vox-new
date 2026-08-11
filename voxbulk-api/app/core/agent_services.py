@@ -11,6 +11,7 @@ SERVICE_INTERVIEW = "interview"
 SERVICE_LEAD_SALES = "lead_sales"
 SERVICE_APPOINTMENTS = "appointments"
 SERVICE_FEEDBACK_FOLLOWUP = "feedback_followup"
+SERVICE_AI_DEMO = "ai_demo"
 
 AGENT_SERVICE_KEYS: tuple[str, ...] = (
     SERVICE_FRONTPAGE_TALK_TO_US,
@@ -21,6 +22,7 @@ AGENT_SERVICE_KEYS: tuple[str, ...] = (
     SERVICE_INTERVIEW,
     SERVICE_LEAD_SALES,
     SERVICE_APPOINTMENTS,
+    SERVICE_AI_DEMO,
 )
 
 AGENT_SERVICE_LABELS: dict[str, str] = {
@@ -28,10 +30,11 @@ AGENT_SERVICE_LABELS: dict[str, str] = {
     SERVICE_OUTBOUND_VOICE: "Outbound voice",
     SERVICE_ORG_DEFAULT: "Organisation default voice",
     SERVICE_SURVEY: "Survey AI calls",
-    SERVICE_FEEDBACK_FOLLOWUP: "AI follow-back (Customer Feedback)",
+    SERVICE_FEEDBACK_FOLLOWUP: "AI follow-back (survey + Customer Feedback — same agents)",
     SERVICE_INTERVIEW: "Interview AI calls",
     SERVICE_LEAD_SALES: "Lead / Sales AI calls",
     SERVICE_APPOINTMENTS: "Appointment confirmation AI calls",
+    SERVICE_AI_DEMO: "AI Demo walkthrough",
 }
 
 

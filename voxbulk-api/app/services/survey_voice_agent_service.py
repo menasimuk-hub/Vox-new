@@ -7,7 +7,14 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.agent_services import SERVICE_APPOINTMENTS, SERVICE_INTERVIEW, SERVICE_LEAD_SALES, SERVICE_SURVEY
+from app.core.agent_services import (
+    SERVICE_AI_DEMO,
+    SERVICE_APPOINTMENTS,
+    SERVICE_FEEDBACK_FOLLOWUP,
+    SERVICE_INTERVIEW,
+    SERVICE_LEAD_SALES,
+    SERVICE_SURVEY,
+)
 from app.core.config import get_settings
 from app.models.agent import AgentDefinition
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
@@ -99,10 +106,12 @@ def agent_to_voice_dict(agent: AgentDefinition) -> dict[str, Any]:
         "supports_interview": bool(agent.supports_interview),
         "supports_lead_sales": bool(agent.supports_lead_sales),
         "supports_appointment": bool(agent.supports_appointment),
+        "supports_ai_demo": bool(getattr(agent, "supports_ai_demo", False)),
         "is_default_survey": bool(agent.is_default_survey),
         "is_default_interview": bool(agent.is_default_interview),
         "is_default_lead_sales": bool(agent.is_default_lead_sales),
         "is_default_appointment": bool(agent.is_default_appointment),
+        "is_default_ai_demo": bool(getattr(agent, "is_default_ai_demo", False)),
         "system_prompt": agent.system_prompt,
         "base_role": agent.base_role,
         "service_survey_role": agent.service_survey_role,
@@ -130,17 +139,24 @@ def agent_to_voice_dict(agent: AgentDefinition) -> dict[str, Any]:
 def _service_support_field(service_key: str) -> str:
     if service_key == SERVICE_SURVEY:
         return "supports_survey"
+    # Follow-back shares the survey voice roster (same persona + Telnyx assistant family).
+    if service_key == SERVICE_FEEDBACK_FOLLOWUP:
+        return "supports_survey"
     if service_key == SERVICE_INTERVIEW:
         return "supports_interview"
     if service_key == SERVICE_LEAD_SALES:
         return "supports_lead_sales"
     if service_key == SERVICE_APPOINTMENTS:
         return "supports_appointment"
+    if service_key == SERVICE_AI_DEMO:
+        return "supports_ai_demo"
     return ""
 
 
 def _default_field(service_key: str) -> str:
     if service_key == SERVICE_SURVEY:
+        return "is_default_survey"
+    if service_key == SERVICE_FEEDBACK_FOLLOWUP:
         return "is_default_survey"
     if service_key == SERVICE_INTERVIEW:
         return "is_default_interview"
@@ -148,6 +164,8 @@ def _default_field(service_key: str) -> str:
         return "is_default_lead_sales"
     if service_key == SERVICE_APPOINTMENTS:
         return "is_default_appointment"
+    if service_key == SERVICE_AI_DEMO:
+        return "is_default_ai_demo"
     return ""
 
 
@@ -160,10 +178,14 @@ def list_agents_for_service(db: Session, *, service_key: str, org_id: str | None
         getattr(AgentDefinition, field).is_(True),
     )
     agents = list(db.execute(query.order_by(AgentDefinition.name.asc())).scalars())
+    # Dedicated AI Demo clones must never appear in interview/survey/follow-back pickers.
+    if service_key != SERVICE_AI_DEMO:
+        agents = [a for a in agents if not bool(getattr(a, "supports_ai_demo", False))]
     if org_id:
         assigned = resolve_agent_for_org_service(db, org_id=org_id, service_key=service_key, require_active=True)
         if assigned and assigned.id not in {a.id for a in agents}:
-            agents.insert(0, assigned)
+            if service_key == SERVICE_AI_DEMO or not bool(getattr(assigned, "supports_ai_demo", False)):
+                agents.insert(0, assigned)
     return agents
 
 

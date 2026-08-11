@@ -38,6 +38,7 @@ export default function Agents() {
   const [busy, setBusy] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [serviceFilter, setServiceFilter] = useState('all')
   const [msg, setMsg] = useState('')
   const [msgError, setMsgError] = useState(false)
   const [platformSettings, setPlatformSettings] = useState(null)
@@ -93,6 +94,11 @@ export default function Agents() {
     let list = agents
     if (statusFilter === 'active') list = list.filter((a) => a.is_active)
     if (statusFilter === 'frozen') list = list.filter((a) => !a.is_active)
+    if (serviceFilter === 'interview') list = list.filter((a) => a.supports_interview)
+    if (serviceFilter === 'survey') list = list.filter((a) => a.supports_survey)
+    if (serviceFilter === 'ai_demo') list = list.filter((a) => a.supports_ai_demo)
+    if (serviceFilter === 'lead_sales') list = list.filter((a) => a.supports_lead_sales)
+    if (serviceFilter === 'appointment') list = list.filter((a) => a.supports_appointment)
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase()
       list = list.filter(
@@ -104,7 +110,7 @@ export default function Agents() {
       )
     }
     return list
-  }, [agents, searchTerm, statusFilter])
+  }, [agents, searchTerm, statusFilter, serviceFilter])
 
   const kpis = useMemo(
     () => ({
@@ -142,6 +148,7 @@ export default function Agents() {
         supports_survey: agent.supports_survey,
         supports_interview: agent.supports_interview,
         supports_lead_sales: agent.supports_lead_sales,
+        supports_ai_demo: agent.supports_ai_demo,
       }
       const saved = await apiFetch('/admin/agents', { method: 'POST', body: JSON.stringify(copy) })
       flash('Agent duplicated.')
@@ -240,7 +247,7 @@ export default function Agents() {
 
       <Panel
         title="Agents"
-        subtitle="Active + Survey-enabled agents appear in the dashboard AI voice dropdown."
+        subtitle="Each service uses its own dedicated agents. Survey and AI follow-back share the survey roster."
         action={
           <div className="flex items-center gap-2">
             <Input
@@ -250,6 +257,18 @@ export default function Agents() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="h-8 w-[220px]"
             />
+            <select
+              className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              value={serviceFilter}
+              onChange={(e) => setServiceFilter(e.target.value)}
+            >
+              <option value="all">All services</option>
+              <option value="interview">Interview</option>
+              <option value="survey">Survey / Follow-back</option>
+              <option value="ai_demo">AI Demo</option>
+              <option value="lead_sales">Lead / Sales</option>
+              <option value="appointment">Appointments</option>
+            </select>
             <select
               className="h-8 shrink-0 rounded-md border border-input bg-transparent px-2 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
               value={statusFilter}

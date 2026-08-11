@@ -171,6 +171,17 @@ _DIAL_PREFIX_TO_REGION: tuple[tuple[str, str], ...] = (
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def _is_ai_demo_agent(agent: Any) -> bool:
+    """True for dedicated AI Demo clones (flag or naming convention)."""
+    if agent is None:
+        return False
+    if bool(getattr(agent, "supports_ai_demo", False)):
+        return True
+    slug = str(getattr(agent, "slug", None) or "")
+    name = str(getattr(agent, "name", None) or "")
+    return slug.startswith("ai-demo-") or name.startswith("AI Demo")
+
+
 class AiDemoError(Exception):
     def __init__(self, message: str, *, status_code: int = 400):
         super().__init__(message)
@@ -354,12 +365,22 @@ class AiDemoService:
             raw = payload.get("agent_by_region")
             cleaned: dict[str, str] = {}
             if isinstance(raw, dict):
+                from app.models.agent import AgentDefinition
+
                 allowed = {code for code, _ in DEMO_AGENT_REGIONS}
                 for key, value in raw.items():
                     k = str(key or "").strip().upper()
                     v = str(value or "").strip()
-                    if k in allowed and v:
-                        cleaned[k] = v
+                    if k not in allowed or not v:
+                        continue
+                    agent = db.get(AgentDefinition, v)
+                    if agent is None or not _is_ai_demo_agent(agent):
+                        raise AiDemoError(
+                            f"Region {k} must map to a dedicated AI Demo agent "
+                            "(clone from interview roster first).",
+                            status_code=400,
+                        )
+                    cleaned[k] = v
             row.agent_by_region_json = json.dumps(cleaned) if cleaned else None
             # Keep legacy single field in sync with DEFAULT when present.
             if cleaned.get("DEFAULT"):
@@ -384,7 +405,7 @@ class AiDemoService:
 
     @staticmethod
     def list_voice_agents(db: Session) -> list[dict[str, Any]]:
-        """Active Admin → Agents that have a Telnyx assistant id (for Settings pickers)."""
+        """Dedicated AI Demo agents only (Settings pickers — never interview/survey roster)."""
         from app.models.agent import AgentDefinition
 
         rows = list(
@@ -396,6 +417,8 @@ class AiDemoService:
         )
         items: list[dict[str, Any]] = []
         for a in rows:
+            if not _is_ai_demo_agent(a):
+                continue
             telnyx_id = str(a.telnyx_assistant_id or "").strip()
             if not telnyx_id:
                 continue
@@ -409,6 +432,7 @@ class AiDemoService:
                     "gender": a.gender,
                     "voice_label": a.voice_label,
                     "telnyx_assistant_id": telnyx_id,
+                    "supports_ai_demo": True,
                     "label": (
                         f"{a.name}"
                         + (f" · {region}" if region else "")
@@ -419,11 +443,51 @@ class AiDemoService:
         return items
 
     @staticmethod
+    def _interview_sources_by_region(db: Session) -> dict[str, str]:
+        """Pick active interview agents as clone sources keyed by accent_region (+ DEFAULT)."""
+        from app.models.agent import AgentDefinition
+
+        rows = list(
+            db.execute(
+                select(AgentDefinition)
+                .where(
+                    AgentDefinition.is_active.is_(True),
+                    AgentDefinition.supports_interview.is_(True),
+                )
+                .order_by(
+                    AgentDefinition.is_default_interview.desc(),
+                    AgentDefinition.name.asc(),
+                )
+            ).scalars()
+        )
+        by_region: dict[str, str] = {}
+        default_id: str | None = None
+        for a in rows:
+            if _is_ai_demo_agent(a):
+                continue
+            if not str(a.telnyx_assistant_id or "").strip():
+                continue
+            region = str(a.accent_region or "").strip().upper()
+            if region and region not in by_region:
+                by_region[region] = a.id
+            if default_id is None or bool(a.is_default_interview):
+                default_id = a.id
+        out: dict[str, str] = dict(by_region)
+        if default_id:
+            out["DEFAULT"] = default_id
+        if "SC" not in out and "GB" in out:
+            out["SC"] = out["GB"]
+        if "AE" not in out and "SA" in out:
+            out["AE"] = out["SA"]
+        return out
+
+    @staticmethod
     def duplicate_region_agents_for_demo(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
         """Clone mapped region agents into AI Demo–only AgentDefinitions + Telnyx assistants.
 
         Never mutates the source interview/Talk-to-us assistants — creates new Telnyx IDs
         and remaps demo_platform_settings.agent_by_region_json to the copies.
+        If Settings mapping is empty, seeds sources from the interview roster by region.
         """
         from uuid import uuid4
 
@@ -444,16 +508,20 @@ class AiDemoService:
                     select(AgentDefinition).where(AgentDefinition.telnyx_assistant_id == legacy)
                 ).scalars().first()
                 if src is None:
+                    try:
+                        norm = normalize_telnyx_assistant_id(legacy)
+                    except Exception:
+                        norm = legacy
                     src = db.execute(
-                        select(AgentDefinition).where(
-                            AgentDefinition.telnyx_assistant_id == normalize_telnyx_assistant_id(legacy)
-                        )
+                        select(AgentDefinition).where(AgentDefinition.telnyx_assistant_id == norm)
                     ).scalars().first()
                 if src:
                     mapping = {"DEFAULT": src.id}
             if not mapping:
+                mapping = AiDemoService._interview_sources_by_region(db)
+            if not mapping:
                 raise AiDemoError(
-                    "No AI Demo region agents configured. Set at least DEFAULT in Settings first.",
+                    "No clone sources found. Activate interview agents with Telnyx IDs, or map markets in Settings.",
                     status_code=400,
                 )
 
@@ -466,8 +534,18 @@ class AiDemoService:
             if source is None:
                 results.append({"region": region, "ok": False, "error": "source_agent_missing", "source_id": source_id})
                 continue
-            # Already an AI Demo copy — keep
-            if str(source.slug or "").startswith("ai-demo-") or str(source.name or "").startswith("AI Demo"):
+            # Already an AI Demo copy — keep + ensure dedicated flags
+            if _is_ai_demo_agent(source):
+                if not dry_run:
+                    source.supports_ai_demo = True
+                    source.supports_interview = False
+                    source.supports_survey = False
+                    source.supports_lead_sales = False
+                    source.supports_appointment = False
+                    source.is_default_interview = False
+                    source.is_default_survey = False
+                    source.updated_at = _utcnow()
+                    db.add(source)
                 new_map[region] = source.id
                 results.append(
                     {
@@ -553,16 +631,23 @@ class AiDemoService:
                 copy.voice_type_label = source.voice_type_label
                 copy.default_voice = source.default_voice
                 copy.is_active = True
+                copy.supports_ai_demo = True
                 copy.supports_interview = False
                 copy.supports_survey = False
+                copy.supports_lead_sales = False
+                copy.supports_appointment = False
                 copy.is_default_interview = False
+                copy.is_default_survey = False
                 copy.updated_at = _utcnow()
             else:
                 copy = AgentDefinition(
                     id=str(uuid4()),
                     name=demo_name,
                     slug=demo_slug,
-                    description=f"Dedicated AI Demo voice agent (cloned from {source.name}). Do not use for interviews.",
+                    description=(
+                        f"Dedicated AI Demo voice agent (cloned from {source.name}). "
+                        "Do not use for interviews or surveys."
+                    ),
                     system_prompt=source.system_prompt or "You are the VoxBulk AI demo guide.",
                     conversation_style=source.conversation_style,
                     default_model=source.default_model,
@@ -573,9 +658,11 @@ class AiDemoService:
                     gender=source.gender,
                     telnyx_assistant_id=new_telnyx,
                     is_active=True,
+                    supports_ai_demo=True,
                     supports_interview=False,
                     supports_survey=False,
-                    supports_lead_sales=True,
+                    supports_lead_sales=False,
+                    supports_appointment=False,
                     is_default_interview=False,
                     is_default_survey=False,
                 )
@@ -641,23 +728,33 @@ class AiDemoService:
 
     @staticmethod
     def resolve_assistant_for_request(db: Session, req: DemoRequest) -> dict[str, Any]:
-        """Pick Telnyx assistant from per-region map → DEFAULT → legacy id → Talk-to-us."""
+        """Pick Telnyx assistant from dedicated AI Demo map only (never interview/survey)."""
         from app.models.agent import AgentDefinition
-        from app.models.frontpage_call_setting import FrontpageCallSetting
 
         settings = AiDemoService.get_settings(db)
         region = AiDemoService.infer_visitor_region(req)
         mapping = AiDemoService._loads_agent_by_region(settings)
 
-        def _from_agent_id(agent_id: str | None) -> tuple[str | None, AgentDefinition | None]:
+        def _from_demo_agent_id(agent_id: str | None) -> tuple[str | None, AgentDefinition | None]:
             aid = str(agent_id or "").strip()
             if not aid:
                 return None, None
             agent = db.get(AgentDefinition, aid)
-            if agent is None:
+            if agent is None or not agent.is_active or not _is_ai_demo_agent(agent):
                 return None, None
             telnyx = str(agent.telnyx_assistant_id or "").strip()
             return (telnyx or None), agent
+
+        def _demo_agent_for_telnyx(telnyx_id: str) -> AgentDefinition | None:
+            tid = str(telnyx_id or "").strip()
+            if not tid:
+                return None
+            row = db.execute(
+                select(AgentDefinition).where(AgentDefinition.telnyx_assistant_id == tid)
+            ).scalars().first()
+            if row is not None and _is_ai_demo_agent(row) and row.is_active:
+                return row
+            return None
 
         assistant_id: str | None = None
         agent_row: AgentDefinition | None = None
@@ -667,23 +764,56 @@ class AiDemoService:
             mapped = mapping.get(key)
             if not mapped:
                 continue
-            assistant_id, agent_row = _from_agent_id(mapped)
+            assistant_id, agent_row = _from_demo_agent_id(mapped)
             if assistant_id:
                 source = f"region:{key}"
                 break
 
         if not assistant_id:
-            legacy = str(settings.provider_agent_id or "").strip()
-            if legacy:
-                assistant_id = legacy
-                source = "legacy_provider_agent_id"
+            # Prefer any active demo agent matching visitor region, then DEFAULT-flagged, then any demo.
+            demo_rows = list(
+                db.execute(
+                    select(AgentDefinition)
+                    .where(
+                        AgentDefinition.is_active.is_(True),
+                        AgentDefinition.supports_ai_demo.is_(True),
+                    )
+                    .order_by(
+                        AgentDefinition.is_default_ai_demo.desc(),
+                        AgentDefinition.name.asc(),
+                    )
+                ).scalars()
+            )
+            # Naming-convention backfill if flag not migrated yet
+            if not demo_rows:
+                demo_rows = [
+                    a
+                    for a in db.execute(
+                        select(AgentDefinition).where(AgentDefinition.is_active.is_(True))
+                    ).scalars()
+                    if _is_ai_demo_agent(a) and str(a.telnyx_assistant_id or "").strip()
+                ]
+            preferred = next(
+                (a for a in demo_rows if str(a.accent_region or "").upper() == region),
+                None,
+            )
+            if preferred is None:
+                preferred = next((a for a in demo_rows if bool(getattr(a, "is_default_ai_demo", False))), None)
+            if preferred is None and demo_rows:
+                preferred = demo_rows[0]
+            if preferred is not None:
+                assistant_id = str(preferred.telnyx_assistant_id or "").strip() or None
+                agent_row = preferred
+                source = "demo_roster_fallback"
 
         if not assistant_id:
-            fp = db.get(FrontpageCallSetting, "default")
-            if fp and (fp.voice_provider or "").lower() == "telnyx":
-                assistant_id = str(fp.provider_agent_id or "").strip() or None
-                if assistant_id:
-                    source = "frontpage_talk_to_us"
+            legacy = str(settings.provider_agent_id or "").strip()
+            if legacy and _demo_agent_for_telnyx(legacy) is not None:
+                assistant_id = legacy
+                agent_row = _demo_agent_for_telnyx(legacy)
+                source = "legacy_provider_agent_id"
+
+        # Intentionally no frontpage Talk-to-us fallback — that is a different product agent.
 
         return {
             "assistant_id": assistant_id,

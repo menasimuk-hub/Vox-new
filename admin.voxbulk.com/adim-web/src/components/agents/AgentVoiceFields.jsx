@@ -25,10 +25,12 @@ export const voiceAgentDefaults = {
   supports_interview: false,
   supports_lead_sales: false,
   supports_appointment: false,
+  supports_ai_demo: false,
   is_default_survey: false,
   is_default_interview: false,
   is_default_lead_sales: false,
   is_default_appointment: false,
+  is_default_ai_demo: false,
   disclosure_for_survey: true,
   disclosure_for_interview: true,
   disclosure_for_appointment: true,
@@ -37,13 +39,15 @@ export const voiceAgentDefaults = {
 
 export function serviceBadges(agent) {
   const badges = []
-  if (agent.supports_survey) badges.push('Survey')
+  if (agent.supports_survey) badges.push('Survey / Follow-back')
   if (agent.supports_interview) badges.push('Interview')
   if (agent.supports_lead_sales) badges.push('Lead/Sales')
   if (agent.supports_appointment) badges.push('Appointments')
+  if (agent.supports_ai_demo) badges.push('AI Demo')
   if (agent.is_default_survey) badges.push('Default survey')
   if (agent.is_default_interview) badges.push('Default interview')
   if (agent.is_default_appointment) badges.push('Default appointments')
+  if (agent.is_default_ai_demo) badges.push('Default AI Demo')
   return badges
 }
 
@@ -155,9 +159,10 @@ export function AgentVoiceFields({ draft, setField }) {
         <div className='cardBody'>
           <div className='agentServiceToggles'>
             {[
-              ['supports_survey', 'Survey', 'is_default_survey'],
+              ['supports_survey', 'Survey / Follow-back', 'is_default_survey'],
               ['supports_interview', 'Interview', 'is_default_interview'],
               ['supports_lead_sales', 'Lead / Sales', 'is_default_lead_sales'],
+              ['supports_ai_demo', 'AI Demo', 'is_default_ai_demo'],
             ].map(([key, label, defaultKey]) => (
               <div key={key} className='agentServiceToggleRow'>
                 <label className='agentActiveToggle'>
