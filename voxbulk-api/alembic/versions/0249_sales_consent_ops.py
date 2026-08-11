@@ -78,56 +78,77 @@ def upgrade() -> None:
 
     # Migrate orgs on dental plans → starter then delete dental plans
     starter = conn.execute(sa.text("SELECT id FROM plans WHERE code = 'starter' LIMIT 1")).fetchone()
-    dental_ids = [
-        r[0]
-        for r in conn.execute(
-            sa.text(
-                """
-                SELECT id FROM plans
-                WHERE service_kind = 'dental'
-                   OR code IN ('dental_1', 'dental_2', 'practice', 'group')
-                """
-            )
-        ).fetchall()
-    ]
+    dental_rows = conn.execute(
+        sa.text(
+            """
+            SELECT id, code FROM plans
+            WHERE service_kind = 'dental'
+               OR code IN ('dental_1', 'dental_2', 'practice', 'group')
+            """
+        )
+    ).fetchall()
+    dental_ids = [r[0] for r in dental_rows]
+    dental_codes = [r[1] for r in dental_rows]
     if starter and dental_ids:
         starter_id = starter[0]
-        # subscriptions.plan_id may be string uuid
+        for did in dental_ids:
+            for sql in (
+                "UPDATE subscriptions SET plan_id = :sid WHERE plan_id = :did",
+                "UPDATE subscriptions SET pending_plan_id = :sid WHERE pending_plan_id = :did",
+                "UPDATE org_package_assignments SET plan_id = :sid WHERE plan_id = :did",
+                "UPDATE billing_redirect_flows SET plan_id = :sid WHERE plan_id = :did",
+                "UPDATE custom_org_profiles SET plan_id = :sid WHERE plan_id = :did",
+                "UPDATE custom_org_profiles SET feedback_plan_id = :sid WHERE feedback_plan_id = :did",
+            ):
+                try:
+                    conn.execute(sa.text(sql), {"sid": starter_id, "did": did})
+                except Exception:
+                    pass
+            for child in ("plan_prices", "plan_unit_rates"):
+                try:
+                    conn.execute(sa.text(f"DELETE FROM {child} WHERE plan_id = :did"), {"did": did})
+                except Exception:
+                    pass
+            for child in ("expo_packages", "feedback_packages", "smart_card_packages"):
+                try:
+                    conn.execute(
+                        sa.text(f"UPDATE {child} SET plan_id = :sid WHERE plan_id = :did"),
+                        {"sid": starter_id, "did": did},
+                    )
+                except Exception:
+                    pass
+        codes = dental_codes or ["dental_1", "dental_2", "practice", "group"]
+        code_list = ", ".join(f"'{c}'" for c in codes if str(c).replace("_", "").isalnum() or "_" in str(c))
+        if code_list:
+            conn.execute(
+                sa.text(
+                    f"""
+                    UPDATE promo_offers SET plan_code = 'starter'
+                    WHERE plan_code IN ({code_list})
+                    """
+                )
+            )
+            conn.execute(
+                sa.text(
+                    f"""
+                    UPDATE sales_offer_templates
+                    SET plan_code = 'starter', offer_type = 'subscription_trial'
+                    WHERE plan_code IN ({code_list}) OR offer_type = 'dental_trial'
+                    """
+                )
+            )
         for did in dental_ids:
             try:
-                conn.execute(
-                    sa.text("UPDATE subscriptions SET plan_id = :sid WHERE plan_id = :did"),
-                    {"sid": starter_id, "did": did},
-                )
+                conn.execute(sa.text("DELETE FROM plans WHERE id = :id"), {"id": did})
             except Exception:
-                pass
-            try:
-                conn.execute(
-                    sa.text("UPDATE org_package_assignments SET plan_id = :sid WHERE plan_id = :did"),
-                    {"sid": starter_id, "did": did},
-                )
-            except Exception:
-                pass
-        # Null out promo plan_code pointing at dental
-        conn.execute(
-            sa.text(
-                """
-                UPDATE promo_offers SET plan_code = 'starter'
-                WHERE plan_code IN ('dental_1', 'dental_2', 'practice', 'group')
-                """
-            )
-        )
-        conn.execute(
-            sa.text(
-                """
-                UPDATE sales_offer_templates SET plan_code = 'starter', offer_type = 'subscription_trial'
-                WHERE plan_code IN ('dental_1', 'dental_2', 'practice', 'group')
-                   OR offer_type = 'dental_trial'
-                """
-            )
-        )
-        for did in dental_ids:
-            conn.execute(sa.text("DELETE FROM plans WHERE id = :id"), {"id": did})
+                # Last resort: deactivate if hard-delete still blocked
+                try:
+                    conn.execute(
+                        sa.text("UPDATE plans SET is_active = 0, code = CONCAT(code, '_retired_', LEFT(id, 8)) WHERE id = :id"),
+                        {"id": did},
+                    )
+                except Exception:
+                    pass
 
     # Deactivate old Subscription sale 1 if still named that way pointing wrong — ensure 5 service templates
     templates = [
@@ -213,6 +234,66 @@ def upgrade() -> None:
                 "now": now,
             },
         )
+
+    # Clear FKs before deleting expired / unused AI-team promos
+    conn.execute(
+        sa.text(
+            """
+            UPDATE sales_conversation_states
+            SET promo_offer_id = NULL
+            WHERE promo_offer_id IN (
+                SELECT id FROM (
+                    SELECT id FROM promo_offers
+                    WHERE (expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP())
+                       OR (
+                            ai_team_prospect_id IS NOT NULL
+                            AND (redemption_count IS NULL OR redemption_count = 0)
+                       )
+                ) doomed
+            )
+            """
+        )
+    )
+    conn.execute(
+        sa.text(
+            """
+            UPDATE ai_team_prospects
+            SET promo_offer_id = NULL
+            WHERE promo_offer_id IN (
+                SELECT id FROM (
+                    SELECT id FROM promo_offers
+                    WHERE (expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP())
+                       OR (
+                            ai_team_prospect_id IS NOT NULL
+                            AND (redemption_count IS NULL OR redemption_count = 0)
+                       )
+                ) doomed
+            )
+            """
+        )
+    )
+    # Redemption / pending-discount rows for doomed promos
+    for child_table in ("promo_redemptions", "promo_pending_discounts", "promo_offer_usages"):
+        try:
+            conn.execute(
+                sa.text(
+                    f"""
+                    DELETE FROM {child_table}
+                    WHERE promo_offer_id IN (
+                        SELECT id FROM (
+                            SELECT id FROM promo_offers
+                            WHERE (expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP())
+                               OR (
+                                    ai_team_prospect_id IS NOT NULL
+                                    AND (redemption_count IS NULL OR redemption_count = 0)
+                               )
+                        ) doomed
+                    )
+                    """
+                )
+            )
+        except Exception:
+            pass
 
     # Purge expired promos (all)
     conn.execute(sa.text("DELETE FROM promo_offers WHERE expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP()"))

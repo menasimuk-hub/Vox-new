@@ -23,6 +23,67 @@ def cleanup_expired_promos_task() -> dict:
     from sqlalchemy import text
 
     with get_sessionmaker()() as db:
+        # Clear nullable FKs that block delete
+        db.execute(
+            text(
+                """
+                UPDATE sales_conversation_states
+                SET promo_offer_id = NULL
+                WHERE promo_offer_id IN (
+                    SELECT id FROM (
+                        SELECT id FROM promo_offers
+                        WHERE expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP()
+                    ) doomed
+                )
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                UPDATE ai_team_prospects
+                SET promo_offer_id = NULL
+                WHERE promo_offer_id IN (
+                    SELECT id FROM (
+                        SELECT id FROM promo_offers
+                        WHERE expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP()
+                    ) doomed
+                )
+                """
+            )
+        )
+        try:
+            db.execute(
+                text(
+                    """
+                    DELETE FROM promo_redemptions
+                    WHERE promo_offer_id IN (
+                        SELECT id FROM (
+                            SELECT id FROM promo_offers
+                            WHERE expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP()
+                        ) doomed
+                    )
+                    """
+                )
+            )
+        except Exception:
+            pass
+        try:
+            db.execute(
+                text(
+                    """
+                    DELETE FROM promo_offer_usages
+                    WHERE promo_offer_id IN (
+                        SELECT id FROM (
+                            SELECT id FROM promo_offers
+                            WHERE expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP()
+                        ) doomed
+                    )
+                    """
+                )
+            )
+        except Exception:
+            pass
         result = db.execute(
             text("DELETE FROM promo_offers WHERE expires_at IS NOT NULL AND expires_at < UTC_TIMESTAMP()")
         )
