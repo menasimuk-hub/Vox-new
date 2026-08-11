@@ -164,6 +164,43 @@ class AiDemoService:
             db.commit()
 
     @staticmethod
+    def upsert_knowledge_bases(db: Session) -> dict[str, Any]:
+        """Refresh demo KB talk/sales copy from repo defaults (AI demo KBs only)."""
+        updated = 0
+        created = 0
+        for row in DEMO_KB_SEED:
+            existing = db.execute(
+                select(DemoKnowledgeBase).where(DemoKnowledgeBase.service_code == row["service_code"])
+            ).scalar_one_or_none()
+            if existing is None:
+                db.add(
+                    DemoKnowledgeBase(
+                        service_code=row["service_code"],
+                        title=row["title"],
+                        system_prompt=row["system_prompt"],
+                        fact_sheet=row["fact_sheet"],
+                        demo_script=row["demo_script"],
+                        tool_subset=tool_subset_json(row.get("tool_subset")),
+                        sort_order=int(row.get("sort_order") or 0),
+                        is_active=True,
+                    )
+                )
+                created += 1
+                continue
+            existing.title = row["title"]
+            existing.system_prompt = row["system_prompt"]
+            existing.fact_sheet = row["fact_sheet"]
+            existing.demo_script = row["demo_script"]
+            existing.tool_subset = tool_subset_json(row.get("tool_subset"))
+            existing.sort_order = int(row.get("sort_order") or 0)
+            existing.is_active = True
+            existing.updated_at = _utcnow()
+            db.add(existing)
+            updated += 1
+        db.commit()
+        return {"ok": True, "created": created, "updated": updated}
+
+    @staticmethod
     def get_settings(db: Session) -> DemoPlatformSettings:
         row = db.get(DemoPlatformSettings, "default")
         if row is None:
@@ -273,6 +310,193 @@ class AiDemoService:
                 }
             )
         return items
+
+    @staticmethod
+    def duplicate_region_agents_for_demo(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
+        """Clone mapped region agents into AI Demo–only AgentDefinitions + Telnyx assistants.
+
+        Never mutates the source interview/Talk-to-us assistants — creates new Telnyx IDs
+        and remaps demo_platform_settings.agent_by_region_json to the copies.
+        """
+        from uuid import uuid4
+
+        from app.models.agent import AgentDefinition
+        from app.services.telnyx_assistant_service import (
+            create_telnyx_assistant,
+            normalize_telnyx_assistant_id,
+            template_assistant_create_defaults,
+        )
+
+        settings = AiDemoService.get_settings(db)
+        mapping = AiDemoService._loads_agent_by_region(settings)
+        if not mapping:
+            # Fall back to legacy provider_agent_id → invent DEFAULT mapping from matching agent
+            legacy = str(settings.provider_agent_id or "").strip()
+            if legacy:
+                src = db.execute(
+                    select(AgentDefinition).where(AgentDefinition.telnyx_assistant_id == legacy)
+                ).scalars().first()
+                if src is None:
+                    src = db.execute(
+                        select(AgentDefinition).where(
+                            AgentDefinition.telnyx_assistant_id == normalize_telnyx_assistant_id(legacy)
+                        )
+                    ).scalars().first()
+                if src:
+                    mapping = {"DEFAULT": src.id}
+            if not mapping:
+                raise AiDemoError(
+                    "No AI Demo region agents configured. Set at least DEFAULT in Settings first.",
+                    status_code=400,
+                )
+
+        results: list[dict[str, Any]] = []
+        new_map: dict[str, str] = {}
+        seen_source: dict[str, str] = {}  # source agent id -> new demo agent id
+
+        for region, source_id in mapping.items():
+            source = db.get(AgentDefinition, source_id)
+            if source is None:
+                results.append({"region": region, "ok": False, "error": "source_agent_missing", "source_id": source_id})
+                continue
+            # Already an AI Demo copy — keep
+            if str(source.slug or "").startswith("ai-demo-") or str(source.name or "").startswith("AI Demo"):
+                new_map[region] = source.id
+                results.append(
+                    {
+                        "region": region,
+                        "ok": True,
+                        "skipped": True,
+                        "reason": "already_demo_agent",
+                        "agent_id": source.id,
+                        "name": source.name,
+                        "telnyx_assistant_id": source.telnyx_assistant_id,
+                    }
+                )
+                continue
+
+            if source.id in seen_source:
+                new_map[region] = seen_source[source.id]
+                results.append(
+                    {
+                        "region": region,
+                        "ok": True,
+                        "reused_copy": True,
+                        "agent_id": seen_source[source.id],
+                    }
+                )
+                continue
+
+            src_telnyx = str(source.telnyx_assistant_id or "").strip()
+            if not src_telnyx:
+                results.append({"region": region, "ok": False, "error": "source_missing_telnyx", "source_id": source.id})
+                continue
+
+            demo_slug = f"ai-demo-{source.slug}"[:120]
+            existing_copy = db.execute(
+                select(AgentDefinition).where(AgentDefinition.slug == demo_slug)
+            ).scalar_one_or_none()
+            demo_name = f"AI Demo — {source.name}"[:255]
+
+            if dry_run:
+                results.append(
+                    {
+                        "region": region,
+                        "ok": True,
+                        "dry_run": True,
+                        "would_create": demo_name,
+                        "from_telnyx": src_telnyx,
+                        "existing_copy_id": existing_copy.id if existing_copy else None,
+                    }
+                )
+                continue
+
+            template = template_assistant_create_defaults(db, src_telnyx)
+            created = create_telnyx_assistant(
+                db,
+                name=demo_name,
+                instructions=(
+                    "You are the VoxBulk AI demo guide. Talk like a human — ask, listen, show the dashboard, "
+                    "and help them see if VoxBulk fits. Sales will send the best offer — never invent discounts."
+                ),
+                model=template.get("model"),
+                greeting="Hi — quick check before we dive in: what's the annoying part right now?",
+                voice_settings=template.get("voice_settings"),
+            )
+            new_telnyx = normalize_telnyx_assistant_id(str(created.get("id") or created.get("assistant_id") or ""))
+            if not new_telnyx:
+                results.append({"region": region, "ok": False, "error": "telnyx_create_failed", "raw": created})
+                continue
+
+            if existing_copy:
+                copy = existing_copy
+                copy.name = demo_name
+                copy.telnyx_assistant_id = new_telnyx
+                copy.system_prompt = source.system_prompt
+                copy.accent_region = source.accent_region
+                copy.gender = source.gender
+                copy.voice_label = source.voice_label
+                copy.voice_type_label = source.voice_type_label
+                copy.default_voice = source.default_voice
+                copy.is_active = True
+                copy.supports_interview = False
+                copy.supports_survey = False
+                copy.is_default_interview = False
+                copy.updated_at = _utcnow()
+            else:
+                copy = AgentDefinition(
+                    id=str(uuid4()),
+                    name=demo_name,
+                    slug=demo_slug,
+                    description=f"Dedicated AI Demo voice agent (cloned from {source.name}). Do not use for interviews.",
+                    system_prompt=source.system_prompt or "You are the VoxBulk AI demo guide.",
+                    conversation_style=source.conversation_style,
+                    default_model=source.default_model,
+                    default_voice=source.default_voice,
+                    voice_label=source.voice_label,
+                    voice_type_label=source.voice_type_label,
+                    accent_region=source.accent_region,
+                    gender=source.gender,
+                    telnyx_assistant_id=new_telnyx,
+                    is_active=True,
+                    supports_interview=False,
+                    supports_survey=False,
+                    supports_lead_sales=True,
+                    is_default_interview=False,
+                    is_default_survey=False,
+                )
+                db.add(copy)
+            db.flush()
+            seen_source[source.id] = copy.id
+            new_map[region] = copy.id
+            results.append(
+                {
+                    "region": region,
+                    "ok": True,
+                    "agent_id": copy.id,
+                    "name": copy.name,
+                    "slug": copy.slug,
+                    "telnyx_assistant_id": new_telnyx,
+                    "cloned_from": source.id,
+                    "cloned_from_telnyx": src_telnyx,
+                }
+            )
+
+        if not dry_run and new_map:
+            settings.agent_by_region_json = json.dumps(new_map)
+            if new_map.get("DEFAULT"):
+                demo_default = db.get(AgentDefinition, new_map["DEFAULT"])
+                if demo_default and demo_default.telnyx_assistant_id:
+                    settings.provider_agent_id = str(demo_default.telnyx_assistant_id).strip()
+            settings.notes = (
+                (settings.notes or "")
+                + "\n[ai-demo] Region map remapped to dedicated AI Demo agents."
+            ).strip()
+            settings.updated_at = _utcnow()
+            db.add(settings)
+            db.commit()
+
+        return {"ok": True, "dry_run": dry_run, "agent_by_region": new_map, "results": results}
 
     @staticmethod
     def normalize_voice_region(value: str | None) -> str | None:
@@ -932,12 +1156,30 @@ class AiDemoService:
         }
 
     @staticmethod
+    def _selected_services_from_memory(req: DemoRequest, session: DemoSession) -> list[str]:
+        memory = _json_loads(req.conversation_memory, {})
+        raw = memory.get("selected_services") if isinstance(memory, dict) else None
+        if not raw:
+            raw = _json_loads(session.services_explored, [])
+        if not isinstance(raw, list):
+            return []
+        out: list[str] = []
+        for item in raw:
+            code = str(item or "").strip().lower()
+            if code in SERVICE_CODES and code not in out:
+                out.append(code)
+        return out
+
+    @staticmethod
     def _build_runtime_prompt(db: Session, req: DemoRequest, session: DemoSession, *, service_code: str | None) -> dict[str, str]:
+        from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH, prompt_numbers_for_service
+
         AiDemoService.ensure_knowledge_bases(db)
         overview = db.execute(
             select(DemoKnowledgeBase).where(DemoKnowledgeBase.service_code == "platform_overview")
         ).scalar_one_or_none()
-        code = (service_code or session.active_service_code or "").strip() or None
+        selected = AiDemoService._selected_services_from_memory(req, session)
+        code = (service_code or session.active_service_code or (selected[0] if selected else "") or "").strip() or None
         kb = None
         if code:
             kb = db.execute(
@@ -954,23 +1196,45 @@ class AiDemoService:
             lang_line,
             f"Visitor name: {req.contact_name}. Company: {req.company_name}. Website: {req.website}.",
             f"Their message: {req.message or '(none)'}.",
-            "Always get recording consent in the greeting.",
+            "Recording: one brief consent clause in the greeting — not a lecture.",
             "Hard soft cap about 7 minutes — wrap up with end_demo when time is up.",
+            "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or []),
+            "Close promise: sales will send the best offer — never invent promo codes or discounts.",
         ]
-        if memory:
+        if selected:
             parts.append(
-                "RESUME MEMORY (do not restart from scratch): "
-                + _json_dumps(memory)
+                "PRE-SELECTED SERVICES (cover in this order, one fully then transition): "
+                + ", ".join(selected)
+                + ". After a short need question for the first one, go straight into that walkthrough — do not ask them to pick from all five."
             )
+        else:
+            parts.append(
+                "No services pre-selected — ask one discovery question about customers/candidates/leads/event, then switch_kb."
+            )
+
+        if memory:
+            parts.append("RESUME MEMORY (do not restart from scratch): " + _json_dumps(memory))
+
+        if code:
+            nums = prompt_numbers_for_service(code)
+            if nums:
+                parts.append(nums)
+
+        if selected:
+            first = selected[0].replace("_", " ")
             greeting = (
-                f"Welcome back, {req.contact_name}. Last time we were looking at "
-                f"{memory.get('active_service_code') or 'VoxBulk'}. Shall we continue?"
+                f"Hi {req.contact_name} — quick one before we jump into {first}: "
+                "what's the annoying part for you right now? This call may be recorded for our sales team."
+            )
+        elif memory and memory.get("active_service_code"):
+            greeting = (
+                f"Hey {req.contact_name}, welcome back. Last time we were on "
+                f"{str(memory.get('active_service_code')).replace('_', ' ')}. Want to pick up there?"
             )
         else:
             greeting = (
-                f"Hi {req.contact_name}, welcome to your VoxBulk AI demo for {req.company_name}. "
-                "This call may be recorded for our sales team. What would you like to see first — "
-                "Recruitment interviews, Surveys, Feedback, Expo, or Smart Card?"
+                f"Hi {req.contact_name} — good to meet you. This call may be recorded for sales. "
+                "What's actually costing you time right now — customers, candidates, sales leads, or an event?"
             )
 
         if kb:
@@ -980,49 +1244,84 @@ class AiDemoService:
                     kb.system_prompt,
                     "FACTS:",
                     kb.fact_sheet,
-                    "DEMO SCRIPT:",
+                    "DEMO BEAT:",
                     kb.demo_script,
                 ]
             )
         else:
-            parts.append("No product KB loaded yet — ask what they want and call switch_kb.")
+            parts.append("No product KB loaded yet — ask what they need and call switch_kb.")
 
         return {
             "system_prompt": "\n\n".join(p for p in parts if p).strip(),
             "first_message": greeting if lang != "ar" else (
-                f"مرحباً {req.contact_name}، أهلاً بك في عرض فوكس بالك التجريبي لـ {req.company_name}. "
-                "قد يتم تسجيل هذه المكالمة لفريق المبيعات. ماذا تود أن ترى أولاً؟"
-                if not memory
-                else f"مرحباً بعودتك {req.contact_name}. هل نكمل من حيث توقفنا؟"
+                f"مرحباً {req.contact_name}، مكالمة قصيرة وقد تُسجَّل لفريق المبيعات. "
+                "ما الذي يزعجك الآن — العملاء، المرشحون، العملاء المحتملون، أم فعالية؟"
             ),
         }
 
     @staticmethod
-    def start_session(db: Session, *, session_id: str) -> dict[str, Any]:
+    def start_session(
+        db: Session,
+        *,
+        session_id: str,
+        selected_services: list[str] | None = None,
+    ) -> dict[str, Any]:
         session = db.get(DemoSession, str(session_id or "").strip())
         if session is None:
             raise AiDemoError("Session not found", status_code=404)
         if session.status not in ("verified", "active"):
             raise AiDemoError("Session is not ready to start", status_code=409)
         req = AiDemoService.get_request(db, session.request_id)
+
+        cleaned: list[str] = []
+        for item in selected_services or []:
+            code = str(item or "").strip().lower()
+            if code in SERVICE_CODES and code not in cleaned:
+                cleaned.append(code)
+        if cleaned:
+            session.services_explored = _json_dumps(cleaned)
+            session.active_service_code = cleaned[0]
+            AiDemoService.update_memory(
+                db,
+                req,
+                {
+                    "selected_services": cleaned,
+                    "active_service_code": cleaned[0],
+                    "services_explored": cleaned,
+                },
+            )
+
         resolved = AiDemoService.resolve_assistant_for_request(db, req)
         assistant_id = str(resolved.get("assistant_id") or "").strip()
         if not assistant_id:
             raise AiDemoError(
                 "Demo Telnyx assistant is not configured. "
-                "Set region agents in Admin → AI Marketing → AI Demos → Settings.",
+                "Set region agents in Admin → AI Marketing → AI Demos → Settings "
+                "(use Duplicate AI Demo agents to create dedicated copies).",
                 status_code=503,
             )
+        # Safety: prefer AI Demo–named agents; warn in logs if shared id is used
+        agent_name = str(resolved.get("agent_name") or "")
+        if agent_name and not agent_name.startswith("AI Demo") and "ai-demo" not in agent_name.lower():
+            logger.warning(
+                "demo_start_non_dedicated_agent session=%s agent=%s assistant=%s — run duplicate_region_agents_for_demo",
+                session.id,
+                agent_name,
+                assistant_id,
+            )
         logger.info(
-            "demo_start_assistant session=%s region=%s source=%s agent=%s assistant=%s",
+            "demo_start_assistant session=%s region=%s source=%s agent=%s assistant=%s selected=%s",
             session.id,
             resolved.get("region"),
             resolved.get("source"),
-            resolved.get("agent_name"),
+            agent_name,
             assistant_id,
+            cleaned,
         )
 
-        runtime = AiDemoService._build_runtime_prompt(db, req, session, service_code=session.active_service_code)
+        runtime = AiDemoService._build_runtime_prompt(
+            db, req, session, service_code=session.active_service_code
+        )
         try:
             from app.services.telnyx_assistant_service import prepare_telnyx_webrtc_call
 
@@ -1061,6 +1360,7 @@ class AiDemoService:
                         "website": req.website,
                         "preferred_language": req.preferred_language,
                         "message": req.message,
+                        "selected_services": cleaned,
                     }
                 ),
             )
@@ -1084,6 +1384,7 @@ class AiDemoService:
             "voice_provider": "telnyx",
             "soft_cap_minutes": AiDemoService.get_settings(db).soft_cap_minutes or SOFT_CAP_MINUTES_DEFAULT,
             "active_service_code": session.active_service_code,
+            "selected_services": cleaned or AiDemoService._selected_services_from_memory(req, session),
             "telnyx": {
                 "configured": True,
                 "agent_id": prep.get("assistant_id") or assistant_id,
@@ -1091,7 +1392,6 @@ class AiDemoService:
                 "prompt_synced": bool(prep.get("prompt_synced")),
                 "first_message": runtime["first_message"],
                 "recording_channels": prep.get("recording_channels", "dual"),
-                # Telnyx WebRTC requires [{name, value}, ...] — a plain dict breaks media.
                 "custom_headers": [
                     row
                     for row in (
@@ -1205,13 +1505,109 @@ class AiDemoService:
             return {"status": "ok"}
 
         if name == "show_qr_code":
+            from app.core.config import get_settings as _get_settings
+            from app.data.ai_demo_walkthrough_seed import walkthrough_for_service
+
+            label = str(args.get("label") or "Scan to try it").strip() or "Scan to try it"
+            service = str(args.get("service") or session.active_service_code or "feedback").strip().lower()
+            raw_data = args.get("data") or args.get("url")
+            if not raw_data:
+                base = str(getattr(_get_settings(), "public_site_base_url", None) or "https://voxbulk.com").rstrip("/")
+                path = walkthrough_for_service(service).get("live_qr_path") or "/demo/live-feedback"
+                raw_data = f"{base}{path}?session={session.id}&service={service}"
             AiDemoService._append_ui_event(
                 db,
                 session,
-                {"type": "show_qr_code", "data": args.get("data"), "label": args.get("label") or "Scan QR"},
+                {
+                    "type": "show_qr_code",
+                    "data": raw_data,
+                    "url": raw_data,
+                    "label": label,
+                    "service": service,
+                },
             )
             db.commit()
-            return {"status": "ok"}
+            return {"status": "ok", "url": raw_data}
+
+        if name == "highlight_dashboard":
+            action = str(args.get("action") or "highlight").strip().lower()
+            if action not in ("highlight", "navigate", "filter", "open_chart"):
+                action = "highlight"
+            event = {
+                "type": "highlight_dashboard",
+                "action": action,
+                "section": args.get("section") or session.active_service_code,
+                "target": args.get("target"),
+                "location": args.get("location"),
+                "range": args.get("range") or args.get("range_key"),
+                "view": args.get("view"),
+                "delay_ms": int(args.get("delay_ms") or 400),
+            }
+            AiDemoService._append_ui_event(db, session, event)
+            db.commit()
+            return {"status": "ok", "action": action}
+
+        if name == "show_pricing":
+            from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH
+
+            recommendation = str(args.get("recommendation") or args.get("recommend") or "").strip() or None
+            AiDemoService._append_ui_event(
+                db,
+                session,
+                {
+                    "type": "show_pricing",
+                    "data": PRICING_WALKTHROUGH,
+                    "recommendation": recommendation,
+                    "service": args.get("service") or session.active_service_code,
+                },
+            )
+            AiDemoService.update_memory(
+                db,
+                req,
+                {"pricing_shown": True, "pricing_recommendation": recommendation},
+            )
+            db.commit()
+            return {"status": "ok", "message": "Pricing panel shown. Explain differences and recommend."}
+
+        if name == "request_sales_offer":
+            note = str(args.get("note") or args.get("summary") or "").strip()
+            volumes = args.get("volumes") if isinstance(args.get("volumes"), dict) else None
+            if volumes:
+                session.volume_needs = _json_dumps(volumes)
+            AiDemoService.update_memory(
+                db,
+                req,
+                {
+                    "sales_offer_requested": True,
+                    "sales_offer_note": note or "Visitor interested — sales to send best offer",
+                    "volume_needs": volumes or _json_loads(session.volume_needs, {}),
+                },
+            )
+            # Flag frontpage lead for sales follow-up (no email from demo)
+            lead = None
+            if session.frontpage_lead_call_id:
+                lead = db.get(FrontpageLeadCall, session.frontpage_lead_call_id)
+            if lead is not None:
+                data = _json_loads(lead.lead_data_json, {})
+                if not isinstance(data, dict):
+                    data = {}
+                data["sales_offer_requested"] = True
+                data["sales_offer_note"] = note
+                data["sales_followup"] = "Send best offer — do not auto-email promo from demo"
+                lead.lead_data_json = _json_dumps(data)
+                if lead.status in ("started", "active", None, ""):
+                    lead.status = "needs_sales_offer"
+                db.add(lead)
+            AiDemoService._append_ui_event(
+                db,
+                session,
+                {"type": "request_sales_offer", "note": note, "cta": "book_sales_call"},
+            )
+            db.commit()
+            return {
+                "status": "ok",
+                "message": "Flagged for sales. Tell them our sales team will send the best offer — no promo codes from you.",
+            }
 
         if name == "set_voice_lang":
             voice = str(args.get("voice") or "").strip() or None
@@ -1493,3 +1889,59 @@ class AiDemoService:
         db.add(row)
         db.commit()
         return AiDemoService.list_knowledge_bases(db)
+
+    @staticmethod
+    def get_walkthrough_data(db: Session, *, session_id: str, service: str | None = None) -> dict[str, Any]:
+        from app.data.ai_demo_walkthrough_seed import PRICING_WALKTHROUGH, walkthrough_for_service
+
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        code = str(service or session.active_service_code or "feedback").strip().lower()
+        data = walkthrough_for_service(code)
+        return {
+            "session_id": session.id,
+            "service": code,
+            "data": data,
+            "pricing": PRICING_WALKTHROUGH,
+            "selected_services": AiDemoService._selected_services_from_memory(
+                AiDemoService.get_request(db, session.request_id), session
+            ),
+        }
+
+    @staticmethod
+    def submit_live_demo_response(
+        db: Session,
+        *,
+        session_id: str,
+        service: str,
+        score: int | None = None,
+        comment: str | None = None,
+        name: str | None = None,
+        company: str | None = None,
+        location: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Visitor completed a demo QR flow — push live_response UI event (no real org write)."""
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        svc = str(service or session.active_service_code or "feedback").strip().lower()
+        payload = {
+            "service": svc,
+            "score": score,
+            "comment": (comment or "").strip()[:500],
+            "name": (name or "").strip()[:120] or "You",
+            "company": (company or "").strip()[:120],
+            "location": (location or "").strip()[:80] or "Leeds",
+            "at": _utcnow().isoformat() + "Z",
+        }
+        if extra and isinstance(extra, dict):
+            payload.update({k: v for k, v in extra.items() if k not in payload})
+        AiDemoService._append_ui_event(
+            db,
+            session,
+            {"type": "live_response", "service": svc, "data": payload},
+        )
+        db.commit()
+        return {"ok": True, "event": "live_response", "data": payload}

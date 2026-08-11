@@ -84,6 +84,7 @@ class RejectIn(BaseModel):
 
 class StartSessionIn(BaseModel):
     session_id: str
+    selected_services: list[str] | None = None
 
 
 class CompleteIn(BaseModel):
@@ -92,6 +93,16 @@ class CompleteIn(BaseModel):
     transcript: str | None = None
     recording_path: str | None = None
     duration_seconds: int | None = None
+
+
+class LiveDemoResponseIn(BaseModel):
+    session_id: str
+    service: str = "feedback"
+    score: int | None = None
+    comment: str | None = None
+    name: str | None = None
+    company: str | None = None
+    location: str | None = None
 
 
 class SettingsIn(BaseModel):
@@ -166,7 +177,40 @@ def public_resend_demo_get(
 @router.post("/start-session")
 def start_demo_session(payload: StartSessionIn, db: Session = Depends(get_db)):
     try:
-        return AiDemoService.start_session(db, session_id=payload.session_id)
+        return AiDemoService.start_session(
+            db,
+            session_id=payload.session_id,
+            selected_services=payload.selected_services,
+        )
+    except AiDemoError as exc:
+        raise _http(exc) from exc
+
+
+@router.get("/walkthrough/{session_id}")
+def get_walkthrough(
+    session_id: str,
+    service: str | None = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        return AiDemoService.get_walkthrough_data(db, session_id=session_id, service=service)
+    except AiDemoError as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/live-response")
+def post_live_demo_response(payload: LiveDemoResponseIn, db: Session = Depends(get_db)):
+    try:
+        return AiDemoService.submit_live_demo_response(
+            db,
+            session_id=payload.session_id,
+            service=payload.service,
+            score=payload.score,
+            comment=payload.comment,
+            name=payload.name,
+            company=payload.company,
+            location=payload.location,
+        )
     except AiDemoError as exc:
         raise _http(exc) from exc
 
@@ -415,6 +459,24 @@ def admin_put_settings(
 @admin_router.get("/agents")
 def admin_list_demo_agents(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
     return {"items": AiDemoService.list_voice_agents(db)}
+
+
+@admin_router.post("/agents/duplicate-for-demo")
+def admin_duplicate_demo_agents(
+    dry_run: bool = False,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_platform_admin),
+):
+    try:
+        return AiDemoService.duplicate_region_agents_for_demo(db, dry_run=dry_run)
+    except AiDemoError as exc:
+        raise _http(exc) from exc
+
+
+@admin_router.post("/knowledge-bases/upsert-defaults")
+def admin_upsert_kb_defaults(db: Session = Depends(get_db), _admin: User = Depends(require_platform_admin)):
+    result = AiDemoService.upsert_knowledge_bases(db)
+    return {**result, "items": AiDemoService.list_knowledge_bases(db)}
 
 
 @admin_router.get("/knowledge-bases")

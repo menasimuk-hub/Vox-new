@@ -23,6 +23,7 @@ export type AiDemoStartResponse = {
   voice_provider?: string;
   soft_cap_minutes?: number;
   active_service_code?: string | null;
+  selected_services?: string[];
   telnyx?: {
     configured?: boolean;
     agent_id?: string;
@@ -60,6 +61,14 @@ export type AiDemoUiEvent = {
   summary?: string;
   cta?: string;
   at?: string;
+  action?: string;
+  section?: string;
+  target?: string;
+  location?: string;
+  range?: string;
+  view?: string;
+  delay_ms?: number;
+  recommendation?: string;
 };
 
 export async function submitDemoRequest(input: {
@@ -89,10 +98,13 @@ export async function verifyDemoToken(token: string) {
   );
 }
 
-export async function startDemoSession(sessionId: string) {
+export async function startDemoSession(sessionId: string, selectedServices?: string[]) {
   return apiFetch<AiDemoStartResponse>("/ai-demo/start-session", {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      selected_services: selectedServices || [],
+    }),
   });
 }
 
@@ -113,6 +125,32 @@ export async function pollDemoEvents(sessionId: string, afterId?: string | null)
   return apiFetch<{ events: AiDemoUiEvent[] }>(
     `/ai-demo/events/${encodeURIComponent(sessionId)}${q}`,
   );
+}
+
+export async function fetchWalkthroughData(sessionId: string, service?: string) {
+  const q = service ? `?service=${encodeURIComponent(service)}` : "";
+  return apiFetch<{
+    session_id: string;
+    service: string;
+    data: Record<string, unknown>;
+    pricing?: Record<string, unknown>;
+    selected_services?: string[];
+  }>(`/ai-demo/walkthrough/${encodeURIComponent(sessionId)}${q}`);
+}
+
+export async function submitLiveDemoResponse(input: {
+  session_id: string;
+  service: string;
+  score?: number;
+  comment?: string;
+  name?: string;
+  company?: string;
+  location?: string;
+}) {
+  return apiFetch("/ai-demo/live-response", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function resendDemoLink(requestId: string, sig: string) {

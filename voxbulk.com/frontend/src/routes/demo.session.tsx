@@ -1,11 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
-import { Loader2, PhoneOff, QrCode, ExternalLink } from "lucide-react";
+import { Loader2, PhoneOff, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { ServicePicker } from "@/components/ai-demo/ServicePicker";
+import { DemoDashboardShell } from "@/components/ai-demo/DemoDashboardShell";
+import { DemoQrCard } from "@/components/ai-demo/DemoQrCard";
 import {
   completeDemoSession,
-  DEMO_SERVICES,
+  fetchWalkthroughData,
   loadTelnyxRtc,
   normalizeTelnyxCustomHeaders,
   pollDemoEvents,
@@ -38,35 +41,105 @@ function DemoSessionPage() {
   const [phase, setPhase] = useState<"loading" | "ready" | "live" | "ended" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
   const [verified, setVerified] = useState<AiDemoVerifyResponse | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [resultPanel, setResultPanel] = useState<unknown>(null);
+  const [walkthrough, setWalkthrough] = useState<Record<string, unknown> | null>(null);
+  const [pricingData, setPricingData] = useState<Record<string, unknown> | null>(null);
+  const [showPricing, setShowPricing] = useState(false);
+  const [pricingRecommendation, setPricingRecommendation] = useState<string | null>(null);
+  const [highlightTarget, setHighlightTarget] = useState<string | null>(null);
+  const [filterLocation, setFilterLocation] = useState<string | null>(null);
+  const [smartView, setSmartView] = useState<"rep" | "manager">("rep");
+  const [liveFeedback, setLiveFeedback] = useState<
+    Array<{ score?: number | null; comment?: string; name?: string; location?: string }>
+  >([]);
+  const [liveExpo, setLiveExpo] = useState<Array<{ name?: string; company?: string }>>([]);
   const [link, setLink] = useState<{ url?: string; label?: string } | null>(null);
-  const [qr, setQr] = useState<{ data?: string; label?: string } | null>(null);
+  const [qr, setQr] = useState<{ url?: string; label?: string } | null>(null);
   const [cta, setCta] = useState(false);
   const [summary, setSummary] = useState("");
   const callRef = useRef<TelnyxCall | null>(null);
-  const clientRef = useRef<{ disconnect?: () => void; off?: (ev: string, fn: (...args: unknown[]) => void) => void } | null>(null);
+  const clientRef = useRef<{
+    disconnect?: () => void;
+    off?: (ev: string, fn: (...args: unknown[]) => void) => void;
+  } | null>(null);
   const notificationHandlerRef = useRef<((...args: unknown[]) => void) | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const activeTimerRef = useRef<number | null>(null);
   const startedAtRef = useRef<number>(0);
   const afterEventIdRef = useRef<string | null>(null);
   const softCapTimerRef = useRef<number | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
 
   const applyEvents = useCallback((events: AiDemoUiEvent[]) => {
     for (const ev of events) {
       if (ev.id) afterEventIdRef.current = ev.id;
-      if (ev.type === "switch_kb" && ev.service) setActiveTab(ev.service);
-      if (ev.type === "show_result_panel") setResultPanel(ev.data ?? null);
+      if (ev.type === "switch_kb" && ev.service) {
+        setActiveTab(ev.service);
+        const sid = verified?.session_id;
+        if (sid) {
+          void fetchWalkthroughData(sid, ev.service)
+            .then((res) => {
+              setWalkthrough((res.data as Record<string, unknown>) || null);
+              if (res.pricing) setPricingData(res.pricing as Record<string, unknown>);
+            })
+            .catch(() => {});
+        }
+      }
+      if (ev.type === "highlight_dashboard") {
+        const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 400;
+        const action = String(ev.action || "highlight");
+        window.setTimeout(() => {
+          if (action === "navigate" && ev.section) setActiveTab(String(ev.section));
+          if (action === "filter" && ev.location) setFilterLocation(String(ev.location).toLowerCase());
+          if (ev.view === "manager" || ev.view === "rep") setSmartView(ev.view);
+          if (ev.target) {
+            setHighlightTarget(String(ev.target));
+            if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
+            highlightTimerRef.current = window.setTimeout(() => setHighlightTarget(null), 2200);
+          }
+        }, delay);
+      }
+      if (ev.type === "show_pricing") {
+        setShowPricing(true);
+        if (ev.data && typeof ev.data === "object") setPricingData(ev.data as Record<string, unknown>);
+        if (ev.recommendation) setPricingRecommendation(String(ev.recommendation));
+      }
       if (ev.type === "show_link") setLink({ url: ev.url, label: ev.label });
-      if (ev.type === "show_qr_code") setQr({ data: String(ev.data || ""), label: ev.label });
+      if (ev.type === "show_qr_code") {
+        setQr({ url: String(ev.url || ev.data || ""), label: ev.label });
+      }
+      if (ev.type === "live_response" && ev.data && typeof ev.data === "object") {
+        const row = ev.data as {
+          service?: string;
+          score?: number;
+          comment?: string;
+          name?: string;
+          location?: string;
+          company?: string;
+        };
+        if ((row.service || activeTab) === "expo") {
+          setLiveExpo((prev) => [{ name: row.name, company: row.company }, ...prev]);
+        } else {
+          setLiveFeedback((prev) => [
+            { score: row.score, comment: row.comment, name: row.name, location: row.location },
+            ...prev,
+          ]);
+        }
+        setHighlightTarget("responses-list");
+        toast.success("Your response just landed on the dashboard");
+      }
+      if (ev.type === "request_sales_offer") {
+        setCta(true);
+        toast.message("Sales will follow up with the best offer");
+      }
       if (ev.type === "end_demo") {
         setCta(true);
         setSummary(String(ev.summary || ""));
         setPhase("ended");
       }
     }
-  }, []);
+  }, [activeTab, verified]);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,9 +153,11 @@ function DemoSessionPage() {
         const v = await verifyDemoToken(token);
         if (cancelled) return;
         setVerified(v);
-        if (v.memory && typeof v.memory === "object" && (v.memory as { active_service_code?: string }).active_service_code) {
-          setActiveTab(String((v.memory as { active_service_code?: string }).active_service_code));
+        const mem = v.memory && typeof v.memory === "object" ? (v.memory as { selected_services?: string[]; active_service_code?: string }) : null;
+        if (Array.isArray(mem?.selected_services) && mem.selected_services.length) {
+          setSelected(mem.selected_services.map(String));
         }
+        if (mem?.active_service_code) setActiveTab(String(mem.active_service_code));
         setPhase("ready");
       } catch (e) {
         if (cancelled) return;
@@ -156,9 +231,13 @@ function DemoSessionPage() {
 
   const startCall = useCallback(async () => {
     if (!verified) return;
+    if (!selected.length) {
+      toast.error("Pick at least one service to demo");
+      return;
+    }
     setPhase("live");
+    setActiveTab(selected[0]);
     try {
-      // Mic first — same as Talk-to-us; unlocks autoplay for remote audio.
       let micStream: MediaStream;
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -167,9 +246,17 @@ function DemoSessionPage() {
         throw new Error("Microphone access is required — allow mic access and try again.");
       }
 
-      const started = await startDemoSession(verified.session_id);
+      const started = await startDemoSession(verified.session_id, selected);
       const agentId = started.telnyx?.agent_id;
       if (!agentId) throw new Error("Demo voice agent is not configured yet.");
+
+      try {
+        const wt = await fetchWalkthroughData(verified.session_id, selected[0]);
+        setWalkthrough((wt.data as Record<string, unknown>) || null);
+        if (wt.pricing) setPricingData(wt.pricing as Record<string, unknown>);
+      } catch {
+        /* non-fatal */
+      }
 
       const TelnyxRTC = await loadTelnyxRtc();
       const client = new TelnyxRTC({
@@ -268,7 +355,7 @@ function DemoSessionPage() {
       setPhase("error");
       toast.error("Connection failed — use Resend demo link in your email");
     }
-  }, [finish, hangup, verified]);
+  }, [finish, hangup, selected, verified]);
 
   useEffect(() => {
     if (phase !== "live" || !verified) return;
@@ -278,7 +365,7 @@ function DemoSessionPage() {
         const { events } = await pollDemoEvents(verified.session_id, afterEventIdRef.current);
         if (!cancelled && events?.length) applyEvents(events);
       } catch {
-        /* ignore transient poll errors */
+        /* ignore */
       }
     };
     void tick();
@@ -293,20 +380,15 @@ function DemoSessionPage() {
     void hangup();
   }, [hangup]);
 
-  const panelText = useMemo(() => {
-    if (resultPanel == null) return null;
-    try {
-      return typeof resultPanel === "string" ? resultPanel : JSON.stringify(resultPanel, null, 2);
-    } catch {
-      return String(resultPanel);
-    }
-  }, [resultPanel]);
+  const toggleService = (code: string) => {
+    setSelected((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
+  };
 
   return (
     <div className="bg-background text-body antialiased min-h-screen flex flex-col">
       <SiteHeader />
       <main className="flex-1 pt-[110px] md:pt-[120px] pb-20">
-        <div className="max-w-[960px] mx-auto px-5 md:px-10">
+        <div className="max-w-[1100px] mx-auto px-5 md:px-10">
           <audio id={REMOTE_AUDIO_ID} autoPlay playsInline />
 
           <div className="text-center mb-8">
@@ -338,47 +420,69 @@ function DemoSessionPage() {
           )}
 
           {(phase === "ready" || phase === "live" || phase === "ended") && verified && (
-            <div className="grid md:grid-cols-[1fr_320px] gap-6">
+            <div className="grid lg:grid-cols-[1fr_380px] gap-6">
               <div className="rounded-3xl border border-border bg-white p-6 md:p-8 shadow-elegant">
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {DEMO_SERVICES.map((s) => (
-                    <span
-                      key={s.code}
-                      className={`rounded-full px-3 py-1.5 text-[12px] font-semibold border ${
-                        activeTab === s.code
-                          ? "border-primary bg-primary/10 text-heading"
-                          : "border-border text-muted-text"
-                      }`}
-                    >
-                      {s.label}
-                    </span>
-                  ))}
-                </div>
-
                 {phase === "ready" && (
-                  <div className="text-center py-8">
-                    <p className="text-body text-[15px] mb-6">
-                      Allow microphone access. This call may be recorded for sales follow-up.
+                  <div>
+                    <h2 className="text-[18px] font-bold text-heading mb-2">What do you want to see?</h2>
+                    <p className="text-[14px] text-body mb-5">
+                      Pick one or more. The agent already knows your selection and skips the product laundry list.
                     </p>
-                    <button type="button" className="btn-primary h-12 px-8" onClick={() => void startCall()}>
-                      Start demo call
-                    </button>
+                    <ServicePicker selected={selected} onToggle={toggleService} />
+                    <div className="sticky bottom-4 mt-6 flex flex-col items-center gap-2">
+                      <p className="text-[13px] text-body">Allow microphone access. This call may be recorded for sales follow-up.</p>
+                      <button
+                        type="button"
+                        className="btn-primary h-12 px-8 disabled:opacity-40"
+                        disabled={!selected.length}
+                        onClick={() => void startCall()}
+                      >
+                        Start demo call
+                      </button>
+                    </div>
                   </div>
                 )}
 
                 {phase === "live" && (
-                  <div className="text-center py-8">
-                    <div className="inline-flex items-center gap-2 text-primary font-semibold mb-4">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" /> Live with AI
+                  <div>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                      {selected.map((code) => (
+                        <span
+                          key={code}
+                          className={`rounded-full px-3 py-1.5 text-[12px] font-semibold border ${
+                            activeTab === code
+                              ? "border-primary bg-primary/10 text-heading"
+                              : "border-border text-muted-text"
+                          }`}
+                        >
+                          {code.replace("_", " ")}
+                        </span>
+                      ))}
                     </div>
-                    <p className="text-[14px] text-body mb-6">Ask questions or ask to switch products anytime.</p>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 h-11 px-5 rounded-full border border-border text-[14px] font-semibold"
-                      onClick={() => void finish("Visitor ended the call")}
-                    >
-                      <PhoneOff size={16} /> End demo
-                    </button>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div className="inline-flex items-center gap-2 text-primary font-semibold">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" /> Live with AI
+                      </div>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 h-10 px-4 rounded-full border border-border text-[13px] font-semibold"
+                        onClick={() => void finish("Visitor ended the call")}
+                      >
+                        <PhoneOff size={16} /> End demo
+                      </button>
+                    </div>
+                    <DemoDashboardShell
+                      activeService={activeTab}
+                      walkthrough={walkthrough}
+                      highlightTarget={highlightTarget}
+                      filterLocation={filterLocation}
+                      smartView={smartView}
+                      liveFeedback={liveFeedback}
+                      liveExpo={liveExpo}
+                      showPricing={showPricing}
+                      pricingData={pricingData}
+                      pricingRecommendation={pricingRecommendation}
+                    />
                   </div>
                 )}
 
@@ -387,27 +491,13 @@ function DemoSessionPage() {
                     <h2 className="text-[22px] font-bold text-heading">Thanks for the demo</h2>
                     {summary && <p className="mt-2 text-[14px] text-body">{summary}</p>}
                     <p className="mt-3 text-[14px] text-body">
-                      Our sales team has your needs summary, transcript, and recording.
+                      Our sales team has your needs summary — they will send the best offer for you.
                     </p>
                     {cta && (
-                      <a
-                        href="/contact"
-                        className="btn-primary inline-flex mt-6 h-12 px-7 items-center"
-                      >
+                      <a href="/contact" className="btn-primary inline-flex mt-6 h-12 px-7 items-center">
                         Book a call with sales
                       </a>
                     )}
-                  </div>
-                )}
-
-                {panelText && (
-                  <div className="mt-6 rounded-2xl border border-border bg-secondary/20 p-4">
-                    <div className="text-[12px] font-semibold uppercase tracking-wider text-muted-text mb-2">
-                      Dashboard preview
-                    </div>
-                    <pre className="text-[12px] whitespace-pre-wrap break-words text-heading max-h-64 overflow-auto">
-                      {panelText}
-                    </pre>
                   </div>
                 )}
               </div>
@@ -417,10 +507,8 @@ function DemoSessionPage() {
                   <div className="text-[12px] font-semibold uppercase tracking-wider text-muted-text mb-2">Company</div>
                   <div className="font-semibold text-heading">{verified.company_name}</div>
                   <div className="text-[13px] text-body mt-1">{verified.email}</div>
-                  <div className="text-[13px] text-body mt-1">
-                    Language: {verified.language === "ar" ? "Arabic" : "English"}
-                  </div>
                 </div>
+                {qr?.url && <DemoQrCard url={qr.url} label={qr.label} />}
                 {link?.url && (
                   <a
                     href={link.url}
@@ -430,14 +518,6 @@ function DemoSessionPage() {
                   >
                     <ExternalLink size={16} /> {link.label || "Open link"}
                   </a>
-                )}
-                {qr?.data && (
-                  <div className="rounded-3xl border border-border bg-white p-5 shadow-elegant">
-                    <div className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wider text-muted-text mb-2">
-                      <QrCode size={14} /> {qr.label || "QR"}
-                    </div>
-                    <p className="text-[12px] break-all text-body">{qr.data}</p>
-                  </div>
                 )}
               </aside>
             </div>

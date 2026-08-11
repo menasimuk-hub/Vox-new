@@ -233,6 +233,39 @@ export default function AiDemos() {
     }
   }
 
+  const duplicateDemoAgents = async () => {
+    if (
+      !window.confirm(
+        'Create dedicated AI Demo Telnyx agents (copies) for each mapped region and remap Settings? Interview agents stay untouched.',
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/ai-demo/agents/duplicate-for-demo', { method: 'POST' })
+      alert(`Done. Created/updated ${data?.results?.length || 0} mapping(s). Refreshing…`)
+      await refresh()
+    } catch (e) {
+      alert(e?.message || 'Duplicate failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const upsertKbDefaults = async () => {
+    if (!window.confirm('Refresh all AI Demo knowledge bases with the latest talk/sales prompts from code?')) return
+    setBusy(true)
+    try {
+      const data = await apiFetch('/admin/ai-demo/knowledge-bases/upsert-defaults', { method: 'POST' })
+      alert(`KB upserted: created ${data?.created || 0}, updated ${data?.updated || 0}`)
+    } catch (e) {
+      alert(e?.message || 'KB upsert failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const setRegionAgent = (code, agentId) => {
     setSettings((s) => {
       const next = { ...(s.agent_by_region || {}) }
@@ -393,11 +426,22 @@ export default function AiDemos() {
                 />
               </label>
             </div>
-            <div>
+            <div className='flex flex-wrap gap-2'>
               <Button onClick={saveSettings} disabled={busy}>
                 Save settings
               </Button>
+              <Button variant='outline' onClick={duplicateDemoAgents} disabled={busy}>
+                Duplicate → AI Demo agents only
+              </Button>
+              <Button variant='outline' onClick={upsertKbDefaults} disabled={busy}>
+                Refresh KB talk/sales copy
+              </Button>
             </div>
+            <p className='text-xs text-muted-foreground'>
+              Duplicate creates new Telnyx assistants named “AI Demo — …” and remaps this page so interview agents are
+              never overwritten by demo prompts. Configure Telnyx webhook tools on those demo assistants to{' '}
+              <code className='text-[11px]'>https://api.voxbulk.com/ai-demo/tools/&#123;tool&#125;</code>.
+            </p>
           </CardContent>
         </Card>
       )}
