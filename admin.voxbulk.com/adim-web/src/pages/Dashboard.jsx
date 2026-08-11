@@ -133,6 +133,7 @@ export default function Dashboard() {
   const [productTab, setProductTab] = useState('wa')
   const [integrationQuery, setIntegrationQuery] = useState('')
   const [onlineOnly, setOnlineOnly] = useState(false)
+  const [stats, setStats] = useState({ pending_approval: 0 })
 
   const loadIntegrations = useCallback(async () => {
     if (!isSuper) {
@@ -176,6 +177,7 @@ export default function Dashboard() {
         balancesRes,
         surveysRes,
         interviewsRes,
+        opsPendingRes,
       ] = await Promise.all([
         apiFetch('/admin/billing/overview').catch(() => null),
         apiFetch('/admin/operations/overview').catch(() => null),
@@ -187,11 +189,13 @@ export default function Dashboard() {
         apiFetch('/admin/dashboard/provider-balances').catch(() => null),
         apiFetch('/admin/platform-services/surveys/overview').catch(() => null),
         apiFetch('/admin/platform-services/interviews/overview').catch(() => null),
+        apiFetch('/admin/ops-pending').catch(() => ({ pending_approval: 0, offer_queue_ready: 0, demo_requests: 0 })),
       ])
 
       setBilling(billingRes)
       setOperations(operationsRes)
       setSupport(supportRes)
+      setStats(opsPendingRes || { pending_approval: 0, offer_queue_ready: 0, demo_requests: 0 })
       setOrgSummary(
         orgSummaryRes && typeof orgSummaryRes === 'object'
           ? {
@@ -874,6 +878,75 @@ export default function Dashboard() {
           </>
         )}
       </Panel>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        {/* Three pending cards */}
+        <Link
+          to="/marketing/lead-sales?status=pending"
+          className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+              <Phone className="h-3.5 w-3.5" /> Pending sales approval
+            </span>
+            <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
+              <StatusDot tone="warn" />
+              {stats.pending_approval || 0}
+            </Badge>
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            Sales tasks awaiting admin approval before dialing.
+          </p>
+          <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-foreground">
+            Review queue
+            <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </span>
+        </Link>
+
+        <Link
+          to="/marketing/send-offer"
+          className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+              <Send className="h-3.5 w-3.5" /> Offers ready to send
+            </span>
+            <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
+              <StatusDot tone="ok" />
+              {operations?.offer_queue_ready || 0}
+            </Badge>
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            Post-call service offers awaiting delivery.
+          </p>
+          <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-foreground">
+            Send offers
+            <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </span>
+        </Link>
+
+        <Link
+          to="/marketing/ai-demos"
+          className="group rounded-lg border border-border bg-card p-3 transition-all hover:-translate-y-0.5 hover:border-ring/40 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground">
+              <Bot className="h-3.5 w-3.5" /> AI demos requested
+            </span>
+            <Badge variant="outline" className="gap-1.5 rounded-full text-[10px]">
+              <StatusDot tone={support?.demo_requests > 0 ? 'warn' : 'ok'} />
+              {support?.demo_requests || 0}
+            </Badge>
+          </div>
+          <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+            Website visitors requesting product demos.
+          </p>
+          <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-foreground">
+            View demos
+            <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </span>
+        </Link>
+      </div>
 
       <div className="grid gap-3 lg:grid-cols-3">
         <Panel
