@@ -2347,6 +2347,8 @@ class AiDemoService:
         talk: str | None = None,
         intent: str | None = None,
         beat_index: int | None = None,
+        call_control_id: str | None = None,
+        agent_message: str | None = None,
     ) -> dict[str, Any]:
         session = db.get(DemoSession, str(session_id or "").strip())
         if session is None:
@@ -2367,11 +2369,46 @@ class AiDemoService:
                 patch["current_index"] = int(beat_index)
             except (TypeError, ValueError):
                 pass
+        ccid = str(call_control_id or "").strip()
+        if ccid:
+            patch["telnyx_call_control_id"] = ccid[:200]
         AiDemoService.update_memory(db, req, patch)
         memory = _json_loads(req.conversation_memory, {})
         beat = tour_beat_by_id(str((memory or {}).get("current_beat") or beat_id or ""))
-        msg = tour_advance_message(beat)
-        return {"ok": True, "target": target_id, "message": msg}
+        msg = str(agent_message or "").strip() or tour_advance_message(beat)
+        agent_notify = AiDemoService._notify_agent_click(
+            db,
+            call_control_id=str((memory or {}).get("telnyx_call_control_id") or ccid or "").strip(),
+            message=msg,
+        )
+        return {"ok": True, "target": target_id, "message": msg, "agent_notify": agent_notify}
+
+    @staticmethod
+    def _notify_agent_click(db: Session, *, call_control_id: str, message: str) -> dict[str, Any]:
+        """Force Leo to hear the Next/Click via Call Control (trigger_response=true)."""
+        ccid = str(call_control_id or "").strip()
+        text = str(message or "").strip()
+        if not ccid or not text:
+            return {"ok": False, "status": "skipped", "detail": "missing_call_control_id_or_message"}
+        try:
+            from app.services.provider_settings import ProviderSettingsService
+            from app.services.telnyx_voice_service import TelnyxVoiceAdapter
+
+            cfg, _ = ProviderSettingsService.get_platform_config_decrypted(db, provider="telnyx")
+            result = TelnyxVoiceAdapter.add_ai_assistant_messages(
+                call_control_id=ccid,
+                messages=[{"role": "user", "content": text[:4000]}],
+                config=cfg or {},
+                trigger_response=True,
+            )
+            return {
+                "ok": bool(result.ok),
+                "status": result.status,
+                "detail": result.detail,
+            }
+        except Exception as exc:
+            logger.exception("ai_demo_agent_notify_failed")
+            return {"ok": False, "status": "error", "detail": str(exc)[:300]}
 
     @staticmethod
     def note_created_feedback_location(db: Session, *, session_id: str, location_id: str) -> None:

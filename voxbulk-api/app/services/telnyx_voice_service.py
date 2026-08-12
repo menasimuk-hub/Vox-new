@@ -588,6 +588,51 @@ class TelnyxVoiceAdapter:
             return TelnyxProviderResult(ok=False, status="error", detail=str(e))
 
     @staticmethod
+    def add_ai_assistant_messages(
+        *,
+        call_control_id: str,
+        messages: list[dict[str, Any]],
+        config: dict[str, Any],
+        trigger_response: bool = True,
+    ) -> TelnyxProviderResult:
+        """Inject text into an active AI Assistant call and optionally force a reply turn."""
+        api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
+        if not api_key:
+            try:
+                api_key, _ = require_telnyx_api_key(None, config)
+            except Exception as exc:
+                return TelnyxProviderResult(ok=False, status="not_configured", detail=str(exc))
+        call_id = str(call_control_id or "").strip()
+        clean_messages = [m for m in (messages or []) if isinstance(m, dict) and str(m.get("role") or "").strip()]
+        if not call_id or not clean_messages:
+            return TelnyxProviderResult(
+                ok=False,
+                status="not_configured",
+                detail="call_control_id and messages are required",
+            )
+        payload: dict[str, Any] = {
+            "messages": clean_messages,
+            "trigger_response": bool(trigger_response),
+        }
+        try:
+            with httpx.Client(timeout=15.0, verify=httpx_ssl_verify()) as client:
+                response = client.post(
+                    f"https://api.telnyx.com/v2/calls/{call_id}/actions/ai_assistant_add_messages",
+                    json=payload,
+                    headers=_telnyx_headers(api_key),
+                )
+            response.raise_for_status()
+            body = response.json() if response.content else {}
+            return TelnyxProviderResult(ok=True, status="messages_added", external_id=call_id, payload=body if isinstance(body, dict) else {})
+        except httpx.HTTPStatusError as e:
+            detail = _telnyx_http_error_detail(e)
+            return TelnyxProviderResult(ok=False, status="http_error", detail=detail)
+        except httpx.HTTPError as e:
+            return TelnyxProviderResult(ok=False, status="http_error", detail=str(e))
+        except Exception as e:
+            return TelnyxProviderResult(ok=False, status="error", detail=str(e))
+
+    @staticmethod
     def hangup_call(*, call_control_id: str, config: dict[str, Any]) -> TelnyxProviderResult:
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
         call_id = str(call_control_id or "").strip()

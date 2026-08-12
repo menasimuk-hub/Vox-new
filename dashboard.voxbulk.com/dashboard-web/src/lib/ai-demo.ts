@@ -98,9 +98,16 @@ export async function reportDemoUserClick(
     talk?: string;
     intent?: string;
     beat_index?: number;
+    call_control_id?: string | null;
+    agent_message?: string;
   },
 ) {
-  return publicApiFetch<{ ok?: boolean; target?: string; message?: string }>("/ai-demo/user-clicked", {
+  return publicApiFetch<{
+    ok?: boolean;
+    target?: string;
+    message?: string;
+    agent_notify?: { ok?: boolean; status?: string; detail?: string | null };
+  }>("/ai-demo/user-clicked", {
     method: "POST",
     body: JSON.stringify({
       session_id: sessionId,
@@ -111,6 +118,8 @@ export async function reportDemoUserClick(
       talk: extra?.talk,
       intent: extra?.intent,
       beat_index: extra?.beat_index,
+      call_control_id: extra?.call_control_id || undefined,
+      agent_message: extra?.agent_message || undefined,
     }),
   });
 }

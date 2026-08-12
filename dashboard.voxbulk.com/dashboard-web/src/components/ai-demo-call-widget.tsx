@@ -33,25 +33,23 @@ import {
   nextIndexAfterClick,
   type DemoTourBeat,
 } from "@/lib/ai-demo-tour";
+import {
+  enqueueDemoAgentMessage,
+  flushDemoAgentMessages,
+  readCallControlId,
+  type DemoAgentCall,
+} from "@/lib/ai-demo-agent-send";
 
 const REMOTE_AUDIO_ID = "voxbulk-ai-demo-remote-audio";
 const ACTIVE_TIMEOUT_MS = 45_000;
 const POS_KEY = "voxbulk_ai_demo_widget_pos";
 
-type TelnyxCall = {
+type TelnyxCall = DemoAgentCall & {
   id?: string;
-  state?: string;
   hangup?: () => void;
   remoteStream?: MediaStream | null;
   localStream?: MediaStream | null;
-  /** Official JS WebRTC API — injects a user text turn into the AI assistant. */
-  sendConversationMessage?: (message: string, attachments?: string[]) => Promise<unknown> | unknown;
 };
-
-function callLooksLive(call: TelnyxCall | null | undefined): boolean {
-  const state = String(call?.state || "").toLowerCase();
-  return state === "active" || state === "answered" || state === "held";
-}
 
 type WidgetPos = { x: number; y: number };
 
@@ -133,44 +131,25 @@ export function AiDemoCallWidget() {
   const wizardPauseRef = useRef<number | null>(null);
   const startTourRef = useRef<() => void>(() => undefined);
 
-  const flushAgentMessages = useCallback(() => {
-    const call = callRef.current;
-    if (!call || !callLooksLive(call)) return;
-    const send = call.sendConversationMessage;
-    if (typeof send !== "function") {
-      if (pendingAgentMsgsRef.current.length) {
-        console.warn(
-          "[ai-demo] call.sendConversationMessage missing — Next/Click will not reach Leo",
-          { state: call.state, keys: Object.getOwnPropertyNames(call) },
-        );
-      }
-      return;
+  const flushAgentMessages = useCallback(async () => {
+    const result = await flushDemoAgentMessages(callRef.current, pendingAgentMsgsRef.current);
+    if (!result.ok && result.reason === "missing_method") {
+      console.warn("[ai-demo] call.sendConversationMessage missing — Next/Click will not reach Leo", result);
+    } else if (!result.ok && result.reason === "threw") {
+      console.warn("[ai-demo] sendConversationMessage threw", result.error);
+    } else if (result.ok) {
+      console.info("[ai-demo] sendConversationMessage ok", {
+        preview: result.preview,
+        callControlId: result.callControlId,
+      });
     }
-    const queued = pendingAgentMsgsRef.current.splice(0);
-    for (const text of queued) {
-      try {
-        const result = send.call(call, text);
-        void Promise.resolve(result).then(
-          () => undefined,
-          (err: unknown) => {
-            console.warn("[ai-demo] sendConversationMessage rejected", err);
-          },
-        );
-      } catch (err) {
-        console.warn("[ai-demo] sendConversationMessage threw", err);
-      }
-    }
+    return result;
   }, []);
 
   const sendToAgent = useCallback(
     (msg: string) => {
-      const text = String(msg || "").trim();
-      if (!text) return;
-      pendingAgentMsgsRef.current.push(text);
-      if (pendingAgentMsgsRef.current.length > 6) {
-        pendingAgentMsgsRef.current = pendingAgentMsgsRef.current.slice(-6);
-      }
-      flushAgentMessages();
+      enqueueDemoAgentMessage(pendingAgentMsgsRef.current, msg);
+      void flushAgentMessages();
     },
     [flushAgentMessages],
   );
@@ -260,6 +239,8 @@ export function AiDemoCallWidget() {
           talk: nextBeat.talk,
           intent: nextBeat.intent,
           beat_index: next,
+          call_control_id: readCallControlId(callRef.current),
+          agent_message: demoTourAdvanceMessage(nextBeat),
         }).catch(() => undefined);
       }
     },
@@ -281,6 +262,8 @@ export function AiDemoCallWidget() {
         talk: first.talk,
         intent: first.intent,
         beat_index: 0,
+        call_control_id: readCallControlId(callRef.current),
+        agent_message: demoTourStartMessage(first),
       }).catch(() => undefined);
     }
   }, [applyBeatAt, sendToAgent, sessionId]);

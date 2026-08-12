@@ -105,6 +105,8 @@ class UserClickedIn(BaseModel):
     talk: str | None = None
     intent: str | None = None
     beat_index: int | None = None
+    call_control_id: str | None = None
+    agent_message: str | None = None
 
 
 class LiveDemoResponseIn(BaseModel):
@@ -261,6 +263,8 @@ def demo_user_clicked(payload: UserClickedIn, db: Session = Depends(get_db)):
             talk=payload.talk,
             intent=payload.intent,
             beat_index=payload.beat_index,
+            call_control_id=payload.call_control_id,
+            agent_message=payload.agent_message,
         )
     except AiDemoError as exc:
         raise _http(exc) from exc
