@@ -26,8 +26,10 @@ import {
 } from "@/lib/ai-demo-highlight";
 import {
   DEMO_TOUR_BEATS,
+  DEMO_WRAP_MESSAGE,
+  demoTourAdvanceMessage,
   demoTourBeatAt,
-  demoTourLockMessage,
+  demoTourStartMessage,
   nextIndexAfterClick,
   type DemoTourBeat,
 } from "@/lib/ai-demo-tour";
@@ -125,32 +127,37 @@ export function AiDemoCallWidget() {
   const tourStartedRef = useRef(false);
   const wizardPauseRef = useRef<number | null>(null);
 
-  const notifySpotlight = useCallback((beat: DemoTourBeat) => {
-    const msg = demoTourLockMessage(beat);
-    try {
-      const call = callRef.current;
-      if (typeof call?.sendAIAssistantMessage === "function") {
-        call.sendAIAssistantMessage(msg);
-        return;
+  const sendToAgent = useCallback((msg: string) => {
+    const bodies: unknown[] = [callRef.current, clientRef.current];
+    for (const target of bodies) {
+      if (!target || typeof target !== "object") continue;
+      const rec = target as Record<string, unknown>;
+      for (const key of ["sendAIAssistantMessage", "sendConversationMessage"] as const) {
+        const fn = rec[key];
+        if (typeof fn === "function") {
+          try {
+            fn.call(target, msg);
+          } catch {
+            /* try the next method */
+          }
+        }
       }
-      if (typeof call?.sendConversationMessage === "function") {
-        call.sendConversationMessage(msg);
-        return;
-      }
-      const client = clientRef.current;
-      if (typeof client?.sendAIAssistantMessage === "function") {
-        client.sendAIAssistantMessage(msg);
-      }
-    } catch {
-      /* tool-return lock still covers the agent */
     }
   }, []);
+
+  const notifySpotlight = useCallback(
+    (beat: DemoTourBeat) => {
+      sendToAgent(demoTourAdvanceMessage(beat));
+    },
+    [sendToAgent],
+  );
 
   const notificationHandlerRef = useRef<((...args: unknown[]) => void) | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const afterEventIdRef = useRef<string | null>(null);
   const activeTimerRef = useRef<number | null>(null);
   const softCapTimerRef = useRef<number | null>(null);
+  const wrapTimerRef = useRef<number | null>(null);
   const startedAtRef = useRef<number>(0);
   const startedRef = useRef(false);
   const exitingRef = useRef(false);
@@ -235,7 +242,7 @@ export function AiDemoCallWidget() {
     tourStartedRef.current = true;
     const first = DEMO_TOUR_BEATS[0];
     applyBeatAt(0);
-    if (first) notifySpotlight(first);
+    if (first) sendToAgent(demoTourStartMessage(first));
     const sid = demoSessionFromLocation() || sessionId;
     if (sid && first) {
       void reportDemoUserClick(sid, first.target, {
@@ -246,7 +253,7 @@ export function AiDemoCallWidget() {
         beat_index: 0,
       }).catch(() => undefined);
     }
-  }, [applyBeatAt, notifySpotlight, sessionId]);
+  }, [applyBeatAt, sendToAgent, sessionId]);
 
   const hangup = useCallback(async () => {
     if (activeTimerRef.current) {
@@ -256,6 +263,10 @@ export function AiDemoCallWidget() {
     if (softCapTimerRef.current) {
       window.clearTimeout(softCapTimerRef.current);
       softCapTimerRef.current = null;
+    }
+    if (wrapTimerRef.current) {
+      window.clearTimeout(wrapTimerRef.current);
+      wrapTimerRef.current = null;
     }
     try {
       const client = clientRef.current;
@@ -325,7 +336,11 @@ export function AiDemoCallWidget() {
           toast.message("Sales will follow up with the best offer");
         }
         if (ev.type === "end_demo") {
-          void finish("Agent ended demo");
+          sendToAgent(DEMO_WRAP_MESSAGE);
+          if (wrapTimerRef.current) window.clearTimeout(wrapTimerRef.current);
+          wrapTimerRef.current = window.setTimeout(() => {
+            void finish("Agent ended demo");
+          }, 12_000);
           continue;
         }
         const action = String(ev.action || ev.type || "").trim().toLowerCase();
@@ -344,7 +359,7 @@ export function AiDemoCallWidget() {
         applyBeatAt(beatIndexRef.current);
       }
     },
-    [applyBeatAt, finish, startTour],
+    [applyBeatAt, finish, sendToAgent, startTour],
   );
 
   useEffect(() => {
@@ -483,8 +498,11 @@ export function AiDemoCallWidget() {
         const softCap = Math.max(3, Number(started.soft_cap_minutes || 7)) * 60 * 1000;
         softCapTimerRef.current = window.setTimeout(() => {
           toast.message("Wrapping up the demo");
-          void finish("Soft cap reached");
-        }, softCap);
+          sendToAgent(DEMO_WRAP_MESSAGE);
+          wrapTimerRef.current = window.setTimeout(() => {
+            void finish("Soft cap reached");
+          }, 12_000);
+        }, Math.max(5_000, softCap - 12_000));
       } catch (e) {
         startedRef.current = false;
         setPhase("ended");

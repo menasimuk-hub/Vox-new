@@ -213,15 +213,43 @@ export function demoTourBeatAt(index: number): DemoTourBeat | null {
 export function demoTourLockMessage(beat: DemoTourBeat): string {
   const wait =
     beat.intent === "view" && beat.showNext
-      ? "Wait for them to click Next on the box."
+      ? "Then wait for Next on the box."
       : beat.intent === "click"
-        ? "Wait for them to tap Click here on the box."
-        : "Stay quiet so they can read. Do not skip ahead.";
+        ? "Then wait for Click here on the box."
+        : "Then stay quiet so they can read.";
   return (
-    `Spotlight is now "${beat.label}". ${beat.talk} ` +
-    `Speak only about this. ${wait} Do not change the screen.`
+    `They are looking at "${beat.label}" NOW. ${beat.talk} ` +
+    `Explain this in 1-2 sentences. ${wait} Do not hang up. Do not change the screen.`
   );
 }
+
+export function demoTourStartMessage(beat: DemoTourBeat): string {
+  return (
+    `The tour started. Spotlight is "${beat.label}". ${beat.talk} ` +
+    "Explain this now in 1-2 sentences. Then wait for Next on the box. Do not hang up."
+  );
+}
+
+/** Spoken as the visitor after they tap Next / Click here — the agent must start explaining. */
+export function demoTourAdvanceMessage(beat: DemoTourBeat): string {
+  const clicked =
+    beat.intent === "view" && beat.showNext
+      ? "I clicked Next."
+      : "I clicked Click here.";
+  const wait =
+    beat.intent === "view" && beat.showNext
+      ? "Then wait for my next Next click."
+      : beat.intent === "click"
+        ? "Then wait for my next Click here."
+        : "Then stay quiet so I can read.";
+  return (
+    `${clicked} The spotlight is now "${beat.label}". ${beat.talk} ` +
+    `Explain this now in 1-2 short sentences. ${wait} Do not hang up. Do not skip ahead.`
+  );
+}
+
+export const DEMO_WRAP_MESSAGE =
+  "TIME IS UP. Do not hang up yet. Say a short thank you: our sales team will follow up with the best offer, and they can contact us if they need any help. Then stop talking.";
 
 /** If they tap form Next during a wizard VIEW, skip the following wizard-next click beat. */
 export function nextIndexAfterClick(currentIndex: number, clickedTarget: string): number {

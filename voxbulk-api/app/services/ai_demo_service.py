@@ -21,6 +21,7 @@ from app.data.ai_demo_coach_script import (
     COACH_TOUR_MAP,
     DEMO_TOUR_BEATS,
     memory_tour_lock,
+    tour_advance_message,
     tour_beat_by_id,
 )
 from app.data.ai_demo_kb_defaults import DEMO_KB_SEED, tool_subset_json
@@ -59,7 +60,9 @@ CONVERSATION_STYLE_GUIDE = (
     "\"See this bit?…\", \"I’ll show you the live view…\".\n"
     "- Answer the literal question first (e.g. feedback pricing, not a general tour) before any upsell or recap.\n"
     "- Sound like a live rep: contractions and light fillers are fine (\"yep\", \"that one's easy\").\n"
-    "- Hard stop on goodbye: if they say thanks / bye / that's all, end cleanly with end_demo — no trailing script."
+    "- Hard stop on goodbye: if they say bye / that's all, thank them, say sales will follow up "
+    "and they can contact us if they need help, then end_demo. "
+    "Asking for pricing is NOT goodbye — never hang up on price."
 )
 
 OPENING_GATE = (
@@ -1617,7 +1620,8 @@ class AiDemoService:
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service=active product so the correct tab opens.",
                 "Close: sales will send the best offer — never invent promo codes or discounts. "
-                "On interest call request_sales_offer + log_volume_needs, then end_demo with book-a-call CTA.",
+                "On buy interest call request_sales_offer + log_volume_needs. "
+                "Stay on the call. Do not end_demo just because they asked the price.",
                 "Cover selected services in this order (one fully, then transition): " + ", ".join(selected) + ".",
             ]
         else:
@@ -2213,15 +2217,14 @@ class AiDemoService:
                 {"pricing_shown": True, "pricing_recommendation": recommendation, "pricing_tab": tab},
             )
             db.commit()
-            lock = memory_tour_lock(memory) if tour_on else ""
             return {
                 "status": "ok",
                 "route": None if tour_on else route,
                 "tab": tab,
                 "message": (
-                    f"Pricing for '{tab}': explain verbally. Do not change the screen. {lock}"
-                    if tour_on
-                    else f"Pricing tab '{tab}' shown. Explain differences and recommend."
+                    f"They asked for pricing ({tab}). Explain 2-3 sentences. "
+                    "Sales will send the best offer. They can contact us if they need help. "
+                    "Do NOT hang up. Do NOT call end_demo. Stay on the call."
                 ),
             }
 
@@ -2286,12 +2289,31 @@ class AiDemoService:
 
         if name == "end_demo":
             summary = str(args.get("summary") or "").strip()
-            return AiDemoService.complete_session(
-                db,
-                session_id=session.id,
-                summary=summary,
-                transcript=str(args.get("transcript") or "") or None,
-            )
+            memory = _json_loads(req.conversation_memory, {})
+            if not isinstance(memory, dict):
+                memory = {}
+            if memory.get("pricing_shown") and not memory.get("goodbye_ok"):
+                blob = f"{summary} {memory.get('sales_offer_note') or ''}".lower()
+                said_bye = any(tok in blob for tok in ("bye", "goodbye", "that's all", "thats all", "done for today"))
+                if not said_bye:
+                    return {
+                        "status": "ok",
+                        "action": "stay",
+                        "message": (
+                            "They asked about pricing — that is NOT the end. "
+                            "Thank them, recap the plan in one line, say sales will send the best offer "
+                            "and they can contact us if they need any help. Stay on the call. Do not hang up."
+                        ),
+                    }
+            AiDemoService.update_memory(db, req, {"goodbye_ok": True, "end_summary": summary or None})
+            return {
+                "status": "ok",
+                "action": "goodbye",
+                "message": (
+                    "Say a short thank you now: our sales team will follow up with the best offer, "
+                    "and they can contact us if they need any help. Then hang up. Do not call end_demo again."
+                ),
+            }
 
         return {"status": "error", "message": f"Unknown tool: {name}"}
 
@@ -2347,8 +2369,9 @@ class AiDemoService:
                 pass
         AiDemoService.update_memory(db, req, patch)
         memory = _json_loads(req.conversation_memory, {})
-        lock = memory_tour_lock(memory if isinstance(memory, dict) else {})
-        return {"ok": True, "target": target_id, "message": lock}
+        beat = tour_beat_by_id(str((memory or {}).get("current_beat") or beat_id or ""))
+        msg = tour_advance_message(beat)
+        return {"ok": True, "target": target_id, "message": msg}
 
     @staticmethod
     def note_created_feedback_location(db: Session, *, session_id: str, location_id: str) -> None:

@@ -150,8 +150,9 @@ def test_coach_script_is_narrator_lock():
             "current_talk": DEMO_TOUR_BEATS[0]["talk"],
         }
     )
-    assert "CURRENT SPOTLIGHT: Live KPIs" in lock
-    assert "Do not change the screen" in lock
+    assert "Live KPIs" in lock
+    assert "Explain this" in lock
+    assert "Do not hang up" in lock
     assert "Next on the box" in lock
     assert "Click here" not in lock
     assert "narrator" in COACH_TOUR_MAP.lower()
@@ -160,6 +161,8 @@ def test_coach_script_is_narrator_lock():
     assert "never say" in COACH_TOUR_MAP.lower()
     assert "Next" in COACH_TOUR_MAP
     assert "wizard" in COACH_TOUR_MAP.lower()
+    assert "I clicked Next" in COACH_TOUR_MAP
+    assert "pricing is not goodbye" in COACH_TOUR_MAP.lower() or "NOT hang up" in COACH_TOUR_MAP
 
 
 def test_highlight_dashboard_starts_then_locks(monkeypatch):
@@ -210,11 +213,38 @@ def test_highlight_dashboard_starts_then_locks(monkeypatch):
     )
     assert restored["action"] == "restore"
     assert restored["target_element_id"] == "home-live-kpis"
-    assert "CURRENT SPOTLIGHT: Live KPIs" in restored["message"]
-    assert "Do not change the screen" in restored["message"]
+    assert "Live KPIs" in restored["message"]
+    assert "Explain this" in restored["message"]
     ui = next(item[1] for item in events if item[0] == "ui")
     assert ui["action"] == "restore"
     assert ui["target_element_id"] == "home-live-kpis"
+
+
+def test_end_demo_refuses_after_pricing(monkeypatch):
+    import json
+
+    from app.services.ai_demo_service import AiDemoService
+
+    session = SimpleNamespace(
+        id="sess-1",
+        request_id="req-1",
+        active_service_code="feedback",
+        language="en",
+        services_explored="[]",
+    )
+    req = SimpleNamespace(
+        conversation_memory=json.dumps({"tour_started": True, "pricing_shown": True, "current_beat": "wizard_launch"})
+    )
+    monkeypatch.setattr(AiDemoService, "_resolve_tool_session", staticmethod(lambda db, payload: session))
+    monkeypatch.setattr(AiDemoService, "get_request", staticmethod(lambda db, rid: req))
+    monkeypatch.setattr(AiDemoService, "update_memory", staticmethod(lambda *a, **k: None))
+    out = AiDemoService.handle_tool(
+        MagicMock(),
+        tool_name="end_demo",
+        payload={"session_id": "sess-1", "summary": "talked pricing"},
+    )
+    assert out["action"] == "stay"
+    assert "hang up" in out["message"].lower()
 
 
 def test_opening_gate_and_consent_first_greeting():

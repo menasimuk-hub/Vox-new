@@ -145,8 +145,8 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "show_pricing",
-            "Open Packages pricing on the correct service tab (core|feedback|expo|smartCard). "
-            "Explain differences and recommend. Never invent discounts — sales will send the best offer.",
+            "Explain pricing when they ask. Never invent discounts — sales will send the best offer. "
+            "Do NOT hang up. Do NOT call end_demo. Asking for the price is not the end of the demo.",
             _body(
                 {
                     "session_id": session_prop,
@@ -185,7 +185,9 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "end_demo",
-            "End the demo session with a short summary and book-sales CTA.",
+            "Only after they say goodbye or they are clearly done. First thank them: "
+            "sales will follow up, they can contact us if they need help. "
+            "Never use this just because they asked for pricing.",
             _body(
                 {
                     "session_id": session_prop,

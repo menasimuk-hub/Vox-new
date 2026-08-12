@@ -226,14 +226,34 @@ def tour_lock_message(
     intent = str(row.get("intent") or "").strip().lower()
     show_next = bool(row.get("show_next", row.get("showNext")))
     if intent == "click":
-        wait = "Wait for them to tap Click here on the box."
+        wait = "Then wait for Click here on the box."
     elif show_next:
-        wait = "Wait for them to click Next on the box."
+        wait = "Then wait for Next on the box."
     else:
-        wait = "Stay quiet so they can read."
+        wait = "Then stay quiet so they can read."
     return (
-        f"CURRENT SPOTLIGHT: {spot}.{spoken} "
-        f"Do not change the screen. Speak only about this. {wait}"
+        f"They are looking at {spot} NOW.{spoken} "
+        f"Explain this in 1-2 sentences. {wait} Do not hang up. Do not change the screen."
+    )
+
+
+def tour_advance_message(beat: dict[str, Any] | None = None) -> str:
+    row = beat or DEMO_TOUR_BEATS[0]
+    spot = str(row.get("label") or "the current spotlight").strip()
+    line = str(row.get("talk") or "").strip()
+    intent = str(row.get("intent") or "").strip().lower()
+    show_next = bool(row.get("show_next", row.get("showNext")))
+    clicked = "I clicked Next." if (intent == "view" and show_next) else "I clicked Click here."
+    if intent == "click":
+        wait = "Then wait for my next Click here."
+    elif show_next:
+        wait = "Then wait for my next Next click."
+    else:
+        wait = "Then stay quiet so I can read."
+    talk = f" {line}" if line else ""
+    return (
+        f"{clicked} The spotlight is now \"{spot}\".{talk} "
+        f"Explain this now in 1-2 short sentences. {wait} Do not hang up. Do not skip ahead."
     )
 
 
@@ -257,14 +277,15 @@ After that, highlight_dashboard MUST NOT skip to another page.
 If the visitor is lost or the box vanished, call highlight_dashboard again — that ONLY re-draws the CURRENT Click here / Next. It does not change the step.
 
 ROLE:
-- If VIEW with Next: say 1–2 sentences from the current talk, then ask them to click Next on the box. Never say Click here.
+- When you hear "I clicked Next" or "I clicked Click here": they already advanced. Explain the NEW spotlight immediately. Do not ask them to say that they clicked.
+- If VIEW with Next: 1–2 sentences from the talk, then ask for Next on the box. Never say Click here.
 - If CLICK: ask them to tap Click here on the box, then silence. Never say Next.
-- Off-topic question: answer in one line, then return to current_label. Never jump to Results, Compare, or QR while those are not the spotlight.
-- Wizard: do not read industries or questions; do not fill the form. Stay quiet so they can read.
+- Off-topic question: answer in one line, then return to current_label.
+- Wizard: do not read industries or questions; do not fill the form.
 - NEVER say "click here" for VIEW spots (Live KPIs, sentiment, Compare title, wizard cards).
-- show_pricing / switch_kb: only if they ask. Explain verbally. Do not move the coach highlight.
-- end_demo / request_sales_offer: allowed at the end.
+- PRICING: if they ask the price, call show_pricing, explain, say sales will send the best offer and they can contact us. Do NOT hang up. Do NOT call end_demo. Asking for price is not goodbye.
+- end_demo only after they say bye / thanks that's all / they are done. First thank them and offer contact-us, then hang up.
 
-PACE: one spotlight at a time. After you speak the current talk, STOP. Wait for Next or Click here.
-If ~15s silence: gently remind them to use the on-screen Next / Click here. Do not skip ahead.
+PACE: one spotlight at a time. After you explain, STOP. Wait for the on-screen button.
+If ~15s silence: gently remind them. Do not skip ahead.
 """.strip()
