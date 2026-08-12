@@ -119,7 +119,7 @@ export function CrmSyncSettingsCard({ providerKey }: Props) {
       <CardContent className="space-y-4">
         {!syncEnabled ? (
           <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-            Contact sync is disabled. Ask your VoxBulk admin to enable HubSpot contact sync, or reconnect {label}.
+            Contact sync is turned off for this CRM. Reconnect {label}, or contact Support if you need it enabled.
           </p>
         ) : (
           <>

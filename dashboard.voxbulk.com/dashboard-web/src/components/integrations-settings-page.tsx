@@ -181,11 +181,18 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
   const booking = (data?.booking ?? []) as IntegrationView[];
   const crm = (data?.crm ?? []) as IntegrationView[];
   const ats = ((data as { ats?: IntegrationView[] } | undefined)?.ats ?? []) as IntegrationView[];
+  const showRecruitingTab = ats.length > 0;
   const activeBookingProvider = data?.active_booking_provider ?? null;
   const activeBookingView = booking.find((b) => b.connected) || null;
   const activeCrmProvider = (data as { active_crm_provider?: string | null })?.active_crm_provider ?? null;
   const activeCrmView = crm.find((c) => c.connected) || null;
   const activeAtsView = ats.find((a) => a.connected) || null;
+
+  React.useEffect(() => {
+    if (!showRecruitingTab && activeTab === "ats") {
+      setActiveTab("booking");
+    }
+  }, [showRecruitingTab, activeTab]);
 
   // Keep the open drawer in sync after connect/save refreshes the catalogue.
   const liveSheetView = React.useMemo(() => {
@@ -214,7 +221,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
 
   const connect = async (view: IntegrationView, options?: { dataCenter?: string }) => {
     if (!view.platform_ready) {
-      toast.error(`${view.label} is not yet enabled by your VoxBulk admin`);
+      toast.error(`${view.label} is not available yet. Contact Support if you need help connecting it.`);
       return;
     }
     if (view.blocked_reason) {
@@ -294,7 +301,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     }
   };
 
-  const renderGrid = (rows: IntegrationView[]) => {
+  const renderGrid = (rows: IntegrationView[], emptyHint: string) => {
     if (catalogueQ.isLoading) {
       return (
         <div className="grid gap-4 md:grid-cols-2">
@@ -307,9 +314,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
     if (rows.length === 0) {
       return (
         <p className="rounded-lg border border-dashed bg-muted/30 p-6 text-sm leading-relaxed text-muted-foreground">
-          No providers in this group are available yet. For Zoho Recruit, enable the partner under Admin → Partners →
-          Zoho and save Client ID / Secret. For booking and CRM, turn on Enable and Visible to organisations in Admin →
-          Integrations.
+          {emptyHint}
         </p>
       );
     }
@@ -332,7 +337,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       <PageHeader
         eyebrow="Settings"
         title="Integrations"
-        description="Connect booking and CRM tools, plus Zoho Recruit for AI voice screening — each organisation picks its own Zoho data centre."
+        description="Connect booking and CRM tools used for interview scheduling and contact sync."
         actions={
           <Button variant="outline" className="gap-1.5" onClick={refresh}>
             <RefreshCw className="size-4" /> Refresh
@@ -401,7 +406,7 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
         </Card>
       ) : null}
 
-      {activeAtsView && activeAtsView.connected ? (
+      {showRecruitingTab && activeAtsView && activeAtsView.connected ? (
         <Card>
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
@@ -432,30 +437,48 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       ) : null}
 
       <Tabs
-        value={activeTab}
-        onValueChange={(v) => setActiveTab(v === "crm" ? "crm" : v === "ats" ? "ats" : "booking")}
+        value={showRecruitingTab ? activeTab : activeTab === "ats" ? "booking" : activeTab}
+        onValueChange={(v) => {
+          if (v === "ats" && !showRecruitingTab) return;
+          setActiveTab(v === "crm" ? "crm" : v === "ats" ? "ats" : "booking");
+        }}
         className="w-full"
       >
-        <TabsList className="grid h-14 w-full grid-cols-3 gap-1 p-1.5 md:max-w-2xl">
+        <TabsList
+          className={`grid h-14 w-full gap-1 p-1.5 md:max-w-2xl ${showRecruitingTab ? "grid-cols-3" : "grid-cols-2"}`}
+        >
           <TabsTrigger value="booking" className="h-11 gap-2 px-3 text-sm font-medium">
             <CalendarCheck className="size-4" /> Booking
           </TabsTrigger>
           <TabsTrigger value="crm" className="h-11 gap-2 px-3 text-sm font-medium">
             <Users className="size-4" /> CRM
           </TabsTrigger>
-          <TabsTrigger value="ats" className="h-11 gap-2 px-3 text-sm font-medium">
-            <Briefcase className="size-4" /> Recruiting
-          </TabsTrigger>
+          {showRecruitingTab ? (
+            <TabsTrigger value="ats" className="h-11 gap-2 px-3 text-sm font-medium">
+              <Briefcase className="size-4" /> Recruiting
+            </TabsTrigger>
+          ) : null}
         </TabsList>
         <TabsContent value="booking" className="mt-6 space-y-4">
-          {renderGrid(booking)}
+          {renderGrid(
+            booking,
+            "No booking integrations are available right now. Contact Support if you need a calendar connected.",
+          )}
         </TabsContent>
         <TabsContent value="crm" className="mt-6 space-y-4">
-          {renderGrid(crm)}
+          {renderGrid(
+            crm,
+            "No CRM integrations are available right now. Contact Support if you need a CRM connected.",
+          )}
         </TabsContent>
-        <TabsContent value="ats" className="mt-6 space-y-4">
-          {renderGrid(ats)}
-        </TabsContent>
+        {showRecruitingTab ? (
+          <TabsContent value="ats" className="mt-6 space-y-4">
+            {renderGrid(
+              ats,
+              "No recruiting integrations are available right now. Contact Support if you need one.",
+            )}
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       <ProviderDetailSheet
@@ -473,8 +496,11 @@ export function IntegrationsSettingsPage({ search }: { search: IntegrationsSearc
       />
 
       <p className="text-xs text-muted-foreground">
-        Need help? Open <Link to="/account/support" className="text-primary underline-offset-2 hover:underline">Support</Link>
-        {" "}or ask your VoxBulk account manager to enable additional integrations in admin.
+        Need help? Open{" "}
+        <Link to="/account/support" className="text-primary underline-offset-2 hover:underline">
+          Support
+        </Link>
+        .
       </p>
     </div>
   );

@@ -294,16 +294,14 @@ export function ProviderDetailSheet({
         <div className="mt-5 space-y-4">
           {!view.platform_ready ? (
             <p className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-              This provider is not yet configured by your VoxBulk admin. Once admin enables it and toggles
-              <strong className="text-foreground"> Visible to organisations</strong>, it will become connectable here.
+              This integration is not available to connect yet. Contact Support if you need help setting it up.
             </p>
           ) : null}
 
           {view.extra?.token_decrypt_failed === true ? (
             <p className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">
-              A Microsoft/Google token is stored for this organisation but the API cannot decrypt it. Ask your admin to
-              verify <code className="text-[11px]">ENCRYPTION_KEY</code> on the API server has not changed, then
-              disconnect and reconnect here.
+              Your calendar connection could not be refreshed. Disconnect and connect again. If it still fails, contact
+              Support.
             </p>
           ) : null}
 

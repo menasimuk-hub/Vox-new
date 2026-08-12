@@ -893,13 +893,21 @@ class PartnerService:
         if "result_webhook_url" in payload and payload["result_webhook_url"] is not None:
             from app.utils.safe_outbound_url import validate_public_https_callback_url
 
-            try:
-                p.result_webhook_url = validate_public_https_callback_url(
-                    payload["result_webhook_url"],
-                    field_name="result_webhook_url",
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raw_webhook = str(payload["result_webhook_url"] or "").strip()
+            if not raw_webhook:
+                p.result_webhook_url = ""
+            else:
+                try:
+                    p.result_webhook_url = validate_public_https_callback_url(
+                        raw_webhook,
+                        field_name="result_webhook_url",
+                    )
+                except ValueError as exc:
+                    # Allow Save when turning the partner off even if the stored webhook is invalid.
+                    if "enabled" in payload and payload["enabled"] is False:
+                        p.result_webhook_url = ""
+                    else:
+                        raise HTTPException(status_code=400, detail=str(exc)) from exc
         if payload.get("webhook_secret"):
             p.webhook_secret_enc = get_encryptor().encrypt_str(str(payload["webhook_secret"]))
         for field, attr in (
