@@ -134,17 +134,19 @@ function FeedbackCompare() {
   const worst = [...locs].sort((a, b) => a.satisfaction - b.satisfaction)[0];
 
   return (
-    <div className="flex w-full flex-col gap-6" data-demo-target="feedback-compare">
-      <PageHeader
-        eyebrow="Customer feedback · Compare"
-        title="Compare locations"
-        description="Side-by-side performance across your venues. Charts only include questions that appear in every selected location's survey."
-        actions={
-          <Button variant="outline" asChild className="gap-1.5">
-            <Link to="/feedback/results"><ArrowLeft className="size-4" /> Back to results</Link>
-          </Button>
-        }
-      />
+    <div className="flex w-full flex-col gap-6">
+      <div data-demo-target="feedback-compare-title">
+        <PageHeader
+          eyebrow="Customer feedback · Compare"
+          title="Compare locations"
+          description="Side-by-side performance across your venues. Charts only include questions that appear in every selected location's survey."
+          actions={
+            <Button variant="outline" asChild className="gap-1.5">
+              <Link to="/feedback/results"><ArrowLeft className="size-4" /> Back to results</Link>
+            </Button>
+          }
+        />
+      </div>
 
       <Card>
         <CardHeader className="pb-3">

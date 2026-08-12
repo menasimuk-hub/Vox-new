@@ -100,6 +100,11 @@ class UserClickedIn(BaseModel):
     session_id: str
     target: str = ""
     target_element_id: str | None = None
+    beat_id: str | None = None
+    label: str | None = None
+    talk: str | None = None
+    intent: str | None = None
+    beat_index: int | None = None
 
 
 class LiveDemoResponseIn(BaseModel):
@@ -247,7 +252,16 @@ def demo_session_status(session_id: str, db: Session = Depends(get_db)):
 def demo_user_clicked(payload: UserClickedIn, db: Session = Depends(get_db)):
     target = str(payload.target_element_id or payload.target or "").strip()
     try:
-        return AiDemoService.record_user_click(db, session_id=payload.session_id, target=target)
+        return AiDemoService.record_user_click(
+            db,
+            session_id=payload.session_id,
+            target=target,
+            beat_id=payload.beat_id,
+            label=payload.label,
+            talk=payload.talk,
+            intent=payload.intent,
+            beat_index=payload.beat_index,
+        )
     except AiDemoError as exc:
         raise _http(exc) from exc
 

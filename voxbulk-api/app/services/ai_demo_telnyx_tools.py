@@ -74,18 +74,10 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "highlight_dashboard",
-            "Spotlight the live control BEFORE you talk. Always show the highlight box. "
-            "VIEW (home_kpis, home_second_row, wizard_*): box title is the area name — never say click here. "
-            "CLICK (nav_*, results_* tabs, wizard_next): box says Click here — ask them to tap, then wait. "
-            "On wizard steps: highlight, tell them the step name, then STAY QUIET so they can read. Do not answer the form. "
-            "Default action=highlight (do NOT navigate). "
-            "Use action=navigate only if they ask you to open it or stalled and said yes. "
-            "PREFERRED step=: home_kpis|home_second_row|"
-            "nav_feedback_results|results_top_menus|results_overview|results_questions|results_responses|results_details|"
-            "nav_feedback_compare|nav_feedback_new|"
-            "wizard_industry|wizard_topics|wizard_look|wizard_branches|wizard_followup|wizard_launch|wizard_next|"
-            "nav_feedback_campaigns|feedback_compare|packages_feedback. "
-            "Include a short label that NAMES the area (not the words Click here).",
+            "After they say ready, call this ONCE to start the tour (home_kpis). "
+            "After the tour has started this tool does NOT move the screen — it only returns CURRENT SPOTLIGHT talk. "
+            "Say that talk then STOP. Do not navigate, open menus, or skip ahead. "
+            "Default action=highlight.",
             _body(
                 {
                     "session_id": session_prop,

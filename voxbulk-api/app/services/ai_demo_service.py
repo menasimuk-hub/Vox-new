@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.data.ai_demo_email_default import DEMO_INVITE_EMAIL_BODY, DEMO_INVITE_EMAIL_SUBJECT
-from app.data.ai_demo_coach_script import COACH_TOUR_MAP
+from app.data.ai_demo_coach_script import COACH_TOUR_MAP, DEMO_TOUR_BEATS, memory_tour_lock
 from app.data.ai_demo_kb_defaults import DEMO_KB_SEED, tool_subset_json
 from app.data.ai_demo_whatsapp_defaults import DEMO_EMAIL_SENT_BODY, DEMO_EMAIL_SENT_TEMPLATE_NAME
 from app.models.demo_knowledge_base import DemoKnowledgeBase
@@ -66,9 +66,9 @@ OPENING_GATE = (
     "  4) Ask if they are ready to start — then STOP and listen\n"
     "Do NOT call highlight_dashboard, show_pricing, switch_kb, or name product features "
     "until they clearly confirm (yes / OK / go / ready / sure / fine).\n"
-    "After they confirm: stay on the home dashboard. Spotlight live KPIs (VIEW box "
-    "labelled Live KPIs — do not say click here) with highlight_dashboard action=highlight. "
-    "Follow COACH MODE beat order."
+    "After they confirm: call highlight_dashboard ONCE (home_kpis) to start the tour. "
+    "The browser then owns every page change. You only narrate CURRENT SPOTLIGHT. "
+    "Do not call highlight/navigate to move the screen after the tour has started."
 )
 
 
@@ -1595,9 +1595,9 @@ class AiDemoService:
                 ),
                 (
                     f"AFTER they confirm ready (not before): stay on HOME. "
-                    f"Name {first_label} in one line, then follow COACH MODE — "
-                    "highlight_dashboard action=highlight on home_kpis first. "
-                    "Do not navigate to a product page until they click the menu."
+                    f"Name {first_label} in one line, then call highlight_dashboard ONCE on home_kpis. "
+                    "After that you are a narrator — speak only CURRENT SPOTLIGHT. "
+                    "Do not navigate or pick the next page."
                 ),
                 (
                     "HOW TO EXPLAIN (only after ready): speak like a closer — outcomes and stakes, not feature lists. "
@@ -1605,11 +1605,9 @@ class AiDemoService:
                     "QR on the table, WhatsApp chat, you see the dip by location first.' "
                     "Then prove it on the real page. Bridge every screen back to THEIR business."
                 ),
-                "UI RULES: Prefer step= curated IDs. Default action=highlight (they advance). "
-                "Call highlight_dashboard BEFORE 'look here'. "
-                "VIEW highlights show a Next button — explain briefly, ask them to click Next so you do not rush, then STOP. "
-                "Never navigate or highlight during the opening consent turn. "
-                "action=navigate only if they ask you to open it or stalled and said yes.",
+                "UI RULES: After the opening gate, one highlight_dashboard starts the tour. "
+                "Then the browser owns Next/click. Speak the lock-text talk only. "
+                "Never navigate or highlight during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service=active product so the correct tab opens.",
@@ -1635,9 +1633,8 @@ class AiDemoService:
                 ),
                 f"Hard soft cap about {soft_cap} minutes — wrap up with end_demo when time is up.",
                 "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
-                "UI RULES: Prefer highlight_dashboard step= curated IDs. Default action=highlight. "
-                "Call BEFORE you say 'look here'. VIEW boxes need Next — wait after asking. "
-                "Never navigate during the opening consent turn.",
+                "UI RULES: One highlight_dashboard after ready starts the tour. "
+                "Then narrate CURRENT SPOTLIGHT only. Never navigate during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service= the product in context.",
@@ -2022,7 +2019,9 @@ class AiDemoService:
                     "transition": f"Switching to {code}",
                 },
             )
-            if route:
+            memory = _json_loads(req.conversation_memory, {})
+            tour_on = bool(isinstance(memory, dict) and memory.get("tour_started"))
+            if route and not tour_on:
                 AiDemoService._append_ui_event(
                     db,
                     session,
@@ -2035,7 +2034,17 @@ class AiDemoService:
                     },
                 )
             db.commit()
-            return {"status": "ok", "service": code, "route": route, "message": f"Switched to {code}"}
+            lock = memory_tour_lock(memory) if tour_on else ""
+            return {
+                "status": "ok",
+                "service": code,
+                "route": None if tour_on else route,
+                "message": (
+                    f"Switched knowledge to {code}. Explain verbally. Do not change the screen. {lock}"
+                    if tour_on
+                    else f"Switched to {code}"
+                ),
+            }
 
         if name == "show_result_panel":
             data = args.get("json") if "json" in args else args.get("data") or args
@@ -2078,144 +2087,59 @@ class AiDemoService:
             return {"status": "ok", "url": raw_data}
 
         if name == "highlight_dashboard":
-            from app.services.ai_demo_org_service import (
-                demo_highlight_intent,
-                pricing_tab_for_service,
-                resolve_demo_route,
-                resolve_demo_ui_step,
-            )
-
-            action = str(args.get("action") or "highlight").strip().lower()
-            if action not in ("highlight", "navigate", "filter", "open_chart"):
-                action = "highlight"
-            step_key = str(args.get("step") or args.get("demo_step") or args.get("ui_step") or "").strip() or None
-            step = resolve_demo_ui_step(step_key)
-            section = args.get("section") or args.get("menu") or args.get("page") or session.active_service_code
-            target = args.get("target") or args.get("route")
-            target_element_id = str(
-                args.get("target_element_id")
-                or args.get("element_id")
-                or args.get("selector")
-                or args.get("demo_target")
-                or (step or {}).get("target_element_id")
-                or ""
-            ).strip() or None
-            label = str(args.get("label") or args.get("caption") or (step or {}).get("label") or "").strip() or None
-            # Default ON — demos need a clear click cue unless the model turns it off.
-            pointer_raw = args.get("pointer", args.get("show_pointer", True))
-            if isinstance(pointer_raw, str):
-                pointer = pointer_raw.strip().lower() not in ("0", "false", "no", "off")
-            else:
-                pointer = bool(pointer_raw) if pointer_raw is not None else True
-            route = None
-            if step and step.get("route"):
-                route = step["route"]
-            if route is None:
-                route = resolve_demo_route(
-                    section=str(section) if section else None,
-                    target=str(target) if target else None,
-                    service=session.active_service_code,
-                )
-            if route is None and session.active_service_code:
-                route = resolve_demo_route(service=session.active_service_code)
-            # Default demo targets by section when the model forgets
-            if not target_element_id and section:
-                sec = str(section).strip().lower().replace("-", "_")
-                defaults = {
-                    "feedback": "feedback-list",
-                    "feedback_new": "feedback-new",
-                    "feedback_results": "feedback-results",
-                    "surveys": "surveys-list",
-                    "recruitment": "interviews-list",
-                    "interviews": "interviews-list",
-                    "expo": "expo-list",
-                    "smart_card": "smart-card-list",
-                    "services": "settings-services",
-                    "packages": f"packages-tab-{pricing_tab_for_service(session.active_service_code)}",
-                    "pricing": f"packages-tab-{pricing_tab_for_service(session.active_service_code)}",
+            memory = _json_loads(req.conversation_memory, {})
+            if not isinstance(memory, dict):
+                memory = {}
+            if memory.get("tour_started"):
+                lock = memory_tour_lock(memory)
+                return {
+                    "status": "ok",
+                    "action": "locked",
+                    "intent": memory.get("current_intent") or "view",
+                    "label": memory.get("current_label"),
+                    "message": lock,
                 }
-                target_element_id = defaults.get(sec)
-                if not label and target_element_id:
-                    label = f"Look here: {sec.replace('_', ' ')}"
-            if not label and target_element_id:
-                label = target_element_id.replace("-", " ")
-            intent = str(args.get("intent") or "").strip().lower()
-            if intent not in ("view", "click"):
-                intent = demo_highlight_intent(step=step_key, target_element_id=target_element_id)
-            want_navigate = action in ("navigate", "open_chart")
+
+            first = DEMO_TOUR_BEATS[0]
+            AiDemoService.update_memory(
+                db,
+                req,
+                {
+                    "tour_started": True,
+                    "current_beat": first["id"],
+                    "current_label": first["label"],
+                    "current_talk": first["talk"],
+                    "current_intent": first["intent"],
+                    "current_index": 0,
+                },
+            )
             event = {
                 "type": "highlight_dashboard",
-                "action": action,
-                "section": section,
-                "step": step_key,
-                "target": target,
-                "target_element_id": target_element_id,
-                "pointer": pointer if intent == "click" else False,
-                "label": label,
-                "intent": intent,
-                "route": route if want_navigate else None,
-                "location": args.get("location"),
-                "range": args.get("range") or args.get("range_key"),
-                "view": args.get("view"),
-                "delay_ms": int(args.get("delay_ms") or 250),
+                "action": "highlight",
+                "section": "home",
+                "step": first["id"],
+                "target_element_id": first["target"],
+                "pointer": False,
+                "label": first["label"],
+                "intent": first["intent"],
+                "route": None,
+                "delay_ms": 150,
             }
             AiDemoService._append_ui_event(db, session, event)
             db.commit()
-            if want_navigate and not route:
-                logger.warning(
-                    "demo_highlight_no_route session=%s section=%s target=%s step=%s",
-                    session.id,
-                    section,
-                    target,
-                    step_key,
-                )
-                return {
-                    "status": "ok",
-                    "action": event["action"],
-                    "route": None,
-                    "message": (
-                        "No matching route — retry with step=home_kpis|nav_feedback_results|"
-                        "feedback_list|feedback_create|feedback_results|"
-                        "surveys|recruitment|expo|smart_card|services|packages_feedback, "
-                        "or section=services|feedback|..."
-                    ),
-                }
-            if want_navigate:
-                return {
-                    "status": "ok",
-                    "action": event["action"],
-                    "route": route,
-                    "target_element_id": target_element_id,
-                    "label": label,
-                    "message": f"Opening {route}" + (f" → {label}" if label else ""),
-                }
-            if intent == "view":
-                return {
-                    "status": "ok",
-                    "action": "highlight",
-                    "intent": "view",
-                    "route": None,
-                    "target_element_id": target_element_id,
-                    "label": label,
-                    "message": (
-                        f"Look-only spotlight on {label or target_element_id or 'this area'} with a Next button. "
-                        "Explain in 1–2 short sentences. Clearly say they should click Next on the box "
-                        "so you do not rush to the next topic. Then STOP and wait — do NOT highlight "
-                        "the next beat until they click Next or say they are ready."
-                    ),
-                }
             return {
                 "status": "ok",
                 "action": "highlight",
-                "intent": "click",
+                "intent": first["intent"],
                 "route": None,
-                "target_element_id": target_element_id,
-                "label": label,
-                "message": (
-                    f"Spotlight on {label or target_element_id or 'the control'}. "
-                    "Ask them to tap that control, then STOP and listen. "
-                    "If ~12s silence, offer to open it (action=navigate). "
-                    "Do not describe the next page until they clicked."
+                "target_element_id": first["target"],
+                "label": first["label"],
+                "message": memory_tour_lock(
+                    {
+                        "current_beat": first["id"],
+                        "current_label": first["label"],
+                        "current_talk": first["talk"],
+                    }
                 ),
             }
 
@@ -2227,46 +2151,54 @@ class AiDemoService:
             service = str(args.get("service") or session.active_service_code or "").strip() or None
             route = packages_route_for_service(service)
             tab = pricing_tab_for_service(service)
-            AiDemoService._append_ui_event(
-                db,
-                session,
-                {
-                    "type": "highlight_dashboard",
-                    "action": "navigate",
-                    "section": "packages",
-                    "route": route,
-                    "target_element_id": f"packages-tab-{tab}",
-                    "pointer": True,
-                    "label": f"Packages — {tab} tab",
-                    "delay_ms": 200,
-                },
-            )
-            AiDemoService._append_ui_event(
-                db,
-                session,
-                {
-                    "type": "show_pricing",
-                    "data": PRICING_WALKTHROUGH,
-                    "recommendation": recommendation,
-                    "service": service,
-                    "tab": tab,
-                    "route": route,
-                    "target_element_id": f"packages-panel-{tab}",
-                    "pointer": True,
-                    "label": "Plan details for this product",
-                },
-            )
+            memory = _json_loads(req.conversation_memory, {})
+            tour_on = bool(isinstance(memory, dict) and memory.get("tour_started"))
+            if not tour_on:
+                AiDemoService._append_ui_event(
+                    db,
+                    session,
+                    {
+                        "type": "highlight_dashboard",
+                        "action": "navigate",
+                        "section": "packages",
+                        "route": route,
+                        "target_element_id": f"packages-tab-{tab}",
+                        "pointer": True,
+                        "label": f"Packages — {tab} tab",
+                        "delay_ms": 200,
+                    },
+                )
+                AiDemoService._append_ui_event(
+                    db,
+                    session,
+                    {
+                        "type": "show_pricing",
+                        "data": PRICING_WALKTHROUGH,
+                        "recommendation": recommendation,
+                        "service": service,
+                        "tab": tab,
+                        "route": route,
+                        "target_element_id": f"packages-panel-{tab}",
+                        "pointer": True,
+                        "label": "Plan details for this product",
+                    },
+                )
             AiDemoService.update_memory(
                 db,
                 req,
                 {"pricing_shown": True, "pricing_recommendation": recommendation, "pricing_tab": tab},
             )
             db.commit()
+            lock = memory_tour_lock(memory) if tour_on else ""
             return {
                 "status": "ok",
-                "route": route,
+                "route": None if tour_on else route,
                 "tab": tab,
-                "message": f"Pricing tab '{tab}' shown. Explain differences and recommend.",
+                "message": (
+                    f"Pricing for '{tab}': explain verbally. Do not change the screen. {lock}"
+                    if tour_on
+                    else f"Pricing tab '{tab}' shown. Explain differences and recommend."
+                ),
             }
 
         if name == "request_sales_offer":
@@ -2359,20 +2291,40 @@ class AiDemoService:
         return out
 
     @staticmethod
-    def record_user_click(db: Session, *, session_id: str, target: str) -> dict[str, Any]:
+    def record_user_click(
+        db: Session,
+        *,
+        session_id: str,
+        target: str,
+        beat_id: str | None = None,
+        label: str | None = None,
+        talk: str | None = None,
+        intent: str | None = None,
+        beat_index: int | None = None,
+    ) -> dict[str, Any]:
         session = db.get(DemoSession, str(session_id or "").strip())
         if session is None:
             raise AiDemoError("Session not found", status_code=404)
         req = AiDemoService.get_request(db, session.request_id)
         target_id = str(target or "").strip()[:180]
-        AiDemoService.update_memory(db, req, {"last_user_click": target_id})
-        AiDemoService._append_ui_event(
-            db,
-            session,
-            {"type": "user_clicked", "target_element_id": target_id},
-        )
-        db.commit()
-        return {"ok": True, "target": target_id}
+        patch: dict[str, Any] = {"last_user_click": target_id, "tour_started": True}
+        if beat_id:
+            patch["current_beat"] = str(beat_id).strip()[:80]
+        if label:
+            patch["current_label"] = str(label).strip()[:180]
+        if talk:
+            patch["current_talk"] = str(talk).strip()[:500]
+        if intent in ("view", "click"):
+            patch["current_intent"] = intent
+        if beat_index is not None:
+            try:
+                patch["current_index"] = int(beat_index)
+            except (TypeError, ValueError):
+                pass
+        AiDemoService.update_memory(db, req, patch)
+        memory = _json_loads(req.conversation_memory, {})
+        lock = memory_tour_lock(memory if isinstance(memory, dict) else {})
+        return {"ok": True, "target": target_id, "message": lock}
 
     @staticmethod
     def note_created_feedback_location(db: Session, *, session_id: str, location_id: str) -> None:

@@ -18,12 +18,14 @@ import {
   startDemoSession,
   type AiDemoUiEvent,
 } from "@/lib/ai-demo";
+import { clearDemoHighlight, parseDemoRoute, scheduleDemoHighlight } from "@/lib/ai-demo-highlight";
 import {
-  clearDemoHighlight,
-  inferDemoHighlightIntent,
-  parseDemoRoute,
-  scheduleDemoHighlight,
-} from "@/lib/ai-demo-highlight";
+  DEMO_TOUR_BEATS,
+  demoTourBeatAt,
+  demoTourLockMessage,
+  nextIndexAfterClick,
+  type DemoTourBeat,
+} from "@/lib/ai-demo-tour";
 
 const REMOTE_AUDIO_ID = "voxbulk-ai-demo-remote-audio";
 const ACTIVE_TIMEOUT_MS = 45_000;
@@ -114,12 +116,12 @@ export function AiDemoCallWidget() {
     sendAIAssistantMessage?: (message: string) => unknown;
   } | null>(null);
 
-  const notifyDemoAgentAdvanced = useCallback((intent: "view" | "click", target: string) => {
-    const label = String(target || "the highlight").trim();
-    const msg =
-      intent === "view"
-        ? `I clicked Next on the highlight box for "${label}". Please continue to the next topic now, and keep waiting for my Next clicks so you do not rush.`
-        : `I clicked the highlighted control "${label}". Please continue.`;
+  const beatIndexRef = useRef(-1);
+  const tourStartedRef = useRef(false);
+  const wizardPauseRef = useRef<number | null>(null);
+
+  const notifySpotlight = useCallback((beat: DemoTourBeat) => {
+    const msg = demoTourLockMessage(beat);
     try {
       const call = callRef.current;
       if (typeof call?.sendAIAssistantMessage === "function") {
@@ -135,7 +137,7 @@ export function AiDemoCallWidget() {
         client.sendAIAssistantMessage(msg);
       }
     } catch {
-      /* ignore — agent still follows wait/Next coach rules */
+      /* tool-return lock still covers the agent */
     }
   }, []);
 
@@ -148,48 +150,47 @@ export function AiDemoCallWidget() {
   const startedRef = useRef(false);
   const exitingRef = useRef(false);
   const thanksUrlRef = useRef<string | null>(null);
-  const ignorePathClearUntilRef = useRef(0);
+  const advanceFromRef = useRef<(clicked: string) => void>(() => undefined);
 
-  const navigateRoute = useCallback(
-    (
-      route: string,
-      highlight?: {
-        target?: string | null;
-        pointer?: boolean;
-        label?: string | null;
-        intent?: "view" | "click";
-      },
-    ) => {
-      const { pathname: path, search } = parseDemoRoute(route);
+  const applyBeatAt = useCallback(
+    (index: number) => {
+      if (wizardPauseRef.current != null) {
+        window.clearTimeout(wizardPauseRef.current);
+        wizardPauseRef.current = null;
+      }
+      beatIndexRef.current = index;
+      const beat = demoTourBeatAt(index);
+      if (!beat) {
+        clearDemoHighlight();
+        return;
+      }
       const runHighlight = () => {
-        if (!highlight?.target) return;
-        const intent = highlight.intent || inferDemoHighlightIntent(highlight.target);
         scheduleDemoHighlight(
           {
-            targetElementId: highlight.target,
-            pointer: intent === "click" && highlight.pointer !== false,
-            label: highlight.label,
+            targetElementId: beat.target,
+            pointer: beat.intent === "click",
+            label: beat.label,
             warnMissing: true,
-            intent,
+            intent: beat.intent,
             persistUntilClick: true,
-            onClicked: (clicked) => {
-              const sid = demoSessionFromLocation() || sessionId;
-              if (sid) {
-                void reportDemoUserClick(sid, clicked).catch(() => undefined);
-              }
-              notifyDemoAgentAdvanced(intent, clicked);
-            },
+            showNext: beat.showNext,
+            onClicked: (clicked) => advanceFromRef.current(clicked),
           },
-          350,
+          80,
         );
+        if (beat.intent === "view" && !beat.showNext) {
+          wizardPauseRef.current = window.setTimeout(() => {
+            if (beatIndexRef.current === index) advanceFromRef.current(beat.target);
+          }, 2200);
+        }
       };
+      const { pathname: path, search } = parseDemoRoute(beat.route);
       const currentPath = typeof window !== "undefined" ? window.location.pathname : pathname;
       const currentSearch =
         typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "";
       const nextSearch = new URLSearchParams(search).toString();
       const needsNav = path !== currentPath || (nextSearch && nextSearch !== currentSearch);
       if (needsNav) {
-        ignorePathClearUntilRef.current = Date.now() + 900;
         void navigate({
           to: path as never,
           search: (Object.keys(search).length ? search : undefined) as never,
@@ -198,8 +199,50 @@ export function AiDemoCallWidget() {
         runHighlight();
       }
     },
-    [navigate, pathname, sessionId, notifyDemoAgentAdvanced],
+    [navigate, pathname],
   );
+
+  const advanceFrom = useCallback(
+    (clicked: string) => {
+      const cur = beatIndexRef.current;
+      const next = nextIndexAfterClick(cur, clicked);
+      const nextBeat = demoTourBeatAt(next);
+      clearDemoHighlight();
+      applyBeatAt(next);
+      if (!nextBeat) return;
+      notifySpotlight(nextBeat);
+      const sid = demoSessionFromLocation() || sessionId;
+      if (sid) {
+        void reportDemoUserClick(sid, clicked, {
+          beat_id: nextBeat.id,
+          label: nextBeat.label,
+          talk: nextBeat.talk,
+          intent: nextBeat.intent,
+          beat_index: next,
+        }).catch(() => undefined);
+      }
+    },
+    [applyBeatAt, notifySpotlight, sessionId],
+  );
+  advanceFromRef.current = advanceFrom;
+
+  const startTour = useCallback(() => {
+    if (tourStartedRef.current && beatIndexRef.current >= 0) return;
+    tourStartedRef.current = true;
+    const first = DEMO_TOUR_BEATS[0];
+    applyBeatAt(0);
+    if (first) notifySpotlight(first);
+    const sid = demoSessionFromLocation() || sessionId;
+    if (sid && first) {
+      void reportDemoUserClick(sid, first.target, {
+        beat_id: first.id,
+        label: first.label,
+        talk: first.talk,
+        intent: first.intent,
+        beat_index: 0,
+      }).catch(() => undefined);
+    }
+  }, [applyBeatAt, notifySpotlight, sessionId]);
 
   const hangup = useCallback(async () => {
     if (activeTimerRef.current) {
@@ -230,6 +273,11 @@ export function AiDemoCallWidget() {
     }
     callRef.current = null;
     clientRef.current = null;
+    if (wizardPauseRef.current != null) {
+      window.clearTimeout(wizardPauseRef.current);
+      wizardPauseRef.current = null;
+    }
+    clearDemoHighlight();
     try {
       localStreamRef.current?.getTracks().forEach((t) => t.stop());
     } catch {
@@ -269,49 +317,28 @@ export function AiDemoCallWidget() {
     (events: AiDemoUiEvent[]) => {
       for (const ev of events) {
         if (ev.id) afterEventIdRef.current = ev.id;
-        const route = String(ev.route || "").trim();
-        const target = String(ev.target_element_id || "").trim() || null;
-        const pointer = ev.pointer !== false;
-        const label = String(ev.label || "").trim() || null;
-        const action = String(ev.action || "highlight").trim().toLowerCase();
-        const wantNav = action === "navigate" || action === "open_chart";
-        const intent =
-          ev.intent === "view" || ev.intent === "click"
-            ? ev.intent
-            : inferDemoHighlightIntent(target);
-        const highlightOpts = {
-          targetElementId: target,
-          pointer: intent === "click" && pointer,
-          label,
-          warnMissing: true,
-          intent,
-          persistUntilClick: true,
-          onClicked: (clicked: string) => {
-            const sid = sessionId;
-            if (sid) {
-              void reportDemoUserClick(sid, clicked).catch(() => undefined);
-            }
-            notifyDemoAgentAdvanced(intent, clicked);
-          },
-        };
-        if (wantNav && route && !exitingRef.current) {
-          const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
-          window.setTimeout(
-            () => navigateRoute(route, { target, pointer, label, intent }),
-            delay,
-          );
-        } else if (target && !exitingRef.current) {
-          scheduleDemoHighlight(highlightOpts, typeof ev.delay_ms === "number" ? ev.delay_ms : 150);
-        }
         if (ev.type === "request_sales_offer") {
           toast.message("Sales will follow up with the best offer");
         }
         if (ev.type === "end_demo") {
           void finish("Agent ended demo");
+          continue;
         }
+        const action = String(ev.action || ev.type || "").trim().toLowerCase();
+        const isHighlight =
+          action === "highlight" ||
+          action === "navigate" ||
+          action === "open_chart" ||
+          ev.type === "highlight_dashboard";
+        if (!isHighlight || exitingRef.current) continue;
+        if (beatIndexRef.current < 0) {
+          startTour();
+          continue;
+        }
+        /* tour already running — ignore agent highlight/navigate */
       }
     },
-    [finish, navigateRoute, sessionId, notifyDemoAgentAdvanced],
+    [finish, startTour],
   );
 
   useEffect(() => {
@@ -320,8 +347,32 @@ export function AiDemoCallWidget() {
   }, []);
 
   useEffect(() => {
-    if (Date.now() < ignorePathClearUntilRef.current) return;
     clearDemoHighlight();
+    if (!tourStartedRef.current || beatIndexRef.current < 0) return;
+    const beat = demoTourBeatAt(beatIndexRef.current);
+    if (!beat) return;
+    const { pathname: beatPath } = parseDemoRoute(beat.route);
+    if (pathname !== beatPath) return;
+    scheduleDemoHighlight(
+      {
+        targetElementId: beat.target,
+        pointer: beat.intent === "click",
+        label: beat.label,
+        warnMissing: true,
+        intent: beat.intent,
+        persistUntilClick: true,
+        showNext: beat.showNext,
+        onClicked: (clicked) => advanceFromRef.current(clicked),
+      },
+      80,
+    );
+    if (beat.intent === "view" && !beat.showNext) {
+      if (wizardPauseRef.current != null) window.clearTimeout(wizardPauseRef.current);
+      const idx = beatIndexRef.current;
+      wizardPauseRef.current = window.setTimeout(() => {
+        if (beatIndexRef.current === idx) advanceFromRef.current(beat.target);
+      }, 2200);
+    }
   }, [pathname]);
 
   useEffect(() => {

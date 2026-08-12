@@ -89,13 +89,28 @@ export async function completeDemoSession(input: {
   });
 }
 
-export async function reportDemoUserClick(sessionId: string, target: string) {
-  return publicApiFetch<{ ok?: boolean; target?: string }>("/ai-demo/user-clicked", {
+export async function reportDemoUserClick(
+  sessionId: string,
+  target: string,
+  extra?: {
+    beat_id?: string;
+    label?: string;
+    talk?: string;
+    intent?: string;
+    beat_index?: number;
+  },
+) {
+  return publicApiFetch<{ ok?: boolean; target?: string; message?: string }>("/ai-demo/user-clicked", {
     method: "POST",
     body: JSON.stringify({
       session_id: sessionId,
       target,
       target_element_id: target,
+      beat_id: extra?.beat_id,
+      label: extra?.label,
+      talk: extra?.talk,
+      intent: extra?.intent,
+      beat_index: extra?.beat_index,
     }),
   });
 }

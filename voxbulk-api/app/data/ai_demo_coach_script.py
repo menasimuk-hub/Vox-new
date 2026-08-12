@@ -1,81 +1,262 @@
-"""Coach-mode talking tour — beat order for the live AI Demo voice agent.
-
-Paraphrase is allowed. Skipping beats is not.
-"""
+"""Coach-mode narrator — the browser owns the beat index; the agent only talks."""
 
 from __future__ import annotations
 
+from typing import Any
+
+DEMO_TOUR_BEATS: list[dict[str, Any]] = [
+    {
+        "id": "home_kpis",
+        "target": "home-live-kpis",
+        "intent": "view",
+        "route": "/",
+        "label": "Live KPIs",
+        "talk": "These live KPIs update as customers reply — scores, volume, and alerts in one strip.",
+        "show_next": True,
+    },
+    {
+        "id": "home_second_row",
+        "target": "home-second-row",
+        "intent": "view",
+        "route": "/",
+        "label": "Customer sentiment",
+        "talk": "Sentiment and recent feedback sit under the KPIs so you can scan recent comments without leaving home.",
+        "show_next": True,
+    },
+    {
+        "id": "nav_feedback_results",
+        "target": "nav-feedback-results",
+        "intent": "click",
+        "route": "/",
+        "label": "Customer Feedback results",
+        "talk": "Click Customer Feedback in the sidebar to open live results.",
+        "show_next": False,
+    },
+    {
+        "id": "results_tab_overview",
+        "target": "results-tab-overview",
+        "intent": "click",
+        "route": "/feedback/results",
+        "label": "Overview",
+        "talk": "Overview is the score snapshot. Tap the Overview tab.",
+        "show_next": False,
+    },
+    {
+        "id": "results_tab_questions",
+        "target": "results-tab-questions",
+        "intent": "click",
+        "route": "/feedback/results",
+        "label": "Questions",
+        "talk": "Questions shows how each survey item scored. Tap Questions.",
+        "show_next": False,
+    },
+    {
+        "id": "results_tab_responses",
+        "target": "results-tab-responses",
+        "intent": "click",
+        "route": "/feedback/results",
+        "label": "Responses",
+        "talk": "Responses is the live inbox of every reply. Tap Responses.",
+        "show_next": False,
+    },
+    {
+        "id": "results_tab_details",
+        "target": "results-tab-details",
+        "intent": "click",
+        "route": "/feedback/results",
+        "label": "Details",
+        "talk": "Details is the per-response record. Tap Details.",
+        "show_next": False,
+    },
+    {
+        "id": "nav_feedback_compare",
+        "target": "nav-feedback-compare",
+        "intent": "click",
+        "route": "/feedback/results",
+        "label": "Compare branches",
+        "talk": "Click Compare in the sidebar to see branches side by side.",
+        "show_next": False,
+    },
+    {
+        "id": "feedback_compare_title",
+        "target": "feedback-compare-title",
+        "intent": "view",
+        "route": "/feedback/compare",
+        "label": "Compare",
+        "talk": "Compare puts locations next to each other so you can spot which branch is slipping.",
+        "show_next": True,
+    },
+    {
+        "id": "nav_feedback_new",
+        "target": "nav-feedback-new",
+        "intent": "click",
+        "route": "/feedback/compare",
+        "label": "Create QR",
+        "talk": "Click Create QR in the sidebar to open the survey wizard.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_industry",
+        "target": "wizard-industry",
+        "intent": "view",
+        "route": "/feedback/new",
+        "label": "Choose industry",
+        "talk": "Take a look at the industry step. I will stay quiet so you can read. Then tap Next on the form.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_next_industry",
+        "target": "wizard-next",
+        "intent": "click",
+        "route": "/feedback/new",
+        "label": "Wizard Next",
+        "talk": "Tap Next on the form when you have had a look.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_topics",
+        "target": "wizard-topics",
+        "intent": "view",
+        "route": "/feedback/new",
+        "label": "Choose topics",
+        "talk": "Have a look at the topics. I will stay quiet. Then tap Next on the form.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_next_topics",
+        "target": "wizard-next",
+        "intent": "click",
+        "route": "/feedback/new",
+        "label": "Wizard Next",
+        "talk": "Tap Next on the form when you are ready.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_look",
+        "target": "wizard-look",
+        "intent": "view",
+        "route": "/feedback/new",
+        "label": "Look and feel",
+        "talk": "Have a look at the design step. I will stay quiet. Then tap Next on the form.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_next_look",
+        "target": "wizard-next",
+        "intent": "click",
+        "route": "/feedback/new",
+        "label": "Wizard Next",
+        "talk": "Tap Next on the form when you are ready.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_branches",
+        "target": "wizard-branches",
+        "intent": "view",
+        "route": "/feedback/new",
+        "label": "Branches",
+        "talk": "Have a look at branches. I will stay quiet. Then tap Next on the form.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_next_branches",
+        "target": "wizard-next",
+        "intent": "click",
+        "route": "/feedback/new",
+        "label": "Wizard Next",
+        "talk": "Tap Next on the form when you are ready.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_followup",
+        "target": "wizard-followup",
+        "intent": "view",
+        "route": "/feedback/new",
+        "label": "Follow-up",
+        "talk": "Have a look at follow-up. I will stay quiet. Then tap Next on the form.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_next_followup",
+        "target": "wizard-next",
+        "intent": "click",
+        "route": "/feedback/new",
+        "label": "Wizard Next",
+        "talk": "Tap Next on the form when you are ready.",
+        "show_next": False,
+    },
+    {
+        "id": "wizard_launch",
+        "target": "wizard-launch",
+        "intent": "view",
+        "route": "/feedback/new",
+        "label": "Launch",
+        "talk": "This is launch — QR, print, and share. Have a look. When you are done we can wrap up or talk pricing.",
+        "show_next": True,
+    },
+]
+
+
+def tour_beat_by_id(beat_id: str | None) -> dict[str, Any] | None:
+    key = str(beat_id or "").strip()
+    if not key:
+        return None
+    for beat in DEMO_TOUR_BEATS:
+        if beat["id"] == key:
+            return beat
+    return None
+
+
+def tour_beat_at(index: int) -> dict[str, Any] | None:
+    if index < 0 or index >= len(DEMO_TOUR_BEATS):
+        return None
+    return DEMO_TOUR_BEATS[index]
+
+
+def tour_lock_message(
+    beat: dict[str, Any] | None = None,
+    *,
+    label: str | None = None,
+    talk: str | None = None,
+) -> str:
+    spot = str(label or (beat or {}).get("label") or "the current spotlight").strip()
+    line = str(talk or (beat or {}).get("talk") or "").strip()
+    spoken = f" Say this then STOP: {line}." if line else ""
+    return (
+        f"CURRENT SPOTLIGHT: {spot}.{spoken} "
+        "Do not change the screen. Speak only about this. "
+        "Wait for them to click Next or Click here."
+    )
+
+
+def memory_tour_lock(memory: dict[str, Any] | None) -> str:
+    mem = memory if isinstance(memory, dict) else {}
+    beat = tour_beat_by_id(str(mem.get("current_beat") or "")) or DEMO_TOUR_BEATS[0]
+    return tour_lock_message(
+        beat,
+        label=str(mem.get("current_label") or beat["label"]),
+        talk=str(mem.get("current_talk") or beat["talk"]),
+    )
+
+
 COACH_TOUR_MAP = """
-COACH MODE (mandatory after they say ready):
+NARRATOR LOCK (mandatory after they say ready):
 
-ALWAYS spotlight what you are talking about with highlight_dashboard BEFORE you speak.
-The on-screen box must stay visible while you talk. One highlight at a time.
+You are a narrator on rails. The browser owns the tour. You do NOT pick pages, tabs, or wizard steps.
 
-TWO BOX TYPES:
-- VIEW (KPIs, charts, wizard pages): show the info box with the area NAME (Live KPIs, Customer sentiment…).
-  The box has a Next button. NEVER say "click here" for VIEW. Say why they should press Next.
-  Example: "Take a look — when you are ready for the next part, click Next on the box so we do not rush."
-  Then STOP talking. Do NOT jump to the next topic until they click Next (or say they are ready).
-- CLICK (sidebar, top tabs, Next on the product UI): show the "Click here" chip, say "click here", then WAIT.
-  When they click, the box disappears. Then highlight the next thing.
+START: after they say ready, call highlight_dashboard ONCE (home_kpis). That starts the tour.
+After that, highlight_dashboard / navigate / open_chart / filter MUST NOT move the screen.
+Those tools only return CURRENT SPOTLIGHT text. Say that talk, then STOP.
 
-PACE RULE (critical — you were jumping too fast):
-- One beat at a time. After each highlight: explain briefly (1–2 short sentences), tell them to click Next / Click here, then SILENCE.
-- Do NOT call highlight_dashboard for the next beat until they advanced.
-- If ~15s silence after you asked for Next: gently remind them to click Next on the box, or offer to continue when they say go.
+ROLE:
+- If VIEW: say 1–2 sentences from the current talk, then silence (chip Next is on screen).
+- If CLICK: ask them to tap the lit control, then silence.
+- Off-topic question: answer in one line, then return to current_label. Never jump to Results, Compare, or QR while those are not the spotlight.
+- Wizard: do not read industries or questions; do not fill the form. Stay quiet so they can read.
+- NEVER say "click here" for VIEW spots (Live KPIs, sentiment, Compare title, wizard cards).
+- show_pricing / switch_kb: only if they ask. Explain verbally. Do not move the coach highlight.
+- end_demo / request_sales_offer: allowed at the end.
 
-UI TOOL RULES:
-- Default action=highlight (do not navigate).
-- Include step= and a short label that names the thing (not "Click here" — the UI adds that for CLICK steps).
-- VIEW: explain → ask for Next → STOP. Never auto-advance.
-- CLICK: ask them to tap → STOP. If ~12s silence: "Want me to open it for you?"
-- Answer any question, then return to the current beat.
-- Stay on home first. Never auto-open Feedback.
-
-BEAT ORDER:
-
-Act 1 — HOME (/):
-1) home_kpis (VIEW, label "Live KPIs") — "These live numbers are your pulse. A real account only shows services you turned on. This demo shows everything. Click Next on the box when you want the next screen." WAIT.
-2) home_second_row (VIEW, label "Live activity & sentiment") — "Scans and replies as they happen, plus Excellent / Good / Poor. Click Next when you are ready to open Customer Feedback." WAIT.
-Then: "Let's open Customer Feedback."
-
-Act 2 — CLICK into Feedback:
-- nav_feedback_results (CLICK, label "Customer feedback · Results") — "On the left — click here on Feedback results." WAIT.
-- When they click, the highlight goes. Do not cover the new page with another click box.
-
-Act 3 — RESULTS top menus (the page is already open):
-- results_top_menus (VIEW, label "Results menus") — "Top bar: location, then Overview, Questions, Responses, More details. Click Next when you are ready to open Overview." WAIT.
-- results_overview (CLICK) — "Click here on Overview." WAIT. Then one line: satisfaction, recommend, unhappy, trend. Ask for Next before leaving.
-- results_questions (CLICK) — "Click here on Questions." WAIT. Then one line: which topic is dragging the score.
-- results_responses (CLICK) — "Click here on Responses." WAIT. Then one line: comments and voice notes.
-- results_details (CLICK) — "Click here on More details." WAIT. Then one line: flagged follow-up.
-
-Act 4 — COMPARE:
-- nav_feedback_compare (CLICK) — "Click here on Compare locations." WAIT.
-- feedback_compare (VIEW, label "Compare locations") — "Tick branches. Same weeks, coloured lines. That's the outlier. Click Next when you want to continue." WAIT.
-
-Act 5 — CREATE QR WIZARD (they do the work; you only point):
-- nav_feedback_new (CLICK) — "Now you make one. Click here on Create QR survey." WAIT.
-- Follow the wizard on screen. Highlight the CURRENT step, then stay quiet so they can READ.
-- wizard_industry (VIEW) — "Step 1 — choose your industry. Click Next on the box when you have picked one." Then STOP. Do NOT read the industries. Do NOT pick for them.
-- wizard_next (CLICK) — "When you have picked one, click here on Next." WAIT.
-- wizard_topics (VIEW) — "Step 2 — pick the questions you want. Click Next on the box when ready." Then STOP.
-- wizard_next (CLICK) — "Click here on Next when you are ready."
-- wizard_look (VIEW) — "Step 3 — look and feel. Read it, then click Next on the box." STOP.
-- wizard_next (CLICK)
-- wizard_branches (VIEW) — "Step 4 — branch name and QR. Read it, then click Next on the box." STOP.
-- wizard_next (CLICK)
-- wizard_followup (VIEW) — "Step 5 — AI follow-up. Optional. Read it, then click Next on the box." STOP.
-- wizard_next (CLICK)
-- wizard_launch (VIEW) — "Last step — save the QR. Read the screen, then save. Click Next on the box only when you are done looking." STOP.
-- If create is blocked, use an existing dummy QR and say so.
-- After save: they can download, edit, duplicate, scan with their phone.
-
-Act 6 — MARKETING (short):
-- nav_feedback_campaigns (CLICK) — "Click here on Campaign dashboard." WAIT.
-- feedback_campaigns (VIEW) — "Promo WhatsApp to people who already scanned. Click Next when you are ready to wrap up." WAIT.
-- Do not launch a live blast unless they ask.
-
-Act 7 — CLOSE:
-- Recap. Pricing only if asked. Never invent discounts. end_demo when done.
+PACE: one spotlight at a time. After you speak the current talk, STOP. Wait for Next or Click here.
+If ~15s silence: gently remind them to use the on-screen Next / Click here. Do not skip ahead.
 """.strip()

@@ -132,17 +132,84 @@ def test_demo_jwt_allows_feedback_location_create_only():
         _assert_demo_writes_blocked(_request("DELETE", "/customer-feedback/locations/abc"), _principal(demo=True))
 
 
-def test_coach_script_mentions_home_kpis():
-    from app.data.ai_demo_coach_script import COACH_TOUR_MAP
+def test_coach_script_is_narrator_lock():
+    from app.data.ai_demo_coach_script import COACH_TOUR_MAP, DEMO_TOUR_BEATS, memory_tour_lock
 
-    assert "home_kpis" in COACH_TOUR_MAP
-    assert "home_second_row" in COACH_TOUR_MAP
-    assert "wizard_industry" in COACH_TOUR_MAP
-    assert "stay quiet" in COACH_TOUR_MAP.lower() or "I will wait" in COACH_TOUR_MAP or "WAIT" in COACH_TOUR_MAP
-    assert "Campaign dashboard" in COACH_TOUR_MAP
-    assert "NEVER say" in COACH_TOUR_MAP or "never say" in COACH_TOUR_MAP.lower()
+    assert DEMO_TOUR_BEATS[0]["id"] == "home_kpis"
+    assert DEMO_TOUR_BEATS[0]["intent"] == "view"
+    assert DEMO_TOUR_BEATS[0]["target"] == "home-live-kpis"
+    assert any(b["id"] == "results_tab_overview" for b in DEMO_TOUR_BEATS)
+    assert any(b["target"] == "results-tab-questions" for b in DEMO_TOUR_BEATS)
+    assert any(b["id"] == "feedback_compare_title" for b in DEMO_TOUR_BEATS)
+    assert any(b["id"] == "wizard_industry" for b in DEMO_TOUR_BEATS)
+    assert not any(b["id"] == "results_top_menus" for b in DEMO_TOUR_BEATS)
+    lock = memory_tour_lock(
+        {
+            "current_beat": "home_kpis",
+            "current_label": "Live KPIs",
+            "current_talk": DEMO_TOUR_BEATS[0]["talk"],
+        }
+    )
+    assert "CURRENT SPOTLIGHT: Live KPIs" in lock
+    assert "Do not change the screen" in lock
+    assert "narrator" in COACH_TOUR_MAP.lower()
+    assert "Do not change the screen" in COACH_TOUR_MAP or "must not" in COACH_TOUR_MAP.lower()
+    assert "stay quiet" in COACH_TOUR_MAP.lower() or "stay quiet" in DEMO_TOUR_BEATS[10]["talk"].lower()
+    assert "never say" in COACH_TOUR_MAP.lower()
     assert "Next" in COACH_TOUR_MAP
-    assert "do not rush" in COACH_TOUR_MAP.lower() or "do NOT jump" in COACH_TOUR_MAP
+    assert "wizard" in COACH_TOUR_MAP.lower()
+
+
+def test_highlight_dashboard_starts_then_locks(monkeypatch):
+    import json
+
+    from app.services.ai_demo_service import AiDemoService
+
+    session = SimpleNamespace(
+        id="sess-1",
+        request_id="req-1",
+        active_service_code="feedback",
+        language="en",
+        services_explored="[]",
+    )
+    req = SimpleNamespace(conversation_memory="{}")
+    events: list = []
+
+    monkeypatch.setattr(AiDemoService, "_resolve_tool_session", staticmethod(lambda db, payload: session))
+    monkeypatch.setattr(AiDemoService, "get_request", staticmethod(lambda db, rid: req))
+    monkeypatch.setattr(AiDemoService, "update_memory", staticmethod(lambda db, r, patch: events.append(("mem", patch))))
+    monkeypatch.setattr(AiDemoService, "_append_ui_event", staticmethod(lambda db, sess, ev: events.append(("ui", ev))))
+
+    first = AiDemoService.handle_tool(
+        MagicMock(),
+        tool_name="highlight_dashboard",
+        payload={"session_id": "sess-1", "step": "nav_feedback_results", "action": "navigate"},
+    )
+    assert first["target_element_id"] == "home-live-kpis"
+    assert first["label"] == "Live KPIs"
+    assert first["action"] == "highlight"
+    ui = next(item[1] for item in events if item[0] == "ui")
+    assert ui["target_element_id"] == "home-live-kpis"
+    assert ui.get("route") in (None, "")
+
+    req.conversation_memory = json.dumps(
+        {
+            "tour_started": True,
+            "current_beat": "home_kpis",
+            "current_label": "Live KPIs",
+            "current_talk": "These live KPIs update as customers reply — scores, volume, and alerts in one strip.",
+        }
+    )
+    events.clear()
+    locked = AiDemoService.handle_tool(
+        MagicMock(),
+        tool_name="highlight_dashboard",
+        payload={"session_id": "sess-1", "step": "nav_feedback_results", "action": "navigate"},
+    )
+    assert locked["action"] == "locked"
+    assert "CURRENT SPOTLIGHT: Live KPIs" in locked["message"]
+    assert "Do not change the screen" in locked["message"]
+    assert events == []
 
 
 def test_opening_gate_and_consent_first_greeting():
