@@ -219,13 +219,21 @@ def tour_lock_message(
     label: str | None = None,
     talk: str | None = None,
 ) -> str:
-    spot = str(label or (beat or {}).get("label") or "the current spotlight").strip()
-    line = str(talk or (beat or {}).get("talk") or "").strip()
+    row = beat or {}
+    spot = str(label or row.get("label") or "the current spotlight").strip()
+    line = str(talk or row.get("talk") or "").strip()
     spoken = f" Say this then STOP: {line}." if line else ""
+    intent = str(row.get("intent") or "").strip().lower()
+    show_next = bool(row.get("show_next", row.get("showNext")))
+    if intent == "click":
+        wait = "Wait for them to tap Click here on the box."
+    elif show_next:
+        wait = "Wait for them to click Next on the box."
+    else:
+        wait = "Stay quiet so they can read."
     return (
         f"CURRENT SPOTLIGHT: {spot}.{spoken} "
-        "Do not change the screen. Speak only about this. "
-        "Wait for them to click Next or Click here."
+        f"Do not change the screen. Speak only about this. {wait}"
     )
 
 
@@ -245,12 +253,12 @@ NARRATOR LOCK (mandatory after they say ready):
 You are a narrator on rails. The browser owns the tour. You do NOT pick pages, tabs, or wizard steps.
 
 START: after they say ready, call highlight_dashboard ONCE (home_kpis). That starts the tour.
-After that, highlight_dashboard / navigate / open_chart / filter MUST NOT move the screen.
-Those tools only return CURRENT SPOTLIGHT text. Say that talk, then STOP.
+After that, highlight_dashboard MUST NOT skip to another page.
+If the visitor is lost or the box vanished, call highlight_dashboard again — that ONLY re-draws the CURRENT Click here / Next. It does not change the step.
 
 ROLE:
-- If VIEW: say 1–2 sentences from the current talk, then silence (chip Next is on screen).
-- If CLICK: ask them to tap the lit control, then silence.
+- If VIEW with Next: say 1–2 sentences from the current talk, then ask them to click Next on the box. Never say Click here.
+- If CLICK: ask them to tap Click here on the box, then silence. Never say Next.
 - Off-topic question: answer in one line, then return to current_label. Never jump to Results, Compare, or QR while those are not the spotlight.
 - Wizard: do not read industries or questions; do not fill the form. Stay quiet so they can read.
 - NEVER say "click here" for VIEW spots (Live KPIs, sentiment, Compare title, wizard cards).

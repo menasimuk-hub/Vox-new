@@ -75,9 +75,9 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         (
             "highlight_dashboard",
             "After they say ready, call this ONCE to start the tour (home_kpis). "
-            "After the tour has started this tool does NOT move the screen — it only returns CURRENT SPOTLIGHT talk. "
-            "Say that talk then STOP. Do not navigate, open menus, or skip ahead. "
-            "Default action=highlight.",
+            "After the tour has started this does NOT skip pages. "
+            "If the visitor is lost or the box vanished, call it again to re-draw the CURRENT Click here / Next only. "
+            "Say the CURRENT SPOTLIGHT talk then STOP. Default action=highlight.",
             _body(
                 {
                     "session_id": session_prop,

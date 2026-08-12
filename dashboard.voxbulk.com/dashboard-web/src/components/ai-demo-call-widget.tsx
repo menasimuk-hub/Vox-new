@@ -18,7 +18,12 @@ import {
   startDemoSession,
   type AiDemoUiEvent,
 } from "@/lib/ai-demo";
-import { clearDemoHighlight, parseDemoRoute, scheduleDemoHighlight } from "@/lib/ai-demo-highlight";
+import {
+  clearDemoHighlight,
+  hasDemoHighlight,
+  parseDemoRoute,
+  scheduleDemoHighlight,
+} from "@/lib/ai-demo-highlight";
 import {
   DEMO_TOUR_BEATS,
   demoTourBeatAt,
@@ -207,7 +212,6 @@ export function AiDemoCallWidget() {
       const cur = beatIndexRef.current;
       const next = nextIndexAfterClick(cur, clicked);
       const nextBeat = demoTourBeatAt(next);
-      clearDemoHighlight();
       applyBeatAt(next);
       if (!nextBeat) return;
       notifySpotlight(nextBeat);
@@ -329,16 +333,18 @@ export function AiDemoCallWidget() {
           action === "highlight" ||
           action === "navigate" ||
           action === "open_chart" ||
+          action === "restore" ||
           ev.type === "highlight_dashboard";
         if (!isHighlight || exitingRef.current) continue;
         if (beatIndexRef.current < 0) {
           startTour();
           continue;
         }
-        /* tour already running — ignore agent highlight/navigate */
+        /* Restore current box only — never skip ahead. */
+        applyBeatAt(beatIndexRef.current);
       }
     },
-    [finish, startTour],
+    [applyBeatAt, finish, startTour],
   );
 
   useEffect(() => {
@@ -347,33 +353,18 @@ export function AiDemoCallWidget() {
   }, []);
 
   useEffect(() => {
-    clearDemoHighlight();
     if (!tourStartedRef.current || beatIndexRef.current < 0) return;
-    const beat = demoTourBeatAt(beatIndexRef.current);
-    if (!beat) return;
-    const { pathname: beatPath } = parseDemoRoute(beat.route);
-    if (pathname !== beatPath) return;
-    scheduleDemoHighlight(
-      {
-        targetElementId: beat.target,
-        pointer: beat.intent === "click",
-        label: beat.label,
-        warnMissing: true,
-        intent: beat.intent,
-        persistUntilClick: true,
-        showNext: beat.showNext,
-        onClicked: (clicked) => advanceFromRef.current(clicked),
-      },
-      80,
-    );
-    if (beat.intent === "view" && !beat.showNext) {
-      if (wizardPauseRef.current != null) window.clearTimeout(wizardPauseRef.current);
-      const idx = beatIndexRef.current;
-      wizardPauseRef.current = window.setTimeout(() => {
-        if (beatIndexRef.current === idx) advanceFromRef.current(beat.target);
-      }, 2200);
-    }
-  }, [pathname]);
+    applyBeatAt(beatIndexRef.current);
+  }, [pathname, applyBeatAt]);
+
+  useEffect(() => {
+    if (phase !== "live") return;
+    const id = window.setInterval(() => {
+      if (!tourStartedRef.current || beatIndexRef.current < 0 || exitingRef.current) return;
+      if (!hasDemoHighlight()) applyBeatAt(beatIndexRef.current);
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [phase, applyBeatAt]);
 
   useEffect(() => {
     if (!sessionId || startedRef.current) return;

@@ -152,6 +152,8 @@ def test_coach_script_is_narrator_lock():
     )
     assert "CURRENT SPOTLIGHT: Live KPIs" in lock
     assert "Do not change the screen" in lock
+    assert "Next on the box" in lock
+    assert "Click here" not in lock
     assert "narrator" in COACH_TOUR_MAP.lower()
     assert "Do not change the screen" in COACH_TOUR_MAP or "must not" in COACH_TOUR_MAP.lower()
     assert "stay quiet" in COACH_TOUR_MAP.lower() or "stay quiet" in DEMO_TOUR_BEATS[10]["talk"].lower()
@@ -201,15 +203,18 @@ def test_highlight_dashboard_starts_then_locks(monkeypatch):
         }
     )
     events.clear()
-    locked = AiDemoService.handle_tool(
+    restored = AiDemoService.handle_tool(
         MagicMock(),
         tool_name="highlight_dashboard",
         payload={"session_id": "sess-1", "step": "nav_feedback_results", "action": "navigate"},
     )
-    assert locked["action"] == "locked"
-    assert "CURRENT SPOTLIGHT: Live KPIs" in locked["message"]
-    assert "Do not change the screen" in locked["message"]
-    assert events == []
+    assert restored["action"] == "restore"
+    assert restored["target_element_id"] == "home-live-kpis"
+    assert "CURRENT SPOTLIGHT: Live KPIs" in restored["message"]
+    assert "Do not change the screen" in restored["message"]
+    ui = next(item[1] for item in events if item[0] == "ui")
+    assert ui["action"] == "restore"
+    assert ui["target_element_id"] == "home-live-kpis"
 
 
 def test_opening_gate_and_consent_first_greeting():

@@ -211,9 +211,15 @@ export function demoTourBeatAt(index: number): DemoTourBeat | null {
 }
 
 export function demoTourLockMessage(beat: DemoTourBeat): string {
+  const wait =
+    beat.intent === "view" && beat.showNext
+      ? "Wait for them to click Next on the box."
+      : beat.intent === "click"
+        ? "Wait for them to tap Click here on the box."
+        : "Stay quiet so they can read. Do not skip ahead.";
   return (
     `Spotlight is now "${beat.label}". ${beat.talk} ` +
-    "Speak only about this. Wait for them to click Next or Click here. Do not change the screen."
+    `Speak only about this. ${wait} Do not change the screen.`
   );
 }
 

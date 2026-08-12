@@ -93,12 +93,16 @@ function clearOutline() {
   outlinedEl = null;
 }
 
-export function clearDemoHighlight() {
+function cancelRetry() {
   retryGeneration += 1;
   if (retryTimer != null) {
     window.clearTimeout(retryTimer);
     retryTimer = null;
   }
+}
+
+export function clearDemoHighlight() {
+  cancelRetry();
   clickCleanup?.();
   clickCleanup = null;
   if (chipReposition) {
@@ -111,9 +115,44 @@ export function clearDemoHighlight() {
   clearOutline();
 }
 
+export function hasDemoHighlight(): boolean {
+  if (typeof document === "undefined") return false;
+  const chip = document.getElementById(CHIP_ID);
+  if (chip) return true;
+  if (outlinedEl?.isConnected && outlinedEl.classList.contains(OUTLINE_CLASS)) return true;
+  return false;
+}
+
 function findTarget(id: string): HTMLElement | null {
   if (!id || typeof document === "undefined") return null;
   return document.querySelector(`[data-demo-target="${CSS.escape(id)}"]`);
+}
+
+function isTargetVisible(el: HTMLElement): boolean {
+  const rect = el.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return false;
+  try {
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+  } catch {
+    /* ignore */
+  }
+  return true;
+}
+
+/** Nested sidebar links live in a closed Collapsible on Home — open the group first. */
+function ensureNavGroupOpen(targetId: string) {
+  if (!targetId.startsWith("nav-feedback-")) return;
+  const trigger = document.querySelector('[data-demo-target="nav-feedback"]') as HTMLElement | null;
+  if (!trigger) return;
+  const root = trigger.closest("[data-state]") as HTMLElement | null;
+  if (root?.getAttribute("data-state") === "closed") {
+    try {
+      trigger.click();
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 function placeChip(chip: HTMLDivElement, target: HTMLElement) {
@@ -144,9 +183,25 @@ function bindClick(el: HTMLElement, targetId: string, onClicked?: (t: string) =>
   clickCleanup = () => el.removeEventListener("click", handler, true);
 }
 
+function btnStyle(): string {
+  return [
+    "margin-top:8px",
+    "pointer-events:auto",
+    "cursor:pointer",
+    "border:0",
+    "border-radius:999px",
+    "background:#1e3a5f",
+    "color:#f7f1e8",
+    "font:700 11px/1 ui-sans-serif,system-ui,sans-serif",
+    "padding:7px 14px",
+  ].join(";");
+}
+
 function applyOutlineAndChip(opts: HighlightOpts, el: HTMLElement) {
   ensureOutlineStyle();
   stripDriverLeftovers();
+  clickCleanup?.();
+  clickCleanup = null;
   clearOutline();
   removeChip();
   el.classList.add(OUTLINE_CLASS);
@@ -159,7 +214,9 @@ function applyOutlineAndChip(opts: HighlightOpts, el: HTMLElement) {
 
   const intent = opts.intent || inferDemoHighlightIntent(opts.targetElementId);
   const showNext = opts.showNext === true && intent === "view";
-  const label = String(opts.label || opts.targetElementId || "").trim() || (intent === "click" ? "Click here" : "Look here");
+  const label =
+    String(opts.label || opts.targetElementId || "").trim() ||
+    (intent === "click" ? "Click here" : "Look here");
 
   const chip = document.createElement("div");
   chip.id = CHIP_ID;
@@ -167,7 +224,7 @@ function applyOutlineAndChip(opts: HighlightOpts, el: HTMLElement) {
   chip.style.cssText = [
     "position:fixed",
     `max-width:${CHIP_MAX_W}px`,
-    "z-index:70",
+    "z-index:90",
     "pointer-events:none",
     "border-radius:12px",
     "border:1px solid #e8dfd2",
@@ -190,25 +247,36 @@ function applyOutlineAndChip(opts: HighlightOpts, el: HTMLElement) {
     chip.appendChild(sub);
   }
 
+  const targetId = String(opts.targetElementId || "");
+
   if (showNext) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.textContent = "Next";
-    btn.style.cssText = [
-      "margin-top:8px",
-      "pointer-events:auto",
-      "cursor:pointer",
-      "border:0",
-      "border-radius:999px",
-      "background:#1e3a5f",
-      "color:#f7f1e8",
-      "font:700 11px/1 ui-sans-serif,system-ui,sans-serif",
-      "padding:7px 14px",
-    ].join(";");
+    btn.style.cssText = btnStyle();
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      opts.onClicked?.(String(opts.targetElementId || ""));
+      opts.onClicked?.(targetId);
+    });
+    chip.appendChild(btn);
+  } else if (intent === "click") {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Click here";
+    btn.style.cssText = btnStyle();
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const target = outlinedEl || findTarget(targetId);
+      clickCleanup?.();
+      clickCleanup = null;
+      opts.onClicked?.(targetId);
+      try {
+        target?.click();
+      } catch {
+        /* ignore */
+      }
     });
     chip.appendChild(btn);
   }
@@ -219,40 +287,36 @@ function applyOutlineAndChip(opts: HighlightOpts, el: HTMLElement) {
   const reposition = () => {
     if (chipEl && outlinedEl) placeChip(chipEl, outlinedEl);
   };
+  if (chipReposition) {
+    window.removeEventListener("resize", chipReposition);
+    window.removeEventListener("scroll", chipReposition, true);
+  }
   chipReposition = reposition;
   window.addEventListener("resize", reposition);
   window.addEventListener("scroll", reposition, true);
 
   if (intent === "click") {
-    bindClick(el, String(opts.targetElementId || ""), opts.onClicked);
+    bindClick(el, targetId, opts.onClicked);
   }
 }
 
 /**
- * Keep retrying until `[data-demo-target]` exists. Cancel only when a newer
- * highlight is scheduled (generation bump) — no fixed give-up timer.
+ * Keep retrying until the target exists AND is visible. The previous chip
+ * stays on screen until this one is ready — never a blank gap.
  */
 export function scheduleDemoHighlight(opts: HighlightOpts, delayMs = 0) {
   const id = String(opts.targetElementId || "").trim();
   if (!id) return;
-  retryGeneration += 1;
+  cancelRetry();
   const gen = retryGeneration;
-  if (retryTimer != null) {
-    window.clearTimeout(retryTimer);
-    retryTimer = null;
-  }
-  clickCleanup?.();
-  clickCleanup = null;
 
   const attempt = () => {
     if (gen !== retryGeneration) return;
+    ensureNavGroupOpen(id);
     const el = findTarget(id);
-    if (el) {
+    if (el && isTargetVisible(el)) {
       applyOutlineAndChip(opts, el);
       return;
-    }
-    if (opts.warnMissing) {
-      /* keep waiting — route/DOM may still be painting */
     }
     retryTimer = window.setTimeout(attempt, 180);
   };

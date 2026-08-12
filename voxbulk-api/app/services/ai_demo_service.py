@@ -17,7 +17,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.data.ai_demo_email_default import DEMO_INVITE_EMAIL_BODY, DEMO_INVITE_EMAIL_SUBJECT
-from app.data.ai_demo_coach_script import COACH_TOUR_MAP, DEMO_TOUR_BEATS, memory_tour_lock
+from app.data.ai_demo_coach_script import (
+    COACH_TOUR_MAP,
+    DEMO_TOUR_BEATS,
+    memory_tour_lock,
+    tour_beat_by_id,
+)
 from app.data.ai_demo_kb_defaults import DEMO_KB_SEED, tool_subset_json
 from app.data.ai_demo_whatsapp_defaults import DEMO_EMAIL_SENT_BODY, DEMO_EMAIL_SENT_TEMPLATE_NAME
 from app.models.demo_knowledge_base import DemoKnowledgeBase
@@ -2091,13 +2096,32 @@ class AiDemoService:
             if not isinstance(memory, dict):
                 memory = {}
             if memory.get("tour_started"):
+                beat = tour_beat_by_id(str(memory.get("current_beat") or "")) or DEMO_TOUR_BEATS[0]
                 lock = memory_tour_lock(memory)
+                AiDemoService._append_ui_event(
+                    db,
+                    session,
+                    {
+                        "type": "highlight_dashboard",
+                        "action": "restore",
+                        "section": "home",
+                        "step": beat["id"],
+                        "target_element_id": beat["target"],
+                        "pointer": beat.get("intent") == "click",
+                        "label": beat["label"],
+                        "intent": beat.get("intent") or "view",
+                        "route": None,
+                        "delay_ms": 80,
+                    },
+                )
+                db.commit()
                 return {
                     "status": "ok",
-                    "action": "locked",
-                    "intent": memory.get("current_intent") or "view",
-                    "label": memory.get("current_label"),
-                    "message": lock,
+                    "action": "restore",
+                    "intent": beat.get("intent") or "view",
+                    "label": beat["label"],
+                    "target_element_id": beat["target"],
+                    "message": lock + " The current Click here / Next was put back. Do not skip ahead.",
                 }
 
             first = DEMO_TOUR_BEATS[0]
