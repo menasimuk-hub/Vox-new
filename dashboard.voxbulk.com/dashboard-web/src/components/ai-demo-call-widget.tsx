@@ -424,8 +424,16 @@ export function AiDemoCallWidget() {
         } catch {
           throw new Error("Microphone access is required for the AI demo call.");
         }
+        if (cancelled) {
+          micStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
 
         const TelnyxRTC = await loadTelnyxRtc();
+        if (cancelled) {
+          micStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         const client = new TelnyxRTC({
           anonymous_login: { target_type: "ai_assistant", target_id: agentId },
         });
@@ -446,6 +454,15 @@ export function AiDemoCallWidget() {
           });
           client.connect();
         });
+        if (cancelled) {
+          try {
+            client.disconnect?.();
+          } catch {
+            /* ignore */
+          }
+          micStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
 
         const attachRemoteAudio = (call: TelnyxCall | null | undefined) => {
           const el = document.getElementById(REMOTE_AUDIO_ID) as HTMLAudioElement | null;
@@ -463,6 +480,7 @@ export function AiDemoCallWidget() {
           errorMessage?: string;
           call?: TelnyxCall;
         }) => {
+          if (cancelled || exitingRef.current) return;
           if (notification?.type === "userMediaError") {
             void finish("Microphone error");
             toast.error(notification.errorMessage || "Microphone error");
@@ -488,9 +506,13 @@ export function AiDemoCallWidget() {
             toast.success("AI demo connected");
             /* Start the spotlight as soon as audio is live so the first
                sendConversationMessage is not racing a still-connecting call. */
-            window.setTimeout(() => startTourRef.current(), 400);
+            window.setTimeout(() => {
+              if (!cancelled && !exitingRef.current) startTourRef.current();
+            }, 400);
           }
-          if (state === "hangup" || state === "destroy" || state === "destroyed") {
+          /* Ignore hangup/destroy until we were live — early Telnyx states
+             used to wipe the demo to /thanks before Leo joined. */
+          if (wentLive && (state === "hangup" || state === "destroy" || state === "destroyed")) {
             void finish("Call ended");
           }
         };
@@ -510,14 +532,17 @@ export function AiDemoCallWidget() {
         callRef.current = call as TelnyxCall;
 
         activeTimerRef.current = window.setTimeout(() => {
-          if (!wentLive) {
+          if (!wentLive && !cancelled && !exitingRef.current) {
             toast.error("AI did not join in time");
             void finish("AI join timeout");
           }
         }, ACTIVE_TIMEOUT_MS);
 
-        const softCap = Math.max(3, Number(started.soft_cap_minutes || 7)) * 60 * 1000;
+        const softMinutes = Number(started.soft_cap_minutes);
+        const softCap =
+          (Number.isFinite(softMinutes) && softMinutes > 0 ? Math.max(3, softMinutes) : 7) * 60 * 1000;
         softCapTimerRef.current = window.setTimeout(() => {
+          if (cancelled || exitingRef.current) return;
           toast.message("Wrapping up the demo");
           sendToAgent(DEMO_WRAP_MESSAGE);
           wrapTimerRef.current = window.setTimeout(() => {
@@ -525,6 +550,8 @@ export function AiDemoCallWidget() {
           }, 12_000);
         }, Math.max(5_000, softCap - 12_000));
       } catch (e) {
+        /* Strict-mode remount / navigation must not bounce visitors to /thanks. */
+        if (cancelled || exitingRef.current) return;
         startedRef.current = false;
         setPhase("ended");
         const msg = e instanceof Error ? e.message : "Could not start AI demo call";

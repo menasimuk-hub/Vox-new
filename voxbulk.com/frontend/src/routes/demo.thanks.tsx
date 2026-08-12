@@ -23,7 +23,7 @@ function DemoThanksPage() {
   return (
     <>
       <SiteHeader />
-      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-14">
+      <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 pt-[110px] md:pt-[130px] pb-14">
         <div className="rounded-2xl border border-navy/15 bg-white p-8 text-center shadow-xl">
           <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" aria-hidden />
           <h1 className="mt-4 text-3xl font-semibold tracking-tight text-navy">Thank you</h1>

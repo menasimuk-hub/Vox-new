@@ -99,7 +99,7 @@ function DemoSessionPage() {
   return (
     <div className="flex min-h-screen flex-col bg-[#0b0b0c] text-white">
       <SiteHeader />
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 pt-[110px] md:pt-[130px] pb-10">
         {phase === "loading" && (
           <div className="flex items-center gap-2 text-white/70">
             <Loader2 className="h-5 w-5 animate-spin" /> Checking your demo invite…
