@@ -74,8 +74,10 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "highlight_dashboard",
-            "Spotlight a live dashboard control BEFORE you say look here / click this. "
-            "Coach mode: default action=highlight (do NOT navigate — they click). "
+            "Spotlight a live dashboard control BEFORE you talk about it. "
+            "VIEW steps (home_kpis, charts, whole pages): look-only — never say click here. "
+            "CLICK steps (nav_*, results_* tabs, Create QR): ask them to tap the lit control, then wait. "
+            "Default action=highlight (do NOT navigate). "
             "Use action=navigate only if they ask you to open it or stalled and said yes. "
             "PREFERRED step=: home_kpis|home_activity|home_sentiment|home_week|home_followup|"
             "nav_feedback_results|nav_feedback_compare|nav_feedback_new|nav_feedback_campaigns|"

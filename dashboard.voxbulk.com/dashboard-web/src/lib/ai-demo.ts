@@ -27,6 +27,7 @@ export type AiDemoUiEvent = {
   target_element_id?: string;
   pointer?: boolean;
   label?: string;
+  intent?: string;
   step?: string;
   tab?: string;
   delay_ms?: number;

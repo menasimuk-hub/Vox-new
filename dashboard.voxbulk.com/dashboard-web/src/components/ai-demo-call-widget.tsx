@@ -18,7 +18,12 @@ import {
   startDemoSession,
   type AiDemoUiEvent,
 } from "@/lib/ai-demo";
-import { parseDemoRoute, scheduleDemoHighlight } from "@/lib/ai-demo-highlight";
+import {
+  clearDemoHighlight,
+  inferDemoHighlightIntent,
+  parseDemoRoute,
+  scheduleDemoHighlight,
+} from "@/lib/ai-demo-highlight";
 
 const REMOTE_AUDIO_ID = "voxbulk-ai-demo-remote-audio";
 const ACTIVE_TIMEOUT_MS = 45_000;
@@ -114,19 +119,30 @@ export function AiDemoCallWidget() {
   const startedRef = useRef(false);
   const exitingRef = useRef(false);
   const thanksUrlRef = useRef<string | null>(null);
+  const ignorePathClearUntilRef = useRef(0);
 
   const navigateRoute = useCallback(
-    (route: string, highlight?: { target?: string | null; pointer?: boolean; label?: string | null }) => {
+    (
+      route: string,
+      highlight?: {
+        target?: string | null;
+        pointer?: boolean;
+        label?: string | null;
+        intent?: "view" | "click";
+      },
+    ) => {
       const { pathname: path, search } = parseDemoRoute(route);
       const runHighlight = () => {
         if (!highlight?.target) return;
+        const intent = highlight.intent || inferDemoHighlightIntent(highlight.target);
         scheduleDemoHighlight(
           {
             targetElementId: highlight.target,
-            pointer: highlight.pointer !== false,
+            pointer: intent === "click" && highlight.pointer !== false,
             label: highlight.label,
             warnMissing: true,
-            persistUntilClick: true,
+            intent,
+            persistUntilClick: intent === "click",
             onClicked: (clicked) => {
               const sid = demoSessionFromLocation() || sessionId;
               if (!sid) return;
@@ -142,6 +158,7 @@ export function AiDemoCallWidget() {
       const nextSearch = new URLSearchParams(search).toString();
       const needsNav = path !== currentPath || (nextSearch && nextSearch !== currentSearch);
       if (needsNav) {
+        ignorePathClearUntilRef.current = Date.now() + 900;
         void navigate({
           to: path as never,
           search: (Object.keys(search).length ? search : undefined) as never,
@@ -227,12 +244,17 @@ export function AiDemoCallWidget() {
         const label = String(ev.label || "").trim() || null;
         const action = String(ev.action || "highlight").trim().toLowerCase();
         const wantNav = action === "navigate" || action === "open_chart";
+        const intent =
+          ev.intent === "view" || ev.intent === "click"
+            ? ev.intent
+            : inferDemoHighlightIntent(target);
         const highlightOpts = {
           targetElementId: target,
-          pointer,
+          pointer: intent === "click" && pointer,
           label,
           warnMissing: true,
-          persistUntilClick: true,
+          intent,
+          persistUntilClick: intent === "click",
           onClicked: (clicked: string) => {
             const sid = sessionId;
             if (!sid) return;
@@ -241,7 +263,10 @@ export function AiDemoCallWidget() {
         };
         if (wantNav && route && !exitingRef.current) {
           const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
-          window.setTimeout(() => navigateRoute(route, { target, pointer, label }), delay);
+          window.setTimeout(
+            () => navigateRoute(route, { target, pointer, label, intent }),
+            delay,
+          );
         } else if (target && !exitingRef.current) {
           scheduleDemoHighlight(highlightOpts, typeof ev.delay_ms === "number" ? ev.delay_ms : 150);
         }
@@ -260,6 +285,11 @@ export function AiDemoCallWidget() {
     const id = demoSessionFromLocation();
     if (id) setSessionId(id);
   }, []);
+
+  useEffect(() => {
+    if (Date.now() < ignorePathClearUntilRef.current) return;
+    clearDemoHighlight();
+  }, [pathname]);
 
   useEffect(() => {
     if (!sessionId || startedRef.current) return;

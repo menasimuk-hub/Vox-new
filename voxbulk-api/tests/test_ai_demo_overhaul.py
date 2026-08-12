@@ -98,6 +98,18 @@ def test_resolve_demo_ui_step_catalog():
     assert resolve_demo_ui_step("nope") is None
 
 
+def test_demo_highlight_intent_view_vs_click():
+    from app.services.ai_demo_org_service import demo_highlight_intent
+
+    assert demo_highlight_intent(step="home_kpis") == "view"
+    assert demo_highlight_intent(target_element_id="home-live-activity") == "view"
+    assert demo_highlight_intent(step="feedback_results", target_element_id="feedback-results") == "view"
+    assert demo_highlight_intent(step="nav_feedback_results") == "click"
+    assert demo_highlight_intent(target_element_id="nav-feedback-compare") == "click"
+    assert demo_highlight_intent(step="results_overview") == "click"
+    assert demo_highlight_intent(step="feedback_create", target_element_id="feedback-new") == "view"
+
+
 def test_highlight_defaults_to_spotlight_without_route():
     from app.services.ai_demo_org_service import resolve_demo_ui_step
 
@@ -121,8 +133,9 @@ def test_coach_script_mentions_home_kpis():
     from app.data.ai_demo_coach_script import COACH_TOUR_MAP
 
     assert "home_kpis" in COACH_TOUR_MAP
-    assert "action=highlight" in COACH_TOUR_MAP
+    assert "VIEW" in COACH_TOUR_MAP
     assert "Campaign dashboard" in COACH_TOUR_MAP
+    assert "NEVER say" in COACH_TOUR_MAP or "never say" in COACH_TOUR_MAP.lower()
 
 
 def test_opening_gate_and_consent_first_greeting():

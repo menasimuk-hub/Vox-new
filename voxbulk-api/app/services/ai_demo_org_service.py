@@ -108,12 +108,12 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
     "home": {
         "route": "/",
         "target_element_id": "home-live-kpis",
-        "label": "Live KPIs — demo shows every service",
+        "label": "Live KPIs — your pulse across services",
     },
     "home_kpis": {
         "route": "/",
         "target_element_id": "home-live-kpis",
-        "label": "Live KPIs — demo shows every service",
+        "label": "Live KPIs — your pulse across services",
     },
     "home_activity": {
         "route": "/",
@@ -143,17 +143,17 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
     "nav_feedback_results": {
         "route": "/feedback/results",
         "target_element_id": "nav-feedback-results",
-        "label": "Click Feedback results",
+        "label": "Open Feedback results",
     },
     "nav_feedback_compare": {
         "route": "/feedback/compare",
         "target_element_id": "nav-feedback-compare",
-        "label": "Click Compare locations",
+        "label": "Open Compare locations",
     },
     "nav_feedback_new": {
         "route": "/feedback/new",
         "target_element_id": "nav-feedback-new",
-        "label": "Click Create QR survey",
+        "label": "Create a QR survey",
     },
     "nav_feedback_list": {
         "route": "/feedback",
@@ -163,7 +163,7 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
     "nav_feedback_campaigns": {
         "route": "/feedback/campaigns",
         "target_element_id": "nav-feedback-campaigns",
-        "label": "Click Campaign dashboard",
+        "label": "Open Campaign dashboard",
     },
     "results_overview": {
         "route": "/feedback/results",
@@ -271,6 +271,19 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
         "label": "Smart Card pricing",
     },
 }
+
+
+def demo_highlight_intent(*, step: str | None = None, target_element_id: str | None = None) -> str:
+    """view = look-only (KPIs, whole pages). click = visitor must tap a real control."""
+    key = str(step or "").strip().lower().replace("-", "_")
+    tid = str(target_element_id or "").strip().lower()
+    if key.startswith("nav_") or tid.startswith("nav-"):
+        return "click"
+    if key.startswith("results_") or tid.startswith("results-tab") or tid == "results-location-select":
+        return "click"
+    if key.startswith("packages_") or tid.startswith("packages-tab-"):
+        return "click"
+    return "view"
 
 
 def resolve_demo_ui_step(step: str | None) -> dict[str, str] | None:

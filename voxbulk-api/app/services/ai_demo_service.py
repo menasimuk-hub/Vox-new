@@ -66,8 +66,9 @@ OPENING_GATE = (
     "  4) Ask if they are ready to start — then STOP and listen\n"
     "Do NOT call highlight_dashboard, show_pricing, switch_kb, or name product features "
     "until they clearly confirm (yes / OK / go / ready / sure / fine).\n"
-    "After they confirm: stay on the home dashboard. Highlight live KPIs with "
-    "highlight_dashboard action=highlight (do not navigate). Follow COACH MODE beat order."
+    "After they confirm: stay on the home dashboard. Highlight live KPIs as VIEW "
+    "(look-only — never say click here) with highlight_dashboard action=highlight. "
+    "Follow COACH MODE beat order."
 )
 
 
@@ -2076,6 +2077,7 @@ class AiDemoService:
 
         if name == "highlight_dashboard":
             from app.services.ai_demo_org_service import (
+                demo_highlight_intent,
                 pricing_tab_for_service,
                 resolve_demo_route,
                 resolve_demo_ui_step,
@@ -2135,6 +2137,9 @@ class AiDemoService:
                     label = f"Look here: {sec.replace('_', ' ')}"
             if not label and target_element_id:
                 label = target_element_id.replace("-", " ")
+            intent = str(args.get("intent") or "").strip().lower()
+            if intent not in ("view", "click"):
+                intent = demo_highlight_intent(step=step_key, target_element_id=target_element_id)
             want_navigate = action in ("navigate", "open_chart")
             event = {
                 "type": "highlight_dashboard",
@@ -2143,8 +2148,9 @@ class AiDemoService:
                 "step": step_key,
                 "target": target,
                 "target_element_id": target_element_id,
-                "pointer": pointer,
+                "pointer": pointer if intent == "click" else False,
                 "label": label,
+                "intent": intent,
                 "route": route if want_navigate else None,
                 "location": args.get("location"),
                 "range": args.get("range") or args.get("range_key"),
@@ -2181,15 +2187,30 @@ class AiDemoService:
                     "label": label,
                     "message": f"Opening {route}" + (f" → {label}" if label else ""),
                 }
+            if intent == "view":
+                return {
+                    "status": "ok",
+                    "action": "highlight",
+                    "intent": "view",
+                    "route": None,
+                    "target_element_id": target_element_id,
+                    "label": label,
+                    "message": (
+                        f"Look-only spotlight on {label or target_element_id or 'this area'}. "
+                        "Explain it quickly. Do NOT ask them to click — there is nothing to click. "
+                        "Then move to the next beat."
+                    ),
+                }
             return {
                 "status": "ok",
                 "action": "highlight",
+                "intent": "click",
                 "route": None,
                 "target_element_id": target_element_id,
                 "label": label,
                 "message": (
                     f"Spotlight on {label or target_element_id or 'the control'}. "
-                    "Ask them to click it, then STOP and listen. "
+                    "Ask them to tap that control, then STOP and listen. "
                     "If ~12s silence, offer to open it (action=navigate). "
                     "Do not describe the next page until they clicked."
                 ),
