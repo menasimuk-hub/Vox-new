@@ -4,6 +4,9 @@ import { apiFetch, resolveApiUrl } from '../lib/api'
 import { readAdminAccessToken, readSharedAccessToken } from '../lib/sessionStorage'
 import { downloadAdminCsv } from '../lib/csvDownload'
 import LeadSalesPipelineStrip, { leadSalesListUrl } from '../components/LeadSalesPipelineStrip'
+import { TablePagination } from '@/components/ui/Table'
+
+const PAGE_SIZE = 20
 
 const TelnyxDualWaveform = lazy(() => import('../components/TelnyxDualWaveform'))
 
@@ -132,6 +135,7 @@ export default function LeadSources({ embedded = false }) {
   const [syncingTelnyxId, setSyncingTelnyxId] = useState('')
   const [filterSales, setFilterSales] = useState('all')
   const [exporting, setExporting] = useState(false)
+  const [page, setPage] = useState(1)
 
   const filteredLeads = useMemo(() => {
     if (filterSales === 'sales') {
@@ -142,6 +146,13 @@ export default function LeadSources({ embedded = false }) {
     }
     return leads
   }, [leads, filterSales])
+
+  useEffect(() => {
+    setPage(1)
+  }, [filterSales])
+
+  const pageCount = Math.max(1, Math.ceil(filteredLeads.length / PAGE_SIZE))
+  const pagedLeads = filteredLeads.slice((Math.min(page, pageCount) - 1) * PAGE_SIZE, Math.min(page, pageCount) * PAGE_SIZE)
 
   const selected = useMemo(
     () => leads.find((row) => String(row.id) === String(selectedId)) || null,
@@ -461,6 +472,7 @@ export default function LeadSources({ embedded = false }) {
           >
             <span>
               <strong style={{ color: 'var(--ds-text-primary)' }}>{filteredLeads.length}</strong> shown
+              {' · '}{PAGE_SIZE} per page
             </span>
             <span>Open Sales opens the shared Sales tasks detail (same UI as the sidebar hub).</span>
           </div>
@@ -479,7 +491,7 @@ export default function LeadSources({ embedded = false }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredLeads.map((lead) => {
+                {pagedLeads.map((lead) => {
                   const active = String(lead.id) === String(selectedId)
                   const interest = lead.lead_data?.interest_summary || '—'
                   const canOpen = Boolean(lead.provider_call_id || lead.transcript_available || lead.recording_available)
@@ -562,6 +574,17 @@ export default function LeadSources({ embedded = false }) {
             {!filteredLeads.length && !loading ? (
               <p className='muted' style={{ padding: 24 }}>No completed lead calls yet.</p>
             ) : null}
+            {filteredLeads.length ? (
+              <div style={{ padding: '0 1rem 0.75rem' }}>
+                <TablePagination
+                  page={Math.min(page, pageCount)}
+                  pageCount={pageCount}
+                  total={filteredLeads.length}
+                  onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -611,12 +634,6 @@ export default function LeadSources({ embedded = false }) {
                 </button>
               ) : null}
               <Link className='btn soft' to='/marketing/leads/tasks'>Sales tasks</Link>
-            </div>
-            <div className='note'>
-              <strong>Structured lead data</strong>
-              <pre style={{ whiteSpace: 'pre-wrap', margin: '8px 0 0', fontFamily: 'ui-monospace, monospace', fontSize: 13 }}>
-                {JSON.stringify(selected.lead_data || {}, null, 2)}
-              </pre>
             </div>
           </div>
         </section>

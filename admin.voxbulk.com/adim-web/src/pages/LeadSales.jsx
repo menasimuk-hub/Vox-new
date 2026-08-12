@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { TablePagination } from '@/components/ui/Table'
 import { Link, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { cn } from '@/lib/utils'
@@ -18,6 +19,8 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-react'
+
+const PAGE_SIZE = 20
 
 function initials(name, company) {
   const source = String(name || company || '?').trim()
@@ -67,6 +70,7 @@ export default function LeadSales({ embedded = false }) {
   const [consentFilter, setConsentFilter] = useState('all')
   const [detailTask, setDetailTask] = useState(null)
   const [selectedIds, setSelectedIds] = useState([])
+  const [page, setPage] = useState(1)
 
   const openDetail = (task) => {
     setDetailTask(task)
@@ -195,10 +199,12 @@ export default function LeadSales({ embedded = false }) {
   }
 
   const toggleSelectAll = () => {
-    if (selectedIds.length === filteredTasks.length) {
-      setSelectedIds([])
+    const ids = pagedTasks.map((t) => t.id)
+    const allOnPage = ids.length > 0 && ids.every((id) => selectedIds.includes(id))
+    if (allOnPage) {
+      setSelectedIds((prev) => prev.filter((id) => !ids.includes(id)))
     } else {
-      setSelectedIds(filteredTasks.map((t) => t.id))
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...ids])))
     }
   }
 
@@ -215,6 +221,16 @@ export default function LeadSales({ embedded = false }) {
     }
     return true
   })
+
+  useEffect(() => {
+    setPage(1)
+  }, [searchQuery, statusFilter, consentFilter])
+
+  const pageCount = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE))
+  const pagedTasks = filteredTasks.slice(
+    (Math.min(page, pageCount) - 1) * PAGE_SIZE,
+    Math.min(page, pageCount) * PAGE_SIZE,
+  )
 
   const canCall = (task) => {
     if (typeof task.can_call === 'boolean') return task.can_call
@@ -346,7 +362,7 @@ export default function LeadSales({ embedded = false }) {
                 onClick={toggleSelectAll}
                 style={{ background: 'var(--ds-surface-secondary)', border: '1px solid var(--ds-border)', borderRadius: '30px', padding: '0.2rem 0.9rem', fontSize: '0.75rem', cursor: 'pointer' }}
               >
-                {selectedIds.length === filteredTasks.length && filteredTasks.length > 0 ? 'Deselect all' : 'Select all'}
+                {pagedTasks.length > 0 && pagedTasks.every((t) => selectedIds.includes(t.id)) ? 'Deselect page' : 'Select page'}
               </button>
               <button
                 type="button"
@@ -367,7 +383,7 @@ export default function LeadSales({ embedded = false }) {
                   <th style={{ width: '30px', padding: '0.6rem 0.4rem 0.6rem 0.6rem', textAlign: 'left', fontSize: '0.72rem', textTransform: 'uppercase', fontWeight: 550 }}>
                     <input
                       type="checkbox"
-                      checked={selectedIds.length === filteredTasks.length && filteredTasks.length > 0}
+                      checked={pagedTasks.length > 0 && pagedTasks.every((t) => selectedIds.includes(t.id))}
                       onChange={toggleSelectAll}
                       style={{ width: '18px', height: '18px', accentColor: 'var(--ds-primary)', cursor: 'pointer' }}
                     />
@@ -383,7 +399,7 @@ export default function LeadSales({ embedded = false }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredTasks.map((task) => {
+                {pagedTasks.map((task) => {
                   const busy = busyId.startsWith(`${task.id}-`)
                   const services = task.interested_services ? task.interested_services.split(',').map(s => s.trim()).filter(Boolean) : []
                   return (
@@ -498,6 +514,17 @@ export default function LeadSales({ embedded = false }) {
               <p className='muted' style={{ padding: 24, textAlign: 'center' }}>
                 No sales leads match the current filters. They are created when a website lead requests a sales callback.
               </p>
+            ) : null}
+            {!loading && filteredTasks.length ? (
+              <div style={{ padding: '0 1rem 0.75rem' }}>
+                <TablePagination
+                  page={Math.min(page, pageCount)}
+                  pageCount={pageCount}
+                  total={filteredTasks.length}
+                  onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+                />
+              </div>
             ) : null}
             {loading ? <p className='muted' style={{ padding: 24, textAlign: 'center' }}>Loading…</p> : null}
           </div>

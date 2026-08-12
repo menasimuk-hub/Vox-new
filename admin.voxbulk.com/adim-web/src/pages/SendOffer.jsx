@@ -6,12 +6,15 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import LeadSalesPipelineStrip from '../components/LeadSalesPipelineStrip'
+import { TablePagination } from '@/components/ui/Table'
 import {
   Send,
   RefreshCw,
   Search,
   AlertTriangle,
 } from 'lucide-react'
+
+const PAGE_SIZE = 20
 
 function statusBadgeStyle(status) {
   const map = {
@@ -60,6 +63,7 @@ export default function SendOffer({ embedded = false }) {
   const [sendWhatsapp, setSendWhatsapp] = useState(true)
   const [force, setForce] = useState(false)
   const [cooldownError, setCooldownError] = useState('')
+  const [page, setPage] = useState(1)
 
   const load = async () => {
     setLoading(true)
@@ -167,6 +171,16 @@ export default function SendOffer({ embedded = false }) {
     
     return true
   })
+
+  useEffect(() => {
+    setPage(1)
+  }, [searchQuery, statusFilter, serviceFilter])
+
+  const pageCount = Math.max(1, Math.ceil(filteredTasks.length / PAGE_SIZE))
+  const pagedTasks = filteredTasks.slice(
+    (Math.min(page, pageCount) - 1) * PAGE_SIZE,
+    Math.min(page, pageCount) * PAGE_SIZE,
+  )
 
   // Count by status
   const statusCounts = {
@@ -360,7 +374,7 @@ export default function SendOffer({ embedded = false }) {
                 </tr>
               </thead>
               <tbody>
-                {filteredTasks.map((task) => {
+                {pagedTasks.map((task) => {
                   const busy = busyId === `${task.id}-send`
                   const services = task.services || []
                   return (
@@ -412,6 +426,17 @@ export default function SendOffer({ embedded = false }) {
               <p className='muted' style={{ padding: 24, textAlign: 'center' }}>
                 No offers waiting. Complete a call on <Link to='/marketing/leads/tasks'>Sales tasks</Link> to populate this queue.
               </p>
+            ) : null}
+            {!loading && filteredTasks.length ? (
+              <div style={{ padding: '0 1rem 0.75rem' }}>
+                <TablePagination
+                  page={Math.min(page, pageCount)}
+                  pageCount={pageCount}
+                  total={filteredTasks.length}
+                  onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                  onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+                />
+              </div>
             ) : null}
             {loading ? <p className='muted' style={{ padding: 24, textAlign: 'center' }}>Loading…</p> : null}
           </div>

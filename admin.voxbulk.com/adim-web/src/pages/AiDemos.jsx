@@ -30,7 +30,10 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 import LeadSalesPipelineStrip, { leadSalesListUrl } from '../components/LeadSalesPipelineStrip'
+import { TablePagination } from '@/components/ui/Table'
 import './ai-demos.css'
+
+const PAGE_SIZE = 20
 
 const LANGS = [
   { id: 'en', label: 'English' },
@@ -101,6 +104,7 @@ export default function AiDemos({ embedded = false }) {
   const [agents, setAgents] = useState([])
   const [busy, setBusy] = useState(false)
   const [batchResult, setBatchResult] = useState(null)
+  const [page, setPage] = useState(1)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -166,6 +170,16 @@ export default function AiDemos({ embedded = false }) {
     }
     return list
   }, [items, searchQuery, sortBy])
+
+  useEffect(() => {
+    setPage(1)
+  }, [statusFilter, searchQuery, sortBy])
+
+  const pageCount = Math.max(1, Math.ceil(sortedFilteredItems.length / PAGE_SIZE))
+  const pagedItems = sortedFilteredItems.slice(
+    (Math.min(page, pageCount) - 1) * PAGE_SIZE,
+    Math.min(page, pageCount) * PAGE_SIZE,
+  )
 
   const openApprove = (row) => {
     setCompose({
@@ -734,7 +748,7 @@ export default function AiDemos({ embedded = false }) {
                     </td>
                   </tr>
                 )}
-                {!loading && sortedFilteredItems.length === 0 && (
+                {!loading && pagedItems.length === 0 && sortedFilteredItems.length === 0 && (
                   <tr>
                     <td colSpan={6} className="aid-empty-state">
                       <Inbox style={{ display: 'inline', marginRight: 8, verticalAlign: 'middle' }} size={16} />
@@ -743,7 +757,7 @@ export default function AiDemos({ embedded = false }) {
                   </tr>
                 )}
                 {!loading &&
-                  sortedFilteredItems.map((row) => (
+                  pagedItems.map((row) => (
                     <tr key={row.id}>
                       <td style={{ whiteSpace: 'nowrap' }}>{fmt(row.created_at)}</td>
                       <td>
@@ -857,6 +871,15 @@ export default function AiDemos({ embedded = false }) {
                   ))}
               </tbody>
             </table>
+            {!loading && sortedFilteredItems.length ? (
+              <TablePagination
+                page={Math.min(page, pageCount)}
+                pageCount={pageCount}
+                total={sortedFilteredItems.length}
+                onPrev={() => setPage((p) => Math.max(1, p - 1))}
+                onNext={() => setPage((p) => Math.min(pageCount, p + 1))}
+              />
+            ) : null}
           </div>
         </>
       )}
