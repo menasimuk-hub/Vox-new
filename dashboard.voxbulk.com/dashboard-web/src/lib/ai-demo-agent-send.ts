@@ -104,6 +104,12 @@ function newItemId(): string {
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 /** Fire-and-forget user text over the Verto socket (same shape as SDK ConversationMessage). */
 export function sendRawAiUserText(call: DemoAgentCall, text: string): boolean {
   const connection = call.session?.connection;
@@ -111,6 +117,7 @@ export function sendRawAiUserText(call: DemoAgentCall, text: string): boolean {
   if (typeof sendRaw !== "function") return false;
   const payload = {
     jsonrpc: "2.0",
+    id: newItemId(),
     method: "ai_conversation",
     params: {
       type: "conversation.item.create",
@@ -127,7 +134,30 @@ export function sendRawAiUserText(call: DemoAgentCall, text: string): boolean {
   return true;
 }
 
-/** Flush queued user texts to Leo. Prefer SDK method, then raw socket. */
+/**
+ * SDK sendConversationMessage → session.execute waits for a JSON-RPC reply.
+ * Telnyx often never answers ai_conversation, so awaiting hangs and Next never
+ * reaches Leo. Cap the wait; prefer raw fire-and-forget when available.
+ */
+async function sendViaSdk(call: DemoAgentCall, text: string, timeoutMs = 900): Promise<{ ok: boolean; error?: string }> {
+  const send = call.sendConversationMessage;
+  if (typeof send !== "function") return { ok: false, error: "missing_method" };
+  try {
+    let timedOut = false;
+    await Promise.race([
+      Promise.resolve(send.call(call, text)).then(() => undefined),
+      sleep(timeoutMs).then(() => {
+        timedOut = true;
+      }),
+    ]);
+    if (timedOut) return { ok: true, error: "sdk_timeout_ok" };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Flush queued user texts to Leo. Prefer raw socket; SDK with timeout as backup. */
 export async function flushDemoAgentMessages(
   call: DemoAgentCall | null | undefined,
   queue: string[],
@@ -152,39 +182,43 @@ export async function flushDemoAgentMessages(
   const pending = queue.splice(0, queue.length);
   for (const text of pending) {
     const preview = text.slice(0, 120);
-    let sent = false;
-    let via = "";
     let errMsg = "";
+    let via = "";
+    let sent = false;
 
-    const send = call.sendConversationMessage;
-    if (typeof send === "function") {
-      try {
-        await Promise.resolve(send.call(call, text));
+    // Raw first — does not wait for a Telnyx JSON-RPC reply (SDK execute often hangs).
+    try {
+      if (sendRawAiUserText(call, text)) {
         sent = true;
-        via = "sendConversationMessage";
-      } catch (err) {
-        errMsg = err instanceof Error ? err.message : String(err);
+        via = "raw_ai_conversation";
       }
+    } catch (err) {
+      errMsg = err instanceof Error ? err.message : String(err);
     }
 
     if (!sent) {
-      try {
-        if (sendRawAiUserText(call, text)) {
-          sent = true;
-          via = "raw_ai_conversation";
-        }
-      } catch (err) {
-        errMsg = err instanceof Error ? err.message : String(err);
+      const sdk = await sendViaSdk(call, text);
+      if (sdk.ok) {
+        sent = true;
+        via = sdk.error === "sdk_timeout_ok" ? "sendConversationMessage_timeout" : "sendConversationMessage";
+      } else if (sdk.error && sdk.error !== "missing_method") {
+        errMsg = errMsg || sdk.error;
       }
     }
 
     if (sent) {
-      last = { ok: true, reason: via === "raw_ai_conversation" ? "sent_raw" : "sent", callControlId: ccid, preview, via };
+      last = {
+        ok: true,
+        reason: via.startsWith("raw") ? "sent_raw" : "sent",
+        callControlId: ccid,
+        preview,
+        via,
+      };
       recordProbe({ ...last, at: new Date().toISOString(), message: text });
     } else {
       last = {
         ok: false,
-        reason: typeof send === "function" ? "threw" : "missing_method",
+        reason: typeof call.sendConversationMessage === "function" ? "threw" : "missing_method",
         callControlId: ccid,
         preview,
         error: errMsg || undefined,

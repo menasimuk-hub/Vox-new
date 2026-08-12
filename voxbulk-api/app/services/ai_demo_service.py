@@ -2396,6 +2396,17 @@ class AiDemoService:
             call_control_id=str((memory or {}).get("telnyx_call_control_id") or ccid or "").strip(),
             message=msg,
         )
+        AiDemoService.update_memory(
+            db,
+            req,
+            {
+                "last_agent_notify": {
+                    "at": _utcnow().isoformat() + "Z",
+                    "via": "user_clicked",
+                    **agent_notify,
+                }
+            },
+        )
         return {"ok": True, "target": target_id, "message": msg, "agent_notify": agent_notify}
 
     @staticmethod
@@ -2467,7 +2478,27 @@ class AiDemoService:
         if not ccid:
             return {"ok": False, "detail": "missing_call_control_id"}
         AiDemoService.update_memory(db, req, {"telnyx_call_control_id": ccid})
-        return {"ok": True, "call_control_id": ccid}
+        memory = _json_loads(req.conversation_memory, {})
+        nudge = ""
+        if isinstance(memory, dict):
+            nudge = str(memory.get("pending_click_nudge") or "").strip()
+        agent_notify: dict[str, Any] = {"ok": False, "status": "skipped", "detail": "no_pending_nudge"}
+        if nudge:
+            agent_notify = AiDemoService._notify_agent_click(db, call_control_id=ccid, message=nudge)
+            if agent_notify.get("ok"):
+                AiDemoService.update_memory(db, req, {"pending_click_nudge": "", "pending_click_at": ""})
+        AiDemoService.update_memory(
+            db,
+            req,
+            {
+                "last_agent_notify": {
+                    "at": _utcnow().isoformat() + "Z",
+                    "via": "bind_call",
+                    **agent_notify,
+                }
+            },
+        )
+        return {"ok": True, "call_control_id": ccid, "agent_notify": agent_notify}
 
     @staticmethod
     def note_created_feedback_location(db: Session, *, session_id: str, location_id: str) -> None:

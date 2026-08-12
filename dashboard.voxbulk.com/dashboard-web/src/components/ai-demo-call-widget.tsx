@@ -140,10 +140,14 @@ export function AiDemoCallWidget() {
     } else if (!result.ok && result.reason === "threw") {
       console.warn("[ai-demo] sendConversationMessage threw", result.error);
     } else if (result.ok) {
-      console.info("[ai-demo] sendConversationMessage ok", {
+      console.info("[ai-demo] agent inject ok", {
+        via: result.via,
+        reason: result.reason,
         preview: result.preview,
         callControlId: result.callControlId,
       });
+    } else if (!result.ok && result.reason === "not_live") {
+      console.warn("[ai-demo] agent inject queued — call not live yet", result);
     }
     return result;
   }, []);

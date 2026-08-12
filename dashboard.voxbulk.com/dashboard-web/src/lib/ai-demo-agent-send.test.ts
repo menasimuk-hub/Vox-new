@@ -88,4 +88,31 @@ describe("ai-demo-agent-send", () => {
     expect(sent[0]).toContain("ai_conversation");
     expect(sent[0]).toContain("I clicked Next");
   });
+
+  it("prefers raw over hanging SDK sendConversationMessage", async () => {
+    const sent: string[] = [];
+    const call: DemoAgentCall = {
+      state: "active",
+      sendConversationMessage: vi.fn(
+        () =>
+          new Promise(() => {
+            /* never resolves — mirrors Telnyx execute hang */
+          }),
+      ),
+      session: {
+        connection: {
+          sendRawText: (raw: string) => {
+            sent.push(raw);
+          },
+        },
+      },
+    };
+    const queue = ["I clicked Next."];
+    const result = await flushDemoAgentMessages(call, queue);
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBe("sent_raw");
+    expect(sent).toHaveLength(1);
+    expect(call.sendConversationMessage).not.toHaveBeenCalled();
+    expect(queue).toHaveLength(0);
+  });
 });

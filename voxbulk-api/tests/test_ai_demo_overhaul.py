@@ -308,6 +308,64 @@ def test_record_user_click_notifies_agent_with_trigger(monkeypatch):
     assert calls[0]["messages"][0]["content"].startswith("I clicked Next.")
 
 
+def test_bind_call_flushes_pending_click_nudge(monkeypatch):
+    import json
+
+    from app.services.ai_demo_service import AiDemoService
+
+    session = SimpleNamespace(id="sess-bind", request_id="req-bind")
+    memory = {
+        "pending_click_nudge": "I clicked Next. Spotlight is Overview. Explain now.",
+        "pending_click_at": "2026-08-12T04:00:00Z",
+    }
+    req = SimpleNamespace(conversation_memory=json.dumps(memory))
+
+    def _update(_db, r, patch):
+        mem = json.loads(r.conversation_memory or "{}")
+        mem.update(patch)
+        r.conversation_memory = json.dumps(mem)
+
+    calls: list = []
+
+    class _FakeResult:
+        ok = True
+        status = "messages_added"
+        detail = None
+
+    class _FakeAdapter:
+        @staticmethod
+        def add_ai_assistant_messages(**kwargs):
+            calls.append(kwargs)
+            return _FakeResult()
+
+    monkeypatch.setattr(AiDemoService, "get_request", staticmethod(lambda db, rid: req))
+    monkeypatch.setattr(AiDemoService, "update_memory", staticmethod(_update))
+    monkeypatch.setattr(
+        "app.services.provider_settings.ProviderSettingsService.get_platform_config_decrypted",
+        staticmethod(lambda db, provider="telnyx": ({"api_key": "KEY" + ("x" * 60)}, True)),
+    )
+    monkeypatch.setattr(
+        "app.services.telnyx_voice_service.TelnyxVoiceAdapter",
+        _FakeAdapter,
+    )
+
+    db = MagicMock()
+    db.get.return_value = session
+    out = AiDemoService.bind_call_control(
+        db,
+        session_id="sess-bind",
+        call_control_id="v3:late-bind",
+    )
+    assert out["ok"] is True
+    assert out["agent_notify"]["ok"] is True
+    assert len(calls) == 1
+    assert calls[0]["call_control_id"] == "v3:late-bind"
+    assert calls[0]["trigger_response"] is True
+    mem = json.loads(req.conversation_memory)
+    assert mem.get("telnyx_call_control_id") == "v3:late-bind"
+    assert not mem.get("pending_click_nudge")
+
+
 def test_opening_gate_and_consent_first_greeting():
     from app.services.ai_demo_service import OPENING_GATE
 
