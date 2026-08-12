@@ -35,6 +35,8 @@ type TelnyxCall = {
   hangup?: () => void;
   remoteStream?: MediaStream | null;
   localStream?: MediaStream | null;
+  sendAIAssistantMessage?: (message: string) => unknown;
+  sendConversationMessage?: (message: string) => unknown;
 };
 
 type WidgetPos = { x: number; y: number };
@@ -109,7 +111,34 @@ export function AiDemoCallWidget() {
   const clientRef = useRef<{
     disconnect?: () => void;
     off?: (ev: string, fn: (...args: unknown[]) => void) => void;
+    sendAIAssistantMessage?: (message: string) => unknown;
   } | null>(null);
+
+  const notifyDemoAgentAdvanced = useCallback((intent: "view" | "click", target: string) => {
+    const label = String(target || "the highlight").trim();
+    const msg =
+      intent === "view"
+        ? `I clicked Next on the highlight box for "${label}". Please continue to the next topic now, and keep waiting for my Next clicks so you do not rush.`
+        : `I clicked the highlighted control "${label}". Please continue.`;
+    try {
+      const call = callRef.current;
+      if (typeof call?.sendAIAssistantMessage === "function") {
+        call.sendAIAssistantMessage(msg);
+        return;
+      }
+      if (typeof call?.sendConversationMessage === "function") {
+        call.sendConversationMessage(msg);
+        return;
+      }
+      const client = clientRef.current;
+      if (typeof client?.sendAIAssistantMessage === "function") {
+        client.sendAIAssistantMessage(msg);
+      }
+    } catch {
+      /* ignore — agent still follows wait/Next coach rules */
+    }
+  }, []);
+
   const notificationHandlerRef = useRef<((...args: unknown[]) => void) | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const afterEventIdRef = useRef<string | null>(null);
@@ -142,11 +171,13 @@ export function AiDemoCallWidget() {
             label: highlight.label,
             warnMissing: true,
             intent,
-            persistUntilClick: intent === "click",
+            persistUntilClick: true,
             onClicked: (clicked) => {
               const sid = demoSessionFromLocation() || sessionId;
-              if (!sid) return;
-              void reportDemoUserClick(sid, clicked).catch(() => undefined);
+              if (sid) {
+                void reportDemoUserClick(sid, clicked).catch(() => undefined);
+              }
+              notifyDemoAgentAdvanced(intent, clicked);
             },
           },
           350,
@@ -167,7 +198,7 @@ export function AiDemoCallWidget() {
         runHighlight();
       }
     },
-    [navigate, pathname, sessionId],
+    [navigate, pathname, sessionId, notifyDemoAgentAdvanced],
   );
 
   const hangup = useCallback(async () => {
@@ -254,11 +285,13 @@ export function AiDemoCallWidget() {
           label,
           warnMissing: true,
           intent,
-          persistUntilClick: intent === "click",
+          persistUntilClick: true,
           onClicked: (clicked: string) => {
             const sid = sessionId;
-            if (!sid) return;
-            void reportDemoUserClick(sid, clicked).catch(() => undefined);
+            if (sid) {
+              void reportDemoUserClick(sid, clicked).catch(() => undefined);
+            }
+            notifyDemoAgentAdvanced(intent, clicked);
           },
         };
         if (wantNav && route && !exitingRef.current) {
@@ -278,7 +311,7 @@ export function AiDemoCallWidget() {
         }
       }
     },
-    [finish, navigateRoute, sessionId],
+    [finish, navigateRoute, sessionId, notifyDemoAgentAdvanced],
   );
 
   useEffect(() => {

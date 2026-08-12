@@ -1605,8 +1605,9 @@ class AiDemoService:
                     "QR on the table, WhatsApp chat, you see the dip by location first.' "
                     "Then prove it on the real page. Bridge every screen back to THEIR business."
                 ),
-                "UI RULES: Prefer step= curated IDs. Default action=highlight (they click). "
+                "UI RULES: Prefer step= curated IDs. Default action=highlight (they advance). "
                 "Call highlight_dashboard BEFORE 'look here'. "
+                "VIEW highlights show a Next button — explain briefly, ask them to click Next so you do not rush, then STOP. "
                 "Never navigate or highlight during the opening consent turn. "
                 "action=navigate only if they ask you to open it or stalled and said yes.",
                 real_dash_block,
@@ -1635,7 +1636,8 @@ class AiDemoService:
                 f"Hard soft cap about {soft_cap} minutes — wrap up with end_demo when time is up.",
                 "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
                 "UI RULES: Prefer highlight_dashboard step= curated IDs. Default action=highlight. "
-                "Call BEFORE you say 'look here'. Never navigate during the opening consent turn.",
+                "Call BEFORE you say 'look here'. VIEW boxes need Next — wait after asking. "
+                "Never navigate during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service= the product in context.",
@@ -2196,9 +2198,10 @@ class AiDemoService:
                     "target_element_id": target_element_id,
                     "label": label,
                     "message": (
-                        f"Look-only spotlight on {label or target_element_id or 'this area'}. "
-                        "Explain it quickly. Do NOT ask them to click — there is nothing to click. "
-                        "Then move to the next beat."
+                        f"Look-only spotlight on {label or target_element_id or 'this area'} with a Next button. "
+                        "Explain in 1–2 short sentences. Clearly say they should click Next on the box "
+                        "so you do not rush to the next topic. Then STOP and wait — do NOT highlight "
+                        "the next beat until they click Next or say they are ready."
                     ),
                 }
             return {

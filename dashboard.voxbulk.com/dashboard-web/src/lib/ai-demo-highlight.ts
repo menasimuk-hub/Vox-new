@@ -6,7 +6,6 @@ const POINTER_ID = "voxbulk-ai-demo-pointer";
 const SPOTLIGHT_ID = "voxbulk-ai-demo-spotlight";
 const LABEL_ID = "voxbulk-ai-demo-label";
 const STYLE_ID = "voxbulk-ai-demo-highlight-style";
-const VIEW_HOLD_MS = 22000;
 
 export type DemoHighlightIntent = "view" | "click";
 
@@ -35,7 +34,6 @@ let driverHandle: { destroy: () => void } | null = null;
 let clickBoundEl: HTMLElement | null = null;
 let clickBoundHandler: ((ev: Event) => void) | null = null;
 let highlightEpoch = 0;
-let viewHoldTimer: number | null = null;
 
 export function pricingTabForService(serviceSlug: string | null | undefined): string {
   const s = String(serviceSlug || "")
@@ -123,7 +121,7 @@ function ensureHighlightStyles() {
   font: 600 13px/1.4 inherit, ui-sans-serif, system-ui, sans-serif;
   border: 1px solid rgba(36, 48, 86, 0.12);
   box-shadow: 0 14px 40px rgba(36, 48, 86, 0.16);
-  pointer-events: none;
+  pointer-events: auto;
 }
 #${LABEL_ID} .vox-demo-chip {
   display: inline-flex;
@@ -145,8 +143,32 @@ function ensureHighlightStyles() {
   color: #243056;
   letter-spacing: -0.01em;
 }
-body.voxbulk-demo-view .driver-overlay {
-  pointer-events: none !important;
+#${LABEL_ID} .vox-demo-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 10px;
+  background: #243056;
+  color: #fbf8f3;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+}
+#${LABEL_ID} .vox-demo-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5c534a;
+  line-height: 1.35;
+}
+body.voxbulk-demo-click .driver-overlay {
+  /* click mode: allow tapping the highlighted control */
 }
 .voxbulk-demo-popover {
   background: #fbf8f3 !important;
@@ -188,7 +210,13 @@ body.voxbulk-demo-view .driver-overlay {
   color: #2a241c !important;
 }
 .voxbulk-demo-popover-view .driver-popover-description {
-  display: none !important;
+  display: block !important;
+  font-weight: 500 !important;
+  color: #5c534a !important;
+  margin-top: 6px !important;
+}
+.voxbulk-demo-popover-click .driver-popover-description {
+  display: block !important;
 }
 .voxbulk-demo-popover .driver-popover-arrow-side-left .driver-popover-arrow,
 .voxbulk-demo-popover .driver-popover-arrow-side-right .driver-popover-arrow,
@@ -196,11 +224,36 @@ body.voxbulk-demo-view .driver-overlay {
 .voxbulk-demo-popover .driver-popover-arrow-side-bottom .driver-popover-arrow {
   border-color: #fbf8f3 !important;
 }
-.voxbulk-demo-popover .driver-popover-footer,
+.voxbulk-demo-popover-click .driver-popover-footer,
+.voxbulk-demo-popover-click .driver-popover-close-btn,
+.voxbulk-demo-popover-click .driver-popover-navigation-btns,
+.voxbulk-demo-popover-click .driver-popover-progress-text,
 .voxbulk-demo-popover .driver-popover-close-btn,
-.voxbulk-demo-popover .driver-popover-navigation-btns,
 .voxbulk-demo-popover .driver-popover-progress-text {
   display: none !important;
+}
+.voxbulk-demo-popover-view .driver-popover-footer {
+  display: flex !important;
+  justify-content: flex-end !important;
+  margin-top: 12px !important;
+  padding-top: 0 !important;
+  border-top: none !important;
+}
+.voxbulk-demo-popover-view .driver-popover-navigation-btns {
+  display: flex !important;
+  gap: 8px !important;
+}
+.voxbulk-demo-popover-view .driver-popover-next-btn {
+  background: #243056 !important;
+  color: #fbf8f3 !important;
+  border: none !important;
+  border-radius: 999px !important;
+  padding: 8px 16px !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
 }
 `;
   document.head.appendChild(style);
@@ -259,6 +312,8 @@ function placePointer(el: HTMLElement) {
   tip.style.top = `${Math.round(rect.top + Math.min(rect.height * 0.55, Math.max(rect.height - 12, 12)))}px`;
 }
 
+const VIEW_NEXT_HINT = "Click Next when you are ready — so we do not rush to the next topic.";
+
 function placeLabel(el: HTMLElement, opts: DemoHighlightOptions) {
   ensureHighlightStyles();
   const intent = opts.intent || inferDemoHighlightIntent(opts.targetElementId);
@@ -280,9 +335,27 @@ function placeLabel(el: HTMLElement, opts: DemoHighlightOptions) {
   title.className = "vox-demo-title";
   title.textContent = text;
   node.appendChild(title);
+  if (intent === "view") {
+    const hint = document.createElement("span");
+    hint.className = "vox-demo-hint";
+    hint.textContent = VIEW_NEXT_HINT;
+    node.appendChild(hint);
+    const next = document.createElement("button");
+    next.type = "button";
+    next.className = "vox-demo-next";
+    next.textContent = "Next";
+    next.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const id = String(opts.targetElementId || "").trim();
+      clearDemoHighlight();
+      if (id) opts.onClicked?.(id);
+    });
+    node.appendChild(next);
+  }
   const rect = el.getBoundingClientRect();
-  const preferBelow = rect.bottom + 72 < window.innerHeight;
-  const top = preferBelow ? rect.bottom + 12 : Math.max(8, rect.top - 72);
+  const preferBelow = rect.bottom + 96 < window.innerHeight;
+  const top = preferBelow ? rect.bottom + 12 : Math.max(8, rect.top - 96);
   const left = Math.min(Math.max(8, rect.left), window.innerWidth - 240);
   node.style.opacity = "1";
   node.style.top = `${Math.round(top)}px`;
@@ -314,10 +387,6 @@ function setDemoBodyMode(intent: DemoHighlightIntent | null) {
 
 export function clearDemoHighlight() {
   highlightEpoch += 1;
-  if (viewHoldTimer != null) {
-    window.clearTimeout(viewHoldTimer);
-    viewHoldTimer = null;
-  }
   unbindClick();
   try {
     driverHandle?.destroy();
@@ -376,6 +445,11 @@ async function highlightWithDriver(el: HTMLElement, opts: DemoHighlightOptions, 
   ensureHighlightStyles();
   setDemoBodyMode(intent);
   const label = String(opts.label || "").trim();
+  const targetId = String(opts.targetElementId || "").trim();
+  const finishViewNext = () => {
+    clearDemoHighlight();
+    if (targetId) opts.onClicked?.(targetId);
+  };
   const inst = driver({
     overlayColor: "#1a2744",
     overlayOpacity: 0.42,
@@ -384,9 +458,10 @@ async function highlightWithDriver(el: HTMLElement, opts: DemoHighlightOptions, 
     popoverOffset: 14,
     popoverClass: `voxbulk-demo-popover voxbulk-demo-popover-${intent}`,
     allowClose: false,
-    disableActiveInteraction: false,
-    showButtons: [],
-    overlayClickBehavior: intent === "click" ? "close" : "nextStep",
+    disableActiveInteraction: intent === "view",
+    showButtons: intent === "view" ? ["next"] : [],
+    nextBtnText: "Next",
+    overlayClickBehavior: intent === "click" ? "close" : () => undefined,
     onDestroyed: () => {
       if (driverHandle === inst) driverHandle = null;
     },
@@ -395,10 +470,15 @@ async function highlightWithDriver(el: HTMLElement, opts: DemoHighlightOptions, 
     element: el,
     popover: {
       title: intent === "click" ? "Click here" : label || "Look here",
-      description: intent === "click" ? label || "Tap this" : " ",
-      showButtons: [],
+      description:
+        intent === "click"
+          ? label || "Tap this"
+          : VIEW_NEXT_HINT,
+      showButtons: intent === "view" ? ["next"] : [],
+      nextBtnText: "Next",
       side: "right",
       align: "start",
+      onNextClick: intent === "view" ? finishViewNext : undefined,
     },
   });
   driverHandle = inst;
@@ -443,10 +523,7 @@ export function applyDemoHighlight(opts: DemoHighlightOptions) {
     if (epoch !== highlightEpoch) return;
     fallbackHighlight(el, { ...opts, intent });
   });
-  if (clickMode) return true;
-  viewHoldTimer = window.setTimeout(() => {
-    if (epoch === highlightEpoch) clearDemoHighlight();
-  }, VIEW_HOLD_MS);
+  // VIEW waits for Next; CLICK waits for the highlighted control.
   return true;
 }
 

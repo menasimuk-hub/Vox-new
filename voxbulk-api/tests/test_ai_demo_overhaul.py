@@ -138,9 +138,11 @@ def test_coach_script_mentions_home_kpis():
     assert "home_kpis" in COACH_TOUR_MAP
     assert "home_second_row" in COACH_TOUR_MAP
     assert "wizard_industry" in COACH_TOUR_MAP
-    assert "stay quiet" in COACH_TOUR_MAP.lower() or "I will wait" in COACH_TOUR_MAP
+    assert "stay quiet" in COACH_TOUR_MAP.lower() or "I will wait" in COACH_TOUR_MAP or "WAIT" in COACH_TOUR_MAP
     assert "Campaign dashboard" in COACH_TOUR_MAP
     assert "NEVER say" in COACH_TOUR_MAP or "never say" in COACH_TOUR_MAP.lower()
+    assert "Next" in COACH_TOUR_MAP
+    assert "do not rush" in COACH_TOUR_MAP.lower() or "do NOT jump" in COACH_TOUR_MAP
 
 
 def test_opening_gate_and_consent_first_greeting():

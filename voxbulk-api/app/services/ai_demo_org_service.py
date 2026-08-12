@@ -324,12 +324,15 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
 
 
 def demo_highlight_intent(*, step: str | None = None, target_element_id: str | None = None) -> str:
-    """view = look-only (KPIs, whole pages). click = visitor must tap a real control."""
+    """view = look-only box with Next. click = visitor must tap a real control."""
     key = str(step or "").strip().lower().replace("-", "_")
     tid = str(target_element_id or "").strip().lower()
     if key.startswith("nav_") or tid.startswith("nav-"):
         return "click"
-    if key.startswith("results_") or tid.startswith("results-tab") or tid == "results-location-select":
+    # Tab controls are click; overview chrome like results_top_menus is view+Next.
+    if key in {"results_overview", "results_questions", "results_responses", "results_details"}:
+        return "click"
+    if tid.startswith("results-tab") or tid == "results-location-select":
         return "click"
     if key.startswith("packages_") or tid.startswith("packages-tab-"):
         return "click"
