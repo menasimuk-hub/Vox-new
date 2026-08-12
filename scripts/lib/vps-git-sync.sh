@@ -63,6 +63,11 @@ vox_git_sync() {
     dashboard.voxbulk.com/dashboard-web/src/routeTree.gen.ts
     dashboard.voxbulk.com/dashboard-web/Interview-reports/src/routeTree.gen.ts
     voxbulk.com/frontend/src/routeTree.gen.ts
+    dashboard.voxbulk.com/dashboard-web/package-lock.json
+    admin.voxbulk.com/adim-web/package-lock.json
+    voxbulk.com/frontend/package-lock.json
+    voxbox.voxbulk.com/voxbox-web/package-lock.json
+    package-lock.json
   )
   local gen_path
   for gen_path in "${gen_paths[@]}"; do
@@ -101,8 +106,8 @@ vox_git_sync() {
         return 1
       }
     else
-      echo "[git] FAIL: pull failed — often dirty routeTree.gen.ts from last npm build." >&2
-      echo "[git]       Fix now:  git checkout -- '**/routeTree.gen.ts' && ./deploy-vps.sh" >&2
+      echo "[git] FAIL: pull failed — often dirty routeTree.gen.ts or package-lock.json from last npm build." >&2
+      echo "[git]       Fix now:  git checkout -- dashboard.voxbulk.com/dashboard-web/package-lock.json '**/routeTree.gen.ts' && ./deploy-vps.sh" >&2
       echo "[git]       Or:       VOX_HARD_RESET=1 VOX_GIT_BRANCH=$branch ./deploy-vps.sh" >&2
       echo "[git]       Or:       VOX_FORCE_PULL=1 VOX_GIT_BRANCH=$branch bash scripts/vps-sync-all-ui.sh" >&2
       return 1
