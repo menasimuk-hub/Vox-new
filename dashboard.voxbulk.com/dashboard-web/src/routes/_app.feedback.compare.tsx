@@ -134,7 +134,7 @@ function FeedbackCompare() {
   const worst = [...locs].sort((a, b) => a.satisfaction - b.satisfaction)[0];
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6" data-demo-target="feedback-compare">
       <PageHeader
         eyebrow="Customer feedback · Compare"
         title="Compare locations"

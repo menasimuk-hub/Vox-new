@@ -21,7 +21,7 @@ function FeedbackCampaignDashboard() {
   const campaigns = dashQ.data?.campaigns || [];
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6" data-demo-target="feedback-campaigns">
       <PageHeader
         eyebrow="Add-on · Customer feedback"
         title="Campaign dashboard"

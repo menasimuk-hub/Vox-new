@@ -98,6 +98,33 @@ def test_resolve_demo_ui_step_catalog():
     assert resolve_demo_ui_step("nope") is None
 
 
+def test_highlight_defaults_to_spotlight_without_route():
+    from app.services.ai_demo_org_service import resolve_demo_ui_step
+
+    step = resolve_demo_ui_step("home_kpis")
+    assert step is not None
+    assert step["target_element_id"] == "home-live-kpis"
+    assert resolve_demo_ui_step("nav_feedback_results")["route"] == "/feedback/results"
+    assert resolve_demo_ui_step("results_overview")["target_element_id"] == "results-tab-overview"
+
+
+def test_demo_jwt_allows_feedback_location_create_only():
+    _assert_demo_writes_blocked(_request("POST", "/customer-feedback/locations"), _principal(demo=True))
+    _assert_demo_writes_blocked(_request("POST", "/customer-feedback/locations/preview"), _principal(demo=True))
+    with pytest.raises(HTTPException):
+        _assert_demo_writes_blocked(_request("PATCH", "/customer-feedback/locations/abc"), _principal(demo=True))
+    with pytest.raises(HTTPException):
+        _assert_demo_writes_blocked(_request("DELETE", "/customer-feedback/locations/abc"), _principal(demo=True))
+
+
+def test_coach_script_mentions_home_kpis():
+    from app.data.ai_demo_coach_script import COACH_TOUR_MAP
+
+    assert "home_kpis" in COACH_TOUR_MAP
+    assert "action=highlight" in COACH_TOUR_MAP
+    assert "Campaign dashboard" in COACH_TOUR_MAP
+
+
 def test_opening_gate_and_consent_first_greeting():
     from app.services.ai_demo_service import OPENING_GATE
 

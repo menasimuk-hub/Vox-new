@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -22,6 +24,8 @@ from app.schemas.dashboard import SubscriptionCancellationOut, SubscriptionCance
 from app.services.gocardless_service import GoCardlessConfigError, GoCardlessProviderError
 from app.services.org_enabled_services import is_service_enabled, org_service_maps
 from app.services.org_rbac import OrgRbacService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/customer-feedback", tags=["customer-feedback"])
 
@@ -311,12 +315,27 @@ def preview_location(payload: dict, db: Session = Depends(get_db), principal=Dep
 @router.post("/locations")
 def create_location(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_feedback_enabled(db, principal.org_id)
+    token = principal.token_payload or {}
+    demo_sid = str(token.get("demo_session_id") or "").strip() or None
     try:
         item = FeedbackLocationService.create_location(
-            db, principal.org_id, payload, created_by_user_id=principal.user_id
+            db,
+            principal.org_id,
+            payload,
+            created_by_user_id=principal.user_id,
+            demo_session_id=demo_sid,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    if demo_sid and item.get("id"):
+        from app.services.ai_demo_service import AiDemoService
+
+        try:
+            AiDemoService.note_created_feedback_location(
+                db, session_id=demo_sid, location_id=str(item["id"])
+            )
+        except Exception:
+            logger.exception("demo_note_created_feedback_location_failed")
     return {"ok": True, "item": item}
 
 

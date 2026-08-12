@@ -105,6 +105,91 @@ DEMO_SECTION_ROUTES: dict[str, str] = {
 
 # Curated demo coachmarks — agent should prefer step= over free-form selectors.
 DEMO_UI_STEPS: dict[str, dict[str, str]] = {
+    "home": {
+        "route": "/",
+        "target_element_id": "home-live-kpis",
+        "label": "Live KPIs — demo shows every service",
+    },
+    "home_kpis": {
+        "route": "/",
+        "target_element_id": "home-live-kpis",
+        "label": "Live KPIs — demo shows every service",
+    },
+    "home_activity": {
+        "route": "/",
+        "target_element_id": "home-live-activity",
+        "label": "Live activity",
+    },
+    "home_sentiment": {
+        "route": "/",
+        "target_element_id": "home-sentiment",
+        "label": "Customer sentiment",
+    },
+    "home_week": {
+        "route": "/",
+        "target_element_id": "home-this-week",
+        "label": "This week — responses & sentiment",
+    },
+    "home_followup": {
+        "route": "/",
+        "target_element_id": "home-follow-up",
+        "label": "Needs follow-up",
+    },
+    "nav_feedback": {
+        "route": "/",
+        "target_element_id": "nav-feedback",
+        "label": "Customer Feedback",
+    },
+    "nav_feedback_results": {
+        "route": "/feedback/results",
+        "target_element_id": "nav-feedback-results",
+        "label": "Click Feedback results",
+    },
+    "nav_feedback_compare": {
+        "route": "/feedback/compare",
+        "target_element_id": "nav-feedback-compare",
+        "label": "Click Compare locations",
+    },
+    "nav_feedback_new": {
+        "route": "/feedback/new",
+        "target_element_id": "nav-feedback-new",
+        "label": "Click Create QR survey",
+    },
+    "nav_feedback_list": {
+        "route": "/feedback",
+        "target_element_id": "nav-feedback-list",
+        "label": "Saved QR surveys",
+    },
+    "nav_feedback_campaigns": {
+        "route": "/feedback/campaigns",
+        "target_element_id": "nav-feedback-campaigns",
+        "label": "Click Campaign dashboard",
+    },
+    "results_overview": {
+        "route": "/feedback/results",
+        "target_element_id": "results-tab-overview",
+        "label": "Overview",
+    },
+    "results_questions": {
+        "route": "/feedback/results",
+        "target_element_id": "results-tab-questions",
+        "label": "Questions",
+    },
+    "results_responses": {
+        "route": "/feedback/results",
+        "target_element_id": "results-tab-responses",
+        "label": "Responses",
+    },
+    "results_details": {
+        "route": "/feedback/results",
+        "target_element_id": "results-tab-details",
+        "label": "More details",
+    },
+    "results_location": {
+        "route": "/feedback/results",
+        "target_element_id": "results-location-select",
+        "label": "Pick a location",
+    },
     "services": {
         "route": "/settings/services",
         "target_element_id": "settings-services",
@@ -114,6 +199,16 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
         "route": "/feedback",
         "target_element_id": "feedback-list",
         "label": "Saved QR surveys list",
+    },
+    "feedback_compare": {
+        "route": "/feedback/compare",
+        "target_element_id": "feedback-compare",
+        "label": "Compare locations",
+    },
+    "feedback_campaigns": {
+        "route": "/feedback/campaigns",
+        "target_element_id": "feedback-campaigns",
+        "label": "Campaign dashboard",
     },
     "feedback_create": {
         "route": "/feedback/new",
@@ -194,6 +289,11 @@ def resolve_demo_ui_step(step: str | None) -> dict[str, str] | None:
         "pricing_smart_card": "packages_smart_card",
         "settings": "services",
         "modules": "services",
+        "dashboard": "home",
+        "home_follow_up": "home_followup",
+        "compare": "feedback_compare",
+        "campaigns": "feedback_campaigns",
+        "results": "feedback_results",
     }
     mapped = aliases.get(raw)
     if mapped and mapped in DEMO_UI_STEPS:

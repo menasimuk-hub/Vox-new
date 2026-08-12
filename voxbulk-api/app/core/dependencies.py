@@ -81,6 +81,13 @@ _DEMO_WRITE_ALLOW_PREFIXES = (
     "/api/health",
 )
 
+_DEMO_WRITE_ALLOW_EXACT = {
+    "/customer-feedback/locations",
+    "/api/customer-feedback/locations",
+    "/customer-feedback/locations/preview",
+    "/api/customer-feedback/locations/preview",
+}
+
 
 def _assert_demo_writes_blocked(request: Request, principal: CurrentPrincipal) -> None:
     """Demo handoff JWTs are view-only — block mutating dashboard APIs."""
@@ -94,6 +101,8 @@ def _assert_demo_writes_blocked(request: Request, principal: CurrentPrincipal) -
     for prefix in _DEMO_WRITE_ALLOW_PREFIXES:
         if path == prefix.rstrip("/") or path.startswith(prefix):
             return
+    if method == "POST" and path.rstrip("/") in {p.rstrip("/") for p in _DEMO_WRITE_ALLOW_EXACT}:
+        return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Demo sessions are view-only — saving or changing account data is blocked",

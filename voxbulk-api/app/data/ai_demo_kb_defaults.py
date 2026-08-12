@@ -44,7 +44,7 @@ _SALES = (
     "feedback_results|surveys|recruitment|expo|smart_card|services|packages_feedback — preferred over free selectors; "
     "pointer defaults on; include label), "
     "bridge to their business, soft close. "
-    "Open the selected product page only AFTER welcome + recording consent + ready. "
+    "Stay on home after ready and highlight KPIs (action=highlight). Open a product page only after they click the menu. "
     "Pricing: show_pricing with service=active product so the correct packages tab opens; "
     "sales sends the best offer — never invent discounts. "
     "On buy interest: request_sales_offer + log_volume_needs, then end_demo with book-a-call CTA."
@@ -135,7 +135,8 @@ DEMO_KB_SEED: list[dict] = [
             "Page: voxbulk.com/feedback. Pricing: voxbulk.com/pricing (location-based Feedback plans)."
         ),
         "demo_script": (
-            "Sales hook → open feedback results → point at the dip → live QR try → soft close."
+            "Home KPIs first (demo shows every service) → Results tabs + location → "
+            "Compare → Create QR / scan / edit → Campaigns → close."
         ),
         "tool_subset": DEFAULT_TOOL_SUBSET,
     },

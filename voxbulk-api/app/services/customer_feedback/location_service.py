@@ -340,10 +340,18 @@ class FeedbackLocationService:
 
     @staticmethod
     def create_location(
-        db: Session, org_id: str, payload: dict[str, Any], *, created_by_user_id: str | None = None
+        db: Session,
+        org_id: str,
+        payload: dict[str, Any],
+        *,
+        created_by_user_id: str | None = None,
+        demo_session_id: str | None = None,
     ) -> dict[str, Any]:
+        demo_sid = str(demo_session_id or "").strip() or None
         live_sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
-        if live_sub is not None:
+        if demo_sid:
+            default_status = "preview"
+        elif live_sub is not None:
             max_loc = FeedbackBillingService.max_locations(db, org_id)
             if max_loc <= 0:
                 raise ValueError("Subscribe to a Customer feedback package before adding locations.")
@@ -391,6 +399,8 @@ class FeedbackLocationService:
         ai_follow_up = payload.get("ai_follow_up")
         location_name = str(payload.get("name") or "Location").strip()
         company_name = org.name if org else "Your business"
+        if demo_sid:
+            survey_config["ai_demo_session_id"] = demo_sid
         if isinstance(web_theme, dict) or isinstance(ai_follow_up, dict):
             extras: dict[str, Any] = {}
             if isinstance(web_theme, dict):
@@ -407,6 +417,8 @@ class FeedbackLocationService:
             survey_config = merge_web_theme_into_config(survey_config, extras.get("web_theme"))
             if extras.get("ai_follow_up"):
                 survey_config["ai_follow_up"] = extras["ai_follow_up"]
+        if demo_sid:
+            survey_config["ai_demo_session_id"] = demo_sid
         qr_token = build_location_qr_token(company=company_name, branch=location_name)
         while db.execute(select(FeedbackLocation.qr_token).where(FeedbackLocation.qr_token == qr_token)).scalar_one_or_none():
             qr_token = build_location_qr_token(company=company_name, branch=location_name)
@@ -414,7 +426,9 @@ class FeedbackLocationService:
         # Only paid creates may be active; unpaid always saves as preview demo.
         status = default_status
         requested = str(payload.get("status") or "").strip().lower()
-        if live_sub is not None and requested in {"active", "paused"}:
+        if demo_sid:
+            status = "preview"
+        elif live_sub is not None and requested in {"active", "paused"}:
             status = requested
         row = FeedbackLocation(
             id=str(uuid.uuid4()),

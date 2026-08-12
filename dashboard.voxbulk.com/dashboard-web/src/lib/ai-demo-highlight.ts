@@ -14,7 +14,14 @@ export type DemoHighlightOptions = {
   label?: string | null;
   /** Soft-fail missing targets in production; warn in dev/test. */
   warnMissing?: boolean;
+  /** Keep the spotlight until the visitor clicks (coach mode). */
+  persistUntilClick?: boolean;
+  onClicked?: (targetElementId: string) => void;
 };
+
+let driverHandle: { destroy: () => void } | null = null;
+let clickBoundEl: HTMLElement | null = null;
+let clickBoundHandler: ((ev: Event) => void) | null = null;
 
 export function pricingTabForService(serviceSlug: string | null | undefined): string {
   const s = String(serviceSlug || "")
@@ -212,9 +219,97 @@ function placeLabel(el: HTMLElement, label?: string | null) {
   node.style.left = `${Math.round(left)}px`;
 }
 
+function expandNavForTarget(el: HTMLElement) {
+  const group = el.closest("[data-demo-nav-group]") as HTMLElement | null;
+  if (!group) return;
+  const closed = group.querySelector<HTMLElement>("[data-state='closed']") || group.closest("[data-state='closed']");
+  if (!closed) return;
+  const trigger = group.querySelector<HTMLElement>("[data-sidebar='group-label']");
+  trigger?.click();
+}
+
+function unbindClick() {
+  if (clickBoundEl && clickBoundHandler) {
+    clickBoundEl.removeEventListener("click", clickBoundHandler, true);
+  }
+  clickBoundEl = null;
+  clickBoundHandler = null;
+}
+
+export function clearDemoHighlight() {
+  unbindClick();
+  try {
+    driverHandle?.destroy();
+  } catch {
+    /* ignore */
+  }
+  driverHandle = null;
+  document.getElementById(SPOTLIGHT_ID)?.remove();
+  document.getElementById(POINTER_ID)?.remove();
+  document.getElementById(LABEL_ID)?.remove();
+}
+
+function bindClickOnce(el: HTMLElement, id: string, opts: DemoHighlightOptions) {
+  unbindClick();
+  clickBoundHandler = () => {
+    unbindClick();
+    window.setTimeout(() => clearDemoHighlight(), 120);
+    opts.onClicked?.(id);
+  };
+  clickBoundEl = el;
+  el.addEventListener("click", clickBoundHandler, true);
+}
+
+function fallbackHighlight(el: HTMLElement, opts: DemoHighlightOptions) {
+  ensureHighlightStyles();
+  el.classList.remove("highlight-pulse");
+  void el.offsetWidth;
+  el.classList.add("highlight-pulse");
+  if (!opts.persistUntilClick) {
+    window.setTimeout(() => el.classList.remove("highlight-pulse"), PULSE_MS);
+  }
+  placeSpotlight(el);
+  if (opts.pointer !== false) placePointer(el);
+  placeLabel(el, opts.label);
+  if (!opts.persistUntilClick) clearOverlaysSoon();
+}
+
+async function highlightWithDriver(el: HTMLElement, opts: DemoHighlightOptions) {
+  const [{ driver }] = await Promise.all([
+    import("driver.js"),
+    import("driver.js/dist/driver.css"),
+  ]);
+  try {
+    driverHandle?.destroy();
+  } catch {
+    /* ignore */
+  }
+  const inst = driver({
+    overlayColor: "#0a1628",
+    overlayOpacity: 0.52,
+    stagePadding: 8,
+    stageRadius: 10,
+    popoverOffset: 12,
+    allowClose: false,
+    disableActiveInteraction: false,
+    showButtons: [],
+    overlayClickBehavior: "close",
+  });
+  inst.highlight({
+    element: el,
+    popover: {
+      title: "Click here",
+      description: String(opts.label || "This control").trim() || "This control",
+      showButtons: [],
+      side: "right",
+      align: "start",
+    },
+  });
+  driverHandle = inst;
+}
+
 export function applyDemoHighlight(opts: DemoHighlightOptions) {
   if (typeof document === "undefined") return false;
-  ensureHighlightStyles();
   const id = String(opts.targetElementId || "").trim();
   if (!id) return false;
   const el = resolveTarget(id);
@@ -227,19 +322,18 @@ export function applyDemoHighlight(opts: DemoHighlightOptions) {
     }
     return false;
   }
+  expandNavForTarget(el);
   try {
     el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
   } catch {
     /* ignore */
   }
-  el.classList.remove("highlight-pulse");
-  void el.offsetWidth;
-  el.classList.add("highlight-pulse");
-  window.setTimeout(() => el.classList.remove("highlight-pulse"), PULSE_MS);
-  placeSpotlight(el);
-  if (opts.pointer !== false) placePointer(el);
-  placeLabel(el, opts.label);
-  clearOverlaysSoon();
+  clearDemoHighlight();
+  bindClickOnce(el, id, opts);
+  void highlightWithDriver(el, opts).catch(() => fallbackHighlight(el, opts));
+  if (!opts.persistUntilClick) {
+    window.setTimeout(() => clearDemoHighlight(), PULSE_MS);
+  }
   return true;
 }
 

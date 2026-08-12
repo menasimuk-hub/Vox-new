@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.data.ai_demo_email_default import DEMO_INVITE_EMAIL_BODY, DEMO_INVITE_EMAIL_SUBJECT
+from app.data.ai_demo_coach_script import COACH_TOUR_MAP
 from app.data.ai_demo_kb_defaults import DEMO_KB_SEED, tool_subset_json
 from app.data.ai_demo_whatsapp_defaults import DEMO_EMAIL_SENT_BODY, DEMO_EMAIL_SENT_TEMPLATE_NAME
 from app.models.demo_knowledge_base import DemoKnowledgeBase
@@ -65,7 +66,8 @@ OPENING_GATE = (
     "  4) Ask if they are ready to start — then STOP and listen\n"
     "Do NOT call highlight_dashboard, show_pricing, switch_kb, or name product features "
     "until they clearly confirm (yes / OK / go / ready / sure / fine).\n"
-    "After they confirm: briefly name the first selected product, one sales hook, THEN open the page with highlight_dashboard."
+    "After they confirm: stay on the home dashboard. Highlight live KPIs with "
+    "highlight_dashboard action=highlight (do not navigate). Follow COACH MODE beat order."
 )
 
 
@@ -1591,10 +1593,10 @@ class AiDemoService:
                     + "Especially never open with AI interviews unless recruitment was selected."
                 ),
                 (
-                    f"AFTER they confirm ready (not before): start with {first_label} → "
-                    "one sharp sales hook → THEN call highlight_dashboard with step= "
-                    "(feedback_list|feedback_create|feedback_results|surveys|recruitment|expo|smart_card|"
-                    "services|packages_feedback) BEFORE you say look here. Always include a short label."
+                    f"AFTER they confirm ready (not before): stay on HOME. "
+                    f"Name {first_label} in one line, then follow COACH MODE — "
+                    "highlight_dashboard action=highlight on home_kpis first. "
+                    "Do not navigate to a product page until they click the menu."
                 ),
                 (
                     "HOW TO EXPLAIN (only after ready): speak like a closer — outcomes and stakes, not feature lists. "
@@ -1602,8 +1604,10 @@ class AiDemoService:
                     "QR on the table, WhatsApp chat, you see the dip by location first.' "
                     "Then prove it on the real page. Bridge every screen back to THEIR business."
                 ),
-                "UI RULES: Prefer step= curated IDs. Call highlight_dashboard BEFORE 'look here'. "
-                "Never navigate or highlight during the opening consent turn.",
+                "UI RULES: Prefer step= curated IDs. Default action=highlight (they click). "
+                "Call highlight_dashboard BEFORE 'look here'. "
+                "Never navigate or highlight during the opening consent turn. "
+                "action=navigate only if they ask you to open it or stalled and said yes.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service=active product so the correct tab opens.",
@@ -1629,8 +1633,8 @@ class AiDemoService:
                 ),
                 f"Hard soft cap about {soft_cap} minutes — wrap up with end_demo when time is up.",
                 "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
-                "UI RULES: Prefer highlight_dashboard step= curated IDs. Call BEFORE you say 'look here'. "
-                "Never navigate during the opening consent turn.",
+                "UI RULES: Prefer highlight_dashboard step= curated IDs. Default action=highlight. "
+                "Call BEFORE you say 'look here'. Never navigate during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service= the product in context.",
@@ -1682,6 +1686,8 @@ class AiDemoService:
             )
         elif not selected:
             parts.append("No product KB loaded yet — after ready, ask what they need and call switch_kb.")
+
+        parts.append(COACH_TOUR_MAP)
 
         return {
             "system_prompt": sanitize_user_facing_text("\n\n".join(p for p in parts if p).strip()),
@@ -2129,16 +2135,17 @@ class AiDemoService:
                     label = f"Look here: {sec.replace('_', ' ')}"
             if not label and target_element_id:
                 label = target_element_id.replace("-", " ")
+            want_navigate = action in ("navigate", "open_chart")
             event = {
                 "type": "highlight_dashboard",
-                "action": "navigate" if route else action,
+                "action": action,
                 "section": section,
                 "step": step_key,
                 "target": target,
                 "target_element_id": target_element_id,
                 "pointer": pointer,
                 "label": label,
-                "route": route,
+                "route": route if want_navigate else None,
                 "location": args.get("location"),
                 "range": args.get("range") or args.get("range_key"),
                 "view": args.get("view"),
@@ -2146,7 +2153,7 @@ class AiDemoService:
             }
             AiDemoService._append_ui_event(db, session, event)
             db.commit()
-            if not route:
+            if want_navigate and not route:
                 logger.warning(
                     "demo_highlight_no_route session=%s section=%s target=%s step=%s",
                     session.id,
@@ -2159,18 +2166,33 @@ class AiDemoService:
                     "action": event["action"],
                     "route": None,
                     "message": (
-                        "No matching route — retry with step=feedback_list|feedback_create|feedback_results|"
-                        "surveys|recruitment|expo|smart_card|services|packages_feedback (preferred), "
+                        "No matching route — retry with step=home_kpis|nav_feedback_results|"
+                        "feedback_list|feedback_create|feedback_results|"
+                        "surveys|recruitment|expo|smart_card|services|packages_feedback, "
                         "or section=services|feedback|..."
                     ),
                 }
+            if want_navigate:
+                return {
+                    "status": "ok",
+                    "action": event["action"],
+                    "route": route,
+                    "target_element_id": target_element_id,
+                    "label": label,
+                    "message": f"Opening {route}" + (f" → {label}" if label else ""),
+                }
             return {
                 "status": "ok",
-                "action": event["action"],
-                "route": route,
+                "action": "highlight",
+                "route": None,
                 "target_element_id": target_element_id,
                 "label": label,
-                "message": f"Opening {route}" + (f" → {label}" if label else ""),
+                "message": (
+                    f"Spotlight on {label or target_element_id or 'the control'}. "
+                    "Ask them to click it, then STOP and listen. "
+                    "If ~12s silence, offer to open it (action=navigate). "
+                    "Do not describe the next page until they clicked."
+                ),
             }
 
         if name == "show_pricing":
@@ -2313,6 +2335,81 @@ class AiDemoService:
         return out
 
     @staticmethod
+    def record_user_click(db: Session, *, session_id: str, target: str) -> dict[str, Any]:
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        req = AiDemoService.get_request(db, session.request_id)
+        target_id = str(target or "").strip()[:180]
+        AiDemoService.update_memory(db, req, {"last_user_click": target_id})
+        AiDemoService._append_ui_event(
+            db,
+            session,
+            {"type": "user_clicked", "target_element_id": target_id},
+        )
+        db.commit()
+        return {"ok": True, "target": target_id}
+
+    @staticmethod
+    def note_created_feedback_location(db: Session, *, session_id: str, location_id: str) -> None:
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            return
+        req = AiDemoService.get_request(db, session.request_id)
+        memory = _json_loads(req.conversation_memory, {})
+        ids = memory.get("created_feedback_location_ids") if isinstance(memory, dict) else None
+        if not isinstance(ids, list):
+            ids = []
+        loc = str(location_id or "").strip()
+        if loc and loc not in ids:
+            ids.append(loc)
+            AiDemoService.update_memory(db, req, {"created_feedback_location_ids": ids})
+
+    @staticmethod
+    def reset_session_created_feedback(db: Session, *, session_id: str) -> int:
+        """Delete QR locations created during this demo session. Keep dummy seed."""
+        from app.models.customer_feedback import FeedbackLocation
+        from app.services.ai_demo_org_service import AiDemoOrgService
+        from app.services.customer_feedback.location_service import FeedbackLocationService
+
+        sid = str(session_id or "").strip()
+        if not sid:
+            return 0
+        session = db.get(DemoSession, sid)
+        ids: list[str] = []
+        if session is not None:
+            req = AiDemoService.get_request(db, session.request_id)
+            memory = _json_loads(req.conversation_memory, {})
+            raw = memory.get("created_feedback_location_ids") if isinstance(memory, dict) else None
+            if isinstance(raw, list):
+                ids.extend(str(x).strip() for x in raw if str(x).strip())
+
+        org = AiDemoOrgService.find_demo_org(db)
+        if org is not None:
+            rows = list(
+                db.execute(select(FeedbackLocation).where(FeedbackLocation.org_id == org.id)).scalars().all()
+            )
+            for row in rows:
+                try:
+                    cfg = json.loads(row.survey_config_json or "{}")
+                except Exception:
+                    cfg = {}
+                if isinstance(cfg, dict) and str(cfg.get("ai_demo_session_id") or "") == sid:
+                    if row.id not in ids:
+                        ids.append(row.id)
+
+        if not ids or org is None:
+            return 0
+        deleted = 0
+        for loc_id in ids:
+            try:
+                FeedbackLocationService.delete_location(db, org.id, loc_id)
+                deleted += 1
+            except Exception:
+                logger.exception("demo_reset_delete_location_failed loc=%s", loc_id)
+        return deleted
+
+    @staticmethod
     def complete_session(
         db: Session,
         *,
@@ -2411,6 +2508,11 @@ class AiDemoService:
         db.add(session)
         db.add(req)
         db.commit()
+
+        try:
+            AiDemoService.reset_session_created_feedback(db, session_id=session.id)
+        except Exception:
+            logger.exception("demo_reset_session_feedback_failed session=%s", session.id)
 
         try:
             from app.services.lead_sales_service import create_sales_task_from_lead

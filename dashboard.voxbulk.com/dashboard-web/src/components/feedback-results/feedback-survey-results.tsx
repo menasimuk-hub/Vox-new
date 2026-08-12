@@ -165,7 +165,7 @@ export function FeedbackSurveyResults({
           <StatusBadge tone="live" />
           <span className="text-sm text-muted-foreground">{metaLine}</span>
           <Select value={branch} onValueChange={onLocationChange}>
-            <SelectTrigger className="h-8 w-[180px] gap-1.5">
+            <SelectTrigger className="h-8 w-[180px] gap-1.5" data-demo-target="results-location-select">
               <MapPin className="size-3.5 text-primary" />
               <SelectValue />
             </SelectTrigger>
@@ -178,10 +178,10 @@ export function FeedbackSurveyResults({
         </div>
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="questions">Questions</TabsTrigger>
-            <TabsTrigger value="responses">Responses</TabsTrigger>
-            <TabsTrigger value="details" className="gap-1.5">
+            <TabsTrigger value="overview" data-demo-target="results-tab-overview">Overview</TabsTrigger>
+            <TabsTrigger value="questions" data-demo-target="results-tab-questions">Questions</TabsTrigger>
+            <TabsTrigger value="responses" data-demo-target="results-tab-responses">Responses</TabsTrigger>
+            <TabsTrigger value="details" className="gap-1.5" data-demo-target="results-tab-details">
               More details
               {counts.flagged > 0 && (
                 <span className="rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-destructive-foreground">

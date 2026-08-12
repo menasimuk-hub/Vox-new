@@ -14,6 +14,7 @@ import {
   normalizeTelnyxCustomHeaders,
   pollDemoEvents,
   readCachedDemoStart,
+  reportDemoUserClick,
   startDemoSession,
   type AiDemoUiEvent,
 } from "@/lib/ai-demo";
@@ -125,6 +126,12 @@ export function AiDemoCallWidget() {
             pointer: highlight.pointer !== false,
             label: highlight.label,
             warnMissing: true,
+            persistUntilClick: true,
+            onClicked: (clicked) => {
+              const sid = demoSessionFromLocation() || sessionId;
+              if (!sid) return;
+              void reportDemoUserClick(sid, clicked).catch(() => undefined);
+            },
           },
           350,
         );
@@ -143,7 +150,7 @@ export function AiDemoCallWidget() {
         runHighlight();
       }
     },
-    [navigate, pathname],
+    [navigate, pathname, sessionId],
   );
 
   const hangup = useCallback(async () => {
@@ -218,14 +225,25 @@ export function AiDemoCallWidget() {
         const target = String(ev.target_element_id || "").trim() || null;
         const pointer = ev.pointer !== false;
         const label = String(ev.label || "").trim() || null;
-        if (route && !exitingRef.current) {
+        const action = String(ev.action || "highlight").trim().toLowerCase();
+        const wantNav = action === "navigate" || action === "open_chart";
+        const highlightOpts = {
+          targetElementId: target,
+          pointer,
+          label,
+          warnMissing: true,
+          persistUntilClick: true,
+          onClicked: (clicked: string) => {
+            const sid = sessionId;
+            if (!sid) return;
+            void reportDemoUserClick(sid, clicked).catch(() => undefined);
+          },
+        };
+        if (wantNav && route && !exitingRef.current) {
           const delay = typeof ev.delay_ms === "number" ? ev.delay_ms : 150;
           window.setTimeout(() => navigateRoute(route, { target, pointer, label }), delay);
         } else if (target && !exitingRef.current) {
-          scheduleDemoHighlight(
-            { targetElementId: target, pointer, label, warnMissing: true },
-            typeof ev.delay_ms === "number" ? ev.delay_ms : 150,
-          );
+          scheduleDemoHighlight(highlightOpts, typeof ev.delay_ms === "number" ? ev.delay_ms : 150);
         }
         if (ev.type === "request_sales_offer") {
           toast.message("Sales will follow up with the best offer");
@@ -235,7 +253,7 @@ export function AiDemoCallWidget() {
         }
       }
     },
-    [finish, navigateRoute],
+    [finish, navigateRoute, sessionId],
   );
 
   useEffect(() => {

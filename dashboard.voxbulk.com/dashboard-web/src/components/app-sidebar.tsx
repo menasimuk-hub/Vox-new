@@ -42,6 +42,7 @@ type Item = {
   requiresService?: ServiceKey;
   /** Shown only when org has an assigned active custom/private package. */
   requiresPrivatePackage?: boolean;
+  demoTarget?: string;
 };
 type GroupKey = ServiceKey | "settings" | "account" | "workspace" | "sales" | "partner_channel";
 type Group = {
@@ -111,7 +112,7 @@ const partnerChannelGroup: Group = {
 };
 
 const groups: Group[] = [
-  { key: "workspace", label: "Workspace", items: [{ title: "Dashboard", url: "/", icon: LayoutDashboard }] },
+  { key: "workspace", label: "Workspace", items: [{ title: "Dashboard", url: "/", icon: LayoutDashboard, demoTarget: "nav-home" }] },
   { key: "interviews", label: "Interviews", items: [
     {
       title: "Create new interview",
@@ -145,13 +146,13 @@ const groups: Group[] = [
     { title: "Survey results", url: "/surveys/results", icon: BarChart3 },
   ]},
   { key: "feedback", label: "Customer feedback", items: [
-    { title: "Create QR survey", url: "/feedback/new", icon: QrCode },
-    { title: "Saved QR surveys", url: "/feedback", icon: ListChecks },
-    { title: "Feedback results", url: "/feedback/results", icon: BarChart3 },
-    { title: "Compare locations", url: "/feedback/compare", icon: GitCompare },
+    { title: "Create QR survey", url: "/feedback/new", icon: QrCode, demoTarget: "nav-feedback-new" },
+    { title: "Saved QR surveys", url: "/feedback", icon: ListChecks, demoTarget: "nav-feedback-list" },
+    { title: "Feedback results", url: "/feedback/results", icon: BarChart3, demoTarget: "nav-feedback-results" },
+    { title: "Compare locations", url: "/feedback/compare", icon: GitCompare, demoTarget: "nav-feedback-compare" },
     { title: "Consent", url: "/feedback/consent", icon: Ban },
-    { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true, requiresService: "feedbackCampaigns" },
-    { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true, requiresService: "feedbackCampaigns" },
+    { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true, requiresService: "feedbackCampaigns", demoTarget: "nav-feedback-campaign-send" },
+    { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true, requiresService: "feedbackCampaigns", demoTarget: "nav-feedback-campaigns" },
   ]},
   { key: "expo", label: "VoxBulk Expo", items: [
     { title: "Create Expo booth", url: "/expo/new", icon: Ticket },
@@ -372,7 +373,7 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton asChild isActive={itemActive(item)} tooltip={item.title}>
-                <Link to={item.url} search={item.search} onClick={onNavigate}>
+                <Link to={item.url} search={item.search} onClick={onNavigate} data-demo-target={item.demoTarget}>
                   <item.icon />
                   <span>{item.title}</span>
                 </Link>
@@ -388,9 +389,12 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <SidebarGroup>
+      <SidebarGroup data-demo-nav-group={group.key}>
         <CollapsibleTrigger asChild>
-          <SidebarGroupLabel className="group/label flex w-full cursor-pointer items-center justify-between text-sm hover:text-foreground">
+          <SidebarGroupLabel
+            className="group/label flex w-full cursor-pointer items-center justify-between text-sm hover:text-foreground"
+            data-demo-target={`nav-${group.key}`}
+          >
             <span className="flex items-center gap-2">
               <HeadIcon className="size-4" />
               {group.label}
@@ -420,7 +424,7 @@ function NavGroup({ group, path, onNavigate }: { group: Group; path: string; onN
                     ) : null}
                     <SidebarMenuSubItem>
                       <SidebarMenuSubButton asChild isActive={itemActive(item)}>
-                        <Link to={item.url} search={item.search} onClick={onNavigate}>
+                        <Link to={item.url} search={item.search} onClick={onNavigate} data-demo-target={item.demoTarget}>
                           <item.icon className="shrink-0" />
                           <span>{item.title}</span>
                         </Link>

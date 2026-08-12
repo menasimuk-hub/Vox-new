@@ -88,6 +88,17 @@ export async function completeDemoSession(input: {
   });
 }
 
+export async function reportDemoUserClick(sessionId: string, target: string) {
+  return publicApiFetch<{ ok?: boolean; target?: string }>("/ai-demo/user-clicked", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: sessionId,
+      target,
+      target_element_id: target,
+    }),
+  });
+}
+
 export async function pollDemoEvents(sessionId: string, afterId?: string | null) {
   const q = afterId ? `?after_id=${encodeURIComponent(afterId)}` : "";
   return publicApiFetch<{ events: AiDemoUiEvent[] }>(

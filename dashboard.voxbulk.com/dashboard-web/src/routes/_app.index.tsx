@@ -354,7 +354,7 @@ function ServiceKpiGroups({ visible, summary }: { visible: VisibleMap; summary?:
   if (cards.length === 0) return null;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-demo-target="home-live-kpis">
       <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
         Services · live KPIs
       </p>
@@ -379,7 +379,7 @@ function LiveActivity({ visible, summary }: { visible: VisibleMap; summary?: Hom
   };
 
   return (
-    <Card className="lg:col-span-2">
+    <Card className="lg:col-span-2" data-demo-target="home-live-activity">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2"><Activity className="size-4 text-emerald-500" /> Live activity</CardTitle>
@@ -428,7 +428,7 @@ function SentimentCard({ summary }: { summary?: HomeSummary }) {
   const totalSent = sentiment.reduce((a, b) => a + b.value, 0);
 
   return (
-    <Card>
+    <Card data-demo-target="home-sentiment">
       <CardHeader>
         <CardTitle>Customer sentiment</CardTitle>
         <CardDescription>Across surveys, interviews, and feedback responses</CardDescription>
@@ -499,7 +499,7 @@ function WeeklyTrend({ summary }: { summary?: HomeSummary }) {
   }, [total, happy, unhappy]);
 
   return (
-    <Card>
+    <Card data-demo-target="home-this-week">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div>
           <CardTitle>This week — responses & sentiment</CardTitle>
@@ -539,7 +539,7 @@ function UnhappyCustomers({ visible, summary }: { visible: VisibleMap; summary?:
   const resultsTo = visible.feedback ? "/feedback/results" : "/surveys/results";
 
   return (
-    <Card>
+    <Card data-demo-target="home-follow-up">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2"><Frown className="size-4 text-red-500" /> Needs follow-up</CardTitle>

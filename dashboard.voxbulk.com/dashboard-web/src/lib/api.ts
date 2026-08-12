@@ -404,10 +404,18 @@ export async function apiFetch<T = unknown>(path: string, options: RequestInit &
         (sessionStorage.getItem("voxbulk_ai_demo_mode") === "1" ||
           Boolean(new URLSearchParams(window.location.search).get("demo_session")));
       if (demoMode) {
-        throw new ApiError("Demo sessions are view-only — changes are blocked", {
-          status: 403,
-          data: { detail: "demo_view_only" },
-        });
+        const pathOnly = String(path || "").split("?")[0].replace(/\/+$/, "");
+        const allow =
+          pathOnly.startsWith("/ai-demo") ||
+          pathOnly === "/customer-feedback/locations" ||
+          pathOnly === "/customer-feedback/locations/preview" ||
+          pathOnly === "/auth/logout";
+        if (!allow) {
+          throw new ApiError("Demo sessions are view-only — changes are blocked", {
+            status: 403,
+            data: { detail: "demo_view_only" },
+          });
+        }
       }
     } catch (e) {
       if (e instanceof ApiError) throw e;

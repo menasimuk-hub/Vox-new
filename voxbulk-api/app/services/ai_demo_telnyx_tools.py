@@ -74,18 +74,23 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "highlight_dashboard",
-            "Navigate and spotlight a live dashboard control. Call BEFORE you say look here / click this. "
-            "PREFERRED: pass step=feedback_list|feedback_create|feedback_results|surveys|recruitment|expo|smart_card|"
-            "services|packages_core|packages_feedback|packages_expo|packages_smart_card. "
-            "Pointer defaults on; include a short label for the coachmark.",
+            "Spotlight a live dashboard control BEFORE you say look here / click this. "
+            "Coach mode: default action=highlight (do NOT navigate — they click). "
+            "Use action=navigate only if they ask you to open it or stalled and said yes. "
+            "PREFERRED step=: home_kpis|home_activity|home_sentiment|home_week|home_followup|"
+            "nav_feedback_results|nav_feedback_compare|nav_feedback_new|nav_feedback_campaigns|"
+            "results_overview|results_questions|results_responses|results_details|results_location|"
+            "feedback_compare|feedback_list|feedback_create|feedback_results|"
+            "surveys|recruitment|expo|smart_card|services|packages_feedback. "
+            "Include a short label for the coachmark.",
             _body(
                 {
                     "session_id": session_prop,
                     "step": _str_prop(
-                        "Preferred curated step id e.g. feedback_list, feedback_create, packages_feedback"
+                        "Preferred curated step id e.g. home_kpis, nav_feedback_results, results_overview"
                     ),
                     "demo_step": _str_prop("Alias for step"),
-                    "action": _str_prop("highlight|navigate|filter|open_chart — prefer navigate"),
+                    "action": _str_prop("highlight|navigate|filter|open_chart — default highlight; navigate only if they asked you to open it"),
                     "section": _str_prop("Fallback menu/section if step omitted"),
                     "target": _str_prop("Optional alias or path e.g. /expo"),
                     "menu": _str_prop("Alias for section"),

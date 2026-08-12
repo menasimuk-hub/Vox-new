@@ -96,6 +96,12 @@ class CompleteIn(BaseModel):
     duration_seconds: int | None = None
 
 
+class UserClickedIn(BaseModel):
+    session_id: str
+    target: str = ""
+    target_element_id: str | None = None
+
+
 class LiveDemoResponseIn(BaseModel):
     session_id: str
     service: str = "feedback"
@@ -233,6 +239,15 @@ def poll_demo_events(
 def demo_session_status(session_id: str, db: Session = Depends(get_db)):
     try:
         return AiDemoService.session_gate(db, session_id=session_id)
+    except AiDemoError as exc:
+        raise _http(exc) from exc
+
+
+@router.post("/user-clicked")
+def demo_user_clicked(payload: UserClickedIn, db: Session = Depends(get_db)):
+    target = str(payload.target_element_id or payload.target or "").strip()
+    try:
+        return AiDemoService.record_user_click(db, session_id=payload.session_id, target=target)
     except AiDemoError as exc:
         raise _http(exc) from exc
 
