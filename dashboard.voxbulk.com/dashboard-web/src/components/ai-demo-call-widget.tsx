@@ -44,9 +44,14 @@ type TelnyxCall = {
   hangup?: () => void;
   remoteStream?: MediaStream | null;
   localStream?: MediaStream | null;
-  sendAIAssistantMessage?: (message: string) => unknown;
-  sendConversationMessage?: (message: string) => unknown;
+  /** Official JS WebRTC API — injects a user text turn into the AI assistant. */
+  sendConversationMessage?: (message: string, attachments?: string[]) => Promise<unknown> | unknown;
 };
+
+function callLooksLive(call: TelnyxCall | null | undefined): boolean {
+  const state = String(call?.state || "").toLowerCase();
+  return state === "active" || state === "answered" || state === "held";
+}
 
 type WidgetPos = { x: number; y: number };
 
@@ -120,30 +125,55 @@ export function AiDemoCallWidget() {
   const clientRef = useRef<{
     disconnect?: () => void;
     off?: (ev: string, fn: (...args: unknown[]) => void) => void;
-    sendAIAssistantMessage?: (message: string) => unknown;
   } | null>(null);
+  const pendingAgentMsgsRef = useRef<string[]>([]);
 
   const beatIndexRef = useRef(-1);
   const tourStartedRef = useRef(false);
   const wizardPauseRef = useRef<number | null>(null);
+  const startTourRef = useRef<() => void>(() => undefined);
 
-  const sendToAgent = useCallback((msg: string) => {
-    const bodies: unknown[] = [callRef.current, clientRef.current];
-    for (const target of bodies) {
-      if (!target || typeof target !== "object") continue;
-      const rec = target as Record<string, unknown>;
-      for (const key of ["sendAIAssistantMessage", "sendConversationMessage"] as const) {
-        const fn = rec[key];
-        if (typeof fn === "function") {
-          try {
-            fn.call(target, msg);
-          } catch {
-            /* try the next method */
-          }
-        }
+  const flushAgentMessages = useCallback(() => {
+    const call = callRef.current;
+    if (!call || !callLooksLive(call)) return;
+    const send = call.sendConversationMessage;
+    if (typeof send !== "function") {
+      if (pendingAgentMsgsRef.current.length) {
+        console.warn(
+          "[ai-demo] call.sendConversationMessage missing — Next/Click will not reach Leo",
+          { state: call.state, keys: Object.getOwnPropertyNames(call) },
+        );
+      }
+      return;
+    }
+    const queued = pendingAgentMsgsRef.current.splice(0);
+    for (const text of queued) {
+      try {
+        const result = send.call(call, text);
+        void Promise.resolve(result).then(
+          () => undefined,
+          (err: unknown) => {
+            console.warn("[ai-demo] sendConversationMessage rejected", err);
+          },
+        );
+      } catch (err) {
+        console.warn("[ai-demo] sendConversationMessage threw", err);
       }
     }
   }, []);
+
+  const sendToAgent = useCallback(
+    (msg: string) => {
+      const text = String(msg || "").trim();
+      if (!text) return;
+      pendingAgentMsgsRef.current.push(text);
+      if (pendingAgentMsgsRef.current.length > 6) {
+        pendingAgentMsgsRef.current = pendingAgentMsgsRef.current.slice(-6);
+      }
+      flushAgentMessages();
+    },
+    [flushAgentMessages],
+  );
 
   const notifySpotlight = useCallback(
     (beat: DemoTourBeat) => {
@@ -254,6 +284,7 @@ export function AiDemoCallWidget() {
       }).catch(() => undefined);
     }
   }, [applyBeatAt, sendToAgent, sessionId]);
+  startTourRef.current = startTour;
 
   const hangup = useCallback(async () => {
     if (activeTimerRef.current) {
@@ -288,6 +319,7 @@ export function AiDemoCallWidget() {
     }
     callRef.current = null;
     clientRef.current = null;
+    pendingAgentMsgsRef.current = [];
     if (wizardPauseRef.current != null) {
       window.clearTimeout(wizardPauseRef.current);
       wizardPauseRef.current = null;
@@ -458,6 +490,9 @@ export function AiDemoCallWidget() {
           callRef.current = call;
           attachRemoteAudio(call);
           const state = String(call.state || "").toLowerCase();
+          if (state === "active" || state === "answered" || state === "held") {
+            flushAgentMessages();
+          }
           if ((state === "active" || state === "answered" || state === "held") && !wentLive) {
             wentLive = true;
             if (activeTimerRef.current) {
@@ -468,6 +503,9 @@ export function AiDemoCallWidget() {
             setPhase("live");
             setStatusLine("Live with Leo");
             toast.success("AI demo connected");
+            /* Start the spotlight as soon as audio is live so the first
+               sendConversationMessage is not racing a still-connecting call. */
+            window.setTimeout(() => startTourRef.current(), 400);
           }
           if (state === "hangup" || state === "destroy" || state === "destroyed") {
             void finish("Call ended");
