@@ -24,9 +24,60 @@ from app.services.scheduling_connection_service import (
     save_scheduling_config,
 )
 
-CAL_COM_AUTHORIZE_URL = "https://app.cal.com/auth/oauth2/authorize"
-CAL_COM_TOKEN_URL = "https://api.cal.com/v2/auth/oauth2/token"
 CAL_COM_OAUTH_SCOPES = "EVENT_TYPE_READ PROFILE_READ BOOKING_READ"
+CAL_COM_REGIONS = frozenset({"com", "eu"})
+
+
+def normalize_cal_com_region(raw: Any) -> str:
+    region = str(raw or "").strip().lower()
+    if region in {"eu", "cal.eu", "europe"}:
+        return "eu"
+    return "com"
+
+
+def cal_com_app_base(region: str = "com") -> str:
+    return "https://app.cal.eu" if normalize_cal_com_region(region) == "eu" else "https://app.cal.com"
+
+
+def cal_com_api_base(region: str = "com") -> str:
+    return "https://api.cal.eu" if normalize_cal_com_region(region) == "eu" else "https://api.cal.com"
+
+
+def cal_com_web_base(region: str = "com") -> str:
+    return "https://cal.eu" if normalize_cal_com_region(region) == "eu" else "https://cal.com"
+
+
+def cal_com_authorize_url(region: str = "com") -> str:
+    return f"{cal_com_app_base(region)}/auth/oauth2/authorize"
+
+
+def cal_com_token_url(region: str = "com") -> str:
+    return f"{cal_com_api_base(region)}/v2/auth/oauth2/token"
+
+
+def cal_com_developer_oauth_url(region: str = "com") -> str:
+    return f"{cal_com_app_base(region)}/settings/developer/oauth"
+
+
+# Backward-compatible aliases (US region defaults).
+CAL_COM_AUTHORIZE_URL = cal_com_authorize_url("com")
+CAL_COM_TOKEN_URL = cal_com_token_url("com")
+
+
+def _cal_com_platform_region(db: Session | None = None) -> str:
+    if db is not None:
+        try:
+            from app.services.provider_settings import ProviderSettingsService
+
+            cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="cal_com")
+            if enabled:
+                raw = str(cfg.get("region") or "").strip()
+                if raw:
+                    return normalize_cal_com_region(raw)
+        except Exception:
+            pass
+    settings = get_settings()
+    return normalize_cal_com_region(getattr(settings, "cal_com_region", None) or "com")
 
 
 def _cal_com_platform_credentials(db: Session | None = None) -> tuple[str, str, str]:
@@ -51,8 +102,20 @@ def _cal_com_platform_credentials(db: Session | None = None) -> tuple[str, str, 
     )
 
 
+def resolve_cal_com_region(*, db: Session | None = None, org_cfg: dict[str, Any] | None = None) -> str:
+    """Prefer org connection region, then Admin/env platform region."""
+    if org_cfg:
+        stored = str(org_cfg.get("region") or "").strip()
+        if stored:
+            return normalize_cal_com_region(stored)
+    return _cal_com_platform_region(db)
+
+
 def test_cal_com_platform_config(db: Session) -> dict[str, Any]:
     client_id, client_secret, redirect = _cal_com_platform_credentials(db)
+    region = _cal_com_platform_region(db)
+    token_url = cal_com_token_url(region)
+    oauth_settings_url = cal_com_developer_oauth_url(region)
     source = platform_credential_source(db, provider="cal_com")
     checks, fields_ok = validate_oauth_platform_fields(
         client_id=client_id,
@@ -81,9 +144,16 @@ def test_cal_com_platform_config(db: Session) -> dict[str, Any]:
             ),
         }
     )
+    checks.append(
+        {
+            "name": "cal_com_region",
+            "status": "ok",
+            "message": f"Using Cal region {region} ({cal_com_api_base(region)})",
+        }
+    )
 
     probe = probe_confidential_oauth_token(
-        token_url=CAL_COM_TOKEN_URL,
+        token_url=token_url,
         payload={
             "client_id": client_id,
             "client_secret": client_secret,
@@ -99,8 +169,9 @@ def test_cal_com_platform_config(db: Session) -> dict[str, Any]:
                 "name": "cal_com_api",
                 "status": "fail",
                 "message": (
-                    "Cal.com rejected the client ID — use Developer OAuth at "
-                    "app.cal.com/settings/developer/oauth (not Platform dashboard)"
+                    f"Cal.com rejected the client ID — use Developer OAuth at "
+                    f"{oauth_settings_url.replace('https://', '')} (not Platform dashboard), "
+                    f"and ensure Admin region matches ({region})"
                 ),
             }
         )
@@ -156,6 +227,7 @@ def cal_com_oauth_start(*, org_id: str, db: Session | None = None, replace: bool
     client_id, _, redirect = _cal_com_platform_credentials(db)
     if not client_id or not redirect:
         raise ValueError("Cal.com OAuth is not configured (Admin → Integrations → Cal.com or CAL_COM_* env)")
+    region = _cal_com_platform_region(db)
     state = f"{org_id}:{secrets.token_urlsafe(16)}"
     params = {
         "client_id": client_id,
@@ -164,11 +236,14 @@ def cal_com_oauth_start(*, org_id: str, db: Session | None = None, replace: bool
         "state": state,
         "scope": CAL_COM_OAUTH_SCOPES,
     }
-    return f"{CAL_COM_AUTHORIZE_URL}?{urlencode(params)}"
+    return f"{cal_com_authorize_url(region)}?{urlencode(params)}"
 
 
 def cal_com_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, Any]:
     client_id, client_secret, redirect = _cal_com_platform_credentials(db)
+    region = _cal_com_platform_region(db)
+    api_base = cal_com_api_base(region)
+    web_base = cal_com_web_base(region)
     if not code or not state:
         raise ValueError("Missing OAuth code or state")
     org_id = str(state).split(":", 1)[0].strip()
@@ -177,7 +252,7 @@ def cal_com_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
 
     with httpx.Client(timeout=30.0) as client:
         token_res = client.post(
-            CAL_COM_TOKEN_URL,
+            cal_com_token_url(region),
             json={
                 "code": code,
                 "client_id": client_id,
@@ -195,7 +270,7 @@ def cal_com_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
 
     headers = {"Authorization": f"Bearer {access_token}", "cal-api-version": "2024-08-13"}
     with httpx.Client(timeout=30.0) as client:
-        me_res = client.get("https://api.cal.com/v2/me", headers=headers)
+        me_res = client.get(f"{api_base}/v2/me", headers=headers)
     if me_res.status_code >= 400:
         raise ValueError(f"Cal.com profile lookup failed: {me_res.text[:300]}")
     me = me_res.json().get("data") or me_res.json() or {}
@@ -207,7 +282,11 @@ def cal_com_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
     event_type_slug = ""
     event_type_url = ""
     with httpx.Client(timeout=30.0) as client:
-        et_res = client.get("https://api.cal.com/v2/event-types", headers=headers, params={"username": username} if username else None)
+        et_res = client.get(
+            f"{api_base}/v2/event-types",
+            headers=headers,
+            params={"username": username} if username else None,
+        )
     if et_res.status_code < 400:
         items = (et_res.json().get("data") or et_res.json().get("event_types") or [])
         if isinstance(items, list) and items:
@@ -216,11 +295,12 @@ def cal_com_oauth_complete(db: Session, *, code: str, state: str) -> dict[str, A
             event_type_slug = str(first.get("slug") or "").strip()
             event_type_url = str(first.get("link") or first.get("url") or "").strip()
             if not event_type_url and username and event_type_slug:
-                event_type_url = f"https://cal.com/{username}/{event_type_slug}"
+                event_type_url = f"{web_base}/{username}/{event_type_slug}"
 
     expires_in = int(token_data.get("expires_in") or 3600)
     cfg = {
         "provider": "cal_com",
+        "region": region,
         "access_token": access_token,
         "refresh_token": str(token_data.get("refresh_token") or ""),
         "expires_at": (datetime.utcnow() + timedelta(seconds=expires_in)).isoformat(),
@@ -243,9 +323,16 @@ def list_cal_com_event_types(db: Session, org_id: str) -> list[dict[str, Any]]:
     username = str(cfg.get("username") or "").strip()
     if not token:
         raise ValueError("Cal.com connection is incomplete")
+    region = resolve_cal_com_region(db=db, org_cfg=cfg)
+    api_base = cal_com_api_base(region)
+    web_base = cal_com_web_base(region)
     headers = {"Authorization": f"Bearer {token}", "cal-api-version": "2024-08-13"}
     with httpx.Client(timeout=30.0) as client:
-        res = client.get("https://api.cal.com/v2/event-types", headers=headers, params={"username": username} if username else None)
+        res = client.get(
+            f"{api_base}/v2/event-types",
+            headers=headers,
+            params={"username": username} if username else None,
+        )
     if res.status_code >= 400:
         raise ValueError(f"Cal.com event types failed: {res.text[:300]}")
     items = res.json().get("data") or res.json().get("event_types") or []
@@ -256,7 +343,7 @@ def list_cal_com_event_types(db: Session, org_id: str) -> list[dict[str, Any]]:
         slug = str(row.get("slug") or "").strip()
         link = str(row.get("link") or row.get("url") or "").strip()
         if not link and username and slug:
-            link = f"https://cal.com/{username}/{slug}"
+            link = f"{web_base}/{username}/{slug}"
         out.append(
             {
                 "id": str(row.get("id") or ""),

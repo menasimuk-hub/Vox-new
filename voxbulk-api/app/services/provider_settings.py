@@ -87,7 +87,7 @@ class ProviderSettingsService:
         "apple": {"client_id", "redirect_uri", "team_id", "key_id", "private_key"},
         "linkedin": {"client_id", "client_secret", "redirect_uri"},
         "calendly": {"client_id", "client_secret", "redirect_uri"},
-        "cal_com": {"client_id", "client_secret", "redirect_uri"},
+        "cal_com": {"client_id", "client_secret", "redirect_uri", "region"},
         "google_calendar": set(),
         "google_search_console": {"client_id", "client_secret", "redirect_uri"},
         "microsoft_calendar": {"client_id", "client_secret", "redirect_uri"},
@@ -939,6 +939,11 @@ class ProviderSettingsService:
         client_id = str(cfg.get("client_id") or "").strip()
         client_secret = str(cfg.get("client_secret") or "").strip()
         redirect_uri = str(cfg.get("redirect_uri") or "").strip()
+        region_raw = str(cfg.get("region") or "com").strip().lower()
+        if region_raw in {"eu", "cal.eu", "europe"}:
+            region = "eu"
+        else:
+            region = "com"
         if not client_id:
             errors["client_id"] = "Client ID is required"
         if not client_secret:
@@ -951,6 +956,7 @@ class ProviderSettingsService:
         cfg["client_id"] = client_id
         cfg["client_secret"] = client_secret
         cfg["redirect_uri"] = redirect_uri
+        cfg["region"] = region
         return cfg
 
     @staticmethod

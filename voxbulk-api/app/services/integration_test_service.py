@@ -158,6 +158,7 @@ def _check_calendly(db: Session, org_id: str) -> list[dict[str, Any]]:
 
 
 def _check_cal_com(db: Session, org_id: str) -> list[dict[str, Any]]:
+    from app.services.cal_com_connection_service import cal_com_api_base, resolve_cal_com_region
     from app.services.scheduling_connection_service import get_scheduling_config
 
     cfg = get_scheduling_config(db, org_id)
@@ -166,10 +167,11 @@ def _check_cal_com(db: Session, org_id: str) -> list[dict[str, Any]]:
     token = str(cfg.get("access_token") or "").strip()
     if not token:
         return [_check("token", False, "Cal.com access token missing — reconnect Cal.com")]
+    api_base = cal_com_api_base(resolve_cal_com_region(db=db, org_cfg=cfg))
     headers = {"Authorization": f"Bearer {token}", "cal-api-version": "2024-08-13"}
     checks: list[dict[str, Any]] = []
     with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
-        me_res = client.get("https://api.cal.com/v2/me", headers=headers)
+        me_res = client.get(f"{api_base}/v2/me", headers=headers)
     if me_res.status_code >= 400:
         checks.append(_check("token", False, f"Cal.com token rejected ({me_res.status_code})"))
         return checks
@@ -185,7 +187,7 @@ def _check_cal_com(db: Session, org_id: str) -> list[dict[str, Any]]:
     username = str(cfg.get("username") or me.get("username") or "").strip()
     with httpx.Client(timeout=_HTTP_TIMEOUT_SECONDS) as client:
         et_res = client.get(
-            "https://api.cal.com/v2/event-types",
+            f"{api_base}/v2/event-types",
             headers=headers,
             params={"username": username} if username else None,
         )

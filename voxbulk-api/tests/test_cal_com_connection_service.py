@@ -73,19 +73,23 @@ def _seed_org(db):
     return org
 
 
-def _seed_admin(db):
+def _seed_admin(db, *, region: str | None = None):
     from app.services.provider_settings import ProviderSettingsService
+
+    config = {
+        "client_id": "cal-client-123",
+        "client_secret": "cal-secret-456",
+        "redirect_uri": "https://api.test/service-orders/scheduling/oauth/cal-com/callback",
+    }
+    if region is not None:
+        config["region"] = region
 
     ProviderSettingsService.upsert_platform_config(
         db,
         provider="cal_com",
         is_enabled=True,
         visible_to_orgs=True,
-        config={
-            "client_id": "cal-client-123",
-            "client_secret": "cal-secret-456",
-            "redirect_uri": "https://api.test/service-orders/scheduling/oauth/cal-com/callback",
-        },
+        config=config,
     )
 
 
@@ -103,6 +107,17 @@ def test_cal_com_oauth_start_includes_scope(session):
     assert "client_id=cal-client-123" in url
     assert "scope=" in url
     assert "EVENT_TYPE_READ" in url or CAL_COM_OAUTH_SCOPES.replace(" ", "+") in url
+
+
+def test_cal_com_oauth_start_uses_eu_authorize_host(session):
+    from app.services.cal_com_connection_service import cal_com_oauth_start
+
+    org = _seed_org(session)
+    _seed_admin(session, region="eu")
+
+    url = cal_com_oauth_start(org_id=org.id, db=session)
+    assert url.startswith("https://app.cal.eu/auth/oauth2/authorize?")
+    assert "client_id=cal-client-123" in url
 
 
 def test_cal_com_oauth_complete_uses_v2_token_endpoint(session, monkeypatch):
@@ -141,6 +156,46 @@ def test_cal_com_oauth_complete_uses_v2_token_endpoint(session, monkeypatch):
     cfg = get_scheduling_config(session, org.id)
     assert cfg.get("provider") == "cal_com"
     assert cfg.get("access_token") == "cal-access"
+    assert cfg.get("region") == "com"
+
+
+def test_cal_com_oauth_complete_uses_eu_api_hosts(session, monkeypatch):
+    from app.services.cal_com_connection_service import cal_com_oauth_complete
+    from app.services.scheduling_connection_service import get_scheduling_config
+
+    org = _seed_org(session)
+    _seed_admin(session, region="eu")
+    state = f"{org.id}:nonce"
+
+    fake = _FakeClient(
+        {
+            "https://api.cal.eu/v2/auth/oauth2/token": _Resp(
+                200,
+                payload={
+                    "access_token": "cal-eu-access",
+                    "refresh_token": "cal-eu-refresh",
+                    "expires_in": 1800,
+                },
+            ),
+            "https://api.cal.eu/v2/me": _Resp(
+                200, payload={"data": {"email": "user@cal.eu", "username": "euuser"}}
+            ),
+            "https://api.cal.eu/v2/event-types": _Resp(
+                200,
+                payload={"data": [{"id": "9", "slug": "15min", "link": "https://cal.eu/euuser/15min"}]},
+            ),
+        }
+    )
+    monkeypatch.setattr(httpx, "Client", lambda *a, **k: fake)
+
+    cal_com_oauth_complete(session, code="auth-code", state=state)
+    assert fake.last_post_url == "https://api.cal.eu/v2/auth/oauth2/token"
+
+    cfg = get_scheduling_config(session, org.id)
+    assert cfg.get("provider") == "cal_com"
+    assert cfg.get("region") == "eu"
+    assert cfg.get("access_token") == "cal-eu-access"
+    assert cfg.get("event_type_url") == "https://cal.eu/euuser/15min"
 
 
 def test_cal_com_platform_test_client_not_found(session, monkeypatch):

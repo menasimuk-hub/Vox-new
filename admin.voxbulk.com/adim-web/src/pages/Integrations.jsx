@@ -1028,6 +1028,9 @@ export default function Integrations() {
       if (providerKey === 'microsoft_calendar' && !config.tenant) {
         config.tenant = 'common'
       }
+      if (providerKey === 'cal_com' && !config.region) {
+        config.region = 'com'
+      }
       if (providerKey === 'hubspot' && !config.auth_mode) {
         config.auth_mode = 'private_app'
       }
@@ -2662,6 +2665,17 @@ export default function Integrations() {
                       <span>Enable Cal.com for interview shortlist booking links</span>
                     </label>
                     <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Region</label>
+                      <select
+                        className='input'
+                        value={String(activeConfig.region || 'com') === 'eu' ? 'eu' : 'com'}
+                        onChange={(e) => setProviderField('cal_com', 'region', e.target.value)}
+                      >
+                        <option value='com'>cal.com (US)</option>
+                        <option value='eu'>cal.eu (EU)</option>
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Client ID</label>
                       <input className='input' style={calComStatus.errors.client_id ? invalidInputStyle : undefined} value={String(activeConfig.client_id || '')} onChange={(e) => setProviderField('cal_com', 'client_id', e.target.value)} />
                     </div>
@@ -2682,7 +2696,17 @@ export default function Integrations() {
                     <div className='note' style={{ marginTop: 8 }}>
                       <strong>Setup (VoxBulk admin, one time)</strong>
                       <ol style={{ margin: '8px 0 0', paddingLeft: 20, lineHeight: 1.6 }}>
-                        <li>Create an OAuth client at <a href='https://app.cal.com/settings/developer/oauth' target='_blank' rel='noreferrer'>app.cal.com/settings/developer/oauth</a> (Developer OAuth — not Platform dashboard).</li>
+                        <li>
+                          Create an OAuth client at{' '}
+                          <a
+                            href={String(activeConfig.region || 'com') === 'eu' ? 'https://app.cal.eu/settings/developer/oauth' : 'https://app.cal.com/settings/developer/oauth'}
+                            target='_blank'
+                            rel='noreferrer'
+                          >
+                            {String(activeConfig.region || 'com') === 'eu' ? 'app.cal.eu/settings/developer/oauth' : 'app.cal.com/settings/developer/oauth'}
+                          </a>{' '}
+                          (Developer OAuth — not Platform dashboard). Region above must match where you created the client.
+                        </li>
                         <li>Enable scopes at least: <code>EVENT_TYPE_READ</code>, <code>PROFILE_READ</code>, <code>BOOKING_READ</code>.</li>
                         <li>Add redirect URI exactly: <code>https://api.voxbulk.com/service-orders/scheduling/oauth/cal-com/callback</code> (use your API host if different).</li>
                         <li>Wait for Cal.com admin approval email before connecting from Dashboard.</li>

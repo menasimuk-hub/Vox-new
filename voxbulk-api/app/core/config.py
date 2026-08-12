@@ -112,6 +112,7 @@ class Settings(BaseSettings):
     cal_com_client_id: str = Field(default="", alias="CAL_COM_CLIENT_ID")
     cal_com_client_secret: str = Field(default="", alias="CAL_COM_CLIENT_SECRET")
     cal_com_redirect_uri: str = Field(default="", alias="CAL_COM_REDIRECT_URI")
+    cal_com_region: str = Field(default="com", alias="CAL_COM_REGION")
 
     google_calendar_client_id: str = Field(default="", alias="GOOGLE_CALENDAR_CLIENT_ID")
     google_calendar_client_secret: str = Field(default="", alias="GOOGLE_CALENDAR_CLIENT_SECRET")
