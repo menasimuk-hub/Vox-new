@@ -87,6 +87,11 @@ export function FeedbackSurveyResults({
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "unhappy" | "neutral" | "happy" | "flagged">("all");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [draftLocationId, setDraftLocationId] = useState(locationId);
+
+  React.useEffect(() => {
+    setDraftLocationId(locationId);
+  }, [locationId]);
 
   const {
     pageTitle,
@@ -104,7 +109,7 @@ export function FeedbackSurveyResults({
   } = data;
 
   const branches = [{ id: "all", name: "All locations" }, ...locations.map((l) => ({ id: l.id, name: l.name }))];
-  const branch = locationId;
+  const locationDirty = draftLocationId !== locationId;
 
   const filtered = useMemo(() => {
     return respondents.filter((r) => {
@@ -164,17 +169,29 @@ export function FeedbackSurveyResults({
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge tone="live" />
           <span className="text-sm text-muted-foreground">{metaLine}</span>
-          <Select value={branch} onValueChange={onLocationChange}>
-            <SelectTrigger className="h-8 w-[180px] gap-1.5" data-demo-target="results-location-select">
-              <MapPin className="size-3.5 text-primary" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {branches.map((b) => (
-                <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-1.5">
+            <Select value={draftLocationId} onValueChange={setDraftLocationId}>
+              <SelectTrigger className="h-8 w-[180px] gap-1.5" data-demo-target="results-location-select">
+                <MapPin className="size-3.5 text-primary" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {branches.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 px-3"
+              disabled={!locationDirty}
+              data-demo-target="results-location-go"
+              onClick={() => onLocationChange(draftLocationId)}
+            >
+              Go
+            </Button>
+          </div>
         </div>
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
