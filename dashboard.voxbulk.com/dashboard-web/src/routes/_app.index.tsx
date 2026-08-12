@@ -111,7 +111,7 @@ function Dashboard() {
       )}
 
       {(anyResponseService || visible.interviews) && summaryReady && (
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3" data-demo-target="home-second-row">
           <LiveActivity visible={visible} summary={summary} />
           {anyResponseService && <SentimentCard summary={summary} />}
         </div>

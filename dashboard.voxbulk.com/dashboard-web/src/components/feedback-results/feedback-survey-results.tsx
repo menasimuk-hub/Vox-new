@@ -165,7 +165,7 @@ export function FeedbackSurveyResults({
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card p-3" data-demo-target="results-top-menus">
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge tone="live" />
           <span className="text-sm text-muted-foreground">{metaLine}</span>

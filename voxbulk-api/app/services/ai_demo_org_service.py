@@ -135,6 +135,56 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
         "target_element_id": "home-follow-up",
         "label": "Needs follow-up",
     },
+    "home_second_row": {
+        "route": "/",
+        "target_element_id": "home-second-row",
+        "label": "Live activity & sentiment",
+    },
+    "results_top_menus": {
+        "route": "/feedback/results",
+        "target_element_id": "results-top-menus",
+        "label": "Overview · Questions · Responses · More details",
+    },
+    "wizard_industry": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-industry",
+        "label": "Choose your industry",
+    },
+    "wizard_topics": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-topics",
+        "label": "Pick survey questions",
+    },
+    "wizard_look": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-look",
+        "label": "Look & feel",
+    },
+    "wizard_branches": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-branches",
+        "label": "Branches & QR",
+    },
+    "wizard_followup": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-followup",
+        "label": "AI follow-up",
+    },
+    "wizard_launch": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-launch",
+        "label": "Save QR survey",
+    },
+    "wizard_next": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-next",
+        "label": "Next",
+    },
+    "wizard_stepper": {
+        "route": "/feedback/new",
+        "target_element_id": "wizard-stepper",
+        "label": "Wizard steps",
+    },
     "nav_feedback": {
         "route": "/",
         "target_element_id": "nav-feedback",
@@ -143,7 +193,7 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
     "nav_feedback_results": {
         "route": "/feedback/results",
         "target_element_id": "nav-feedback-results",
-        "label": "Open Feedback results",
+        "label": "Customer feedback · Results",
     },
     "nav_feedback_compare": {
         "route": "/feedback/compare",
@@ -212,8 +262,8 @@ DEMO_UI_STEPS: dict[str, dict[str, str]] = {
     },
     "feedback_create": {
         "route": "/feedback/new",
-        "target_element_id": "feedback-new",
-        "label": "Create QR survey",
+        "target_element_id": "wizard-industry",
+        "label": "Choose your industry",
     },
     "feedback_new": {
         "route": "/feedback/new",
@@ -283,6 +333,8 @@ def demo_highlight_intent(*, step: str | None = None, target_element_id: str | N
         return "click"
     if key.startswith("packages_") or tid.startswith("packages-tab-"):
         return "click"
+    if key == "wizard_next" or tid == "wizard-next":
+        return "click"
     return "view"
 
 
@@ -307,6 +359,10 @@ def resolve_demo_ui_step(step: str | None) -> dict[str, str] | None:
         "compare": "feedback_compare",
         "campaigns": "feedback_campaigns",
         "results": "feedback_results",
+        "home_boards": "home_second_row",
+        "results_menus": "results_top_menus",
+        "create_qr": "wizard_industry",
+        "wizard": "wizard_industry",
     }
     mapped = aliases.get(raw)
     if mapped and mapped in DEMO_UI_STEPS:

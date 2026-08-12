@@ -1,12 +1,12 @@
 /** Shared AI Demo dashboard highlight + pointer helpers. */
 
-const PULSE_MS = 3200;
 const RETRY_MS = 120;
 const RETRY_MAX = 40; // ~4.8s wait for route paint
 const POINTER_ID = "voxbulk-ai-demo-pointer";
 const SPOTLIGHT_ID = "voxbulk-ai-demo-spotlight";
 const LABEL_ID = "voxbulk-ai-demo-label";
 const STYLE_ID = "voxbulk-ai-demo-highlight-style";
+const VIEW_HOLD_MS = 22000;
 
 export type DemoHighlightIntent = "view" | "click";
 
@@ -16,7 +16,7 @@ export type DemoHighlightOptions = {
   label?: string | null;
   /** Soft-fail missing targets in production; warn in dev/test. */
   warnMissing?: boolean;
-  /** view = explain only (no click). click = visitor must tap the control. */
+  /** view = info box (no click CTA). click = "Click here" until they tap. */
   intent?: DemoHighlightIntent;
   /** Keep the spotlight until the visitor clicks (coach mode). */
   persistUntilClick?: boolean;
@@ -27,7 +27,7 @@ export function inferDemoHighlightIntent(targetElementId?: string | null): DemoH
   const tid = String(targetElementId || "").trim().toLowerCase();
   if (!tid) return "view";
   if (tid.startsWith("nav-") || tid.startsWith("results-tab") || tid === "results-location-select") return "click";
-  if (tid.startsWith("packages-tab-")) return "click";
+  if (tid.startsWith("packages-tab-") || tid === "wizard-next") return "click";
   return "view";
 }
 
@@ -35,6 +35,7 @@ let driverHandle: { destroy: () => void } | null = null;
 let clickBoundEl: HTMLElement | null = null;
 let clickBoundHandler: ((ev: Event) => void) | null = null;
 let highlightEpoch = 0;
+let viewHoldTimer: number | null = null;
 
 export function pricingTabForService(serviceSlug: string | null | undefined): string {
   const s = String(serviceSlug || "")
@@ -70,119 +71,135 @@ function ensureHighlightStyles() {
   style.id = STYLE_ID;
   style.textContent = `
 @keyframes voxDemoPulse {
-  0% { box-shadow: 0 0 0 0 rgba(30, 111, 217, 0.65); }
-  70% { box-shadow: 0 0 0 18px rgba(30, 111, 217, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(30, 111, 217, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(36, 48, 86, 0.45); }
+  70% { box-shadow: 0 0 0 16px rgba(36, 48, 86, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(36, 48, 86, 0); }
 }
 .highlight-pulse {
-  outline: 3px solid #1e6fd9 !important;
+  outline: 2px solid #243056 !important;
   outline-offset: 4px;
   animation: voxDemoPulse 1.8s ease-out 2;
-  border-radius: 10px;
+  border-radius: 12px;
   position: relative;
   z-index: 60 !important;
 }
 #${SPOTLIGHT_ID} {
   position: fixed;
-  inset: 0;
-  background: rgba(10, 22, 40, 0.45);
   pointer-events: none;
   z-index: 55;
   transition: opacity 0.2s ease;
 }
 #${POINTER_ID} {
   position: fixed;
-  width: 34px;
-  height: 34px;
-  margin-left: -6px;
-  margin-top: -6px;
+  width: 28px;
+  height: 28px;
+  margin-left: -4px;
+  margin-top: -4px;
   border-radius: 50%;
-  border: 3px solid #1e6fd9;
-  background: rgba(30, 111, 217, 0.22);
+  border: 2px solid #243056;
+  background: rgba(36, 48, 86, 0.16);
   pointer-events: none;
   z-index: 70;
-  transition: left 0.35s ease, top 0.35s ease, opacity 0.25s ease;
-  box-shadow: 0 0 0 8px rgba(30, 111, 217, 0.15);
+  box-shadow: 0 0 0 6px rgba(36, 48, 86, 0.12);
 }
 #${POINTER_ID}::after {
   content: "";
   position: absolute;
-  left: 11px;
-  top: 11px;
+  left: 8px;
+  top: 8px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #1e6fd9;
+  background: #243056;
 }
 #${LABEL_ID} {
   position: fixed;
-  z-index: 71;
-  max-width: min(280px, 70vw);
-  padding: 10px 14px;
-  border-radius: 14px;
-  background: #0a1628;
-  color: #fff;
-  font: 600 13px/1.35 inherit, system-ui, sans-serif;
-  border: 1px solid rgba(30, 111, 217, 0.45);
-  border-left: 3px solid #1e6fd9;
-  box-shadow: 0 18px 40px rgba(10,22,40,0.38);
+  z-index: 10001;
+  max-width: min(280px, 72vw);
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #fbf8f3;
+  color: #2a241c;
+  font: 600 13px/1.4 inherit, ui-sans-serif, system-ui, sans-serif;
+  border: 1px solid rgba(36, 48, 86, 0.12);
+  box-shadow: 0 14px 40px rgba(36, 48, 86, 0.16);
   pointer-events: none;
-  transition: opacity 0.2s ease;
 }
-#${LABEL_ID}[data-intent="click"]::before {
-  content: "Your turn";
-  display: block;
+#${LABEL_ID} .vox-demo-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #243056;
+  color: #fbf8f3;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #8ec5ff;
-  margin-bottom: 2px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  margin-bottom: 8px;
 }
-#${LABEL_ID}[data-intent="view"]::before {
-  content: "Look";
+#${LABEL_ID} .vox-demo-title {
   display: block;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #8ec5ff;
-  margin-bottom: 2px;
+  color: #243056;
+  letter-spacing: -0.01em;
+}
+body.voxbulk-demo-view .driver-overlay {
+  pointer-events: none !important;
 }
 .voxbulk-demo-popover {
-  background: #0a1628 !important;
-  color: #fff !important;
-  border: 1px solid rgba(30, 111, 217, 0.45) !important;
-  border-left: 3px solid #1e6fd9 !important;
-  border-radius: 14px !important;
-  box-shadow: 0 18px 40px rgba(10, 22, 40, 0.38) !important;
-  padding: 12px 14px !important;
+  background: #fbf8f3 !important;
+  color: #2a241c !important;
+  border: 1px solid rgba(36, 48, 86, 0.12) !important;
+  border-radius: 16px !important;
+  box-shadow: 0 14px 40px rgba(36, 48, 86, 0.16) !important;
+  padding: 12px 14px 14px !important;
   max-width: min(280px, 72vw) !important;
   font-family: inherit !important;
 }
 .voxbulk-demo-popover .driver-popover-title {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  color: #243056 !important;
+  margin-bottom: 2px !important;
+  line-height: 1.3 !important;
+}
+.voxbulk-demo-popover-click .driver-popover-title {
+  display: inline-flex !important;
+  align-items: center !important;
+  width: auto !important;
+  background: #243056 !important;
+  color: #fbf8f3 !important;
   font-size: 10px !important;
   font-weight: 700 !important;
   letter-spacing: 0.08em !important;
   text-transform: uppercase !important;
-  color: #8ec5ff !important;
-  margin-bottom: 4px !important;
+  padding: 4px 9px !important;
+  border-radius: 999px !important;
+  margin-bottom: 8px !important;
 }
 .voxbulk-demo-popover .driver-popover-description {
   font-size: 13px !important;
   font-weight: 600 !important;
-  line-height: 1.35 !important;
-  color: #fff !important;
+  line-height: 1.4 !important;
+  color: #2a241c !important;
+}
+.voxbulk-demo-popover-view .driver-popover-description {
+  display: none !important;
 }
 .voxbulk-demo-popover .driver-popover-arrow-side-left .driver-popover-arrow,
 .voxbulk-demo-popover .driver-popover-arrow-side-right .driver-popover-arrow,
 .voxbulk-demo-popover .driver-popover-arrow-side-top .driver-popover-arrow,
 .voxbulk-demo-popover .driver-popover-arrow-side-bottom .driver-popover-arrow {
-  border-color: #0a1628 !important;
+  border-color: #fbf8f3 !important;
 }
 .voxbulk-demo-popover .driver-popover-footer,
 .voxbulk-demo-popover .driver-popover-close-btn,
-.voxbulk-demo-popover .driver-popover-navigation-btns {
+.voxbulk-demo-popover .driver-popover-navigation-btns,
+.voxbulk-demo-popover .driver-popover-progress-text {
   display: none !important;
 }
 `;
@@ -205,16 +222,6 @@ function resolveTarget(targetElementId: string): HTMLElement | null {
   );
 }
 
-function clearOverlaysSoon() {
-  window.setTimeout(() => {
-    document.getElementById(SPOTLIGHT_ID)?.remove();
-    const tip = document.getElementById(POINTER_ID);
-    if (tip) tip.style.opacity = "0";
-    const label = document.getElementById(LABEL_ID);
-    if (label) label.style.opacity = "0";
-  }, PULSE_MS);
-}
-
 function placeSpotlight(el: HTMLElement) {
   ensureHighlightStyles();
   let veil = document.getElementById(SPOTLIGHT_ID);
@@ -227,19 +234,14 @@ function placeSpotlight(el: HTMLElement) {
   const pad = 10;
   const top = Math.max(0, rect.top - pad);
   const left = Math.max(0, rect.left - pad);
-  const right = Math.max(0, window.innerWidth - rect.right - pad);
-  const bottom = Math.max(0, window.innerHeight - rect.bottom - pad);
   veil.style.opacity = "1";
-  veil.style.clipPath = `inset(${top}px ${right}px ${bottom}px ${left}px round 12px)`;
-  // invert via mask: use box-shadow hole technique instead of clipPath inset hole
-  veil.style.clipPath = "none";
   veil.style.background = "transparent";
-  veil.style.boxShadow = `0 0 0 9999px rgba(10, 22, 40, 0.48)`;
+  veil.style.boxShadow = `0 0 0 9999px rgba(26, 39, 68, 0.38)`;
   veil.style.top = `${top}px`;
   veil.style.left = `${left}px`;
   veil.style.width = `${rect.width + pad * 2}px`;
   veil.style.height = `${rect.height + pad * 2}px`;
-  veil.style.borderRadius = "12px";
+  veil.style.borderRadius = "14px";
   veil.style.inset = "auto";
 }
 
@@ -257,9 +259,10 @@ function placePointer(el: HTMLElement) {
   tip.style.top = `${Math.round(rect.top + Math.min(rect.height * 0.55, Math.max(rect.height - 12, 12)))}px`;
 }
 
-function placeLabel(el: HTMLElement, label?: string | null) {
+function placeLabel(el: HTMLElement, opts: DemoHighlightOptions) {
   ensureHighlightStyles();
-  const text = String(label || "").trim() || "This control";
+  const intent = opts.intent || inferDemoHighlightIntent(opts.targetElementId);
+  const text = String(opts.label || "").trim() || (intent === "click" ? "This control" : "This area");
   let node = document.getElementById(LABEL_ID);
   if (!node) {
     node = document.createElement("div");
@@ -267,13 +270,20 @@ function placeLabel(el: HTMLElement, label?: string | null) {
     document.body.appendChild(node);
   }
   node.replaceChildren();
-  const detail = document.createElement("span");
-  detail.textContent = text;
-  node.appendChild(detail);
+  if (intent === "click") {
+    const chip = document.createElement("span");
+    chip.className = "vox-demo-chip";
+    chip.textContent = "Click here";
+    node.appendChild(chip);
+  }
+  const title = document.createElement("span");
+  title.className = "vox-demo-title";
+  title.textContent = text;
+  node.appendChild(title);
   const rect = el.getBoundingClientRect();
-  const preferBelow = rect.bottom + 56 < window.innerHeight;
-  const top = preferBelow ? rect.bottom + 12 : Math.max(8, rect.top - 56);
-  const left = Math.min(Math.max(8, rect.left), window.innerWidth - 220);
+  const preferBelow = rect.bottom + 72 < window.innerHeight;
+  const top = preferBelow ? rect.bottom + 12 : Math.max(8, rect.top - 72);
+  const left = Math.min(Math.max(8, rect.left), window.innerWidth - 240);
   node.style.opacity = "1";
   node.style.top = `${Math.round(top)}px`;
   node.style.left = `${Math.round(left)}px`;
@@ -296,8 +306,18 @@ function unbindClick() {
   clickBoundHandler = null;
 }
 
+function setDemoBodyMode(intent: DemoHighlightIntent | null) {
+  if (typeof document === "undefined") return;
+  document.body.classList.remove("voxbulk-demo-view", "voxbulk-demo-click");
+  if (intent) document.body.classList.add(`voxbulk-demo-${intent}`);
+}
+
 export function clearDemoHighlight() {
   highlightEpoch += 1;
+  if (viewHoldTimer != null) {
+    window.clearTimeout(viewHoldTimer);
+    viewHoldTimer = null;
+  }
   unbindClick();
   try {
     driverHandle?.destroy();
@@ -305,6 +325,7 @@ export function clearDemoHighlight() {
     /* ignore */
   }
   driverHandle = null;
+  setDemoBodyMode(null);
   document.querySelectorAll(".driver-overlay, .driver-popover, .driver-active").forEach((n) => {
     try {
       n.remove();
@@ -334,17 +355,13 @@ function fallbackHighlight(el: HTMLElement, opts: DemoHighlightOptions) {
   el.classList.remove("highlight-pulse");
   void el.offsetWidth;
   el.classList.add("highlight-pulse");
-  window.setTimeout(() => el.classList.remove("highlight-pulse"), PULSE_MS);
-  if (intent === "click") {
-    placeSpotlight(el);
-    if (opts.pointer !== false) placePointer(el);
-  }
-  placeLabel(el, opts.label);
-  document.getElementById(LABEL_ID)?.setAttribute("data-intent", intent);
-  if (intent !== "click") clearOverlaysSoon();
+  placeSpotlight(el);
+  if (intent === "click" && opts.pointer !== false) placePointer(el);
+  placeLabel(el, { ...opts, intent });
 }
 
 async function highlightWithDriver(el: HTMLElement, opts: DemoHighlightOptions, epoch: number) {
+  const intent = opts.intent || inferDemoHighlightIntent(opts.targetElementId);
   const [{ driver }] = await Promise.all([
     import("driver.js"),
     import("driver.js/dist/driver.css"),
@@ -357,17 +374,19 @@ async function highlightWithDriver(el: HTMLElement, opts: DemoHighlightOptions, 
   }
   if (epoch !== highlightEpoch) return;
   ensureHighlightStyles();
+  setDemoBodyMode(intent);
+  const label = String(opts.label || "").trim();
   const inst = driver({
-    overlayColor: "#0a1628",
-    overlayOpacity: 0.38,
+    overlayColor: "#1a2744",
+    overlayOpacity: 0.42,
     stagePadding: 8,
-    stageRadius: 12,
+    stageRadius: 14,
     popoverOffset: 14,
-    popoverClass: "voxbulk-demo-popover",
-    allowClose: true,
+    popoverClass: `voxbulk-demo-popover voxbulk-demo-popover-${intent}`,
+    allowClose: false,
     disableActiveInteraction: false,
     showButtons: [],
-    overlayClickBehavior: "close",
+    overlayClickBehavior: intent === "click" ? "close" : "nextStep",
     onDestroyed: () => {
       if (driverHandle === inst) driverHandle = null;
     },
@@ -375,8 +394,8 @@ async function highlightWithDriver(el: HTMLElement, opts: DemoHighlightOptions, 
   inst.highlight({
     element: el,
     popover: {
-      title: "Your turn",
-      description: String(opts.label || "Tap this").trim() || "Tap this",
+      title: intent === "click" ? "Click here" : label || "Look here",
+      description: intent === "click" ? label || "Tap this" : " ",
       showButtons: [],
       side: "right",
       align: "start",
@@ -418,18 +437,16 @@ export function applyDemoHighlight(opts: DemoHighlightOptions) {
   }
   clearDemoHighlight();
   const epoch = highlightEpoch;
-  if (clickMode) {
-    bindClickOnce(el, id, opts);
-    void highlightWithDriver(el, opts, epoch).catch(() => {
-      if (epoch !== highlightEpoch) return;
-      fallbackHighlight(el, { ...opts, intent });
-    });
-  } else {
-    fallbackHighlight(el, { ...opts, intent: "view", persistUntilClick: false });
-  }
-  if (!clickMode || !opts.persistUntilClick) {
-    window.setTimeout(() => clearDemoHighlight(), clickMode ? PULSE_MS * 2 : PULSE_MS);
-  }
+  setDemoBodyMode(intent);
+  if (clickMode) bindClickOnce(el, id, opts);
+  void highlightWithDriver(el, { ...opts, intent }, epoch).catch(() => {
+    if (epoch !== highlightEpoch) return;
+    fallbackHighlight(el, { ...opts, intent });
+  });
+  if (clickMode) return true;
+  viewHoldTimer = window.setTimeout(() => {
+    if (epoch === highlightEpoch) clearDemoHighlight();
+  }, VIEW_HOLD_MS);
   return true;
 }
 

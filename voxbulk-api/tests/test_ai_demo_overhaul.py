@@ -92,8 +92,8 @@ def test_resolve_demo_ui_step_catalog():
     step = resolve_demo_ui_step("feedback_create")
     assert step is not None
     assert step["route"] == "/feedback/new"
-    assert step["target_element_id"] == "feedback-new"
-    assert "Create" in step["label"]
+    assert step["target_element_id"] == "wizard-industry"
+    assert "industry" in step["label"].lower()
     assert resolve_demo_ui_step("packages_feedback")["route"] == "/account/packages?tab=feedback"
     assert resolve_demo_ui_step("nope") is None
 
@@ -107,7 +107,10 @@ def test_demo_highlight_intent_view_vs_click():
     assert demo_highlight_intent(step="nav_feedback_results") == "click"
     assert demo_highlight_intent(target_element_id="nav-feedback-compare") == "click"
     assert demo_highlight_intent(step="results_overview") == "click"
-    assert demo_highlight_intent(step="feedback_create", target_element_id="feedback-new") == "view"
+    assert demo_highlight_intent(step="feedback_create", target_element_id="wizard-industry") == "view"
+    assert demo_highlight_intent(step="wizard_next") == "click"
+    assert demo_highlight_intent(step="home_second_row") == "view"
+    assert demo_highlight_intent(step="results_top_menus") == "view"
 
 
 def test_highlight_defaults_to_spotlight_without_route():
@@ -133,7 +136,9 @@ def test_coach_script_mentions_home_kpis():
     from app.data.ai_demo_coach_script import COACH_TOUR_MAP
 
     assert "home_kpis" in COACH_TOUR_MAP
-    assert "VIEW" in COACH_TOUR_MAP
+    assert "home_second_row" in COACH_TOUR_MAP
+    assert "wizard_industry" in COACH_TOUR_MAP
+    assert "stay quiet" in COACH_TOUR_MAP.lower() or "I will wait" in COACH_TOUR_MAP
     assert "Campaign dashboard" in COACH_TOUR_MAP
     assert "NEVER say" in COACH_TOUR_MAP or "never say" in COACH_TOUR_MAP.lower()
 

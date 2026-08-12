@@ -74,17 +74,18 @@ def build_ai_demo_webhook_tools() -> list[dict[str, Any]]:
         ),
         (
             "highlight_dashboard",
-            "Spotlight a live dashboard control BEFORE you talk about it. "
-            "VIEW steps (home_kpis, charts, whole pages): look-only — never say click here. "
-            "CLICK steps (nav_*, results_* tabs, Create QR): ask them to tap the lit control, then wait. "
+            "Spotlight the live control BEFORE you talk. Always show the highlight box. "
+            "VIEW (home_kpis, home_second_row, wizard_*): box title is the area name — never say click here. "
+            "CLICK (nav_*, results_* tabs, wizard_next): box says Click here — ask them to tap, then wait. "
+            "On wizard steps: highlight, tell them the step name, then STAY QUIET so they can read. Do not answer the form. "
             "Default action=highlight (do NOT navigate). "
             "Use action=navigate only if they ask you to open it or stalled and said yes. "
-            "PREFERRED step=: home_kpis|home_activity|home_sentiment|home_week|home_followup|"
-            "nav_feedback_results|nav_feedback_compare|nav_feedback_new|nav_feedback_campaigns|"
-            "results_overview|results_questions|results_responses|results_details|results_location|"
-            "feedback_compare|feedback_list|feedback_create|feedback_results|"
-            "surveys|recruitment|expo|smart_card|services|packages_feedback. "
-            "Include a short label for the coachmark.",
+            "PREFERRED step=: home_kpis|home_second_row|"
+            "nav_feedback_results|results_top_menus|results_overview|results_questions|results_responses|results_details|"
+            "nav_feedback_compare|nav_feedback_new|"
+            "wizard_industry|wizard_topics|wizard_look|wizard_branches|wizard_followup|wizard_launch|wizard_next|"
+            "nav_feedback_campaigns|feedback_compare|packages_feedback. "
+            "Include a short label that NAMES the area (not the words Click here).",
             _body(
                 {
                     "session_id": session_prop,

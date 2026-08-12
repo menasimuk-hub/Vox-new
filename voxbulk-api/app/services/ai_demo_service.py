@@ -66,8 +66,8 @@ OPENING_GATE = (
     "  4) Ask if they are ready to start — then STOP and listen\n"
     "Do NOT call highlight_dashboard, show_pricing, switch_kb, or name product features "
     "until they clearly confirm (yes / OK / go / ready / sure / fine).\n"
-    "After they confirm: stay on the home dashboard. Highlight live KPIs as VIEW "
-    "(look-only — never say click here) with highlight_dashboard action=highlight. "
+    "After they confirm: stay on the home dashboard. Spotlight live KPIs (VIEW box "
+    "labelled Live KPIs — do not say click here) with highlight_dashboard action=highlight. "
     "Follow COACH MODE beat order."
 )
 

@@ -293,7 +293,7 @@ function CreateFeedback() {
 
       <div key={step} className="animate-fade-in">
         {step === 1 && (
-          <Card>
+          <Card data-demo-target="wizard-industry">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Briefcase className="size-4 text-primary" /> Step 1 · Choose your industry
@@ -354,7 +354,7 @@ function CreateFeedback() {
         )}
 
         {step === 2 && industry && (
-          <Card>
+          <Card data-demo-target="wizard-topics">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Target className="size-4 text-primary" /> Step 2 · What do you want to measure?
@@ -440,7 +440,7 @@ function CreateFeedback() {
         )}
 
         {step === 3 && (
-          <Card>
+          <Card data-demo-target="wizard-look">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Palette className="size-4 text-primary" /> Step 3 · Survey look &amp; feel
@@ -463,7 +463,7 @@ function CreateFeedback() {
         )}
 
         {step === 4 && (
-          <Card>
+          <Card data-demo-target="wizard-branches">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <QrCode className="size-4 text-primary" /> Step 4 · {duplicateMode ? "New location" : "Branches & QR codes"}
@@ -598,10 +598,14 @@ function CreateFeedback() {
           </Card>
         )}
 
-        {step === 5 && <AiFollowUpStep stepLabel="Step 5" config={aiFollowUp} onChange={setAiFollowUp} />}
+        {step === 5 && (
+          <div data-demo-target="wizard-followup">
+            <AiFollowUpStep stepLabel="Step 5" config={aiFollowUp} onChange={setAiFollowUp} />
+          </div>
+        )}
 
         {step === 6 && (
-          <Card>
+          <Card data-demo-target="wizard-launch">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Rocket className="size-4 text-primary" /> Step 6 · Activate QR survey
@@ -743,6 +747,7 @@ function CreateFeedback() {
         {step < 6 ? (
           <Button
             className="gap-1.5"
+            data-demo-target="wizard-next"
             onClick={() => setStep((s) => Math.min(6, s + 1) as Step)}
             disabled={!canNext[step]}
           >
@@ -757,7 +762,7 @@ function CreateFeedback() {
 function Stepper({ current, onJump, duplicateMode }: { current: Step; onJump: (n: number) => void; duplicateMode?: boolean }) {
   const progress = ((current - 1) / (STEPS.length - 1)) * 100;
   return (
-    <div className="rounded-2xl border border-border bg-gradient-to-br from-background/80 via-background/40 to-accent/10 p-5 shadow-sm">
+    <div className="rounded-2xl border border-border bg-gradient-to-br from-background/80 via-background/40 to-accent/10 p-5 shadow-sm" data-demo-target="wizard-stepper">
       <div className="relative">
         <div className="absolute left-5 right-5 top-5 hidden h-0.5 bg-border sm:block" />
         <div
