@@ -115,4 +115,13 @@ describe("ai-demo-agent-send", () => {
     expect(call.sendConversationMessage).not.toHaveBeenCalled();
     expect(queue).toHaveLength(0);
   });
+
+  it("digs call_control_id from nested answer params", () => {
+    expect(
+      readCallControlId({
+        state: "active",
+        params: { telnyx_call_control_id: "v3:from-params" },
+      } as DemoAgentCall),
+    ).toBe("v3:from-params");
+  });
 });

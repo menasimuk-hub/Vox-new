@@ -304,8 +304,12 @@ def test_record_user_click_notifies_agent_with_trigger(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["call_control_id"] == "v3:demo-cc"
     assert calls[0]["trigger_response"] is True
+    assert calls[0]["command_id"]
+    assert "demo-sess-click" in str(calls[0]["command_id"]) or "home_activity" in str(calls[0]["command_id"])
     assert calls[0]["messages"][0]["role"] == "user"
     assert calls[0]["messages"][0]["content"].startswith("I clicked Next.")
+    mem = json.loads(req.conversation_memory)
+    assert not mem.get("pending_click_nudge")
 
 
 def test_bind_call_flushes_pending_click_nudge(monkeypatch):
@@ -369,10 +373,11 @@ def test_bind_call_flushes_pending_click_nudge(monkeypatch):
 def test_opening_gate_and_consent_first_greeting():
     from app.services.ai_demo_service import OPENING_GATE
 
-    assert "Welcome the visitor" in OPENING_GATE or "welcome" in OPENING_GATE.lower()
+    assert "welcome" in OPENING_GATE.lower()
     assert "recorded" in OPENING_GATE.lower()
-    assert "ready" in OPENING_GATE.lower()
+    assert "do not wait" in OPENING_GATE.lower() or "tour started" in OPENING_GATE.lower()
     assert "highlight_dashboard" in OPENING_GATE
+    assert "say go" in OPENING_GATE.lower() or "go/ready" in OPENING_GATE.lower()
 
 
 def test_normalize_demo_start_path_rejects_fake_dashboard():

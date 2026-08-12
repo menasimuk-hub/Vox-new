@@ -225,8 +225,9 @@ export function demoTourLockMessage(beat: DemoTourBeat): string {
 
 export function demoTourStartMessage(beat: DemoTourBeat): string {
   return (
-    `The tour started. Spotlight is "${beat.label}". ${beat.talk} ` +
-    "Explain this now in 1-2 sentences. Then wait for Next on the box. Do not hang up."
+    `Tour started. Visitor is on the first spotlight "${beat.label}". ${beat.talk} ` +
+    "Begin narrating CURRENT SPOTLIGHT now in 1-2 sentences. Do not wait for them to say go. " +
+    "Then wait for Next on the box. Do not hang up."
   );
 }
 

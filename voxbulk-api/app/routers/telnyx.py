@@ -54,6 +54,12 @@ async def telnyx_voice_webhook(
     x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
 ):
     payload = await _verified_telnyx_payload(request, db)
+    try:
+        from app.services.ai_demo_service import AiDemoService
+
+        AiDemoService.try_bind_call_from_voice_webhook(db, payload=payload)
+    except Exception:
+        logger.exception("ai_demo_voice_webhook_bind_hook_failed")
     log = TelnyxExecutionService.log_call_event(db, payload=payload, org_id=x_retover_org_id)
     return {"ok": True, "log_id": log.id if log else None}
 
@@ -65,6 +71,12 @@ async def telnyx_voice_events_webhook(
     x_retover_org_id: str | None = Header(default=None, alias="X-Retover-Org-Id"),
 ):
     payload = await _verified_telnyx_payload(request, db)
+    try:
+        from app.services.ai_demo_service import AiDemoService
+
+        AiDemoService.try_bind_call_from_voice_webhook(db, payload=payload)
+    except Exception:
+        logger.exception("ai_demo_voice_events_bind_hook_failed")
     log = TelnyxExecutionService.log_call_event(db, payload=payload, org_id=x_retover_org_id)
     return {"ok": True, "log_id": log.id if log else None}
 

@@ -594,6 +594,7 @@ class TelnyxVoiceAdapter:
         messages: list[dict[str, Any]],
         config: dict[str, Any],
         trigger_response: bool = True,
+        command_id: str | None = None,
     ) -> TelnyxProviderResult:
         """Inject text into an active AI Assistant call and optionally force a reply turn."""
         api_key = normalize_telnyx_api_key(str(config.get("api_key") or ""))
@@ -614,6 +615,9 @@ class TelnyxVoiceAdapter:
             "messages": clean_messages,
             "trigger_response": bool(trigger_response),
         }
+        cid = str(command_id or "").strip()
+        if cid:
+            payload["command_id"] = cid[:128]
         try:
             with httpx.Client(timeout=15.0, verify=httpx_ssl_verify()) as client:
                 response = client.post(

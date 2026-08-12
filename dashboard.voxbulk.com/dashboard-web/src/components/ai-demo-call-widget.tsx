@@ -127,6 +127,8 @@ export function AiDemoCallWidget() {
   } | null>(null);
   const pendingAgentMsgsRef = useRef<string[]>([]);
   const callControlIdRef = useRef<string | null>(null);
+  const missingCcidLoggedRef = useRef(false);
+  const ccidPollRef = useRef<number | null>(null);
 
   const beatIndexRef = useRef(-1);
   const tourStartedRef = useRef(false);
@@ -160,11 +162,41 @@ export function AiDemoCallWidget() {
     [flushAgentMessages],
   );
 
-  const notifySpotlight = useCallback(
-    (beat: DemoTourBeat) => {
-      sendToAgent(demoTourAdvanceMessage(beat));
+  /** Call Control primary; WebRTC inject only if server notify failed/skipped. */
+  const notifyLeoForBeat = useCallback(
+    async (opts: {
+      target: string;
+      beat: DemoTourBeat;
+      beatIndex: number;
+      agentMessage: string;
+    }) => {
+      const sid = demoSessionFromLocation() || sessionId;
+      if (!sid) {
+        sendToAgent(opts.agentMessage);
+        return;
+      }
+      const ccid = readCallControlId(callRef.current) || callControlIdRef.current;
+      try {
+        const res = await reportDemoUserClick(sid, opts.target, {
+          beat_id: opts.beat.id,
+          label: opts.beat.label,
+          talk: opts.beat.talk,
+          intent: opts.beat.intent,
+          beat_index: opts.beatIndex,
+          call_control_id: ccid,
+          agent_message: opts.agentMessage,
+        });
+        if (res?.agent_notify?.ok) {
+          console.info("[ai-demo] Call Control notify ok — skipping browser inject", res.agent_notify);
+          return;
+        }
+        console.warn("[ai-demo] Call Control notify not ok — browser inject backup", res?.agent_notify);
+      } catch (err) {
+        console.warn("[ai-demo] user-clicked failed — browser inject backup", err);
+      }
+      sendToAgent(opts.agentMessage);
     },
-    [sendToAgent],
+    [sendToAgent, sessionId],
   );
 
   const notificationHandlerRef = useRef<((...args: unknown[]) => void) | null>(null);
@@ -236,21 +268,14 @@ export function AiDemoCallWidget() {
       const nextBeat = demoTourBeatAt(next);
       applyBeatAt(next);
       if (!nextBeat) return;
-      notifySpotlight(nextBeat);
-      const sid = demoSessionFromLocation() || sessionId;
-      if (sid) {
-        void reportDemoUserClick(sid, clicked, {
-          beat_id: nextBeat.id,
-          label: nextBeat.label,
-          talk: nextBeat.talk,
-          intent: nextBeat.intent,
-          beat_index: next,
-          call_control_id: readCallControlId(callRef.current) || callControlIdRef.current,
-          agent_message: demoTourAdvanceMessage(nextBeat),
-        }).catch(() => undefined);
-      }
+      void notifyLeoForBeat({
+        target: clicked,
+        beat: nextBeat,
+        beatIndex: next,
+        agentMessage: demoTourAdvanceMessage(nextBeat),
+      });
     },
-    [applyBeatAt, notifySpotlight, sessionId],
+    [applyBeatAt, notifyLeoForBeat],
   );
   advanceFromRef.current = advanceFrom;
 
@@ -259,20 +284,15 @@ export function AiDemoCallWidget() {
     tourStartedRef.current = true;
     const first = DEMO_TOUR_BEATS[0];
     applyBeatAt(0);
-    if (first) sendToAgent(demoTourStartMessage(first));
-    const sid = demoSessionFromLocation() || sessionId;
-    if (sid && first) {
-      void reportDemoUserClick(sid, first.target, {
-        beat_id: first.id,
-        label: first.label,
-        talk: first.talk,
-        intent: first.intent,
-        beat_index: 0,
-        call_control_id: readCallControlId(callRef.current) || callControlIdRef.current,
-        agent_message: demoTourStartMessage(first),
-      }).catch(() => undefined);
+    if (first) {
+      void notifyLeoForBeat({
+        target: first.target,
+        beat: first,
+        beatIndex: 0,
+        agentMessage: demoTourStartMessage(first),
+      });
     }
-  }, [applyBeatAt, sendToAgent, sessionId]);
+  }, [applyBeatAt, notifyLeoForBeat]);
   startTourRef.current = startTour;
 
   const hangup = useCallback(async () => {
@@ -287,6 +307,10 @@ export function AiDemoCallWidget() {
     if (wrapTimerRef.current) {
       window.clearTimeout(wrapTimerRef.current);
       wrapTimerRef.current = null;
+    }
+    if (ccidPollRef.current) {
+      window.clearInterval(ccidPollRef.current);
+      ccidPollRef.current = null;
     }
     try {
       const client = clientRef.current;
@@ -496,14 +520,19 @@ export function AiDemoCallWidget() {
           const call = notification.call;
           callRef.current = call;
           attachRemoteAudio(call);
-          const ccid = readCallControlId(call);
-          if (ccid && ccid !== callControlIdRef.current) {
+          const tryBindCcid = () => {
+            const ccid = readCallControlId(callRef.current);
+            if (!ccid || ccid === callControlIdRef.current) return Boolean(callControlIdRef.current);
             callControlIdRef.current = ccid;
+            missingCcidLoggedRef.current = false;
             const sid = demoSessionFromLocation() || sessionId;
             if (sid) {
               void bindDemoCallControl(sid, ccid).catch(() => undefined);
             }
-          }
+            console.info("[ai-demo] bound call_control_id", ccid.slice(0, 24));
+            return true;
+          };
+          tryBindCcid();
           const state = String(call.state || "").toLowerCase();
           if (state === "active" || state === "answered" || state === "held") {
             flushAgentMessages();
@@ -518,8 +547,24 @@ export function AiDemoCallWidget() {
             setPhase("live");
             setStatusLine("Live with Leo");
             toast.success("AI demo connected");
-            /* Start the spotlight as soon as audio is live so the first
-               sendConversationMessage is not racing a still-connecting call. */
+            /* Poll until Telnyx fills call_control_id (often late on anonymous AI). */
+            if (ccidPollRef.current) window.clearInterval(ccidPollRef.current);
+            let polls = 0;
+            ccidPollRef.current = window.setInterval(() => {
+              polls += 1;
+              if (cancelled || exitingRef.current || tryBindCcid() || polls > 40) {
+                if (ccidPollRef.current) {
+                  window.clearInterval(ccidPollRef.current);
+                  ccidPollRef.current = null;
+                }
+                if (!callControlIdRef.current && !missingCcidLoggedRef.current) {
+                  missingCcidLoggedRef.current = true;
+                  console.error(
+                    "[ai-demo] missing call_control_id — Call Control notify disabled; using browser inject backup",
+                  );
+                }
+              }
+            }, 500);
             window.setTimeout(() => {
               if (!cancelled && !exitingRef.current) startTourRef.current();
             }, 400);
@@ -527,6 +572,10 @@ export function AiDemoCallWidget() {
           /* Ignore hangup/destroy until we were live — early Telnyx states
              used to wipe the demo to /thanks before Leo joined. */
           if (wentLive && (state === "hangup" || state === "destroy" || state === "destroyed")) {
+            if (ccidPollRef.current) {
+              window.clearInterval(ccidPollRef.current);
+              ccidPollRef.current = null;
+            }
             void finish("Call ended");
           }
         };

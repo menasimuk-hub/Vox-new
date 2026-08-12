@@ -62,7 +62,7 @@ function digString(obj: unknown, keys: string[]): string | null {
   return null;
 }
 
-/** Telnyx populates this on answer; dig through getters + options. */
+/** Telnyx populates this on answer; dig through getters + options + nested params. */
 export function readCallControlId(call: DemoAgentCall | null | undefined): string | null {
   if (!call) return null;
   try {
@@ -84,6 +84,13 @@ export function readCallControlId(call: DemoAgentCall | null | undefined): strin
       const hit = digString(v, ["telnyxCallControlId", "telnyx_call_control_id", "call_control_id"]);
       if (hit) return hit;
     }
+  }
+  // Some SDK builds stash answer params under remoteStream / peer / _*
+  const rec = call as unknown as Record<string, unknown>;
+  for (const key of ["params", "answer", "dialogParams", "_options"] as const) {
+    const bag = rec[key];
+    const hit = digString(bag, ["telnyxCallControlId", "telnyx_call_control_id", "call_control_id"]);
+    if (hit) return hit;
   }
   return null;
 }

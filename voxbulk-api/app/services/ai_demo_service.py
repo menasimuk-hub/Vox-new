@@ -66,17 +66,15 @@ CONVERSATION_STYLE_GUIDE = (
 )
 
 OPENING_GATE = (
-    "OPENING GATE (mandatory — do not skip):\n"
-    "Turn 1 (the greeting already covers this — do not add a product pitch after it):\n"
-    "  1) Welcome the visitor by name\n"
-    "  2) Introduce yourself by your spoken first name from VoxBulk\n"
-    "  3) State that this call is recorded (quality + sales follow-up) and ask consent\n"
-    "  4) Ask if they are ready to start — then STOP and listen\n"
-    "Do NOT call highlight_dashboard, show_pricing, switch_kb, or name product features "
-    "until they clearly confirm (yes / OK / go / ready / sure / fine).\n"
-    "After they confirm: call highlight_dashboard ONCE (home_kpis) to start the tour. "
-    "The browser then owns every page change. You only narrate CURRENT SPOTLIGHT. "
-    "Do not call highlight/navigate to move the screen after the tour has started."
+    "OPENING GATE (browser owns the tour — do not wait for spoken go):\n"
+    "Turn 1 (greeting already covers welcome + recording notice):\n"
+    "  1) Welcome briefly by name and introduce yourself\n"
+    "  2) Mention the call is recorded for quality + sales follow-up\n"
+    "  3) As soon as you hear that the tour started OR \"I clicked Next/Click here\", "
+    "narrate the CURRENT SPOTLIGHT immediately — do NOT wait for them to say go/ready.\n"
+    "Do NOT call highlight_dashboard to pick pages — the browser already moved the white box. "
+    "You only narrate CURRENT SPOTLIGHT. You may call highlight_dashboard only to re-draw "
+    "the current box if it vanished. Do not skip ahead."
 )
 
 
@@ -166,15 +164,42 @@ def _parse_demo_tool_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], d
         for key, value in meta.items():
             if value is not None and key not in dynamic:
                 dynamic[str(key)] = value
+        for key in ("call_control_id", "call_leg_id", "call_session_id"):
+            if record.get(key) is not None and key not in dynamic:
+                dynamic[key] = record.get(key)
 
     # Custom headers sometimes arrive flattened on the payload
     for key, value in list(payload.items()):
         lk = str(key)
-        if lk.lower().startswith("x-vox") or lk in ("session_id", "demo_session_id"):
+        if lk.lower().startswith("x-vox") or lk in ("session_id", "demo_session_id", "call_control_id"):
             if value is not None and lk not in dynamic:
                 dynamic[lk] = value
 
+    if payload.get("call_control_id") and "call_control_id" not in dynamic:
+        dynamic["call_control_id"] = payload.get("call_control_id")
+
     return arguments, dynamic
+
+
+def _extract_call_control_id(arguments: dict[str, Any], dynamic: dict[str, Any], payload: dict[str, Any]) -> str:
+    candidates = (
+        arguments.get("call_control_id"),
+        dynamic.get("call_control_id"),
+        payload.get("call_control_id"),
+    )
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    record = data.get("payload") if isinstance(data.get("payload"), dict) else data
+    if isinstance(record, dict):
+        candidates = (
+            *candidates,
+            record.get("call_control_id"),
+            record.get("call_leg_id"),
+        )
+    for item in candidates:
+        ccid = str(item or "").strip()
+        if ccid:
+            return ccid[:200]
+    return ""
 
 
 def _extract_demo_session_id(arguments: dict[str, Any], dynamic: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -1660,26 +1685,26 @@ class AiDemoService:
         if memory:
             parts.append("RESUME MEMORY (do not restart from scratch): " + _json_dumps(memory))
 
-        # Telnyx speaks first_message once, then waits — welcome + intro + consent + ready only.
+        # Telnyx speaks first_message once; browser starts the tour — do not wait for spoken "go".
         if selected:
             greeting = (
                 f"Hi {req.contact_name}, welcome. "
                 f"I'm {agent_name} from VoxBulk. "
-                "This call is recorded for quality and so our sales team can follow up — is that OK with you? "
-                "When you're ready to start the demo, just say go."
+                "This call is recorded for quality and so our sales team can follow up. "
+                "I'll walk you through the live dashboard now — watch the white box on screen."
             )
         elif memory and memory.get("active_service_code"):
             greeting = (
                 f"Hi {req.contact_name}, welcome back — I'm {agent_name} from VoxBulk. "
-                "This call is recorded for quality and sales follow-up — still OK with you? "
-                "Say ready when you want to continue."
+                "This call is recorded for quality and sales follow-up. "
+                "We'll pick up the dashboard tour — watch the white box."
             )
         else:
             greeting = (
                 f"Hi {req.contact_name}, welcome. "
                 f"I'm {agent_name} from VoxBulk. "
-                "This call is recorded for quality and so our sales team can follow up — is that OK? "
-                "When you're ready to start, just say go."
+                "This call is recorded for quality and so our sales team can follow up. "
+                "I'll walk you through the live dashboard now — watch the white box on screen."
             )
 
         if kb:
@@ -1706,8 +1731,8 @@ class AiDemoService:
                 else (
                     f"مرحباً {req.contact_name}، أهلاً بك. "
                     f"أنا {agent_name} من VoxBulk. "
-                    "هذه المكالمة تُسجَّل للجودة ومتابعة المبيعات — هل هذا مناسب؟ "
-                    "عندما تكون جاهزاً للبدء قل ابدأ."
+                    "هذه المكالمة تُسجَّل للجودة ومتابعة المبيعات. "
+                    "سأرشدك في لوحة التحكم الآن — راقب المربع الأبيض."
                 )
             ),
         }
@@ -1976,6 +2001,14 @@ class AiDemoService:
         if session is None:
             logger.warning("demo_tool_missing_session tool=%s payload_keys=%s", name, list(payload.keys())[:20])
             return {"status": "error", "message": "Unknown demo session"}
+
+        # Free early bind when Telnyx includes call_control_id on tool webhooks.
+        tool_ccid = _extract_call_control_id(arguments, dynamic, payload if isinstance(payload, dict) else {})
+        if tool_ccid:
+            try:
+                AiDemoService.bind_call_control(db, session_id=session.id, call_control_id=tool_ccid)
+            except Exception:
+                logger.exception("demo_tool_bind_call_failed session=%s", session.id)
 
         req = AiDemoService.get_request(db, session.request_id)
         args = arguments if arguments else (payload.get("arguments") if isinstance(payload.get("arguments"), dict) else payload)
@@ -2371,11 +2404,13 @@ class AiDemoService:
             patch["current_talk"] = str(talk).strip()[:500]
         if intent in ("view", "click"):
             patch["current_intent"] = intent
+        idx: int | None = None
         if beat_index is not None:
             try:
-                patch["current_index"] = int(beat_index)
+                idx = int(beat_index)
+                patch["current_index"] = idx
             except (TypeError, ValueError):
-                pass
+                idx = None
         ccid = str(call_control_id or "").strip()
         if ccid:
             patch["telnyx_call_control_id"] = ccid[:200]
@@ -2391,11 +2426,19 @@ class AiDemoService:
                 "pending_click_at": _utcnow().isoformat() + "Z",
             },
         )
+        resolved_ccid = str((memory or {}).get("telnyx_call_control_id") or ccid or "").strip()
+        beat_key = str(beat_id or (memory or {}).get("current_beat") or target_id or "beat")[:80]
+        command_id = f"demo-{str(session_id)[:36]}-{beat_key}-{idx if idx is not None else 'x'}"[:128]
         agent_notify = AiDemoService._notify_agent_click(
             db,
-            call_control_id=str((memory or {}).get("telnyx_call_control_id") or ccid or "").strip(),
+            session_id=session.id,
+            call_control_id=resolved_ccid,
             message=msg,
+            command_id=command_id,
+            via="user_clicked",
         )
+        if agent_notify.get("ok"):
+            AiDemoService.update_memory(db, req, {"pending_click_nudge": "", "pending_click_at": ""})
         AiDemoService.update_memory(
             db,
             req,
@@ -2403,6 +2446,7 @@ class AiDemoService:
                 "last_agent_notify": {
                     "at": _utcnow().isoformat() + "Z",
                     "via": "user_clicked",
+                    "command_id": command_id,
                     **agent_notify,
                 }
             },
@@ -2410,11 +2454,25 @@ class AiDemoService:
         return {"ok": True, "target": target_id, "message": msg, "agent_notify": agent_notify}
 
     @staticmethod
-    def _notify_agent_click(db: Session, *, call_control_id: str, message: str) -> dict[str, Any]:
+    def _notify_agent_click(
+        db: Session,
+        *,
+        call_control_id: str,
+        message: str,
+        session_id: str | None = None,
+        command_id: str | None = None,
+        via: str = "notify",
+    ) -> dict[str, Any]:
         """Force Leo to hear the Next/Click via Call Control (trigger_response=true)."""
         ccid = str(call_control_id or "").strip()
         text = str(message or "").strip()
+        sid = str(session_id or "").strip()
         if not ccid or not text:
+            logger.error(
+                "ai_demo_agent_notify_skipped session=%s via=%s detail=missing_call_control_id_or_message",
+                sid or "-",
+                via,
+            )
             return {"ok": False, "status": "skipped", "detail": "missing_call_control_id_or_message"}
         try:
             from app.services.provider_settings import ProviderSettingsService
@@ -2426,14 +2484,36 @@ class AiDemoService:
                 messages=[{"role": "user", "content": text[:4000]}],
                 config=cfg or {},
                 trigger_response=True,
+                command_id=command_id,
             )
-            return {
+            out = {
                 "ok": bool(result.ok),
                 "status": result.status,
                 "detail": result.detail,
+                "command_id": str(command_id or "")[:128] or None,
             }
+            if result.ok:
+                logger.info(
+                    "ai_demo_agent_notify_ok session=%s via=%s ccid=%s command_id=%s status=%s",
+                    sid or "-",
+                    via,
+                    ccid[:40],
+                    (command_id or "")[:80],
+                    result.status,
+                )
+            else:
+                logger.error(
+                    "ai_demo_agent_notify_failed session=%s via=%s ccid=%s command_id=%s status=%s detail=%s",
+                    sid or "-",
+                    via,
+                    ccid[:40],
+                    (command_id or "")[:80],
+                    result.status,
+                    str(result.detail or "")[:300],
+                )
+            return out
         except Exception as exc:
-            logger.exception("ai_demo_agent_notify_failed")
+            logger.exception("ai_demo_agent_notify_exception session=%s via=%s", sid or "-", via)
             return {"ok": False, "status": "error", "detail": str(exc)[:300]}
 
     @staticmethod
@@ -2476,15 +2556,24 @@ class AiDemoService:
         req = AiDemoService.get_request(db, session.request_id)
         ccid = str(call_control_id or "").strip()[:200]
         if not ccid:
+            logger.error("ai_demo_bind_call_missing_ccid session=%s", session.id)
             return {"ok": False, "detail": "missing_call_control_id"}
         AiDemoService.update_memory(db, req, {"telnyx_call_control_id": ccid})
+        logger.info("ai_demo_bind_call_ok session=%s ccid=%s", session.id, ccid[:40])
         memory = _json_loads(req.conversation_memory, {})
         nudge = ""
         if isinstance(memory, dict):
             nudge = str(memory.get("pending_click_nudge") or "").strip()
         agent_notify: dict[str, Any] = {"ok": False, "status": "skipped", "detail": "no_pending_nudge"}
         if nudge:
-            agent_notify = AiDemoService._notify_agent_click(db, call_control_id=ccid, message=nudge)
+            agent_notify = AiDemoService._notify_agent_click(
+                db,
+                session_id=session.id,
+                call_control_id=ccid,
+                message=nudge,
+                command_id=f"demo-bind-{session.id[:36]}-{int(_utcnow().timestamp())}"[:128],
+                via="bind_call",
+            )
             if agent_notify.get("ok"):
                 AiDemoService.update_memory(db, req, {"pending_click_nudge": "", "pending_click_at": ""})
         AiDemoService.update_memory(
@@ -2499,6 +2588,26 @@ class AiDemoService:
             },
         )
         return {"ok": True, "call_control_id": ccid, "agent_notify": agent_notify}
+
+    @staticmethod
+    def try_bind_call_from_voice_webhook(db: Session, *, payload: dict[str, Any]) -> bool:
+        """If a voice webhook carries demo_session_id + call_control_id, bind them."""
+        if not isinstance(payload, dict):
+            return False
+        arguments, dynamic = _parse_demo_tool_payload(payload)
+        sid = _extract_demo_session_id(arguments, dynamic, payload)
+        ccid = _extract_call_control_id(arguments, dynamic, payload)
+        if not sid or not ccid:
+            return False
+        session = db.get(DemoSession, sid)
+        if session is None:
+            return False
+        try:
+            AiDemoService.bind_call_control(db, session_id=sid, call_control_id=ccid)
+            return True
+        except Exception:
+            logger.exception("ai_demo_voice_webhook_bind_failed session=%s", sid)
+            return False
 
     @staticmethod
     def note_created_feedback_location(db: Session, *, session_id: str, location_id: str) -> None:
