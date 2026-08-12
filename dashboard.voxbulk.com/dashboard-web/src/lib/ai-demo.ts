@@ -124,6 +124,19 @@ export async function reportDemoUserClick(
   });
 }
 
+export async function bindDemoCallControl(sessionId: string, callControlId: string) {
+  return publicApiFetch<{ ok?: boolean; call_control_id?: string; detail?: string }>(
+    "/ai-demo/bind-call",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: sessionId,
+        call_control_id: callControlId,
+      }),
+    },
+  );
+}
+
 export async function pollDemoEvents(sessionId: string, afterId?: string | null) {
   const q = afterId ? `?after_id=${encodeURIComponent(afterId)}` : "";
   return publicApiFetch<{ events: AiDemoUiEvent[] }>(

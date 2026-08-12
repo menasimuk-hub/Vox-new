@@ -2125,7 +2125,14 @@ class AiDemoService:
                     "intent": beat.get("intent") or "view",
                     "label": beat["label"],
                     "target_element_id": beat["target"],
-                    "message": lock + " The current Click here / Next was put back. Do not skip ahead.",
+                    "message": (
+                        f"VISITOR ALREADY CLICKED. You are behind the screen. "
+                        f"Spotlight is NOW \"{beat['label']}\". {beat.get('talk') or ''} "
+                        f"Explain THIS spotlight in 1-2 sentences immediately. "
+                        f"Do NOT ask them to click again for a previous step. "
+                        f"Do NOT say you are still waiting for the click they already made. "
+                        f"{lock}"
+                    ),
                 }
 
             first = DEMO_TOUR_BEATS[0]
@@ -2376,6 +2383,14 @@ class AiDemoService:
         memory = _json_loads(req.conversation_memory, {})
         beat = tour_beat_by_id(str((memory or {}).get("current_beat") or beat_id or ""))
         msg = str(agent_message or "").strip() or tour_advance_message(beat)
+        AiDemoService.update_memory(
+            db,
+            req,
+            {
+                "pending_click_nudge": msg[:1500],
+                "pending_click_at": _utcnow().isoformat() + "Z",
+            },
+        )
         agent_notify = AiDemoService._notify_agent_click(
             db,
             call_control_id=str((memory or {}).get("telnyx_call_control_id") or ccid or "").strip(),
@@ -2409,6 +2424,50 @@ class AiDemoService:
         except Exception as exc:
             logger.exception("ai_demo_agent_notify_failed")
             return {"ok": False, "status": "error", "detail": str(exc)[:300]}
+
+    @staticmethod
+    def attach_click_nudge(db: Session, *, session_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        """Prepend pending Next/Click nudge onto any tool result message."""
+        if not isinstance(result, dict):
+            return result
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            return result
+        req = AiDemoService.get_request(db, session.request_id)
+        memory = _json_loads(req.conversation_memory, {})
+        if not isinstance(memory, dict):
+            return result
+        nudge = str(memory.get("pending_click_nudge") or "").strip()
+        if not nudge:
+            return result
+        existing = str(result.get("message") or "").strip()
+        out = {
+            **result,
+            "message": (
+                f"URGENT — visitor already clicked. {nudge} "
+                f"Explain the NEW spotlight now. Then wait for their next on-screen click only. "
+                f"{existing}"
+            ).strip(),
+        }
+        AiDemoService.update_memory(db, req, {"pending_click_nudge": "", "pending_click_at": ""})
+        return out
+
+    @staticmethod
+    def bind_call_control(
+        db: Session,
+        *,
+        session_id: str,
+        call_control_id: str | None,
+    ) -> dict[str, Any]:
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            raise AiDemoError("Session not found", status_code=404)
+        req = AiDemoService.get_request(db, session.request_id)
+        ccid = str(call_control_id or "").strip()[:200]
+        if not ccid:
+            return {"ok": False, "detail": "missing_call_control_id"}
+        AiDemoService.update_memory(db, req, {"telnyx_call_control_id": ccid})
+        return {"ok": True, "call_control_id": ccid}
 
     @staticmethod
     def note_created_feedback_location(db: Session, *, session_id: str, location_id: str) -> None:

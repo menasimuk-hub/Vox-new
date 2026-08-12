@@ -354,7 +354,32 @@ async def demo_tool_webhook(tool_name: str, request: Request, db: Session = Depe
         list(payload.keys())[:20],
     )
     result = AiDemoService.handle_tool(db, tool_name=tool_name, payload=payload)
+    sid = str(
+        payload.get("session_id")
+        or (payload.get("dynamic_variables") or {}).get("demo_session_id")
+        or (payload.get("dynamic_variables") or {}).get("session_id")
+        or ""
+    ).strip()
+    if sid and isinstance(result, dict):
+        result = AiDemoService.attach_click_nudge(db, session_id=sid, result=result)
     return result
+
+
+class CallBindIn(BaseModel):
+    session_id: str
+    call_control_id: str | None = None
+
+
+@router.post("/bind-call")
+def demo_bind_call(payload: CallBindIn, db: Session = Depends(get_db)):
+    try:
+        return AiDemoService.bind_call_control(
+            db,
+            session_id=payload.session_id,
+            call_control_id=payload.call_control_id,
+        )
+    except AiDemoError as exc:
+        raise _http(exc) from exc
 
 
 @router.get("/tools/{tool_name}")

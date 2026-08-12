@@ -60,11 +60,32 @@ describe("ai-demo-agent-send", () => {
     expect(call.sendConversationMessage).not.toHaveBeenCalled();
   });
 
-  it("reports missing_method when SDK method absent", async () => {
+  it("reports missing_method when SDK method and raw socket absent", async () => {
     const queue = ["I clicked Next."];
     const result = await flushDemoAgentMessages({ state: "active" }, queue);
     expect(result.ok).toBe(false);
     expect(result.reason).toBe("missing_method");
     expect(queue).toEqual(["I clicked Next."]);
+  });
+
+  it("falls back to raw ai_conversation socket", async () => {
+    const sent: string[] = [];
+    const call: DemoAgentCall = {
+      state: "active",
+      session: {
+        connection: {
+          sendRawText: (raw: string) => {
+            sent.push(raw);
+          },
+        },
+      },
+    };
+    const queue = ["I clicked Next. Spotlight is Overview."];
+    const result = await flushDemoAgentMessages(call, queue);
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBe("sent_raw");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain("ai_conversation");
+    expect(sent[0]).toContain("I clicked Next");
   });
 });

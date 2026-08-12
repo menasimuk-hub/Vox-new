@@ -15,6 +15,7 @@ import {
   pollDemoEvents,
   readCachedDemoStart,
   reportDemoUserClick,
+  bindDemoCallControl,
   startDemoSession,
   type AiDemoUiEvent,
 } from "@/lib/ai-demo";
@@ -125,6 +126,7 @@ export function AiDemoCallWidget() {
     off?: (ev: string, fn: (...args: unknown[]) => void) => void;
   } | null>(null);
   const pendingAgentMsgsRef = useRef<string[]>([]);
+  const callControlIdRef = useRef<string | null>(null);
 
   const beatIndexRef = useRef(-1);
   const tourStartedRef = useRef(false);
@@ -239,7 +241,7 @@ export function AiDemoCallWidget() {
           talk: nextBeat.talk,
           intent: nextBeat.intent,
           beat_index: next,
-          call_control_id: readCallControlId(callRef.current),
+          call_control_id: readCallControlId(callRef.current) || callControlIdRef.current,
           agent_message: demoTourAdvanceMessage(nextBeat),
         }).catch(() => undefined);
       }
@@ -262,7 +264,7 @@ export function AiDemoCallWidget() {
         talk: first.talk,
         intent: first.intent,
         beat_index: 0,
-        call_control_id: readCallControlId(callRef.current),
+        call_control_id: readCallControlId(callRef.current) || callControlIdRef.current,
         agent_message: demoTourStartMessage(first),
       }).catch(() => undefined);
     }
@@ -490,6 +492,14 @@ export function AiDemoCallWidget() {
           const call = notification.call;
           callRef.current = call;
           attachRemoteAudio(call);
+          const ccid = readCallControlId(call);
+          if (ccid && ccid !== callControlIdRef.current) {
+            callControlIdRef.current = ccid;
+            const sid = demoSessionFromLocation() || sessionId;
+            if (sid) {
+              void bindDemoCallControl(sid, ccid).catch(() => undefined);
+            }
+          }
           const state = String(call.state || "").toLowerCase();
           if (state === "active" || state === "answered" || state === "held") {
             flushAgentMessages();
