@@ -737,6 +737,34 @@ def export_consent_events_csv(
     )
 
 
+@router.get("/consent-events/export.xlsx")
+def export_consent_events_xlsx(
+    purpose: str | None = Query(default="callback_call"),
+    consent_given: bool | None = Query(default=True),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import Response
+
+    from app.services.customer_feedback.consent_events_service import FeedbackConsentEventsService
+
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        xlsx_bytes = FeedbackConsentEventsService.export_xlsx(
+            db,
+            principal.org_id,
+            purpose=purpose,
+            consent_given=consent_given,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="feedback-consent-events.xlsx"'},
+    )
+
+
 @router.post("/consent-events/opt-out")
 def admin_opt_out_consent(
     payload: dict = Body(default={}),

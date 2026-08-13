@@ -2531,8 +2531,11 @@ export type FeedbackConsentEventRow = {
   location_id?: string | null;
   location_name?: string | null;
   purpose: string;
+  service_optin?: string | null;
   consent_given: boolean;
   phone_number: string;
+  name?: string | null;
+  email?: string | null;
   question_text_snapshot?: string | null;
   question_version_id?: string | null;
   method: string;

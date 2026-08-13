@@ -456,6 +456,23 @@ def list_my_opt_outs(db: Session = Depends(get_db), principal=Depends(get_curren
     return OrgOptOutService.list_opt_outs(db, principal.org_id)
 
 
+@router.get("/me/opt-outs/export.xlsx")
+def export_my_opt_outs_xlsx(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from fastapi.responses import Response
+
+    from app.services.org_opt_out_service import OrgOptOutService
+
+    try:
+        xlsx_bytes = OrgOptOutService.export_xlsx(db, principal.org_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)) from e
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="org-opt-outs.xlsx"'},
+    )
+
+
 @router.post("/me/opt-outs")
 def add_my_opt_out(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.org_audit_service import OrgAuditService

@@ -150,7 +150,7 @@ const groups: Group[] = [
     { title: "Saved QR surveys", url: "/feedback", icon: ListChecks, demoTarget: "nav-feedback-list" },
     { title: "Feedback results", url: "/feedback/results", icon: BarChart3, demoTarget: "nav-feedback-results" },
     { title: "Compare locations", url: "/feedback/compare", icon: GitCompare, demoTarget: "nav-feedback-compare" },
-    { title: "Consent", url: "/feedback/consent", icon: Ban },
+    { title: "Opt-out & Consent", url: "/feedback/consent", icon: Ban },
     { title: "Send campaign", url: "/feedback/campaigns/send", icon: Send, addon: true, requiresService: "feedbackCampaigns", demoTarget: "nav-feedback-campaign-send" },
     { title: "Campaign dashboard", url: "/feedback/campaigns", icon: BarChart3, addon: true, requiresService: "feedbackCampaigns", demoTarget: "nav-feedback-campaigns" },
   ]},
@@ -188,7 +188,6 @@ const groups: Group[] = [
     { title: "Services", url: "/settings/services", icon: Layers },
     { title: "Integrations", url: "/settings/integrations", icon: Plug },
     { title: "Team members", url: "/settings/team", icon: Users },
-    { title: "Opt-out list", url: "/settings/opt-out", icon: Ban },
   ]},
   { key: "account", label: "Account", items: [
     { title: "Packages & pricing", url: "/account/packages", icon: Package },

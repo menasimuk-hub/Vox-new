@@ -816,9 +816,9 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
       {
         id: "settings-opt-out",
         group: "What is it for",
-        title: "Opt-out list — numbers we'll never message or call",
-        routes: ["/settings/opt-out"],
-        body: "A central Do-Not-Contact list. Any phone here is permanently excluded from every campaign, survey or reminder.\n\nNumbers are added in two ways:\n• Manually here (add by E.164, e.g. +447700900123).\n• Automatically when a recipient opts out on a call or replies STOP on WhatsApp.\n\nRemove a number by clicking Remove on its row.",
+        title: "Opt-out & Consent — Yes answers and do-not-contact",
+        routes: ["/feedback/consent", "/settings/opt-out"],
+        body: "Under Customer feedback → Opt-out & Consent.\n\n• Consent tab — people who said Yes to callback or marketing; export Excel (name, email, service opt-in, and full audit fields).\n• Opt-out list tab — central Do-Not-Contact numbers excluded from every campaign, survey or reminder.\n\nNumbers are added manually or automatically when someone opts out on a call or replies STOP on WhatsApp.",
       },
       {
         id: "settings-audit",

@@ -17,7 +17,7 @@ const map: Record<string, T> = {
   "/feedback/new": { title: "Create QR survey", subtitle: "WhatsApp feedback wizard" },
   "/feedback/results": { title: "Feedback results", subtitle: "Responses by location" },
   "/feedback/compare": { title: "Compare locations", subtitle: "Multi-location survey comparison" },
-  "/feedback/consent": { title: "Consent", subtitle: "Callback and marketing Yes answers" },
+  "/feedback/consent": { title: "Opt-out & Consent", subtitle: "Consent Yes answers and do-not-contact list" },
   "/feedback/edit": { title: "Edit QR survey", subtitle: "Topics and closing questions" },
 
   "/expo": { title: "Saved Expo booths", subtitle: "Manage exhibition QR codes" },
@@ -46,7 +46,7 @@ const map: Record<string, T> = {
   "/settings/profile": { title: "Profile settings", subtitle: "Company & revenue" },
   "/settings/system": { title: "System settings", subtitle: "API, WhatsApp, AI calling" },
   "/settings/team": { title: "Team members", subtitle: "Invite & roles" },
-  "/settings/opt-out": { title: "Opt-out list", subtitle: "Do-not-contact" },
+  "/settings/opt-out": { title: "Opt-out & Consent", subtitle: "Redirects to Customer feedback" },
   "/settings/audit": { title: "Audit log", subtitle: "Compliance activity" },
 
   "/account/packages": { title: "Packages & pricing", subtitle: "Plans & bundles" },

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+import io
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -174,3 +175,36 @@ class OrgOptOutService:
             )
         ).scalar_one_or_none()
         return hit is not None
+
+    @staticmethod
+    def export_xlsx(db: Session, org_id: str) -> bytes:
+        try:
+            import openpyxl
+            from openpyxl.styles import Font
+        except ImportError as e:
+            raise RuntimeError("Excel export requires openpyxl on the server.") from e
+
+        items = OrgOptOutService.list_opt_outs(db, org_id)
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Opt-out list"
+        bold = Font(bold=True)
+        headers = ["name", "email", "phone", "service_optin", "reason", "added_at"]
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = bold
+        for row in items:
+            created = row.get("created_at")
+            ws.append(
+                [
+                    row.get("name") or row.get("contact_name") or "",
+                    "",  # email not stored on org opt-outs
+                    row.get("phone_e164") or row.get("phone") or "",
+                    "Do-not-contact (all services)",
+                    row.get("reason") or "",
+                    created.isoformat() if hasattr(created, "isoformat") else (created or ""),
+                ]
+            )
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()

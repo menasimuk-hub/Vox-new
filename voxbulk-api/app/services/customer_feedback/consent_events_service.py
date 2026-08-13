@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import uuid
 from datetime import datetime
 from typing import Any
@@ -17,12 +18,71 @@ from app.models.customer_feedback import (
     FeedbackMarketingSubscriber,
     FeedbackSession,
 )
+from app.models.org_opt_out import OrganisationOptOut
 from app.services.org_opt_out_service import OrgOptOutService
 
 CALLBACK_QUESTION = "Yes, call me back / No, don't call me (number used only for this feedback follow-up)."
 MARKETING_QUESTION = "Yes — I want occasional offers from this business on WhatsApp."
 CALLBACK_VERSION = "callback_v2"
 MARKETING_VERSION = "marketing_v1"
+
+PURPOSE_LABELS = {
+    "callback_call": "Callback opt-in",
+    "marketing": "Marketing opt-in",
+}
+
+EXPORT_COLUMNS = [
+    "name",
+    "email",
+    "phone_number",
+    "service_optin",
+    "consent_given",
+    "location",
+    "method",
+    "source_event",
+    "question",
+    "question_version",
+    "session_id",
+    "ip_address",
+    "user_agent",
+    "timestamp",
+]
+
+
+def _purpose_label(purpose: str | None) -> str:
+    key = str(purpose or "").strip().lower()
+    return PURPOSE_LABELS.get(key, key or "—")
+
+
+def _session_contact(state: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    if not isinstance(state, dict):
+        return None, None
+    name = (
+        str(
+            state.get("name")
+            or state.get("visitor_name")
+            or state.get("full_name")
+            or state.get("contact_name")
+            or ""
+        ).strip()
+        or None
+    )
+    email = (
+        str(state.get("email") or state.get("visitor_email") or state.get("contact_email") or "").strip()
+        or None
+    )
+    return name, email
+
+
+def _parse_session_state(raw: str | None) -> dict[str, Any] | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 class FeedbackConsentEventsService:
@@ -123,6 +183,35 @@ class FeedbackConsentEventsService:
             if loc_ids
             else {}
         )
+        session_ids = {str(r.session_id) for r in latest_by_key.values() if r.session_id}
+        sessions = (
+            {
+                str(sess.id): sess
+                for sess in db.execute(
+                    select(FeedbackSession).where(FeedbackSession.id.in_(list(session_ids)))
+                )
+                .scalars()
+                .all()
+            }
+            if session_ids
+            else {}
+        )
+        phones = {str(r.phone_e164) for r in latest_by_key.values() if r.phone_e164}
+        opt_names: dict[str, str] = {}
+        if phones:
+            for opt in (
+                db.execute(
+                    select(OrganisationOptOut).where(
+                        OrganisationOptOut.org_id == org_id,
+                        OrganisationOptOut.phone_e164.in_(list(phones)),
+                    )
+                )
+                .scalars()
+                .all()
+            ):
+                if opt.contact_name:
+                    opt_names[str(opt.phone_e164)] = str(opt.contact_name).strip()
+
         for row in latest_by_key.values():
             given = bool(row.consent_given) and str(row.source_event or "") != "revoke"
             if consent_given is True and not given:
@@ -130,6 +219,10 @@ class FeedbackConsentEventsService:
             if consent_given is False and given:
                 continue
             loc = locs.get(str(row.location_id or ""))
+            sess = sessions.get(str(row.session_id or ""))
+            name, email = _session_contact(_parse_session_state(getattr(sess, "session_state_json", None)))
+            if not name:
+                name = opt_names.get(str(row.phone_e164)) or None
             items.append(
                 {
                     "id": row.id,
@@ -138,8 +231,11 @@ class FeedbackConsentEventsService:
                     "location_id": row.location_id,
                     "location_name": loc.name if loc else None,
                     "purpose": row.purpose,
+                    "service_optin": _purpose_label(row.purpose),
                     "consent_given": given,
                     "phone_number": row.phone_e164,
+                    "name": name,
+                    "email": email,
                     "question_text_snapshot": row.question_text_snapshot,
                     "question_version_id": row.question_version_id,
                     "method": row.method,
@@ -153,40 +249,24 @@ class FeedbackConsentEventsService:
         return items[: max(1, min(int(limit or 500), 2000))]
 
     @staticmethod
-    def export_csv(
+    def _export_rows(
         db: Session,
         org_id: str,
         *,
         purpose: str | None = "callback_call",
         consent_given: bool | None = True,
-    ) -> str:
+    ) -> list[list[Any]]:
         items = FeedbackConsentEventsService.list_consents(
             db, org_id, purpose=purpose, consent_given=consent_given, limit=5000
         )
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(
-            [
-                "timestamp",
-                "phone_number",
-                "purpose",
-                "consent_given",
-                "location",
-                "method",
-                "source_event",
-                "question",
-                "question_version",
-                "session_id",
-                "ip_address",
-                "user_agent",
-            ]
-        )
+        rows: list[list[Any]] = []
         for row in items:
-            writer.writerow(
+            rows.append(
                 [
-                    row.get("timestamp") or "",
+                    row.get("name") or "",
+                    row.get("email") or "",
                     row.get("phone_number") or "",
-                    row.get("purpose") or "",
+                    row.get("service_optin") or _purpose_label(str(row.get("purpose") or "")),
                     "Yes" if row.get("consent_given") else "No",
                     row.get("location_name") or "",
                     row.get("method") or "",
@@ -196,9 +276,56 @@ class FeedbackConsentEventsService:
                     row.get("session_id") or "",
                     row.get("ip_address") or "",
                     row.get("user_agent") or "",
+                    row.get("timestamp") or "",
                 ]
             )
-        return buf.getvalue()
+        return rows
+
+    @staticmethod
+    def export_csv(
+        db: Session,
+        org_id: str,
+        *,
+        purpose: str | None = "callback_call",
+        consent_given: bool | None = True,
+    ) -> str:
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(EXPORT_COLUMNS)
+        for row in FeedbackConsentEventsService._export_rows(
+            db, org_id, purpose=purpose, consent_given=consent_given
+        ):
+            writer.writerow(row)
+        return "\ufeff" + buf.getvalue()
+
+    @staticmethod
+    def export_xlsx(
+        db: Session,
+        org_id: str,
+        *,
+        purpose: str | None = "callback_call",
+        consent_given: bool | None = True,
+    ) -> bytes:
+        try:
+            import openpyxl
+            from openpyxl.styles import Font
+        except ImportError as e:
+            raise RuntimeError("Excel export requires openpyxl on the server.") from e
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Consent"
+        bold = Font(bold=True)
+        ws.append(EXPORT_COLUMNS)
+        for cell in ws[1]:
+            cell.font = bold
+        for row in FeedbackConsentEventsService._export_rows(
+            db, org_id, purpose=purpose, consent_given=consent_given
+        ):
+            ws.append(row)
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
 
     @staticmethod
     def admin_opt_out(
