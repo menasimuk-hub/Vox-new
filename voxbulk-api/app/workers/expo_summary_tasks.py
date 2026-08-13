@@ -64,9 +64,23 @@ def purge_expired_visitor_identities() -> dict[str, Any]:
         return {"purged": n}
 
 
+def _lead_local_date(created_at: datetime | None, tz: ZoneInfo):
+    """Visit calendar day in the exhibition timezone (created_at is stored UTC-naive)."""
+    if created_at is None:
+        return None
+    try:
+        naive = created_at.replace(tzinfo=None) if getattr(created_at, "tzinfo", None) else created_at
+        return naive.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz).date()
+    except Exception:
+        try:
+            return created_at.date()
+        except Exception:
+            return None
+
+
 @celery_app.task(name="expo.send_visitor_day_summaries")
 def send_visitor_day_summaries() -> dict[str, Any]:
-    """Hourly: send daily digests near local expo end-of-day; final digests when expo ended."""
+    """Hourly: one visit summary per visitor per exhibition (evening of visit day, or once at end)."""
     sent_daily = 0
     sent_final = 0
     with get_sessionmaker()() as db:
@@ -79,16 +93,17 @@ def send_visitor_day_summaries() -> dict[str, Any]:
                 tz = _local_tz(getattr(exhibition, "timezone", None))
                 local_now = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(tz)
                 local_date = local_now.date().isoformat()
-                # Daily window: local 20:00–21:00
+                # Daily window: local 20:00–21:00 — only stands visited that local day
                 if local_now.hour == 20:
                     sent_daily += _send_for_exhibition(
                         db,
                         exhibition=exhibition,
+                        tz=tz,
                         summary_date=local_date,
                         is_final=False,
                         day_filter=local_now.date(),
                     )
-                # Final: exhibition ended within last 26h
+                # Final: exhibition ended within last 26h (only if never emailed this visitor)
                 ends = exhibition.ends_on
                 if ends is not None:
                     ends_naive = ends.replace(tzinfo=None) if ends.tzinfo else ends
@@ -96,6 +111,7 @@ def send_visitor_day_summaries() -> dict[str, Any]:
                         sent_final += _send_for_exhibition(
                             db,
                             exhibition=exhibition,
+                            tz=tz,
                             summary_date=local_date,
                             is_final=True,
                             day_filter=None,
@@ -108,10 +124,24 @@ def send_visitor_day_summaries() -> dict[str, Any]:
             return {"daily": sent_daily, "final": sent_final, "error": True}
 
 
+def _visitor_summary_already_sent(db, *, exhibition_id: str, visitor_email: str) -> bool:
+    """One summary email per visitor per exhibition — never again on later calendar days."""
+    return (
+        db.execute(
+            select(ExpoVisitorSummarySend.id).where(
+                ExpoVisitorSummarySend.exhibition_id == exhibition_id,
+                ExpoVisitorSummarySend.visitor_email == visitor_email,
+            ).limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
 def _send_for_exhibition(
     db,
     *,
     exhibition: ExpoExhibition,
+    tz: ZoneInfo,
     summary_date: str,
     is_final: bool,
     day_filter,
@@ -132,24 +162,14 @@ def _send_for_exhibition(
         if not email or "@" not in email or email.endswith("@expo.local"):
             continue
         if day_filter is not None:
-            created = lead.created_at
-            if created is None:
-                continue
-            if created.date() != day_filter:
+            visit_day = _lead_local_date(lead.created_at, tz)
+            if visit_day is None or visit_day != day_filter:
                 continue
         by_email.setdefault(email, []).append(lead)
 
     sent = 0
     for email, email_leads in by_email.items():
-        already = db.execute(
-            select(ExpoVisitorSummarySend).where(
-                ExpoVisitorSummarySend.exhibition_id == exhibition.id,
-                ExpoVisitorSummarySend.visitor_email == email,
-                ExpoVisitorSummarySend.summary_date == summary_date,
-                ExpoVisitorSummarySend.is_final == is_final,
-            )
-        ).scalar_one_or_none()
-        if already:
+        if _visitor_summary_already_sent(db, exhibition_id=exhibition.id, visitor_email=email):
             continue
         stands: list[dict[str, Any]] = []
         first_name = "there"
