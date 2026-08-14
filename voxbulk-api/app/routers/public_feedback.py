@@ -74,7 +74,6 @@ def get_feedback_qr_png(
         a=a,
         f=f,
     )
-    overrides["transparent"] = False
     png = render_styled_qr_png(web_url, size=int(s), **overrides)
     return Response(
         content=png,

@@ -283,6 +283,7 @@ function emptyForm(isPartner) {
     name: '',
     email: '',
     password: genPassword(),
+    assign_existing: false,
     mobile: '',
     country: 'GB',
     company_name: '',
@@ -633,6 +634,7 @@ export default function SalesTeam() {
       name: form.name,
       email: form.email,
       password: form.password,
+      assign_existing: Boolean(form.assign_existing) && !editId,
       mobile: form.mobile,
       country: form.country,
       company_name: form.company_name,
@@ -687,8 +689,18 @@ export default function SalesTeam() {
           setBusy(false)
           return
         }
+        if (!form.assign_existing && String(form.password || '').length < 6) {
+          setFormErr('Password must be at least 6 characters.')
+          setBusy(false)
+          return
+        }
+        if (form.assign_existing && form.password && String(form.password).length < 6) {
+          setFormErr('Optional new password must be at least 6 characters.')
+          setBusy(false)
+          return
+        }
         await apiFetch('/admin/sales-reps', { method: 'POST', body: JSON.stringify(payload) })
-        showToast('Created')
+        showToast(form.assign_existing ? 'Assigned existing user' : 'Created')
       }
       setView('accounts')
       await loadReps()
@@ -1288,19 +1300,72 @@ export default function SalesTeam() {
       </div>
       <div className='field'>
         <label>Email</label>
-        <input
-          type='email'
-          value={form.email}
-          onChange={(e) => {
-            const email = e.target.value
-            const next = { ...form, email }
-            if (!isPartner && !editId && (!form.mailbox_username || form.mailbox_username === form.email)) {
-              next.mailbox_username = email
-            }
-            setForm(next)
-          }}
-          disabled={Boolean(editId)}
-        />
+        <div className='pw-row'>
+          <input
+            type='email'
+            value={form.email}
+            onChange={(e) => {
+              const email = e.target.value
+              const next = { ...form, email }
+              if (!isPartner && !editId && (!form.mailbox_username || form.mailbox_username === form.email)) {
+                next.mailbox_username = email
+              }
+              setForm(next)
+            }}
+            disabled={Boolean(editId)}
+          />
+          {!editId ? (
+            <button
+              type='button'
+              className='btn btn-ghost btn-sm'
+              onClick={async () => {
+                const email = String(form.email || '').trim().toLowerCase()
+                if (!email.includes('@')) {
+                  setFormErr('Enter a registered user email first.')
+                  return
+                }
+                try {
+                  const res = await apiFetch(`/admin/sales-reps/lookup-user?email=${encodeURIComponent(email)}`)
+                  if (!res?.found) {
+                    setFormErr('No registered user with that email.')
+                    return
+                  }
+                  if (res.user?.already_sales_rep) {
+                    setFormErr(`That user is already a ${res.user.sales_rep_kind || 'sales'} account.`)
+                    return
+                  }
+                  setFormErr('')
+                  setForm((prev) => ({
+                    ...prev,
+                    assign_existing: true,
+                    email: res.user.email || email,
+                    name: prev.name || res.user.suggested_name || '',
+                    password: '',
+                  }))
+                  showToast(`Found ${res.user.email} — assign mode on`)
+                } catch (e) {
+                  setFormErr(e?.message || 'Lookup failed')
+                }
+              }}
+            >
+              Lookup user
+            </button>
+          ) : null}
+        </div>
+        {!editId ? (
+          <label className='switch-row' style={{ marginTop: 10 }}>
+            <input
+              type='checkbox'
+              checked={Boolean(form.assign_existing)}
+              onChange={(e) => setForm({
+                ...form,
+                assign_existing: e.target.checked,
+                password: e.target.checked ? '' : (form.password || genPassword()),
+              })}
+            />
+            <span className='switch-label'>Assign existing registered user (keep their password unless you set a new one)</span>
+          </label>
+        ) : null}
       </div>
       <div className='field-row'>
         <div className='field'>
@@ -1819,10 +1884,15 @@ export default function SalesTeam() {
                 <h3>Access</h3>
                 {!editId ? (
                   <div className='field'>
-                    <label>Temporary password <span className='hint'>shared at first login</span></label>
+                    <label>
+                      {form.assign_existing ? 'New password (optional)' : 'Temporary password'}{' '}
+                      <span className='hint'>{form.assign_existing ? 'leave blank to keep theirs' : 'shared at first login'}</span>
+                    </label>
                     <div className='pw-row'>
                       <input type='text' value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-                      <button type='button' className='btn btn-ghost btn-sm' onClick={() => setForm({ ...form, password: genPassword() })}>Generate</button>
+                      {!form.assign_existing ? (
+                        <button type='button' className='btn btn-ghost btn-sm' onClick={() => setForm({ ...form, password: genPassword() })}>Generate</button>
+                      ) : null}
                     </div>
                   </div>
                 ) : (

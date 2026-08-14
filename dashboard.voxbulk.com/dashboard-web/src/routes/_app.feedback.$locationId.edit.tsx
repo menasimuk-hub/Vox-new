@@ -53,6 +53,7 @@ function EditFeedbackSurvey() {
   const [qrStyle, setQrStyle] = React.useState<QrStyleValue>({
     fg: "000000",
     bg: "ffffff",
+    transparent: false,
     moduleStyle: "square",
     cornerStyle: "square",
     frameRound: "none",
@@ -81,6 +82,7 @@ function EditFeedbackSurvey() {
     setQrStyle({
       fg: (location.qr_fg_color || "000000").replace("#", ""),
       bg: (location.qr_bg_color || "ffffff").replace("#", ""),
+      transparent: Boolean(location.qr_transparent),
       moduleStyle: location.qr_module_style === "dots" ? "dots" : "square",
       cornerStyle: location.qr_corner_style === "rounded" ? "rounded" : "square",
       frameRound:
@@ -124,7 +126,7 @@ function EditFeedbackSurvey() {
           marketing_opt_in_enabled: marketingOptIn,
           web_theme: buildWebThemePayload(webTheme),
           ai_follow_up: aiFollowUpToApi(aiFollowUp),
-          ...qrStylePayload(qrStyle),
+          ...qrStylePayload(qrStyle, { includeTransparent: true }),
         },
       });
       toast.success("Survey updated. Download the QR again if you changed its style.");

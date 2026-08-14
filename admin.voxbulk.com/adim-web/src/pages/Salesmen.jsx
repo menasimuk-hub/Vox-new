@@ -38,6 +38,7 @@ const EMPTY_FORM = {
   mailbox_username: '',
   mailbox_password: '',
   email_signature: '',
+  assign_existing: false,
 }
 const PROMO_CODE_RE = /^[A-Z0-9]{4,12}$/
 const SALESMAN_EMAIL_DOMAIN = 'voxbulk.com'
@@ -113,6 +114,7 @@ export default function Salesmen() {
     const email = createForm.email.trim().toLowerCase()
     const password = createForm.password
     const promoCode = createForm.promo_code.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+    const assignExisting = Boolean(createForm.assign_existing)
 
     if (!name) {
       setCreateErr('Full name is required.')
@@ -124,8 +126,13 @@ export default function Salesmen() {
       setBusy(false)
       return
     }
-    if (!password || password.length < 6) {
+    if (!assignExisting && (!password || password.length < 6)) {
       setCreateErr('Password must be at least 6 characters.')
+      setBusy(false)
+      return
+    }
+    if (assignExisting && password && password.length < 6) {
+      setCreateErr('Optional new password must be at least 6 characters.')
       setBusy(false)
       return
     }
@@ -141,9 +148,10 @@ export default function Salesmen() {
         method: 'POST',
           body: JSON.stringify({
             kind: 'salesman',
+            assign_existing: assignExisting,
             name,
             email,
-            password,
+            password: password || '',
             promo_code: promoCode,
             country: createForm.country.trim().toUpperCase(),
             caller_id: createForm.caller_id.trim(),
@@ -163,7 +171,11 @@ export default function Salesmen() {
             email_signature: createForm.email_signature.trim(),
           }),
       })
-      setMsg(`Created ${res?.rep?.email || email} · promo code ${res?.rep?.promo_code || promoCode} · commission ${res?.rep?.commission_pct ?? 15}%. They sign in at the dashboard with this email + password.`)
+      setMsg(
+        assignExisting
+          ? `Assigned salesman to existing user ${res?.rep?.email || email} · promo ${res?.rep?.promo_code || promoCode}.`
+          : `Created ${res?.rep?.email || email} · promo code ${res?.rep?.promo_code || promoCode} · commission ${res?.rep?.commission_pct ?? 15}%. They sign in at the dashboard with this email + password.`,
+      )
       setCreateForm(EMPTY_FORM)
       setCreateErr('')
       setShowCreate(false)
@@ -172,6 +184,38 @@ export default function Salesmen() {
       const message = e2?.message || 'Create failed'
       setCreateErr(message)
       setErr(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const lookupExistingUser = async () => {
+    const email = createForm.email.trim().toLowerCase()
+    if (!email || !email.includes('@')) {
+      setCreateErr('Enter the registered user email first.')
+      return
+    }
+    setBusy(true)
+    setCreateErr('')
+    try {
+      const res = await apiFetch(`/admin/sales-reps/lookup-user?email=${encodeURIComponent(email)}`)
+      if (!res?.found) {
+        setCreateErr('No registered user with that email.')
+        return
+      }
+      if (res.user?.already_sales_rep) {
+        setCreateErr(`That user is already a ${res.user.sales_rep_kind || 'sales'} account.`)
+        return
+      }
+      setCreateForm((prev) => ({
+        ...prev,
+        assign_existing: true,
+        email: res.user.email || email,
+        name: prev.name || res.user.suggested_name || '',
+      }))
+      setMsg(`Found ${res.user.email}${res.user.org_name ? ` (${res.user.org_name})` : ''}. Password optional — leave blank to keep theirs.`)
+    } catch (e2) {
+      setCreateErr(e2?.message || 'Lookup failed')
     } finally {
       setBusy(false)
     }
@@ -385,6 +429,27 @@ export default function Salesmen() {
           <form onSubmit={create} noValidate>
             <div className='occ-modal-body' style={{ display: 'grid', gap: 12 }}>
               <p className='muted' style={{ margin: 0 }}>Creates a dashboard login. The salesman signs in with this email + password and sees only the Sales portal.</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type='button'
+                  className={`btn ${!createForm.assign_existing ? 'primary' : 'soft'}`}
+                  onClick={() => setCreateForm({ ...createForm, assign_existing: false })}
+                >
+                  New account
+                </button>
+                <button
+                  type='button'
+                  className={`btn ${createForm.assign_existing ? 'primary' : 'soft'}`}
+                  onClick={() => setCreateForm({ ...createForm, assign_existing: true, password: '' })}
+                >
+                  Assign existing user
+                </button>
+              </div>
+              {createForm.assign_existing ? (
+                <p className='muted' style={{ margin: 0, fontSize: 12 }}>
+                  Use an email that already signed up on the dashboard. Lookup fills the name when found. Password is optional (leave blank to keep theirs).
+                </p>
+              ) : null}
               {createErr ? (
                 <div className='note' style={{ borderColor: 'rgba(220,38,38,0.45)', margin: 0 }} role='alert'>
                   {createErr}
@@ -397,11 +462,24 @@ export default function Salesmen() {
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className='label'>Email (login)</span>
-                  <input className='input' type='email' value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder='jane@voxbulk.com' required />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input className='input' type='email' value={createForm.email} onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })} placeholder={createForm.assign_existing ? 'user@company.com' : 'jane@voxbulk.com'} required style={{ flex: 1 }} />
+                    {createForm.assign_existing ? (
+                      <button type='button' className='btn soft' onClick={() => void lookupExistingUser()} disabled={busy}>Lookup</button>
+                    ) : null}
+                  </div>
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
-                  <span className='label'>Temporary password</span>
-                  <input className='input' type='password' value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} placeholder='Min 6 characters' minLength={6} required />
+                  <span className='label'>{createForm.assign_existing ? 'New password (optional)' : 'Temporary password'}</span>
+                  <input
+                    className='input'
+                    type='password'
+                    value={createForm.password}
+                    onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })}
+                    placeholder={createForm.assign_existing ? 'Leave blank to keep current' : 'Min 6 characters'}
+                    minLength={createForm.assign_existing ? undefined : 6}
+                    required={!createForm.assign_existing}
+                  />
                 </label>
                 <label style={{ display: 'grid', gap: 6 }}>
                   <span className='label'>Promo code (you type it)</span>
@@ -459,7 +537,9 @@ export default function Salesmen() {
             </div>
             <div className='occ-modal-foot'>
               <button type='button' className='btn soft' onClick={() => setShowCreate(false)} disabled={busy}>Cancel</button>
-              <button type='submit' className='btn primary' disabled={busy}>{busy ? 'Creating…' : 'Create salesman'}</button>
+              <button type='submit' className='btn primary' disabled={busy}>
+                {busy ? 'Saving…' : (createForm.assign_existing ? 'Assign salesman' : 'Create salesman')}
+              </button>
             </div>
           </form>
         </Modal>

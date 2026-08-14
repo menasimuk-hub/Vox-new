@@ -212,7 +212,7 @@ export function QrStyleControls({ value, onChange, disabled, showTransparent, cl
   const cornersDisabled = disabled || value.moduleStyle === "dots";
 
   return (
-    <div className={cn("grid gap-4 md:grid-cols-2", className)}>
+    <div className={cn("space-y-4", className)}>
       <Section title="Foreground">
         <ColorField
           label="Module colour"
@@ -248,28 +248,30 @@ export function QrStyleControls({ value, onChange, disabled, showTransparent, cl
         </div>
       </Section>
 
-      <Section title="Modules" hint="dot shape">
-        <SegGroup
-          options={MODULE_OPTS}
-          value={value.moduleStyle}
-          disabled={disabled}
-          onChange={(moduleStyle) => patch({ moduleStyle })}
-        />
-        {value.moduleStyle === "dots" ? (
-          <p className="mt-2 text-[11px] text-muted-foreground">Dots also use circular corner markers.</p>
-        ) : null}
-      </Section>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Section title="Modules" hint="dot shape">
+          <SegGroup
+            options={MODULE_OPTS}
+            value={value.moduleStyle}
+            disabled={disabled}
+            onChange={(moduleStyle) => patch({ moduleStyle })}
+          />
+          {value.moduleStyle === "dots" ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">Dots also use circular corner markers.</p>
+          ) : null}
+        </Section>
 
-      <Section title="Corners" hint="finder eyes">
-        <SegGroup
-          options={CORNER_OPTS}
-          value={value.moduleStyle === "dots" ? "square" : value.cornerStyle}
-          disabled={cornersDisabled}
-          onChange={(cornerStyle) => patch({ cornerStyle })}
-        />
-      </Section>
+        <Section title="Corners" hint="finder eyes">
+          <SegGroup
+            options={CORNER_OPTS}
+            value={value.moduleStyle === "dots" ? "square" : value.cornerStyle}
+            disabled={cornersDisabled}
+            onChange={(cornerStyle) => patch({ cornerStyle })}
+          />
+        </Section>
+      </div>
 
-      <Section title="Frame" className="md:col-span-2">
+      <Section title="Frame">
         <SegGroup
           options={FRAME_OPTS}
           value={value.frameRound}

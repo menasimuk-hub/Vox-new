@@ -28,6 +28,50 @@ def list_sales_reps(
     return {"ok": True, "items": items}
 
 
+@router.get("/lookup-user")
+def lookup_registered_user(
+    email: str = Query(..., min_length=3),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_platform_admin),
+):
+    """Find an existing dashboard user by email for Assign salesman."""
+    clean = str(email or "").strip().lower()
+    if "@" not in clean:
+        raise HTTPException(status_code=400, detail="A valid email is required.")
+    user = db.execute(select(User).where(User.email == clean)).scalar_one_or_none()
+    if user is None:
+        return {"ok": True, "found": False, "user": None}
+    already = db.execute(select(SalesRep).where(SalesRep.user_id == user.id)).scalar_one_or_none()
+    display = None
+    try:
+        from app.models.membership import OrganisationMembership
+        from app.models.organisation import Organisation
+
+        mem = db.execute(
+            select(OrganisationMembership, Organisation.name)
+            .join(Organisation, Organisation.id == OrganisationMembership.org_id)
+            .where(OrganisationMembership.user_id == user.id)
+            .limit(1)
+        ).first()
+        if mem:
+            display = mem[1]
+    except Exception:
+        display = None
+    return {
+        "ok": True,
+        "found": True,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "is_active": bool(user.is_active),
+            "already_sales_rep": already is not None,
+            "sales_rep_kind": getattr(already, "kind", None) if already else None,
+            "org_name": display,
+            "suggested_name": (display or clean.split("@")[0] or "").strip(),
+        },
+    }
+
+
 @router.get("/payout-invoices")
 def list_payout_invoices(
     rep_id: str | None = Query(default=None),
@@ -411,6 +455,7 @@ def create_sales_rep(payload: dict, db: Session = Depends(get_db), _admin=Depend
             commission_mode=body.get("commission_mode"),
             one_time_bonus_minor=body.get("one_time_bonus_minor"),
             mailbox=mailbox or None,
+            assign_existing=bool(body.get("assign_existing") or body.get("from_existing_user")),
         )
     except SalesRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

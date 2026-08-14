@@ -80,9 +80,16 @@ def _lead_local_date(created_at: datetime | None, tz: ZoneInfo):
 
 @celery_app.task(name="expo.send_visitor_day_summaries")
 def send_visitor_day_summaries() -> dict[str, Any]:
-    """Hourly: one visit summary per visitor per exhibition (evening of visit day, or once at end)."""
+    """Hourly: at most one visit summary email per visitor per exhibition, ever.
+
+    - Daily (local 20:00): only leads created that local calendar day, and only if
+      this visitor has never received a summary for this exhibition.
+    - Final (within 26h of ends_on): all stands, but still only if never emailed.
+    - Ended exhibitions are marked status=ended so the final window cannot re-open.
+    """
     sent_daily = 0
     sent_final = 0
+    marked_ended = 0
     with get_sessionmaker()() as db:
         try:
             now_utc = datetime.utcnow()
@@ -116,21 +123,29 @@ def send_visitor_day_summaries() -> dict[str, Any]:
                             is_final=True,
                             day_filter=None,
                         )
+                    # Close the exhibition once it has ended so finals cannot re-fire later.
+                    if ends_naive <= now_utc - timedelta(hours=1):
+                        exhibition.status = "ended"
+                        db.add(exhibition)
+                        marked_ended += 1
             db.commit()
-            return {"daily": sent_daily, "final": sent_final}
+            return {"daily": sent_daily, "final": sent_final, "marked_ended": marked_ended}
         except Exception:
             logger.exception("expo_send_visitor_day_summaries_failed")
             db.rollback()
-            return {"daily": sent_daily, "final": sent_final, "error": True}
+            return {"daily": sent_daily, "final": sent_final, "marked_ended": marked_ended, "error": True}
 
 
 def _visitor_summary_already_sent(db, *, exhibition_id: str, visitor_email: str) -> bool:
     """One summary email per visitor per exhibition — never again on later calendar days."""
+    email = str(visitor_email or "").strip().lower()
+    if not email:
+        return True
     return (
         db.execute(
             select(ExpoVisitorSummarySend.id).where(
                 ExpoVisitorSummarySend.exhibition_id == exhibition_id,
-                ExpoVisitorSummarySend.visitor_email == visitor_email,
+                ExpoVisitorSummarySend.visitor_email == email,
             ).limit(1)
         ).scalar_one_or_none()
         is not None
@@ -200,11 +215,12 @@ def _send_for_exhibition(
                 ExpoVisitorSummarySend(
                     id=str(uuid.uuid4()),
                     exhibition_id=exhibition.id,
-                    visitor_email=email,
+                    visitor_email=email,  # already lowercased
                     summary_date=summary_date,
                     is_final=is_final,
                     sent_at=datetime.utcnow(),
                 )
             )
+            db.flush()
             sent += 1
     return sent

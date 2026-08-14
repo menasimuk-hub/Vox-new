@@ -268,6 +268,7 @@ class SalesRepService:
         commission_mode: Any = None,
         one_time_bonus_minor: Any = None,
         mailbox: dict[str, Any] | None = None,
+        assign_existing: bool = False,
     ) -> SalesRep:
         from app.services.sales_hub_benefits import (
             default_commission_tiers,
@@ -289,8 +290,7 @@ class SalesRepService:
         email = str(email or "").strip().lower()
         if not email or "@" not in email:
             raise SalesRepError("A valid email is required.")
-        if len(str(password or "")) < 6:
-            raise SalesRepError("Password must be at least 6 characters.")
+        password_clean = str(password or "")
         kind_norm = SalesRepService.normalize_kind(kind)
         pct = SalesRepService.normalize_commission_pct(commission_pct)
         if commission_type is None or str(commission_type).strip() == "":
@@ -313,15 +313,29 @@ class SalesRepService:
             raise SalesRepError(str(exc)) from exc
 
         user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-        if user is None:
-            user = User(email=email, password_hash=hash_password(password), is_active=True, is_superuser=False)
+        if assign_existing:
+            if user is None:
+                raise SalesRepError("No registered user found with that email. Create a new account instead.")
+            if db.execute(select(SalesRep).where(SalesRep.user_id == user.id)).scalar_one_or_none():
+                raise SalesRepError("This user is already a salesman or partner channel account.")
+            if password_clean:
+                if len(password_clean) < 6:
+                    raise SalesRepError("Password must be at least 6 characters.")
+                user.password_hash = hash_password(password_clean)
+            user.is_active = True
+        elif user is None:
+            if len(password_clean) < 6:
+                raise SalesRepError("Password must be at least 6 characters.")
+            user = User(email=email, password_hash=hash_password(password_clean), is_active=True, is_superuser=False)
             db.add(user)
             db.flush()
         else:
             if db.execute(select(SalesRep).where(SalesRep.user_id == user.id)).scalar_one_or_none():
                 raise SalesRepError("This user is already a salesman or partner channel account.")
             # Existing user row (e.g. prior signup) — always apply the admin-provided password.
-            user.password_hash = hash_password(password)
+            if len(password_clean) < 6:
+                raise SalesRepError("Password must be at least 6 characters (or use Assign existing user).")
+            user.password_hash = hash_password(password_clean)
             user.is_active = True
 
         # Needs an organisation membership so the dashboard login flow issues a token.
