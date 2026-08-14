@@ -359,42 +359,44 @@ function SurveyFooter({
   onNext: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <button
-        type="button"
-        onClick={onBack}
-        disabled={backDisabled || busy}
-        className="inline-flex h-12 items-center gap-1.5 rounded-full border px-4 text-sm font-medium shadow-soft transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
-      >
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M15 18l-6-6 6-6" />
-        </svg>
-        Back
-      </button>
-      {showSkip ? (
+    <div className="shrink-0 pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+      <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={onSkip}
-          disabled={busy}
-          className="inline-flex h-12 items-center rounded-full px-4 text-sm font-medium transition-all hover:opacity-80 disabled:opacity-40"
-          style={{ color: theme.sub }}
+          onClick={onBack}
+          disabled={backDisabled || busy}
+          className="inline-flex h-12 items-center gap-1.5 rounded-full border px-4 text-sm font-medium shadow-soft transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ background: theme.card, borderColor: theme.border, color: theme.ink }}
         >
-          Skip
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+          Back
         </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={onNext}
-        disabled={nextDisabled || busy}
-        className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-lift transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ background: theme.gradientButton }}
-      >
-        {nextLabel}
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-          <path d="M5 12h14M13 5l7 7-7 7" />
-        </svg>
-      </button>
+        {showSkip ? (
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={busy}
+            className="inline-flex h-12 items-center rounded-full px-4 text-sm font-medium transition-all hover:opacity-80 disabled:opacity-40"
+            style={{ color: theme.sub }}
+          >
+            Skip
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onNext}
+          disabled={nextDisabled || busy}
+          className="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-lift transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+          style={{ background: theme.gradientButton }}
+        >
+          {nextLabel}
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M5 12h14M13 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
@@ -1152,10 +1154,10 @@ export function PublicFeedbackSurvey({
       ) : null}
 
       {phase === "survey" && payload && q ? (
-        <main className={`relative flex h-[100svh] flex-col overflow-hidden ${theme.bgClass}`} style={{ color: theme.ink }}>
+        <main className={`relative flex h-dvh max-h-dvh flex-col ${theme.bgClass}`} style={{ color: theme.ink }}>
           <Art />
-          <div className="relative mx-auto flex h-[100svh] w-full max-w-md flex-col px-5 pb-5 pt-4 sm:max-w-lg sm:pt-6">
-            <div className="flex items-center justify-between">
+          <div className="relative mx-auto flex h-full min-h-0 w-full max-w-md flex-col px-5 pb-3 pt-4 sm:max-w-lg sm:pt-6">
+            <div className="flex shrink-0 items-center justify-between">
               <div className="inline-flex items-center gap-2">
                 {payload.logo_url ? (
                   <AdaptiveLogo
@@ -1181,73 +1183,75 @@ export function PublicFeedbackSurvey({
               </span>
             </div>
 
-            <div className="mt-3 h-1 w-full overflow-hidden rounded-full" style={{ background: theme.border }}>
+            <div className="mt-3 h-1 w-full shrink-0 overflow-hidden rounded-full" style={{ background: theme.border }}>
               <div
                 className="h-full rounded-full transition-all duration-500 ease-out"
                 style={{ width: `${progress}%`, background: theme.gradientProgress }}
               />
             </div>
 
-            <div className="relative flex flex-1 flex-col justify-center py-4">
-              {busy && inReasonOverlay ? (
-                <div
-                  className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl"
-                  style={{ background: "rgba(255,255,255,0.35)", backdropFilter: "blur(2px)" }}
-                >
+            <div className="relative mt-1 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+              <div className="relative flex min-h-full flex-col justify-center py-4">
+                {busy && inReasonOverlay ? (
                   <div
-                    className="rounded-xl px-4 py-3 text-sm font-semibold shadow-lift"
-                    style={{ background: theme.card, color: theme.ink }}
+                    className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-2xl"
+                    style={{ background: "rgba(255,255,255,0.35)", backdropFilter: "blur(2px)" }}
                   >
-                    Sending…
+                    <div
+                      className="rounded-xl px-4 py-3 text-sm font-semibold shadow-lift"
+                      style={{ background: theme.card, color: theme.ink }}
+                    >
+                      Sending…
+                    </div>
                   </div>
-                </div>
-              ) : null}
-              {inReasonOverlay ? (
-                <VoiceDetail
-                  ref={reasonRef}
-                  theme={theme}
-                  eyebrow="We hear you"
-                  title={reasonOverlay.reason_prompt || "What went wrong?"}
-                  hint="Tell us what to fix — tap, type, or record. Or skip."
-                  text={reasonText}
-                  onTextChange={setReasonText}
-                  placeholder="Type what could be better…"
-                  allowVoice
-                  reasonOptions={reasonOverlay.reason_options}
-                  selectedChips={reasonChips}
-                  onToggleChip={(c) =>
-                    setReasonChips((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))
-                  }
-                  disabled={busy}
-                  onVoicePendingChange={setReasonVoicePending}
-                  onVoiceReadyChange={setReasonHasVoice}
-                />
-              ) : isText ? (
-                <VoiceDetail
-                  ref={detailRef}
-                  key={`text-${stepIndex}`}
-                  theme={theme}
-                  eyebrow="Optional"
-                  title={q.title || "Your feedback"}
-                  hint={q.body || "🎙️ Record or ✍️ write — we'll translate."}
-                  text={textAnswer}
-                  onTextChange={setTextAnswer}
-                  placeholder="Type your answer…"
-                  allowVoice={Boolean(q.allow_voice)}
-                  disabled={busy}
-                  onVoicePendingChange={setDetailVoicePending}
-                  onVoiceReadyChange={setDetailHasVoice}
-                />
-              ) : (
-                <QuestionView
-                  theme={theme}
-                  index={stepIndex}
-                  question={q}
-                  selectedValue={choiceSelection}
-                  disabled={busy}
-                  onSelect={(value) => setChoiceSelection(value)}
-                />
-              )}
+                ) : null}
+                {inReasonOverlay ? (
+                  <VoiceDetail
+                    ref={reasonRef}
+                    theme={theme}
+                    eyebrow="We hear you"
+                    title={reasonOverlay.reason_prompt || "What went wrong?"}
+                    hint="Tell us what to fix — tap, type, or record. Or skip."
+                    text={reasonText}
+                    onTextChange={setReasonText}
+                    placeholder="Type what could be better…"
+                    allowVoice
+                    reasonOptions={reasonOverlay.reason_options}
+                    selectedChips={reasonChips}
+                    onToggleChip={(c) =>
+                      setReasonChips((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))
+                    }
+                    disabled={busy}
+                    onVoicePendingChange={setReasonVoicePending}
+                    onVoiceReadyChange={setReasonHasVoice}
+                  />
+                ) : isText ? (
+                  <VoiceDetail
+                    ref={detailRef}
+                    key={`text-${stepIndex}`}
+                    theme={theme}
+                    eyebrow="Optional"
+                    title={q.title || "Your feedback"}
+                    hint={q.body || "🎙️ Record or ✍️ write — we'll translate."}
+                    text={textAnswer}
+                    onTextChange={setTextAnswer}
+                    placeholder="Type your answer…"
+                    allowVoice={Boolean(q.allow_voice)}
+                    disabled={busy}
+                    onVoicePendingChange={setDetailVoicePending}
+                    onVoiceReadyChange={setDetailHasVoice}
+                  />
+                ) : (
+                  <QuestionView
+                    theme={theme}
+                    index={stepIndex}
+                    question={q}
+                    selectedValue={choiceSelection}
+                    disabled={busy}
+                    onSelect={(value) => setChoiceSelection(value)}
+                  />
+                )}
+              </div>
             </div>
 
             {(inReasonOverlay || isText) && (
@@ -1278,7 +1282,7 @@ export function PublicFeedbackSurvey({
               />
             )}
 
-            {error ? <p className="mt-2 text-center text-[13px] text-red-600">{error}</p> : null}
+            {error ? <p className="mt-2 shrink-0 text-center text-[13px] text-red-600">{error}</p> : null}
           </div>
         </main>
       ) : null}

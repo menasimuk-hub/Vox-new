@@ -79,11 +79,11 @@ export function SurveyTemplate({
   if (submitted) return <ThankYou T={T} copy={copy} Art={Art} />;
 
   return (
-    <main className={`relative flex h-[100svh] flex-col overflow-hidden ${T.bgClass}`} style={{ color: T.ink }}>
+    <main className={`relative flex h-dvh max-h-dvh flex-col ${T.bgClass}`} style={{ color: T.ink }}>
       <Art />
-      <div className="relative mx-auto flex h-[100svh] w-full max-w-md flex-col px-5 pb-5 pt-4 sm:max-w-lg sm:pt-6">
+      <div className="relative mx-auto flex h-full min-h-0 w-full max-w-md flex-col px-5 pb-3 pt-4 sm:max-w-lg sm:pt-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between">
           <Link to="/" className="inline-flex items-center gap-2">
             <img src={iconAsset.url} alt="" className="h-7 w-7 rounded-md bg-white p-0.5 shadow-soft" />
             <div className="flex flex-col leading-tight">
@@ -94,32 +94,34 @@ export function SurveyTemplate({
           <span className="text-[11px] font-medium" style={{ color: T.sub }}>{cursor + 1} / {totalSteps}</span>
         </div>
         {/* Progress */}
-        <div className="mt-3 h-1 w-full overflow-hidden rounded-full" style={{ background: T.border }}>
+        <div className="mt-3 h-1 w-full shrink-0 overflow-hidden rounded-full" style={{ background: T.border }}>
           <div className="h-full rounded-full transition-all duration-500 ease-out"
                style={{ width: `${progress}%`, background: T.gradientProgress }} />
         </div>
-        {/* Body */}
-        <div className="flex flex-1 flex-col justify-center py-4">
-          {step.kind === "question" && (
-            <QuestionView T={T} key={`q-${step.qIndex}`} index={step.qIndex} question={questions[step.qIndex]}
-              value={answers[questions[step.qIndex].id]}
-              onChange={(v) => setAnswers((a) => ({ ...a, [questions[step.qIndex].id]: v }))} />
-          )}
-          {step.kind === "followup" && (
-            <DetailView T={T} key={`f-${step.qIndex}`} eyebrow="Tell us more" title={questions[step.qIndex].followUpPrompt}
-              hint="Type it or record a voice note — any language."
-              detail={followUps[questions[step.qIndex].id] ?? emptyDetail()}
-              onChange={(d) => setFollowUps((f) => ({ ...f, [questions[step.qIndex].id]: d }))} />
-          )}
-          {step.kind === "more" && (
-            <DetailView T={T} key="more" eyebrow="Optional" title="Anything else to share?"
-              hint="🎙️ Record or ✍️ write — in any language, we'll translate."
-              detail={more} onChange={setMore} />
-          )}
-          {step.kind === "optin" && <OptInView T={T} value={optIn} onChange={setOptIn} />}
+        {/* Body — scrolls so Skip/Next stay on screen */}
+        <div className="relative mt-1 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+          <div className="flex min-h-full flex-col justify-center py-4">
+            {step.kind === "question" && (
+              <QuestionView T={T} key={`q-${step.qIndex}`} index={step.qIndex} question={questions[step.qIndex]}
+                value={answers[questions[step.qIndex].id]}
+                onChange={(v) => setAnswers((a) => ({ ...a, [questions[step.qIndex].id]: v }))} />
+            )}
+            {step.kind === "followup" && (
+              <DetailView T={T} key={`f-${step.qIndex}`} eyebrow="Tell us more" title={questions[step.qIndex].followUpPrompt}
+                hint="Type it or record a voice note — any language."
+                detail={followUps[questions[step.qIndex].id] ?? emptyDetail()}
+                onChange={(d) => setFollowUps((f) => ({ ...f, [questions[step.qIndex].id]: d }))} />
+            )}
+            {step.kind === "more" && (
+              <DetailView T={T} key="more" eyebrow="Optional" title="Anything else to share?"
+                hint="🎙️ Record or ✍️ write — in any language, we'll translate."
+                detail={more} onChange={setMore} />
+            )}
+            {step.kind === "optin" && <OptInView T={T} value={optIn} onChange={setOptIn} />}
+          </div>
         </div>
         {/* Footer */}
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3 pt-2 pb-[max(0.25rem,env(safe-area-inset-bottom))]">
           <button onClick={goBack} disabled={cursor === 0}
             className="inline-flex h-12 items-center gap-1.5 rounded-full border px-4 text-sm font-medium shadow-soft transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
             style={{ background: T.card, borderColor: T.border, color: T.ink }}>
