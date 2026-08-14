@@ -20,7 +20,7 @@ export default function PricingShell() {
       <header className="pricingShellHeader">
         <h1 className="pageTitle">Core platform pricing</h1>
         <p className="pricingShellIntro">
-          Packages for Core, Customer Feedback, and Expo — each currency has its own explicit prices (no FX conversion).
+          Packages for Core, Customer Feedback, and Expo. Author in GBP — other currencies sync from FX rates unless you set a market price by hand.
         </p>
       </header>
       <nav className="pricingSubnav" aria-label="Pricing sections">

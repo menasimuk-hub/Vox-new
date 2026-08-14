@@ -118,7 +118,7 @@ from app.models.support_kb import (  # noqa: F401
 )
 from app.models.platform_service import PlatformService, ServicePricingRule  # noqa: F401
 from app.models.pricing import OrgCustomPricing, PricingGlobalSettings, TopupTier  # noqa: F401
-from app.models.plan_price import PlanPrice, PricingCurrencySettings  # noqa: F401
+from app.models.plan_price import PlanPrice, PricingCurrencySettings, PricingFxRate  # noqa: F401
 from app.models.wallet_transaction import WalletTransaction  # noqa: F401
 from app.models.billing_settings import BillingSettings  # noqa: F401
 from app.models.credit_note import CreditNote  # noqa: F401

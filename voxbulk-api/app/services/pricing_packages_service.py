@@ -551,14 +551,58 @@ class PricingPackagesService:
             raise PricingPackagesError("prices must be an object or list")
 
         kind = str(plan.service_kind or "voxbulk")
-        for currency, row in items:
+        gbp_item = next(((c, r) for c, r in items if c == "GBP"), None)
+        other_items = [(c, r) for c, r in items if c != "GBP"]
+
+        # Save GBP first so FX can fill unlocked markets.
+        if gbp_item is not None:
+            currency, row = gbp_item
+            payload = {
+                k: row[k]
+                for k in ("monthly_price_minor", "yearly_price_minor", "per_min_minor", "extra_per_min_minor", "is_active")
+                if k in row
+            }
+            if row.get("force_fx_sync"):
+                payload["force_fx_sync"] = True
+            try:
+                PlanPriceService.upsert_price(db, plan_id=plan.id, currency=currency, payload=payload, commit=False)
+            except PlanPriceError as exc:
+                raise PricingPackagesError(str(exc)) from exc
+            if kind == "customer_feedback":
+                PricingPackagesService._sync_feedback_zone_price(db, plan, currency, payload)
+                for quote in SUPPORTED_CURRENCIES:
+                    if quote == "GBP":
+                        continue
+                    synced = PlanPriceService.get_price(db, plan.id, quote)
+                    if synced is None:
+                        continue
+                    sibling_payload = {
+                        "monthly_price_minor": synced.monthly_price_minor,
+                        "yearly_price_minor": synced.yearly_price_minor,
+                        "per_min_minor": int(synced.per_min_minor or 0),
+                        "extra_per_min_minor": int(synced.extra_per_min_minor or 0),
+                        "is_active": bool(synced.is_active),
+                        "_from_fx": not bool(getattr(synced, "manual_override", False)),
+                        "manual_override": bool(getattr(synced, "manual_override", False)),
+                    }
+                    PricingPackagesService._sync_feedback_zone_price(db, plan, quote, sibling_payload)
+
+        # Apply non-GBP only when Admin explicitly edited that market (or GBP was not in this save).
+        for currency, row in other_items:
+            explicit = bool(row.get("manual_override") or row.get("apply") or row.get("_manual_edit"))
+            if gbp_item is not None and not explicit:
+                existing = PlanPriceService.get_price(db, plan.id, currency)
+                if existing is None or not bool(getattr(existing, "manual_override", False)):
+                    continue
             payload = {
                 k: row[k]
                 for k in ("monthly_price_minor", "yearly_price_minor", "per_min_minor", "extra_per_min_minor", "is_active")
                 if k in row
             }
             try:
-                PlanPriceService.upsert_price(db, plan_id=plan.id, currency=currency, payload=payload)
+                PlanPriceService.upsert_price(
+                    db, plan_id=plan.id, currency=currency, payload=payload, commit=False, sync_fx=False
+                )
             except PlanPriceError as exc:
                 raise PricingPackagesError(str(exc)) from exc
 
@@ -583,7 +627,14 @@ class PricingPackagesService:
         if sibling is None or sibling.id == plan.id:
             return
         try:
-            PlanPriceService.upsert_price(db, plan_id=sibling.id, currency=currency, payload=payload)
+            PlanPriceService.upsert_price(
+                db,
+                plan_id=sibling.id,
+                currency=currency,
+                payload=payload,
+                commit=False,
+                sync_fx=False,
+            )
         except PlanPriceError:
             return
 

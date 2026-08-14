@@ -57,6 +57,8 @@ function pricesToDraft(prices) {
       yearly: row.yearly_price_minor != null ? penceToPounds(row.yearly_price_minor) : '',
       perMin: row.per_min_minor != null ? penceToPounds(row.per_min_minor) : '',
       extraPerMin: row.extra_per_min_minor != null ? penceToPounds(row.extra_per_min_minor) : '',
+      manual_override: Boolean(row.manual_override),
+      _edited: false,
     }
   }
   return out
@@ -76,6 +78,10 @@ function draftToPricesPayload(draft, priceMode) {
     } else {
       payload.per_min_minor = 0
       payload.extra_per_min_minor = 0
+    }
+    if (c !== 'GBP' && (row._edited || row.manual_override)) {
+      payload.manual_override = true
+      payload._manual_edit = Boolean(row._edited)
     }
     prices[c] = payload
   }
@@ -249,7 +255,11 @@ export default function PricingPackages() {
     setDrawer((d) => {
       if (!d) return d
       const prices = { ...(d.draft.prices || emptyPriceDraft()) }
-      prices[currency] = { ...(prices[currency] || {}), [field]: value }
+      prices[currency] = {
+        ...(prices[currency] || {}),
+        [field]: value,
+        ...(currency !== 'GBP' ? { _edited: true } : {}),
+      }
       return { ...d, draft: { ...d.draft, prices } }
     })
   }
@@ -598,6 +608,9 @@ export default function PricingPackages() {
                         ? 'Yearly seat prices (billed annually)'
                         : 'Monthly & yearly prices'}
                   </h4>
+                  <p className="pricingShellIntro" style={{ marginBottom: 12 }}>
+                    Set GBP first — other unlocked currencies fill from Admin FX rates on save. Editing EUR/USD/CAD/AUD locks that market.
+                  </p>
                   <table className="pricingPlanPriceTable">
                     <thead>
                       <tr>
@@ -624,9 +637,18 @@ export default function PricingPackages() {
                       {CURRENCIES.map((currency) => {
                         const row = drawer.draft.prices?.[currency] || {}
                         const sym = CURRENCY_SYMBOLS[currency] || currency
+                        const badge =
+                          currency === 'GBP'
+                            ? 'default'
+                            : row.manual_override || row._edited
+                              ? 'manual'
+                              : 'FX'
                         return (
                           <tr key={currency}>
-                            <td><strong>{sym} {currency}</strong></td>
+                            <td>
+                              <strong>{sym} {currency}</strong>
+                              <span style={{ marginLeft: 6, opacity: 0.65, fontSize: 12 }}>{badge}</span>
+                            </td>
                             {drawer.serviceKey === 'smart_card' ? null : (
                               <td>
                                 <MoneyInput value={row.monthly ?? ''} onChange={(v) => setPriceField(currency, 'monthly', v)} />

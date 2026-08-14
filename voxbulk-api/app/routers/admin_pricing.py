@@ -316,9 +316,12 @@ def upsert_plan_price(
 def list_currency_settings(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
     from app.services.billing_currency import SUPPORTED_CURRENCIES
     from app.services.plan_price_service import PlanPriceService
+    from app.services.pricing_fx_service import PricingFxService
 
+    PricingFxService.ensure_seeded(db)
     return {
         "ok": True,
+        "fx_rates": PricingFxService.list_rates(db),
         "currency_settings": [
             PlanPriceService.currency_settings_to_dict(PlanPriceService.get_currency_settings(db, c))
             for c in SUPPORTED_CURRENCIES
@@ -340,6 +343,41 @@ def update_currency_settings(
     except PlanPriceError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return PlanPriceService.currency_settings_to_dict(row)
+
+
+@router.get("/fx-rates")
+def list_fx_rates(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    from app.services.pricing_fx_service import PricingFxService
+
+    return {"ok": True, "base_currency": "GBP", "fx_rates": PricingFxService.list_rates(db)}
+
+
+@router.put("/fx-rates")
+def upsert_fx_rates(payload: dict = Body(...), db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_BILLING))):
+    from app.services.pricing_fx_service import PricingFxError, PricingFxService
+
+    rates = payload.get("rates", payload)
+    try:
+        rows = PricingFxService.upsert_rates(db, rates)
+    except PricingFxError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return {"ok": True, "base_currency": "GBP", "fx_rates": rows}
+
+
+@router.post("/fx-rates/sync-unit-rates")
+def sync_unit_rates_from_gbp(
+    payload: dict | None = Body(None),
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_BILLING)),
+):
+    from app.services.plan_price_service import PlanPriceService
+
+    force = bool((payload or {}).get("force"))
+    rows = PlanPriceService.sync_currency_settings_from_gbp(db, force=force)
+    return {
+        "ok": True,
+        "synced": [PlanPriceService.currency_settings_to_dict(r) for r in rows],
+    }
 
 
 # ------------------------------------------------------------------ per-service packages (Core / Feedback / Expo)

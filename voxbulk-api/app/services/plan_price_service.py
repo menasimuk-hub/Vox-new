@@ -1,8 +1,7 @@
 """Per-currency plan and service pricing — the single source of truth for VoxBulk prices.
 
-Admin sets explicit prices for each currency (GBP, USD, CAD, AUD). There is no FX conversion:
-each market price is a deliberate commercial decision. GBP rows are seeded from the legacy
-GBP plan fields the first time the service runs.
+GBP is the authoring default. Saving GBP can FX-fill other currencies that are not marked
+``manual_override``. Checkout always reads stored rows — never live FX.
 """
 
 from __future__ import annotations
@@ -24,6 +23,7 @@ from app.services.billing_currency import (
     normalize_currency,
     resolve_org_currency,
 )
+from app.services.pricing_fx_service import PricingFxService
 
 
 class PlanPriceError(ValueError):
@@ -91,12 +91,17 @@ class PlanPriceService:
             "cv_scan_fee_minor": int(row.cv_scan_fee_minor or 0),
             "cv_scan_fee_display": money_display(int(row.cv_scan_fee_minor or 0), c),
             "is_active": bool(row.is_active),
+            "manual_override": bool(getattr(row, "manual_override", False)),
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
 
     @staticmethod
     def update_currency_settings(db: Session, currency: str, payload: dict[str, Any]) -> PricingCurrencySettings:
-        row = PlanPriceService.get_currency_settings(db, currency)
+        code = normalize_currency(currency)
+        row = PlanPriceService.get_currency_settings(db, code)
+        from_fx = bool(payload.get("_from_fx") or payload.get("from_fx"))
+        force_fx_sync = bool(payload.get("force_fx_sync"))
+        clear_override = bool(payload.get("clear_manual_override"))
         for key in (
             "connection_fee_minor",
             "interview_per_min_minor",
@@ -111,11 +116,68 @@ class PlanPriceService:
                 setattr(row, key, value)
         if "is_active" in payload:
             row.is_active = bool(payload["is_active"])
+        if code == "GBP":
+            row.manual_override = False
+        elif from_fx or clear_override:
+            row.manual_override = False
+        elif any(
+            k in payload
+            for k in (
+                "connection_fee_minor",
+                "interview_per_min_minor",
+                "wa_package_fee_minor",
+                "wa_extra_minor",
+                "cv_scan_fee_minor",
+            )
+        ):
+            row.manual_override = True
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()
         db.refresh(row)
+        if code == "GBP":
+            PlanPriceService.sync_currency_settings_from_gbp(db, force=force_fx_sync)
+            row = PlanPriceService.get_currency_settings(db, "GBP")
         return row
+
+    @staticmethod
+    def sync_currency_settings_from_gbp(db: Session, *, force: bool = False) -> list[PricingCurrencySettings]:
+        """Copy GBP unit rates into other currencies via Admin FX rates (skip manual overrides)."""
+        gbp = PlanPriceService.get_currency_settings(db, "GBP")
+        rates = PricingFxService.rate_map(db)
+        gbp_payload = {
+            "connection_fee_minor": int(gbp.connection_fee_minor or 0),
+            "interview_per_min_minor": int(gbp.interview_per_min_minor or 0),
+            "wa_package_fee_minor": int(gbp.wa_package_fee_minor or 0),
+            "wa_extra_minor": int(gbp.wa_extra_minor or 0),
+            "cv_scan_fee_minor": int(gbp.cv_scan_fee_minor or 0),
+            "is_active": bool(gbp.is_active),
+        }
+        updated: list[PricingCurrencySettings] = []
+        for quote in SUPPORTED_CURRENCIES:
+            if quote == "GBP":
+                continue
+            row = PlanPriceService.get_currency_settings(db, quote)
+            if bool(getattr(row, "manual_override", False)) and not force:
+                continue
+            converted = PricingFxService.convert_payload_from_gbp(gbp_payload, quote, rates)
+            for key in (
+                "connection_fee_minor",
+                "interview_per_min_minor",
+                "wa_package_fee_minor",
+                "wa_extra_minor",
+                "cv_scan_fee_minor",
+            ):
+                setattr(row, key, int(converted.get(key) or 0))
+            row.is_active = bool(gbp.is_active)
+            row.manual_override = False
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            updated.append(row)
+        db.commit()
+        for row in updated:
+            db.refresh(row)
+        return updated
 
     # ------------------------------------------------------------------ plan prices
 
@@ -149,15 +211,27 @@ class PlanPriceService:
             "extra_per_min_minor": int(row.extra_per_min_minor or 0),
             "extra_per_min_display": money_display(int(row.extra_per_min_minor or 0), c),
             "is_active": bool(row.is_active),
+            "manual_override": bool(getattr(row, "manual_override", False)),
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
 
     @staticmethod
-    def upsert_price(db: Session, *, plan_id: str, currency: str, payload: dict[str, Any]) -> PlanPrice:
+    def upsert_price(
+        db: Session,
+        *,
+        plan_id: str,
+        currency: str,
+        payload: dict[str, Any],
+        commit: bool = True,
+        sync_fx: bool = True,
+    ) -> PlanPrice:
         plan = db.get(Plan, plan_id)
         if plan is None:
             raise PlanPriceError("Plan not found")
         code = normalize_currency(currency)
+        from_fx = bool(payload.get("_from_fx") or payload.get("from_fx"))
+        force_fx_sync = bool(payload.get("force_fx_sync"))
+        clear_override = bool(payload.get("clear_manual_override"))
         row = PlanPriceService.get_price(db, plan_id, code)
         now = datetime.utcnow()
         if row is None:
@@ -176,11 +250,74 @@ class PlanPriceService:
                 setattr(row, key, value)
         if "is_active" in payload:
             row.is_active = bool(payload["is_active"])
+        if "manual_override" in payload:
+            row.manual_override = bool(payload["manual_override"])
+        elif code == "GBP":
+            row.manual_override = False
+        elif from_fx or clear_override:
+            row.manual_override = False
+        elif any(
+            k in payload
+            for k in ("monthly_price_minor", "yearly_price_minor", "per_min_minor", "extra_per_min_minor")
+        ):
+            row.manual_override = True
         row.updated_at = now
         db.add(row)
-        db.commit()
-        db.refresh(row)
+        if commit:
+            db.commit()
+            db.refresh(row)
+        else:
+            db.flush()
+        if sync_fx and code == "GBP":
+            PlanPriceService.sync_plan_prices_from_gbp(db, plan_id, force=force_fx_sync, commit=commit)
+            row = PlanPriceService.get_price(db, plan_id, "GBP") or row
         return row
+
+    @staticmethod
+    def sync_plan_prices_from_gbp(
+        db: Session,
+        plan_id: str,
+        *,
+        force: bool = False,
+        commit: bool = True,
+    ) -> list[PlanPrice]:
+        gbp = PlanPriceService.get_price(db, plan_id, "GBP")
+        if gbp is None:
+            return []
+        rates = PricingFxService.rate_map(db)
+        gbp_payload = {
+            "monthly_price_minor": gbp.monthly_price_minor,
+            "yearly_price_minor": gbp.yearly_price_minor,
+            "per_min_minor": int(gbp.per_min_minor or 0),
+            "extra_per_min_minor": int(gbp.extra_per_min_minor or 0),
+            "is_active": bool(gbp.is_active),
+        }
+        updated: list[PlanPrice] = []
+        for quote in SUPPORTED_CURRENCIES:
+            if quote == "GBP":
+                continue
+            existing = PlanPriceService.get_price(db, plan_id, quote)
+            if existing is not None and bool(getattr(existing, "manual_override", False)) and not force:
+                continue
+            converted = PricingFxService.convert_payload_from_gbp(gbp_payload, quote, rates)
+            PlanPriceService.upsert_price(
+                db,
+                plan_id=plan_id,
+                currency=quote,
+                payload=converted,
+                commit=False,
+                sync_fx=False,
+            )
+            row = PlanPriceService.get_price(db, plan_id, quote)
+            if row is not None:
+                updated.append(row)
+        if commit:
+            db.commit()
+            for row in updated:
+                db.refresh(row)
+        else:
+            db.flush()
+        return updated
 
     @staticmethod
     def ensure_seeded(db: Session) -> None:

@@ -27,7 +27,7 @@ export default function PricingPlanPrices() {
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [saving, setSaving] = useState(false)
-  // drafts[planId][currency] = { monthly, perMin, extraPerMin }
+  // drafts[planId][currency] = { monthly, perMin, extraPerMin, _edited }
   const [drafts, setDrafts] = useState({})
 
   const load = useCallback(async () => {
@@ -44,6 +44,8 @@ export default function PricingPlanPrices() {
             monthly: price?.monthly_price_minor != null ? penceToPounds(price.monthly_price_minor) : '',
             perMin: price ? penceToPounds(price.per_min_minor) : '',
             extraPerMin: price ? penceToPounds(price.extra_per_min_minor) : '',
+            manual_override: Boolean(price?.manual_override),
+            _edited: false,
           }
         }
       }
@@ -70,7 +72,11 @@ export default function PricingPlanPrices() {
       ...s,
       [planId]: {
         ...(s[planId] || {}),
-        [currency]: { ...((s[planId] || {})[currency] || {}), [field]: value },
+        [currency]: {
+          ...((s[planId] || {})[currency] || {}),
+          [field]: value,
+          ...(currency !== 'GBP' ? { _edited: true } : {}),
+        },
       },
     }))
   }
@@ -81,22 +87,35 @@ export default function PricingPlanPrices() {
     setMsg('')
     try {
       for (const plan of data?.plans || []) {
-        for (const currency of data?.supported_currencies || []) {
+        const currencies = data?.supported_currencies || []
+        const gbpDraft = drafts?.[plan.plan_id]?.GBP
+        if (gbpDraft) {
+          await apiFetch(`/admin/pricing/plan-prices/${encodeURIComponent(plan.plan_id)}/GBP`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              monthly_price_minor: gbpDraft.monthly === '' ? null : poundsToPence(gbpDraft.monthly),
+              per_min_minor: poundsToPence(gbpDraft.perMin),
+              extra_per_min_minor: poundsToPence(gbpDraft.extraPerMin),
+            }),
+          })
+        }
+        for (const currency of currencies) {
+          if (currency === 'GBP') continue
           const draft = drafts?.[plan.plan_id]?.[currency]
           if (!draft) continue
-          const payload = {
-            monthly_price_minor: draft.monthly === '' ? null : poundsToPence(draft.monthly),
-            per_min_minor: poundsToPence(draft.perMin),
-            extra_per_min_minor: poundsToPence(draft.extraPerMin),
-          }
+          if (!draft._edited && !draft.manual_override) continue
           await apiFetch(`/admin/pricing/plan-prices/${encodeURIComponent(plan.plan_id)}/${currency}`, {
             method: 'PUT',
-            body: JSON.stringify(payload),
+            body: JSON.stringify({
+              monthly_price_minor: draft.monthly === '' ? null : poundsToPence(draft.monthly),
+              per_min_minor: poundsToPence(draft.perMin),
+              extra_per_min_minor: poundsToPence(draft.extraPerMin),
+            }),
           })
         }
       }
       await load()
-      setMsg('All plan prices saved.')
+      setMsg('Plan prices saved. GBP synced unlocked FX markets.')
     } catch (e) {
       setError(e?.message || 'Save failed')
     } finally {
@@ -109,13 +128,13 @@ export default function PricingPlanPrices() {
       loading={loading}
       error={!data ? error : ''}
       title="Plan prices"
-      description="Explicit price per currency — no FX conversion."
+      description="GBP is the authoring default. Other currencies sync from FX unless marked manual."
       onRetry={load}
     >
       {data ? (
         <PricingPageFrame
           title="Plan prices"
-          description="Set the exact monthly price and per-minute rates for each currency. Customers are billed in their org currency."
+          description="Set GBP prices to sync unlocked markets. Edit another currency to lock a market-specific price."
           error={error}
           msg={msg}
           actions={
