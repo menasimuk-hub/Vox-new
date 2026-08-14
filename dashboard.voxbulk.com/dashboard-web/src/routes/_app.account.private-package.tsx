@@ -196,6 +196,17 @@ function PrivatePackagePage() {
       : "monthly"
   ) as "monthly" | "yearly";
 
+  const rows = data?.usage?.rows || [];
+  const byModule = React.useMemo(() => {
+    const map = new Map<string, UsageRow[]>();
+    for (const row of rows) {
+      const list = map.get(row.module) || [];
+      list.push(row);
+      map.set(row.module, list);
+    }
+    return map;
+  }, [rows]);
+
   const invalidate = React.useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ["billing", "custom-package"] });
   }, [qc]);
@@ -287,17 +298,6 @@ function PrivatePackagePage() {
 
   const pkg = data.package;
   const billing = data.billing;
-  const rows = data.usage?.rows || [];
-  const byModule = React.useMemo(() => {
-    const map = new Map<string, UsageRow[]>();
-    for (const row of rows) {
-      const list = map.get(row.module) || [];
-      list.push(row);
-      map.set(row.module, list);
-    }
-    return map;
-  }, [rows]);
-
   const intervalLabel = billing.interval === "yearly" ? "Annually" : "Monthly";
   const needsPayment = billing.can_setup_payment;
 
