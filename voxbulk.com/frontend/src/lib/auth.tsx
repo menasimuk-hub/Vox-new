@@ -6,6 +6,7 @@ export type AuthUser = {
   user_id: string;
   org_id: string;
   email: string;
+  role?: string | null;
   onboarding_complete: boolean;
   dashboard_setup_complete: boolean;
   onboarding_state?: string;

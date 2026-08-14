@@ -76,6 +76,49 @@ def pending_invite_payloads(db: Session, *, email: str) -> list[dict[str, object
     return out
 
 
+def link_smart_card_reps_for_invite(
+    db: Session,
+    *,
+    org_id: str,
+    user: User,
+    email: str | None = None,
+    invite_id: str | None = None,
+) -> int:
+    """Attach unlinked Smart Card QRs to this user (by email and/or invite_id)."""
+    from sqlalchemy import or_
+
+    from app.models.smart_card import SmartCardRepresentative
+
+    em = str(email or user.email or "").strip().lower()
+    inv_id = str(invite_id or "").strip() or None
+    if not em and not inv_id:
+        return 0
+    matchers = []
+    if em:
+        matchers.append(SmartCardRepresentative.email == em)
+    if inv_id:
+        matchers.append(SmartCardRepresentative.invite_id == inv_id)
+    reps = (
+        db.execute(
+            select(SmartCardRepresentative).where(
+                SmartCardRepresentative.org_id == org_id,
+                SmartCardRepresentative.linked_user_id.is_(None),
+                or_(*matchers),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    linked = 0
+    for rep in reps:
+        rep.linked_user_id = user.id
+        if em and not (rep.email or "").strip():
+            rep.email = em
+        db.add(rep)
+        linked += 1
+    return linked
+
+
 def consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User) -> None:
     mem = db.execute(
         select(OrganisationMembership.id).where(
@@ -97,26 +140,14 @@ def consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User)
             db.add(mobj)
     inv.consumed_at = datetime.utcnow()
     db.add(inv)
-    # Link Smart Card QR representative if invite matches email
     try:
-        from app.models.smart_card import SmartCardRepresentative
-
-        em = str(inv.email or user.email or "").strip().lower()
-        if em:
-            reps = (
-                db.execute(
-                    select(SmartCardRepresentative).where(
-                        SmartCardRepresentative.org_id == inv.org_id,
-                        SmartCardRepresentative.email == em,
-                        SmartCardRepresentative.linked_user_id.is_(None),
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            for rep in reps:
-                rep.linked_user_id = user.id
-                db.add(rep)
+        link_smart_card_reps_for_invite(
+            db,
+            org_id=str(inv.org_id),
+            user=user,
+            email=str(inv.email or user.email or ""),
+            invite_id=str(getattr(inv, "id", "") or ""),
+        )
     except Exception:
         pass
 
@@ -134,6 +165,16 @@ def attach_pending_invites(db: Session, *, user: User) -> list[str]:
         if existing is not None:
             inv.consumed_at = datetime.utcnow()
             db.add(inv)
+            try:
+                link_smart_card_reps_for_invite(
+                    db,
+                    org_id=str(inv.org_id),
+                    user=user,
+                    email=str(inv.email or user.email or ""),
+                    invite_id=str(getattr(inv, "id", "") or ""),
+                )
+            except Exception:
+                pass
             continue
         consume_invite_for_user(db, inv=inv, user=user)
         joined.append(str(inv.org_id))
@@ -141,8 +182,12 @@ def attach_pending_invites(db: Session, *, user: User) -> list[str]:
 
 
 def setup_new_invited_user(db: Session, *, user: User, email: str, inv: OrganisationInvite) -> None:
-    """New invite signup: personal owner org + inviter membership."""
-    ensure_personal_org(db, user=user, email=email)
+    """New invite signup: join inviting org. Personal owner org only for non-member roles."""
+    role = effective_role(getattr(inv, "role", None))
+    # Members (Smart Card invitees) should land in the company workspace only —
+    # a second personal org makes Saved QRs look empty when they pick the wrong company.
+    if role != "member":
+        ensure_personal_org(db, user=user, email=email)
     consume_invite_for_user(db, inv=inv, user=user)
 
 

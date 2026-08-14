@@ -67,6 +67,24 @@ class SmartCardRepresentativeService:
         q: str | None = None,
     ) -> list[SmartCardRepresentative]:
         role = OrgRbacService.role_for(db, org_id=org_id, user_id=user_id)
+        # Heal: claim any unlinked QR that matches this member's email (invite accepted earlier).
+        if not can_view_all_campaigns(role):
+            try:
+                from app.models.user import User
+                from app.services.org_invite_service import link_smart_card_reps_for_invite
+
+                user = db.get(User, user_id)
+                if user is not None:
+                    n = link_smart_card_reps_for_invite(
+                        db,
+                        org_id=org_id,
+                        user=user,
+                        email=str(user.email or ""),
+                    )
+                    if n:
+                        db.commit()
+            except Exception:
+                logger.exception("smart_card_auto_claim_failed org=%s user=%s", org_id, user_id)
         stmt = select(SmartCardRepresentative).where(SmartCardRepresentative.org_id == org_id)
         if not can_view_all_campaigns(role):
             stmt = stmt.where(SmartCardRepresentative.linked_user_id == user_id)

@@ -328,22 +328,24 @@ export function getAdminUrl() {
   return localDevHandoffUrl(raw, "http://127.0.0.1:5174", "https://admin.voxbulk.com");
 }
 
-function buildAuthHandoffUrl(base: string) {
+function buildAuthHandoffUrl(base: string, path = "") {
   if (typeof window === "undefined") return base;
   const token = getAccessToken();
-  if (!token) return base;
+  const cleanPath = path && path.startsWith("/") ? path : path ? `/${path}` : "";
+  const target = `${base.replace(/\/+$/, "")}${cleanPath}`;
+  if (!token) return target;
   const params = new URLSearchParams();
   params.set("access_token", token);
   const orgId = readOrgIdFromStorage();
   const userId = readUserIdFromStorage();
   if (orgId) params.set("org_id", orgId);
   if (userId) params.set("user_id", userId);
-  return `${base}#${params.toString()}`;
+  return `${target}#${params.toString()}`;
 }
 
 /** Pass JWT to dashboard on another origin (5173 → 5175) via URL hash. */
-export function getDashboardHandoffUrl() {
-  return buildAuthHandoffUrl(getDashboardUrl());
+export function getDashboardHandoffUrl(path = "") {
+  return buildAuthHandoffUrl(getDashboardUrl(), path);
 }
 
 /** Pass JWT to admin console on another origin (5173 → 5174) via URL hash. */
@@ -356,6 +358,7 @@ export type PostLoginUser = {
   is_superuser?: boolean;
   onboarding_complete?: boolean;
   dashboard_setup_complete?: boolean;
+  role?: string | null;
 };
 
 export function hasPlatformAdminAccess(user: PostLoginUser | null | undefined) {
@@ -369,13 +372,21 @@ export function needsOnboardingFor(user: PostLoginUser | null | undefined) {
 }
 
 /** Route platform admins to admin; everyone else to the customer dashboard. */
-export function getPostLoginHandoffUrl(user: PostLoginUser | null | undefined) {
+export function getPostLoginHandoffUrl(user: PostLoginUser | null | undefined, opts?: { inviteAccepted?: boolean }) {
   if (hasPlatformAdminAccess(user)) return getAdminHandoffUrl();
+  const role = String(user?.role || "").trim().toLowerCase();
+  // Smart Card invitees are members — land them on Saved QRs.
+  if (opts?.inviteAccepted || role === "member" || role === "receptionist") {
+    return getDashboardHandoffUrl("/smart-card");
+  }
   return getDashboardHandoffUrl();
 }
 
-export function resolvePostLoginDestination(user: PostLoginUser | null | undefined) {
+export function resolvePostLoginDestination(
+  user: PostLoginUser | null | undefined,
+  opts?: { inviteAccepted?: boolean },
+) {
   if (!user) return null;
   if (needsOnboardingFor(user)) return { kind: "onboarding" as const };
-  return { kind: "handoff" as const, url: getPostLoginHandoffUrl(user) };
+  return { kind: "handoff" as const, url: getPostLoginHandoffUrl(user, opts) };
 }

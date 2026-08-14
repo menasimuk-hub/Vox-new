@@ -278,10 +278,16 @@ function SmartCardSavedQrsPage() {
                 </Button>
               </div>
             ) : (
-              <p className="max-w-sm text-xs text-muted-foreground">
-                Ask your organisation admin to invite your email. After you accept and set a password, your card appears
-                here so you can complete it.
-              </p>
+              <div className="max-w-md space-y-2 text-xs text-muted-foreground">
+                <p>
+                  Your QR appears here after you accept the invite email and you are signed into the{" "}
+                  <strong className="text-foreground">company</strong> that invited you (not a personal workspace).
+                </p>
+                <p>
+                  Switch company from your profile menu (top right), then open <strong className="text-foreground">Smart Card QR → Saved QR codes</strong>.
+                  Ask your admin to resend the invite if it still does not appear.
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>

@@ -105,8 +105,8 @@ function SignInPage() {
     }
   }, [auth]);
 
-  const routeAfterAuth = (user: AuthUser) => {
-    const destination = resolvePostLoginDestination(user);
+  const routeAfterAuth = (user: AuthUser, opts?: { inviteAccepted?: boolean }) => {
+    const destination = resolvePostLoginDestination(user, opts);
     if (!destination) return;
     if (destination.kind === "onboarding") navigate({ to: "/onboarding" });
     else window.location.href = destination.url;
@@ -164,7 +164,7 @@ function SignInPage() {
       if (inviteToken) {
         const user = await auth.acceptInvite(inviteToken, password);
         toast.success(`Joined ${invitePreview?.organisation_name || "organisation"}!`);
-        routeAfterAuth(user);
+        routeAfterAuth(user, { inviteAccepted: true });
         return;
       }
       if (mode === "signup") {
