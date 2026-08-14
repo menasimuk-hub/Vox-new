@@ -47,11 +47,12 @@ const EXTRA_COUNTRY_OPTIONS = [
   { code: 'BR', name: 'Brazil' },
 ]
 const SVC_META = {
-  customer_feedback: { short: 'CF', label: 'Customer Feedback' },
-  core: { short: 'CO', label: 'Core / Voice' },
-  smart_card: { short: 'SC', label: 'Smart Card' },
-  expo: { short: 'EX', label: 'Expo' },
-  survey: { short: 'SU', label: 'WA Survey' },
+  customer_feedback: { short: 'CF', label: 'Customer Feedback', badge: 'customer_feedback' },
+  core: { short: 'CO', label: 'Core / Voice', badge: 'core' },
+  smart_card: { short: 'SC', label: 'Smart Card', badge: 'smart_card' },
+  expo: { short: 'EX', label: 'Expo', badge: 'expo' },
+  survey: { short: 'SU', label: 'WA Survey', badge: 'survey' },
+  ai_followback: { short: 'AI', label: 'AI Follow-back', badge: 'ai_followback' },
 }
 
 function poundsToMinor(v) {
@@ -509,10 +510,17 @@ export default function CustomPackages() {
                 </div>
               </ModuleToggle>
 
-              <div className="cpCard" style={{ marginTop: 14, boxShadow: 'none', border: '1px solid #e2e1de' }}>
-                <h3 style={{ margin: '0 0 6px', fontSize: 15 }}>AI follow-back (Survey + Customer Feedback)</h3>
+              <div className="cpModule cpModule-ai_followback" style={{ marginTop: 14 }}>
+                <div className="cpModuleHead">
+                  <div className="cpModuleIcon" aria-hidden>AI</div>
+                  <div className="cpModuleTitles">
+                    <h3>AI Follow-back</h3>
+                    <p>Shared minutes for Survey + Customer Feedback callback calls</p>
+                  </div>
+                  <span className="cpModuleTag">Shared pool</span>
+                </div>
                 <p className="cpHint" style={{ marginTop: 0 }}>
-                  Shared pool and rates for low-score AI callback calls. Included minutes apply across both products; connection fee and per-minute apply only to overage.
+                  Included minutes apply across both products; connection fee and per-minute apply only to overage.
                 </p>
                 <div className="cpGrid3">
                   <div className="cpField">
@@ -893,7 +901,13 @@ export default function CustomPackages() {
                   <td>
                     <div className="cpSvcIcons">
                       {(pkg.enabled_services || []).map((k) => (
-                        <div key={k} className={`cpSvcBadge cpSvc-${k}`} title={SVC_META[k]?.label}>{SVC_META[k]?.short || k}</div>
+                        <div
+                          key={k}
+                          className={`cpSvcBadge cpSvc-${SVC_META[k]?.badge || k}`}
+                          title={SVC_META[k]?.label || k}
+                        >
+                          {SVC_META[k]?.short || k}
+                        </div>
                       ))}
                     </div>
                   </td>

@@ -6,6 +6,7 @@ import {
   CreditCard,
   Gauge,
   Package,
+  PhoneCall,
   Shield,
   Sparkles,
 } from "lucide-react";
@@ -105,15 +106,26 @@ const MODULE_LABEL: Record<string, string> = {
   survey: "WA Survey",
   smart_card: "Smart Card",
   expo: "Expo",
+  ai_followback: "AI Follow-back",
 };
 
 const MODULE_TONE: Record<string, string> = {
-  customer_feedback: "from-emerald-500/15 to-emerald-600/5 border-emerald-500/25",
-  core: "from-teal-500/15 to-teal-700/5 border-teal-500/25",
-  survey: "from-sky-500/15 to-sky-600/5 border-sky-500/25",
-  smart_card: "from-amber-500/15 to-amber-600/5 border-amber-500/25",
-  expo: "from-stone-500/15 to-stone-600/5 border-stone-500/25",
+  customer_feedback: "from-emerald-500/15 to-emerald-600/5 border-emerald-500/25 text-emerald-900 dark:text-emerald-100",
+  core: "from-teal-500/15 to-teal-700/5 border-teal-500/25 text-teal-900 dark:text-teal-100",
+  survey: "from-sky-500/15 to-sky-600/5 border-sky-500/25 text-sky-900 dark:text-sky-100",
+  smart_card: "from-amber-500/15 to-amber-600/5 border-amber-500/25 text-amber-950 dark:text-amber-100",
+  expo: "from-stone-500/15 to-stone-600/5 border-stone-500/25 text-stone-900 dark:text-stone-100",
+  ai_followback: "from-violet-500/20 to-fuchsia-500/10 border-violet-500/35 text-violet-900 dark:text-violet-100",
 };
+
+function moduleDisplayName(key: string): string {
+  if (MODULE_LABEL[key]) return MODULE_LABEL[key];
+  return key
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 function usePrivatePackage() {
   return useQuery({
@@ -339,11 +351,11 @@ function PrivatePackagePage() {
                 <span
                   key={key}
                   className={cn(
-                    "rounded-lg border bg-gradient-to-br px-2.5 py-1 text-xs font-medium text-foreground",
-                    MODULE_TONE[key] || "border-border bg-muted",
+                    "inline-flex items-center gap-1.5 rounded-lg border bg-gradient-to-br px-2.5 py-1 text-xs font-semibold shadow-sm",
+                    MODULE_TONE[key] || "border-border bg-muted text-foreground",
                   )}
                 >
-                  {MODULE_LABEL[key] || key}
+                  {moduleDisplayName(key)}
                 </span>
               ))}
             </div>
@@ -446,11 +458,21 @@ function PrivatePackagePage() {
           <div key={module} className="space-y-3">
             <div
               className={cn(
-                "inline-flex rounded-lg border bg-gradient-to-br px-3 py-1.5 text-sm font-semibold",
-                MODULE_TONE[module] || "border-border bg-muted",
+                "inline-flex items-center gap-2 rounded-xl border bg-gradient-to-br px-3.5 py-2 text-sm font-semibold shadow-sm",
+                MODULE_TONE[module] || "border-border bg-muted text-foreground",
               )}
             >
-              {MODULE_LABEL[module] || module}
+              {module === "ai_followback" ? (
+                <span className="grid size-6 place-items-center rounded-md bg-violet-500/20 text-violet-700 dark:text-violet-200">
+                  <PhoneCall className="size-3.5" aria-hidden />
+                </span>
+              ) : null}
+              <span>{moduleDisplayName(module)}</span>
+              {module === "ai_followback" ? (
+                <span className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-200">
+                  Shared
+                </span>
+              ) : null}
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {moduleRows.map((row) => (
