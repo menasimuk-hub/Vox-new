@@ -331,7 +331,7 @@ function SignInPage() {
                   {mode !== "forgot" ? (
                     <label className="block">
                       <span className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-text">
-                        {inviteActive ? "Create password" : "Password"}
+                        {inviteActive ? "Choose your password" : "Password"}
                       </span>
                       <div className="mt-1.5 relative">
                         <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-text" />
@@ -345,6 +345,11 @@ function SignInPage() {
                           className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/30 text-[15px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
                         />
                       </div>
+                      {inviteActive ? (
+                        <p className="mt-1 text-[12px] text-muted-text">
+                          This sets your login password for this email (also if you already used VoxBulk before).
+                        </p>
+                      ) : null}
                     </label>
                   ) : null}
                   {needsLegalAccept ? (

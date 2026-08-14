@@ -140,7 +140,7 @@ def accept_invite(payload: dict, request: Request, db: Session = Depends(get_db)
     _organisation_or_403_if_suspended(db, inv.org_id)
 
     email_norm = inv.email.strip().lower()
-    user = db.execute(select(User).where(User.email == email_norm)).scalar_one_or_none()
+    user = db.execute(select(User).where(func.lower(User.email) == email_norm)).scalar_one_or_none()
     is_new_user = user is None
 
     if user is None:
@@ -154,10 +154,13 @@ def accept_invite(payload: dict, request: Request, db: Session = Depends(get_db)
         db.flush()
         setup_new_invited_user(db, user=user, email=email_norm, inv=inv)
     else:
-        if not user.password_hash or not verify_password(pwd, user.password_hash):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password for this email")
+        # Invite token proves mailbox access — allow setting/updating password and joining the org.
+        # (Existing users often fail here when they type a new password instead of their old one.)
         if not user.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account disabled")
+        user.password_hash = hash_password(pwd)
+        user.is_active = True
+        db.add(user)
         consume_invite_for_user(db, inv=inv, user=user)
 
     db.commit()
@@ -534,7 +537,7 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
     if not verify_password(str(password), user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    attach_pending_invites(db, user=user)
+    joined = attach_pending_invites(db, user=user)
     db.commit()
 
     resolved_org_id: str | None = str(org_id) if org_id else None
@@ -556,11 +559,16 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
         if len(org_ids) == 0:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organisation membership")
         if len(org_ids) != 1:
-            return {
-                "org_selection_required": True,
-                "organisations": OrgRbacService.list_organisations_for_user(db, user_id=user.id),
-            }
-        resolved_org_id = str(org_ids[0])
+            # Prefer the company they just joined via invite (Smart Card / team invite).
+            if joined:
+                resolved_org_id = str(joined[-1])
+            else:
+                return {
+                    "org_selection_required": True,
+                    "organisations": OrgRbacService.list_organisations_for_user(db, user_id=user.id),
+                }
+        else:
+            resolved_org_id = str(org_ids[0])
 
     if not user.is_superuser:
         org_ent = db.execute(select(Organisation).where(Organisation.id == str(resolved_org_id))).scalar_one_or_none()
