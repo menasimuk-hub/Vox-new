@@ -166,7 +166,14 @@ class SalesRepService:
 
     @staticmethod
     def get_rep_for_user(db: Session, *, user_id: str) -> SalesRep | None:
-        return db.execute(select(SalesRep).where(SalesRep.user_id == str(user_id))).scalar_one_or_none()
+        return (
+            db.execute(
+                select(SalesRep)
+                .where(SalesRep.user_id == str(user_id))
+                .order_by(SalesRep.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        )
 
     @staticmethod
     def partner_org_for_user(db: Session, *, user_id: str) -> Organisation | None:

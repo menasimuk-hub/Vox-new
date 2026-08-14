@@ -183,7 +183,12 @@ class PromoOfferService:
     @staticmethod
     def get_by_code(db: Session, code: str) -> PromoOffer | None:
         clean = PromoOfferService.normalize_code(code)
-        return db.execute(select(PromoOffer).where(PromoOffer.code == clean)).scalar_one_or_none()
+        return db.execute(
+            select(PromoOffer)
+            .where(PromoOffer.code == clean)
+            .order_by(PromoOffer.updated_at.desc(), PromoOffer.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
 
     @staticmethod
     def validate_public(db: Session, code: str) -> dict:
