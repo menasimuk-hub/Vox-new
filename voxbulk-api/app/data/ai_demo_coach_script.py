@@ -338,6 +338,19 @@ def tour_advance_message(beat: dict[str, Any] | None = None) -> str:
     )
 
 
+def tour_spoken_pitch(beat: dict[str, Any] | None = None) -> str:
+    """Short line Leo must say out loud (used for Call Control force-speak)."""
+    row = beat or DEMO_TOUR_BEATS[0]
+    spot = str(row.get("label") or "this screen").strip()
+    line = str(row.get("talk") or "").strip()
+    ask = tour_ask_line(row)
+    return (
+        f"Continue out loud now — do not stay silent. "
+        f"Spotlight is {spot}. {line} "
+        f"Then tell them: {ask}"
+    ).strip()
+
+
 def tour_confirm_message(beat: dict[str, Any] | None = None) -> str:
     """Tool reply when visitor said done/clicked — sell CURRENT spotlight."""
     row = beat or DEMO_TOUR_BEATS[0]
@@ -345,10 +358,9 @@ def tour_confirm_message(beat: dict[str, Any] | None = None) -> str:
     line = str(row.get("talk") or "").strip()
     ask = tour_ask_line(row)
     return (
-        f"VISITOR SAID THEY ARE DONE / CLICKED. Spotlight is NOW \"{spot}\". "
-        f"{line} "
-        f"Deliver a sharp sales explanation (what + why + benefit for them). "
-        f"Then instruct: {ask} "
+        f"SPEAK OUT LOUD NOW — do not stay silent after this tool. "
+        f"Spotlight is NOW \"{spot}\". {line} "
+        f"Deliver that sales pitch in your own words, then say: {ask} "
         f"Then STOP and wait for the next spoken confirmation. "
         f"Do NOT ask them to repeat a click they already finished. Do not hang up."
     )
@@ -374,7 +386,8 @@ HOW THE TOUR WORKS:
 - You SELL the CURRENT SPOTLIGHT: what it is, why a smart operator needs it, one concrete benefit tied to THEIR business.
 - Then ask them to click the highlighted control (or tap Next on the box) and TELL YOU when done.
 - Wait for spoken confirmation: done / clicked / open / opened / got it / next / ready / yes / I did.
-- When you hear that, call highlight_dashboard (with session_id) to load the CURRENT spotlight pitch, then sell THAT screen and ask for the next action.
+- When you hear that: call highlight_dashboard (session_id) AND immediately speak the sales pitch out loud.
+  NEVER stay silent after calling a tool. If the tool returns a pitch, say it now.
 - If the box vanished or they are lost, call highlight_dashboard again — it restores the CURRENT box only.
 
 SALES STYLE:
@@ -391,5 +404,6 @@ RULES:
 - end_demo only after bye / thanks that's all / they are done. Thank them, offer contact-us, then hang up.
 - If ~12s silence after you asked them to click: one gentle reminder. Do not skip ahead.
 
-PACE: sell one spotlight → ask → wait for spoken done → tool → sell next.
+PACE: sell one spotlight → ask → wait for spoken done → tool + SPEAK next pitch → ask again.
+SILENCE IS FAILURE: after any tool call, your next action is always to talk.
 """.strip()

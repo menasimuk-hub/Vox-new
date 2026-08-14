@@ -24,6 +24,7 @@ from app.data.ai_demo_coach_script import (
     tour_advance_message,
     tour_beat_by_id,
     tour_confirm_message,
+    tour_spoken_pitch,
 )
 from app.data.ai_demo_kb_defaults import DEMO_KB_SEED, tool_subset_json
 from app.data.ai_demo_whatsapp_defaults import DEMO_EMAIL_SENT_BODY, DEMO_EMAIL_SENT_TEMPLATE_NAME
@@ -184,10 +185,15 @@ def _parse_demo_tool_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], d
 
 
 def _extract_call_control_id(arguments: dict[str, Any], dynamic: dict[str, Any], payload: dict[str, Any]) -> str:
+    headers = payload.get("_telnyx_headers") if isinstance(payload.get("_telnyx_headers"), dict) else {}
     candidates = (
         arguments.get("call_control_id"),
         dynamic.get("call_control_id"),
         payload.get("call_control_id"),
+        payload.get("telnyx_call_control_id"),
+        headers.get("call_control_id"),
+        headers.get("x-telnyx-call-control-id"),
+        headers.get("telnyx-call-control-id"),
     )
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     record = data.get("payload") if isinstance(data.get("payload"), dict) else data
@@ -196,10 +202,19 @@ def _extract_call_control_id(arguments: dict[str, Any], dynamic: dict[str, Any],
             *candidates,
             record.get("call_control_id"),
             record.get("call_leg_id"),
+            record.get("telnyx_call_control_id"),
         )
+    # Nested / odd Telnyx shapes
+    for bag in (payload, dynamic, arguments, headers if isinstance(headers, dict) else {}):
+        if not isinstance(bag, dict):
+            continue
+        for key, value in bag.items():
+            lk = str(key).lower().replace("_", "-")
+            if "call-control" in lk or lk.endswith("callcontrolid") or lk == "call_control_id":
+                candidates = (*candidates, value)
     for item in candidates:
         ccid = str(item or "").strip()
-        if ccid:
+        if ccid and len(ccid) >= 8:
             return ccid[:200]
     return ""
 
@@ -2008,13 +2023,26 @@ class AiDemoService:
             logger.warning("demo_tool_missing_session tool=%s payload_keys=%s", name, list(payload.keys())[:20])
             return {"status": "error", "message": "Unknown demo session"}
 
-        # Free early bind when Telnyx includes call_control_id on tool webhooks.
+        # Free early bind when Telnyx includes call_control_id on tool webhooks/headers.
         tool_ccid = _extract_call_control_id(arguments, dynamic, payload if isinstance(payload, dict) else {})
         if tool_ccid:
             try:
-                AiDemoService.bind_call_control(db, session_id=session.id, call_control_id=tool_ccid)
+                AiDemoService.bind_call_control(
+                    db,
+                    session_id=session.id,
+                    call_control_id=tool_ccid,
+                    flush_pending=False,
+                )
             except Exception:
                 logger.exception("demo_tool_bind_call_failed session=%s", session.id)
+        else:
+            hdrs = (payload or {}).get("_telnyx_headers") if isinstance(payload, dict) else None
+            logger.info(
+                "demo_tool_no_ccid tool=%s session=%s header_keys=%s",
+                name,
+                session.id,
+                list(hdrs.keys())[:30] if isinstance(hdrs, dict) else [],
+            )
 
         req = AiDemoService.get_request(db, session.request_id)
         args = arguments if arguments else (payload.get("arguments") if isinstance(payload.get("arguments"), dict) else payload)
@@ -2157,6 +2185,14 @@ class AiDemoService:
                     },
                 )
                 db.commit()
+                # Telnyx often goes silent after sync webhook tools — force a spoken turn
+                # shortly AFTER this webhook returns so the tool turn can finish first.
+                AiDemoService._schedule_force_leo_speak(
+                    session_id=session.id,
+                    message=tour_spoken_pitch(beat),
+                    via="highlight_restore",
+                    call_control_id=tool_ccid or None,
+                )
                 return {
                     "status": "ok",
                     "action": "restore",
@@ -2164,6 +2200,7 @@ class AiDemoService:
                     "label": beat["label"],
                     "target_element_id": beat["target"],
                     "message": tour_confirm_message(beat),
+                    "force_speak": {"ok": True, "status": "scheduled"},
                 }
 
             first = DEMO_TOUR_BEATS[0]
@@ -2193,6 +2230,12 @@ class AiDemoService:
             }
             AiDemoService._append_ui_event(db, session, event)
             db.commit()
+            AiDemoService._schedule_force_leo_speak(
+                session_id=session.id,
+                message=tour_spoken_pitch(first),
+                via="highlight_start",
+                call_control_id=tool_ccid or None,
+            )
             return {
                 "status": "ok",
                 "action": "highlight",
@@ -2200,13 +2243,17 @@ class AiDemoService:
                 "route": None,
                 "target_element_id": first["target"],
                 "label": first["label"],
-                "message": memory_tour_lock(
-                    {
-                        "current_beat": first["id"],
-                        "current_label": first["label"],
-                        "current_talk": first["talk"],
-                    }
+                "message": (
+                    "SPEAK OUT LOUD NOW — do not stay silent. "
+                    + memory_tour_lock(
+                        {
+                            "current_beat": first["id"],
+                            "current_label": first["label"],
+                            "current_talk": first["talk"],
+                        }
+                    )
                 ),
+                "force_speak": {"ok": True, "status": "scheduled"},
             }
 
         if name == "show_pricing":
@@ -2555,6 +2602,7 @@ class AiDemoService:
         *,
         session_id: str,
         call_control_id: str | None,
+        flush_pending: bool = True,
     ) -> dict[str, Any]:
         session = db.get(DemoSession, str(session_id or "").strip())
         if session is None:
@@ -2568,7 +2616,7 @@ class AiDemoService:
         logger.info("ai_demo_bind_call_ok session=%s ccid=%s", session.id, ccid[:40])
         memory = _json_loads(req.conversation_memory, {})
         nudge = ""
-        if isinstance(memory, dict):
+        if flush_pending and isinstance(memory, dict):
             nudge = str(memory.get("pending_click_nudge") or "").strip()
         agent_notify: dict[str, Any] = {"ok": False, "status": "skipped", "detail": "no_pending_nudge"}
         if nudge:
@@ -2594,6 +2642,103 @@ class AiDemoService:
             },
         )
         return {"ok": True, "call_control_id": ccid, "agent_notify": agent_notify}
+
+    @staticmethod
+    def _schedule_force_leo_speak(
+        *,
+        session_id: str,
+        message: str,
+        via: str = "force_speak",
+        call_control_id: str | None = None,
+        delay_s: float = 0.4,
+    ) -> None:
+        """Run force-speak after the webhook response so Telnyx can finish the tool turn."""
+        import threading
+        import time
+
+        sid = str(session_id or "").strip()
+        text = str(message or "").strip()
+        ccid = str(call_control_id or "").strip() or None
+        if not sid or not text:
+            return
+
+        def _run() -> None:
+            try:
+                time.sleep(max(0.05, float(delay_s)))
+                from app.core.database import get_sessionmaker
+
+                db = get_sessionmaker()()
+                try:
+                    AiDemoService._force_leo_speak(
+                        db,
+                        session_id=sid,
+                        message=text,
+                        via=via,
+                        call_control_id=ccid,
+                    )
+                    db.commit()
+                finally:
+                    db.close()
+            except Exception:
+                logger.exception("ai_demo_schedule_force_speak_failed session=%s via=%s", sid, via)
+
+        threading.Thread(target=_run, name=f"demo-speak-{via}", daemon=True).start()
+
+    @staticmethod
+    def _force_leo_speak(
+        db: Session,
+        *,
+        session_id: str,
+        message: str,
+        via: str = "force_speak",
+        call_control_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Force Leo to talk after a tool — Telnyx often stays silent after webhook tools."""
+        session = db.get(DemoSession, str(session_id or "").strip())
+        if session is None:
+            return {"ok": False, "status": "skipped", "detail": "missing_session"}
+        req = AiDemoService.get_request(db, session.request_id)
+        memory = _json_loads(req.conversation_memory, {})
+        ccid = str(
+            call_control_id
+            or (memory.get("telnyx_call_control_id") if isinstance(memory, dict) else "")
+            or ""
+        ).strip()
+        text = str(message or "").strip()
+        if not ccid or not text:
+            logger.error(
+                "ai_demo_force_speak_skipped session=%s via=%s detail=%s",
+                session.id,
+                via,
+                "missing_call_control_id" if not ccid else "missing_message",
+            )
+            return {
+                "ok": False,
+                "status": "skipped",
+                "detail": "missing_call_control_id" if not ccid else "missing_message",
+            }
+        command_id = f"demo-speak-{session.id[:36]}-{via}-{int(_utcnow().timestamp())}"[:128]
+        out = AiDemoService._notify_agent_click(
+            db,
+            session_id=session.id,
+            call_control_id=ccid,
+            message=text,
+            command_id=command_id,
+            via=via,
+        )
+        AiDemoService.update_memory(
+            db,
+            req,
+            {
+                "last_force_speak": {
+                    "at": _utcnow().isoformat() + "Z",
+                    "via": via,
+                    "command_id": command_id,
+                    **out,
+                }
+            },
+        )
+        return out
 
     @staticmethod
     def try_bind_call_from_voice_webhook(db: Session, *, payload: dict[str, Any]) -> bool:

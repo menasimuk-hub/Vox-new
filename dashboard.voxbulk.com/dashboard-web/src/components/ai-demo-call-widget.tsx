@@ -389,11 +389,19 @@ export function AiDemoCallWidget() {
           action === "restore" ||
           ev.type === "highlight_dashboard";
         if (!isHighlight || exitingRef.current) continue;
+        const stepId = String(ev.step || "").trim();
+        if (stepId) {
+          const idx = DEMO_TOUR_BEATS.findIndex((b) => b.id === stepId);
+          if (idx >= 0) {
+            applyBeatAt(idx);
+            continue;
+          }
+        }
         if (beatIndexRef.current < 0) {
           startTour();
           continue;
         }
-        /* Restore current box only — never skip ahead. */
+        /* Restore current box only when event has no step id. */
         applyBeatAt(beatIndexRef.current);
       }
     },

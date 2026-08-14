@@ -335,9 +335,28 @@ async def _verified_tool_payload(request: Request, db: Session) -> dict[str, Any
     try:
         import json
 
-        return json.loads(raw.decode("utf-8") or "{}")
+        payload = json.loads(raw.decode("utf-8") or "{}")
     except Exception:
-        return {}
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    # Telnyx often puts the live call id on headers for webhook tools (esp. async).
+    header_bag: dict[str, str] = {}
+    for key, value in request.headers.items():
+        lk = str(key or "").lower()
+        if "call-control" in lk or lk in (
+            "x-telnyx-call-control-id",
+            "telnyx-call-control-id",
+            "x-call-control-id",
+        ):
+            clean = str(value or "").strip()
+            if clean:
+                header_bag[lk] = clean
+                if "call_control_id" not in payload:
+                    payload["call_control_id"] = clean
+    if header_bag:
+        payload["_telnyx_headers"] = header_bag
+    return payload
 
 
 @router.post("/tools/{tool_name}")

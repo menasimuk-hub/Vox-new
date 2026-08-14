@@ -159,6 +159,7 @@ def test_coach_script_is_voice_gated_sales():
     assert "voice-gated" in COACH_TOUR_MAP.lower() or "spoken" in COACH_TOUR_MAP.lower()
     assert "salesperson" in COACH_TOUR_MAP.lower() or "sales" in COACH_TOUR_MAP.lower()
     assert "done" in COACH_TOUR_MAP.lower()
+    assert "silent" in COACH_TOUR_MAP.lower()
     assert "wizard" in COACH_TOUR_MAP.lower()
     assert "I clicked Next" in COACH_TOUR_MAP  # warned against as unreliable path
     assert "pricing" in COACH_TOUR_MAP.lower()
@@ -214,8 +215,9 @@ def test_highlight_dashboard_starts_then_locks(monkeypatch):
     assert restored["action"] == "restore"
     assert restored["target_element_id"] == "home-live-kpis"
     assert "Live KPIs" in restored["message"]
-    assert "sales" in restored["message"].lower() or "Sell" in restored["message"]
-    assert "done" in restored["message"].lower()
+    assert "sales" in restored["message"].lower() or "Sell" in restored["message"] or "SPEAK" in restored["message"]
+    assert "done" in restored["message"].lower() or "SPEAK" in restored["message"]
+    assert restored.get("force_speak", {}).get("status") == "scheduled"
     ui = next(item[1] for item in events if item[0] == "ui")
     assert ui["action"] == "restore"
     assert ui["target_element_id"] == "home-live-kpis"
