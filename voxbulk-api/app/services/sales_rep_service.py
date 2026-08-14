@@ -343,8 +343,10 @@ class SalesRepService:
         from app.models.organisation import Organisation
 
         has_membership = db.execute(
-            select(OrganisationMembership).where(OrganisationMembership.user_id == user.id)
-        ).scalar_one_or_none()
+            select(OrganisationMembership)
+            .where(OrganisationMembership.user_id == user.id)
+            .limit(1)
+        ).scalars().first()
         display = str(company_name or name or email.split("@")[0]).strip() or email.split("@")[0]
         workspace_label = "Partner Channel" if kind_norm == KIND_PARTNER_CHANNEL else "Sales"
         partner_org: Organisation | None = None
@@ -1149,8 +1151,11 @@ class SalesRepService:
         from app.models.membership import OrganisationMembership
 
         m = db.execute(
-            select(OrganisationMembership).where(OrganisationMembership.user_id == rep.user_id)
-        ).scalar_one_or_none()
+            select(OrganisationMembership)
+            .where(OrganisationMembership.user_id == rep.user_id)
+            .order_by(OrganisationMembership.created_at.asc())
+            .limit(1)
+        ).scalars().first()
         return str(m.org_id) if m is not None else None
 
     @staticmethod
