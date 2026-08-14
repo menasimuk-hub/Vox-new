@@ -272,6 +272,8 @@ class SurveyLaunchEligibilityService:
     @staticmethod
     def _apply_estimate(base: dict[str, Any], est: dict[str, Any], *, org_id: str | None = None, db=None) -> dict[str, Any]:
         """Map a LaunchBillingService estimate onto the eligibility payload."""
+        import math
+
         currency = str(est.get("currency") or "GBP")
         total = int(est.get("total_minor") or 0)
         promo_discount_applied = False
@@ -284,33 +286,76 @@ class SurveyLaunchEligibilityService:
             if peeked.get("discount_applied"):
                 total = int(peeked["amount_minor"])
                 promo_discount_applied = True
+
+        buffer_percent = int(est.get("wallet_buffer_percent") or 100)
+        # Keep PAYG 125% hold in sync when a promo money discount lowers the estimate.
+        required_wallet = int(est.get("required_wallet_minor") or est.get("wallet_charge_minor") or 0)
+        if promo_discount_applied and buffer_percent > 100 and total > 0:
+            required_wallet = int(math.ceil(total * (buffer_percent / 100.0)))
+        elif promo_discount_applied and total >= 0 and buffer_percent <= 100:
+            required_wallet = total
+
+        spendable = int(est.get("wallet_spendable_minor") or 0)
+        top_up_minor = max(0, required_wallet - spendable) if required_wallet > spendable else 0
+
+        top_up_display = money_display(top_up_minor, currency) if top_up_minor > 0 else est.get("top_up_display")
+        required_display = money_display(required_wallet, currency) if required_wallet else est.get("required_wallet_display")
+        estimated_display = money_display(total, currency) if promo_discount_applied else (
+            est.get("estimated_cost_display") or est.get("total_display")
+        )
+
         base.update(
             {
                 "currency": currency,
                 "pricing_source": "voxbulk_plan_prices",
                 "amount_due_pence": total,
-                "amount_due_display": est.get("total_display"),
-                "estimated_cost_minor": int(est.get("estimated_cost_minor") or total),
-                "estimated_cost_display": est.get("estimated_cost_display") or est.get("total_display"),
-                "required_wallet_minor": int(est.get("required_wallet_minor") or est.get("wallet_charge_minor") or 0),
-                "required_wallet_display": est.get("required_wallet_display"),
-                "wallet_buffer_percent": int(est.get("wallet_buffer_percent") or 100),
-                "top_up_minor": int(est.get("top_up_minor") or est.get("wallet_shortfall_minor") or 0),
-                "top_up_display": est.get("top_up_display"),
+                "amount_due_display": estimated_display,
+                "estimated_cost_minor": total if promo_discount_applied else int(est.get("estimated_cost_minor") or total),
+                "estimated_cost_display": estimated_display,
+                "required_wallet_minor": required_wallet,
+                "required_wallet_display": required_display,
+                "wallet_buffer_percent": buffer_percent,
+                "top_up_minor": top_up_minor if top_up_minor > 0 else int(est.get("top_up_minor") or 0),
+                "top_up_display": top_up_display if top_up_minor > 0 else est.get("top_up_display"),
                 "extra_cost_pence": total,
-                "extra_cost_display": est.get("total_display"),
+                "extra_cost_display": estimated_display,
                 "quote_total_pence": total,
-                "quote_total_display": est.get("total_display"),
+                "quote_total_display": estimated_display,
                 "wallet_balance_minor": int(est.get("wallet_balance_minor") or 0),
                 "wallet_balance_display": est.get("wallet_balance_display"),
+                "wallet_spendable_minor": spendable,
+                "wallet_spendable_display": est.get("wallet_spendable_display"),
                 "wallet_charge_minor": int(est.get("wallet_charge_minor") or 0),
+                "wallet_charge_display": est.get("wallet_charge_display"),
                 "dd_charge_minor": int(est.get("dd_charge_minor") or 0),
-                "wallet_shortfall_minor": int(est.get("wallet_shortfall_minor") or 0),
+                "wallet_shortfall_minor": top_up_minor if top_up_minor > 0 else int(est.get("wallet_shortfall_minor") or 0),
                 "launch_billing": est,
                 "promo_discount_applied": promo_discount_applied,
             }
         )
+        SurveyLaunchEligibilityService._maybe_unlock_wallet_after_discount(base, est)
         return base
+
+    @staticmethod
+    def _maybe_unlock_wallet_after_discount(base: dict[str, Any], est: dict[str, Any]) -> None:
+        """If a promo money discount lowers the 125% hold enough, allow wallet launch."""
+        if not base.get("promo_discount_applied"):
+            return
+        if str(est.get("payment_method") or "") != "blocked":
+            return
+        required = int(base.get("required_wallet_minor") or 0)
+        spendable = int(base.get("wallet_spendable_minor") or 0)
+        if required <= 0 or spendable < required:
+            return
+        est["payment_method"] = "wallet"
+        est["can_launch"] = True
+        est["block_reason"] = None
+        est["wallet_charge_minor"] = required
+        base["wallet_charge_minor"] = required
+        base["wallet_charge_display"] = base.get("required_wallet_display")
+        base["top_up_minor"] = 0
+        base["top_up_display"] = None
+        base["wallet_shortfall_minor"] = 0
 
     @staticmethod
     def _enforce_value_pool_soft_cap(

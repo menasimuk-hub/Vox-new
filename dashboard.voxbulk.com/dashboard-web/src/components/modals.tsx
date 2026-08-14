@@ -30,7 +30,9 @@ import {
   Rocket,
   ShieldCheck,
   Users,
+  Wallet,
 } from "lucide-react";
+import { useBillingWallet } from "@/lib/queries";
 
 /** Deploy marker — verified by scripts/vps-sync-dashboard.sh */
 export const INTERVIEW_PREVIEW_MODAL_BUILD_MARKER = "interview-preview-parseScriptQuestions-v2";
@@ -1053,8 +1055,17 @@ export type SurveyLaunchEligibilityView = {
   mode?: string;
   launch_action?: "launch" | "pay_and_launch" | "topup_required" | "blocked";
   wallet_balance_display?: string | null;
+  wallet_balance_minor?: number;
+  wallet_spendable_display?: string | null;
+  wallet_spendable_minor?: number;
   wallet_charge_minor?: number;
+  wallet_charge_display?: string | null;
   wallet_shortfall_minor?: number;
+  estimated_cost_display?: string | null;
+  required_wallet_display?: string | null;
+  wallet_buffer_percent?: number;
+  top_up_display?: string | null;
+  top_up_minor?: number;
   amount_due_pence?: number;
   summary?: string;
   block_reason?: string | null;
@@ -1079,6 +1090,13 @@ export type SurveyLaunchEligibilityView = {
     whatsapp_used?: number;
     survey_credits?: number;
     has_whatsapp_allowance?: boolean;
+    shared_package_pool?: boolean;
+    package_remaining?: number;
+    package_remaining_display?: string | null;
+    estimated_wa_surveys?: number;
+    estimated_ai_minutes?: number;
+    channel_whatsapp_used?: number;
+    channel_calls_used?: number;
   };
 };
 
@@ -1118,15 +1136,26 @@ export function SurveyLaunchQuoteModal({
   const [showBillingDebug, setShowBillingDebug] = React.useState(false);
   const billingPhase =
     billingCheckPhase === "loading" ? "checking" : billingCheckPhase;
+  const walletQ = useBillingWallet();
 
   const mode = eligibility?.mode || "blocked";
   const launchAction = eligibility?.launch_action || "blocked";
   const paymentRequired = Boolean(eligibility?.payment_required);
+  const walletMode = String(eligibility?.mode || "") === "wallet";
   const canLaunchNow = Boolean(eligibility?.can_launch) && launchAction === "launch";
   const needsWalletTopup = launchAction === "topup_required";
   const canPayLaunch = paymentRequired && launchAction === "pay_and_launch" && !walletMode;
-  const walletMode = String(eligibility?.mode || "") === "wallet";
   const amountDue = eligibility?.amount_due_display || null;
+  const topUpNeeded = eligibility?.top_up_display || null;
+  const walletBalanceDisplay =
+    eligibility?.wallet_balance_display ||
+    walletQ.data?.wallet_balance_gbp ||
+    null;
+  const walletSpendableDisplay = eligibility?.wallet_spendable_display || null;
+  const showSpendableSplit =
+    Boolean(walletSpendableDisplay) &&
+    Boolean(walletBalanceDisplay) &&
+    walletSpendableDisplay !== walletBalanceDisplay;
   const allowanceNotice = buildSurveyAllowanceNotice(eligibility);
   const allowanceExhausted = isWhatsAppAllowanceExhausted(eligibility);
   const pricingBreakdown = buildLaunchPricingBreakdown(eligibility);
@@ -1242,11 +1271,27 @@ export function SurveyLaunchQuoteModal({
         </div>
 
         <div className="space-y-5 p-6">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <PreviewMetric icon={<Users className="size-4" />} label="Recipients" value={`${data.recipientCount}`} />
             <PreviewMetric icon={<MessageSquare className="size-4" />} label="Channel" value={data.channelLabel} />
+            <PreviewMetric
+              icon={<Wallet className="size-4" />}
+              label="Wallet balance"
+              value={
+                showBillingLoading
+                  ? "…"
+                  : walletBalanceDisplay ||
+                    (walletQ.isLoading ? "…" : "—")
+              }
+            />
             <PreviewMetric icon={<ReceiptText className="size-4" />} label="Amount due" value={costLabel} />
           </div>
+          {showSpendableSplit ? (
+            <p className="text-xs text-muted-foreground">
+              Available for launches: <span className="font-medium text-foreground">{walletSpendableDisplay}</span>
+              {" "}(promo wallet credit cannot be used for survey launches).
+            </p>
+          ) : null}
 
           {allowanceExhausted && allowanceNotice ? (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm text-amber-950 dark:text-amber-50">
@@ -1414,25 +1459,25 @@ export function SurveyLaunchQuoteModal({
                 {typeof eligibility?.billing?.survey_credits === "number" ? (
                   <QuoteRow label="Survey promo credits" value={`${eligibility?.billing?.survey_credits}`} />
                 ) : null}
-                {eligibility?.wallet_balance_display ? (
-                  <QuoteRow label="Wallet balance" value={eligibility.wallet_balance_display} />
+                {walletBalanceDisplay ? (
+                  <QuoteRow label="Wallet balance" value={walletBalanceDisplay} />
                 ) : null}
-                {(eligibility as { estimated_cost_display?: string })?.estimated_cost_display ? (
-                  <QuoteRow label="Estimated cost" value={(eligibility as { estimated_cost_display?: string }).estimated_cost_display || "—"} />
+                {showSpendableSplit && walletSpendableDisplay ? (
+                  <QuoteRow label="Available for launches" value={walletSpendableDisplay} />
                 ) : null}
-                {(eligibility as { required_wallet_display?: string })?.required_wallet_display &&
-                Number((eligibility as { wallet_buffer_percent?: number }).wallet_buffer_percent || 100) > 100 ? (
-                  <QuoteRow
-                    label="Wallet hold (125%)"
-                    value={(eligibility as { required_wallet_display?: string }).required_wallet_display || "—"}
-                  />
+                {eligibility?.estimated_cost_display ? (
+                  <QuoteRow label="Estimated cost" value={eligibility.estimated_cost_display} />
+                ) : null}
+                {eligibility?.required_wallet_display &&
+                Number(eligibility.wallet_buffer_percent || 100) > 100 ? (
+                  <QuoteRow label="Wallet hold (125%)" value={eligibility.required_wallet_display} />
                 ) : null}
                 {walletMode && typeof eligibility?.wallet_charge_minor === "number" && eligibility.wallet_charge_minor > 0 ? (
                   <QuoteRow
                     label="Charged to wallet at launch"
                     value={
-                      (eligibility as { wallet_charge_display?: string }).wallet_charge_display ||
-                      (eligibility as { required_wallet_display?: string }).required_wallet_display ||
+                      eligibility.wallet_charge_display ||
+                      eligibility.required_wallet_display ||
                       amountDue ||
                       "—"
                     }
@@ -1442,11 +1487,7 @@ export function SurveyLaunchQuoteModal({
                 {needsWalletTopup ? (
                   <QuoteRow
                     label="Top-up needed"
-                    value={
-                      (eligibility as { top_up_display?: string | null }).top_up_display ||
-                      amountDue ||
-                      "—"
-                    }
+                    value={topUpNeeded || amountDue || "—"}
                     bold
                   />
                 ) : null}
@@ -1506,7 +1547,7 @@ export function SurveyLaunchQuoteModal({
               ) : needsWalletTopup && onTopUpWallet ? (
                 <Button type="button" className="gap-1.5" disabled={actionBusy} onClick={onTopUpWallet}>
                   <CreditCard className="size-4" />
-                  Top up wallet{amountDue ? ` · need ${amountDue}` : ""}
+                  Top up wallet{topUpNeeded ? ` · need ${topUpNeeded}` : amountDue ? ` · need ${amountDue}` : ""}
                 </Button>
               ) : canPayLaunch ? (
                 <Button type="button" className="gap-1.5" disabled={!canPay} onClick={() => void handlePayLaunch()}>

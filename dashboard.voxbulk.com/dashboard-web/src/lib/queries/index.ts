@@ -2041,9 +2041,17 @@ export type SurveyLaunchEligibility = {
   launch_action?: "launch" | "pay_and_launch" | "topup_required" | "blocked";
   wallet_balance_minor?: number;
   wallet_balance_display?: string | null;
+  wallet_spendable_minor?: number;
+  wallet_spendable_display?: string | null;
   wallet_charge_minor?: number;
+  wallet_charge_display?: string | null;
   wallet_shortfall_minor?: number;
-  dd_charge_minor?: number;
+  estimated_cost_display?: string | null;
+  required_wallet_display?: string | null;
+  required_wallet_minor?: number;
+  wallet_buffer_percent?: number;
+  top_up_display?: string | null;
+  top_up_minor?: number;
   summary?: string;
   block_reason?: string | null;
   block_reason_code?: string | null;
