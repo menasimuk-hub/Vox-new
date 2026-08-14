@@ -42,9 +42,9 @@ class DuplicateWalletReference(WalletError):
     pass
 
 
-PROMO_RESTRICTED_DEBIT_KINDS = frozenset(
-    {"launch_debit", "launch_hold", "invoice_payment", "feedback_promo", "campaign_debit"}
-)
+# Promo/admin wallet credit is spendable like paid top-ups (surveys, interviews, invoices, CF).
+# Kept for backwards-compatible call sites that still pass restrict_promo_spend=True explicitly.
+PROMO_RESTRICTED_DEBIT_KINDS: frozenset[str] = frozenset()
 
 
 class WalletService:
@@ -222,14 +222,14 @@ class WalletService:
         if amount <= 0:
             raise WalletError("Debit amount must be positive")
         balance = WalletService.balance_minor(org)
+        # Default: promo/welcome/admin wallet credit spends like real money everywhere.
         if restrict_promo_spend is None:
-            restrict_promo_spend = kind in PROMO_RESTRICTED_DEBIT_KINDS
+            restrict_promo_spend = False
         spendable = WalletService.spendable_minor(org, allow_promo=not restrict_promo_spend)
         if spendable < amount:
             if restrict_promo_spend and WalletService.promo_balance_minor(org) > 0:
                 raise PromoWalletRestricted(
-                    "Promo wallet credit cannot be used for campaign launches or Customer feedback — "
-                    "top up or use package allowance."
+                    "Promo wallet credit cannot be used for this charge — top up or use package allowance."
                 )
             raise InsufficientWalletBalance(
                 f"Wallet balance is insufficient ({money_display(spendable)} available, {money_display(amount)} required)"
@@ -237,6 +237,7 @@ class WalletService:
         currency = resolve_org_currency(db, org, persist=True)
         unrestricted_before = WalletService.unrestricted_balance_minor(org)
         org.wallet_balance_pence = balance - amount
+        # Draw down promo balance whenever promo spend is allowed (default).
         if not restrict_promo_spend:
             promo_used = max(0, amount - unrestricted_before)
             if promo_used > 0:

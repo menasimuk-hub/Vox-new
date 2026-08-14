@@ -1289,7 +1289,6 @@ export function SurveyLaunchQuoteModal({
           {showSpendableSplit ? (
             <p className="text-xs text-muted-foreground">
               Available for launches: <span className="font-medium text-foreground">{walletSpendableDisplay}</span>
-              {" "}(promo wallet credit cannot be used for survey launches).
             </p>
           ) : null}
 

@@ -112,7 +112,7 @@ class LaunchBillingService:
         calls_remaining_min: int,
         has_subscription: bool,
         voice_channel: str = "ai_call",
-        allow_promo: bool = False,
+        allow_promo: bool = True,
     ) -> dict[str, Any]:
         from app.services.gocardless_service import BillingService
         from app.services.wallet_service import WalletService
@@ -190,7 +190,7 @@ class LaunchBillingService:
         total_minor: int,
         collect_by_dd: bool,
         base: dict[str, Any],
-        allow_promo: bool = False,
+        allow_promo: bool = True,
     ) -> dict[str, Any]:
         """Split the billable amount across wallet first, then Direct Debit for subscription."""
         from app.services.wallet_service import WalletService
@@ -236,16 +236,9 @@ class LaunchBillingService:
             shortfall = required_wallet - wallet_balance
             hold_display = money_display(required_wallet, currency)
             est_display = money_display(estimated_cost, currency)
-            promo_note = ""
-            if total_balance > wallet_balance and not allow_promo:
-                promo_note = (
-                    f" ({money_display(total_balance, currency)} total, including promo credit "
-                    "that cannot be used here)"
-                )
             block_reason = (
                 f"Estimated cost {est_display}. We hold 125% ({hold_display}) for longer calls. "
                 f"Your wallet has {money_display(wallet_balance, currency)} available for launches"
-                f"{promo_note}"
                 f" — top up at least {money_display(shortfall, currency)} to launch."
             )
 
@@ -341,7 +334,7 @@ class LaunchBillingService:
                     order_id=order.id,
                     created_by_user_id=user_id,
                     metadata={"channel": breakdown.get("channel"), "units": breakdown.get("units_billable")},
-                    restrict_promo_spend=True,
+                    restrict_promo_spend=False,
                     commit=False,
                 )
             except InsufficientWalletBalance as exc:

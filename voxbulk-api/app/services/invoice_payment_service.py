@@ -256,11 +256,6 @@ class InvoicePaymentService:
         if amount <= 0:
             raise InvoicePaymentError("Nothing due on this invoice.")
 
-        restrict_promo = str(getattr(invoice, "service_code", "") or "").lower() in {
-            "customer_feedback",
-            "feedback",
-        } or "promo campaign" in str(getattr(invoice, "description", "") or "").lower()
-
         try:
             tx = WalletService.debit(
                 db,
@@ -271,7 +266,7 @@ class InvoicePaymentService:
                 invoice_id=invoice.id,
                 order_id=getattr(invoice, "order_id", None),
                 created_by_user_id=user_id,
-                restrict_promo_spend=restrict_promo,
+                restrict_promo_spend=False,
                 commit=False,
             )
         except PromoWalletRestricted as exc:

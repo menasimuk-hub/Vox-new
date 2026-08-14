@@ -21,7 +21,7 @@ from app.models.user import User
 from app.models.platform_services_settings import PlatformServicesSettings  # noqa: F401
 from app.services.promo_offer_service import PromoOfferService
 from app.services.sales_rep_service import KIND_PARTNER_CHANNEL, SalesRepService
-from app.services.wallet_service import PromoWalletRestricted, WalletService
+from app.services.wallet_service import WalletService
 
 
 @pytest.fixture
@@ -185,19 +185,22 @@ def test_second_org_redeem_same_sales_promo_still_gets_wallet(db):
     assert balances == [(2000, 2000), (2000, 2000)]
 
 
-def test_promo_wallet_blocked_for_campaign_launch_debit(db):
-    org = Organisation(name="Launch Block Org", wallet_balance_pence=2000, promo_wallet_balance_pence=2000)
+def test_promo_wallet_usable_for_campaign_launch_debit(db):
+    """Promo/welcome wallet credit spends like paid balance on campaign launches."""
+    org = Organisation(name="Launch Promo Org", wallet_balance_pence=2000, promo_wallet_balance_pence=2000)
     db.add(org)
     db.commit()
-    with pytest.raises(PromoWalletRestricted):
-        WalletService.debit(
-            db,
-            org,
-            amount_minor=500,
-            kind="launch_debit",
-            restrict_promo_spend=True,
-            commit=True,
-        )
+    tx = WalletService.debit(
+        db,
+        org,
+        amount_minor=500,
+        kind="launch_debit",
+        commit=True,
+    )
+    assert tx is not None
+    db.refresh(org)
+    assert int(org.wallet_balance_pence or 0) == 1500
+    assert int(org.promo_wallet_balance_pence or 0) == 1500
 
 
 def test_link_customer_on_promo_redeem_matches_email(db):

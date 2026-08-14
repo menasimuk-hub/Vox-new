@@ -168,6 +168,27 @@ def test_launch_eligibility_payg_wallet_covers(app_client):
     assert int(body.get("wallet_buffer_percent") or 0) == 125
 
 
+def test_launch_eligibility_promo_wallet_credit_covers_payg(app_client):
+    """Welcome/promo wallet credit is spendable for survey launch like paid top-up."""
+    headers, org_id = _seed_user(app_client, email="survey_launch_promo_wallet@example.com")
+    with get_sessionmaker()() as db:
+        org = db.get(Organisation, org_id)
+        org.wallet_balance_pence = 2000
+        org.promo_wallet_balance_pence = 2000
+        db.add(org)
+        db.commit()
+    order_id = _create_wa_order(app_client, headers, contact_count=1)
+
+    res = app_client.get(f"/service-orders/{order_id}/launch-eligibility", headers=headers)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["mode"] == "wallet"
+    assert body["can_launch"] is True
+    assert body["launch_action"] == "launch"
+    assert int(body.get("wallet_spendable_minor") or 0) == 2000
+    assert int(body.get("wallet_charge_minor") or 0) == 62  # ceil(49 × 1.25)
+
+
 def test_launch_with_promo_credits(app_client):
     headers, _org_id = _seed_user(app_client, email="survey_launch_run@example.com", survey_credits=5)
     order_id = _create_wa_order(app_client, headers)
