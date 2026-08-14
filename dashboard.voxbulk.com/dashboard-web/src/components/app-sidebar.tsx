@@ -242,6 +242,11 @@ export function AppSidebar() {
           return canManageOrgSettings(role);
         });
       }
+      if (g.key === "smartCard" && !canManageTeam(role)) {
+        items = items.filter(
+          (item) => item.url === "/smart-card" || item.url === "/smart-card/leads",
+        );
+      }
       items = items.filter((item) => {
         if (item.requiresPrivatePackage) return hasPrivatePackage;
         if (!item.requiresService) return true;

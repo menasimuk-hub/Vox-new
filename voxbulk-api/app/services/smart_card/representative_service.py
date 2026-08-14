@@ -256,6 +256,217 @@ class SmartCardRepresentativeService:
             raise SmartCardRepError(f"Could not send invite: {e}") from e
 
     @staticmethod
+    def invite_status_for(rep: SmartCardRepresentative) -> str:
+        email = (rep.email or "").strip()
+        if not email:
+            return "needs_email"
+        if rep.linked_user_id:
+            return "linked"
+        if rep.invite_id:
+            return "pending_invite"
+        return "needs_invite"
+
+    @staticmethod
+    def card_incomplete(rep: SmartCardRepresentative) -> bool:
+        """Stub / empty card — invitee should complete contact details."""
+        has_contact = bool((rep.mobile or "").strip() or (rep.landline or "").strip() or (rep.website or "").strip())
+        return not has_contact
+
+    @staticmethod
+    def parse_invite_file(content: bytes, filename: str | None = None) -> list[dict[str, str]]:
+        """Parse .xlsx/.csv with email (+ optional name) columns."""
+        import csv
+        import io
+        import re
+
+        name = (filename or "").strip().lower()
+        rows_out: list[dict[str, str]] = []
+
+        def _norm_header(h: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", (h or "").strip().lower())
+
+        def _map_headers(headers: list[str]) -> dict[str, int]:
+            mapping: dict[str, int] = {}
+            for i, h in enumerate(headers):
+                key = _norm_header(str(h or ""))
+                if key in {"email", "e-mail", "mail", "workemail", "emailaddress"} or key.endswith("email"):
+                    mapping.setdefault("email", i)
+                elif key in {"name", "fullname", "fullname", "displayname", "rep", "representative"}:
+                    mapping.setdefault("name", i)
+            return mapping
+
+        def _append_row(email_raw: Any, name_raw: Any) -> None:
+            email = str(email_raw or "").strip().lower()
+            if not email or "@" not in email or "." not in email.split("@")[-1]:
+                return
+            display = str(name_raw or "").strip()
+            rows_out.append({"email": email, "name": display})
+
+        is_xlsx = name.endswith(".xlsx") or (not name.endswith(".csv") and content[:2] == b"PK")
+        if is_xlsx:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+            ws = wb.active
+            grid = [[c for c in row] for row in ws.iter_rows(values_only=True)]
+            wb.close()
+            if not grid:
+                return []
+            headers = [str(c or "") for c in grid[0]]
+            mapping = _map_headers(headers)
+            email_idx = mapping.get("email")
+            name_idx = mapping.get("name")
+            start = 1
+            if email_idx is None:
+                # Fallback: first column is email if it looks like one in row 1 or 2
+                email_idx = 0
+                name_idx = 1 if len(headers) > 1 else None
+                sample = str(grid[0][0] or "")
+                if "@" not in sample:
+                    start = 1
+                else:
+                    start = 0
+            for row in grid[start:]:
+                if not row:
+                    continue
+                em = row[email_idx] if email_idx is not None and email_idx < len(row) else None
+                nm = row[name_idx] if name_idx is not None and name_idx < len(row) else None
+                _append_row(em, nm)
+            return rows_out
+
+        text = content.decode("utf-8-sig", errors="replace")
+        reader = csv.reader(io.StringIO(text))
+        all_rows = list(reader)
+        if not all_rows:
+            return []
+        headers = [str(c or "") for c in all_rows[0]]
+        mapping = _map_headers(headers)
+        email_idx = mapping.get("email", 0)
+        name_idx = mapping.get("name")
+        start = 1 if mapping.get("email") is not None or "@" not in str(all_rows[0][0] if all_rows[0] else "") else 0
+        for row in all_rows[start:]:
+            if not row:
+                continue
+            em = row[email_idx] if email_idx < len(row) else None
+            nm = row[name_idx] if name_idx is not None and name_idx < len(row) else None
+            _append_row(em, nm)
+        return rows_out
+
+    @staticmethod
+    def bulk_invite_template_xlsx() -> bytes:
+        import io
+
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Invites"
+        ws.append(["email", "name"])
+        ws.append(["alex@example.com", "Alex Example"])
+        ws.append(["sam@example.com", ""])
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    @staticmethod
+    def bulk_invite_from_emails(
+        db: Session,
+        *,
+        org_id: str,
+        actor_user_id: str,
+        rows: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Create stub representatives + send invites, capped by remaining seats."""
+        seats = SmartCardEntitlementService.seat_quantity(db, org_id)
+        active = SmartCardEntitlementService.active_rep_count(db, org_id)
+        if seats <= 0:
+            raise SmartCardRepError(
+                "No Smart Card seats available. Buy seats first, then invite your team."
+            )
+        remaining = max(0, seats - active)
+
+        seen: set[str] = set()
+        created: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        invited = 0
+        linked = 0
+
+        existing_emails = {
+            str(e or "").strip().lower()
+            for e in db.execute(
+                select(SmartCardRepresentative.email).where(
+                    SmartCardRepresentative.org_id == org_id,
+                    SmartCardRepresentative.status == "active",
+                    SmartCardRepresentative.email.is_not(None),
+                )
+            ).scalars().all()
+        }
+
+        for raw in rows or []:
+            email = str((raw or {}).get("email") or "").strip().lower()
+            display_name = str((raw or {}).get("name") or "").strip()
+            if not email or "@" not in email:
+                skipped.append({"email": email or None, "reason": "invalid_email"})
+                continue
+            if email in seen:
+                skipped.append({"email": email, "reason": "duplicate_in_file"})
+                continue
+            seen.add(email)
+            if email in existing_emails:
+                skipped.append({"email": email, "reason": "already_has_qr"})
+                continue
+            if remaining <= 0:
+                skipped.append({"email": email, "reason": "seat_limit"})
+                continue
+
+            stub_name = display_name or email.split("@")[0].replace(".", " ").replace("_", " ").strip()
+            if not stub_name:
+                stub_name = email
+            try:
+                # create() also invites when email present
+                rep = SmartCardRepresentativeService.create(
+                    db,
+                    org_id=org_id,
+                    user_id=actor_user_id,
+                    payload={"name": stub_name, "email": email},
+                )
+            except SmartCardRepError as e:
+                skipped.append({"email": email, "reason": str(e)})
+                continue
+
+            remaining -= 1
+            existing_emails.add(email)
+            status = SmartCardRepresentativeService.invite_status_for(rep)
+            action = "created"
+            if rep.linked_user_id:
+                linked += 1
+                action = "linked"
+            elif rep.invite_id:
+                invited += 1
+                action = "invited"
+            created.append(
+                {
+                    "id": rep.id,
+                    "email": email,
+                    "name": rep.name,
+                    "action": action,
+                    "invite_status": status,
+                }
+            )
+
+        return {
+            "created_count": len(created),
+            "invited_count": invited,
+            "linked_count": linked,
+            "skipped_count": len(skipped),
+            "remaining_seats": remaining,
+            "seat_quantity": seats,
+            "active_reps": active + len(created),
+            "created": created,
+            "skipped": skipped,
+        }
+
+    @staticmethod
     def member_safe_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {k: v for k, v in (payload or {}).items() if k in MEMBER_EDIT_KEYS}
 
@@ -416,6 +627,8 @@ class SmartCardRepresentativeService:
             "scan_count": int(rep.scan_count or 0),
             "linked_user_id": rep.linked_user_id,
             "invite_id": rep.invite_id,
+            "invite_status": SmartCardRepresentativeService.invite_status_for(rep),
+            "card_incomplete": SmartCardRepresentativeService.card_incomplete(rep),
             "product_ids": SmartCardRepresentativeService.product_ids(db, representative_id=rep.id),
             "created_at": rep.created_at.isoformat() if rep.created_at else None,
             "updated_at": rep.updated_at.isoformat() if rep.updated_at else None,

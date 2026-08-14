@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -275,6 +275,80 @@ def create_rep(payload: dict, db: Session = Depends(get_db), principal=Depends(g
         return {"ok": True, "item": SmartCardRepresentativeService.serialize(db, rep)}
     except SmartCardRepError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/representatives/bulk-invite-template.xlsx")
+def download_bulk_invite_template(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import Response
+
+    _require_smart_card_enabled(db, principal.org_id)
+    _require_manage(db, principal)
+    content = SmartCardRepresentativeService.bulk_invite_template_xlsx()
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="smart-card-team-invite-template.xlsx"'},
+    )
+
+
+@router.post("/representatives/bulk-invite")
+async def bulk_invite_reps(
+    request: Request,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Upload Excel/CSV of emails (multipart file=), or JSON {emails:[{email,name}]}."""
+    from starlette.datastructures import UploadFile as StarletteUploadFile
+
+    _require_smart_card_enabled(db, principal.org_id)
+    _require_manage(db, principal)
+    rows: list[dict] = []
+    try:
+        content_type = (request.headers.get("content-type") or "").lower()
+        if "multipart/form-data" in content_type:
+            form = await request.form()
+            upload = form.get("file")
+            if not isinstance(upload, StarletteUploadFile):
+                raise HTTPException(status_code=400, detail="Missing file field")
+            content = await upload.read()
+            if not content:
+                raise HTTPException(status_code=400, detail="Empty file")
+            rows = SmartCardRepresentativeService.parse_invite_file(content, upload.filename)
+        else:
+            body = await request.json()
+            raw_list = body.get("emails") if isinstance(body, dict) else None
+            if not isinstance(raw_list, list):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Provide an Excel/CSV file or JSON body with emails: [{email, name?}]",
+                )
+            rows = [
+                {"email": str(x.get("email") or ""), "name": str(x.get("name") or "")}
+                if isinstance(x, dict)
+                else {"email": str(x or ""), "name": ""}
+                for x in raw_list
+            ]
+        if not rows:
+            raise HTTPException(status_code=400, detail="No valid email rows found")
+        result = SmartCardRepresentativeService.bulk_invite_from_emails(
+            db,
+            org_id=principal.org_id,
+            actor_user_id=principal.user_id,
+            rows=rows,
+        )
+        db.commit()
+        return {"ok": True, **result}
+    except SmartCardRepError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Could not process invites: {e}") from e
 
 
 @router.get("/representatives/{rep_id}")

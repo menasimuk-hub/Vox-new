@@ -528,6 +528,7 @@ class SmartCardBillingService:
         if free_until > now:
             return False
         entitled = max(0, int(getattr(sub, "seat_quantity", None) or 0))
+        prev_billable = SmartCardBillingService.effective_billable_seats(sub)
         sub.billable_seat_quantity = entitled
         sub.added_seats_free_until = None
         sub.updated_at = now
@@ -535,9 +536,110 @@ class SmartCardBillingService:
         if commit:
             db.commit()
             db.refresh(sub)
+            if entitled != prev_billable:
+                SmartCardBillingService.sync_gocardless_billable_amount(db, sub)
         else:
             db.flush()
         return True
+
+    @staticmethod
+    def sync_gocardless_billable_amount(db: Session, sub: Subscription) -> bool:
+        """Cancel+recreate managed GoCardless subscription at unit × billable seats.
+
+        Stripe/Airwallex renewals already use billable amount — no provider sync needed.
+        Skips when amount is 0 (trial / nothing billable yet).
+        """
+        if str(getattr(sub, "payment_provider", "") or "").lower() != "gocardless":
+            return False
+        from app.services.billing_lifecycle_service import BillingLifecycleService
+
+        if not BillingLifecycleService._gocardless_managed_subscription(sub):
+            return False
+
+        org = db.get(Organisation, sub.org_id)
+        plan = db.get(Plan, sub.plan_id) if sub.plan_id else None
+        if org is None or plan is None:
+            return False
+
+        billable = SmartCardBillingService.effective_billable_seats(sub)
+        currency, unit_minor, _interval = PlanPriceService.billing_amount_for_org(
+            db, org, plan, getattr(sub, "billing_interval", None)
+        )
+        amount_minor = int(unit_minor or 0) * max(0, billable)
+        if amount_minor <= 0:
+            logger.info(
+                "smart_card_gc_amount_sync_skip sub=%s reason=zero_amount billable=%s",
+                sub.id,
+                billable,
+            )
+            return False
+
+        try:
+            mandate_id = BillingService.resolve_org_mandate_id(db, sub.org_id)
+        except (GoCardlessConfigError, GoCardlessProviderError) as exc:
+            logger.warning("smart_card_gc_amount_sync_mandate_failed sub=%s err=%s", sub.id, exc)
+            return False
+        if not mandate_id:
+            logger.warning("smart_card_gc_amount_sync_skip sub=%s reason=no_mandate", sub.id)
+            return False
+
+        from app.models.user import User
+
+        user = db.get(User, getattr(sub, "user_id", None)) if getattr(sub, "user_id", None) else None
+        client_email = str(
+            (org.contact_email if org else "") or (user.email if user else "") or ""
+        ).strip()
+        if not client_email:
+            logger.warning("smart_card_gc_amount_sync_skip sub=%s reason=no_email", sub.id)
+            return False
+
+        start_date = None
+        nb = getattr(sub, "next_billing_date", None) or getattr(sub, "current_period_end", None)
+        if nb is not None:
+            from datetime import datetime, timedelta
+
+            try:
+                day = nb.date() if hasattr(nb, "date") else nb
+                if day > (datetime.utcnow() + timedelta(days=1)).date():
+                    start_date = day.isoformat()
+            except Exception:
+                start_date = None
+
+        old_ext = str(sub.external_subscription_id or "").strip()
+        try:
+            if old_ext:
+                BillingService._cancel_gocardless_subscription(db, old_ext)
+            new_ext = BillingService._create_gocardless_subscription_on_mandate(
+                db,
+                org_id=sub.org_id,
+                plan=plan,
+                mandate_id=mandate_id,
+                client_email=client_email,
+                billing_interval=str(sub.billing_interval or "monthly"),
+                amount_minor_override=amount_minor,
+                seat_quantity=billable,
+                start_date=start_date,
+            )
+            if not new_ext:
+                logger.warning("smart_card_gc_amount_sync_create_empty sub=%s amount=%s", sub.id, amount_minor)
+                return False
+            sub.external_subscription_id = new_ext
+            sub.billing_currency = currency
+            sub.amount_next_payment_minor = amount_minor
+            db.add(sub)
+            db.commit()
+            db.refresh(sub)
+            logger.info(
+                "smart_card_gc_amount_synced sub=%s billable=%s amount=%s currency=%s",
+                sub.id,
+                billable,
+                amount_minor,
+                currency,
+            )
+            return True
+        except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as exc:
+            logger.exception("smart_card_gc_amount_sync_failed sub=%s err=%s", sub.id, exc)
+            return False
 
     @staticmethod
     def effective_billable_seats(sub: Subscription) -> int:
@@ -642,6 +744,7 @@ class SmartCardBillingService:
         if seats == old_seats:
             return SmartCardBillingService.seats_payload(db, org_id)
 
+        prev_billable_for_sync = SmartCardBillingService.effective_billable_seats(sub)
         status = str(sub.status or "").lower()
         is_trial = status in {"trial", "trialing"}
         now = datetime.utcnow()
@@ -706,6 +809,11 @@ class SmartCardBillingService:
         db.add(sub)
         db.commit()
         db.refresh(sub)
+
+        new_billable_for_sync = SmartCardBillingService.effective_billable_seats(sub)
+        if new_billable_for_sync != prev_billable_for_sync:
+            SmartCardBillingService.sync_gocardless_billable_amount(db, sub)
+
         return SmartCardBillingService.seats_payload(db, org_id)
 
     @staticmethod

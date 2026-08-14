@@ -4,6 +4,7 @@ import { useSearch } from "@tanstack/react-router";
 import { toast } from "sonner";
 
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
+import { SmartCardChangeSeatsDialog } from "@/components/billing/smart-card-change-seats-dialog";
 import { StripeCardCheckoutDialog } from "@/components/billing/stripe-card-checkout-dialog";
 import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
 import { Button } from "@/components/ui/button";
@@ -116,6 +117,8 @@ export function SmartCardPlansPanel() {
     null,
   );
   const [stripeCheckout, setStripeCheckout] = React.useState<StripeElementsCheckout | null>(null);
+  const [seatsDialogOpen, setSeatsDialogOpen] = React.useState(false);
+  const [pendingSeatCount, setPendingSeatCount] = React.useState<number | null>(null);
   const completingRef = React.useRef(false);
 
   const orgCountry = orgQ.data?.country;
@@ -241,20 +244,6 @@ export function SmartCardPlansPanel() {
     });
   }, [hasActiveSub, currentSeats, items]);
 
-  const updateSeatsMut = useMutation({
-    mutationFn: (seat_quantity: number) =>
-      apiFetch("/smart-card/billing/seats", {
-        method: "PATCH",
-        body: JSON.stringify({ seat_quantity }),
-      }),
-    onSuccess: async () => {
-      toast.success("Seats updated");
-      await qc.invalidateQueries({ queryKey: ["smart-card"] });
-      await qc.invalidateQueries({ queryKey: ["billing"] });
-    },
-    onError: (e: Error) => toast.error(e.message || "Could not update seats"),
-  });
-
   return (
     <div className="space-y-4">
       <ActiveSubscriptionHeader
@@ -375,7 +364,7 @@ export function SmartCardPlansPanel() {
                     className="mt-auto w-full"
                     disabled={
                       hasActiveSub
-                        ? updateSeatsMut.isPending || sameSeats || !pkg.plan_id
+                        ? sameSeats || !pkg.plan_id
                         : checkoutMut.isPending || !pkg.plan_id || paymentMethods.length === 0
                     }
                     onClick={() => {
@@ -384,7 +373,8 @@ export function SmartCardPlansPanel() {
                           toast.message(`Already on ${currentSeats} seat${currentSeats === 1 ? "" : "s"}`);
                           return;
                         }
-                        updateSeatsMut.mutate(seats);
+                        setPendingSeatCount(seats);
+                        setSeatsDialogOpen(true);
                         return;
                       }
                       if (unit == null || total == null) {
@@ -415,9 +405,7 @@ export function SmartCardPlansPanel() {
                     {hasActiveSub
                       ? sameSeats
                         ? "Already on these seats"
-                        : updateSeatsMut.isPending
-                          ? "Updating…"
-                          : "Update seats"
+                        : "Update seats"
                       : checkoutMut.isPending
                         ? "Starting…"
                         : "Subscribe"}
@@ -474,6 +462,15 @@ export function SmartCardPlansPanel() {
             toast.error(e instanceof Error ? e.message : "Could not activate seats");
             throw e;
           }
+        }}
+      />
+
+      <SmartCardChangeSeatsDialog
+        open={seatsDialogOpen}
+        initialSeats={pendingSeatCount}
+        onOpenChange={(open) => {
+          setSeatsDialogOpen(open);
+          if (!open) setPendingSeatCount(null);
         }}
       />
     </div>

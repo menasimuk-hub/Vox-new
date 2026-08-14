@@ -4,17 +4,20 @@ import {
   CreditCard,
   Download,
   ExternalLink,
+  Mail,
   Package,
   Pencil,
   Plus,
   QrCode,
   Search,
   Trash2,
+  Upload,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
+import { SmartCardBulkInviteDialog } from "@/components/smart-card/bulk-invite-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +46,10 @@ type Rep = {
   web_url?: string;
   status?: string;
   scan_count?: number;
+  linked_user_id?: string | null;
+  invite_id?: string | null;
+  invite_status?: string;
+  card_incomplete?: boolean;
 };
 
 type Entitlement = {
@@ -59,12 +66,28 @@ export const Route = createFileRoute("/_app/smart-card/")({
   component: SmartCardSavedQrsPage,
 });
 
+function inviteStatusLabel(status?: string) {
+  switch (status) {
+    case "linked":
+      return "Linked";
+    case "pending_invite":
+      return "Pending invite";
+    case "needs_email":
+      return "Needs email";
+    case "needs_invite":
+      return "Needs invite";
+    default:
+      return null;
+  }
+}
+
 function SmartCardSavedQrsPage() {
   const qc = useQueryClient();
   const { session } = useSession();
   const canEdit = canManageTeam(normalizeOrgRole(session?.profile?.role));
   const [q, setQ] = React.useState("");
   const [archiveTarget, setArchiveTarget] = React.useState<Rep | null>(null);
+  const [bulkOpen, setBulkOpen] = React.useState(false);
 
   const listQ = useQuery({
     queryKey: ["smart-card", "reps", q],
@@ -93,21 +116,37 @@ function SmartCardSavedQrsPage() {
     onError: (e: Error) => toast.error(e.message || "Could not archive"),
   });
 
+  const resendMut = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/smart-card/representatives/${id}/resend-invite`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: async () => {
+      toast.success("Invite sent");
+      await qc.invalidateQueries({ queryKey: ["smart-card"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not resend invite"),
+  });
+
   const items = (listQ.data?.items || []).filter((r) => r.status !== "archived");
   const seats = entQ.data?.seat_quantity || 0;
   const active = entQ.data?.active_reps || items.length;
   const canAdd = canEdit && (seats === 0 || active < seats || seats > 0);
   const mode = entQ.data?.mode || "";
-  const needsPayActivate = Boolean(
-    canEdit && mode && mode !== "live",
-  );
+  const needsPayActivate = Boolean(canEdit && mode && mode !== "live");
+  const incompleteOwn = !canEdit && items.some((r) => r.card_incomplete);
 
   return (
     <div className="space-y-6" data-demo-target="smart-card-list">
       <PageHeader
         eyebrow="Smart Card QR"
         title="Saved QR codes"
-        description="Your representative QR codes — scan opens the digital card, then Get in touch (WhatsApp or web). Download, open, edit, or manage the product catalogue."
+        description={
+          canEdit
+            ? "Your representative QR codes — scan opens the digital card, then Get in touch (WhatsApp or web). Download, open, edit, or invite your team by Excel."
+            : "Your Smart Card QR and leads. Complete your card details so customers can reach you."
+        }
         actions={
           canEdit ? (
             <div className="flex flex-wrap gap-2">
@@ -118,12 +157,27 @@ function SmartCardSavedQrsPage() {
                   </Link>
                 </Button>
               ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={seats > 0 && active >= seats}
+                onClick={() => setBulkOpen(true)}
+              >
+                <Upload className="size-4" /> Invite team (Excel)
+              </Button>
               <Button asChild variant="outline" size="sm">
                 <Link to="/smart-card/catalogue">
                   <Package className="size-4" /> Manage products
                 </Link>
               </Button>
-              <Button asChild size="sm" variant={needsPayActivate ? "outline" : "default"} disabled={seats > 0 && active >= seats}>
+              <Button
+                asChild
+                size="sm"
+                variant={needsPayActivate ? "outline" : "default"}
+                disabled={seats > 0 && active >= seats}
+              >
                 <Link to="/smart-card/qrs/new">
                   <QrCode className="size-4" /> Add QR
                 </Link>
@@ -134,16 +188,33 @@ function SmartCardSavedQrsPage() {
                 </Link>
               </Button>
             </div>
+          ) : incompleteOwn && items[0] ? (
+            <Button asChild size="sm">
+              <Link to="/smart-card/qrs/$repId" params={{ repId: items[0].id }}>
+                <Pencil className="size-4" /> Complete your Smart Card
+              </Link>
+            </Button>
           ) : null
         }
       />
 
+      {!canEdit && incompleteOwn ? (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4 text-sm">
+            <p>Your card is incomplete — add mobile or website so customers can contact you.</p>
+            {items[0] ? (
+              <Button asChild size="sm">
+                <Link to="/smart-card/qrs/$repId" params={{ repId: items[0].id }}>
+                  Complete your Smart Card
+                </Link>
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {entQ.data ? (
-        <Card
-          className={cn(
-            needsPayActivate && "border-amber-500/40 bg-amber-500/5",
-          )}
-        >
+        <Card className={cn(needsPayActivate && "border-amber-500/40 bg-amber-500/5")}>
           <CardContent className="flex flex-wrap items-center gap-4 p-4 text-sm">
             <span>
               Status: <span className="font-medium capitalize">{entQ.data.mode.replace(/_/g, " ")}</span>
@@ -194,15 +265,22 @@ function SmartCardSavedQrsPage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-10 text-center">
             <QrCode className="size-10 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">No representative QR codes yet.</p>
+            <p className="text-sm text-muted-foreground">
+              {canEdit ? "No representative QR codes yet." : "No Smart Card linked to your account yet."}
+            </p>
             {canEdit ? (
-              <Button asChild>
-                <Link to="/smart-card/new">Create Smart Card QR</Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button type="button" variant="outline" onClick={() => setBulkOpen(true)}>
+                  Invite team (Excel)
+                </Button>
+                <Button asChild>
+                  <Link to="/smart-card/new">Create Smart Card QR</Link>
+                </Button>
+              </div>
             ) : (
               <p className="max-w-sm text-xs text-muted-foreground">
-                Ask your organisation admin to create your Smart Card and send an invite to your email.
-                After you accept, your card and leads will appear here.
+                Ask your organisation admin to invite your email. After you accept and set a password, your card appears
+                here so you can complete it.
               </p>
             )}
           </CardContent>
@@ -214,6 +292,7 @@ function SmartCardSavedQrsPage() {
               entQ.data && (entQ.data.mode === "preview" || entQ.data.mode === "preview_exhausted")
                 ? Math.max(0, (entQ.data.preview_tests_limit || 15) - (entQ.data.preview_tests_used || 0))
                 : null;
+            const statusLabel = inviteStatusLabel(rep.invite_status);
             return (
               <Card key={rep.id} className="overflow-hidden transition hover:-translate-y-0.5 hover:shadow-md">
                 <CardContent className="flex flex-col gap-3 p-4">
@@ -244,6 +323,19 @@ function SmartCardSavedQrsPage() {
                     <p className="truncate text-[11px] text-muted-foreground">
                       {rep.email || rep.mobile || "Representative"}
                     </p>
+                    {canEdit && statusLabel ? (
+                      <p
+                        className={cn(
+                          "mt-0.5 text-[11px] font-medium",
+                          rep.invite_status === "linked"
+                            ? "text-emerald-700 dark:text-emerald-400"
+                            : "text-amber-700 dark:text-amber-400",
+                        )}
+                      >
+                        {statusLabel}
+                        {rep.card_incomplete ? " · Incomplete card" : null}
+                      </p>
+                    ) : null}
                     <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
                       {rep.scan_count || 0} scans
                     </p>
@@ -271,6 +363,21 @@ function SmartCardSavedQrsPage() {
                         <Pencil className="size-3" /> Edit
                       </Link>
                     </Button>
+                    {canEdit &&
+                    rep.email &&
+                    (rep.invite_status === "pending_invite" ||
+                      rep.invite_status === "needs_invite" ||
+                      !rep.linked_user_id) ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        disabled={resendMut.isPending}
+                        onClick={() => resendMut.mutate(rep.id)}
+                      >
+                        <Mail className="size-3" /> Resend
+                      </Button>
+                    ) : null}
                     {canEdit ? (
                       <Button
                         size="sm"
@@ -298,6 +405,8 @@ function SmartCardSavedQrsPage() {
           to add QR codes.
         </p>
       ) : null}
+
+      <SmartCardBulkInviteDialog open={bulkOpen} onOpenChange={setBulkOpen} />
 
       <AlertDialog open={archiveTarget != null} onOpenChange={(open) => !open && setArchiveTarget(null)}>
         <AlertDialogContent>
