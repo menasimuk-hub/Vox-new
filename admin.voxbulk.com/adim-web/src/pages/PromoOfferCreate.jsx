@@ -15,6 +15,7 @@ const SERVICES = [
   { value: 'interview', label: 'Interview' },
   { value: 'customer_feedback', label: 'Customer Feedback' },
   { value: 'expo', label: 'Expo' },
+  { value: 'smart_card', label: 'Smart Card QR' },
 ]
 
 const BENEFITS = [

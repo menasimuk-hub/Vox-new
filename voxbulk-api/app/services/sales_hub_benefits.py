@@ -67,7 +67,7 @@ SERVICE_META: dict[str, dict[str, Any]] = {
         "options": [
             {"kind": "percent_discount", "label": "Percentage discount", "unit": "%", "default": 20},
             {"kind": "fixed_topup", "label": "Fixed top-up amount", "unit": "minor", "default": 2000},
-            {"kind": "free_days", "label": "Free trial days", "unit": "days", "default": 14},
+            {"kind": "free_days", "label": "Free trial days", "unit": "days", "default": 30},
         ],
     },
 }

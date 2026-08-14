@@ -26,6 +26,11 @@ type StripeJs = {
     redirect: "if_required";
     confirmParams?: { return_url?: string };
   }) => Promise<{ error?: { message?: string }; paymentIntent?: { id: string; status: string } }>;
+  confirmSetup: (opts: {
+    elements: StripeElements;
+    redirect: "if_required";
+    confirmParams?: { return_url?: string };
+  }) => Promise<{ error?: { message?: string }; setupIntent?: { id: string; status: string } }>;
 };
 
 type StripePaymentElement = {
@@ -60,6 +65,11 @@ export function StripeCardCheckoutDialog({
   description = "Enter your card details to activate the subscription. Your card is saved for renewals.",
   onPaid,
 }: Props) {
+  const isSetup = session?.mode === "setup" || Boolean(session?.payment_intent_id?.startsWith("seti_"));
+  const dialogTitle = isSetup ? "Save card for free trial" : title;
+  const dialogDescription = isSetup
+    ? "Enter your card to start the free trial. You will not be charged today — billing starts after the trial."
+    : description;
   const [ready, setReady] = React.useState(false);
   const [paying, setPaying] = React.useState(false);
   const [mountEl, setMountEl] = React.useState<HTMLDivElement | null>(null);
@@ -149,21 +159,36 @@ export function StripeCardCheckoutDialog({
     if (!ctx || !active) return;
     setPaying(true);
     try {
-      const result = await ctx.stripe.confirmPayment({
-        elements: ctx.elements,
-        redirect: "if_required",
-        confirmParams: { return_url: active.return_url },
-      });
-      if (result.error) {
-        toast.error(result.error.message || "Payment failed");
-        setPaying(false);
-        return;
+      if (isSetup) {
+        const result = await ctx.stripe.confirmSetup({
+          elements: ctx.elements,
+          redirect: "if_required",
+          confirmParams: { return_url: active.return_url },
+        });
+        if (result.error) {
+          toast.error(result.error.message || "Could not save card");
+          setPaying(false);
+          return;
+        }
+        const intentId = result.setupIntent?.id || ctx.intentId;
+        await onPaid(intentId);
+      } else {
+        const result = await ctx.stripe.confirmPayment({
+          elements: ctx.elements,
+          redirect: "if_required",
+          confirmParams: { return_url: active.return_url },
+        });
+        if (result.error) {
+          toast.error(result.error.message || "Payment failed");
+          setPaying(false);
+          return;
+        }
+        const intentId = result.paymentIntent?.id || ctx.intentId;
+        await onPaid(intentId);
       }
-      const intentId = result.paymentIntent?.id || ctx.intentId;
-      await onPaid(intentId);
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Payment failed");
+      toast.error(e instanceof Error ? e.message : isSetup ? "Could not save card" : "Payment failed");
     } finally {
       setPaying(false);
     }
@@ -175,9 +200,9 @@ export function StripeCardCheckoutDialog({
         <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4">
           <DialogTitle className="flex items-center gap-2">
             <CreditCard className="size-5 text-primary" />
-            {title}
+            {dialogTitle}
           </DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">
@@ -198,8 +223,10 @@ export function StripeCardCheckoutDialog({
             {paying ? (
               <>
                 <Loader2 className="mr-2 size-4 animate-spin" />
-                Paying…
+                {isSetup ? "Saving…" : "Paying…"}
               </>
+            ) : isSetup ? (
+              "Start free trial"
             ) : (
               "Pay now"
             )}

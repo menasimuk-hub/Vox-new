@@ -264,6 +264,26 @@ export function CustomerEditor({ customerId, onChanged }: Props) {
           <h4>
             <Gift size={16} /> Send offer to customer
           </h4>
+          <div className="sp-offer-promo" style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 8, background: "#f3eef8", border: "1px solid #e0d4f0", fontSize: 13, lineHeight: 1.45 }}>
+            <strong>Smart Card QR offer</strong>
+            <div style={{ color: "#4a4458", marginTop: 4 }}>
+              1 month free, then pay per seat. Customer enters a card at signup (not charged today). First charge after the trial based on seats × price. They can cancel or change seats anytime in Billing.
+            </div>
+            <button
+              type="button"
+              className="sp-btn-offer"
+              style={{ marginTop: 8 }}
+              disabled={busy}
+              onClick={() => {
+                const blurb =
+                  "Smart Card QR — 1 month free, then pay per seat. Add your card at signup (no charge today). After the trial you are billed seats × price each month. Cancel or change seats anytime from Billing.";
+                setOfferDetails(blurb);
+                void doAction("offer", { channel: "email", offer_details: blurb });
+              }}
+            >
+              <Mail size={14} /> Send Smart Card trial offer
+            </button>
+          </div>
           <div className="sp-offer-row">
             <div className="sp-group">
               <label>Promo code</label>
@@ -271,7 +291,7 @@ export function CustomerEditor({ customerId, onChanged }: Props) {
             </div>
             <div className="sp-group">
               <label>Offer details</label>
-              <input value={offerDetails} onChange={(e) => setOfferDetails(e.target.value)} placeholder="e.g. 20% off first order" />
+              <input value={offerDetails} onChange={(e) => setOfferDetails(e.target.value)} placeholder="e.g. Smart Card — 1 month free then pay per seat" />
             </div>
             <div className="sp-offer-buttons">
               <button className="sp-btn-offer" onClick={() => doAction("offer", { channel: "wa", offer_details: offerDetails })} disabled={busy}>

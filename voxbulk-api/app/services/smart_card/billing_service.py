@@ -23,6 +23,9 @@ from app.services.promo_discount_service import PromoDiscountService
 
 logger = logging.getLogger(__name__)
 
+# Product default: first month free, then pay per seat.
+DEFAULT_SMART_CARD_TRIAL_DAYS = 30
+
 
 class SmartCardBillingError(ValueError):
     pass
@@ -53,6 +56,20 @@ class SmartCardBillingService:
         return seats
 
     @staticmethod
+    def resolve_trial_days(db: Session, *, org_id: str, plan: Plan) -> int:
+        """Promo trial_days pending, else plan default, else product default (30)."""
+        peeked = PromoDiscountService.peek_amount(
+            db, org_id=org_id, service_kind=SMART_CARD_SERVICE_CODE, amount_minor=1
+        )
+        promo_trial = int(peeked.get("trial_days") or 0)
+        if promo_trial > 0:
+            return promo_trial
+        plan_default = int(getattr(plan, "trial_days_default", 0) or 0)
+        if plan_default > 0:
+            return plan_default
+        return DEFAULT_SMART_CARD_TRIAL_DAYS
+
+    @staticmethod
     def _resolve_card_provider(db: Session, *, org: Organisation, preferred: str | None = None) -> str:
         from app.services.airwallex_payment_service import AirwallexPaymentService
         from app.services.stripe_payment_service import StripePaymentService
@@ -76,6 +93,23 @@ class SmartCardBillingService:
         )
 
     @staticmethod
+    def _catalog_amount(
+        db: Session,
+        *,
+        org: Organisation,
+        plan: Plan,
+        seats: int,
+        billing_interval: str,
+    ) -> tuple[str, int, int, str]:
+        currency, unit_minor, interval = PlanPriceService.billing_amount_for_org(
+            db, org, plan, billing_interval
+        )
+        if unit_minor <= 0:
+            raise SmartCardBillingError("Plan price is not configured for your billing currency.")
+        amount_minor = int(unit_minor) * seats
+        return currency, unit_minor, amount_minor, interval or "monthly"
+
+    @staticmethod
     def _priced_amount(
         db: Session,
         *,
@@ -84,21 +118,20 @@ class SmartCardBillingService:
         seats: int,
         billing_interval: str,
         apply_promo: bool,
-    ) -> tuple[str, int, int, str, bool]:
-        currency, unit_minor, interval = PlanPriceService.billing_amount_for_org(
-            db, org, plan, billing_interval
+    ) -> tuple[str, int, int, str, bool, int]:
+        currency, unit_minor, amount_minor, interval = SmartCardBillingService._catalog_amount(
+            db, org=org, plan=plan, seats=seats, billing_interval=billing_interval
         )
-        if unit_minor <= 0:
-            raise SmartCardBillingError("Plan price is not configured for your billing currency.")
-        amount_minor = int(unit_minor) * seats
         promo_applied = False
+        trial_days = 0
         if apply_promo:
             discounted = PromoDiscountService.apply_and_consume(
                 db, org_id=org.id, service_kind=SMART_CARD_SERVICE_CODE, amount_minor=amount_minor
             )
             amount_minor = int(discounted["amount_minor"])
             promo_applied = bool(discounted.get("discount_applied"))
-        return currency, unit_minor, amount_minor, interval or "monthly", promo_applied
+            trial_days = int(discounted.get("trial_days") or 0)
+        return currency, unit_minor, amount_minor, interval, promo_applied, trial_days
 
     @staticmethod
     def start_gocardless_signup(
@@ -127,7 +160,8 @@ class SmartCardBillingService:
             )
         except (GoCardlessConfigError, GoCardlessProviderError, ValueError) as exc:
             raise SmartCardBillingError(str(exc)) from exc
-        return res
+        trial_days = SmartCardBillingService.resolve_trial_days(db, org_id=org_id, plan=plan)
+        return {**res, "trial_days": trial_days}
 
     @staticmethod
     def start_seat_checkout(
@@ -162,13 +196,109 @@ class SmartCardBillingService:
                     "Use Direct Debit checkout for GoCardless, or choose Card (Stripe)."
                 )
 
-        currency, unit_minor, amount_minor, resolved_interval, promo_applied = SmartCardBillingService._priced_amount(
-            db,
-            org=org,
-            plan=plan,
-            seats=seats,
-            billing_interval=interval,
-            apply_promo=True,
+        currency, unit_minor, catalog_minor, resolved_interval = SmartCardBillingService._catalog_amount(
+            db, org=org, plan=plan, seats=seats, billing_interval=interval
+        )
+        trial_days = SmartCardBillingService.resolve_trial_days(db, org_id=org.id, plan=plan)
+
+        # Percent/fixed promo without trial — peek then apply when charging now.
+        peeked = PromoDiscountService.peek_amount(
+            db, org_id=org.id, service_kind=SMART_CARD_SERVICE_CODE, amount_minor=catalog_minor
+        )
+        promo_trial = int(peeked.get("trial_days") or 0)
+        if promo_trial > 0:
+            trial_days = promo_trial
+
+        try:
+            prov = SmartCardBillingService._resolve_card_provider(db, org=org, preferred=preferred)
+        except SmartCardBillingError:
+            raise
+        except Exception as exc:
+            raise SmartCardBillingError(str(exc)) from exc
+
+        # Free trial: collect card (SetupIntent / zero-amount consent), charge later.
+        if trial_days > 0:
+            # Consume pending trial promo so it cannot be reused.
+            if peeked.get("discount_applied") and int(peeked.get("trial_days") or 0) > 0:
+                PromoDiscountService.apply_and_consume(
+                    db, org_id=org.id, service_kind=SMART_CARD_SERVICE_CODE, amount_minor=catalog_minor
+                )
+            try:
+                if prov == "airwallex":
+                    from app.services.airwallex_payment_service import AirwallexPaymentService
+
+                    if not AirwallexPaymentService.is_available(db):
+                        raise SmartCardBillingError("Airwallex is not configured")
+                    intent = AirwallexPaymentService.create_subscription_setup_intent(
+                        db,
+                        org,
+                        plan_id=plan.id,
+                        billing_interval=resolved_interval,
+                        service_code=SMART_CARD_SERVICE_CODE,
+                        customer_email=user_email,
+                        seat_quantity=seats,
+                        trial_days=trial_days,
+                        catalog_amount_minor=catalog_minor,
+                    )
+                else:
+                    from app.services.stripe_payment_service import StripePaymentService
+
+                    if not StripePaymentService.is_available(db):
+                        raise SmartCardBillingError("Stripe is not configured")
+                    intent = StripePaymentService.create_subscription_setup_intent(
+                        db,
+                        org,
+                        plan_id=plan.id,
+                        billing_interval=resolved_interval,
+                        service_code=SMART_CARD_SERVICE_CODE,
+                        customer_email=user_email,
+                        seat_quantity=seats,
+                        trial_days=trial_days,
+                        catalog_amount_minor=catalog_minor,
+                    )
+            except SmartCardBillingError:
+                raise
+            except Exception as exc:
+                raise SmartCardBillingError(str(exc)) from exc
+
+            intent_id = (
+                intent.get("setup_intent_id")
+                or intent.get("payment_intent_id")
+                or intent.get("intent_id")
+                or ""
+            )
+            return {
+                "provider": prov,
+                "currency": currency,
+                "amount_minor": 0,
+                "unit_minor": unit_minor,
+                "seat_quantity": seats,
+                "billing_interval": resolved_interval,
+                "client_secret": intent.get("client_secret"),
+                "intent_id": intent_id,
+                "payment_intent_id": intent_id,
+                "setup_intent_id": intent.get("setup_intent_id") or intent_id,
+                "checkout": intent,
+                "plan_id": plan.id,
+                "service_code": SMART_CARD_SERVICE_CODE,
+                "publishable_key": intent.get("publishable_key"),
+                "promo_discount_applied": bool(peeked.get("discount_applied")),
+                "trial_days": trial_days,
+                "mode": "setup",
+                "after_trial_amount_minor": catalog_minor,
+                "catalog_amount_minor": catalog_minor,
+            }
+
+        # Paid checkout (no trial): apply percent/fixed promo and charge now.
+        currency, unit_minor, amount_minor, resolved_interval, promo_applied, _ = (
+            SmartCardBillingService._priced_amount(
+                db,
+                org=org,
+                plan=plan,
+                seats=seats,
+                billing_interval=interval,
+                apply_promo=True,
+            )
         )
 
         if amount_minor <= 0:
@@ -186,6 +316,7 @@ class SmartCardBillingService:
                 service_code=SMART_CARD_SERVICE_CODE,
                 seat_quantity=seats,
                 amount_override_minor=0,
+                catalog_amount_minor=catalog_minor,
             )
             return {
                 "provider": "promo_discount",
@@ -199,14 +330,8 @@ class SmartCardBillingService:
                 "service_code": SMART_CARD_SERVICE_CODE,
                 "subscription_id": sub.id,
                 "promo_discount_applied": True,
+                "trial_days": 0,
             }
-
-        try:
-            prov = SmartCardBillingService._resolve_card_provider(db, org=org, preferred=preferred)
-        except SmartCardBillingError:
-            raise
-        except Exception as exc:
-            raise SmartCardBillingError(str(exc)) from exc
 
         try:
             if prov == "airwallex":
@@ -258,6 +383,8 @@ class SmartCardBillingService:
             "service_code": SMART_CARD_SERVICE_CODE,
             "publishable_key": intent.get("publishable_key"),
             "promo_discount_applied": promo_applied,
+            "trial_days": 0,
+            "mode": "payment",
         }
 
     @staticmethod
@@ -279,21 +406,40 @@ class SmartCardBillingService:
         if prov not in {"stripe", "airwallex"}:
             raise SmartCardBillingError("provider must be stripe or airwallex")
 
+        is_setup = pid.startswith("seti_") or False
         try:
             if prov == "stripe":
                 from app.services.stripe_payment_service import StripePaymentService
 
-                intent = StripePaymentService.retrieve_intent(db, pid)
+                if is_setup or pid.startswith("seti_"):
+                    is_setup = True
+                    intent = StripePaymentService.retrieve_setup_intent(db, pid)
+                else:
+                    intent = StripePaymentService.retrieve_intent(db, pid)
             else:
                 from app.services.airwallex_payment_service import AirwallexPaymentService
 
                 intent = AirwallexPaymentService.retrieve_intent(db, pid)
+                meta_preview = intent.get("metadata") or {}
+                if int(meta_preview.get("voxbulk_trial_days") or 0) > 0 and int(
+                    meta_preview.get("voxbulk_amount_minor") or -1
+                ) == 0:
+                    is_setup = True
         except Exception as exc:
             raise SmartCardBillingError(str(exc)) from exc
 
         status_raw = str(intent.get("status") or "")
         if prov == "airwallex":
-            ok = status_raw.upper() == "SUCCEEDED" or status_raw.lower() in {"succeeded", "processing"}
+            ok = status_raw.upper() == "SUCCEEDED" or status_raw.lower() in {
+                "succeeded",
+                "processing",
+                "requires_capture",
+            }
+            # Zero-amount / consent setup may land in REQUIRES_CUSTOMER_ACTION until confirmed via HPP.
+            if is_setup and status_raw.upper() in {"SUCCEEDED", "PENDING", "REQUIRES_CAPTURE"}:
+                ok = True
+        elif is_setup:
+            ok = status_raw.lower() in {"succeeded", "processing"}
         else:
             ok = status_raw.lower() in {"succeeded", "processing", "requires_capture"}
         if not ok:
@@ -324,6 +470,21 @@ class SmartCardBillingService:
             or meta.get("voxbulk_billing_interval")
             or "yearly"
         )
+        try:
+            trial_days = max(0, int(meta.get("voxbulk_trial_days") or 0))
+        except Exception:
+            trial_days = 0
+        try:
+            catalog_amount = int(meta.get("voxbulk_catalog_amount_minor") or 0) or None
+        except Exception:
+            catalog_amount = None
+
+        amount_override = None
+        if not is_setup and not trial_days:
+            try:
+                amount_override = int(meta.get("voxbulk_amount_minor") or 0) or None
+            except Exception:
+                amount_override = None
 
         sub = CardSubscriptionActivationService.activate_from_payment(
             db,
@@ -334,7 +495,9 @@ class SmartCardBillingService:
             billing_interval=interval,
             service_code=SMART_CARD_SERVICE_CODE,
             seat_quantity=seats,
-            amount_override_minor=int(meta.get("voxbulk_amount_minor") or 0) or None,
+            amount_override_minor=amount_override,
+            trial_days=trial_days,
+            catalog_amount_minor=catalog_amount,
         )
         if prov == "stripe":
             from app.services.stripe_subscription_service import StripeSubscriptionService
@@ -344,7 +507,102 @@ class SmartCardBillingService:
             from app.services.airwallex_subscription_service import AirwallexSubscriptionService
 
             AirwallexSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
+
+        from app.services.billing_finance_service import BillingFinanceService
+
+        BillingFinanceService.sync_subscription_billing_fields(db, sub)
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
         return sub
+
+    @staticmethod
+    def seats_payload(db: Session, org_id: str) -> dict[str, Any]:
+        from app.services.billing_access_service import BillingAccessService
+        from app.services.billing_finance_service import BillingFinanceService
+        from app.services.smart_card.company_service import SmartCardEntitlementService
+
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise SmartCardBillingError("Organisation not found")
+        sub = BillingAccessService.get_subscription(db, org_id, service_code=SMART_CARD_SERVICE_CODE)
+        if sub is None or str(sub.status or "").lower() not in {"active", "trial", "trialing", "past_due"}:
+            raise SmartCardBillingError("No active Smart Card subscription")
+        plan = db.get(Plan, sub.plan_id) if sub.plan_id else None
+        seats = int(sub.seat_quantity or 0)
+        active_reps = SmartCardEntitlementService.active_rep_count(db, org_id)
+        unit_minor = 0
+        currency = str(sub.billing_currency or org.billing_currency or "GBP")
+        if plan is not None:
+            currency, unit_minor, _ = PlanPriceService.billing_amount_for_org(
+                db, org, plan, sub.billing_interval
+            )
+        next_minor = int(unit_minor or 0) * max(seats, 1)
+        finance = BillingFinanceService.subscription_finance_dict(db, sub, org=org, plan=plan)
+        status = str(sub.status or "").lower()
+        return {
+            "seat_quantity": seats,
+            "active_representatives": active_reps,
+            "min_seats": max(1, active_reps),
+            "max_seats": 500,
+            "unit_price_minor": int(unit_minor or 0),
+            "currency": currency,
+            "estimated_next_amount_minor": next_minor,
+            "next_billing_date": (
+                sub.next_billing_date.isoformat()
+                if sub.next_billing_date
+                else (sub.current_period_end.isoformat() if sub.current_period_end else None)
+            ),
+            "status": status,
+            "is_trial": status in {"trial", "trialing"},
+            "billing_interval": getattr(sub, "billing_interval", None),
+            "plan_id": sub.plan_id,
+            "plan_name": plan.name if plan else None,
+            "finance": finance or None,
+        }
+
+    @staticmethod
+    def update_seats(db: Session, *, org_id: str, seat_quantity: int) -> dict[str, Any]:
+        """Change seat count on trial/active sub — next invoice only (no mid-cycle charge)."""
+        from app.services.billing_access_service import BillingAccessService
+        from app.services.billing_finance_service import BillingFinanceService
+        from app.services.smart_card.company_service import SmartCardEntitlementService
+
+        org = db.get(Organisation, org_id)
+        if org is None:
+            raise SmartCardBillingError("Organisation not found")
+        seats = SmartCardBillingService._normalize_seats(seat_quantity)
+        sub = BillingAccessService.get_subscription(db, org_id, service_code=SMART_CARD_SERVICE_CODE)
+        if sub is None or str(sub.status or "").lower() not in {"active", "trial", "trialing", "past_due"}:
+            raise SmartCardBillingError("No active Smart Card subscription")
+        if bool(getattr(sub, "cancel_at_period_end", False)):
+            raise SmartCardBillingError("Cannot change seats while cancellation is scheduled")
+        active_reps = SmartCardEntitlementService.active_rep_count(db, org_id)
+        if seats < active_reps:
+            raise SmartCardBillingError(
+                f"Cannot reduce below {active_reps} active representative(s). "
+                "Deactivate representatives first, then reduce seats."
+            )
+        plan = db.get(Plan, sub.plan_id)
+        if plan is None:
+            raise SmartCardBillingError("Subscription plan not found")
+        _currency, unit_minor, catalog_minor, _interval = SmartCardBillingService._catalog_amount(
+            db,
+            org=org,
+            plan=plan,
+            seats=seats,
+            billing_interval=str(sub.billing_interval or "monthly"),
+        )
+        sub.seat_quantity = seats
+        sub.amount_next_payment_minor = catalog_minor
+        BillingFinanceService.sync_subscription_billing_fields(db, sub)
+        from datetime import datetime
+
+        sub.updated_at = datetime.utcnow()
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        return SmartCardBillingService.seats_payload(db, org_id)
 
     @staticmethod
     def cancellation_payload(db: Session, org_id: str) -> dict[str, Any]:

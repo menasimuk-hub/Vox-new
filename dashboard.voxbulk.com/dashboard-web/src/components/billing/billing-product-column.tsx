@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { AllowanceProductPanel } from "@/components/billing/allowance-product-panel";
 import { PackageValuePoolBar } from "@/components/billing/package-value-pool-bar";
+import { SmartCardChangeSeatsDialog } from "@/components/billing/smart-card-change-seats-dialog";
 import { ProductCancellationActions } from "@/components/billing/subscription-cancellation-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -77,6 +78,7 @@ export function BillingProductColumn({
   overageBusy,
   onAllowOverageChange,
 }: Props) {
+  const [seatsOpen, setSeatsOpen] = React.useState(false);
   const Icon = meta.product === "feedback" ? Smile : meta.product === "smart_card" ? QrCode : Sparkles;
   const iconTint =
     meta.product === "feedback"
@@ -111,6 +113,11 @@ export function BillingProductColumn({
   const seats = finance?.seat_quantity != null && finance.seat_quantity > 0 ? finance.seat_quantity : null;
   const hasPlan = Boolean(finance?.plan_name || finance?.plan_code || isPayg || finance?.is_payg || planLabel);
   const cancelEnabled = showCancel && hasPlan && !(isPayg || finance?.is_payg);
+  const statusRaw = String(finance?.status || "").toLowerCase();
+  const isTrial = statusRaw === "trial" || statusRaw === "trialing";
+  const isPaidActive = statusRaw === "active" || statusRaw === "past_due";
+  const showChangeSeats =
+    meta.product === "smart_card" && hasPlan && !cancelScheduled && !(isPayg || finance?.is_payg);
 
   return (
     <Card className={cn("overflow-hidden ring-1", meta.tintClass, meta.ringClass)}>
@@ -134,6 +141,15 @@ export function BillingProductColumn({
                 {b.label}
               </Badge>
             ))}
+            {isTrial ? (
+              <Badge variant="default" className="text-[10px]">
+                Free trial
+              </Badge>
+            ) : isPaidActive ? (
+              <Badge variant="secondary" className="text-[10px]">
+                Active subscription
+              </Badge>
+            ) : null}
             {cancelScheduled ? (
               <Badge variant="secondary" className="text-[10px]">
                 Cancels at period end
@@ -177,9 +193,19 @@ export function BillingProductColumn({
               <p>
                 Next payment: <strong className="text-foreground">{nextAmount}</strong>
                 {nextDate ? <> · {nextDate}</> : null}
+                {isTrial ? (
+                  <span className="block text-xs">
+                    First charge after your free trial ends. Card on file is not charged today.
+                  </span>
+                ) : null}
               </p>
             )}
             <div className="flex flex-wrap items-center gap-3">
+              {showChangeSeats ? (
+                <Button size="sm" variant="link" className="h-auto p-0" onClick={() => setSeatsOpen(true)}>
+                  Change seats
+                </Button>
+              ) : null}
               <Button asChild size="sm" variant="link" className="h-auto p-0">
                 <Link to={meta.packagesLink} search={meta.packagesSearch}>
                   Change plan
@@ -195,6 +221,11 @@ export function BillingProductColumn({
         ) : (
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>No active subscription</p>
+            {meta.product === "smart_card" ? (
+              <p className="text-xs">
+                Offer: 1 month free, then pay per seat. Enter a card at signup — first charge after the trial.
+              </p>
+            ) : null}
             <Button asChild size="sm" variant="link" className="h-auto p-0">
               <Link to={meta.packagesLink} search={meta.packagesSearch}>
                 View packages →
@@ -246,6 +277,7 @@ export function BillingProductColumn({
         ) : null}
         {footerNote ? <div className="mt-3 border-t border-border/60 pt-3">{footerNote}</div> : null}
       </CardContent>
+      {showChangeSeats ? <SmartCardChangeSeatsDialog open={seatsOpen} onOpenChange={setSeatsOpen} /> : null}
     </Card>
   );
 }

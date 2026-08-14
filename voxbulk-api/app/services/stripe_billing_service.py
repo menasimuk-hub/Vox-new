@@ -79,6 +79,38 @@ class StripeBillingService:
         return data
 
     @staticmethod
+    def subscription_setup_data(
+        db: Session,
+        org: Organisation,
+        *,
+        plan_id: str,
+        billing_interval: str,
+        service_code: str,
+        customer_email: str,
+        seat_quantity: int | None = None,
+        trial_days: int = 0,
+        catalog_amount_minor: int = 0,
+    ) -> dict[str, Any]:
+        """SetupIntent payload — save card for trial without charging."""
+        customer_id = StripeBillingService.ensure_customer(db, org, email=customer_email)
+        data: dict[str, Any] = {
+            "customer": customer_id,
+            "usage": "off_session",
+            "automatic_payment_methods[enabled]": "true",
+            "metadata[voxbulk_org_id]": org.id,
+            "metadata[voxbulk_kind]": "subscription_checkout",
+            "metadata[voxbulk_plan_id]": plan_id,
+            "metadata[voxbulk_billing_interval]": billing_interval,
+            "metadata[voxbulk_service_code]": service_code,
+            "metadata[voxbulk_trial_days]": str(max(0, int(trial_days or 0))),
+            "metadata[voxbulk_catalog_amount_minor]": str(max(0, int(catalog_amount_minor or 0))),
+            "metadata[voxbulk_amount_minor]": "0",
+        }
+        if seat_quantity is not None and int(seat_quantity) > 0:
+            data["metadata[voxbulk_seat_quantity]"] = str(int(seat_quantity))
+        return data
+
+    @staticmethod
     def parse_intent_credentials(intent: dict[str, Any]) -> dict[str, str | None]:
         customer_raw = intent.get("customer")
         if isinstance(customer_raw, dict):
@@ -105,6 +137,30 @@ class StripeBillingService:
             sub.external_customer_id = str(creds["customer_id"])
         if creds.get("payment_method_id"):
             sub.external_subscription_id = str(creds["payment_method_id"])
+            sub.mandate_status = "verified"
+        sub.updated_at = datetime.utcnow()
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        return sub
+
+    @staticmethod
+    def sync_credentials_from_setup_intent(db: Session, sub: Subscription, *, setup_intent_id: str) -> Subscription:
+        intent = StripePaymentService.retrieve_setup_intent(db, setup_intent_id)
+        customer_raw = intent.get("customer")
+        if isinstance(customer_raw, dict):
+            customer_id = str(customer_raw.get("id") or "").strip() or None
+        else:
+            customer_id = str(customer_raw or "").strip() or None
+        pm_raw = intent.get("payment_method")
+        if isinstance(pm_raw, dict):
+            payment_method_id = str(pm_raw.get("id") or "").strip() or None
+        else:
+            payment_method_id = str(pm_raw or "").strip() or None
+        if customer_id:
+            sub.external_customer_id = customer_id
+        if payment_method_id:
+            sub.external_subscription_id = payment_method_id
             sub.mandate_status = "verified"
         sub.updated_at = datetime.utcnow()
         db.add(sub)

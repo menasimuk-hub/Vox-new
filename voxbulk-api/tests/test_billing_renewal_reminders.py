@@ -73,6 +73,19 @@ def test_renewal_reminder_sends_for_matching_day_window():
         send_mock.assert_not_called()
 
 
+def test_renewal_reminder_sends_for_three_day_window():
+    org_id, _sub_id = _seed_org_with_sub(days_until_renewal=3)
+    with get_sessionmaker()() as db, patch(
+        "app.services.billing_refund_email_service.BillingRefundEmailService.send_renewal_reminder",
+        return_value=True,
+    ) as send_mock:
+        stats = BillingRenewalReminderService.process_due_renewal_reminders(db)
+        assert stats["sent"] == 1
+        send_mock.assert_called_once()
+        assert send_mock.call_args.kwargs["days_remaining"] == 3
+        assert send_mock.call_args.kwargs["org"].id == org_id
+
+
 def test_finalize_cancellation_notifies_subscription_ended():
     from app.services.subscription_cancellation_service import (
         CANCELLATION_SCHEDULED,

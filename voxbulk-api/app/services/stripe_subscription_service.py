@@ -153,7 +153,10 @@ class StripeSubscriptionService:
     def sync_checkout_credentials(db: Session, sub: Subscription, *, payment_intent_id: str) -> Subscription:
         from app.services.stripe_billing_service import StripeBillingService
 
-        return StripeBillingService.sync_credentials_from_intent(db, sub, payment_intent_id=payment_intent_id)
+        pid = str(payment_intent_id or "").strip()
+        if pid.startswith("seti_"):
+            return StripeBillingService.sync_credentials_from_setup_intent(db, sub, setup_intent_id=pid)
+        return StripeBillingService.sync_credentials_from_intent(db, sub, payment_intent_id=pid)
 
     @staticmethod
     def process_due_renewal(

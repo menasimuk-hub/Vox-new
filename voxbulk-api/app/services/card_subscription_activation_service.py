@@ -68,8 +68,14 @@ class CardSubscriptionActivationService:
         service_code: str | None = None,
         seat_quantity: int | None = None,
         amount_override_minor: int | None = None,
+        trial_days: int = 0,
+        catalog_amount_minor: int | None = None,
     ) -> Subscription:
-        """Idempotent: upsert subscription, issue activation invoice, confirm first payment."""
+        """Idempotent: upsert subscription, issue activation invoice, confirm first payment.
+
+        When trial_days > 0, activates as status=trial with no charge invoice; amount_next_payment
+        is the full catalog (seats × unit) for the first paid renewal.
+        """
         from app.services.invoice_service import InvoiceService
         from app.services.usage_wallet_service import UsageWalletService
 
@@ -91,8 +97,17 @@ class CardSubscriptionActivationService:
             amount_minor = int(amount_minor or 0) * seats
         if amount_override_minor is not None and int(amount_override_minor) > 0:
             amount_minor = int(amount_override_minor)
+        trial = max(0, int(trial_days or 0))
+        catalog = (
+            int(catalog_amount_minor)
+            if catalog_amount_minor is not None and int(catalog_amount_minor) > 0
+            else int(amount_minor or 0)
+        )
+        if trial > 0:
+            # Trial: nothing due now; next invoice is full catalog.
+            amount_minor = 0
         now = datetime.utcnow()
-        period_days = 365 if interval == "yearly" else 30
+        period_days = trial if trial > 0 else (365 if interval == "yearly" else 30)
 
         sub = BillingAccessService.get_subscription(db, org.id, service_code=svc)
         if (
@@ -111,16 +126,17 @@ class CardSubscriptionActivationService:
             sub = Subscription(org_id=org.id, plan_id=plan.id, service_code=svc, created_at=now)
 
         sub.plan_id = plan.id
-        sub.status = "active"
+        sub.status = "trial" if trial > 0 else "active"
         sub.payment_provider = prov
         sub.billing_currency = currency
         sub.billing_interval = interval
-        sub.amount_next_payment_minor = int(amount_minor or 0)
+        sub.amount_next_payment_minor = catalog if trial > 0 else int(amount_minor or 0)
         sub.external_subscription_id = pid[:255]
         sub.current_period_end = now + timedelta(days=period_days)
+        sub.next_billing_date = sub.current_period_end
         if seats is not None and seats > 0:
             sub.seat_quantity = seats
-        if sub.first_payment_at is None:
+        if trial <= 0 and sub.first_payment_at is None:
             sub.first_payment_at = now
         sub.updated_at = now
         db.add(sub)
@@ -130,7 +146,7 @@ class CardSubscriptionActivationService:
         email = UsageWalletService.get_org_billing_email(db, org.id) or (org.contact_email or "")
         ext_inv = CardSubscriptionActivationService.external_invoice_id(prov, pid)
         # Always try to issue an invoice for paid activations (email resolved inside issue_from_payment).
-        if amount_minor > 0:
+        if amount_minor > 0 and trial <= 0:
             interval_label = "yearly" if interval == "yearly" else "monthly"
             qty = seats if seats and seats > 0 else 1
             unit = int(amount_minor // qty) if qty > 1 else int(amount_minor)
@@ -207,6 +223,20 @@ class CardSubscriptionActivationService:
                 amount_override = int(raw_amt)
         except Exception:
             amount_override = None
+        trial_days = 0
+        try:
+            raw_trial = meta.get("voxbulk_trial_days")
+            if raw_trial is not None and str(raw_trial).strip():
+                trial_days = max(0, int(raw_trial))
+        except Exception:
+            trial_days = 0
+        catalog_amount = None
+        try:
+            raw_cat = meta.get("voxbulk_catalog_amount_minor")
+            if raw_cat is not None and str(raw_cat).strip():
+                catalog_amount = int(raw_cat)
+        except Exception:
+            catalog_amount = None
         sub = CardSubscriptionActivationService.activate_from_payment(
             db,
             org=org,
@@ -217,5 +247,7 @@ class CardSubscriptionActivationService:
             service_code=parsed["service_code"],
             seat_quantity=seats,
             amount_override_minor=amount_override,
+            trial_days=trial_days,
+            catalog_amount_minor=catalog_amount,
         )
         return {"ok": True, "subscription_activated": True, "subscription_id": sub.id}

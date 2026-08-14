@@ -20,7 +20,7 @@ from app.services.org_audit_service import OrgAuditService
 
 logger = logging.getLogger(__name__)
 
-RENEWAL_REMINDER_DAYS = (14, 7, 1)
+RENEWAL_REMINDER_DAYS = (7, 3)
 ACTIVE_SUBSCRIPTION_STATUSES = frozenset({"active", "trial", "pending_first_payment"})
 
 

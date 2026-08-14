@@ -18,6 +18,7 @@ type SeatCheckoutResponse = {
   client_secret?: string;
   intent_id?: string;
   payment_intent_id?: string;
+  setup_intent_id?: string;
   publishable_key?: string;
   plan_id: string;
   paid?: boolean;
@@ -25,6 +26,9 @@ type SeatCheckoutResponse = {
   checkout?: Record<string, unknown> & { environment?: string };
   needs_stripe_elements?: boolean;
   return_url?: string;
+  trial_days?: number;
+  mode?: "setup" | "payment";
+  after_trial_amount_minor?: number;
 };
 
 export async function startSmartCardSeatCheckout(
@@ -48,7 +52,7 @@ export async function startSmartCardSeatCheckout(
     return result;
   }
 
-  const intentId = result.intent_id || result.payment_intent_id || "";
+  const intentId = result.intent_id || result.setup_intent_id || result.payment_intent_id || "";
   if (!intentId) throw new Error("Checkout did not return a payment intent");
 
   sessionStorage.setItem(CARD_SMART_CARD_PLAN_KEY, planId);
@@ -87,6 +91,8 @@ export async function startSmartCardSeatCheckout(
     currency: result.currency,
     amount_minor: result.amount_minor,
     billing_interval: result.billing_interval || billingInterval,
+    mode: result.mode === "setup" || intentId.startsWith("seti_") ? "setup" : "payment",
+    trial_days: result.trial_days || 0,
   };
 }
 

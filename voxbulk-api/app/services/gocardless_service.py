@@ -1308,6 +1308,10 @@ class BillingService:
             )
             trial_days = int(discounted.get("trial_days") or 0)
             charge_minor = int(discounted["amount_minor"])
+        # Smart Card product default: 1 month free when no promo trial.
+        if service_code_preview == "smart_card" and trial_days <= 0:
+            plan_default = int(getattr(plan, "trial_days_default", 0) or 0)
+            trial_days = plan_default if plan_default > 0 else 30
         start_date = None
         if trial_days > 0:
             start_date = (datetime.utcnow() + timedelta(days=trial_days)).date().isoformat()

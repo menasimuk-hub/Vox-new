@@ -364,6 +364,7 @@ class SmartCardSeedService:
                 is_active=True,
                 is_featured=bool(pkg.get("featured")),
                 sort_order=int(pkg["order"]),
+                trial_days_default=30,
                 created_at=now,
                 updated_at=now,
             )
@@ -379,6 +380,8 @@ class SmartCardSeedService:
             plan.is_active = True
             plan.is_featured = bool(pkg.get("featured"))
             plan.sort_order = int(pkg["order"])
+            if int(getattr(plan, "trial_days_default", 0) or 0) <= 0:
+                plan.trial_days_default = 30
             plan.updated_at = now
             db.add(plan)
 

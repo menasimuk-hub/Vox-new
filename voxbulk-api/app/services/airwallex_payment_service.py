@@ -248,6 +248,70 @@ class AirwallexPaymentService:
         }
 
     @staticmethod
+    def create_subscription_setup_intent(
+        db: Session,
+        org: Organisation,
+        *,
+        plan_id: str,
+        billing_interval: str,
+        service_code: str = "voxbulk",
+        customer_email: str = "",
+        seat_quantity: int | None = None,
+        trial_days: int = 0,
+        catalog_amount_minor: int = 0,
+    ) -> dict[str, Any]:
+        """Collect card for trial without charging (zero-amount PaymentIntent + payment consent)."""
+        from app.services.airwallex_billing_service import AirwallexBillingService
+        from app.services.billing_currency import resolve_org_currency
+
+        customer_id = AirwallexBillingService.ensure_customer(db, org, email=customer_email)
+        currency = resolve_org_currency(db, org, persist=True)
+        meta = {
+            "voxbulk_org_id": org.id,
+            "voxbulk_kind": "subscription_checkout",
+            "voxbulk_plan_id": plan_id,
+            "voxbulk_billing_interval": billing_interval,
+            "voxbulk_service_code": service_code,
+            "voxbulk_amount_minor": "0",
+            "voxbulk_trial_days": str(max(0, int(trial_days or 0))),
+            "voxbulk_catalog_amount_minor": str(max(0, int(catalog_amount_minor or 0))),
+        }
+        if seat_quantity is not None and int(seat_quantity) > 0:
+            meta["voxbulk_seat_quantity"] = str(int(seat_quantity))
+        payload: dict[str, Any] = {
+            "request_id": str(uuid.uuid4()),
+            "amount": 0,
+            "currency": currency,
+            "customer_id": customer_id,
+            "merchant_order_id": f"voxbulk-sub-setup-{org.id[:8]}-{int(time.time())}",
+            "metadata": meta,
+            "descriptor": "VoxBulk card setup",
+            "payment_consent": {
+                "next_triggered_by": "merchant",
+                "merchant_trigger_reason": "scheduled",
+            },
+        }
+        intent = AirwallexPaymentService._request(
+            db,
+            "POST",
+            "/api/v1/pa/payment_intents/create",
+            payload=payload,
+        )
+        return {
+            "provider": "airwallex",
+            "payment_intent_id": str(intent.get("id") or ""),
+            "setup_intent_id": str(intent.get("id") or ""),
+            "client_secret": str(intent.get("client_secret") or ""),
+            "amount_minor": 0,
+            "currency": currency,
+            "status": str(intent.get("status") or ""),
+            "environment": str(AirwallexPaymentService.get_config(db).get("environment") or "demo"),
+            "customer_id": customer_id,
+            "mode": "setup",
+            "trial_days": max(0, int(trial_days or 0)),
+        }
+
+    @staticmethod
     def create_topup_intent(db: Session, org: Organisation, *, amount_minor: int) -> dict[str, Any]:
         currency = resolve_org_currency(db, org, persist=True)
         request_id = str(uuid.uuid4())

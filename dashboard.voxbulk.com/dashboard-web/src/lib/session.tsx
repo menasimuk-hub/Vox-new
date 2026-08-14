@@ -240,7 +240,9 @@ function GoCardlessReturnHandler({
 
     if (params?.billing === "card_success") {
       clearBillingQuery();
-      const paymentIntentId = new URLSearchParams(window.location.search).get("payment_intent") || "";
+      const searchParams = new URLSearchParams(window.location.search);
+      const paymentIntentId =
+        searchParams.get("setup_intent") || searchParams.get("payment_intent") || "";
       if (!paymentIntentId) {
         toast.error("Payment completed but checkout session was not found.");
         return;

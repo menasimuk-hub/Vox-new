@@ -191,7 +191,7 @@ SERVICE_TEMPLATE_SEEDS = [
     ("surveys", "Surveys — 3 survey contacts", "survey_credits", None, 0, 3, 0, 20),
     ("feedback", "Feedback — Starter trial 14 days", "subscription_trial", "cf_starter_gb", 14, 0, 0, 30),
     ("expo", "Expo — 3-day trial", "expo_trial", "expo_day3", 3, 0, 0, 40),
-    ("smart_card", "Smart Card — 1 seat credit", "smart_card_credit", "smart_card_seat", 0, 0, 0, 50),
+    ("smart_card", "Smart Card — 1 month free then pay per seat", "smart_card_trial", "smart_card_seat", 30, 0, 0, 50),
 ]
 
 
@@ -241,4 +241,19 @@ def ensure_default_offer_templates(db: Session) -> bool:
         settings.updated_at = now
         db.add(settings)
         db.commit()
+
+    # Soft-upgrade legacy Smart Card seed (1 seat credit → month-free trial messaging).
+    for row in list_templates(db):
+        if str(getattr(row, "service_code", "") or "").strip().lower() != "smart_card":
+            continue
+        if str(row.offer_type or "") == "smart_card_credit" and int(row.trial_days or 0) <= 0:
+            row.offer_type = "smart_card_trial"
+            row.name = "Smart Card — 1 month free then pay per seat"
+            row.trial_days = 30
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            db.commit()
+            created = True
+        break
+
     return created

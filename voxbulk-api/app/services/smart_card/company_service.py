@@ -67,7 +67,7 @@ class SmartCardEntitlementService:
                 .where(
                     Subscription.org_id == org_id,
                     Subscription.service_code == SMART_CARD_SERVICE_CODE,
-                    Subscription.status.in_(("active", "trialing", "past_due")),
+                    Subscription.status.in_(("active", "trial", "trialing", "past_due")),
                 )
                 .order_by(Subscription.created_at.desc())
             )

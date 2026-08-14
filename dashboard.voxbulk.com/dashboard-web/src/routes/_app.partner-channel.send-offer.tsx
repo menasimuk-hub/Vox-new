@@ -45,7 +45,9 @@ type SendResponse = {
 
 function PartnerSendOffer() {
   const [file, setFile] = React.useState<File | null>(null);
-  const [offerDetails, setOfferDetails] = React.useState("Special VoxBulk partner offer");
+  const [offerDetails, setOfferDetails] = React.useState(
+    "Smart Card QR — 1 month free, then pay per seat. Add a card at signup (no charge today). After the trial you are billed seats × price each month.",
+  );
   const [preview, setPreview] = React.useState<PreviewResponse | null>(null);
   const [result, setResult] = React.useState<SendResponse | null>(null);
   const [busy, setBusy] = React.useState<"preview" | "send" | null>(null);
@@ -205,9 +207,23 @@ function PartnerSendOffer() {
               rows={8}
               value={offerDetails}
               onChange={(e) => setOfferDetails(e.target.value)}
-              placeholder="e.g. Exclusive partner welcome — £20 wallet credit on signup"
+              placeholder="e.g. Smart Card — 1 month free then pay per seat"
               className="min-h-[180px] resize-none"
             />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setOfferDetails(
+                    "Smart Card QR — 1 month free, then pay per seat. Add a card at signup (no charge today). After the trial you are billed seats × price each month. Cancel or change seats anytime from Billing.",
+                  )
+                }
+              >
+                Use Smart Card trial offer
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">
               Recipients get the standard VoxBulk offer email with your personal signup link. Duplicate emails in the
               file are ignored.

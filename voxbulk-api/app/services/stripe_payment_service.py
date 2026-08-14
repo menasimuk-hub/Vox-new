@@ -130,6 +130,54 @@ class StripePaymentService:
         }
 
     @staticmethod
+    def create_subscription_setup_intent(
+        db: Session,
+        org: Organisation,
+        *,
+        plan_id: str,
+        billing_interval: str,
+        service_code: str = "voxbulk",
+        customer_email: str = "",
+        seat_quantity: int | None = None,
+        trial_days: int = 0,
+        catalog_amount_minor: int = 0,
+    ) -> dict[str, Any]:
+        """Collect card for a free trial without charging (SetupIntent)."""
+        from app.services.billing_currency import resolve_org_currency
+        from app.services.stripe_billing_service import StripeBillingService
+
+        data = StripeBillingService.subscription_setup_data(
+            db,
+            org,
+            plan_id=plan_id,
+            billing_interval=billing_interval,
+            service_code=service_code,
+            customer_email=customer_email,
+            seat_quantity=seat_quantity,
+            trial_days=trial_days,
+            catalog_amount_minor=catalog_amount_minor,
+        )
+        intent = StripePaymentService._request(db, "POST", "/setup_intents", data=data)
+        currency = resolve_org_currency(db, org, persist=True)
+        return {
+            "provider": "stripe",
+            "setup_intent_id": str(intent.get("id") or ""),
+            "payment_intent_id": str(intent.get("id") or ""),
+            "client_secret": str(intent.get("client_secret") or ""),
+            "publishable_key": StripePaymentService.publishable_key(db),
+            "amount_minor": 0,
+            "currency": currency,
+            "status": str(intent.get("status") or ""),
+            "customer_id": data.get("customer"),
+            "mode": "setup",
+            "trial_days": max(0, int(trial_days or 0)),
+        }
+
+    @staticmethod
+    def retrieve_setup_intent(db: Session, setup_intent_id: str) -> dict[str, Any]:
+        return StripePaymentService._request(db, "GET", f"/setup_intents/{setup_intent_id}")
+
+    @staticmethod
     def create_topup_intent(db: Session, org: Organisation, *, amount_minor: int) -> dict[str, Any]:
         return StripePaymentService._create_payment_intent(
             db,

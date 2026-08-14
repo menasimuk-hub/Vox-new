@@ -905,6 +905,34 @@ class PromoOfferService:
                 db.add(existing)
             return
 
+        if sk == "smart_card":
+            days = max(1, amount or int(row.trial_days or 30))
+            from app.services.org_enabled_services import (
+                parse_enabled_services,
+                serialize_enabled_services,
+            )
+
+            allowed = parse_enabled_services(org.allowed_services_json)
+            enabled = parse_enabled_services(org.enabled_services_json)
+            allowed["smart_card"] = True
+            enabled["smart_card"] = True
+            org.allowed_services_json = serialize_enabled_services(allowed)
+            org.enabled_services_json = serialize_enabled_services(enabled)
+            db.add(org)
+            PromoOfferService._grant_discount(
+                db,
+                org_id=org.id,
+                row=row,
+                benefit={
+                    "benefit_kind": BENEFIT_DISCOUNT,
+                    "service_kind": "smart_card",
+                    "discount_type": "trial_days",
+                    "discount_value": days,
+                    "usage_amount": 0,
+                },
+            )
+            return
+
         # Core package: store a pending trial for subscribe checkout (never auto-assign Starter).
         plan_code = (row.plan_code or "").strip().lower()
         days = max(1, int(row.trial_days or amount or 0))

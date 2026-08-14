@@ -24,9 +24,15 @@ export const SALES_OFFER_TYPES = [
     icon: 'ti-building-store',
   },
   {
+    value: 'smart_card_trial',
+    label: 'Smart Card — 1 month free',
+    blurb: '1 month free then pay per seat (card at signup, charged after trial)',
+    icon: 'ti-id',
+  },
+  {
     value: 'smart_card_credit',
     label: 'Smart Card credit',
-    blurb: 'Smart Card seat credit',
+    blurb: 'Smart Card seat credit (legacy)',
     icon: 'ti-id',
   },
 ]
@@ -47,6 +53,10 @@ export function offerSummary({ offerType, planCode, trialDays, surveyContacts, i
   }
   if (offerType === 'interview_credits') {
     return `${interviewContacts} free interview${Number(interviewContacts) === 1 ? '' : 's'}`
+  }
+  if (offerType === 'smart_card_trial' || offerType === 'smart_card_credit') {
+    const days = Number(trialDays) || 30
+    return `Smart Card QR · ${days}-day free trial then pay per seat`
   }
   const plan = plans.find((p) => p.code === planCode)
   const planName = plan?.name || planCode || 'Plan'

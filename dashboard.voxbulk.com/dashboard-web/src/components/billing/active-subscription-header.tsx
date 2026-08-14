@@ -95,11 +95,31 @@ export function ActiveSubscriptionHeader({
             </p>
           </div>
           <div className="flex flex-wrap gap-1">
-            {finance?.status ? (
-              <Badge variant="secondary" className="text-[10px] capitalize">
-                {String(finance.status).replace(/_/g, " ")}
-              </Badge>
-            ) : null}
+            {(() => {
+              const st = String(finance?.status || "").toLowerCase();
+              if (st === "trial" || st === "trialing") {
+                return (
+                  <Badge variant="default" className="text-[10px]">
+                    Free trial
+                  </Badge>
+                );
+              }
+              if (st === "active" || st === "past_due") {
+                return (
+                  <Badge variant="secondary" className="text-[10px]">
+                    Active subscription
+                  </Badge>
+                );
+              }
+              if (finance?.status) {
+                return (
+                  <Badge variant="secondary" className="text-[10px] capitalize">
+                    {String(finance.status).replace(/_/g, " ")}
+                  </Badge>
+                );
+              }
+              return null;
+            })()}
             {finance?.cancel_at_period_end ? (
               <Badge variant="outline" className="text-[10px]">
                 Cancels at period end

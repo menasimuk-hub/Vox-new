@@ -101,6 +101,7 @@ export function SmartCardPlansPanel() {
   const search = useSearch({ strict: false }) as {
     billing?: string;
     payment_intent?: string;
+    setup_intent?: string;
     redirect_flow_id?: string;
   };
   const qc = useQueryClient();
@@ -165,9 +166,11 @@ export function SmartCardPlansPanel() {
     }
 
     const pi =
+      search.setup_intent ||
       search.payment_intent ||
       (typeof window !== "undefined"
-        ? new URLSearchParams(window.location.search).get("payment_intent")
+        ? new URLSearchParams(window.location.search).get("setup_intent") ||
+          new URLSearchParams(window.location.search).get("payment_intent")
         : null);
     if (!pi) return;
     if (search.billing && search.billing !== "card_success") return;
@@ -176,13 +179,14 @@ export function SmartCardPlansPanel() {
       try {
         await completeSmartCardSeatCheckout(pi);
         toast.success("Seats activated");
+        clearSmartCardCardCheckoutState();
         await qc.invalidateQueries({ queryKey: ["smart-card"] });
         await qc.invalidateQueries({ queryKey: ["billing"] });
       } catch (e: unknown) {
         toast.error(e instanceof Error ? e.message : "Could not activate seats");
       }
     })();
-  }, [search.billing, search.payment_intent, search.redirect_flow_id, qc]);
+  }, [search.billing, search.payment_intent, search.setup_intent, search.redirect_flow_id, qc]);
 
   const checkoutMut = useMutation({
     mutationFn: async ({
@@ -229,9 +233,19 @@ export function SmartCardPlansPanel() {
         tintClass={tint.soft}
       />
 
+      <Card className="border-violet-200/60 bg-violet-50/40">
+        <CardContent className="space-y-1 p-4 text-sm">
+          <p className="font-medium text-foreground">Offer: 1 month free, then pay per seat</p>
+          <p className="text-muted-foreground">
+            Choose seats and add a payment method at signup — you are not charged today. After the trial,
+            billing is seats × price each cycle. Change seats anytime; the next invoice updates automatically.
+          </p>
+        </CardContent>
+      </Card>
+
       <p className="text-xs text-muted-foreground">
-        Flat {currencySym}5/seat/month (local equivalent). Choose Direct Debit or card at checkout; yearly includes 20%
-        off.
+        Flat {currencySym}5/seat/month (local equivalent). First month free. Choose Direct Debit or card at
+        checkout; yearly includes 20% off after the trial.
       </p>
 
       <BillingIntervalToggle value={billingInterval} onChange={setBillingInterval} />
@@ -285,8 +299,11 @@ export function SmartCardPlansPanel() {
                   </div>
                   {total != null ? (
                     <p className="text-foreground">
-                      Total due today: {sym}
-                      {total.toFixed(0)}
+                      Due today: {sym}0{" "}
+                      <span className="text-muted-foreground">
+                        (then {sym}
+                        {total.toFixed(0)} / {billingInterval === "yearly" ? "year" : "month"} after trial)
+                      </span>
                     </p>
                   ) : null}
                   <Button

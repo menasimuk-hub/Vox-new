@@ -20,11 +20,11 @@ from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
+# Shared billing renewal reminders cover 7d/3d charge notices for all products including Smart Card.
+# Keep only non-overlapping early windows here to avoid duplicate emails on day 7.
 WINDOWS = (
     ("30d", 30),
     ("14d", 14),
-    ("7d", 7),
-    ("1d", 1),
 )
 
 

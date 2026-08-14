@@ -34,6 +34,9 @@ export type StripeElementsCheckout = {
   currency: string;
   amount_minor: number;
   billing_interval: string;
+  /** setup = save card for trial (SetupIntent); payment = charge now */
+  mode?: "setup" | "payment";
+  trial_days?: number;
 };
 
 export function isStripeElementsCheckout(

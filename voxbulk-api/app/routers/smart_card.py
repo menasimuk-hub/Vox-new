@@ -809,12 +809,17 @@ def complete_seat_checkout(payload: dict, db: Session = Depends(get_db), princip
         raise HTTPException(status_code=404, detail="Organisation not found")
     try:
         seats = (payload or {}).get("seat_quantity")
+        intent_id = str(
+            (payload or {}).get("payment_intent_id")
+            or (payload or {}).get("setup_intent_id")
+            or ""
+        )
         sub = SmartCardBillingService.complete_seat_checkout(
             db,
             org=org,
             plan_id=str((payload or {}).get("plan_id") or ""),
             provider=str((payload or {}).get("provider") or ""),
-            payment_intent_id=str((payload or {}).get("payment_intent_id") or ""),
+            payment_intent_id=intent_id,
             seat_quantity=int(seats) if seats is not None else None,
             billing_interval=str((payload or {}).get("billing_interval") or "").strip() or None,
         )
@@ -826,9 +831,49 @@ def complete_seat_checkout(payload: dict, db: Session = Depends(get_db), princip
             "status": sub.status,
             "billing_interval": getattr(sub, "billing_interval", None),
             "period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
+            "next_billing_date": sub.next_billing_date.isoformat() if sub.next_billing_date else None,
+            "amount_next_payment_minor": int(sub.amount_next_payment_minor or 0),
+            "is_trial": str(sub.status or "").lower() in {"trial", "trialing"},
         }
     except SmartCardBillingError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get("/billing/seats")
+def get_smart_card_seats(db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        return {"ok": True, **SmartCardBillingService.seats_payload(db, principal.org_id)}
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.patch("/billing/seats")
+def update_smart_card_seats(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        result = SmartCardBillingService.update_seats(
+            db,
+            org_id=principal.org_id,
+            seat_quantity=int((payload or {}).get("seat_quantity") or 0),
+        )
+        return {"ok": True, **result}
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="Invalid seat_quantity") from e
 
 
 @router.post("/billing/gocardless/start")
