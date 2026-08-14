@@ -1,7 +1,8 @@
 import * as React from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 
 import type { AssistantHighlight, AssistantNextAction } from "@/lib/types/assistant";
+import { isSameAssistantRoute } from "@/lib/assistant-ui-commands";
 
 type AssistantHighlightContextValue = {
   highlight: AssistantHighlight;
@@ -20,6 +21,7 @@ const AssistantHighlightCtx = React.createContext<AssistantHighlightContextValue
 export function AssistantHighlightProvider({ children }: { children: React.ReactNode }) {
   const [highlight, setHighlightState] = React.useState<AssistantHighlight>(null);
   const navigate = useNavigate();
+  const currentPath = useRouterState({ select: (s) => s.location.pathname });
 
   const setHighlight = React.useCallback((h: AssistantHighlight) => {
     setHighlightState(h);
@@ -35,15 +37,12 @@ export function AssistantHighlightProvider({ children }: { children: React.React
 
   const applyNextAction = React.useCallback(
     (action: AssistantNextAction) => {
-      if (action.kind === "navigate" && action.route) {
-        void navigate({ to: action.route });
-        return;
-      }
-      if (action.kind === "open_panel" && action.route) {
+      if ((action.kind === "navigate" || action.kind === "open_panel") && action.route) {
+        if (isSameAssistantRoute(currentPath, action.route)) return;
         void navigate({ to: action.route });
       }
     },
-    [navigate],
+    [navigate, currentPath],
   );
 
   return (

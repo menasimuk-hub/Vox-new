@@ -25,7 +25,7 @@ import {
 import { UserMenu } from "@/components/user-menu";
 import { normalizeOrgRole } from "@/lib/org-roles";
 import { useAssistantHighlight } from "@/lib/assistant-highlight";
-import { executeUiCommands } from "@/lib/assistant-ui-commands";
+import { executeUiCommands, isSameAssistantRoute } from "@/lib/assistant-ui-commands";
 import { useServices, type ServiceKey } from "@/lib/services";
 import type { AssistantChatResponse, AssistantNextAction } from "@/lib/types/assistant";
 import { brandAssets } from "@/lib/brand";
@@ -300,6 +300,7 @@ export function LiveChatFab() {
   const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [showHistory, setShowHistory] = React.useState(false);
   const endRef = React.useRef<HTMLDivElement>(null);
+  const chatScrollRef = React.useRef<HTMLDivElement>(null);
 
   function resetChat() {
     setMessages([{ role: "ai", text: welcomeText }]);
@@ -322,7 +323,16 @@ export function LiveChatFab() {
     return () => window.removeEventListener("keydown", onKey);
   }, [chatOpen, closeChat]);
 
-  React.useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, chatOpen]);
+  // Scroll only inside the chat panel — never the main document (that looked like a page reload).
+  React.useEffect(() => {
+    if (!chatOpen) return;
+    const box = chatScrollRef.current;
+    if (box) {
+      box.scrollTop = box.scrollHeight;
+      return;
+    }
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }, [messages, chatOpen]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest("button,input,textarea,a")) return;
@@ -345,6 +355,7 @@ export function LiveChatFab() {
     executeUiCommands(res.ui_commands, {
       navigate: (route) => void navigate({ to: route }),
       setHighlight,
+      currentPath: currentRoute,
     });
     if (res.conversation_id) setConversationId(res.conversation_id);
     setMessages((m) => [
@@ -447,7 +458,9 @@ export function LiveChatFab() {
       return;
     }
     if (action.kind === "navigate" && action.route) {
-      void navigate({ to: action.route });
+      if (!isSameAssistantRoute(currentRoute, action.route)) {
+        void navigate({ to: action.route });
+      }
       return;
     }
     applyNextAction(action);
@@ -514,7 +527,11 @@ export function LiveChatFab() {
               ) : null}
             </div>
           ) : (
-          <div className="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-3 text-sm" aria-live="polite">
+          <div
+            ref={chatScrollRef}
+            className="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-3 text-sm"
+            aria-live="polite"
+          >
             {messages.map((m, i) => (
               <div key={i}>
                 <ChatBubble role={m.role} text={m.text} />

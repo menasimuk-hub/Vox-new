@@ -3,13 +3,37 @@ import type { AssistantHighlightType, AssistantNextAction, AssistantUiCommand } 
 type ExecutorContext = {
   navigate: (route: string) => void;
   setHighlight: (h: { type: AssistantHighlightType; id: string; label?: string | null }) => void;
+  /** Current pathname — skip navigate when already on the target route (avoids remount flash). */
+  currentPath?: string;
 };
+
+/** Normalize assistant routes for same-page detection. */
+export function assistantRoutePath(route: string | null | undefined): string {
+  const raw = String(route || "").trim();
+  if (!raw) return "";
+  try {
+    if (raw.startsWith("http://") || raw.startsWith("https://")) {
+      return new URL(raw).pathname.replace(/\/+$/, "") || "/";
+    }
+  } catch {
+    /* fall through */
+  }
+  const pathOnly = raw.split("?")[0].split("#")[0];
+  return pathOnly.replace(/\/+$/, "") || "/";
+}
+
+export function isSameAssistantRoute(currentPath: string | undefined, route: string | null | undefined): boolean {
+  if (!currentPath || !route) return false;
+  return assistantRoutePath(currentPath) === assistantRoutePath(route);
+}
 
 export function executeUiCommands(commands: AssistantUiCommand[] | undefined, ctx: ExecutorContext) {
   if (!commands?.length) return;
   for (const cmd of commands) {
     if (cmd.kind === "navigate" || cmd.kind === "open_panel") {
-      if (cmd.route) ctx.navigate(cmd.route);
+      if (cmd.route && !isSameAssistantRoute(ctx.currentPath, cmd.route)) {
+        ctx.navigate(cmd.route);
+      }
       continue;
     }
     if ((cmd.kind === "highlight" || cmd.kind === "scroll_to") && cmd.highlight_id && cmd.highlight_type) {
@@ -18,7 +42,9 @@ export function executeUiCommands(commands: AssistantUiCommand[] | undefined, ct
         id: cmd.highlight_id,
         label: cmd.highlight_label,
       });
-      if (cmd.route) ctx.navigate(cmd.route);
+      if (cmd.route && !isSameAssistantRoute(ctx.currentPath, cmd.route)) {
+        ctx.navigate(cmd.route);
+      }
     }
   }
 }
