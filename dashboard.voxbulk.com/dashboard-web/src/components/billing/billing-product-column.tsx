@@ -237,9 +237,17 @@ export function BillingProductColumn({
           <div className="space-y-1 text-sm text-muted-foreground">
             <p>No active subscription</p>
             {meta.product === "smart_card" ? (
-              <p className="text-xs">
-                Offer: 1 month free, then pay per seat. Enter a card at signup — first charge after the trial.
-              </p>
+              <div className="mt-1 rounded-lg border border-violet-200/80 bg-violet-50/70 px-2.5 py-2 text-xs dark:border-violet-800 dark:bg-violet-950/40">
+                <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                  <Badge className="border-transparent bg-violet-600 text-[10px] text-white hover:bg-violet-600">
+                    Offer
+                  </Badge>
+                  <span className="font-medium text-foreground">1 month free, then pay per seat</span>
+                </div>
+                <p className="text-muted-foreground">
+                  Enter a card at signup — first charge after the trial.
+                </p>
+              </div>
             ) : null}
             <Button asChild size="sm" variant="link" className="h-auto p-0">
               <Link to={meta.packagesLink} search={meta.packagesSearch}>

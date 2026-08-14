@@ -12,8 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { apiFetch, getApiBaseUrl } from "@/lib/api";
-import { readAccessTokenFromStorage, readOrgIdFromStorage } from "@/lib/session-storage";
+import { apiFetch, downloadAuthenticatedFile } from "@/lib/api";
 
 type Entitlement = {
   seat_quantity: number;
@@ -56,6 +55,7 @@ export function SmartCardBulkInviteDialog({ open, onOpenChange }: Props) {
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [file, setFile] = React.useState<File | null>(null);
   const [result, setResult] = React.useState<BulkResult | null>(null);
+  const [downloading, setDownloading] = React.useState(false);
 
   const entQ = useQuery({
     queryKey: ["smart-card", "entitlement"],
@@ -100,26 +100,16 @@ export function SmartCardBulkInviteDialog({ open, onOpenChange }: Props) {
   });
 
   async function downloadTemplate() {
+    setDownloading(true);
     try {
-      const base = getApiBaseUrl();
-      const headers = new Headers({ Accept: "application/octet-stream" });
-      const token = readAccessTokenFromStorage();
-      const orgId = readOrgIdFromStorage();
-      if (token) headers.set("Authorization", `Bearer ${token}`);
-      if (orgId) headers.set("X-Org-Id", orgId);
-      const res = await fetch(`${base}/smart-card/representatives/bulk-invite-template.xlsx`, {
-        headers,
-      });
-      if (!res.ok) throw new Error("Could not download template");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "smart-card-team-invite-template.xlsx";
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadAuthenticatedFile(
+        "/smart-card/representatives/bulk-invite-template.xlsx",
+        "smart-card-team-invite-template.xlsx",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not download template");
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -148,8 +138,16 @@ export function SmartCardBulkInviteDialog({ open, onOpenChange }: Props) {
           </p>
 
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => void downloadTemplate()}>
-              <Download className="size-3.5" /> Download template
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={downloading}
+              onClick={() => void downloadTemplate()}
+            >
+              {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+              Download template
             </Button>
           </div>
 

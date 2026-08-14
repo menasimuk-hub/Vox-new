@@ -1,18 +1,21 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
+import { Gift, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { CheckoutConfirmDialog, type CheckoutConfirmDetails } from "@/components/billing/checkout-confirm-dialog";
 import { SmartCardChangeSeatsDialog } from "@/components/billing/smart-card-change-seats-dialog";
 import { StripeCardCheckoutDialog } from "@/components/billing/stripe-card-checkout-dialog";
 import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import {
   clearBillingQuery,
   readBillingReturnParams,
@@ -254,21 +257,59 @@ export function SmartCardPlansPanel() {
         tintClass={tint.soft}
       />
 
-      <Card className="border-violet-200/60 bg-violet-50/40">
-        <CardContent className="space-y-1 p-4 text-sm">
-          <p className="font-medium text-foreground">Offer: 1 month free, then pay per seat</p>
-          <p className="text-muted-foreground">
-            {hasActiveSub
-              ? `You already have ${currentSeats} seat${currentSeats === 1 ? "" : "s"}. Adding seats gives new seats 30 days free; existing billable seats keep charging.`
-              : "Choose seats and add a payment method at signup — you are not charged today. After the trial, billing is seats × price each cycle."}
-          </p>
+      <Card
+        className={cn(
+          "overflow-hidden border-violet-300/80 bg-gradient-to-br from-violet-50 via-violet-50/70 to-background shadow-sm ring-1 ring-violet-200/70",
+          "dark:border-violet-800 dark:from-violet-950/50 dark:via-violet-950/30 dark:to-background dark:ring-violet-800/50",
+        )}
+      >
+        <CardContent className="relative space-y-3 p-4 sm:p-5">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-700 shadow-sm dark:bg-violet-900/60 dark:text-violet-200">
+              <Gift className="size-5" />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-base font-semibold tracking-tight text-foreground">1 month free, then pay per seat</p>
+                <Badge className="border-transparent bg-violet-600 text-white hover:bg-violet-600 dark:bg-violet-500">
+                  <Sparkles className="mr-1 size-3" />
+                  Current offer
+                </Badge>
+              </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {hasActiveSub
+                  ? `You have ${currentSeats} seat${currentSeats === 1 ? "" : "s"} today. New seats you add are free for 30 days; seats already on your bill keep charging as usual.`
+                  : "Pick how many seats you need and add a payment method — nothing is charged today. After the free month, you pay seats × price each billing cycle."}
+              </p>
+            </div>
+          </div>
           {hasActiveSub ? (
-            <p className="text-xs text-muted-foreground">
-              {isTrial
-                ? `Free trial ${String(finance?.trial_started_at || "").slice(0, 10) || "—"} → ${String(finance?.trial_ends_at || finance?.current_period_end || "").slice(0, 10) || "—"}`
-                : `Next payment ${String(finance?.amount_next_payment_display || "—")} · ${String(finance?.next_billing_date || "").slice(0, 10) || "—"}`}
-            </p>
-          ) : null}
+            <div className="rounded-lg border border-violet-200/80 bg-background/70 px-3 py-2 text-xs text-muted-foreground dark:border-violet-800/60">
+              {isTrial ? (
+                <span>
+                  Free trial:{" "}
+                  <strong className="text-foreground">
+                    {String(finance?.trial_started_at || "").slice(0, 10) || "—"} →{" "}
+                    {String(finance?.trial_ends_at || finance?.current_period_end || "").slice(0, 10) || "—"}
+                  </strong>
+                </span>
+              ) : (
+                <span>
+                  Next payment:{" "}
+                  <strong className="text-foreground">
+                    {String(finance?.amount_next_payment_display || "—")} ·{" "}
+                    {String(finance?.next_billing_date || "").slice(0, 10) || "—"}
+                  </strong>
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2 text-[11px] font-medium">
+              <span className={cn("rounded-full px-2.5 py-1", tint.chip)}>No charge today</span>
+              <span className={cn("rounded-full px-2.5 py-1", tint.chip)}>30 days free</span>
+              <span className={cn("rounded-full px-2.5 py-1", tint.chip)}>Then pay per seat</span>
+            </div>
+          )}
         </CardContent>
       </Card>
 

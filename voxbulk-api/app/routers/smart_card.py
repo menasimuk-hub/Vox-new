@@ -278,6 +278,7 @@ def create_rep(payload: dict, db: Session = Depends(get_db), principal=Depends(g
 
 
 @router.get("/representatives/bulk-invite-template.xlsx")
+@router.get("/representatives/bulk-invite-template")
 def download_bulk_invite_template(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
