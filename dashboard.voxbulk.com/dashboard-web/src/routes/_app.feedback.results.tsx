@@ -91,7 +91,7 @@ function FeedbackResults() {
     }
   }
 
-  if (resultsQ.isLoading) {
+  if (!resultsQ.data && resultsQ.isPending) {
     return (
       <div className="flex w-full flex-col gap-6">
         <Skeleton className="h-24 rounded-xl" />
@@ -105,7 +105,7 @@ function FeedbackResults() {
     );
   }
 
-  if (resultsQ.isError || !resultsQ.data || !mapped) {
+  if ((resultsQ.isError && !resultsQ.data) || !resultsQ.data || !mapped) {
     return (
       <Card>
         <CardContent className="py-10 text-center text-sm text-muted-foreground">
@@ -118,7 +118,15 @@ function FeedbackResults() {
   const locations = resultsQ.data.locations.map((l) => ({ id: l.id, name: l.name }));
 
   return (
-    <div data-demo-target="feedback-results">
+    <div data-demo-target="feedback-results" className="relative">
+      {resultsQ.isFetching && !resultsQ.isPending ? (
+        <div
+          className="pointer-events-none absolute right-0 top-0 z-10 rounded-full border border-border bg-card/90 px-2.5 py-1 text-[11px] text-muted-foreground shadow-sm"
+          aria-live="polite"
+        >
+          Updating…
+        </div>
+      ) : null}
       <FeedbackSurveyResults
         data={mapped}
         locationId={locationId}
@@ -132,7 +140,7 @@ function FeedbackResults() {
         onDateToChange={setDateTo}
         onExportPdf={() => void handleExport("pdf")}
         onExportCsv={() => void handleExport("csv")}
-        insightsLoading={insightsQ.isLoading}
+        insightsLoading={insightsQ.isLoading && !insightsQ.data}
         onRefresh={() => {
           void resultsQ.refetch();
           void insightsQ.refetch();

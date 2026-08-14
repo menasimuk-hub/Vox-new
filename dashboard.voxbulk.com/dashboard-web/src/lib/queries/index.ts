@@ -2495,6 +2495,14 @@ export function useFeedbackResults(
     queryKey: queryKeys.feedbackResults(filterKey),
     queryFn: () =>
       apiFetch<FeedbackResultsPayload>(`/customer-feedback/results${qs ? `?${qs}` : ""}`),
+    placeholderData: keepPreviousData,
+    // Soft refresh so new replies / finished transcripts appear without a full-page flash.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      if (feedbackResultsHasPendingTranscription(data)) return 4_000;
+      return 45_000;
+    },
   });
 }
 
@@ -2520,7 +2528,20 @@ export function useFeedbackResultsInsights(
     queryFn: () =>
       apiFetch<FeedbackResultsInsightsPayload>(`/customer-feedback/results/insights${qs ? `?${qs}` : ""}`),
     staleTime: 1000 * 60 * 5,
+    placeholderData: keepPreviousData,
   });
+}
+
+function feedbackResultsHasPendingTranscription(data: FeedbackResultsPayload): boolean {
+  for (const c of data.open_comments || []) {
+    if (String(c.transcription_status || "") === "pending") return true;
+  }
+  for (const r of data.respondents || []) {
+    for (const a of r.answers || []) {
+      if (String(a.transcription_status || "") === "pending") return true;
+    }
+  }
+  return false;
 }
 
 export function useFeedbackResultsCompare(locationIds: string[]) {

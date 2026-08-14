@@ -333,8 +333,8 @@ export function FeedbackSurveyResults({
                     <YAxis stroke="#9ca3af" fontSize={12} />
                     <Tooltip contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Area type="monotone" dataKey="satisfaction" stroke="#6366f1" strokeWidth={2} fill="url(#sat)" name="Satisfaction %" />
-                    <Area type="monotone" dataKey="positive" stroke="#14b8a6" strokeWidth={2} fill="url(#rec)" name="Would recommend %" />
+                    <Area type="monotone" dataKey="satisfaction" stroke="#6366f1" strokeWidth={2} fill="url(#sat)" name="Satisfaction %" isAnimationActive={false} />
+                    <Area type="monotone" dataKey="positive" stroke="#14b8a6" strokeWidth={2} fill="url(#rec)" name="Would recommend %" isAnimationActive={false} />
                   </AreaChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -348,7 +348,7 @@ export function FeedbackSurveyResults({
               <CardContent className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={sentimentDistribution} dataKey="value" innerRadius={60} outerRadius={95} paddingAngle={3} stroke="#fff">
+                    <Pie data={sentimentDistribution} dataKey="value" innerRadius={60} outerRadius={95} paddingAngle={3} stroke="#fff" isAnimationActive={false}>
                       {sentimentDistribution.map((d) => <Cell key={d.name} fill={d.color} />)}
                     </Pie>
                     <Tooltip contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
@@ -369,7 +369,7 @@ export function FeedbackSurveyResults({
                     <XAxis dataKey="week" stroke="#9ca3af" fontSize={11} />
                     <YAxis stroke="#9ca3af" fontSize={11} />
                     <Tooltip contentStyle={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
-                    <Bar dataKey="responses" fill="#6366f1" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="responses" fill="#6366f1" radius={[6, 6, 0, 0]} isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
