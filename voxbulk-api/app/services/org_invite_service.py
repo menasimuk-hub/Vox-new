@@ -119,6 +119,23 @@ def link_smart_card_reps_for_invite(
     return linked
 
 
+def _mark_member_setup_complete(db: Session, *, user_id: str, org_id: str, role: str | None) -> None:
+    """Members never run company onboarding — mark setup done so they are not trapped."""
+    if effective_role(role) != "member":
+        return
+    mobj = db.execute(
+        select(OrganisationMembership).where(
+            OrganisationMembership.user_id == user_id,
+            OrganisationMembership.org_id == org_id,
+        )
+    ).scalar_one_or_none()
+    if mobj is None:
+        return
+    if mobj.dashboard_setup_completed_at is None:
+        mobj.dashboard_setup_completed_at = datetime.utcnow()
+        db.add(mobj)
+
+
 def consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User) -> None:
     mem = db.execute(
         select(OrganisationMembership.id).where(
@@ -128,6 +145,7 @@ def consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User)
     ).scalar_one_or_none()
     if mem is None:
         db.add(OrganisationMembership(org_id=inv.org_id, user_id=user.id, role=inv.role))
+        db.flush()
     elif inv.role:
         mobj = db.execute(
             select(OrganisationMembership).where(
@@ -138,6 +156,7 @@ def consume_invite_for_user(db: Session, *, inv: OrganisationInvite, user: User)
         if mobj is not None and (mobj.role is None or str(mobj.role).strip() == ""):
             mobj.role = inv.role
             db.add(mobj)
+    _mark_member_setup_complete(db, user_id=user.id, org_id=str(inv.org_id), role=getattr(inv, "role", None))
     inv.consumed_at = datetime.utcnow()
     db.add(inv)
     try:

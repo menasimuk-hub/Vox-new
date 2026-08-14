@@ -27,6 +27,7 @@ from app.services.org_invite_service import (
     organisations_for_user,
     setup_new_invited_user,
 )
+from app.services.org_rbac import OrgRbacService
 
 logger = logging.getLogger(__name__)
 
@@ -375,6 +376,9 @@ class SocialOAuthService:
         if len(org_ids) == 0:
             raise OAuthFlowError("No organisation membership")
         if len(org_ids) != 1:
+            preferred = OrgRbacService.resolve_login_org_id(db, user_id=user_id)
+            if preferred:
+                return preferred
             orgs = organisations_for_user(db, user_id=user_id)
             raise OAuthOrgSelectionRequired(user_id=user_id, organisations=orgs)
         return str(org_ids[0])

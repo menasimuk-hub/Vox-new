@@ -15,7 +15,13 @@ export const Route = createFileRoute("/login")({
   component: DashboardLoginPage,
 });
 
-type OrgLoginOption = { org_id: string; org_name?: string | null; role?: string | null };
+type OrgLoginOption = {
+  org_id: string;
+  name?: string | null;
+  org_name?: string | null;
+  role?: string | null;
+  is_main?: boolean;
+};
 
 function DashboardLoginPage() {
   const navigate = useNavigate();
@@ -71,7 +77,8 @@ function DashboardLoginPage() {
     if (!tokenRes.ok) throw new Error(String(data?.detail || "Sign in failed"));
     if (data.org_selection_required && Array.isArray(data.organisations)) {
       setOrgChoices(data.organisations);
-      setSelectedOrgId(String(data.organisations[0]?.org_id || ""));
+      const main = data.organisations.find((o) => o.is_main);
+      setSelectedOrgId(String(main?.org_id || data.organisations[0]?.org_id || ""));
       return;
     }
     if (!data.access_token) throw new Error("Sign in failed");
@@ -192,7 +199,7 @@ function DashboardLoginPage() {
               >
                 {orgChoices.map((o) => (
                   <option key={o.org_id} value={o.org_id}>
-                    {o.org_name || o.org_id}
+                    {(o.name || o.org_name || o.org_id) + (o.is_main ? " (Main)" : "")}
                   </option>
                 ))}
               </select>

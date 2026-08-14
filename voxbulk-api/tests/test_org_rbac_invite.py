@@ -52,12 +52,27 @@ def test_team_invite_and_org_switch_flow(app_client):
         owner = db.execute(select(User).where(User.email == "owner_rbac@example.com")).scalar_one()
         db.add(OrganisationMembership(org_id=org2.id, user_id=owner.id, role="owner"))
         db.commit()
+        org2_id = org2.id
 
     pick = app_client.post("/auth/token", data={"username": "owner_rbac@example.com", "password": "pass123"})
     assert pick.status_code == 200
     body = pick.json()
     assert body.get("org_selection_required") is True
     assert len(body.get("organisations") or []) == 2
+
+    set_main = app_client.post(
+        "/auth/me/preferred-organisation",
+        headers=headers,
+        json={"org_id": org2_id},
+    )
+    assert set_main.status_code == 200
+    assert set_main.json()["preferred_org_id"] == org2_id
+    assert any(o.get("is_main") for o in set_main.json()["organisations"] if o["org_id"] == org2_id)
+
+    auto = app_client.post("/auth/token", data={"username": "owner_rbac@example.com", "password": "pass123"})
+    assert auto.status_code == 200
+    assert auto.json().get("org_selection_required") is not True
+    assert auto.json()["org_id"] == org2_id
 
     login_org = app_client.post(
         "/auth/token",
@@ -69,6 +84,47 @@ def test_team_invite_and_org_switch_flow(app_client):
     listed = app_client.get("/auth/my-organisations", headers={"Authorization": f"Bearer {acct_tok}"})
     assert listed.status_code == 200
     assert listed.json()["active_org_id"] == org_id
+    assert listed.json()["preferred_org_id"] == org2_id
+
+
+def test_member_invite_skips_company_onboarding(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        org = Organisation(name="Invite Co", onboarding_state="account_created")
+        db.add(org)
+        db.flush()
+        owner = User(email="owner_member_invite@example.com", password_hash=hash_password("pass123"), is_active=True)
+        db.add(owner)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=owner.id, role="owner"))
+        db.commit()
+        org_id = org.id
+
+    owner_tok = app_client.post(
+        "/auth/token",
+        data={"username": "owner_member_invite@example.com", "password": "pass123", "org_id": org_id},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {owner_tok}"}
+
+    inv = app_client.post(
+        "/organisations/me/team/invites",
+        headers=headers,
+        json={"email": "member_invite_onboard@example.com", "role": "member"},
+    )
+    assert inv.status_code == 200
+    token = inv.json()["signup_url"].split("invite_token=")[-1]
+
+    acc = app_client.post("/auth/accept-invite", json={"token": token, "password": "pass12345"})
+    assert acc.status_code == 200
+    mem_tok = acc.json()["access_token"]
+
+    me = app_client.get("/auth/me", headers={"Authorization": f"Bearer {mem_tok}"})
+    assert me.status_code == 200
+    body = me.json()
+    assert body["role"] == "member"
+    assert body["dashboard_setup_complete"] is True
+    assert body["onboarding_complete"] is True
 
 
 def test_member_blocked_from_billing(app_client):
@@ -322,8 +378,34 @@ def test_password_login_attaches_pending_invite(app_client):
     )
     assert login.status_code == 200
     body = login.json()
-    assert body.get("org_selection_required") is True
-    org_ids = {o["org_id"] for o in body.get("organisations") or []}
+    # Newly attached invite opens that company (no picker) so invitees land in the right workspace.
+    assert body.get("org_selection_required") is not True
+    assert body["org_id"] == inviter_org_id
+
+    tok = body["access_token"]
+    wallet = app_client.get("/billing/wallet", headers={"Authorization": f"Bearer {tok}"})
+    assert wallet.status_code == 200
+
+    # Explicit pick of personal org still works.
+    personal_login = app_client.post(
+        "/auth/token",
+        data={
+            "username": "pwd_invite@example.com",
+            "password": "pass123",
+            "org_id": personal_org_id,
+        },
+    )
+    assert personal_login.status_code == 200
+    assert personal_login.json()["org_id"] == personal_org_id
+
+    # Without a preferred/main company, subsequent logins ask which company to open.
+    again = app_client.post(
+        "/auth/token",
+        data={"username": "pwd_invite@example.com", "password": "pass123"},
+    )
+    assert again.status_code == 200
+    assert again.json().get("org_selection_required") is True
+    org_ids = {o["org_id"] for o in again.json().get("organisations") or []}
     assert personal_org_id in org_ids
     assert inviter_org_id in org_ids
 

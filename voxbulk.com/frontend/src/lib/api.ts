@@ -293,6 +293,7 @@ export type OrgLoginOption = {
   name: string;
   role: string;
   is_owner: boolean;
+  is_main?: boolean;
 };
 
 export type InvitePreview = {
@@ -359,6 +360,7 @@ export type PostLoginUser = {
   onboarding_complete?: boolean;
   dashboard_setup_complete?: boolean;
   role?: string | null;
+  preferred_org_id?: string | null;
 };
 
 export function hasPlatformAdminAccess(user: PostLoginUser | null | undefined) {
@@ -368,6 +370,9 @@ export function hasPlatformAdminAccess(user: PostLoginUser | null | undefined) {
 export function needsOnboardingFor(user: PostLoginUser | null | undefined) {
   if (!user) return false;
   if (hasPlatformAdminAccess(user)) return false;
+  const role = String(user?.role || "").trim().toLowerCase();
+  // Members (Smart Card invitees) never set up company branding.
+  if (role === "member" || role === "receptionist") return false;
   return !user.onboarding_complete && !user.dashboard_setup_complete;
 }
 
@@ -387,6 +392,10 @@ export function resolvePostLoginDestination(
   opts?: { inviteAccepted?: boolean },
 ) {
   if (!user) return null;
+  // Invite accept always skips company onboarding (members cannot edit org profile).
+  if (opts?.inviteAccepted) {
+    return { kind: "handoff" as const, url: getPostLoginHandoffUrl(user, opts) };
+  }
   if (needsOnboardingFor(user)) return { kind: "onboarding" as const };
   return { kind: "handoff" as const, url: getPostLoginHandoffUrl(user, opts) };
 }

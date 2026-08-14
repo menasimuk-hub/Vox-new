@@ -1157,14 +1157,37 @@ export type MyOrganisationRow = {
   name: string;
   role: string;
   is_owner: boolean;
+  is_main?: boolean;
 };
 
 export function useMyOrganisations() {
   return useQuery({
     queryKey: queryKeys.myOrganisations,
     queryFn: () =>
-      apiFetch<{ organisations: MyOrganisationRow[]; active_org_id: string }>("/auth/my-organisations"),
+      apiFetch<{
+        organisations: MyOrganisationRow[];
+        active_org_id: string;
+        preferred_org_id?: string | null;
+      }>("/auth/my-organisations"),
     staleTime: 1000 * 60,
+  });
+}
+
+export function useSetPreferredOrganisation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (orgId: string | null) =>
+      apiFetch<{
+        ok: boolean;
+        preferred_org_id: string | null;
+        organisations: MyOrganisationRow[];
+      }>("/auth/me/preferred-organisation", {
+        method: "POST",
+        body: JSON.stringify({ org_id: orgId }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.myOrganisations });
+    },
   });
 }
 

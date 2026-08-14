@@ -39,5 +39,8 @@ class User(Base):
     phone_verification_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     phone_verification_last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # When the user belongs to multiple orgs, login opens this company by default.
+    preferred_org_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 

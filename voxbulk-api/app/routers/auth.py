@@ -295,7 +295,38 @@ def my_organisations(db: Session = Depends(get_db), principal: CurrentPrincipal 
         attach_pending_invites(db, user=user)
         db.commit()
     rows = OrgRbacService.list_organisations_for_user(db, user_id=principal.user_id)
-    return {"organisations": rows, "active_org_id": principal.org_id}
+    return {
+        "organisations": rows,
+        "active_org_id": principal.org_id,
+        "preferred_org_id": OrgRbacService.preferred_org_id_for_user(db, user_id=principal.user_id),
+    }
+
+
+@router.post("/me/preferred-organisation")
+def set_preferred_organisation(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    """Set or clear the user's main company (default workspace on login)."""
+    raw = payload.get("org_id")
+    org_id = str(raw).strip() if raw is not None and str(raw).strip() else None
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    if org_id:
+        mem = OrgRbacService.membership_for(db, org_id=org_id, user_id=principal.user_id)
+        if mem is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied")
+        _organisation_or_403_if_suspended(db, org_id)
+    user.preferred_org_id = org_id
+    db.add(user)
+    db.commit()
+    return {
+        "ok": True,
+        "preferred_org_id": org_id,
+        "organisations": OrgRbacService.list_organisations_for_user(db, user_id=principal.user_id),
+    }
 
 
 @router.post("/switch-organisation")
@@ -551,24 +582,20 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
         if membership is None:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant access denied")
     else:
-        org_ids = list(
-            db.execute(
-                select(OrganisationMembership.org_id).where(OrganisationMembership.user_id == user.id)
-            ).scalars()
-        )
-        if len(org_ids) == 0:
+        org_count = db.execute(
+            select(OrganisationMembership.id).where(OrganisationMembership.user_id == user.id)
+        ).scalars().all()
+        if len(org_count) == 0:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No organisation membership")
-        if len(org_ids) != 1:
-            # Prefer the company they just joined via invite (Smart Card / team invite).
-            if joined:
-                resolved_org_id = str(joined[-1])
-            else:
-                return {
-                    "org_selection_required": True,
-                    "organisations": OrgRbacService.list_organisations_for_user(db, user_id=user.id),
-                }
-        else:
-            resolved_org_id = str(org_ids[0])
+        resolved_org_id = OrgRbacService.resolve_login_org_id(
+            db, user_id=user.id, joined_org_ids=joined
+        )
+        if not resolved_org_id:
+            return {
+                "org_selection_required": True,
+                "organisations": OrgRbacService.list_organisations_for_user(db, user_id=user.id),
+                "preferred_org_id": OrgRbacService.preferred_org_id_for_user(db, user_id=user.id),
+            }
 
     if not user.is_superuser:
         org_ent = db.execute(select(Organisation).where(Organisation.id == str(resolved_org_id))).scalar_one_or_none()
@@ -595,7 +622,17 @@ def me(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_
     raw_role = membership.role if membership else None
     clinic_role = effective_role(raw_role)
     org_onboarding_state = getattr(org_ent, "onboarding_state", None) or "account_created"
-    dashboard_setup_complete = bool(org_onboarding_state == "onboarding_completed" or (membership and membership.dashboard_setup_completed_at is not None))
+    # Members (Smart Card invitees) never complete company onboarding — treat as done.
+    member_skips_onboarding = clinic_role == "member"
+    if member_skips_onboarding and membership is not None and membership.dashboard_setup_completed_at is None:
+        membership.dashboard_setup_completed_at = datetime.utcnow()
+        db.add(membership)
+        db.commit()
+    dashboard_setup_complete = bool(
+        member_skips_onboarding
+        or org_onboarding_state == "onboarding_completed"
+        or (membership and membership.dashboard_setup_completed_at is not None)
+    )
     admin_access = bool(user.is_superuser or get_active_admin_user(db, user) is not None)
     admin_role = resolve_admin_role(db, user) if admin_access else None
     from app.services.account_deletion_service import AccountDeletionService
@@ -627,7 +664,8 @@ def me(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_
         "tenant_role": clinic_role,
         "dashboard_setup_complete": dashboard_setup_complete,
         "onboarding_state": org_onboarding_state,
-        "onboarding_complete": org_onboarding_state == "onboarding_completed",
+        "onboarding_complete": org_onboarding_state == "onboarding_completed" or member_skips_onboarding,
+        "preferred_org_id": getattr(user, "preferred_org_id", None),
         "booking_software_slug": getattr(org_ent, "booking_software_slug", None),
         "category_id": getattr(org_ent, "category_id", None),
         "phone": TelnyxCallerIdService.phone_status(user),

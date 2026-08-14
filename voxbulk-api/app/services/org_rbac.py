@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
+from app.models.user import User
 
 ORG_TEAM_ROLES = frozenset({"owner", "manager", "accountant", "member"})
 ORG_TEAM_MANAGERS = frozenset({"owner", "manager"})
@@ -113,7 +114,14 @@ class OrgRbacService:
         return mem
 
     @staticmethod
+    def preferred_org_id_for_user(db: Session, *, user_id: str) -> str | None:
+        raw = db.execute(select(User.preferred_org_id).where(User.id == user_id)).scalar_one_or_none()
+        pref = str(raw or "").strip()
+        return pref or None
+
+    @staticmethod
     def list_organisations_for_user(db: Session, *, user_id: str) -> list[dict[str, object]]:
+        preferred = OrgRbacService.preferred_org_id_for_user(db, user_id=user_id)
         rows = list(
             db.execute(
                 select(
@@ -130,15 +138,51 @@ class OrgRbacService:
         out: list[dict[str, object]] = []
         for org_id, name, role, _created in rows:
             role_norm = _normalize_role(role)
+            oid = str(org_id)
             out.append(
                 {
-                    "org_id": str(org_id),
+                    "org_id": oid,
                     "name": str(name or "Organisation"),
                     "role": role_norm,
                     "is_owner": role_norm == "owner",
+                    "is_main": bool(preferred and oid == preferred),
                 }
             )
+        # Surface the main company first so login pickers highlight it.
+        out.sort(key=lambda row: (0 if row.get("is_main") else 1, str(row.get("name") or "").lower()))
         return out
+
+    @staticmethod
+    def resolve_login_org_id(
+        db: Session,
+        *,
+        user_id: str,
+        joined_org_ids: list[str] | None = None,
+    ) -> str | None:
+        """
+        Pick an org automatically for login, or None if the client must show a picker.
+
+        Priority: newly joined (this login) → preferred/main → single membership.
+        """
+        org_ids = [
+            str(oid)
+            for oid in db.execute(
+                select(OrganisationMembership.org_id).where(OrganisationMembership.user_id == user_id)
+            ).scalars()
+        ]
+        if not org_ids:
+            return None
+        if len(org_ids) == 1:
+            return org_ids[0]
+
+        joined = [str(j) for j in (joined_org_ids or []) if str(j) in org_ids]
+        if joined:
+            return joined[-1]
+
+        preferred = OrgRbacService.preferred_org_id_for_user(db, user_id=user_id)
+        if preferred and preferred in org_ids:
+            return preferred
+        return None
 
     @staticmethod
     def count_owners(db: Session, *, org_id: str) -> int:

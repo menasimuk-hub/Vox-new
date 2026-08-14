@@ -275,8 +275,15 @@ function SignInPage() {
                     className="w-full flex items-center gap-3 rounded-xl border border-border px-4 py-3 text-left hover:border-primary/40 hover:bg-secondary/30 transition-colors"
                   >
                     <Building2 className="size-5 text-primary shrink-0" />
-                    <div className="min-w-0">
-                      <div className="font-semibold text-heading truncate">{org.name}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-heading truncate flex items-center gap-2">
+                        <span className="truncate">{org.name}</span>
+                        {org.is_main ? (
+                          <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                            Main
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="text-xs text-muted-text capitalize">{org.role}</div>
                     </div>
                   </button>

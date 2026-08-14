@@ -97,6 +97,13 @@ function CompanyWizard() {
       window.location.href = getPostLoginHandoffUrl(auth.user);
       return;
     }
+    // Members cannot edit company profile — never trap them in this wizard.
+    const role = String(auth.user.role || "").trim().toLowerCase();
+    if (role === "member" || role === "receptionist") {
+      redirecting.current = true;
+      window.location.href = getPostLoginHandoffUrl(auth.user, { inviteAccepted: true });
+      return;
+    }
     if (!auth.needsOnboarding()) {
       redirecting.current = true;
       window.location.href = getPostLoginHandoffUrl(auth.user);
