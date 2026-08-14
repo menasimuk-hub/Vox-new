@@ -20,6 +20,11 @@ import { queryKeys } from "@/lib/queries";
 type SeatsPayload = {
   ok?: boolean;
   seat_quantity: number;
+  billable_seat_quantity?: number;
+  free_seat_quantity?: number;
+  added_seats_free_until?: string | null;
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
   active_representatives: number;
   min_seats: number;
   max_seats: number;
@@ -74,8 +79,9 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange }: Props) {
         method: "PATCH",
         body: JSON.stringify({ seat_quantity }),
       }),
-    onSuccess: async () => {
-      toast.success("Seat count updated — next invoice recalculated");
+    onSuccess: async (data) => {
+      const same = Number(data?.seat_quantity) === Number(seatsQ.data?.seat_quantity);
+      toast.success(same ? "Already on that seat count" : "Seat count updated — next invoice recalculated");
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["smart-card"] }),
         qc.invalidateQueries({ queryKey: ["billing"] }),
@@ -87,11 +93,20 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange }: Props) {
   });
 
   const data = seatsQ.data;
+  const currentSeats = Number(data?.seat_quantity || 0);
   const minSeats = Math.max(1, Number(data?.min_seats || 1));
   const maxSeats = Math.max(minSeats, Number(data?.max_seats || 500));
   const unit = Number(data?.unit_price_minor || 0);
   const currency = String(data?.currency || "GBP");
-  const nextAmount = unit * Math.max(1, seats);
+  const billable = Number(data?.billable_seat_quantity ?? currentSeats);
+  const sameAsCurrent = seats === currentSeats;
+  const added = Math.max(0, seats - currentSeats);
+  const nextBillable = data?.is_trial
+    ? 0
+    : seats > currentSeats
+      ? billable
+      : Math.min(billable, seats);
+  const nextAmount = data?.is_trial ? unit * seats : unit * nextBillable;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -99,8 +114,9 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Change seats</DialogTitle>
           <DialogDescription>
-            Adjust how many Smart Card seats you need. Your next invoice updates immediately; you are not
-            charged mid-cycle.
+            You currently have <strong>{currentSeats || "—"}</strong> seat
+            {currentSeats === 1 ? "" : "s"}. New seats are free for 30 days; existing billable seats keep
+            charging. No mid-cycle charge.
           </DialogDescription>
         </DialogHeader>
         {seatsQ.isLoading ? (
@@ -113,17 +129,30 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange }: Props) {
           </p>
         ) : (
           <div className="space-y-4 py-2">
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span>
+            <div className="space-y-1 rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <p>
                 Status:{" "}
                 <strong className="text-foreground">
                   {data?.is_trial ? "Free trial" : "Active subscription"}
                 </strong>
-              </span>
-              <span>·</span>
-              <span>
-                Next billing: <strong className="text-foreground">{formatDate(data?.next_billing_date)}</strong>
-              </span>
+              </p>
+              {data?.is_trial ? (
+                <p>
+                  Free trial: {formatDate(data.trial_started_at)} → {formatDate(data.trial_ends_at)}
+                </p>
+              ) : null}
+              <p>
+                Next payment:{" "}
+                <strong className="text-foreground">{money(Number(data?.estimated_next_amount_minor || 0), currency)}</strong>
+                {" · "}
+                {formatDate(data?.next_billing_date)}
+              </p>
+              {!data?.is_trial && Number(data?.free_seat_quantity || 0) > 0 ? (
+                <p>
+                  {data?.free_seat_quantity} new seat(s) free until {formatDate(data?.added_seats_free_until)} (
+                  {billable} billable now)
+                </p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label htmlFor="sc-seats">Seats</Label>
@@ -137,30 +166,48 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange }: Props) {
               />
               <p className="text-xs text-muted-foreground">
                 Minimum {minSeats} (active representatives). Maximum {maxSeats}.
+                {sameAsCurrent ? " Already on this seat count." : null}
               </p>
             </div>
             <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-              Estimated next payment:{" "}
-              <strong>
-                {money(nextAmount, currency)}
-              </strong>{" "}
-              ({seats} × {money(unit, currency)})
+              {added > 0 && !data?.is_trial ? (
+                <>
+                  Adding {added} seat{added === 1 ? "" : "s"} — free for 30 days. Estimated next payment stays{" "}
+                  <strong>{money(nextAmount, currency)}</strong> ({nextBillable} × {money(unit, currency)}) until
+                  then.
+                </>
+              ) : (
+                <>
+                  Estimated next payment: <strong>{money(nextAmount, currency)}</strong>
+                  {data?.is_trial ? " after trial" : null} ({seats} × {money(unit, currency)}
+                  {!data?.is_trial && nextBillable !== seats ? `, ${nextBillable} billable now` : null})
+                </>
+              )}
             </p>
           </div>
         )}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saveMut.isPending}>
-            Cancel
+            Never mind
           </Button>
           <Button
             type="button"
-            disabled={seatsQ.isLoading || seatsQ.isError || saveMut.isPending || seats < minSeats || seats > maxSeats}
+            disabled={
+              seatsQ.isLoading ||
+              seatsQ.isError ||
+              saveMut.isPending ||
+              seats < minSeats ||
+              seats > maxSeats ||
+              sameAsCurrent
+            }
             onClick={() => saveMut.mutate(seats)}
           >
             {saveMut.isPending ? (
               <>
                 <Loader2 className="mr-2 size-4 animate-spin" /> Saving…
               </>
+            ) : sameAsCurrent ? (
+              "Already on these seats"
             ) : (
               "Save seats"
             )}

@@ -124,6 +124,30 @@ class SubscriptionSummaryService:
             **finance,
             "service_code": SMART_CARD_SERVICE_CODE,
             "seat_quantity": int(sub.seat_quantity or 0),
+            "billable_seat_quantity": int(getattr(sub, "billable_seat_quantity", None) or 0)
+            if getattr(sub, "billable_seat_quantity", None) is not None
+            else int(sub.seat_quantity or 0),
+            "free_seat_quantity": max(
+                0,
+                int(sub.seat_quantity or 0)
+                - (
+                    int(getattr(sub, "billable_seat_quantity", None) or 0)
+                    if getattr(sub, "billable_seat_quantity", None) is not None
+                    else int(sub.seat_quantity or 0)
+                ),
+            ),
+            "added_seats_free_until": (
+                sub.added_seats_free_until.isoformat()
+                if getattr(sub, "added_seats_free_until", None)
+                else None
+            ),
+            "trial_started_at": sub.created_at.isoformat() if getattr(sub, "created_at", None) else None,
+            "trial_ends_at": (
+                sub.current_period_end.isoformat()
+                if status in {"trial", "trialing"} and sub.current_period_end
+                else None
+            ),
+            "is_trial": status in {"trial", "trialing"},
         }
 
     @staticmethod

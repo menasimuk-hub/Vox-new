@@ -136,6 +136,12 @@ class CardSubscriptionActivationService:
         sub.next_billing_date = sub.current_period_end
         if seats is not None and seats > 0:
             sub.seat_quantity = seats
+            if trial > 0:
+                sub.billable_seat_quantity = 0
+                sub.added_seats_free_until = None
+            else:
+                sub.billable_seat_quantity = seats
+                sub.added_seats_free_until = None
         if trial <= 0 and sub.first_payment_at is None:
             sub.first_payment_at = now
         sub.updated_at = now

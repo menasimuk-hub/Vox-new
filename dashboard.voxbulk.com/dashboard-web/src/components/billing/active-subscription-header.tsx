@@ -145,11 +145,26 @@ export function ActiveSubscriptionHeader({
               Billing: <strong className="text-foreground">Pay as you go</strong>
             </p>
           )}
-          {expires ? (
+          {String(finance?.status || "").toLowerCase() === "trial" || finance?.is_trial ? (
+            <p className="inline-flex items-center gap-1.5">
+              <CalendarClock className="size-3.5" />
+              Free trial
+              {finance?.trial_started_at ? <> from {formatDate(finance.trial_started_at)}</> : null}
+              {finance?.trial_ends_at || finance?.current_period_end
+                ? <> until {formatDate(finance.trial_ends_at || finance.current_period_end)}</>
+                : null}
+            </p>
+          ) : expires ? (
             <p className="inline-flex items-center gap-1.5">
               <CalendarClock className="size-3.5" />
               {finance?.cancel_at_period_end ? "Access until" : "Period ends"}:{" "}
               <strong className="text-foreground">{expires}</strong>
+            </p>
+          ) : null}
+          {Number(finance?.free_seat_quantity || 0) > 0 ? (
+            <p className="text-xs">
+              {finance?.free_seat_quantity} new seat(s) free until {formatDate(finance?.added_seats_free_until)} ·{" "}
+              {finance?.billable_seat_quantity ?? seats} billable now
             </p>
           ) : null}
         </div>

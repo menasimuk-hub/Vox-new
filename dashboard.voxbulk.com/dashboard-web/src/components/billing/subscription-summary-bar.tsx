@@ -22,6 +22,14 @@ export type SubscriptionFinanceSummary = {
   access_until?: string | null;
   pending_plan_name?: string | null;
   pending_plan_code?: string | null;
+  seat_quantity?: number | null;
+  billable_seat_quantity?: number | null;
+  free_seat_quantity?: number | null;
+  added_seats_free_until?: string | null;
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
+  is_trial?: boolean;
+  created_at?: string | null;
 };
 
 function formatDate(iso: string | null | undefined) {

@@ -232,10 +232,11 @@ function CancellationDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Request subscription cancellation</DialogTitle>
+          <DialogTitle>Are you sure you want to cancel?</DialogTitle>
           <DialogDescription>
-            Your plan{planName ? ` (${planName})` : ""} remains active until{" "}
-            <strong>{fmtDate(data.current_period_end)}</strong>. Future renewals stop after that date.
+            Your plan{planName ? ` (${planName})` : ""} stays active until{" "}
+            <strong>{fmtDate(data.current_period_end)}</strong>. After that date access ends and no further
+            renewals are charged.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 text-sm">
@@ -251,7 +252,8 @@ function CancellationDialog({
             </p>
           ) : null}
           <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
-            <li>Service stays active until the end of your current billing period — no further renewals after that.</li>
+            <li>You keep access until the end of the current billing period.</li>
+            <li>No next payment will be taken after that date.</li>
             <li>If you request a refund for unused prepaid time, our team reviews it before any money is returned.</li>
             <li>{REFUND_TIMING_PROCESSING}</li>
             <li>{REFUND_TIMING_BANK}</li>
@@ -297,11 +299,11 @@ function CancellationDialog({
         </div>
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-            Keep subscription
+            Never mind
           </Button>
           <Button type="button" variant="destructive" onClick={() => void submit()} disabled={busy}>
             {busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-            Cancel at period end
+            Confirm cancellation
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -246,8 +246,26 @@ class PlanPriceService:
         amount = int(unit_minor or 0)
         svc = str(getattr(sub, "service_code", None) or getattr(plan, "service_kind", None) or "").strip().lower()
         if svc == "smart_card" and sub is not None:
-            seats = max(1, int(getattr(sub, "seat_quantity", None) or 1))
-            amount = amount * seats
+            # Promote free seats window without importing SmartCardBillingService (circular).
+            free_until = getattr(sub, "added_seats_free_until", None)
+            if free_until is not None:
+                from datetime import datetime as _dt
+
+                if free_until <= _dt.utcnow():
+                    entitled = max(0, int(getattr(sub, "seat_quantity", None) or 0))
+                    sub.billable_seat_quantity = entitled
+                    sub.added_seats_free_until = None
+                    db.add(sub)
+                    db.flush()
+            billable = getattr(sub, "billable_seat_quantity", None)
+            status = str(getattr(sub, "status", "") or "").lower()
+            if status in {"trial", "trialing"}:
+                seats = 0
+            elif billable is not None and int(billable) >= 0:
+                seats = max(0, int(billable))
+            else:
+                seats = max(1, int(getattr(sub, "seat_quantity", None) or 1))
+            amount = amount * seats if seats > 0 else 0
         return currency, amount
 
     @staticmethod

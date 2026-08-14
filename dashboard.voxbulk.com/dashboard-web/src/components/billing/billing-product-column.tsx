@@ -195,7 +195,22 @@ export function BillingProductColumn({
                 {nextDate ? <> · {nextDate}</> : null}
                 {isTrial ? (
                   <span className="block text-xs">
-                    First charge after your free trial ends. Card on file is not charged today.
+                    Free trial
+                    {finance?.trial_started_at
+                      ? ` from ${formatSubDate(finance.trial_started_at)}`
+                      : ""}
+                    {finance?.trial_ends_at || finance?.current_period_end
+                      ? ` until ${formatSubDate(finance.trial_ends_at || finance?.current_period_end)}`
+                      : ""}
+                    . Card on file is not charged today.
+                  </span>
+                ) : null}
+                {!isTrial && Number(finance?.free_seat_quantity || 0) > 0 ? (
+                  <span className="block text-xs">
+                    {finance?.free_seat_quantity} new seat(s) free until{" "}
+                    {formatSubDate(finance?.added_seats_free_until)}
+                    {" · "}
+                    {finance?.billable_seat_quantity ?? seats} billable now
                   </span>
                 ) : null}
               </p>

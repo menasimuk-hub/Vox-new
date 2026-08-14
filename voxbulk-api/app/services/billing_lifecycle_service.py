@@ -505,6 +505,10 @@ class BillingLifecycleService:
 
             if sub.status == "trial":
                 sub.status = "active"
+                if str(getattr(sub, "service_code", "") or "").lower() == "smart_card":
+                    entitled = max(0, int(getattr(sub, "seat_quantity", None) or 0))
+                    sub.billable_seat_quantity = entitled
+                    sub.added_seats_free_until = None
                 stats["trial_converted"] += 1
 
             try:

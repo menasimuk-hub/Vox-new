@@ -222,6 +222,38 @@ export function SmartCardPlansPanel() {
     (subsSummaryQ.data as { smart_card?: Record<string, unknown> } | undefined)?.smart_card || null;
   const tint = SERVICE_TINTS.smartCard;
   const items = packagesQ.data?.items || [];
+  const currentSeats = Number(finance?.seat_quantity || 0);
+  const hasActiveSub = Boolean(finance?.plan_name || finance?.plan_code || currentSeats > 0);
+  const isTrial = Boolean(finance?.is_trial) || String(finance?.status || "").toLowerCase() === "trial";
+
+  React.useEffect(() => {
+    if (!hasActiveSub || currentSeats < 1 || items.length === 0) return;
+    setSeatsByPlan((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const pkg of items) {
+        if (next[pkg.plan_id] == null) {
+          next[pkg.plan_id] = currentSeats;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [hasActiveSub, currentSeats, items]);
+
+  const updateSeatsMut = useMutation({
+    mutationFn: (seat_quantity: number) =>
+      apiFetch("/smart-card/billing/seats", {
+        method: "PATCH",
+        body: JSON.stringify({ seat_quantity }),
+      }),
+    onSuccess: async () => {
+      toast.success("Seats updated");
+      await qc.invalidateQueries({ queryKey: ["smart-card"] });
+      await qc.invalidateQueries({ queryKey: ["billing"] });
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not update seats"),
+  });
 
   return (
     <div className="space-y-4">
@@ -237,18 +269,26 @@ export function SmartCardPlansPanel() {
         <CardContent className="space-y-1 p-4 text-sm">
           <p className="font-medium text-foreground">Offer: 1 month free, then pay per seat</p>
           <p className="text-muted-foreground">
-            Choose seats and add a payment method at signup — you are not charged today. After the trial,
-            billing is seats × price each cycle. Change seats anytime; the next invoice updates automatically.
+            {hasActiveSub
+              ? `You already have ${currentSeats} seat${currentSeats === 1 ? "" : "s"}. Adding seats gives new seats 30 days free; existing billable seats keep charging.`
+              : "Choose seats and add a payment method at signup — you are not charged today. After the trial, billing is seats × price each cycle."}
           </p>
+          {hasActiveSub ? (
+            <p className="text-xs text-muted-foreground">
+              {isTrial
+                ? `Free trial ${String(finance?.trial_started_at || "").slice(0, 10) || "—"} → ${String(finance?.trial_ends_at || finance?.current_period_end || "").slice(0, 10) || "—"}`
+                : `Next payment ${String(finance?.amount_next_payment_display || "—")} · ${String(finance?.next_billing_date || "").slice(0, 10) || "—"}`}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Flat {currencySym}5/seat/month (local equivalent). First month free. Choose Direct Debit or card at
-        checkout; yearly includes 20% off after the trial.
+        Flat {currencySym}5/seat/month (local equivalent). First month free on signup. New seats added later also get
+        30 days free. Yearly includes 20% off after the trial.
       </p>
 
-      <BillingIntervalToggle value={billingInterval} onChange={setBillingInterval} />
+      {!hasActiveSub ? <BillingIntervalToggle value={billingInterval} onChange={setBillingInterval} /> : null}
 
       {packagesQ.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -266,10 +306,11 @@ export function SmartCardPlansPanel() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((pkg) => {
             const price = pickPriceMinor(pkg.prices, currencyCode, { yearly: billingInterval === "yearly" });
-            const seats = seatsByPlan[pkg.plan_id] ?? 1;
+            const seats = seatsByPlan[pkg.plan_id] ?? (hasActiveSub ? currentSeats : 1);
             const unit = price.amountMinor;
             const total = unit != null ? (unit * seats) / 100 : null;
             const sym = unit != null ? symbolForCurrency(price.currency) : currencySym;
+            const sameSeats = hasActiveSub && seats === currentSeats;
             return (
               <Card key={pkg.id} className="flex flex-col border-violet-200/50 bg-background/80">
                 <CardHeader className="pb-2">
@@ -282,6 +323,11 @@ export function SmartCardPlansPanel() {
                 </CardHeader>
                 <CardContent className="flex flex-1 flex-col space-y-3 text-sm text-muted-foreground">
                   {pkg.description ? <p>{pkg.description}</p> : null}
+                  {hasActiveSub ? (
+                    <p className="text-xs">
+                      You already have {currentSeats} seat{currentSeats === 1 ? "" : "s"}.
+                    </p>
+                  ) : null}
                   <div className="space-y-1.5">
                     <Label>Seats</Label>
                     <Input
@@ -299,17 +345,48 @@ export function SmartCardPlansPanel() {
                   </div>
                   {total != null ? (
                     <p className="text-foreground">
-                      Due today: {sym}0{" "}
-                      <span className="text-muted-foreground">
-                        (then {sym}
-                        {total.toFixed(0)} / {billingInterval === "yearly" ? "year" : "month"} after trial)
-                      </span>
+                      {hasActiveSub ? (
+                        sameSeats ? (
+                          <>
+                            Already on {currentSeats} seat{currentSeats === 1 ? "" : "s"}
+                          </>
+                        ) : seats > currentSeats ? (
+                          <>
+                            Add {seats - currentSeats} seat(s) — free for 30 days; next bill stays based on current
+                            billable seats
+                          </>
+                        ) : (
+                          <>
+                            Reduce to {seats} seat{seats === 1 ? "" : "s"} — next invoice updates
+                          </>
+                        )
+                      ) : (
+                        <>
+                          Due today: {sym}0{" "}
+                          <span className="text-muted-foreground">
+                            (then {sym}
+                            {total.toFixed(0)} / {billingInterval === "yearly" ? "year" : "month"} after trial)
+                          </span>
+                        </>
+                      )}
                     </p>
                   ) : null}
                   <Button
                     className="mt-auto w-full"
-                    disabled={checkoutMut.isPending || !pkg.plan_id || paymentMethods.length === 0}
+                    disabled={
+                      hasActiveSub
+                        ? updateSeatsMut.isPending || sameSeats || !pkg.plan_id
+                        : checkoutMut.isPending || !pkg.plan_id || paymentMethods.length === 0
+                    }
                     onClick={() => {
+                      if (hasActiveSub) {
+                        if (sameSeats) {
+                          toast.message(`Already on ${currentSeats} seat${currentSeats === 1 ? "" : "s"}`);
+                          return;
+                        }
+                        updateSeatsMut.mutate(seats);
+                        return;
+                      }
                       if (unit == null || total == null) {
                         toast.error("Price not available for your currency");
                         return;
@@ -329,11 +406,21 @@ export function SmartCardPlansPanel() {
                         amountNote: "Ex-VAT. VAT may be added at checkout when applicable.",
                         amountMinor: Math.round(total * 100),
                         serviceKind: "smart_card",
+                        trial_days: 30,
+                        after_trial_display: `${sym}${total.toFixed(0)} / ${billingInterval === "yearly" ? "year" : "month"}`,
                       });
                       setCheckoutOpen(true);
                     }}
                   >
-                    {checkoutMut.isPending ? "Starting…" : "Subscribe"}
+                    {hasActiveSub
+                      ? sameSeats
+                        ? "Already on these seats"
+                        : updateSeatsMut.isPending
+                          ? "Updating…"
+                          : "Update seats"
+                      : checkoutMut.isPending
+                        ? "Starting…"
+                        : "Subscribe"}
                   </Button>
                 </CardContent>
               </Card>

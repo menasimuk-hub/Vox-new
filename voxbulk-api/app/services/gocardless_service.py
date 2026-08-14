@@ -1366,6 +1366,12 @@ class BillingService:
         sub.amount_next_payment_minor = catalog_charge if trial_days > 0 else charge_minor
         if seats is not None and seats > 0:
             sub.seat_quantity = seats
+        if trial_days > 0:
+            sub.billable_seat_quantity = 0
+            sub.added_seats_free_until = None
+        elif seats is not None and seats > 0:
+            sub.billable_seat_quantity = seats
+            sub.added_seats_free_until = None
         sub.payment_provider = "gocardless"
         sub.payment_mode = str(config["environment"])
         sub.external_customer_id = customer_id or None

@@ -48,6 +48,10 @@ class Subscription(Base):
     billing_interval: Mapped[str] = mapped_column(String(10), nullable=False, default="monthly")
     # Seat quantity for service_code=smart_card (yearly per-seat packages).
     seat_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Seats included in the next charge (may lag seat_quantity while new seats are free).
+    billable_seat_quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # When pending free seats become billable (option A: new seats free 30 days).
+    added_seats_free_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     tax_rate_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     tax_country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
 

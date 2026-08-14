@@ -517,6 +517,39 @@ class SmartCardBillingService:
         return sub
 
     @staticmethod
+    def promote_free_seats_if_due(db: Session, sub: Subscription, *, commit: bool = False) -> bool:
+        """If added-seats free window ended, make all entitled seats billable."""
+        free_until = getattr(sub, "added_seats_free_until", None)
+        if free_until is None:
+            return False
+        from datetime import datetime
+
+        now = datetime.utcnow()
+        if free_until > now:
+            return False
+        entitled = max(0, int(getattr(sub, "seat_quantity", None) or 0))
+        sub.billable_seat_quantity = entitled
+        sub.added_seats_free_until = None
+        sub.updated_at = now
+        db.add(sub)
+        if commit:
+            db.commit()
+            db.refresh(sub)
+        else:
+            db.flush()
+        return True
+
+    @staticmethod
+    def effective_billable_seats(sub: Subscription) -> int:
+        status = str(sub.status or "").lower()
+        if status in {"trial", "trialing"}:
+            return 0
+        billable = getattr(sub, "billable_seat_quantity", None)
+        if billable is not None:
+            return max(0, int(billable))
+        return max(0, int(getattr(sub, "seat_quantity", None) or 0))
+
+    @staticmethod
     def seats_payload(db: Session, org_id: str) -> dict[str, Any]:
         from app.services.billing_access_service import BillingAccessService
         from app.services.billing_finance_service import BillingFinanceService
@@ -528,8 +561,11 @@ class SmartCardBillingService:
         sub = BillingAccessService.get_subscription(db, org_id, service_code=SMART_CARD_SERVICE_CODE)
         if sub is None or str(sub.status or "").lower() not in {"active", "trial", "trialing", "past_due"}:
             raise SmartCardBillingError("No active Smart Card subscription")
+        SmartCardBillingService.promote_free_seats_if_due(db, sub, commit=True)
         plan = db.get(Plan, sub.plan_id) if sub.plan_id else None
         seats = int(sub.seat_quantity or 0)
+        billable = SmartCardBillingService.effective_billable_seats(sub)
+        free_seats = max(0, seats - billable)
         active_reps = SmartCardEntitlementService.active_rep_count(db, org_id)
         unit_minor = 0
         currency = str(sub.billing_currency or org.billing_currency or "GBP")
@@ -537,11 +573,23 @@ class SmartCardBillingService:
             currency, unit_minor, _ = PlanPriceService.billing_amount_for_org(
                 db, org, plan, sub.billing_interval
             )
-        next_minor = int(unit_minor or 0) * max(seats, 1)
-        finance = BillingFinanceService.subscription_finance_dict(db, sub, org=org, plan=plan)
+        next_minor = int(unit_minor or 0) * billable
+        # After trial, next invoice is full catalog even if billable is 0 during trial.
         status = str(sub.status or "").lower()
+        is_trial = status in {"trial", "trialing"}
+        if is_trial:
+            next_minor = int(unit_minor or 0) * max(seats, 1)
+        finance = BillingFinanceService.subscription_finance_dict(db, sub, org=org, plan=plan)
+        free_until = getattr(sub, "added_seats_free_until", None)
+        trial_start = getattr(sub, "created_at", None)
+        trial_end = sub.current_period_end if is_trial else None
         return {
             "seat_quantity": seats,
+            "billable_seat_quantity": billable,
+            "free_seat_quantity": free_seats,
+            "added_seats_free_until": free_until.isoformat() if free_until else None,
+            "trial_started_at": trial_start.isoformat() if trial_start else None,
+            "trial_ends_at": trial_end.isoformat() if trial_end else None,
             "active_representatives": active_reps,
             "min_seats": max(1, active_reps),
             "max_seats": 500,
@@ -554,7 +602,7 @@ class SmartCardBillingService:
                 else (sub.current_period_end.isoformat() if sub.current_period_end else None)
             ),
             "status": status,
-            "is_trial": status in {"trial", "trialing"},
+            "is_trial": is_trial,
             "billing_interval": getattr(sub, "billing_interval", None),
             "plan_id": sub.plan_id,
             "plan_name": plan.name if plan else None,
@@ -563,7 +611,9 @@ class SmartCardBillingService:
 
     @staticmethod
     def update_seats(db: Session, *, org_id: str, seat_quantity: int) -> dict[str, Any]:
-        """Change seat count on trial/active sub — next invoice only (no mid-cycle charge)."""
+        """Change seat count — next invoice only. New seats get 30 days free (option A)."""
+        from datetime import datetime, timedelta
+
         from app.services.billing_access_service import BillingAccessService
         from app.services.billing_finance_service import BillingFinanceService
         from app.services.smart_card.company_service import SmartCardEntitlementService
@@ -577,6 +627,7 @@ class SmartCardBillingService:
             raise SmartCardBillingError("No active Smart Card subscription")
         if bool(getattr(sub, "cancel_at_period_end", False)):
             raise SmartCardBillingError("Cannot change seats while cancellation is scheduled")
+        SmartCardBillingService.promote_free_seats_if_due(db, sub, commit=False)
         active_reps = SmartCardEntitlementService.active_rep_count(db, org_id)
         if seats < active_reps:
             raise SmartCardBillingError(
@@ -586,19 +637,72 @@ class SmartCardBillingService:
         plan = db.get(Plan, sub.plan_id)
         if plan is None:
             raise SmartCardBillingError("Subscription plan not found")
-        _currency, unit_minor, catalog_minor, _interval = SmartCardBillingService._catalog_amount(
-            db,
-            org=org,
-            plan=plan,
-            seats=seats,
-            billing_interval=str(sub.billing_interval or "monthly"),
-        )
-        sub.seat_quantity = seats
-        sub.amount_next_payment_minor = catalog_minor
-        BillingFinanceService.sync_subscription_billing_fields(db, sub)
-        from datetime import datetime
 
-        sub.updated_at = datetime.utcnow()
+        old_seats = max(0, int(sub.seat_quantity or 0))
+        if seats == old_seats:
+            return SmartCardBillingService.seats_payload(db, org_id)
+
+        status = str(sub.status or "").lower()
+        is_trial = status in {"trial", "trialing"}
+        now = datetime.utcnow()
+
+        if is_trial:
+            # Whole-sub trial: all seats free until trial ends; then all become billable.
+            sub.seat_quantity = seats
+            sub.billable_seat_quantity = 0
+            sub.added_seats_free_until = None
+            _currency, unit_minor, catalog_minor, _interval = SmartCardBillingService._catalog_amount(
+                db,
+                org=org,
+                plan=plan,
+                seats=seats,
+                billing_interval=str(sub.billing_interval or "monthly"),
+            )
+            sub.amount_next_payment_minor = catalog_minor
+        elif seats > old_seats:
+            # Option A: new seats free 30 days; keep current billable count.
+            prev_billable = SmartCardBillingService.effective_billable_seats(sub)
+            if prev_billable <= 0 and old_seats > 0:
+                prev_billable = old_seats
+            sub.seat_quantity = seats
+            sub.billable_seat_quantity = prev_billable
+            existing_free = getattr(sub, "added_seats_free_until", None)
+            free_until = now + timedelta(days=DEFAULT_SMART_CARD_TRIAL_DAYS)
+            if existing_free is not None and existing_free > free_until:
+                free_until = existing_free
+            sub.added_seats_free_until = free_until
+            _currency, unit_minor, _catalog, _interval = SmartCardBillingService._catalog_amount(
+                db,
+                org=org,
+                plan=plan,
+                seats=max(prev_billable, 1) if prev_billable > 0 else 1,
+                billing_interval=str(sub.billing_interval or "monthly"),
+            )
+            sub.amount_next_payment_minor = int(unit_minor or 0) * prev_billable
+        else:
+            # Downgrade: clamp billable to new entitlement.
+            sub.seat_quantity = seats
+            prev_billable = SmartCardBillingService.effective_billable_seats(sub)
+            new_billable = min(prev_billable, seats)
+            sub.billable_seat_quantity = new_billable
+            if new_billable >= seats:
+                sub.added_seats_free_until = None
+            _currency, unit_minor, catalog_minor, _interval = SmartCardBillingService._catalog_amount(
+                db,
+                org=org,
+                plan=plan,
+                seats=max(new_billable, 1) if new_billable > 0 else seats,
+                billing_interval=str(sub.billing_interval or "monthly"),
+            )
+            sub.amount_next_payment_minor = int(unit_minor or 0) * new_billable
+
+        BillingFinanceService.sync_subscription_billing_fields(db, sub, commit=False)
+        # Re-apply amount after sync in case sync recomputed from billable incorrectly during free window.
+        if not is_trial:
+            currency, amount = PlanPriceService.subscription_charge_amount_for_org(db, org, plan, sub)
+            sub.billing_currency = currency
+            sub.amount_next_payment_minor = amount
+        sub.updated_at = now
         db.add(sub)
         db.commit()
         db.refresh(sub)
