@@ -100,6 +100,8 @@ export async function reportDemoUserClick(
     beat_index?: number;
     call_control_id?: string | null;
     agent_message?: string;
+    /** Default false — voice-gated demos sync memory only; Leo listens for spoken done. */
+    notify_agent?: boolean;
   },
 ) {
   return publicApiFetch<{
@@ -120,6 +122,7 @@ export async function reportDemoUserClick(
       beat_index: extra?.beat_index,
       call_control_id: extra?.call_control_id || undefined,
       agent_message: extra?.agent_message || undefined,
+      notify_agent: Boolean(extra?.notify_agent),
     }),
   });
 }

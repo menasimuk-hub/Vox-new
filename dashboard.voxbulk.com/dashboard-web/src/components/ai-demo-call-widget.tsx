@@ -162,22 +162,19 @@ export function AiDemoCallWidget() {
     [flushAgentMessages],
   );
 
-  /** Call Control primary; WebRTC inject only if server notify failed/skipped. */
-  const notifyLeoForBeat = useCallback(
+  /** Sync spotlight to API memory only — Leo continues when the visitor speaks (done/clicked). */
+  const syncBeatMemory = useCallback(
     async (opts: {
       target: string;
       beat: DemoTourBeat;
       beatIndex: number;
-      agentMessage: string;
+      agentMessage?: string;
     }) => {
       const sid = demoSessionFromLocation() || sessionId;
-      if (!sid) {
-        sendToAgent(opts.agentMessage);
-        return;
-      }
+      if (!sid) return;
       const ccid = readCallControlId(callRef.current) || callControlIdRef.current;
       try {
-        const res = await reportDemoUserClick(sid, opts.target, {
+        await reportDemoUserClick(sid, opts.target, {
           beat_id: opts.beat.id,
           label: opts.beat.label,
           talk: opts.beat.talk,
@@ -185,18 +182,13 @@ export function AiDemoCallWidget() {
           beat_index: opts.beatIndex,
           call_control_id: ccid,
           agent_message: opts.agentMessage,
+          notify_agent: false,
         });
-        if (res?.agent_notify?.ok) {
-          console.info("[ai-demo] Call Control notify ok — skipping browser inject", res.agent_notify);
-          return;
-        }
-        console.warn("[ai-demo] Call Control notify not ok — browser inject backup", res?.agent_notify);
       } catch (err) {
-        console.warn("[ai-demo] user-clicked failed — browser inject backup", err);
+        console.warn("[ai-demo] beat memory sync failed", err);
       }
-      sendToAgent(opts.agentMessage);
     },
-    [sendToAgent, sessionId],
+    [sessionId],
   );
 
   const notificationHandlerRef = useRef<((...args: unknown[]) => void) | null>(null);
@@ -268,14 +260,15 @@ export function AiDemoCallWidget() {
       const nextBeat = demoTourBeatAt(next);
       applyBeatAt(next);
       if (!nextBeat) return;
-      void notifyLeoForBeat({
+      /* UI moves immediately; Leo sells after the visitor says done/clicked on the call. */
+      void syncBeatMemory({
         target: clicked,
         beat: nextBeat,
         beatIndex: next,
         agentMessage: demoTourAdvanceMessage(nextBeat),
       });
     },
-    [applyBeatAt, notifyLeoForBeat],
+    [applyBeatAt, syncBeatMemory],
   );
   advanceFromRef.current = advanceFrom;
 
@@ -285,14 +278,14 @@ export function AiDemoCallWidget() {
     const first = DEMO_TOUR_BEATS[0];
     applyBeatAt(0);
     if (first) {
-      void notifyLeoForBeat({
+      void syncBeatMemory({
         target: first.target,
         beat: first,
         beatIndex: 0,
         agentMessage: demoTourStartMessage(first),
       });
     }
-  }, [applyBeatAt, notifyLeoForBeat]);
+  }, [applyBeatAt, syncBeatMemory]);
   startTourRef.current = startTour;
 
   const hangup = useCallback(async () => {
@@ -559,8 +552,8 @@ export function AiDemoCallWidget() {
                 }
                 if (!callControlIdRef.current && !missingCcidLoggedRef.current) {
                   missingCcidLoggedRef.current = true;
-                  console.error(
-                    "[ai-demo] missing call_control_id — Call Control notify disabled; using browser inject backup",
+                  console.info(
+                    "[ai-demo] no call_control_id yet — voice-gated tour (Leo waits for spoken done)",
                   );
                 }
               }

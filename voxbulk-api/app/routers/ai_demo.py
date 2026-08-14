@@ -107,6 +107,7 @@ class UserClickedIn(BaseModel):
     beat_index: int | None = None
     call_control_id: str | None = None
     agent_message: str | None = None
+    notify_agent: bool = False
 
 
 class LiveDemoResponseIn(BaseModel):
@@ -265,6 +266,7 @@ def demo_user_clicked(payload: UserClickedIn, db: Session = Depends(get_db)):
             beat_index=payload.beat_index,
             call_control_id=payload.call_control_id,
             agent_message=payload.agent_message,
+            notify_agent=bool(payload.notify_agent),
         )
     except AiDemoError as exc:
         raise _http(exc) from exc

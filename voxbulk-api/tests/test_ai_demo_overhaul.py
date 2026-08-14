@@ -132,7 +132,7 @@ def test_demo_jwt_allows_feedback_location_create_only():
         _assert_demo_writes_blocked(_request("DELETE", "/customer-feedback/locations/abc"), _principal(demo=True))
 
 
-def test_coach_script_is_narrator_lock():
+def test_coach_script_is_voice_gated_sales():
     from app.data.ai_demo_coach_script import COACH_TOUR_MAP, DEMO_TOUR_BEATS, memory_tour_lock
 
     assert DEMO_TOUR_BEATS[0]["id"] == "home_kpis"
@@ -143,6 +143,7 @@ def test_coach_script_is_narrator_lock():
     assert any(b["id"] == "feedback_compare_title" for b in DEMO_TOUR_BEATS)
     assert any(b["id"] == "wizard_industry" for b in DEMO_TOUR_BEATS)
     assert not any(b["id"] == "results_top_menus" for b in DEMO_TOUR_BEATS)
+    assert all(str(b.get("ask") or "").strip() for b in DEMO_TOUR_BEATS)
     lock = memory_tour_lock(
         {
             "current_beat": "home_kpis",
@@ -151,18 +152,17 @@ def test_coach_script_is_narrator_lock():
         }
     )
     assert "Live KPIs" in lock
-    assert "Explain this" in lock
+    assert "salesperson" in lock.lower() or "Sell this" in lock
     assert "Do not hang up" in lock
-    assert "Next on the box" in lock
+    assert "done" in lock.lower()
     assert "Click here" not in lock
-    assert "narrator" in COACH_TOUR_MAP.lower()
-    assert "Do not change the screen" in COACH_TOUR_MAP or "must not" in COACH_TOUR_MAP.lower()
-    assert "stay quiet" in COACH_TOUR_MAP.lower() or "stay quiet" in DEMO_TOUR_BEATS[10]["talk"].lower()
-    assert "never say" in COACH_TOUR_MAP.lower()
-    assert "Next" in COACH_TOUR_MAP
+    assert "voice-gated" in COACH_TOUR_MAP.lower() or "spoken" in COACH_TOUR_MAP.lower()
+    assert "salesperson" in COACH_TOUR_MAP.lower() or "sales" in COACH_TOUR_MAP.lower()
+    assert "done" in COACH_TOUR_MAP.lower()
     assert "wizard" in COACH_TOUR_MAP.lower()
-    assert "I clicked Next" in COACH_TOUR_MAP
-    assert "pricing is not goodbye" in COACH_TOUR_MAP.lower() or "NOT hang up" in COACH_TOUR_MAP
+    assert "I clicked Next" in COACH_TOUR_MAP  # warned against as unreliable path
+    assert "pricing" in COACH_TOUR_MAP.lower()
+    assert "NOT hang up" in COACH_TOUR_MAP or "Do NOT hang up" in COACH_TOUR_MAP
 
 
 def test_highlight_dashboard_starts_then_locks(monkeypatch):
@@ -214,7 +214,8 @@ def test_highlight_dashboard_starts_then_locks(monkeypatch):
     assert restored["action"] == "restore"
     assert restored["target_element_id"] == "home-live-kpis"
     assert "Live KPIs" in restored["message"]
-    assert "Explain this" in restored["message"]
+    assert "sales" in restored["message"].lower() or "Sell" in restored["message"]
+    assert "done" in restored["message"].lower()
     ui = next(item[1] for item in events if item[0] == "ui")
     assert ui["action"] == "restore"
     assert ui["target_element_id"] == "home-live-kpis"
@@ -298,6 +299,7 @@ def test_record_user_click_notifies_agent_with_trigger(monkeypatch):
         beat_index=1,
         call_control_id="v3:demo-cc",
         agent_message="I clicked Next. The spotlight is now Activity. Explain this now.",
+        notify_agent=True,
     )
     assert out["ok"] is True
     assert out["agent_notify"]["ok"] is True
@@ -310,6 +312,43 @@ def test_record_user_click_notifies_agent_with_trigger(monkeypatch):
     assert calls[0]["messages"][0]["content"].startswith("I clicked Next.")
     mem = json.loads(req.conversation_memory)
     assert not mem.get("pending_click_nudge")
+
+
+def test_record_user_click_skips_inject_by_default(monkeypatch):
+    import json
+
+    from app.services.ai_demo_service import AiDemoService
+
+    session = SimpleNamespace(id="sess-quiet", request_id="req-quiet")
+    req = SimpleNamespace(conversation_memory=json.dumps({"tour_started": True}))
+
+    def _update(_db, r, patch):
+        mem = json.loads(r.conversation_memory or "{}")
+        mem.update(patch)
+        r.conversation_memory = json.dumps(mem)
+
+    monkeypatch.setattr(AiDemoService, "get_request", staticmethod(lambda db, rid: req))
+    monkeypatch.setattr(AiDemoService, "update_memory", staticmethod(_update))
+
+    db = MagicMock()
+    db.get.return_value = session
+    out = AiDemoService.record_user_click(
+        db,
+        session_id="sess-quiet",
+        target="nav-feedback-compare",
+        beat_id="nav_feedback_compare",
+        label="Compare locations",
+        talk="Compare branches",
+        intent="click",
+        beat_index=7,
+        call_control_id="v3:unused",
+    )
+    assert out["ok"] is True
+    assert out["agent_notify"]["ok"] is False
+    assert out["agent_notify"]["detail"] == "voice_gated_no_inject"
+    mem = json.loads(req.conversation_memory)
+    assert mem.get("current_beat") == "nav_feedback_compare"
+    assert mem.get("pending_click_nudge")
 
 
 def test_bind_call_flushes_pending_click_nudge(monkeypatch):
@@ -375,9 +414,9 @@ def test_opening_gate_and_consent_first_greeting():
 
     assert "welcome" in OPENING_GATE.lower()
     assert "recorded" in OPENING_GATE.lower()
-    assert "do not wait" in OPENING_GATE.lower() or "tour started" in OPENING_GATE.lower()
     assert "highlight_dashboard" in OPENING_GATE
-    assert "say go" in OPENING_GATE.lower() or "go/ready" in OPENING_GATE.lower()
+    assert "done" in OPENING_GATE.lower() or "tell you" in OPENING_GATE.lower()
+    assert "voice" in OPENING_GATE.lower() or "spoken" in OPENING_GATE.lower() or "I clicked Next" in OPENING_GATE
 
 
 def test_normalize_demo_start_path_rejects_fake_dashboard():

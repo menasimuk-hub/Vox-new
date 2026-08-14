@@ -23,6 +23,7 @@ from app.data.ai_demo_coach_script import (
     memory_tour_lock,
     tour_advance_message,
     tour_beat_by_id,
+    tour_confirm_message,
 )
 from app.data.ai_demo_kb_defaults import DEMO_KB_SEED, tool_subset_json
 from app.data.ai_demo_whatsapp_defaults import DEMO_EMAIL_SENT_BODY, DEMO_EMAIL_SENT_TEMPLATE_NAME
@@ -66,15 +67,16 @@ CONVERSATION_STYLE_GUIDE = (
 )
 
 OPENING_GATE = (
-    "OPENING GATE (browser owns the tour — do not wait for spoken go):\n"
-    "Turn 1 (greeting already covers welcome + recording notice):\n"
-    "  1) Welcome briefly by name and introduce yourself\n"
+    "OPENING GATE (voice-gated sales demo):\n"
+    "Turn 1 (greeting may already cover welcome + recording):\n"
+    "  1) Welcome briefly by name and introduce yourself as their demo guide\n"
     "  2) Mention the call is recorded for quality + sales follow-up\n"
-    "  3) As soon as you hear that the tour started OR \"I clicked Next/Click here\", "
-    "narrate the CURRENT SPOTLIGHT immediately — do NOT wait for them to say go/ready.\n"
-    "Do NOT call highlight_dashboard to pick pages — the browser already moved the white box. "
-    "You only narrate CURRENT SPOTLIGHT. You may call highlight_dashboard only to re-draw "
-    "the current box if it vanished. Do not skip ahead."
+    "  3) Call highlight_dashboard ONCE (session_id=DEMO_SESSION_ID) to lock the first spotlight, "
+    "then SELL that screen like an expert salesperson (what it is + why they need it).\n"
+    "  4) Ask them to use the highlighted control / Next on the box and TELL YOU when done "
+    "(done / clicked / open / got it / next / ready).\n"
+    "Do NOT wait for a silent system \"I clicked Next\" — trust their voice. "
+    "Do NOT skip ahead. If the box vanished, call highlight_dashboard again to restore CURRENT only."
 )
 
 
@@ -1627,20 +1629,20 @@ class AiDemoService:
                     + "Especially never open with AI interviews unless recruitment was selected."
                 ),
                 (
-                    f"AFTER they confirm ready (not before): stay on HOME. "
-                    f"Name {first_label} in one line, then call highlight_dashboard ONCE on home_kpis. "
-                    "After that you are a narrator — speak only CURRENT SPOTLIGHT. "
-                    "Do not navigate or pick the next page."
+                    f"After the greeting: stay on HOME, name {first_label} in one line, "
+                    "call highlight_dashboard ONCE, then sell CURRENT SPOTLIGHT. "
+                    "Do not navigate or pick the next page yourself."
                 ),
                 (
-                    "HOW TO EXPLAIN (only after ready): speak like a closer — outcomes and stakes, not feature lists. "
-                    "Example tone for Feedback: 'This is how you catch a bad review before it goes online — "
+                    "HOW TO SELL: expert closer — outcomes and stakes, not feature lists. "
+                    "Example for Feedback: 'This is how you catch a bad review before it goes online — "
                     "QR on the table, WhatsApp chat, you see the dip by location first.' "
-                    "Then prove it on the real page. Bridge every screen back to THEIR business."
+                    "After each pitch, ask them to click the highlighted control and tell you when done. "
+                    "When they say done/clicked/open/got it/next/ready, call highlight_dashboard, then sell the new spotlight."
                 ),
-                "UI RULES: After the opening gate, one highlight_dashboard starts the tour. "
-                "Then the browser owns Next/click. Speak the lock-text talk only. "
-                "Never navigate or highlight during the opening consent turn.",
+                "UI RULES: One highlight_dashboard starts or restores the CURRENT box. "
+                "Browser moves the white box when they click; you advance the conversation on spoken confirmation. "
+                "Never invent the next page. Never navigate during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service=active product so the correct tab opens.",
@@ -1663,12 +1665,14 @@ class AiDemoService:
                 "CRITICAL TOOL RULE: every tool call MUST include session_id equal to DEMO_SESSION_ID above.",
                 (
                     f"OPENING GATE reminder: welcome {req.contact_name} → introduce as {agent_name} from VoxBulk → "
-                    "recording consent → wait until they say ready → only then discover pain and switch_kb."
+                    "recording notice → call highlight_dashboard once → sell first spotlight → "
+                    "ask them to click and tell you when done."
                 ),
                 f"Hard soft cap about {soft_cap} minutes — wrap up with end_demo when time is up.",
                 "You are a salesperson: discover pain, pitch the outcome, prove on the live dashboard, soft close.",
-                "UI RULES: One highlight_dashboard after ready starts the tour. "
-                "Then narrate CURRENT SPOTLIGHT only. Never navigate during the opening consent turn.",
+                "UI RULES: One highlight_dashboard starts or restores CURRENT. "
+                "Sell, ask for click + spoken done, then highlight_dashboard again on confirmation. "
+                "Never navigate during the opening consent turn.",
                 real_dash_block,
                 "PRICING RULES: " + "; ".join(PRICING_WALKTHROUGH.get("recommend_rules") or [])
                 + " Use show_pricing with service= the product in context.",
@@ -1685,26 +1689,28 @@ class AiDemoService:
         if memory:
             parts.append("RESUME MEMORY (do not restart from scratch): " + _json_dumps(memory))
 
-        # Telnyx speaks first_message once; browser starts the tour — do not wait for spoken "go".
+        # Telnyx speaks first_message once; tour is voice-gated after spoken confirmations.
         if selected:
             greeting = (
                 f"Hi {req.contact_name}, welcome. "
                 f"I'm {agent_name} from VoxBulk. "
                 "This call is recorded for quality and so our sales team can follow up. "
-                "I'll walk you through the live dashboard now — watch the white box on screen."
+                "I'll walk you through the live dashboard — watch the white box, click when I ask, "
+                "and just tell me when you're done."
             )
         elif memory and memory.get("active_service_code"):
             greeting = (
                 f"Hi {req.contact_name}, welcome back — I'm {agent_name} from VoxBulk. "
                 "This call is recorded for quality and sales follow-up. "
-                "We'll pick up the dashboard tour — watch the white box."
+                "We'll pick up where we left off — watch the white box and tell me when you've clicked."
             )
         else:
             greeting = (
                 f"Hi {req.contact_name}, welcome. "
                 f"I'm {agent_name} from VoxBulk. "
                 "This call is recorded for quality and so our sales team can follow up. "
-                "I'll walk you through the live dashboard now — watch the white box on screen."
+                "I'll walk you through the live dashboard — watch the white box, click when I ask, "
+                "and just tell me when you're done."
             )
 
         if kb:
@@ -2134,7 +2140,6 @@ class AiDemoService:
                 memory = {}
             if memory.get("tour_started"):
                 beat = tour_beat_by_id(str(memory.get("current_beat") or "")) or DEMO_TOUR_BEATS[0]
-                lock = memory_tour_lock(memory)
                 AiDemoService._append_ui_event(
                     db,
                     session,
@@ -2158,14 +2163,7 @@ class AiDemoService:
                     "intent": beat.get("intent") or "view",
                     "label": beat["label"],
                     "target_element_id": beat["target"],
-                    "message": (
-                        f"VISITOR ALREADY CLICKED. You are behind the screen. "
-                        f"Spotlight is NOW \"{beat['label']}\". {beat.get('talk') or ''} "
-                        f"Explain THIS spotlight in 1-2 sentences immediately. "
-                        f"Do NOT ask them to click again for a previous step. "
-                        f"Do NOT say you are still waiting for the click they already made. "
-                        f"{lock}"
-                    ),
+                    "message": tour_confirm_message(beat),
                 }
 
             first = DEMO_TOUR_BEATS[0]
@@ -2389,7 +2387,9 @@ class AiDemoService:
         beat_index: int | None = None,
         call_control_id: str | None = None,
         agent_message: str | None = None,
+        notify_agent: bool = False,
     ) -> dict[str, Any]:
+        """Sync browser beat to session memory. Voice-gated demos do not inject into Leo by default."""
         session = db.get(DemoSession, str(session_id or "").strip())
         if session is None:
             raise AiDemoError("Session not found", status_code=404)
@@ -2426,31 +2426,37 @@ class AiDemoService:
                 "pending_click_at": _utcnow().isoformat() + "Z",
             },
         )
-        resolved_ccid = str((memory or {}).get("telnyx_call_control_id") or ccid or "").strip()
-        beat_key = str(beat_id or (memory or {}).get("current_beat") or target_id or "beat")[:80]
-        command_id = f"demo-{str(session_id)[:36]}-{beat_key}-{idx if idx is not None else 'x'}"[:128]
-        agent_notify = AiDemoService._notify_agent_click(
-            db,
-            session_id=session.id,
-            call_control_id=resolved_ccid,
-            message=msg,
-            command_id=command_id,
-            via="user_clicked",
-        )
-        if agent_notify.get("ok"):
-            AiDemoService.update_memory(db, req, {"pending_click_nudge": "", "pending_click_at": ""})
-        AiDemoService.update_memory(
-            db,
-            req,
-            {
-                "last_agent_notify": {
-                    "at": _utcnow().isoformat() + "Z",
-                    "via": "user_clicked",
-                    "command_id": command_id,
-                    **agent_notify,
-                }
-            },
-        )
+        agent_notify: dict[str, Any] = {
+            "ok": False,
+            "status": "skipped",
+            "detail": "voice_gated_no_inject",
+        }
+        if notify_agent:
+            resolved_ccid = str((memory or {}).get("telnyx_call_control_id") or ccid or "").strip()
+            beat_key = str(beat_id or (memory or {}).get("current_beat") or target_id or "beat")[:80]
+            command_id = f"demo-{str(session_id)[:36]}-{beat_key}-{idx if idx is not None else 'x'}"[:128]
+            agent_notify = AiDemoService._notify_agent_click(
+                db,
+                session_id=session.id,
+                call_control_id=resolved_ccid,
+                message=msg,
+                command_id=command_id,
+                via="user_clicked",
+            )
+            if agent_notify.get("ok"):
+                AiDemoService.update_memory(db, req, {"pending_click_nudge": "", "pending_click_at": ""})
+            AiDemoService.update_memory(
+                db,
+                req,
+                {
+                    "last_agent_notify": {
+                        "at": _utcnow().isoformat() + "Z",
+                        "via": "user_clicked",
+                        "command_id": command_id,
+                        **agent_notify,
+                    }
+                },
+            )
         return {"ok": True, "target": target_id, "message": msg, "agent_notify": agent_notify}
 
     @staticmethod
