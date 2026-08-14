@@ -370,6 +370,8 @@ def _try_schedule_followup_retry(
 
 
 def _has_written_reason(db: Session, session_id: str) -> bool:
+    from app.services.voice_transcription_service import is_usable_feedback_reason
+
     rows = db.execute(select(FeedbackResponse).where(FeedbackResponse.session_id == session_id)).scalars().all()
     for row in rows:
         key = str(row.question_key or "")
@@ -377,8 +379,10 @@ def _has_written_reason(db: Session, session_id: str) -> bool:
         if not text or text.lower() == "skip":
             continue
         if key.endswith("__low_reason") or "tell_us_more" in key or row.answer_source == "voice":
-            return True
-        if len(text) >= 8:
+            if is_usable_feedback_reason(text):
+                return True
+            continue
+        if is_usable_feedback_reason(text):
             return True
     return False
 

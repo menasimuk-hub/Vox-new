@@ -17,6 +17,7 @@ from app.services.customer_feedback.feedback_ai_followup_service import (
     _build_followup_instructions,
     _callable_phone,
     _format_session_summary_for_prompt,
+    _has_written_reason,
     _pre_dial_billing_allowed,
     handle_feedback_ai_followup_telnyx_event,
     schedule_if_eligible,
@@ -105,6 +106,29 @@ def test_schedule_if_eligible_skips_web_phone(db: Session):
     db.commit()
 
     assert schedule_if_eligible(db, session=session, location=location) is False
+
+
+@pytest.mark.parametrize("junk", ["xdvds", "ok", "asdf", "12345", "skip", ""])
+def test_has_written_reason_rejects_gibberish_tell_us_more(junk: str):
+    row = MagicMock()
+    row.question_key = "waiting__tell_us_more"
+    row.answer_text = junk
+    row.original_text = None
+    row.answer_source = "text"
+    db = MagicMock()
+    db.execute.return_value.scalars.return_value.all.return_value = [row] if junk != "" else []
+    assert _has_written_reason(db, "session-1") is False
+
+
+def test_has_written_reason_accepts_real_tell_us_more():
+    row = MagicMock()
+    row.question_key = "waiting__tell_us_more"
+    row.answer_text = "Service was slow and rude"
+    row.original_text = None
+    row.answer_source = "text"
+    db = MagicMock()
+    db.execute.return_value.scalars.return_value.all.return_value = [row]
+    assert _has_written_reason(db, "session-1") is True
 
 
 def test_pre_dial_billing_blocks_low_payg_wallet(db: Session):

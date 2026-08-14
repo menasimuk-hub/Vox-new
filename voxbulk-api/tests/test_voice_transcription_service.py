@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.voice_transcription_service import (
     VoiceTranscriptionService,
     is_low_quality_transcript,
+    is_usable_feedback_reason,
     stt_provider_order,
 )
 
@@ -14,6 +17,19 @@ def test_is_low_quality_transcript():
     assert is_low_quality_transcript("a") is True
     assert is_low_quality_transcript("hahaha") is True
     assert is_low_quality_transcript("good service today") is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "skip", "ok", "xdvds", "asdf", "12345", "aaaaaaa", "!!!!!!!!", "k", "n/a", "nothing"],
+)
+def test_is_usable_feedback_reason_rejects_gibberish_and_fillers(text):
+    assert is_usable_feedback_reason(text) is False
+
+
+def test_is_usable_feedback_reason_accepts_real_reasons():
+    assert is_usable_feedback_reason("Service was slow and rude") is True
+    assert is_usable_feedback_reason("Waiting too long at reception") is True
 
 
 def test_stt_provider_order_default():

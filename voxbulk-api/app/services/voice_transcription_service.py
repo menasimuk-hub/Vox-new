@@ -155,6 +155,77 @@ def is_low_quality_transcript(text: str) -> bool:
     return False
 
 
+# Written "tell us more" / low-rating reasons that should not block AI call follow-back.
+MIN_FEEDBACK_REASON_CHARS = 8
+_FEEDBACK_REASON_FILLERS = frozenset(
+    {
+        "ok",
+        "okay",
+        "k",
+        "kk",
+        "idk",
+        "n/a",
+        "na",
+        "n.a",
+        "n.a.",
+        "none",
+        "nothing",
+        "nope",
+        "yes",
+        "yep",
+        "fine",
+        "meh",
+        "hmm",
+        "hmmm",
+        "lol",
+        "test",
+        "testing",
+        "asdf",
+        "qwerty",
+        "no",
+        "bad",
+        "poor",
+        "slow",
+        "avg",
+        "maybe",
+        "skip",
+    }
+)
+_LATIN_VOWELS = re.compile(r"[aeiou]", re.IGNORECASE)
+
+
+def is_usable_feedback_reason(text: str) -> bool:
+    """
+    True when free-text looks like a real written reason for a low rating.
+
+    Gibberish, fillers, and empty/skip replies count as no reason so AI call
+    follow-back can still schedule.
+    """
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return False
+    low = cleaned.lower()
+    if low in _FEEDBACK_REASON_FILLERS:
+        return False
+    if len(cleaned) < MIN_FEEDBACK_REASON_CHARS:
+        return False
+    if cleaned.isdigit():
+        return False
+    letters = re.findall(r"[^\W\d_]", cleaned, flags=re.UNICODE)
+    if not letters:
+        return False
+    if is_low_quality_transcript(cleaned):
+        return False
+    # Latin keyboard smash: single token, no vowels (e.g. longer junk past min length).
+    latin = re.sub(r"[^a-zA-Z]", "", cleaned)
+    if latin and len(cleaned.split()) == 1 and len(latin) == len("".join(letters)):
+        if len(latin) >= 4 and not _LATIN_VOWELS.search(latin):
+            return False
+        if len(latin) >= 8 and len(set(latin.lower())) <= 3:
+            return False
+    return True
+
+
 @dataclass(frozen=True)
 class SttTranscriptionResult:
     text: str

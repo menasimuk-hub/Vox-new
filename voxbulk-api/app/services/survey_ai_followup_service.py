@@ -74,6 +74,8 @@ def _had_low_rating(recipient: ServiceOrderRecipient) -> bool:
 
 
 def _has_written_reason(recipient: ServiceOrderRecipient) -> bool:
+    from app.services.voice_transcription_service import is_usable_feedback_reason
+
     for item in _wa_answers(recipient):
         role = str(item.get("step_role") or item.get("reply_type") or "").strip().lower()
         text = str(
@@ -85,18 +87,22 @@ def _has_written_reason(recipient: ServiceOrderRecipient) -> bool:
         ).strip()
         if not text or text.lower() == "skip":
             continue
-        if "tell_us_more" in role or "followup" in role or "reason" in role or "final_feedback" in role:
-            if len(text) >= 8:
-                return True
         source = str(item.get("answer_source") or "").strip().lower()
-        if source == "voice" and len(text) >= 8:
-            return True
-        if len(text) >= 12 and text.lower() not in LOW_ANSWERS and not text.isdigit():
-            if role in {"open_text", "text", "final_feedback", "tell_us_more"} or item.get("reply_type") == "text":
+        if "tell_us_more" in role or "followup" in role or "reason" in role or "final_feedback" in role:
+            if is_usable_feedback_reason(text):
+                return True
+            continue
+        if source == "voice":
+            if is_usable_feedback_reason(text):
+                return True
+            continue
+        if role in {"open_text", "text", "final_feedback", "tell_us_more"} or item.get("reply_type") == "text":
+            # Open text needs a bit more substance than a short tell-us-more line.
+            if len(text) >= 12 and is_usable_feedback_reason(text):
                 return True
     result = _recipient_result(recipient)
     final = str(result.get("final_additional_feedback") or "").strip()
-    if len(final) >= 8:
+    if is_usable_feedback_reason(final):
         return True
     return False
 

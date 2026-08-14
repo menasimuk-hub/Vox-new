@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.services.customer_feedback.feedback_ai_followup_service import resolve_followup_delay_hours
 from app.services.survey_ai_followup_service import (
@@ -46,6 +49,15 @@ def test_has_written_reason_detects_tell_us_more():
 def test_has_written_reason_ignores_short_skip():
     recipient = MagicMock()
     recipient.result_json = '{"wa_conversation":{"answers":[{"step_role":"tell_us_more","answer_text":"skip"}]}}'
+    assert _has_written_reason(recipient) is False
+
+
+@pytest.mark.parametrize("junk", ["xdvds", "ok", "asdf", "12345", "aaaaaaa"])
+def test_has_written_reason_treats_gibberish_as_no_reason(junk):
+    recipient = MagicMock()
+    recipient.result_json = json.dumps(
+        {"wa_conversation": {"answers": [{"step_role": "tell_us_more", "answer_text": junk}]}}
+    )
     assert _has_written_reason(recipient) is False
 
 
