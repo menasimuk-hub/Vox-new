@@ -383,15 +383,23 @@ def delete_location(
 def get_results(
     location_id: str | None = None,
     survey_type_id: str | None = None,
+    period: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    from app.services.customer_feedback.results_service import resolve_feedback_results_window
+
     _require_feedback_enabled(db, principal.org_id)
+    start, end = resolve_feedback_results_window(period=period, date_from=date_from, date_to=date_to)
     return FeedbackResultsService.customer_results(
         db,
         principal.org_id,
         location_id=location_id,
         survey_type_id=survey_type_id,
+        date_from=start,
+        date_to=end,
         created_by_user_id=_campaign_owner_user_id(db, principal),
     )
 
@@ -458,6 +466,20 @@ def get_feedback_voice_note_audio(
     return FileResponse(path, media_type=media)
 
 
+@router.post("/results/sessions/{session_id}/opened")
+def mark_session_opened(
+    session_id: str,
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    """Mark a feedback session as opened in the dashboard results drawer."""
+    _require_feedback_enabled(db, principal.org_id)
+    try:
+        return FeedbackResultsService.mark_session_opened(db, principal.org_id, session_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.post("/results/sessions/{session_id}/ai-follow-up/start")
 def start_session_ai_follow_up(
     session_id: str,
@@ -515,16 +537,24 @@ def get_results_compare(
 def get_results_insights(
     location_id: str | None = None,
     survey_type_id: str | None = None,
+    period: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     force: bool = Query(False),
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
+    from app.services.customer_feedback.results_service import resolve_feedback_results_window
+
     _require_feedback_enabled(db, principal.org_id)
+    start, end = resolve_feedback_results_window(period=period, date_from=date_from, date_to=date_to)
     return FeedbackResultsService.customer_insights(
         db,
         principal.org_id,
         location_id=location_id,
         survey_type_id=survey_type_id,
+        date_from=start,
+        date_to=end,
         force=force,
         created_by_user_id=_campaign_owner_user_id(db, principal),
     )
@@ -551,17 +581,25 @@ def marketing_subscriber_count(db: Session = Depends(get_db), principal=Depends(
 def export_results_csv(
     location_id: str | None = None,
     survey_type_id: str | None = None,
+    period: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
     from fastapi.responses import Response
 
+    from app.services.customer_feedback.results_service import resolve_feedback_results_window
+
     _require_feedback_enabled(db, principal.org_id)
+    start, end = resolve_feedback_results_window(period=period, date_from=date_from, date_to=date_to)
     csv_text = FeedbackResultsService.export_csv(
         db,
         principal.org_id,
         location_id=location_id,
         survey_type_id=survey_type_id,
+        date_from=start,
+        date_to=end,
         created_by_user_id=_campaign_owner_user_id(db, principal),
     )
     suffix = (location_id or "all")[:8]
@@ -576,17 +614,25 @@ def export_results_csv(
 def export_results_pdf(
     location_id: str | None = None,
     survey_type_id: str | None = None,
+    period: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
     from fastapi.responses import Response
 
+    from app.services.customer_feedback.results_service import resolve_feedback_results_window
+
     _require_feedback_enabled(db, principal.org_id)
+    start, end = resolve_feedback_results_window(period=period, date_from=date_from, date_to=date_to)
     pdf_bytes = FeedbackResultsService.export_pdf(
         db,
         principal.org_id,
         location_id=location_id,
         survey_type_id=survey_type_id,
+        date_from=start,
+        date_to=end,
         created_by_user_id=_campaign_owner_user_id(db, principal),
     )
     suffix = (location_id or "all")[:8]

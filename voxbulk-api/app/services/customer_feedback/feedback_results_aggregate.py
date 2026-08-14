@@ -374,6 +374,8 @@ def build_respondents(
                 "completed_at": sess.completed_at.isoformat() if sess.completed_at else None,
                 "started_at": sess.started_at.isoformat() if sess.started_at else None,
                 "session_status": str(sess.status or ""),
+                "opened_at": sess.dashboard_opened_at.isoformat() if getattr(sess, "dashboard_opened_at", None) else None,
+                "is_unopened": getattr(sess, "dashboard_opened_at", None) is None,
                 "is_unhappy": unhappy,
                 "flagged": unhappy,
                 "sentiment_label": sentiment,

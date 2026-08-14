@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,6 +31,61 @@ from app.services.customer_feedback.feedback_results_export import (
 )
 from app.services.customer_feedback.feedback_insights_service import FeedbackInsightsService
 from app.services.customer_feedback.location_service import location_to_dict
+
+_UK = ZoneInfo("Europe/London")
+
+
+def resolve_feedback_results_window(
+    *,
+    period: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> tuple[datetime | None, datetime | None]:
+    """Return naive UTC bounds for results queries (matches stored DateTime.utcnow columns)."""
+
+    def _parse_day(raw: str | None) -> date | None:
+        text = str(raw or "").strip()
+        if not text:
+            return None
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+
+    def _start_of_day_utc(d: date) -> datetime:
+        return datetime.combine(d, time.min, tzinfo=_UK).astimezone(timezone.utc).replace(tzinfo=None)
+
+    def _end_of_day_utc(d: date) -> datetime:
+        return datetime.combine(d, time.max, tzinfo=_UK).astimezone(timezone.utc).replace(tzinfo=None)
+
+    from_day = _parse_day(date_from)
+    to_day = _parse_day(date_to)
+    if from_day or to_day:
+        start = _start_of_day_utc(from_day) if from_day else None
+        end = _end_of_day_utc(to_day) if to_day else None
+        return start, end
+
+    key = str(period or "").strip().lower().replace("-", "_")
+    if key in {"", "all", "all_time"}:
+        return None, None
+
+    now_uk = datetime.now(_UK)
+    today = now_uk.date()
+    if key == "this_week":
+        monday = today - timedelta(days=today.weekday())
+        return _start_of_day_utc(monday), None
+    if key == "last_7_days":
+        return _start_of_day_utc(today - timedelta(days=6)), _end_of_day_utc(today)
+    if key == "last_14_days":
+        return _start_of_day_utc(today - timedelta(days=13)), _end_of_day_utc(today)
+    if key == "last_30_days":
+        return _start_of_day_utc(today - timedelta(days=29)), _end_of_day_utc(today)
+    if key == "last_week":
+        this_monday = today - timedelta(days=today.weekday())
+        last_monday = this_monday - timedelta(days=7)
+        last_sunday = this_monday - timedelta(days=1)
+        return _start_of_day_utc(last_monday), _end_of_day_utc(last_sunday)
+    return None, None
 
 
 class FeedbackResultsService:
@@ -217,6 +273,8 @@ class FeedbackResultsService:
         *,
         location_id: str | None = None,
         survey_type_id: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
         force: bool = False,
         created_by_user_id: str | None = None,
     ) -> dict[str, Any]:
@@ -225,6 +283,8 @@ class FeedbackResultsService:
             org_id,
             location_id=location_id,
             survey_type_id=survey_type_id,
+            date_from=date_from,
+            date_to=date_to,
             created_by_user_id=created_by_user_id,
         )
         voice_jobs = data.get("voice_jobs_by_response") or {}
@@ -265,6 +325,8 @@ class FeedbackResultsService:
         *,
         location_id: str | None = None,
         survey_type_id: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
         include_ai: bool = True,
         created_by_user_id: str | None = None,
     ) -> dict[str, Any]:
@@ -273,6 +335,8 @@ class FeedbackResultsService:
             org_id,
             location_id=location_id,
             survey_type_id=survey_type_id,
+            date_from=date_from,
+            date_to=date_to,
             created_by_user_id=created_by_user_id,
         )
         if include_ai:
@@ -281,11 +345,30 @@ class FeedbackResultsService:
                 org_id,
                 location_id=location_id,
                 survey_type_id=survey_type_id,
+                date_from=date_from,
+                date_to=date_to,
                 created_by_user_id=created_by_user_id,
             )
             results["ai"] = insights.get("ai")
             results["open_comments"] = insights.get("open_comments") or results.get("open_comments")
         return results
+
+    @staticmethod
+    def mark_session_opened(db: Session, org_id: str, session_id: str) -> dict[str, Any]:
+        sess = db.get(FeedbackSession, session_id)
+        if not sess or str(sess.org_id) != str(org_id):
+            raise LookupError("Feedback session not found")
+        if sess.dashboard_opened_at is None:
+            sess.dashboard_opened_at = datetime.utcnow()
+            db.add(sess)
+            db.commit()
+            db.refresh(sess)
+        opened = sess.dashboard_opened_at
+        return {
+            "ok": True,
+            "session_id": sess.id,
+            "opened_at": opened.isoformat() if opened else None,
+        }
 
     @staticmethod
     def customer_compare(
@@ -305,6 +388,8 @@ class FeedbackResultsService:
         *,
         location_id: str | None = None,
         survey_type_id: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
         created_by_user_id: str | None = None,
     ) -> str:
         payload = FeedbackResultsService.export_payload(
@@ -312,6 +397,8 @@ class FeedbackResultsService:
             org_id,
             location_id=location_id,
             survey_type_id=survey_type_id,
+            date_from=date_from,
+            date_to=date_to,
             include_ai=False,
             created_by_user_id=created_by_user_id,
         )
@@ -324,6 +411,8 @@ class FeedbackResultsService:
         *,
         location_id: str | None = None,
         survey_type_id: str | None = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
         created_by_user_id: str | None = None,
     ) -> bytes:
         payload = FeedbackResultsService.export_payload(
@@ -331,6 +420,8 @@ class FeedbackResultsService:
             org_id,
             location_id=location_id,
             survey_type_id=survey_type_id,
+            date_from=date_from,
+            date_to=date_to,
             include_ai=True,
             created_by_user_id=created_by_user_id,
         )

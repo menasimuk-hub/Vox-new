@@ -20,9 +20,11 @@ import {
   ArrowDownRight,
   ArrowLeft,
   ArrowUpRight,
+  CalendarDays,
   CheckCircle2,
   Download,
   Filter,
+  Mail,
   MessageSquareText,
   Phone,
   PhoneCall,
@@ -65,6 +67,12 @@ export type FeedbackSurveyResultsProps = {
   locationId: string;
   locations: Array<{ id: string; name: string }>;
   onLocationChange: (id: string) => void;
+  period?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  onPeriodChange?: (period: string) => void;
+  onDateFromChange?: (value: string) => void;
+  onDateToChange?: (value: string) => void;
   onExportPdf: () => void;
   onExportCsv: () => void;
   headerActions?: React.ReactNode;
@@ -77,6 +85,12 @@ export function FeedbackSurveyResults({
   locationId,
   locations,
   onLocationChange,
+  period = "last_14_days",
+  dateFrom = "",
+  dateTo = "",
+  onPeriodChange,
+  onDateFromChange,
+  onDateToChange,
   onExportPdf,
   onExportCsv,
   headerActions,
@@ -85,9 +99,10 @@ export function FeedbackSurveyResults({
 }: FeedbackSurveyResultsProps) {
   const [tab, setTab] = useState("overview");
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "unhappy" | "neutral" | "happy" | "flagged">("all");
+  const [filter, setFilter] = useState<"all" | "new" | "unhappy" | "neutral" | "happy" | "flagged">("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [draftLocationId, setDraftLocationId] = useState(locationId);
+  const [locallyOpened, setLocallyOpened] = useState<Set<string>>(() => new Set());
 
   React.useEffect(() => {
     setDraftLocationId(locationId);
@@ -111,20 +126,27 @@ export function FeedbackSurveyResults({
   const branches = [{ id: "all", name: "All locations" }, ...locations.map((l) => ({ id: l.id, name: l.name }))];
   const locationDirty = draftLocationId !== locationId;
 
+  const isRespondentNew = React.useCallback(
+    (r: Respondent) => Boolean(r.isNew) && !locallyOpened.has(r.id),
+    [locallyOpened],
+  );
+
   const filtered = useMemo(() => {
     return respondents.filter((r) => {
+      if (filter === "new" && !isRespondentNew(r)) return false;
       if (filter === "flagged" && !r.flagged) return false;
-      if (filter !== "all" && filter !== "flagged" && r.sentiment !== filter) return false;
-      if (search && !r.name.toLowerCase().includes(search.toLowerCase()) && !r.type.includes(search.toLowerCase())) return false;
+      if (filter !== "all" && filter !== "flagged" && filter !== "new" && r.sentiment !== filter) return false;
+      if (search && !r.name.toLowerCase().includes(search.toLowerCase()) && !r.type.includes(search.toLowerCase()) && !r.mobile.includes(search)) return false;
       return true;
     });
-  }, [search, filter, respondents]);
+  }, [search, filter, respondents, isRespondentNew]);
 
   type SortableRespondent = Respondent & {
     sortName: string;
     sortType: string;
     sortSentiment: number;
     sortCompletedAt: number;
+    sortIsNew: number;
   };
 
   const rowsForSort = useMemo<SortableRespondent[]>(
@@ -135,20 +157,39 @@ export function FeedbackSurveyResults({
         sortType: r.type,
         sortSentiment: r.sentiment === "unhappy" ? 0 : r.sentiment === "neutral" ? 1 : 2,
         sortCompletedAt: r.completedAtTs,
+        sortIsNew: isRespondentNew(r) ? 1 : 0,
       })),
-    [filtered],
+    [filtered, isRespondentNew],
   );
 
-  const tableSort = useTableSort(rowsForSort as Record<string, unknown>[], "sortSentiment", "asc");
+  const tableSort = useTableSort(rowsForSort as Record<string, unknown>[], "sortCompletedAt", "desc");
 
   const counts = useMemo(() => ({
     unhappy: respondents.filter((r) => r.sentiment === "unhappy").length,
     neutral: respondents.filter((r) => r.sentiment === "neutral").length,
     happy: respondents.filter((r) => r.sentiment === "happy").length,
     flagged: respondents.filter((r) => r.flagged).length,
-  }), [respondents]);
+    newCount: respondents.filter((r) => isRespondentNew(r)).length,
+  }), [respondents, isRespondentNew]);
 
   const openRespondent = respondents.find((r) => r.id === openId) ?? null;
+
+  function openRespondentRow(id: string) {
+    setOpenId(id);
+    const row = respondents.find((r) => r.id === id);
+    if (!row || !isRespondentNew(row)) return;
+    setLocallyOpened((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    void apiFetch(`/customer-feedback/results/sessions/${encodeURIComponent(id)}/opened`, {
+      method: "POST",
+    }).catch(() => {
+      /* keep optimistic hide; next refresh will resync if the mark failed */
+    });
+  }
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -192,6 +233,43 @@ export function FeedbackSurveyResults({
               Go
             </Button>
           </div>
+          {onPeriodChange ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Select value={period} onValueChange={onPeriodChange}>
+                <SelectTrigger className="h-8 w-[160px] gap-1.5" data-demo-target="results-period-select">
+                  <CalendarDays className="size-3.5 text-primary" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="this_week">This week</SelectItem>
+                  <SelectItem value="last_week">Last week</SelectItem>
+                  <SelectItem value="last_7_days">Last 7 days</SelectItem>
+                  <SelectItem value="last_14_days">Last 14 days</SelectItem>
+                  <SelectItem value="last_30_days">Last 30 days</SelectItem>
+                  <SelectItem value="all">All time</SelectItem>
+                  <SelectItem value="custom">Custom dates</SelectItem>
+                </SelectContent>
+              </Select>
+              {period === "custom" ? (
+                <>
+                  <Input
+                    type="date"
+                    className="h-8 w-[140px]"
+                    value={dateFrom}
+                    onChange={(e) => onDateFromChange?.(e.target.value)}
+                    aria-label="From date"
+                  />
+                  <Input
+                    type="date"
+                    className="h-8 w-[140px]"
+                    value={dateTo}
+                    onChange={(e) => onDateToChange?.(e.target.value)}
+                    aria-label="To date"
+                  />
+                </>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
@@ -200,11 +278,15 @@ export function FeedbackSurveyResults({
             <TabsTrigger value="responses" data-demo-target="results-tab-responses">Responses</TabsTrigger>
             <TabsTrigger value="details" className="gap-1.5" data-demo-target="results-tab-details">
               More details
-              {counts.flagged > 0 && (
+              {counts.newCount > 0 ? (
+                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                  {counts.newCount} new
+                </span>
+              ) : counts.flagged > 0 ? (
                 <span className="rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold text-destructive-foreground">
                   {counts.flagged}
                 </span>
-              )}
+              ) : null}
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -405,6 +487,9 @@ export function FeedbackSurveyResults({
                   </div>
                   <div className="flex flex-wrap rounded-md border border-border p-0.5">
                     <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>All</FilterPill>
+                    <FilterPill active={filter === "new"} onClick={() => setFilter("new")}>
+                      <Mail className="size-3" /> New {counts.newCount}
+                    </FilterPill>
                     <FilterPill active={filter === "flagged"} onClick={() => setFilter("flagged")} tone="destructive">
                       <AlertTriangle className="size-3" /> Flagged
                     </FilterPill>
@@ -420,7 +505,7 @@ export function FeedbackSurveyResults({
                 <div className="p-8 text-center text-sm text-muted-foreground">No respondents match these filters.</div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] text-sm">
+                  <table className="w-full min-w-[860px] text-sm">
                     <thead>
                       <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
                         <SortHeader
@@ -455,22 +540,45 @@ export function FeedbackSurveyResults({
                           onToggle={tableSort.toggleSort}
                           className="px-4 py-2"
                         />
+                        <SortHeader
+                          label="Status"
+                          sortKey="sortIsNew"
+                          active={tableSort.sortKey}
+                          dir={tableSort.sortDir}
+                          onToggle={tableSort.toggleSort}
+                          className="px-4 py-2"
+                        />
                         <th className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">Quick view</th>
                         <th className="px-4 py-2 text-right text-xs font-medium text-muted-foreground">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                      {(tableSort.sorted as SortableRespondent[]).map((r) => (
+                      {(tableSort.sorted as SortableRespondent[]).map((r) => {
+                        const isNew = isRespondentNew(r);
+                        return (
                         <tr
                           key={r.id}
-                          onClick={() => setOpenId(r.id)}
+                          onClick={() => openRespondentRow(r.id)}
                           className={cn(
                             "cursor-pointer transition-colors hover:bg-muted/50",
                             r.flagged && "bg-destructive/[0.03]",
+                            isNew && "bg-primary/[0.04]",
                           )}
                         >
                           <td className="px-4 py-3">
-                            <p className="font-medium leading-tight">{r.name}</p>
+                            <div className="flex items-center gap-2">
+                              {isNew ? (
+                                <span
+                                  className="relative flex size-2.5 shrink-0"
+                                  title="New — not opened yet"
+                                  aria-label="New unopened feedback"
+                                >
+                                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/60 opacity-75" />
+                                  <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+                                </span>
+                              ) : null}
+                              <p className={cn("font-medium leading-tight", isNew && "font-semibold")}>{r.name}</p>
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             <span className="inline-flex rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground">
@@ -481,6 +589,15 @@ export function FeedbackSurveyResults({
                             <SentimentBadge sentiment={r.sentiment} flagged={r.flagged} />
                           </td>
                           <td className="px-4 py-3 text-xs text-muted-foreground">{r.completedAt}</td>
+                          <td className="px-4 py-3">
+                            {isNew ? (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                                <Mail className="size-3" /> New
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Opened</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-1">
                               {r.answerDots.map((a, i) => <AnswerDot key={i} a={a} />)}
@@ -493,7 +610,8 @@ export function FeedbackSurveyResults({
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

@@ -76,6 +76,9 @@ export type Respondent = {
   completedAtTs: number;
   sentiment: "happy" | "neutral" | "unhappy";
   flagged: boolean;
+  /** True until a dashboard user opens this respondent in results. */
+  isNew: boolean;
+  openedAt: string | null;
   answers: RespondentAnswerRow[];
   answerDots: Array<
     | { type: "Rating"; value: "poor" | "good" | "excellent" }
@@ -459,6 +462,8 @@ export function mapFeedbackResults(
     const sentiment = (r.sentiment_label as Respondent["sentiment"]) || "neutral";
     const completedTs = r.completed_at ? new Date(r.completed_at).getTime() : 0;
     const answerRows = mapRespondentAnswers(r);
+    const openedAt = r.opened_at ? String(r.opened_at) : null;
+    const isNew = Boolean(r.is_unopened) && !openedAt;
     return {
       id: String(r.id || ""),
       name: displayName(r.phone),
@@ -470,6 +475,8 @@ export function mapFeedbackResults(
       completedAtTs: Number.isNaN(completedTs) ? 0 : completedTs,
       sentiment,
       flagged: Boolean(r.flagged || r.is_unhappy),
+      isNew,
+      openedAt,
       answers: answerRows,
       answerDots: mapAnswerDots(answerRows),
       aiFollowUp: (r.ai_follow_up as Respondent["aiFollowUp"]) || null,

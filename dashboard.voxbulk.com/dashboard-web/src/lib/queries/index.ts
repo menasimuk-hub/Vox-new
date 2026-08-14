@@ -312,6 +312,9 @@ export type FeedbackRespondent = {
   location_id?: string;
   location_name?: string | null;
   completed_at?: string | null;
+  started_at?: string | null;
+  opened_at?: string | null;
+  is_unopened?: boolean;
   is_unhappy?: boolean;
   flagged?: boolean;
   sentiment_label?: string | null;
@@ -2471,10 +2474,21 @@ export function useFeedbackSurveyTypes(industryId?: string | null) {
   });
 }
 
-export function useFeedbackResults(filters: { location_id?: string; survey_type_id?: string } = {}) {
+export function useFeedbackResults(
+  filters: {
+    location_id?: string;
+    survey_type_id?: string;
+    period?: string;
+    date_from?: string;
+    date_to?: string;
+  } = {},
+) {
   const params = new URLSearchParams();
   if (filters.location_id) params.set("location_id", filters.location_id);
   if (filters.survey_type_id) params.set("survey_type_id", filters.survey_type_id);
+  if (filters.period && filters.period !== "all") params.set("period", filters.period);
+  if (filters.date_from) params.set("date_from", filters.date_from);
+  if (filters.date_to) params.set("date_to", filters.date_to);
   const qs = params.toString();
   const filterKey = Object.fromEntries(params.entries());
   return useQuery({
@@ -2484,10 +2498,21 @@ export function useFeedbackResults(filters: { location_id?: string; survey_type_
   });
 }
 
-export function useFeedbackResultsInsights(filters: { location_id?: string; survey_type_id?: string } = {}) {
+export function useFeedbackResultsInsights(
+  filters: {
+    location_id?: string;
+    survey_type_id?: string;
+    period?: string;
+    date_from?: string;
+    date_to?: string;
+  } = {},
+) {
   const params = new URLSearchParams();
   if (filters.location_id) params.set("location_id", filters.location_id);
   if (filters.survey_type_id) params.set("survey_type_id", filters.survey_type_id);
+  if (filters.period && filters.period !== "all") params.set("period", filters.period);
+  if (filters.date_from) params.set("date_from", filters.date_from);
+  if (filters.date_to) params.set("date_to", filters.date_to);
   const qs = params.toString();
   const filterKey = Object.fromEntries(params.entries());
   return useQuery({

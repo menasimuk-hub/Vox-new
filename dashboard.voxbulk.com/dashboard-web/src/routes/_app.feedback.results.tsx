@@ -11,19 +11,37 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { downloadAuthenticatedFile } from "@/lib/api";
 import { useFeedbackResults, useFeedbackResultsInsights } from "@/lib/queries";
 
+export type FeedbackResultsPeriod =
+  | "all"
+  | "this_week"
+  | "last_week"
+  | "last_7_days"
+  | "last_14_days"
+  | "last_30_days"
+  | "custom";
+
 export const Route = createFileRoute("/_app/feedback/results")({
   head: () => ({ meta: [{ title: "Feedback results — VoxBulk" }] }),
   validateSearch: (search: Record<string, unknown>) => ({
     location_id: typeof search.location_id === "string" ? search.location_id : undefined,
     survey_type_id: typeof search.survey_type_id === "string" ? search.survey_type_id : undefined,
+    period: typeof search.period === "string" ? search.period : undefined,
+    date_from: typeof search.date_from === "string" ? search.date_from : undefined,
+    date_to: typeof search.date_to === "string" ? search.date_to : undefined,
   }),
   component: FeedbackResults,
 });
 
 function FeedbackResults() {
-  const { location_id: initialLocationId, survey_type_id: initialSurveyTypeId } = Route.useSearch();
+  const search = Route.useSearch();
+  const { location_id: initialLocationId, survey_type_id: initialSurveyTypeId } = search;
   const [locationId, setLocationId] = React.useState(initialLocationId || "all");
   const [surveyTypeId, setSurveyTypeId] = React.useState(initialSurveyTypeId || "all");
+  const [period, setPeriod] = React.useState<FeedbackResultsPeriod>(
+    (search.period as FeedbackResultsPeriod) || "last_14_days",
+  );
+  const [dateFrom, setDateFrom] = React.useState(search.date_from || "");
+  const [dateTo, setDateTo] = React.useState(search.date_to || "");
 
   React.useEffect(() => {
     if (initialLocationId) setLocationId(initialLocationId);
@@ -36,6 +54,14 @@ function FeedbackResults() {
   const filters = {
     ...(locationId !== "all" ? { location_id: locationId } : {}),
     ...(surveyTypeId !== "all" ? { survey_type_id: surveyTypeId } : {}),
+    ...(period === "custom"
+      ? {
+          ...(dateFrom ? { date_from: dateFrom } : {}),
+          ...(dateTo ? { date_to: dateTo } : {}),
+        }
+      : period !== "all"
+        ? { period }
+        : {}),
   };
 
   const resultsQ = useFeedbackResults(filters);
@@ -50,6 +76,12 @@ function FeedbackResults() {
     const params = new URLSearchParams();
     if (locationId !== "all") params.set("location_id", locationId);
     if (surveyTypeId !== "all") params.set("survey_type_id", surveyTypeId);
+    if (period === "custom") {
+      if (dateFrom) params.set("date_from", dateFrom);
+      if (dateTo) params.set("date_to", dateTo);
+    } else if (period !== "all") {
+      params.set("period", period);
+    }
     const qs = params.toString();
     const path = `/customer-feedback/results/export.${kind}${qs ? `?${qs}` : ""}`;
     try {
@@ -92,6 +124,12 @@ function FeedbackResults() {
         locationId={locationId}
         locations={locations}
         onLocationChange={setLocationId}
+        period={period}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onPeriodChange={setPeriod}
+        onDateFromChange={setDateFrom}
+        onDateToChange={setDateTo}
         onExportPdf={() => void handleExport("pdf")}
         onExportCsv={() => void handleExport("csv")}
         insightsLoading={insightsQ.isLoading}
