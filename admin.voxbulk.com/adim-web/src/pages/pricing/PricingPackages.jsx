@@ -5,196 +5,96 @@ import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
 import PricingPageFrame, { PricingLoadGate } from './PricingPageFrame'
 import { penceToPounds, poundsToPence } from './pricingUtils'
 import { Button } from '@/components/ui/Button'
-import { Pill } from '@/components/ui/Badge'
 
 const CURRENCIES = ['GBP', 'EUR', 'USD', 'CAD', 'AUD']
+const FX_QUOTES = ['EUR', 'USD', 'CAD', 'AUD']
 
 const SERVICES = [
-  {
-    key: 'voxbulk',
-    title: 'Core platform',
-    blurb: 'Interview, WA Surveys & ATS — billed monthly or annually.',
-    tint: 'core',
-    priceMode: 'subscription',
-  },
-  {
-    key: 'customer_feedback',
-    title: 'Customer Feedback',
-    blurb: 'Location packages — monthly and annual subscription prices.',
-    tint: 'feedback',
-    priceMode: 'subscription',
-  },
-  {
-    key: 'expo',
-    title: 'VoxBulk Expo',
-    blurb: 'Per-exhibition packages — one-time payment, optional annual if a company wants to subscribe.',
-    tint: 'expo',
-    priceMode: 'expo',
-  },
-  {
-    key: 'smart_card',
-    title: 'Smart Card QR',
-    blurb: '$5/seat/month billed annually — edit yearly unit price',
-    tint: 'feedback',
-    priceMode: 'subscription',
-  },
+  { key: 'voxbulk', label: 'Core package', blurb: 'AI interviews, WA surveys and ATS — each package has its own rates. Only the connection fee is shared.' },
+  { key: 'customer_feedback', label: 'Customer feedback', blurb: 'Location packages with WhatsApp and web survey allowances.' },
+  { key: 'expo', label: 'Expo', blurb: 'One-off exhibition booth packages.' },
+  { key: 'smart_card', label: 'Smart card', blurb: 'Per-seat QR pricing.' },
 ]
 
-function emptyPriceDraft() {
-  const out = {}
-  for (const c of CURRENCIES) {
-    out[c] = { monthly: '', yearly: '', perMin: '', extraPerMin: '' }
-  }
-  return out
-}
-
-function pricesToDraft(prices) {
-  const out = emptyPriceDraft()
-  for (const c of CURRENCIES) {
-    const row = prices?.[c] || {}
-    out[c] = {
-      monthly: row.monthly_price_minor != null ? penceToPounds(row.monthly_price_minor) : '',
-      yearly: row.yearly_price_minor != null ? penceToPounds(row.yearly_price_minor) : '',
-      perMin: row.per_min_minor != null ? penceToPounds(row.per_min_minor) : '',
-      extraPerMin: row.extra_per_min_minor != null ? penceToPounds(row.extra_per_min_minor) : '',
-      manual_override: Boolean(row.manual_override),
-      _edited: false,
-    }
-  }
-  return out
-}
-
-function draftToPricesPayload(draft, priceMode) {
-  const prices = {}
-  for (const c of CURRENCIES) {
-    const row = draft?.[c] || {}
-    const payload = {
-      monthly_price_minor: row.monthly === '' ? null : poundsToPence(row.monthly),
-      yearly_price_minor: row.yearly === '' ? null : poundsToPence(row.yearly),
-    }
-    if (priceMode === 'subscription' || priceMode === 'core') {
-      payload.per_min_minor = poundsToPence(row.perMin || 0)
-      payload.extra_per_min_minor = poundsToPence(row.extraPerMin || 0)
-    } else {
-      payload.per_min_minor = 0
-      payload.extra_per_min_minor = 0
-    }
-    if (c !== 'GBP' && (row._edited || row.manual_override)) {
-      payload.manual_override = true
-      payload._manual_edit = Boolean(row._edited)
-    }
-    prices[c] = payload
-  }
-  return prices
-}
-
-function formatMinor(minor, currency) {
+function money(minor, currency = 'GBP') {
   if (minor == null || minor === '') return '—'
-  const sym = CURRENCY_SYMBOLS[currency] || currency
+  const sym = CURRENCY_SYMBOLS[currency] || ''
   return `${sym}${(Number(minor) / 100).toFixed(2)}`
 }
 
-function MoneyInput({ value, onChange, placeholder }) {
+function Num({ value, onChange, prefix, disabled, step = '0.01' }) {
   return (
-    <input
-      className="input pricingInputSm pricingInputNum"
-      type="number"
-      step="0.01"
-      min="0"
-      value={value}
-      placeholder={placeholder || '0.00'}
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <div className="uppInputWrap">
+      {prefix ? <span className="uppPrefix">{prefix}</span> : null}
+      <input
+        className={`input uppNum${prefix ? ' withPrefix' : ''}`}
+        type="number"
+        step={step}
+        min="0"
+        disabled={disabled}
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
   )
 }
 
-function newDraftFor(serviceKey) {
-  if (serviceKey === 'expo') {
-    return {
-      service_kind: 'expo',
-      name: '',
-      code: '',
-      duration_days: 1,
-      tier: 'day1',
-      max_booths: 1,
-      max_assets: 5,
-      lead_scoring_enabled: true,
-      is_active: true,
-      is_featured: false,
-      sort_order: 100,
-      features: [],
-      prices: emptyPriceDraft(),
-    }
-  }
-  if (serviceKey === 'smart_card') {
-    return {
-      service_kind: 'smart_card',
-      name: '',
-      code: '',
-      tier: 'seat',
-      monthly_unit_hint_usd_cents: 500,
-      interval: 'yearly',
-      is_active: true,
-      is_featured: false,
-      sort_order: 100,
-      features: [],
-      prices: emptyPriceDraft(),
-    }
-  }
-  if (serviceKey === 'customer_feedback') {
-    return {
-      service_kind: 'customer_feedback',
-      name: '',
-      code: '',
-      max_locations: 1,
-      wa_units_included: 100,
-      web_units_included: 100,
-      promo_message_cost_minor: 5,
-      is_active: true,
-      is_featured: false,
-      sort_order: 100,
-      prices: emptyPriceDraft(),
-    }
-  }
-  return {
-    service_kind: 'voxbulk',
-    name: '',
-    code: '',
-    interval: 'monthly',
-    calls_included: 0,
-    whatsapp_included: 0,
-    cv_scans_included: 0,
-    per_min_pence: 0,
-    extra_per_min_pence: 0,
-    is_active: true,
-    is_featured: false,
-    is_enterprise: false,
-    sort_order: 100,
-    prices: emptyPriceDraft(),
-  }
-}
-
-function packageToDraft(pkg) {
-  return {
-    ...pkg,
-    prices: pricesToDraft(pkg.prices),
-    featuresText: Array.isArray(pkg.features) ? pkg.features.join('\n') : '',
-  }
+function Toggle({ checked, onChange, label }) {
+  return (
+    <label className="uppToggle">
+      <button type="button" className={`toggle${checked ? ' on' : ''}`} onClick={() => onChange(!checked)}>
+        <span />
+      </button>
+      {label ? <span className="uppToggleLabel">{label}</span> : null}
+    </label>
+  )
 }
 
 export default function PricingPackages() {
-  const [searchParams] = useSearchParams()
-  const [data, setData] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawService = searchParams.get('service') || 'voxbulk'
+  const serviceKey = rawService === 'core' ? 'voxbulk' : rawService === 'smartcard' ? 'smart_card' : rawService
+  const active = SERVICES.some((s) => s.key === serviceKey) ? serviceKey : 'voxbulk'
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
-  const [drawer, setDrawer] = useState(null) // { mode: 'create'|'edit', serviceKey, draft, saving }
+  const [packagesByService, setPackagesByService] = useState({})
+  const [fxRates, setFxRates] = useState({})
+  const [currency, setCurrency] = useState('GBP')
+  const [expanded, setExpanded] = useState({})
+  const [drafts, setDrafts] = useState({})
+  const [dirty, setDirty] = useState({})
+  const [savingId, setSavingId] = useState(null)
+  const [fxOpen, setFxOpen] = useState(false)
+  const [sharedDraft, setSharedDraft] = useState({ connection: '' })
+  const [sharedDirty, setSharedDirty] = useState(false)
+  const [howOpen, setHowOpen] = useState(false)
+
+  const editable = currency === 'GBP'
+  const sym = CURRENCY_SYMBOLS[currency] || currency
 
   const load = useCallback(async () => {
     setError('')
     try {
-      const body = await apiFetch('/admin/pricing/packages?active_only=true')
-      setData(body)
+      const [pkgBody, curBody, fxBody] = await Promise.all([
+        apiFetch('/admin/pricing/packages?active_only=false'),
+        apiFetch('/admin/pricing/currency-settings'),
+        apiFetch('/admin/pricing/fx-rates'),
+      ])
+      setPackagesByService(pkgBody.packages || {})
+      const settings = curBody.currency_settings || []
+      const gbp = settings.find((r) => r.currency === 'GBP') || settings[0]
+      setSharedDraft({ connection: gbp ? penceToPounds(gbp.connection_fee_minor) : '' })
+      setSharedDirty(false)
+      setDrafts({})
+      setDirty({})
+      const fxNext = {}
+      for (const r of fxBody.fx_rates || curBody.fx_rates || []) {
+        fxNext[r.quote_currency] = String(r.rate ?? '')
+      }
+      for (const q of FX_QUOTES) if (fxNext[q] == null) fxNext[q] = ''
+      setFxRates(fxNext)
       return true
     } catch (e) {
       setError(e?.message || 'Could not load packages')
@@ -209,486 +109,509 @@ export default function PricingPackages() {
       await load()
       if (!cancelled) setLoading(false)
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [load])
 
-  useEffect(() => {
-    const focus = searchParams.get('service') || searchParams.get('tab')
-    const planCode = searchParams.get('plan')
-    if ((!focus && !planCode) || !data) return
-    const map = {
-      core: 'voxbulk',
-      voxbulk: 'voxbulk',
-      feedback: 'customer_feedback',
-      customer_feedback: 'customer_feedback',
-      expo: 'expo',
-      smart_card: 'smart_card',
-      'smart-card': 'smart_card',
+  const list = useMemo(() => packagesByService[active] || [], [packagesByService, active])
+
+  const buildDraft = useCallback((pkg) => {
+    const gbpPrice = pkg.prices?.GBP || {}
+    const gbpUnit = pkg.unit_rates?.GBP || {}
+    return {
+      name: pkg.name || '',
+      description: pkg.description || '',
+      is_active: Boolean(pkg.is_active),
+      is_featured: Boolean(pkg.is_featured),
+      monthly: gbpPrice.monthly_price_minor != null ? penceToPounds(gbpPrice.monthly_price_minor) : '',
+      yearly: gbpPrice.yearly_price_minor != null ? penceToPounds(gbpPrice.yearly_price_minor) : '',
+      perMin: penceToPounds(gbpPrice.per_min_minor || 0),
+      extraPerMin: penceToPounds(gbpPrice.extra_per_min_minor || 0),
+      waPackage: gbpUnit.wa_package_fee_minor != null ? penceToPounds(gbpUnit.wa_package_fee_minor) : '',
+      waExtra: gbpUnit.wa_extra_minor != null ? penceToPounds(gbpUnit.wa_extra_minor) : '',
+      cvFee: gbpUnit.cv_scan_fee_minor != null ? penceToPounds(gbpUnit.cv_scan_fee_minor) : '',
+      calls_included: pkg.calls_included ?? pkg.minutes_included ?? 0,
+      whatsapp_included: pkg.whatsapp_included ?? 0,
+      cv_scans_included: pkg.cv_scans_included ?? 0,
+      wa_units_included: pkg.wa_units_included ?? 0,
+      web_units_included: pkg.web_units_included ?? 0,
+      max_locations: pkg.max_locations ?? 1,
+      duration_days: pkg.duration_days ?? 1,
+      max_booths: pkg.max_booths ?? 1,
+      max_assets: pkg.max_assets ?? 5,
+      lead_scoring_enabled: Boolean(pkg.lead_scoring_enabled),
+      post_show_followup_enabled: Boolean(pkg.post_show_followup_enabled),
+      ai_summary_report_enabled: Boolean(pkg.ai_summary_report_enabled),
+      oneOff: gbpPrice.monthly_price_minor != null ? penceToPounds(gbpPrice.monthly_price_minor) : '',
+      seatYearly: gbpPrice.yearly_price_minor != null ? penceToPounds(gbpPrice.yearly_price_minor) : penceToPounds(gbpPrice.monthly_price_minor || 0),
     }
-    const key = map[String(focus || '').toLowerCase()]
-    const t = window.setTimeout(() => {
-      if (key) document.getElementById(`pricing-pkg-${key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      if (planCode) {
-        document.getElementById(`pricing-pkg-row-${planCode}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [])
+
+  useEffect(() => {
+    setDrafts((d) => {
+      const next = { ...d }
+      let changed = false
+      for (const pkg of list) {
+        if (!next[pkg.id]) {
+          next[pkg.id] = buildDraft(pkg)
+          changed = true
+        }
       }
-    }, 150)
-    return () => window.clearTimeout(t)
-  }, [searchParams, data])
-
-  const packagesByKind = useMemo(() => data?.packages || {}, [data])
-
-  const openCreate = (serviceKey) => {
-    setDrawer({ mode: 'create', serviceKey, draft: newDraftFor(serviceKey), saving: false })
-  }
-
-  const openEdit = (serviceKey, pkg) => {
-    setDrawer({ mode: 'edit', serviceKey, draft: packageToDraft(pkg), saving: false })
-  }
-
-  const closeDrawer = () => setDrawer(null)
-
-  const setDraftField = (key, value) => {
-    setDrawer((d) => (d ? { ...d, draft: { ...d.draft, [key]: value } } : d))
-  }
-
-  const setPriceField = (currency, field, value) => {
-    setDrawer((d) => {
-      if (!d) return d
-      const prices = { ...(d.draft.prices || emptyPriceDraft()) }
-      prices[currency] = {
-        ...(prices[currency] || {}),
-        [field]: value,
-        ...(currency !== 'GBP' ? { _edited: true } : {}),
-      }
-      return { ...d, draft: { ...d.draft, prices } }
+      return changed ? next : d
     })
+  }, [list, buildDraft])
+
+  const setService = (key) => {
+    setSearchParams(key === 'voxbulk' ? {} : { service: key })
+    setMsg('')
   }
 
-  const saveDrawer = async () => {
-    if (!drawer) return
-    const { mode, serviceKey, draft } = drawer
-    const svc = SERVICES.find((s) => s.key === serviceKey)
-    setDrawer((d) => (d ? { ...d, saving: true } : d))
+  const patchDraft = (id, patch) => {
+    setDrafts((d) => ({ ...d, [id]: { ...(d[id] || {}), ...patch } }))
+    setDirty((d) => ({ ...d, [id]: true }))
+  }
+
+  const toggleExpand = (id) => {
+    setExpanded((e) => ({ ...e, [id]: !e[id] }))
+    if (!drafts[id]) {
+      const pkg = list.find((p) => p.id === id)
+      if (pkg) setDrafts((d) => ({ ...d, [id]: buildDraft(pkg) }))
+    }
+  }
+
+  const saveShared = async () => {
     setError('')
     setMsg('')
     try {
-      const features = String(draft.featuresText || '')
-        .split('\n')
-        .map((x) => x.trim())
-        .filter(Boolean)
-      const prices = draftToPricesPayload(draft.prices, svc?.priceMode || 'subscription')
+      const rates = {}
+      for (const q of FX_QUOTES) {
+        const n = Number(fxRates[q])
+        if (!Number.isFinite(n) || n <= 0) throw new Error(`FX rate for ${q} must be positive`)
+        rates[q] = n
+      }
+      await apiFetch('/admin/pricing/fx-rates', { method: 'PUT', body: JSON.stringify({ rates }) })
+      await apiFetch('/admin/pricing/currency-settings/GBP', {
+        method: 'PUT',
+        body: JSON.stringify({ connection_fee_minor: poundsToPence(sharedDraft.connection) }),
+      })
+      await load()
+      setMsg('Shared connection fee and FX rates saved.')
+    } catch (e) {
+      setError(e?.message || 'Shared save failed')
+    }
+  }
+
+  const savePackage = async (pkg) => {
+    const draft = drafts[pkg.id]
+    if (!draft) return
+    setSavingId(pkg.id)
+    setError('')
+    setMsg('')
+    try {
       const payload = {
-        service_kind: serviceKey,
         name: draft.name,
-        code: draft.code,
-        is_active: Boolean(draft.is_active),
-        is_featured: Boolean(draft.is_featured),
-        is_enterprise: Boolean(draft.is_enterprise),
-        sort_order: Number(draft.sort_order || 100),
-        description: draft.description || undefined,
-        features,
-        prices,
-      }
-      if (serviceKey === 'voxbulk') {
-        Object.assign(payload, {
-          interval: draft.interval || 'monthly',
-          calls_included: Number(draft.calls_included || 0),
-          whatsapp_included: Number(draft.whatsapp_included || 0),
-          cv_scans_included: Number(draft.cv_scans_included || 0),
-        })
-      }
-      if (serviceKey === 'customer_feedback') {
-        Object.assign(payload, {
-          max_locations: Number(draft.max_locations || 1),
-          wa_units_included: Number(draft.wa_units_included || 0),
-          web_units_included: Number(draft.web_units_included || 0),
-          promo_message_cost_minor: Number(draft.promo_message_cost_minor || 5),
-        })
-      }
-      if (serviceKey === 'expo') {
-        Object.assign(payload, {
-          duration_days: Number(draft.duration_days || 1),
-          tier: draft.tier || `day${draft.duration_days || 1}`,
-          max_booths: Number(draft.max_booths || 1),
-          max_assets: Number(draft.max_assets || 5),
-          lead_scoring_enabled: Boolean(draft.lead_scoring_enabled),
-          post_show_followup_enabled: Boolean(draft.post_show_followup_enabled),
-          post_event_survey_enabled: Boolean(draft.post_event_survey_enabled),
-          ai_summary_report_enabled: Boolean(draft.ai_summary_report_enabled),
-        })
-      }
-      if (serviceKey === 'smart_card') {
-        Object.assign(payload, {
-          interval: draft.interval || 'yearly',
-          tier: draft.tier || 'seat',
-          monthly_unit_hint_usd_cents: Number(draft.monthly_unit_hint_usd_cents ?? 500),
-        })
+        description: draft.description,
+        is_active: draft.is_active,
+        is_featured: draft.is_featured,
       }
 
-      if (mode === 'create') {
-        await apiFetch('/admin/pricing/packages', { method: 'POST', body: JSON.stringify(payload) })
-        setMsg('Package created.')
-      } else {
-        await apiFetch(`/admin/pricing/packages/${encodeURIComponent(draft.id)}`, {
-          method: 'PUT',
-          body: JSON.stringify(payload),
-        })
-        setMsg('Package saved.')
+      if (active === 'voxbulk') {
+        payload.calls_included = Number(draft.calls_included || 0)
+        payload.whatsapp_included = Number(draft.whatsapp_included || 0)
+        payload.cv_scans_included = Number(draft.cv_scans_included || 0)
+        const isPayg = String(pkg.code || '').toLowerCase() === 'payg'
+        const isEnt = Boolean(pkg.is_enterprise)
+        payload.prices = {
+          GBP: {
+            monthly_price_minor: isPayg || isEnt ? (isEnt ? null : 0) : poundsToPence(draft.monthly),
+            yearly_price_minor: isPayg || isEnt ? null : poundsToPence(draft.yearly || 0),
+            per_min_minor: poundsToPence(draft.perMin || 0),
+            extra_per_min_minor: poundsToPence(draft.extraPerMin || 0),
+          },
+        }
+        payload.unit_rates = {
+          GBP: {
+            wa_package_fee_minor: poundsToPence(draft.waPackage || 0),
+            wa_extra_minor: poundsToPence(draft.waExtra || 0),
+            cv_scan_fee_minor: poundsToPence(draft.cvFee || 0),
+          },
+        }
+      } else if (active === 'customer_feedback') {
+        payload.wa_units_included = Number(draft.wa_units_included || 0)
+        payload.web_units_included = Number(draft.web_units_included || 0)
+        payload.max_locations = Number(draft.max_locations || 1)
+        payload.prices = {
+          GBP: {
+            monthly_price_minor: poundsToPence(draft.monthly),
+            yearly_price_minor: poundsToPence(draft.yearly || 0),
+            per_min_minor: 0,
+            extra_per_min_minor: 0,
+          },
+        }
+      } else if (active === 'expo') {
+        payload.duration_days = Number(draft.duration_days || 1)
+        payload.max_booths = Number(draft.max_booths || 1)
+        payload.max_assets = Number(draft.max_assets || 5)
+        payload.lead_scoring_enabled = Boolean(draft.lead_scoring_enabled)
+        payload.post_show_followup_enabled = Boolean(draft.post_show_followup_enabled)
+        payload.ai_summary_report_enabled = Boolean(draft.ai_summary_report_enabled)
+        payload.prices = {
+          GBP: {
+            monthly_price_minor: poundsToPence(draft.oneOff || draft.monthly || 0),
+            yearly_price_minor: null,
+            per_min_minor: 0,
+            extra_per_min_minor: 0,
+          },
+        }
+      } else if (active === 'smart_card') {
+        payload.prices = {
+          GBP: {
+            monthly_price_minor: null,
+            yearly_price_minor: poundsToPence(draft.seatYearly || 0),
+            per_min_minor: 0,
+            extra_per_min_minor: 0,
+          },
+        }
       }
-      setDrawer(null)
+
+      await apiFetch(`/admin/pricing/packages/${encodeURIComponent(pkg.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
       await load()
+      setDirty((d) => ({ ...d, [pkg.id]: false }))
+      setMsg(`${pkg.name} saved.`)
     } catch (e) {
       setError(e?.message || 'Save failed')
-      setDrawer((d) => (d ? { ...d, saving: false } : d))
+    } finally {
+      setSavingId(null)
     }
   }
 
-  const deactivate = async (pkg) => {
-    if (!window.confirm(`Deactivate “${pkg.name}”? It will disappear from this list.`)) return
-    setError('')
-    try {
-      await apiFetch(`/admin/pricing/packages/${encodeURIComponent(pkg.id)}`, { method: 'DELETE' })
-      setMsg('Package deactivated.')
-      await load()
-    } catch (e) {
-      setError(e?.message || 'Could not deactivate')
+  const svcMeta = SERVICES.find((s) => s.key === active)
+
+  const renderCoreBody = (pkg, draft) => {
+    const isPayg = String(pkg.code || '').toLowerCase() === 'payg'
+    const isEnt = Boolean(pkg.is_enterprise)
+    if (isEnt) {
+      return (
+        <div className="uppStory">
+          Enterprise is price-on-application. Use Private packages for negotiated deals.
+        </div>
+      )
     }
+    return (
+      <>
+        <div className="uppStory">
+          {isPayg ? (
+            <>
+              <strong>{pkg.name}</strong> has no monthly fee — wallet rates below apply per AI minute, WA recipient and CV scan.
+            </>
+          ) : (
+            <>
+              <strong>{pkg.name}</strong> costs <strong>{money(poundsToPence(draft.monthly), 'GBP')}/mo</strong>
+              {' '}→ includes <strong>{Number(draft.calls_included || 0).toLocaleString()} AI mins</strong>
+              {' '}+ <strong>{Number(draft.whatsapp_included || 0).toLocaleString()} WA recipients</strong>
+              {' '}+ <strong>{Number(draft.cv_scans_included || 0).toLocaleString()} CV scans</strong>
+              {' '}→ extras bill at this package&apos;s overage rates (connection fee is shared).
+            </>
+          )}
+        </div>
+
+        {!isPayg ? (
+          <section className="uppSection">
+            <h4><span className="uppLetter">A</span> Plan price</h4>
+            <div className="uppGrid">
+              <label>Monthly <Num prefix={sym} value={draft.monthly} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { monthly: v })} /></label>
+              <label>Yearly <Num prefix={sym} value={draft.yearly} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { yearly: v })} /></label>
+              <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
+              <Toggle checked={draft.is_featured} onChange={(v) => patchDraft(pkg.id, { is_featured: v })} label="Featured" />
+            </div>
+          </section>
+        ) : null}
+
+        {!isPayg ? (
+          <section className="uppSection">
+            <h4><span className="uppLetter">B</span> What customers get (included)</h4>
+            <div className="uppGrid">
+              <label>AI minutes <Num step="1" value={draft.calls_included} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { calls_included: v })} /></label>
+              <label>WA recipients <Num step="1" value={draft.whatsapp_included} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { whatsapp_included: v })} /></label>
+              <label>CV scans <Num step="1" value={draft.cv_scans_included} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { cv_scans_included: v })} /></label>
+            </div>
+            <p className="uppHint">1 WA unit = 1 recipient / survey session (multi-message thread still counts as 1).</p>
+          </section>
+        ) : null}
+
+        <section className="uppSection">
+          <h4><span className="uppLetter">C</span> How usage is priced (this package only)</h4>
+          <div className="uppMiniPanels">
+            <div className="uppMini">
+              <div className="uppMiniHead">AI calls</div>
+              <label>{isPayg ? 'Wallet / min' : 'Per minute (in package)'}
+                <Num prefix={sym} value={draft.perMin} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { perMin: v })} />
+              </label>
+              {!isPayg ? (
+                <label>Extra / min
+                  <Num prefix={sym} value={draft.extraPerMin} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { extraPerMin: v })} />
+                </label>
+              ) : null}
+            </div>
+            <div className="uppMini">
+              <div className="uppMiniHead">WhatsApp surveys</div>
+              <label>{isPayg ? 'Wallet / recipient' : 'Per recipient (in package)'}
+                <Num prefix={sym} value={draft.waPackage} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { waPackage: v })} />
+              </label>
+              {!isPayg ? (
+                <label>Extra / recipient
+                  <Num prefix={sym} value={draft.waExtra} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { waExtra: v })} />
+                </label>
+              ) : null}
+              <p className="uppHint">Not per WhatsApp message.</p>
+            </div>
+            <div className="uppMini">
+              <div className="uppMiniHead">ATS / CV</div>
+              <label>Fee per scan
+                <Num prefix={sym} value={draft.cvFee} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { cvFee: v })} />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section className="uppSection">
+          <h4><span className="uppLetter">D</span> Connection fee <span className="uppHintInline">shared — edit in strip above</span></h4>
+          <div className="uppSharedRow">
+            <span>Per call across all Core packages</span>
+            <strong>{money(poundsToPence(sharedDraft.connection), 'GBP')}</strong>
+          </div>
+        </section>
+
+        {!editable ? <p className="uppHint">Switch currency to GBP to edit (or unlock a market later).</p> : null}
+      </>
+    )
   }
+
+  const renderFeedbackBody = (pkg, draft) => (
+    <>
+      <div className="uppStory">
+        <strong>{pkg.name}</strong> costs <strong>{money(poundsToPence(draft.monthly), 'GBP')}/mo</strong>
+        {' '}→ <strong>{Number(draft.wa_units_included || 0)} WA</strong> + <strong>{Number(draft.web_units_included || 0)} web</strong>
+        {' '}across <strong>{Number(draft.max_locations || 0)} location(s)</strong>. When units run out, upgrade (no auto overage charge).
+      </div>
+      <section className="uppSection">
+        <h4><span className="uppLetter">A</span> Plan price</h4>
+        <div className="uppGrid">
+          <label>Monthly <Num prefix={sym} value={draft.monthly} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { monthly: v })} /></label>
+          <label>Yearly <Num prefix={sym} value={draft.yearly} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { yearly: v })} /></label>
+          <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
+          <Toggle checked={draft.is_featured} onChange={(v) => patchDraft(pkg.id, { is_featured: v })} label="Featured" />
+        </div>
+      </section>
+      <section className="uppSection">
+        <h4><span className="uppLetter">B</span> Included</h4>
+        <div className="uppGrid">
+          <label>WA surveys / mo <Num step="1" value={draft.wa_units_included} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { wa_units_included: v })} /></label>
+          <label>Web surveys / mo <Num step="1" value={draft.web_units_included} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { web_units_included: v })} /></label>
+          <label>Locations <Num step="1" value={draft.max_locations} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { max_locations: v })} /></label>
+        </div>
+      </section>
+    </>
+  )
+
+  const renderExpoBody = (pkg, draft) => (
+    <>
+      <div className="uppStory">
+        <strong>{pkg.name}</strong> is a one-off <strong>{money(poundsToPence(draft.oneOff), 'GBP')}</strong> for <strong>{draft.duration_days} day(s)</strong>.
+      </div>
+      <section className="uppSection">
+        <h4><span className="uppLetter">A</span> One-off fee</h4>
+        <div className="uppGrid">
+          <label>Price <Num prefix={sym} value={draft.oneOff} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { oneOff: v })} /></label>
+          <label>Days active <Num step="1" value={draft.duration_days} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { duration_days: v })} /></label>
+          <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
+        </div>
+      </section>
+      <section className="uppSection">
+        <h4><span className="uppLetter">B</span> Limits & features</h4>
+        <div className="uppGrid">
+          <label>Max booths <Num step="1" value={draft.max_booths} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { max_booths: v })} /></label>
+          <label>Max assets <Num step="1" value={draft.max_assets} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { max_assets: v })} /></label>
+          <Toggle checked={draft.lead_scoring_enabled} onChange={(v) => patchDraft(pkg.id, { lead_scoring_enabled: v })} label="Lead scoring" />
+          <Toggle checked={draft.post_show_followup_enabled} onChange={(v) => patchDraft(pkg.id, { post_show_followup_enabled: v })} label="Post-show follow-up" />
+          <Toggle checked={draft.ai_summary_report_enabled} onChange={(v) => patchDraft(pkg.id, { ai_summary_report_enabled: v })} label="AI summary" />
+        </div>
+      </section>
+    </>
+  )
+
+  const renderSmartBody = (pkg, draft) => (
+    <>
+      <div className="uppStory">
+        <strong>{pkg.name}</strong> seat price <strong>{money(poundsToPence(draft.seatYearly), 'GBP')}</strong> / year — unlimited scans while active.
+      </div>
+      <section className="uppSection">
+        <h4><span className="uppLetter">A</span> Seat price</h4>
+        <div className="uppGrid">
+          <label>Yearly / seat <Num prefix={sym} value={draft.seatYearly} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { seatYearly: v })} /></label>
+          <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
+          <Toggle checked={draft.is_featured} onChange={(v) => patchDraft(pkg.id, { is_featured: v })} label="Featured" />
+        </div>
+      </section>
+    </>
+  )
 
   return (
-    <PricingLoadGate
-      loading={loading}
-      error={!data ? error : ''}
-      title="Packages"
-      description="Active packages by service — open a row to edit multi-currency prices."
-      onRetry={load}
-    >
-      {data ? (
-        <PricingPageFrame
-          title="Packages"
-          description="One table per product. Inactive packages are hidden. Open a package to edit prices in the drawer."
-          error={error}
-          msg={msg}
-        >
-          <div className="pricingPackagesStack">
-            {SERVICES.map((svc) => {
-              const rows = packagesByKind[svc.key] || []
-              return (
-                <section
-                  key={svc.key}
-                  id={`pricing-pkg-${svc.key}`}
-                  className={`pricingPkgTableCard tint-${svc.tint}`}
-                >
-                  <div className="pricingPkgTableHead">
-                    <div>
-                      <h3 className="pricingPkgTableTitle">{svc.title}</h3>
-                      <p className="muted pricingPkgTableBlurb">{svc.blurb}</p>
-                    </div>
-                    <Button variant="outline" size="sm" className="h-8" type="button" onClick={() => openCreate(svc.key)}>
-                      + Create package
-                    </Button>
-                  </div>
-                  <div className="tableWrap">
-                    <table className="pricingPkgTable">
-                      <thead>
-                        <tr>
-                          <th>Package</th>
-                          <th>Code</th>
-                          {svc.priceMode === 'expo' ? (
-                            <>
-                              <th>Days</th>
-                              <th>One-time (GBP)</th>
-                              <th>Annual (GBP)</th>
-                            </>
-                          ) : svc.key === 'smart_card' ? (
-                            <>
-                              <th>Tier</th>
-                              <th>Yearly (GBP)</th>
-                              <th>Monthly hint (USD¢)</th>
-                            </>
-                          ) : (
-                            <>
-                              <th>Monthly (GBP)</th>
-                              <th>Yearly (GBP)</th>
-                            </>
-                          )}
-                          <th />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="muted">No active packages yet.</td>
-                          </tr>
-                        ) : (
-                          rows.map((pkg) => {
-                            const gbp = pkg.prices?.GBP || {}
-                            return (
-                              <tr key={pkg.id} id={`pricing-pkg-row-${pkg.code}`} className="pricingPkgRow">
-                                <td>
-                                  <strong>{pkg.name}</strong>
-                                  {pkg.is_featured ? <Pill tone="info" className="ml-2">Featured</Pill> : null}
-                                  {pkg.is_enterprise ? <Pill tone="warning" className="ml-2">Enterprise</Pill> : null}
-                                </td>
-                                <td className="muted">{pkg.code}</td>
-                                {svc.priceMode === 'expo' ? (
-                                  <>
-                                    <td>{pkg.duration_days || '—'}</td>
-                                    <td>{formatMinor(gbp.monthly_price_minor, 'GBP')}</td>
-                                    <td>{formatMinor(gbp.yearly_price_minor, 'GBP')}</td>
-                                  </>
-                                ) : svc.key === 'smart_card' ? (
-                                  <>
-                                    <td>{pkg.tier || 'seat'}</td>
-                                    <td><strong>{formatMinor(gbp.yearly_price_minor, 'GBP')}</strong></td>
-                                    <td className="muted">{pkg.monthly_unit_hint_usd_cents ?? 500}</td>
-                                  </>
-                                ) : (
-                                  <>
-                                    <td>{formatMinor(gbp.monthly_price_minor, 'GBP')}</td>
-                                    <td>{formatMinor(gbp.yearly_price_minor, 'GBP')}</td>
-                                  </>
-                                )}
-                                <td className="pricingPkgActions">
-                                  <Button variant="outline" size="sm" className="h-7 text-xs" type="button" onClick={() => openEdit(svc.key, pkg)}>
-                                    Edit
-                                  </Button>
-                                  <Button variant="ghost" size="sm" className="h-7 text-xs" type="button" onClick={() => void deactivate(pkg)}>
-                                    Off
-                                  </Button>
-                                </td>
-                              </tr>
-                            )
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              )
-            })}
+    <PricingLoadGate loading={loading} error={!list.length && error ? error : ''} title="Package pricing" description={svcMeta?.blurb} onRetry={load}>
+      <PricingPageFrame
+        title="Package pricing"
+        description="Author in GBP. Each Core package has its own AI, WA and ATS fees. Only the connection fee and usage-calculation rules are shared."
+        error={error}
+        msg={msg}
+        actions={
+          <div className="uppTopActions">
+            <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              {CURRENCIES.map((c) => (
+                <option key={c} value={c}>{c}{c === 'GBP' ? ' (authoring)' : ''}</option>
+              ))}
+            </select>
+            <Button type="button" size="sm" variant="outline" onClick={() => setFxOpen(true)}>FX rates</Button>
           </div>
+        }
+      >
+        <div className="uppTabs">
+          {SERVICES.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              className={`uppTab${active === s.key ? ' on' : ''}`}
+              onClick={() => setService(s.key)}
+            >
+              {s.label}
+              <span className="uppTabCount">{(packagesByService[s.key] || []).length}</span>
+            </button>
+          ))}
+        </div>
 
-          <div className={`pricingPkgOverlay${drawer ? ' open' : ''}`} onClick={closeDrawer} />
-          <div className={`pricingPkgDrawer${drawer ? ' open' : ''}`} role="dialog" aria-modal={Boolean(drawer)}>
-            {drawer ? (
-              <div className="pricingPkgDrawerInner">
-                <div className="pricingPkgDrawerHeader">
-                  <div>
-                    <div className="pricingPkgDrawerTitle">
-                      {drawer.mode === 'create' ? 'Create package' : 'Edit package'}
-                    </div>
-                    <div className="muted">{SERVICES.find((s) => s.key === drawer.serviceKey)?.title}</div>
+        <div className="uppExplainer">
+          <span>Subscription → includes allowance → usage burns units → extras after allowance</span>
+          <button type="button" className="linkish" onClick={() => setHowOpen((v) => !v)}>
+            {howOpen ? 'Hide how billing works' : 'How billing works'}
+          </button>
+        </div>
+        {howOpen ? (
+          <ol className="uppHow">
+            <li><strong>Subscription</strong> — fixed monthly/yearly price for the package.</li>
+            <li><strong>Included</strong> — minutes, WA recipients and CV scans on that package.</li>
+            <li><strong>Usage</strong> — same calculation rules for everyone; rates come from the subscribed package.</li>
+            <li><strong>Extras</strong> — after allowance, bill at this package&apos;s overage rates. Connection fee is the only shared unit fee.</li>
+            <li className="uppHowCallout">£59 is the plan price — not 59 minutes and not 59 WhatsApp messages.</li>
+          </ol>
+        ) : null}
+
+        {active === 'voxbulk' ? (
+          <div className="uppSharedStrip">
+            <div>
+              <strong>Shared</strong>
+              <span className="uppHintInline"> Connection fee + FX only. AI / WA / ATS live on each package.</span>
+            </div>
+            <div className="uppGrid" style={{ marginTop: 10 }}>
+              <label>Connection fee / call
+                <Num prefix="£" value={sharedDraft.connection} onChange={(v) => { setSharedDraft({ connection: v }); setSharedDirty(true) }} />
+              </label>
+              {FX_QUOTES.map((q) => (
+                <label key={q}>1 GBP = {q}
+                  <Num step="0.0001" value={fxRates[q]} onChange={(v) => { setFxRates((f) => ({ ...f, [q]: v })); setSharedDirty(true) }} />
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <Button type="button" size="sm" disabled={!sharedDirty} onClick={() => void saveShared()}>Save shared rates</Button>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="uppList">
+          {list.map((pkg) => {
+            const open = Boolean(expanded[pkg.id])
+            const draft = drafts[pkg.id] || buildDraft(pkg)
+            const gbp = pkg.prices?.GBP || {}
+            const summary =
+              active === 'expo'
+                ? money(gbp.monthly_price_minor, 'GBP')
+                : active === 'smart_card'
+                  ? money(gbp.yearly_price_minor ?? gbp.monthly_price_minor, 'GBP')
+                  : String(pkg.code || '').toLowerCase() === 'payg'
+                    ? `${money(gbp.per_min_minor, 'GBP')}/min`
+                    : pkg.is_enterprise
+                      ? 'On application'
+                      : `${money(gbp.monthly_price_minor, 'GBP')}/mo`
+
+            return (
+              <div key={pkg.id} className={`uppCard${open ? ' open' : ''}${dirty[pkg.id] ? ' dirty' : ''}`}>
+                <button type="button" className="uppCardHead" onClick={() => toggleExpand(pkg.id)}>
+                  <span className="uppChevron">{open ? '▾' : '▸'}</span>
+                  <span className="uppCardName">
+                    <strong>{pkg.name}</strong>
+                    <span className="uppBadges">
+                      <span className={`uppBadge${pkg.is_active ? ' on' : ''}`}>{pkg.is_active ? 'Active' : 'Inactive'}</span>
+                      {pkg.is_featured ? <span className="uppBadge feat">Featured</span> : null}
+                    </span>
+                  </span>
+                  <span className="uppSummary">{summary}</span>
+                </button>
+                {open ? (
+                  <div className="uppCardBody">
+                    <label className="uppDesc">
+                      Description
+                      <textarea
+                        className="input"
+                        rows={2}
+                        value={draft.description}
+                        disabled={!editable}
+                        onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+                      />
+                    </label>
+                    {active === 'voxbulk' ? renderCoreBody(pkg, draft) : null}
+                    {active === 'customer_feedback' ? renderFeedbackBody(pkg, draft) : null}
+                    {active === 'expo' ? renderExpoBody(pkg, draft) : null}
+                    {active === 'smart_card' ? renderSmartBody(pkg, draft) : null}
+                    {!pkg.is_enterprise ? (
+                      <div className="uppSaveBar">
+                        <span>{dirty[pkg.id] ? `Unsaved changes to ${pkg.name}` : 'Up to date'}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!dirty[pkg.id] || savingId === pkg.id || !editable}
+                          onClick={() => void savePackage(pkg)}
+                        >
+                          {savingId === pkg.id ? 'Saving…' : `Save ${pkg.name}`}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
-                  <button className="close-x" type="button" onClick={closeDrawer}>✕</button>
-                </div>
-
-                <div className="pricingPkgDrawerBody">
-                  <div className="pricingPkgField">
-                    <label>Name</label>
-                    <input className="input" value={drawer.draft.name || ''} onChange={(e) => setDraftField('name', e.target.value)} />
-                  </div>
-                  <div className="pricingPkgField">
-                    <label>Code</label>
-                    <input
-                      className="input"
-                      value={drawer.draft.code || ''}
-                      onChange={(e) => setDraftField('code', e.target.value)}
-                      disabled={drawer.mode === 'edit'}
-                    />
-                  </div>
-
-                  <div className="pricingPkgToggleRow">
-                    <span>Active</span>
-                    <button
-                      type="button"
-                      className={`toggle${drawer.draft.is_active ? ' on' : ''}`}
-                      onClick={() => setDraftField('is_active', !drawer.draft.is_active)}
-                    >
-                      <span />
-                    </button>
-                  </div>
-                  <div className="pricingPkgToggleRow">
-                    <span>Featured</span>
-                    <button
-                      type="button"
-                      className={`toggle${drawer.draft.is_featured ? ' on' : ''}`}
-                      onClick={() => setDraftField('is_featured', !drawer.draft.is_featured)}
-                    >
-                      <span />
-                    </button>
-                  </div>
-
-                  {drawer.serviceKey === 'voxbulk' ? (
-                    <>
-                      <div className="pricingPkgFieldGrid">
-                        <div className="pricingPkgField">
-                          <label>Minutes included</label>
-                          <input className="input" type="number" value={drawer.draft.calls_included ?? 0} onChange={(e) => setDraftField('calls_included', e.target.value)} />
-                        </div>
-                        <div className="pricingPkgField">
-                          <label>WA included</label>
-                          <input className="input" type="number" value={drawer.draft.whatsapp_included ?? 0} onChange={(e) => setDraftField('whatsapp_included', e.target.value)} />
-                        </div>
-                        <div className="pricingPkgField">
-                          <label>CV scans</label>
-                          <input className="input" type="number" value={drawer.draft.cv_scans_included ?? 0} onChange={(e) => setDraftField('cv_scans_included', e.target.value)} />
-                        </div>
-                      </div>
-                    </>
-                  ) : null}
-
-                  {drawer.serviceKey === 'customer_feedback' ? (
-                    <div className="pricingPkgFieldGrid">
-                      <div className="pricingPkgField">
-                        <label>Locations</label>
-                        <input className="input" type="number" value={drawer.draft.max_locations ?? 1} onChange={(e) => setDraftField('max_locations', e.target.value)} />
-                      </div>
-                      <div className="pricingPkgField">
-                        <label>WA units / mo</label>
-                        <input className="input" type="number" value={drawer.draft.wa_units_included ?? 0} onChange={(e) => setDraftField('wa_units_included', e.target.value)} />
-                      </div>
-                      <div className="pricingPkgField">
-                        <label>Web units / mo (−1 = unlimited)</label>
-                        <input className="input" type="number" value={drawer.draft.web_units_included ?? 0} onChange={(e) => setDraftField('web_units_included', e.target.value)} />
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {drawer.serviceKey === 'expo' ? (
-                    <div className="pricingPkgFieldGrid">
-                      <div className="pricingPkgField">
-                        <label>Duration (days)</label>
-                        <input className="input" type="number" min="1" value={drawer.draft.duration_days ?? 1} onChange={(e) => setDraftField('duration_days', e.target.value)} />
-                      </div>
-                      <div className="pricingPkgField">
-                        <label>Max booths</label>
-                        <input className="input" type="number" min="1" value={drawer.draft.max_booths ?? 1} onChange={(e) => setDraftField('max_booths', e.target.value)} />
-                      </div>
-                      <div className="pricingPkgField">
-                        <label>Max assets</label>
-                        <input className="input" type="number" min="1" value={drawer.draft.max_assets ?? 5} onChange={(e) => setDraftField('max_assets', e.target.value)} />
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {drawer.serviceKey === 'smart_card' ? (
-                    <div className="pricingPkgFieldGrid">
-                      <div className="pricingPkgField">
-                        <label>Tier</label>
-                        <input className="input" value={drawer.draft.tier || 'seat'} onChange={(e) => setDraftField('tier', e.target.value)} />
-                      </div>
-                      <div className="pricingPkgField">
-                        <label>Monthly unit hint (USD cents)</label>
-                        <input
-                          className="input"
-                          type="number"
-                          min="0"
-                          value={drawer.draft.monthly_unit_hint_usd_cents ?? 500}
-                          onChange={(e) => setDraftField('monthly_unit_hint_usd_cents', e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className="pricingPkgField">
-                    <label>Features (one per line)</label>
-                    <textarea
-                      className="input"
-                      rows={4}
-                      value={drawer.draft.featuresText || ''}
-                      onChange={(e) => setDraftField('featuresText', e.target.value)}
-                    />
-                  </div>
-
-                  <h4 className="pricingPkgPricesTitle">
-                    {drawer.serviceKey === 'expo'
-                      ? 'One-time & optional annual prices'
-                      : drawer.serviceKey === 'smart_card'
-                        ? 'Yearly seat prices (billed annually)'
-                        : 'Monthly & yearly prices'}
-                  </h4>
-                  <p className="pricingShellIntro" style={{ marginBottom: 12 }}>
-                    Set GBP first — other unlocked currencies fill from Admin FX rates on save. Editing EUR/USD/CAD/AUD locks that market.
-                  </p>
-                  <table className="pricingPlanPriceTable">
-                    <thead>
-                      <tr>
-                        <th>Currency</th>
-                        {drawer.serviceKey === 'smart_card' ? null : (
-                          <th>{drawer.serviceKey === 'expo' ? 'One-time' : 'Monthly'}</th>
-                        )}
-                        <th>
-                          {drawer.serviceKey === 'expo'
-                            ? 'Annual (optional)'
-                            : drawer.serviceKey === 'smart_card'
-                              ? 'Yearly (per seat)'
-                              : 'Yearly'}
-                        </th>
-                        {drawer.serviceKey === 'voxbulk' ? (
-                          <>
-                            <th>Per minute</th>
-                            <th>Extra / min</th>
-                          </>
-                        ) : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {CURRENCIES.map((currency) => {
-                        const row = drawer.draft.prices?.[currency] || {}
-                        const sym = CURRENCY_SYMBOLS[currency] || currency
-                        const badge =
-                          currency === 'GBP'
-                            ? 'default'
-                            : row.manual_override || row._edited
-                              ? 'manual'
-                              : 'FX'
-                        return (
-                          <tr key={currency}>
-                            <td>
-                              <strong>{sym} {currency}</strong>
-                              <span style={{ marginLeft: 6, opacity: 0.65, fontSize: 12 }}>{badge}</span>
-                            </td>
-                            {drawer.serviceKey === 'smart_card' ? null : (
-                              <td>
-                                <MoneyInput value={row.monthly ?? ''} onChange={(v) => setPriceField(currency, 'monthly', v)} />
-                              </td>
-                            )}
-                            <td>
-                              <MoneyInput
-                                value={row.yearly ?? ''}
-                                onChange={(v) => setPriceField(currency, 'yearly', v)}
-                                placeholder={drawer.serviceKey === 'expo' ? 'Optional' : '0.00'}
-                              />
-                            </td>
-                            {drawer.serviceKey === 'voxbulk' ? (
-                              <>
-                                <td>
-                                  <MoneyInput value={row.perMin ?? ''} onChange={(v) => setPriceField(currency, 'perMin', v)} />
-                                </td>
-                                <td>
-                                  <MoneyInput value={row.extraPerMin ?? ''} onChange={(v) => setPriceField(currency, 'extraPerMin', v)} />
-                                </td>
-                              </>
-                            ) : null}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="pricingPkgDrawerFooter">
-                  <Button variant="ghost" size="sm" className="h-8" type="button" onClick={closeDrawer}>Cancel</Button>
-                  <Button size="sm" className="h-8" type="button" disabled={drawer.saving} onClick={() => void saveDrawer()}>
-                    {drawer.saving ? 'Saving…' : 'Save package'}
-                  </Button>
-                </div>
+                ) : null}
               </div>
-            ) : null}
+            )
+          })}
+        </div>
+
+        {fxOpen ? (
+          <div className="uppOverlay" onClick={() => setFxOpen(false)} onKeyDown={() => {}}>
+            <div className="uppDrawer" onClick={(e) => e.stopPropagation()} onKeyDown={() => {}}>
+              <button type="button" className="close-x" onClick={() => setFxOpen(false)}>×</button>
+              <h3>FX rates</h3>
+              <p className="uppHint">GBP is authoring default. Saving a Core package fills unlocked markets from these rates.</p>
+              {FX_QUOTES.map((q) => (
+                <label key={q} className="pricingPkgField">
+                  1 GBP = {q}
+                  <Num step="0.0001" value={fxRates[q]} onChange={(v) => { setFxRates((f) => ({ ...f, [q]: v })); setSharedDirty(true) }} />
+                </label>
+              ))}
+              <Button type="button" size="sm" onClick={() => void saveShared()}>Save FX rates</Button>
+            </div>
           </div>
-        </PricingPageFrame>
-      ) : null}
+        ) : null}
+      </PricingPageFrame>
     </PricingLoadGate>
   )
 }

@@ -520,8 +520,8 @@ class PlanPriceService:
             "is_private_package": bool(getattr(effective_plan, "is_private", False)) if effective_plan is not None else False,
         }
 
-        # Private package unit rates (per currency) — null fields keep defaults above
-        if effective_plan is not None and getattr(effective_plan, "is_private", False):
+        # Per-plan unit rates (WA / CV). Connection fee stays on currency settings for catalog plans.
+        if effective_plan is not None:
             try:
                 from app.models.org_package_assignment import PlanUnitRate
 
@@ -534,7 +534,8 @@ class PlanPriceService:
             except Exception:
                 ur = None
             if ur is not None:
-                if ur.connection_fee_minor is not None:
+                is_private = bool(getattr(effective_plan, "is_private", False))
+                if is_private and ur.connection_fee_minor is not None:
                     rates["connection_fee_minor"] = int(ur.connection_fee_minor)
                 if ur.interview_per_min_minor is not None:
                     rates["interview_per_min_minor"] = int(ur.interview_per_min_minor)
@@ -546,8 +547,13 @@ class PlanPriceService:
                 if ur.cv_scan_fee_minor is not None:
                     rates["cv_scan_fee_minor"] = int(ur.cv_scan_fee_minor)
 
-        # Legacy enterprise org-specific overrides (GBP only) — applied if no private package unit rates
-        elif org is not None and currency == "GBP":
+        # Legacy enterprise org-specific overrides (GBP only) for non-private catalog plans
+        if (
+            effective_plan is not None
+            and not bool(getattr(effective_plan, "is_private", False))
+            and org is not None
+            and currency == "GBP"
+        ):
             try:
                 from app.services.voxbulk_pricing_service import VoxbulkPricingService
 
@@ -588,7 +594,23 @@ class PlanPriceService:
         per_min = int(price.per_min_minor or 0) if price else (int(getattr(plan, "per_min_pence", 0) or 0) if code == "GBP" else 0)
         extra_min = int(price.extra_per_min_minor or 0) if price else (int(plan.overage_per_min_pence or 0) if code == "GBP" else 0)
         wa_unit = int(unit.wa_package_fee_minor or 0)
+        wa_extra = int(unit.wa_extra_minor or 0)
         cv_unit = int(unit.cv_scan_fee_minor or 0)
+        try:
+            from app.models.org_package_assignment import PlanUnitRate
+
+            ur = db.execute(
+                select(PlanUnitRate).where(PlanUnitRate.plan_id == plan.id, PlanUnitRate.currency == code)
+            ).scalar_one_or_none()
+            if ur is not None:
+                if ur.wa_package_fee_minor is not None:
+                    wa_unit = int(ur.wa_package_fee_minor)
+                if ur.wa_extra_minor is not None:
+                    wa_extra = int(ur.wa_extra_minor)
+                if ur.cv_scan_fee_minor is not None:
+                    cv_unit = int(ur.cv_scan_fee_minor)
+        except Exception:
+            pass
         is_enterprise = bool(getattr(plan, "is_enterprise", False))
         monthly_int = int(monthly or 0)
         minutes_inc = monthly_int // per_min if per_min > 0 and not is_enterprise else 0
@@ -625,8 +647,8 @@ class PlanPriceService:
             "extra_per_min_display": money_display(extra_min, code),
             "wa_unit_minor": wa_unit,
             "wa_unit_display": money_display(wa_unit, code),
-            "wa_extra_minor": int(unit.wa_extra_minor or 0),
-            "wa_extra_display": money_display(int(unit.wa_extra_minor or 0), code),
+            "wa_extra_minor": wa_extra,
+            "wa_extra_display": money_display(wa_extra, code),
             "cv_unit_minor": cv_unit,
             "cv_unit_display": money_display(cv_unit, code),
             "connection_fee_minor": int(unit.connection_fee_minor or 0),

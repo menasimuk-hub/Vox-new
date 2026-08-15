@@ -16,9 +16,11 @@ from app.models.expo import EXPO_SERVICE_CODE, ExpoPackage
 from app.models.smart_card import SMART_CARD_SERVICE_CODE, SmartCardPackage
 from app.models.plan import Plan
 from app.models.plan_price import PlanPrice
+from app.models.org_package_assignment import PlanUnitRate
 from app.services.billing_currency import SUPPORTED_CURRENCIES, normalize_currency
 from app.services.plan_admin_service import PlanAdminError, PlanAdminService
 from app.services.plan_price_service import PlanPriceError, PlanPriceService
+from app.services.pricing_fx_service import PricingFxService
 
 SERVICE_KINDS = ("voxbulk", "customer_feedback", "expo", "smart_card")
 _ZONE_SUFFIX_RE = re.compile(r"_(gb|eu|us|ca|au)$", re.IGNORECASE)
@@ -74,6 +76,31 @@ class PricingPackagesService:
         return prices
 
     @staticmethod
+    def _unit_rates_map(db: Session, plan_id: str) -> dict[str, dict[str, Any]]:
+        rows = list(
+            db.execute(select(PlanUnitRate).where(PlanUnitRate.plan_id == plan_id)).scalars().all()
+        )
+        by_cur = {str(r.currency).upper(): r for r in rows}
+        out: dict[str, dict[str, Any]] = {}
+        for currency in SUPPORTED_CURRENCIES:
+            row = by_cur.get(currency)
+            if row is None:
+                out[currency] = {
+                    "currency": currency,
+                    "wa_package_fee_minor": None,
+                    "wa_extra_minor": None,
+                    "cv_scan_fee_minor": None,
+                }
+            else:
+                out[currency] = {
+                    "currency": currency,
+                    "wa_package_fee_minor": row.wa_package_fee_minor,
+                    "wa_extra_minor": row.wa_extra_minor,
+                    "cv_scan_fee_minor": row.cv_scan_fee_minor,
+                }
+        return out
+
+    @staticmethod
     def _list_voxbulk(db: Session, *, active_only: bool) -> list[dict[str, Any]]:
         q = select(Plan).where(Plan.service_kind == "voxbulk", Plan.is_private.is_(False)).order_by(Plan.sort_order.asc(), Plan.name.asc())
         if active_only:
@@ -87,6 +114,7 @@ class PricingPackagesService:
                     **base,
                     "package_id": None,
                     "prices": PricingPackagesService._prices_map(db, plan.id),
+                    "unit_rates": PricingPackagesService._unit_rates_map(db, plan.id),
                 }
             )
         return out
@@ -242,6 +270,8 @@ class PricingPackagesService:
                 raise PricingPackagesError(str(exc)) from exc
             if payload.get("prices"):
                 PricingPackagesService.upsert_prices(db, plan.id, payload["prices"], commit=True)
+            if payload.get("unit_rates"):
+                PricingPackagesService.upsert_unit_rates(db, plan.id, payload["unit_rates"], commit=True)
             return PricingPackagesService.get_package(db, plan.id)  # type: ignore[return-value]
 
         if kind == "expo":
@@ -480,6 +510,8 @@ class PricingPackagesService:
 
         if payload.get("prices"):
             PricingPackagesService.upsert_prices(db, plan.id, payload["prices"], commit=True)
+        if payload.get("unit_rates") and kind == "voxbulk":
+            PricingPackagesService.upsert_unit_rates(db, plan.id, payload["unit_rates"], commit=True)
 
         item = PricingPackagesService.get_package(db, plan.id)
         if item is None:
@@ -612,6 +644,90 @@ class PricingPackagesService:
         if commit:
             db.commit()
         item = PricingPackagesService.get_package(db, plan.id)
+        if item is None:
+            raise PricingPackagesError("Package not found")
+        return item
+
+    @staticmethod
+    def upsert_unit_rates(
+        db: Session,
+        plan_id: str,
+        unit_rates: dict[str, Any] | list[dict[str, Any]],
+        *,
+        commit: bool = True,
+        force_fx_sync: bool = False,
+    ) -> dict[str, Any]:
+        """Upsert per-plan WA/CV unit rates. Connection fee is never stored here for catalog plans."""
+        plan = PlanAdminService.get_plan(db, plan_id)
+        if plan is None:
+            raise PricingPackagesError("Package not found")
+
+        items: list[tuple[str, dict[str, Any]]] = []
+        if isinstance(unit_rates, dict):
+            for currency, row in unit_rates.items():
+                if isinstance(row, dict):
+                    items.append((normalize_currency(currency), row))
+        elif isinstance(unit_rates, list):
+            for row in unit_rates:
+                if isinstance(row, dict) and row.get("currency"):
+                    items.append((normalize_currency(str(row["currency"])), row))
+        else:
+            raise PricingPackagesError("unit_rates must be an object or list")
+
+        gbp_item = next(((c, r) for c, r in items if c == "GBP"), None)
+        other_items = [(c, r) for c, r in items if c != "GBP"]
+        now = datetime.utcnow()
+
+        def write_row(currency: str, row: dict[str, Any], *, from_fx: bool = False) -> None:
+            existing = db.execute(
+                select(PlanUnitRate).where(PlanUnitRate.plan_id == plan_id, PlanUnitRate.currency == currency)
+            ).scalar_one_or_none()
+            if existing is None:
+                existing = PlanUnitRate(
+                    id=str(uuid.uuid4()), plan_id=plan_id, currency=currency, created_at=now, updated_at=now
+                )
+            for key in ("wa_package_fee_minor", "wa_extra_minor", "cv_scan_fee_minor"):
+                if key in row and row[key] is not None and row[key] != "":
+                    setattr(existing, key, max(0, int(row[key])))
+            # Catalog packages: connection stays shared — leave null
+            if str(plan.service_kind or "") == "voxbulk" and not bool(getattr(plan, "is_private", False)):
+                existing.connection_fee_minor = None
+            existing.updated_at = now
+            db.add(existing)
+
+        if gbp_item is not None:
+            write_row("GBP", gbp_item[1])
+            rates = PricingFxService.rate_map(db)
+            gbp_payload = {
+                "wa_package_fee_minor": gbp_item[1].get("wa_package_fee_minor"),
+                "wa_extra_minor": gbp_item[1].get("wa_extra_minor"),
+                "cv_scan_fee_minor": gbp_item[1].get("cv_scan_fee_minor"),
+            }
+            # Fill unlocked currencies from GBP (skip if Admin sent an explicit edit for that market)
+            explicit = {
+                c for c, r in other_items if r.get("manual_override") or r.get("_manual_edit") or r.get("apply")
+            }
+            for quote in SUPPORTED_CURRENCIES:
+                if quote == "GBP":
+                    continue
+                if quote in explicit and not force_fx_sync:
+                    continue
+                converted = PricingFxService.convert_payload_from_gbp(
+                    {k: int(v) for k, v in gbp_payload.items() if v is not None and v != ""},
+                    quote,
+                    rates,
+                )
+                write_row(quote, converted, from_fx=True)
+
+        for currency, row in other_items:
+            explicit = bool(row.get("manual_override") or row.get("_manual_edit") or row.get("apply"))
+            if gbp_item is not None and not explicit and not force_fx_sync:
+                continue
+            write_row(currency, row)
+
+        if commit:
+            db.commit()
+        item = PricingPackagesService.get_package(db, plan_id)
         if item is None:
             raise PricingPackagesError("Package not found")
         return item

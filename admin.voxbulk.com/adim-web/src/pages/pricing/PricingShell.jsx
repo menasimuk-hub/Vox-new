@@ -5,22 +5,19 @@ import { PricingSettingsProvider } from './pricingUtils'
 const LINKS = [
   ['Packages', 'packages'],
   ['Private packages', 'private'],
-  ['Currency rates', 'currency-rates'],
-  ['Connection fee', 'connection-fee'],
-  ['Service rates', 'services'],
   ['Top-up tiers', 'topups'],
   ['Invoice settings', 'invoice-settings'],
   ['Estimator', 'estimator'],
-  ['Custom org', 'custom'],
 ]
 
 export default function PricingShell() {
   return (
     <div className="pricingShell">
       <header className="pricingShellHeader">
-        <h1 className="pageTitle">Core platform pricing</h1>
+        <h1 className="pageTitle">Package pricing</h1>
         <p className="pricingShellIntro">
-          Packages for Core, Customer Feedback, and Expo. Author in GBP — other currencies sync from FX rates unless you set a market price by hand.
+          One place for Core, Customer Feedback, Expo and Smart Card. Each Core package has its own AI, WA and ATS
+          rates. Only the connection fee and usage-calculation rules are shared. Author in GBP — FX fills other markets.
         </p>
       </header>
       <nav className="pricingSubnav" aria-label="Pricing sections">

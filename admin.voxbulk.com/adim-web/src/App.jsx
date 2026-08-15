@@ -177,14 +177,14 @@ export default function App() {
           <Route index element={<Navigate to='/pricing/packages' replace />} />
           <Route path='packages' element={<P.PricingPackages />} />
           <Route path='private' element={<P.PricingPrivatePackages />} />
-          <Route path='plans' element={<Navigate to='/pricing/packages?service=core' replace />} />
-          <Route path='connection-fee' element={<P.PricingConnectionFee />} />
-          <Route path='services' element={<P.PricingServices />} />
+          <Route path='plans' element={<Navigate to='/pricing/packages?service=voxbulk' replace />} />
+          <Route path='connection-fee' element={<Navigate to='/pricing/packages' replace />} />
+          <Route path='services' element={<Navigate to='/pricing/packages' replace />} />
           <Route path='topups' element={<P.PricingTopups />} />
           <Route path='plan-prices' element={<Navigate to='/pricing/packages' replace />} />
-          <Route path='currency-rates' element={<P.PricingCurrencyRates />} />
+          <Route path='currency-rates' element={<Navigate to='/pricing/packages' replace />} />
           <Route path='invoice-settings' element={<P.PricingInvoiceSettings />} />
-          <Route path='fx' element={<Navigate to='/pricing/currency-rates' replace />} />
+          <Route path='fx' element={<Navigate to='/pricing/packages' replace />} />
           <Route path='estimator' element={<P.PricingEstimator />} />
           <Route path='custom' element={<Navigate to='/pricing/private' replace />} />
         </Route>
