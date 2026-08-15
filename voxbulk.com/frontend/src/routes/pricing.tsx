@@ -285,15 +285,15 @@ function SimplePlanCard({
     >
       {p.featured && <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Most popular</span>}
       <div className={`text-[14px] font-semibold ${p.featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
+      <div className="mt-3 flex items-baseline gap-1">
+        <span className={`text-[30px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{s}{displayPrice}</span>
+        <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>{period}</span>
+      </div>
       {(apiPlan?.description || p.description) ? (
         <p className={`mt-1.5 text-[12.5px] leading-snug ${p.featured ? "text-white/65" : "text-muted-text"}`}>
           {apiPlan?.description || p.description}
         </p>
       ) : null}
-      <div className="mt-3 flex items-baseline gap-1">
-        <span className={`text-[30px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{s}{displayPrice}</span>
-        <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>{period}</span>
-      </div>
       <ul className={`mt-5 space-y-2.5 text-[13.5px] flex-1 ${p.featured ? "text-white/80" : "text-body"}`}>
         {features.map((f) => <li key={f} className="flex items-center gap-2"><Check size={13} className={p.featured ? "text-gold" : "text-primary"} /> {f}</li>)}
       </ul>
@@ -435,20 +435,26 @@ function PricingPage() {
                       <span className={`absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full ${featured ? "bg-gold text-navy" : p.payg ? "bg-primary text-white" : "bg-navy text-white"}`}>{p.badge}</span>
                     )}
                     <div className={`text-[14px] font-semibold ${featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
-                    {(apiPlan?.description || p.description) ? (
-                      <p className={`mt-1.5 text-[12.5px] leading-snug ${featured ? "text-white/65" : "text-muted-text"}`}>
-                        {apiPlan?.description || p.description}
-                      </p>
-                    ) : null}
                     {p.enterprise ? (
                       <>
                         <div className="mt-3 text-[24px] font-bold tracking-[-0.02em] text-heading">Let's talk</div>
-                        <div className="mt-1 text-[12px] text-muted-text">Volume rates · SLA · dedicated support</div>
+                        {(apiPlan?.description || p.description) ? (
+                          <p className="mt-1.5 text-[12.5px] leading-snug text-muted-text">
+                            {apiPlan?.description || p.description}
+                          </p>
+                        ) : (
+                          <div className="mt-1 text-[12px] text-muted-text">Volume rates · SLA · dedicated support</div>
+                        )}
                       </>
                     ) : p.payg ? (
                       <>
                         <div className="mt-3 flex items-baseline gap-1"><span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{s}0</span><span className="text-[13px] text-muted-text">/mo</span></div>
                         <div className="mt-1 text-[12px] text-muted-text">Per minute: <strong className="text-heading">{apiPlan?.per_min_display || `${s}${fmt((p.ratePerMinGBP as number) * fx)}`}</strong></div>
+                        {(apiPlan?.description || p.description) ? (
+                          <p className="mt-1.5 text-[12.5px] leading-snug text-muted-text">
+                            {apiPlan?.description || p.description}
+                          </p>
+                        ) : null}
                       </>
                     ) : (
                       <>
@@ -457,6 +463,11 @@ function PricingPage() {
                           <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>{coreBilling === "yearly" ? "/yr" : "/mo"}</span>
                         </div>
                         <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>Per minute: <strong className={featured ? "text-white" : "text-heading"}>{apiPlan?.per_min_display || `${s}${perMinDisplay}`}</strong></div>
+                        {(apiPlan?.description || p.description) ? (
+                          <p className={`mt-1.5 text-[12.5px] leading-snug ${featured ? "text-white/65" : "text-muted-text"}`}>
+                            {apiPlan?.description || p.description}
+                          </p>
+                        ) : null}
                       </>
                     )}
                     <div className={`my-4 h-px ${featured ? "bg-white/15" : "bg-border"}`} />

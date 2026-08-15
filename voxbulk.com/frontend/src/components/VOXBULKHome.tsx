@@ -553,6 +553,7 @@ export function Metrics() {
 
 type Plan = {
   name: string;
+  description?: string | null;
   priceGBP: number | null;     // null = custom, 0 = pay-as-you-go
   ratePerMinGBP: number | null;
   mins: number | null;
@@ -617,6 +618,7 @@ function plansFromApi(apiPlans: PublicPlan[] | undefined): Plan[] | null {
     const rate = p.per_min_minor != null ? p.per_min_minor / 100 : null;
     return {
       name: p.name,
+      description: p.description || null,
       priceGBP: enterprise ? null : payg ? 0 : monthly,
       ratePerMinGBP: enterprise ? null : rate,
       mins: enterprise || payg ? null : p.minutes_included,
@@ -695,7 +697,11 @@ export function Pricing() {
                 {p.enterprise ? (
                   <>
                     <div className="mt-3 text-[24px] font-bold tracking-[-0.02em] text-heading">Let's talk</div>
-                    <div className="mt-1 text-[12px] text-muted-text">Volume rates · SLA · dedicated support</div>
+                    {p.description ? (
+                      <p className="mt-1.5 text-[12.5px] leading-snug text-muted-text">{p.description}</p>
+                    ) : (
+                      <div className="mt-1 text-[12px] text-muted-text">Volume rates · SLA · dedicated support</div>
+                    )}
                   </>
                 ) : p.payg ? (
                   <>
@@ -706,9 +712,13 @@ export function Pricing() {
                     <div className="mt-1 text-[12px] text-muted-text">
                       Per minute: <strong className="text-heading">{s}{fmt((p.ratePerMinGBP as number) * priceFx)}</strong>
                     </div>
-                    <div className="mt-1 text-[11.5px] text-muted-text">
-                      Only pay for what you use · no monthly fee
-                    </div>
+                    {p.description ? (
+                      <p className="mt-1.5 text-[12.5px] leading-snug text-muted-text">{p.description}</p>
+                    ) : (
+                      <div className="mt-1 text-[11.5px] text-muted-text">
+                        Only pay for what you use · no monthly fee
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -721,9 +731,15 @@ export function Pricing() {
                     <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>
                       Per minute: <strong className={featured ? "text-white" : "text-heading"}>{s}{fmt((p.ratePerMinGBP as number) * priceFx)}</strong>
                     </div>
-                    <div className={`mt-1 text-[11.5px] ${featured ? "text-white/55" : "text-muted-text"}`}>
-                      Typical interview · {s}{fmt((p.ratePerMinGBP as number) * 10 * priceFx)} – {s}{fmt((p.ratePerMinGBP as number) * 15 * priceFx)}
-                    </div>
+                    {p.description ? (
+                      <p className={`mt-1.5 text-[12.5px] leading-snug ${featured ? "text-white/65" : "text-muted-text"}`}>
+                        {p.description}
+                      </p>
+                    ) : (
+                      <div className={`mt-1 text-[11.5px] ${featured ? "text-white/55" : "text-muted-text"}`}>
+                        Typical interview · {s}{fmt((p.ratePerMinGBP as number) * 10 * priceFx)} – {s}{fmt((p.ratePerMinGBP as number) * 15 * priceFx)}
+                      </div>
+                    )}
                   </>
                 )}
 
