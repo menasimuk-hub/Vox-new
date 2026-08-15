@@ -27,6 +27,27 @@ _ZONE_SUFFIX_RE = re.compile(r"_(gb|eu|us|ca|au)$", re.IGNORECASE)
 _ZONE_CURRENCY = {"gb": "GBP", "eu": "EUR", "us": "USD", "ca": "CAD", "au": "AUD"}
 _CURRENCY_ZONE = {v: k for k, v in _ZONE_CURRENCY.items()}
 
+# Public-facing blurbs for empty plan.description (insert-only; never overwrite Admin edits).
+_DEFAULT_PLAN_DESCRIPTIONS: dict[str, str] = {
+    # Match public-site fallbacks / marketing blurbs (insert-only when plan.description is empty).
+    "payg": "Only pay for what you use · no monthly fee",
+    "starter": "Best for a single hiring manager or small team trialling AI interviews and WhatsApp surveys.",
+    "pro": "Our most popular plan — for growing teams running weekly interview and survey campaigns.",
+    "business": "High-volume recruitment and survey operations across multiple hiring managers.",
+    "enterprise": "Volume rates · SLA · dedicated support",
+    "cf_starter": "Best for a single location getting started with WhatsApp and web feedback.",
+    "feedback_starter": "Best for a single location getting started with WhatsApp and web feedback.",
+    "cf_growth": "For multi-location teams who want a live dashboard and weekly reporting.",
+    "feedback_growth": "For multi-location teams who want a live dashboard and weekly reporting.",
+    "cf_pro": "Unlimited feedback across up to 10 locations, with a dedicated account manager.",
+    "feedback_pro": "Unlimited feedback across up to 10 locations, with a dedicated account manager.",
+    "expo_day1": "Single-day booth QR for small local shows and pop-ups.",
+    "expo_day3": "Multi-day booth QR for regional exhibitions and trade fairs.",
+    "expo_day7": "Full-week coverage for flagship trade shows, with post-show follow-up and an AI wrap-up report.",
+    "sc_monthly": "Pay-monthly seat for reps who want to try Smart Card without a commitment.",
+    "sc_yearly": "20% cheaper per seat, with owner visibility across every rep and catalogue matching included.",
+}
+
 
 class PricingPackagesError(ValueError):
     pass
@@ -34,12 +55,95 @@ class PricingPackagesError(ValueError):
 
 class PricingPackagesService:
     @staticmethod
+    def ensure_catalog_copy(db: Session) -> None:
+        """Fill empty descriptions and ensure GBP prices / unit rates exist for catalog plans."""
+        from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+        try:
+            VoxbulkPricingService.ensure_seeded(db)
+        except Exception:
+            pass
+        PlanPriceService.ensure_seeded(db)
+        PricingFxService.ensure_seeded(db)
+
+        plans = list(
+            db.execute(
+                select(Plan).where(
+                    Plan.service_kind.in_(list(SERVICE_KINDS)),
+                    Plan.is_private.is_(False),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        now = datetime.utcnow()
+        changed = False
+        for plan in plans:
+            code = str(plan.code or "").strip().lower()
+            family = _ZONE_SUFFIX_RE.sub("", code)
+            blurb = _DEFAULT_PLAN_DESCRIPTIONS.get(code) or _DEFAULT_PLAN_DESCRIPTIONS.get(family)
+            if blurb and not str(plan.description or "").strip():
+                plan.description = blurb
+                plan.updated_at = now
+                db.add(plan)
+                changed = True
+
+            if str(plan.service_kind or "") != "voxbulk":
+                continue
+            # Ensure per-plan WA/CV rows exist (connection stays shared / null).
+            unit = PlanPriceService.get_currency_settings(db, "GBP")
+            for currency in SUPPORTED_CURRENCIES:
+                existing = db.execute(
+                    select(PlanUnitRate).where(PlanUnitRate.plan_id == plan.id, PlanUnitRate.currency == currency)
+                ).scalar_one_or_none()
+                if existing is not None:
+                    continue
+                cur_settings = PlanPriceService.get_currency_settings(db, currency)
+                db.add(
+                    PlanUnitRate(
+                        id=str(uuid.uuid4()),
+                        plan_id=plan.id,
+                        currency=currency,
+                        connection_fee_minor=None,
+                        interview_per_min_minor=None,
+                        wa_package_fee_minor=int(cur_settings.wa_package_fee_minor or unit.wa_package_fee_minor or 50),
+                        wa_extra_minor=int(cur_settings.wa_extra_minor or unit.wa_extra_minor or 49),
+                        cv_scan_fee_minor=int(cur_settings.cv_scan_fee_minor or unit.cv_scan_fee_minor or 75),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                changed = True
+            # Ensure GBP plan price row exists with AI rates from plan legacy fields if missing.
+            gbp = PlanPriceService.get_price(db, plan.id, "GBP")
+            if gbp is None and not bool(getattr(plan, "is_enterprise", False)):
+                monthly = 0 if str(plan.code or "").lower() == "payg" else plan.price_gbp_pence
+                PlanPriceService.upsert_price(
+                    db,
+                    plan_id=plan.id,
+                    currency="GBP",
+                    payload={
+                        "monthly_price_minor": monthly,
+                        "yearly_price_minor": (int(monthly) * 10) if monthly and int(monthly) > 0 else None,
+                        "per_min_minor": int(getattr(plan, "per_min_pence", 0) or 0),
+                        "extra_per_min_minor": int(plan.overage_per_min_pence or 0),
+                        "is_active": bool(plan.is_active),
+                    },
+                    commit=False,
+                    sync_fx=True,
+                )
+                changed = True
+        if changed:
+            db.commit()
+
+    @staticmethod
     def list_packages(
         db: Session,
         *,
         service_kind: str | None = None,
         active_only: bool = True,
     ) -> dict[str, Any]:
+        PricingPackagesService.ensure_catalog_copy(db)
         kinds = [service_kind] if service_kind else list(SERVICE_KINDS)
         out: dict[str, list[dict[str, Any]]] = {k: [] for k in SERVICE_KINDS}
         for kind in kinds:
@@ -536,6 +640,9 @@ class PricingPackagesService:
         for p, pkg in targets:
             if "name" in payload and payload["name"] is not None:
                 p.name = str(payload["name"]).strip() or p.name
+            if "description" in payload:
+                desc = str(payload.get("description") or "").strip()
+                p.description = desc or None
             if "is_active" in payload:
                 active = bool(payload["is_active"])
                 p.is_active = active

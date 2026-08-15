@@ -217,25 +217,27 @@ export default function PricingPackages() {
       }
 
       if (active === 'voxbulk') {
-        payload.calls_included = Number(draft.calls_included || 0)
-        payload.whatsapp_included = Number(draft.whatsapp_included || 0)
-        payload.cv_scans_included = Number(draft.cv_scans_included || 0)
         const isPayg = String(pkg.code || '').toLowerCase() === 'payg'
         const isEnt = Boolean(pkg.is_enterprise)
-        payload.prices = {
-          GBP: {
-            monthly_price_minor: isPayg || isEnt ? (isEnt ? null : 0) : poundsToPence(draft.monthly),
-            yearly_price_minor: isPayg || isEnt ? null : poundsToPence(draft.yearly || 0),
-            per_min_minor: poundsToPence(draft.perMin || 0),
-            extra_per_min_minor: poundsToPence(draft.extraPerMin || 0),
-          },
-        }
-        payload.unit_rates = {
-          GBP: {
-            wa_package_fee_minor: poundsToPence(draft.waPackage || 0),
-            wa_extra_minor: poundsToPence(draft.waExtra || 0),
-            cv_scan_fee_minor: poundsToPence(draft.cvFee || 0),
-          },
+        if (!isEnt) {
+          payload.calls_included = Number(draft.calls_included || 0)
+          payload.whatsapp_included = Number(draft.whatsapp_included || 0)
+          payload.cv_scans_included = Number(draft.cv_scans_included || 0)
+          payload.prices = {
+            GBP: {
+              monthly_price_minor: isPayg ? 0 : poundsToPence(draft.monthly),
+              yearly_price_minor: isPayg ? null : poundsToPence(draft.yearly || 0),
+              per_min_minor: poundsToPence(draft.perMin || 0),
+              extra_per_min_minor: poundsToPence(draft.extraPerMin || 0),
+            },
+          }
+          payload.unit_rates = {
+            GBP: {
+              wa_package_fee_minor: poundsToPence(draft.waPackage || 0),
+              wa_extra_minor: poundsToPence(draft.waExtra || 0),
+              cv_scan_fee_minor: poundsToPence(draft.cvFee || 0),
+            },
+          }
         }
       } else if (active === 'customer_feedback') {
         payload.wa_units_included = Number(draft.wa_units_included || 0)
@@ -281,7 +283,7 @@ export default function PricingPackages() {
       })
       await load()
       setDirty((d) => ({ ...d, [pkg.id]: false }))
-      setMsg(`${pkg.name} saved.`)
+      setMsg(`${draft.name || pkg.name} saved.`)
     } catch (e) {
       setError(e?.message || 'Save failed')
     } finally {
@@ -296,9 +298,25 @@ export default function PricingPackages() {
     const isEnt = Boolean(pkg.is_enterprise)
     if (isEnt) {
       return (
-        <div className="uppStory">
-          Enterprise is price-on-application. Use Private packages for negotiated deals.
-        </div>
+        <>
+          <div className="uppStory">
+            Enterprise is price-on-application. Set the public name and description here; use Private packages for negotiated deals.
+          </div>
+          <section className="uppSection">
+            <h4><span className="uppLetter">A</span> Public copy</h4>
+            <label className="uppDesc">
+              Description (shown below the price on the website)
+              <textarea
+                className="input"
+                rows={2}
+                value={draft.description}
+                disabled={!editable}
+                onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+              />
+            </label>
+            <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Show as an option" />
+          </section>
+        </>
       )
     }
     return (
@@ -306,11 +324,11 @@ export default function PricingPackages() {
         <div className="uppStory">
           {isPayg ? (
             <>
-              <strong>{pkg.name}</strong> has no monthly fee — wallet rates below apply per AI minute, WA recipient and CV scan.
+              <strong>{draft.name || pkg.name}</strong> has no monthly fee — wallet rates below apply per AI minute, WA recipient and CV scan.
             </>
           ) : (
             <>
-              <strong>{pkg.name}</strong> costs <strong>{money(poundsToPence(draft.monthly), 'GBP')}/mo</strong>
+              <strong>{draft.name || pkg.name}</strong> costs <strong>{money(poundsToPence(draft.monthly), 'GBP')}/mo</strong>
               {' '}→ includes <strong>{Number(draft.calls_included || 0).toLocaleString()} AI mins</strong>
               {' '}+ <strong>{Number(draft.whatsapp_included || 0).toLocaleString()} WA recipients</strong>
               {' '}+ <strong>{Number(draft.cv_scans_included || 0).toLocaleString()} CV scans</strong>
@@ -328,8 +346,36 @@ export default function PricingPackages() {
               <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
               <Toggle checked={draft.is_featured} onChange={(v) => patchDraft(pkg.id, { is_featured: v })} label="Featured" />
             </div>
+            <label className="uppDesc" style={{ marginTop: 12 }}>
+              Description (shown below the price on the website)
+              <textarea
+                className="input"
+                rows={2}
+                value={draft.description}
+                disabled={!editable}
+                onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+              />
+            </label>
           </section>
-        ) : null}
+        ) : (
+          <section className="uppSection">
+            <h4><span className="uppLetter">A</span> Status &amp; copy</h4>
+            <div className="uppGrid">
+              <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
+              <Toggle checked={draft.is_featured} onChange={(v) => patchDraft(pkg.id, { is_featured: v })} label="Featured" />
+            </div>
+            <label className="uppDesc" style={{ marginTop: 12 }}>
+              Description (shown below the price on the website)
+              <textarea
+                className="input"
+                rows={2}
+                value={draft.description}
+                disabled={!editable}
+                onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+              />
+            </label>
+          </section>
+        )}
 
         {!isPayg ? (
           <section className="uppSection">
@@ -394,7 +440,7 @@ export default function PricingPackages() {
   const renderFeedbackBody = (pkg, draft) => (
     <>
       <div className="uppStory">
-        <strong>{pkg.name}</strong> costs <strong>{money(poundsToPence(draft.monthly), 'GBP')}/mo</strong>
+        <strong>{draft.name || pkg.name}</strong> costs <strong>{money(poundsToPence(draft.monthly), 'GBP')}/mo</strong>
         {' '}→ <strong>{Number(draft.wa_units_included || 0)} WA</strong> + <strong>{Number(draft.web_units_included || 0)} web</strong>
         {' '}across <strong>{Number(draft.max_locations || 0)} location(s)</strong>. When units run out, upgrade (no auto overage charge).
       </div>
@@ -406,6 +452,16 @@ export default function PricingPackages() {
           <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
           <Toggle checked={draft.is_featured} onChange={(v) => patchDraft(pkg.id, { is_featured: v })} label="Featured" />
         </div>
+        <label className="uppDesc" style={{ marginTop: 12 }}>
+          Description (shown below the price on the website)
+          <textarea
+            className="input"
+            rows={2}
+            value={draft.description}
+            disabled={!editable}
+            onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+          />
+        </label>
       </section>
       <section className="uppSection">
         <h4><span className="uppLetter">B</span> Included</h4>
@@ -421,7 +477,7 @@ export default function PricingPackages() {
   const renderExpoBody = (pkg, draft) => (
     <>
       <div className="uppStory">
-        <strong>{pkg.name}</strong> is a one-off <strong>{money(poundsToPence(draft.oneOff), 'GBP')}</strong> for <strong>{draft.duration_days} day(s)</strong>.
+        <strong>{draft.name || pkg.name}</strong> is a one-off <strong>{money(poundsToPence(draft.oneOff), 'GBP')}</strong> for <strong>{draft.duration_days} day(s)</strong>.
       </div>
       <section className="uppSection">
         <h4><span className="uppLetter">A</span> One-off fee</h4>
@@ -430,6 +486,16 @@ export default function PricingPackages() {
           <label>Days active <Num step="1" value={draft.duration_days} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { duration_days: v })} /></label>
           <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
         </div>
+        <label className="uppDesc" style={{ marginTop: 12 }}>
+          Description (shown below the price on the website)
+          <textarea
+            className="input"
+            rows={2}
+            value={draft.description}
+            disabled={!editable}
+            onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+          />
+        </label>
       </section>
       <section className="uppSection">
         <h4><span className="uppLetter">B</span> Limits & features</h4>
@@ -447,7 +513,7 @@ export default function PricingPackages() {
   const renderSmartBody = (pkg, draft) => (
     <>
       <div className="uppStory">
-        <strong>{pkg.name}</strong> seat price <strong>{money(poundsToPence(draft.seatYearly), 'GBP')}</strong> / year — unlimited scans while active.
+        <strong>{draft.name || pkg.name}</strong> seat price <strong>{money(poundsToPence(draft.seatYearly), 'GBP')}</strong> / year — unlimited scans while active.
       </div>
       <section className="uppSection">
         <h4><span className="uppLetter">A</span> Seat price</h4>
@@ -456,6 +522,16 @@ export default function PricingPackages() {
           <Toggle checked={draft.is_active} onChange={(v) => patchDraft(pkg.id, { is_active: v })} label="Active" />
           <Toggle checked={draft.is_featured} onChange={(v) => patchDraft(pkg.id, { is_featured: v })} label="Featured" />
         </div>
+        <label className="uppDesc" style={{ marginTop: 12 }}>
+          Description (shown below the price on the website)
+          <textarea
+            className="input"
+            rows={2}
+            value={draft.description}
+            disabled={!editable}
+            onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+          />
+        </label>
       </section>
     </>
   )
@@ -551,7 +627,7 @@ export default function PricingPackages() {
                 <button type="button" className="uppCardHead" onClick={() => toggleExpand(pkg.id)}>
                   <span className="uppChevron">{open ? '▾' : '▸'}</span>
                   <span className="uppCardName">
-                    <strong>{pkg.name}</strong>
+                    <strong>{draft.name || pkg.name}</strong>
                     <span className="uppBadges">
                       <span className={`uppBadge${pkg.is_active ? ' on' : ''}`}>{pkg.is_active ? 'Active' : 'Inactive'}</span>
                       {pkg.is_featured ? <span className="uppBadge feat">Featured</span> : null}
@@ -559,35 +635,32 @@ export default function PricingPackages() {
                   </span>
                   <span className="uppSummary">{summary}</span>
                 </button>
-                {open ? (
+                    {open ? (
                   <div className="uppCardBody">
                     <label className="uppDesc">
-                      Description
-                      <textarea
+                      Package name
+                      <input
                         className="input"
-                        rows={2}
-                        value={draft.description}
+                        value={draft.name}
                         disabled={!editable}
-                        onChange={(e) => patchDraft(pkg.id, { description: e.target.value })}
+                        onChange={(e) => patchDraft(pkg.id, { name: e.target.value })}
                       />
                     </label>
                     {active === 'voxbulk' ? renderCoreBody(pkg, draft) : null}
                     {active === 'customer_feedback' ? renderFeedbackBody(pkg, draft) : null}
                     {active === 'expo' ? renderExpoBody(pkg, draft) : null}
                     {active === 'smart_card' ? renderSmartBody(pkg, draft) : null}
-                    {!pkg.is_enterprise ? (
-                      <div className="uppSaveBar">
-                        <span>{dirty[pkg.id] ? `Unsaved changes to ${pkg.name}` : 'Up to date'}</span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          disabled={!dirty[pkg.id] || savingId === pkg.id || !editable}
-                          onClick={() => void savePackage(pkg)}
-                        >
-                          {savingId === pkg.id ? 'Saving…' : `Save ${pkg.name}`}
-                        </Button>
-                      </div>
-                    ) : null}
+                    <div className="uppSaveBar">
+                      <span>{dirty[pkg.id] ? `Unsaved changes to ${draft.name || pkg.name}` : 'Up to date'}</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={!dirty[pkg.id] || savingId === pkg.id || !editable}
+                        onClick={() => void savePackage(pkg)}
+                      >
+                        {savingId === pkg.id ? 'Saving…' : `Save ${draft.name || pkg.name}`}
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
               </div>
