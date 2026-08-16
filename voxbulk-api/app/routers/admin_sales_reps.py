@@ -505,19 +505,34 @@ def test_sales_rep_mailbox(
     body = payload or {}
     username = str(body.get("username") or "").strip()
     password = str(body.get("password") or "").strip()
+    host = str(body.get("host") or "voxbulk.com").strip() or "voxbulk.com"
 
     if rep_id and rep_id != "test":
         rep = _get_rep(db, rep_id)
         if not username:
-            username = rep.smtp_username or ""
+            username = (rep.smtp_username or rep.imap_username or "").strip()
         if not password:
-            from app.core.security import decrypt_str
-            password = decrypt_str(rep.smtp_password) if rep.smtp_password else ""
-    
+            from app.core.encryption import get_encryptor
+
+            enc = rep.smtp_password_enc or rep.imap_password_enc
+            if enc:
+                try:
+                    password = get_encryptor().decrypt_str(enc)
+                except Exception as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Stored mailbox password could not be decrypted. Re-enter and save the password.",
+                    ) from exc
+        if rep.smtp_host:
+            host = str(rep.smtp_host).strip() or host
+
     if not username:
         raise HTTPException(status_code=400, detail="Username is required")
     if not password:
-        raise HTTPException(status_code=400, detail="Password is required for testing")
+        raise HTTPException(
+            status_code=400,
+            detail="Mailbox password is required (enter it, or save credentials first to test stored ones).",
+        )
 
     smtp_ok = False
     imap_ok = False
@@ -526,8 +541,8 @@ def test_sales_rep_mailbox(
     # Test SMTP
     try:
         import smtplib
-        from email.mime.text import MIMEText
-        with smtplib.SMTP("voxbulk.com", 587, timeout=10) as server:
+
+        with smtplib.SMTP(host, 587, timeout=10) as server:
             server.starttls()
             server.login(username, password)
             smtp_ok = True
@@ -538,7 +553,8 @@ def test_sales_rep_mailbox(
     # Test IMAP
     try:
         import imaplib
-        with imaplib.IMAP4_SSL("voxbulk.com", 993, timeout=10) as mail:
+
+        with imaplib.IMAP4_SSL(host, 993, timeout=10) as mail:
             mail.login(username, password)
             imap_ok = True
             message.append("IMAP OK")

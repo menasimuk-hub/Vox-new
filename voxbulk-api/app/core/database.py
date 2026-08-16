@@ -220,6 +220,19 @@ def ensure_schema_hotfixes() -> None:
         ("plans", "is_featured", "TINYINT(1) NOT NULL DEFAULT 0"),
         ("plans", "is_enterprise", "TINYINT(1) NOT NULL DEFAULT 0"),
         ("plans", "service_kind", "VARCHAR(32) NOT NULL DEFAULT 'voxbulk'"),
+        ("sales_reps", "smtp_host", "VARCHAR(255) NOT NULL DEFAULT ''"),
+        ("sales_reps", "smtp_port", "INTEGER NOT NULL DEFAULT 587"),
+        ("sales_reps", "smtp_use_tls", "TINYINT(1) NOT NULL DEFAULT 1"),
+        ("sales_reps", "smtp_use_ssl", "TINYINT(1) NOT NULL DEFAULT 0"),
+        ("sales_reps", "smtp_username", "VARCHAR(320) NOT NULL DEFAULT ''"),
+        ("sales_reps", "smtp_password_enc", "TEXT NULL"),
+        ("sales_reps", "imap_host", "VARCHAR(255) NOT NULL DEFAULT ''"),
+        ("sales_reps", "imap_port", "INTEGER NOT NULL DEFAULT 993"),
+        ("sales_reps", "imap_use_ssl", "TINYINT(1) NOT NULL DEFAULT 1"),
+        ("sales_reps", "imap_use_tls", "TINYINT(1) NOT NULL DEFAULT 0"),
+        ("sales_reps", "imap_username", "VARCHAR(320) NOT NULL DEFAULT ''"),
+        ("sales_reps", "imap_password_enc", "TEXT NULL"),
+        ("sales_reps", "email_signature", "TEXT NULL"),
     )
     with engine.begin() as conn:
         insp = inspect(engine)

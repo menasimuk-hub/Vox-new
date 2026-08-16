@@ -165,6 +165,99 @@ class SalesRepService:
         }
 
     @staticmethod
+    def apply_mailbox_fields(
+        rep: SalesRep,
+        mailbox: dict[str, Any] | None,
+        *,
+        require_password_if_new: bool = False,
+        default_host: str = "voxbulk.com",
+    ) -> None:
+        """Apply SMTP/IMAP mailbox fields onto a sales rep (encrypts passwords).
+
+        When a username is set but neither SMTP nor IMAP password is stored yet,
+        a password is required (unless require_password_if_new is False).
+        A single password is applied to both SMTP and IMAP when only one is sent.
+        """
+        if not mailbox:
+            return
+
+        from app.core.encryption import get_encryptor
+
+        encryptor = get_encryptor()
+
+        if "smtp_host" in mailbox:
+            rep.smtp_host = str(mailbox.get("smtp_host") or "").strip()
+        if "smtp_port" in mailbox:
+            rep.smtp_port = int(mailbox.get("smtp_port") or 587)
+        if "smtp_use_tls" in mailbox:
+            rep.smtp_use_tls = bool(mailbox.get("smtp_use_tls"))
+        if "smtp_use_ssl" in mailbox:
+            rep.smtp_use_ssl = bool(mailbox.get("smtp_use_ssl"))
+        if "smtp_username" in mailbox:
+            rep.smtp_username = str(mailbox.get("smtp_username") or "").strip()
+
+        if "imap_host" in mailbox:
+            rep.imap_host = str(mailbox.get("imap_host") or "").strip()
+        if "imap_port" in mailbox:
+            rep.imap_port = int(mailbox.get("imap_port") or 993)
+        if "imap_use_ssl" in mailbox:
+            rep.imap_use_ssl = bool(mailbox.get("imap_use_ssl"))
+        if "imap_use_tls" in mailbox:
+            rep.imap_use_tls = bool(mailbox.get("imap_use_tls"))
+        if "imap_username" in mailbox:
+            rep.imap_username = str(mailbox.get("imap_username") or "").strip()
+
+        if "email_signature" in mailbox:
+            rep.email_signature = str(mailbox.get("email_signature") or "").strip()
+
+        smtp_pw = str(mailbox.get("smtp_password") or "").strip() if "smtp_password" in mailbox else ""
+        imap_pw = str(mailbox.get("imap_password") or "").strip() if "imap_password" in mailbox else ""
+        # One mailbox password usually covers both send and receive.
+        if smtp_pw and not imap_pw and "imap_password" not in mailbox:
+            imap_pw = smtp_pw
+        if imap_pw and not smtp_pw and "smtp_password" not in mailbox:
+            smtp_pw = imap_pw
+        if smtp_pw and not imap_pw:
+            imap_pw = smtp_pw
+        if imap_pw and not smtp_pw:
+            smtp_pw = imap_pw
+
+        if smtp_pw:
+            rep.smtp_password_enc = encryptor.encrypt_str(smtp_pw)
+        if imap_pw:
+            rep.imap_password_enc = encryptor.encrypt_str(imap_pw)
+
+        # Fill shared host defaults when username is present but hosts were left blank.
+        username = (rep.smtp_username or rep.imap_username or "").strip()
+        if username:
+            if not (rep.smtp_username or "").strip():
+                rep.smtp_username = username
+            if not (rep.imap_username or "").strip():
+                rep.imap_username = username
+            if not (rep.smtp_host or "").strip():
+                rep.smtp_host = default_host
+                rep.smtp_port = int(rep.smtp_port or 587)
+                if "smtp_use_tls" not in mailbox and "smtp_use_ssl" not in mailbox:
+                    rep.smtp_use_tls = True
+                    rep.smtp_use_ssl = False
+            if not (rep.imap_host or "").strip():
+                rep.imap_host = default_host
+                rep.imap_port = int(rep.imap_port or 993)
+                if "imap_use_ssl" not in mailbox and "imap_use_tls" not in mailbox:
+                    rep.imap_use_ssl = True
+                    rep.imap_use_tls = False
+
+        wants_mailbox = bool(username)
+        if require_password_if_new and wants_mailbox:
+            has_smtp_pw = bool(rep.smtp_password_enc)
+            has_imap_pw = bool(rep.imap_password_enc)
+            if not has_smtp_pw or not has_imap_pw:
+                raise SalesRepError(
+                    "Mailbox password is required to enable SMTP/IMAP for this salesman. "
+                    "Enter the mailbox password and save again."
+                )
+
+    @staticmethod
     def get_rep_for_user(db: Session, *, user_id: str) -> SalesRep | None:
         return (
             db.execute(
@@ -417,34 +510,7 @@ class SalesRepService:
             set_partner_terms(rep, partner_terms if partner_terms is not None else default_partner_terms())
         # Apply mailbox fields if provided (Salesman Mail)
         if mailbox:
-            from app.core.encryption import get_encryptor
-            encryptor = get_encryptor()
-            if "smtp_host" in mailbox:
-                rep.smtp_host = str(mailbox["smtp_host"] or "").strip()
-            if "smtp_port" in mailbox:
-                rep.smtp_port = int(mailbox["smtp_port"] or 587)
-            if "smtp_use_tls" in mailbox:
-                rep.smtp_use_tls = bool(mailbox["smtp_use_tls"])
-            if "smtp_use_ssl" in mailbox:
-                rep.smtp_use_ssl = bool(mailbox["smtp_use_ssl"])
-            if "smtp_username" in mailbox:
-                rep.smtp_username = str(mailbox["smtp_username"] or "").strip()
-            if "smtp_password" in mailbox and mailbox["smtp_password"]:
-                rep.smtp_password_enc = encryptor.encrypt_str(str(mailbox["smtp_password"]))
-            if "imap_host" in mailbox:
-                rep.imap_host = str(mailbox["imap_host"] or "").strip()
-            if "imap_port" in mailbox:
-                rep.imap_port = int(mailbox["imap_port"] or 993)
-            if "imap_use_ssl" in mailbox:
-                rep.imap_use_ssl = bool(mailbox["imap_use_ssl"])
-            if "imap_use_tls" in mailbox:
-                rep.imap_use_tls = bool(mailbox["imap_use_tls"])
-            if "imap_username" in mailbox:
-                rep.imap_username = str(mailbox["imap_username"] or "").strip()
-            if "imap_password" in mailbox and mailbox["imap_password"]:
-                rep.imap_password_enc = encryptor.encrypt_str(str(mailbox["imap_password"]))
-            if "email_signature" in mailbox:
-                rep.email_signature = str(mailbox["email_signature"] or "").strip()
+            SalesRepService.apply_mailbox_fields(rep, mailbox, require_password_if_new=True)
         db.add(rep)
 
         if kind_norm == KIND_PARTNER_CHANNEL:
@@ -516,37 +582,29 @@ class SalesRepService:
             rep.caller_id = (str(patch["caller_id"] or "").strip() or None)
         if "is_active" in patch:
             rep.is_active = bool(patch["is_active"])
-        # Mailbox fields (Salesman Mail)
-        if "smtp_host" in patch:
-            rep.smtp_host = str(patch["smtp_host"] or "").strip()
-        if "smtp_port" in patch:
-            rep.smtp_port = int(patch["smtp_port"] or 587)
-        if "smtp_use_tls" in patch:
-            rep.smtp_use_tls = bool(patch["smtp_use_tls"])
-        if "smtp_use_ssl" in patch:
-            rep.smtp_use_ssl = bool(patch["smtp_use_ssl"])
-        if "smtp_username" in patch:
-            rep.smtp_username = str(patch["smtp_username"] or "").strip()
-        if "smtp_password" in patch and patch["smtp_password"]:
-            from app.core.encryption import get_encryptor
-            encryptor = get_encryptor()
-            rep.smtp_password_enc = encryptor.encrypt_str(str(patch["smtp_password"]))
-        if "imap_host" in patch:
-            rep.imap_host = str(patch["imap_host"] or "").strip()
-        if "imap_port" in patch:
-            rep.imap_port = int(patch["imap_port"] or 993)
-        if "imap_use_ssl" in patch:
-            rep.imap_use_ssl = bool(patch["imap_use_ssl"])
-        if "imap_use_tls" in patch:
-            rep.imap_use_tls = bool(patch["imap_use_tls"])
-        if "imap_username" in patch:
-            rep.imap_username = str(patch["imap_username"] or "").strip()
-        if "imap_password" in patch and patch["imap_password"]:
-            from app.core.encryption import get_encryptor
-            encryptor = get_encryptor()
-            rep.imap_password_enc = encryptor.encrypt_str(str(patch["imap_password"]))
-        if "email_signature" in patch:
-            rep.email_signature = str(patch["email_signature"] or "").strip()
+        # Mailbox fields (Salesman Mail) — flat keys and/or nested `mailbox` dict
+        mailbox_patch: dict[str, Any] = {}
+        if isinstance(patch.get("mailbox"), dict):
+            mailbox_patch.update(patch["mailbox"])
+        for key in (
+            "smtp_host",
+            "smtp_port",
+            "smtp_use_tls",
+            "smtp_use_ssl",
+            "smtp_username",
+            "smtp_password",
+            "imap_host",
+            "imap_port",
+            "imap_use_ssl",
+            "imap_use_tls",
+            "imap_username",
+            "imap_password",
+            "email_signature",
+        ):
+            if key in patch:
+                mailbox_patch[key] = patch[key]
+        if mailbox_patch:
+            SalesRepService.apply_mailbox_fields(rep, mailbox_patch, require_password_if_new=True)
         payout_keys = {
             "payout_method",
             "bank_holder_name",

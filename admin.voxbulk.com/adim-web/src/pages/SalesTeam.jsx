@@ -606,7 +606,14 @@ export default function SalesTeam() {
       setEditorInvoices(hub?.items || [])
       setEditorPayoutInvoices(payout?.items || [])
       setEditStats(dash)
-      if (dash?.rep) setEditRepMeta(dash.rep)
+      if (dash?.rep) {
+        setEditRepMeta(dash.rep)
+        setForm((prev) => ({
+          ...prev,
+          mailbox_username: dash.rep.smtp_username || prev.mailbox_username,
+          email_signature: dash.rep.email_signature ?? prev.email_signature,
+        }))
+      }
     } catch {
       setEditorInvoices([])
       setEditorPayoutInvoices([])
@@ -655,6 +662,7 @@ export default function SalesTeam() {
     }
     if (!isPartner) {
       const mailboxUser = String(form.mailbox_username || form.email || '').trim()
+      const mailboxPassword = String(form.mailbox_password || '').trim()
       if (mailboxUser) {
         payload.smtp_host = SALESMAN_MAIL_HOST
         payload.smtp_port = 587
@@ -667,9 +675,13 @@ export default function SalesTeam() {
         payload.imap_use_tls = false
         payload.imap_username = mailboxUser
         payload.email_signature = String(form.email_signature || '').trim()
-        if (form.mailbox_password) {
-          payload.smtp_password = form.mailbox_password
-          payload.imap_password = form.mailbox_password
+        if (mailboxPassword) {
+          payload.smtp_password = mailboxPassword
+          payload.imap_password = mailboxPassword
+        } else if (!editId || !(editRepMeta?.has_smtp && editRepMeta?.has_imap)) {
+          setFormErr('Mailbox password is required to turn SMTP/IMAP on for this salesman.')
+          setBusy(false)
+          return
         }
       } else if (editId) {
         payload.email_signature = String(form.email_signature || '').trim()
@@ -681,8 +693,22 @@ export default function SalesTeam() {
         delete patch.email
         delete patch.password
         delete patch.kind
-        await apiFetch(`/admin/sales-reps/${editId}`, { method: 'PATCH', body: JSON.stringify(patch) })
-        showToast('Saved')
+        const res = await apiFetch(`/admin/sales-reps/${editId}`, { method: 'PATCH', body: JSON.stringify(patch) })
+        const saved = res?.rep
+        if (saved) {
+          setEditRepMeta(saved)
+          setForm((prev) => ({
+            ...prev,
+            mailbox_username: saved.smtp_username || prev.mailbox_username,
+            mailbox_password: '',
+            email_signature: saved.email_signature || '',
+          }))
+          const mailOk = saved.has_smtp && saved.has_imap
+          showToast(mailOk ? 'Saved — SMTP and IMAP ready' : 'Saved — mailbox still incomplete (add mailbox password)')
+        } else {
+          showToast('Saved')
+        }
+        await loadReps()
       } else {
         if (!form.email) {
           setFormErr('Email is required.')
@@ -699,11 +725,17 @@ export default function SalesTeam() {
           setBusy(false)
           return
         }
-        await apiFetch('/admin/sales-reps', { method: 'POST', body: JSON.stringify(payload) })
-        showToast(form.assign_existing ? 'Assigned existing user' : 'Created')
+        const res = await apiFetch('/admin/sales-reps', { method: 'POST', body: JSON.stringify(payload) })
+        const saved = res?.rep
+        const mailOk = saved?.has_smtp && saved?.has_imap
+        showToast(
+          form.assign_existing
+            ? (mailOk ? 'Assigned — mailbox ready' : 'Assigned existing user')
+            : (mailOk ? 'Created — mailbox ready' : 'Created'),
+        )
+        setView('accounts')
+        await loadReps()
       }
-      setView('accounts')
-      await loadReps()
     } catch (e) {
       setFormErr(e?.message || 'Save failed')
     } finally {
@@ -1079,6 +1111,7 @@ export default function SalesTeam() {
                     <th>Currency</th>
                     <th>Contact</th>
                     <th>Promo code</th>
+                    <th>Mail</th>
                     <th>Commission</th>
                     <th className='tabular'>Revenue</th>
                     <th>Status</th>
@@ -1119,6 +1152,15 @@ export default function SalesTeam() {
                             </>
                           ) : (
                             <span className='muted'>None</span>
+                          )}
+                        </td>
+                        <td>
+                          {rep.kind === 'partner_channel' ? (
+                            <span className='muted'>—</span>
+                          ) : (
+                            <span className={rep.has_smtp && rep.has_imap ? 'tone-positive' : 'tone-warning'} style={{ fontSize: 12, fontWeight: 600 }}>
+                              {rep.has_smtp && rep.has_imap ? 'SMTP/IMAP ready' : 'SMTP/IMAP off'}
+                            </span>
                           )}
                         </td>
                         <td>
@@ -1904,7 +1946,19 @@ export default function SalesTeam() {
                   <h3>Mail account</h3>
                   <p className='card-hint'>
                     Mailbox on <strong>{SALESMAN_MAIL_HOST}</strong> (SMTP 587 / IMAP 993). Enter the mailbox username and password so the salesman can send and receive from Sales.
+                    {' '}Password is stored encrypted — the field stays blank after save even when credentials are present.
                   </p>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <span className={editRepMeta?.has_smtp ? 'tone-positive' : 'tone-warning'} style={{ fontSize: 12, fontWeight: 600 }}>
+                      SMTP {editRepMeta?.has_smtp ? 'ready' : 'off'}
+                    </span>
+                    <span className={editRepMeta?.has_imap ? 'tone-positive' : 'tone-warning'} style={{ fontSize: 12, fontWeight: 600 }}>
+                      IMAP {editRepMeta?.has_imap ? 'ready' : 'off'}
+                    </span>
+                    {editId && editRepMeta?.smtp_username ? (
+                      <span className='muted' style={{ fontSize: 12 }}>Saved as {editRepMeta.smtp_username}</span>
+                    ) : null}
+                  </div>
                   <div className='field-row'>
                     <div className='field'>
                       <label>Username (email)</label>
@@ -1916,12 +1970,19 @@ export default function SalesTeam() {
                       />
                     </div>
                     <div className='field'>
-                      <label>Mailbox password {editId ? <span className='hint'>leave blank to keep</span> : null}</label>
+                      <label>
+                        Mailbox password{' '}
+                        {editId && editRepMeta?.has_smtp && editRepMeta?.has_imap ? (
+                          <span className='hint'>leave blank to keep saved password</span>
+                        ) : (
+                          <span className='hint'>required to enable SMTP/IMAP</span>
+                        )}
+                      </label>
                       <input
                         type='password'
                         value={form.mailbox_password}
                         onChange={(e) => setForm({ ...form, mailbox_password: e.target.value })}
-                        placeholder={editId ? 'Only if changing' : 'Mailbox password'}
+                        placeholder={editId && editRepMeta?.has_smtp ? 'Only if changing' : 'Mailbox password'}
                         autoComplete='new-password'
                       />
                     </div>
