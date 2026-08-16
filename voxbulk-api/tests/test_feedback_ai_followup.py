@@ -50,15 +50,32 @@ def test_build_followup_instructions_includes_recovery_rules():
         promo_code="",
         promo_description="",
     )
-    _greeting, instructions = _build_followup_instructions(
+    agent = MagicMock(voice_label="Chloe", name="survey_AU-Chloe")
+    greeting, instructions = _build_followup_instructions(
         job,
         org_name="Acme Dental",
         org_context="Organisation: Acme Dental",
         session_summary={"poor_topics": ["Waiting time"], "positive_topics": [], "no_topics": []},
+        agent=agent,
     )
     assert "recent feedback" in instructions.lower() or "recovery" in instructions.lower()
     assert "Waiting time" in instructions
-    assert "recorded" in _greeting.lower()
+    assert "recorded" in greeting.lower()
+    assert "Chloe" in greeting
+    assert "Chloe" in instructions
+    assert "[Name]" not in greeting
+    assert "this is Name" not in greeting
+
+
+def test_spoken_followup_agent_name_rejects_placeholders():
+    from types import SimpleNamespace
+
+    from app.services.customer_feedback.feedback_ai_followup_service import _spoken_followup_agent_name
+
+    assert _spoken_followup_agent_name(SimpleNamespace(voice_label="Chloe", name="x")) == "Chloe"
+    assert _spoken_followup_agent_name(SimpleNamespace(voice_label="Name", name="survey_AU-Chloe")) == "Chloe"
+    assert _spoken_followup_agent_name(SimpleNamespace(voice_label="Follow-back", name="AI Follow-back")) == "Alex"
+    assert _spoken_followup_agent_name(None) == "Alex"
 
 
 def test_handle_feedback_ai_followup_telnyx_event_ignores_survey_calls(db: Session):

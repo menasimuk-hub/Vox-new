@@ -511,6 +511,49 @@ def _format_session_summary_for_prompt(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+_INVALID_SPOKEN_AGENT_NAMES = frozenset(
+    {
+        "",
+        "name",
+        "[name]",
+        "agent",
+        "agent_name",
+        "{agent_name}",
+        "your ai assistant",
+        "the recruiter",
+        "follow-back",
+        "followback",
+        "assistant",
+        "ai",
+        "host",
+    }
+)
+
+
+def _spoken_followup_agent_name(agent: Any | None) -> str:
+    """Human first name for CF follow-up TTS — never a slug or placeholder."""
+    if agent is None:
+        return "Alex"
+    for raw in (getattr(agent, "voice_label", None), getattr(agent, "name", None)):
+        label = str(raw or "").strip()
+        if not label:
+            continue
+        lower = label.lower()
+        if lower in _INVALID_SPOKEN_AGENT_NAMES or "follow-back" in lower or "followback" in lower:
+            continue
+        if "{" in label or "[" in label:
+            continue
+        # survey_AU-Chloe / interview_GB-Leo → Chloe / Leo
+        if "_" in label or lower.startswith(("survey", "interview", "feedback")):
+            tail = label.replace("_", "-").split("-")[-1].strip()
+            if tail and tail.lower() not in _INVALID_SPOKEN_AGENT_NAMES and " " not in tail:
+                label = tail
+        token = label.split()[0].strip(" -—()[]{}")
+        if token and token.lower() not in _INVALID_SPOKEN_AGENT_NAMES:
+            return token[:40]
+    return "Alex"
+
+
 def _build_followup_instructions(
     job,
     *,
@@ -518,6 +561,7 @@ def _build_followup_instructions(
     org_context: str = "",
     session_summary: dict[str, Any] | None = None,
     call_kb: str = "",
+    agent: Any | None = None,
 ) -> tuple[str, str]:
     context = str(job.business_context or "").strip()
     summary_text = _format_session_summary_for_prompt(session_summary or {})
@@ -532,9 +576,12 @@ def _build_followup_instructions(
         "Use the organisation and location details above. "
         "If detail is thin, stay general but still sound like you represent this business."
     )
+    spoken = _spoken_followup_agent_name(agent)
     instructions = (
-        "You are the Customer Feedback recovery voice agent for this business — "
+        f"You are {spoken}, the Customer Feedback recovery voice agent for this business — "
         "an independent follow-up service (not an interview or survey campaign).\n"
+        f"Your spoken name is {spoken}. Always introduce yourself as {spoken} only. "
+        "Never say Name, [Name], agent_name, or any placeholder instead of your name.\n"
         f"Business name: {org_name}\n"
         f"{org_context}\n"
         f"Call agent knowledge base (know this — do not read aloud verbatim):\n{business_block}\n\n"
@@ -543,8 +590,8 @@ def _build_followup_instructions(
         f"{promo}"
     )
     greeting = (
-        f"Hi, this is a quick call from {org_name}. "
-        "Thank you for your recent feedback — we really value it and wanted to understand "
+        f"Hello, this is {spoken} calling from {org_name} about your recent feedback. "
+        "Thank you for sharing it — we really value it and wanted to understand "
         "how we can make things better for you. This call is recorded for quality. "
         "Do you have a minute?"
     )
@@ -1197,6 +1244,7 @@ def _dispatch_job(db: Session, job, *, force_immediate: bool = False) -> str | N
         org_context=org_context,
         session_summary=session_summary,
         call_kb=call_kb,
+        agent=agent,
     )
     to_number = normalize_telnyx_e164(str(job.visitor_phone or ""))
 

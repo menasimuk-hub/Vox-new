@@ -305,6 +305,7 @@ def _dispatch_wa_job(db: Session, job: SurveyAiFollowUpJob) -> str | None:
         org_name=org_name,
         org_context=org_context,
         session_summary=session_summary,
+        agent=agent,
     )
     to_number = normalize_telnyx_e164(str(job.visitor_phone or ""))
 
