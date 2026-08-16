@@ -264,3 +264,84 @@ def test_activate_preview_locations_after_pay():
         max_loc = FeedbackBillingService.max_locations(db, org_id)
         assert result["activated"] >= 1
         assert result["activated"] <= max_loc
+
+
+def test_custom_package_feedback_entitlement_activate_without_pay():
+    """Active custom package with CF enabled → live mode + usage meters (Activate only)."""
+    import json
+
+    from app.models.custom_package import CustomPackage, CustomPackageOrgAssignment
+
+    org_id = _seed_org()
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        industry_id, type_id = _industry_and_type(db)
+        now = datetime.utcnow()
+        pkg = CustomPackage(
+            id=str(uuid.uuid4()),
+            name="Private Deal",
+            code=f"DEAL_{uuid.uuid4().hex[:8].upper()}",
+            interval="monthly",
+            currency="GBP",
+            price_minor=0,
+            status="active",
+            modules_json=json.dumps(
+                {
+                    "customer_feedback": {
+                        "enabled": True,
+                        "max_locations": 5,
+                        "wa_units_included": 100,
+                        "web_units_included": 500,
+                    }
+                }
+            ),
+            allowlist_json="{}",
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(pkg)
+        db.flush()
+        db.add(
+            CustomPackageOrgAssignment(
+                id=str(uuid.uuid4()),
+                custom_package_id=pkg.id,
+                org_id=org_id,
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        for i in range(2):
+            db.add(
+                FeedbackLocation(
+                    id=str(uuid.uuid4()),
+                    org_id=org_id,
+                    industry_id=industry_id,
+                    survey_type_id=type_id,
+                    name=f"Custom draft {i}",
+                    qr_token=f"cpkg{i}-{uuid.uuid4().hex[:10]}",
+                    wa_sender_country="gb",
+                    status="preview",
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        db.commit()
+
+        assert FeedbackBillingService.access_mode(db, org_id) == "live"
+        entitlement = FeedbackBillingService.entitlement_payload(db, org_id)
+        assert entitlement["can_activate_without_payment"] is True
+        assert entitlement["activation_cta"] == "activate"
+        assert FeedbackBillingService.has_live_entitlement(db, org_id) is True
+
+        sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
+        assert sub is not None
+        usage = FeedbackBillingService.get_current_usage(db, org_id)
+        assert int(usage["wa_units_included"]) == 100
+        assert int(usage["web_units_included"]) == 500
+
+        result = FeedbackLocationService.activate_preview_locations(db, org_id)
+        assert result["activated"] == 2
+        FeedbackBillingService.consume_unit(db, org_id)
+        usage2 = FeedbackBillingService.get_current_usage(db, org_id)
+        assert int(usage2["wa_units_used"]) == 1

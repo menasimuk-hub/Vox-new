@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Copy, CreditCard, Download, Eye, Pencil, Plus, QrCode, Trash2 } from "lucide-react";
+import { Copy, CreditCard, Download, Eye, Pencil, Plus, QrCode, Rocket, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +26,7 @@ import {
   useFeedbackEntitlement,
   useFeedbackLocations,
   useFeedbackSubscription,
+  useActivateFeedbackPreviewLocations,
   type FeedbackLocation,
 } from "@/lib/queries";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
@@ -40,6 +41,7 @@ function SavedFeedback() {
   const locationsQ = useFeedbackLocations();
   const subscriptionQ = useFeedbackSubscription();
   const entitlementQ = useFeedbackEntitlement();
+  const activatePreviewM = useActivateFeedbackPreviewLocations();
   const deleteLocationM = useDeleteFeedbackLocation();
   const allowancesState = useUsageAllowances();
   const waAllowance = allowancesState.feedbackRows.find((r) => r.key === "feedback_wa");
@@ -48,12 +50,25 @@ function SavedFeedback() {
   const items = locationsQ.data || [];
   const canDuplicate = canDuplicateFeedbackSurvey(subscriptionQ.data, items.length);
   const [deleteTarget, setDeleteTarget] = useState<FeedbackLocation | null>(null);
+  const canActivateWithoutPay = Boolean(
+    entitlementQ.data?.can_activate_without_payment || entitlementQ.data?.mode === "live",
+  );
   const demoRemaining =
     entitlementQ.data?.preview_tests_remaining ??
     (typeof entitlementQ.data?.preview_tests_limit === "number" &&
     typeof entitlementQ.data?.preview_tests_used === "number"
       ? Math.max(0, entitlementQ.data.preview_tests_limit - entitlementQ.data.preview_tests_used)
       : null);
+
+  const activatePreview = async () => {
+    try {
+      const res = await activatePreviewM.mutateAsync();
+      const n = Number(res?.activated || 0);
+      toast.success(n > 0 ? `Activated ${n} QR survey${n === 1 ? "" : "s"}` : "No preview surveys left to activate");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not activate surveys");
+    }
+  };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -153,11 +168,23 @@ function SavedFeedback() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {demo ? (
-                      <Button size="sm" className="gap-1.5" asChild>
-                        <Link to="/account/feedback/packages">
-                          <CreditCard className="size-3.5" /> Pay and activate
-                        </Link>
-                      </Button>
+                      canActivateWithoutPay ? (
+                        <Button
+                          size="sm"
+                          className="gap-1.5"
+                          disabled={activatePreviewM.isPending}
+                          onClick={() => void activatePreview()}
+                        >
+                          <Rocket className="size-3.5" />
+                          {activatePreviewM.isPending ? "Activating…" : "Activate"}
+                        </Button>
+                      ) : (
+                        <Button size="sm" className="gap-1.5" asChild>
+                          <Link to="/account/feedback/packages">
+                            <CreditCard className="size-3.5" /> Pay and activate
+                          </Link>
+                        </Button>
+                      )
                     ) : null}
                     <Button size="sm" variant="outline" className="gap-1.5" asChild>
                       <a href={it.qr_image_url} download={`qr-${it.id}.png`}>

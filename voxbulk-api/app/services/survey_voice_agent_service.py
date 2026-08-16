@@ -320,6 +320,7 @@ def list_dashboard_agents_for_service(db: Session, *, service_key: str, org_id: 
                 org_country=org_country,
                 db=db,
                 runtime_cache=runtime_cache,
+                sample_purpose="followup" if service_key == SERVICE_SURVEY else "interview",
             )
             for agent in agents
         ]

@@ -348,10 +348,13 @@ class FeedbackLocationService:
         demo_session_id: str | None = None,
     ) -> dict[str, Any]:
         demo_sid = str(demo_session_id or "").strip() or None
+        FeedbackBillingService.ensure_entitled_feedback_subscription(db, org_id)
         live_sub = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
+        custom_cf = FeedbackBillingService.custom_feedback_modules(db, org_id)
+        live_entitled = live_sub is not None or custom_cf is not None
         if demo_sid:
             default_status = "preview"
-        elif live_sub is not None:
+        elif live_entitled:
             max_loc = FeedbackBillingService.max_locations(db, org_id)
             if max_loc <= 0:
                 raise ValueError("Subscribe to a Customer feedback package before adding locations.")

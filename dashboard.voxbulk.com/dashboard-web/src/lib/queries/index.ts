@@ -162,6 +162,8 @@ export type FeedbackEntitlement = {
   preview_tests_remaining?: number | null;
   renew_url?: string;
   subscription?: FeedbackSubscription;
+  can_activate_without_payment?: boolean;
+  activation_cta?: "activate" | "pay_and_activate" | string;
 };
 
 export type UpdateFeedbackLocationInput = {
@@ -2587,6 +2589,25 @@ export function useFeedbackEntitlement() {
       return data;
     },
     refetchOnMount: "always",
+  });
+}
+
+export function useActivateFeedbackPreviewLocations() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      return apiFetch<{ ok?: boolean; activated?: number; left_preview?: number }>(
+        "/customer-feedback/locations/activate-preview",
+        { method: "POST", body: "{}" },
+      );
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.feedbackLocations }),
+        qc.invalidateQueries({ queryKey: queryKeys.feedbackEntitlement }),
+        qc.invalidateQueries({ queryKey: queryKeys.feedbackSubscription }),
+      ]);
+    },
   });
 }
 

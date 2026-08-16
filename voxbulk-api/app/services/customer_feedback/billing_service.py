@@ -54,12 +54,219 @@ class FeedbackBillingService:
         return int(getattr(org, "feedback_preview_tests_used", 0) or 0)
 
     @staticmethod
+    def custom_feedback_modules(db: Session, org_id: str) -> dict[str, Any] | None:
+        """Active custom/private package CF module config, if enabled."""
+        try:
+            from app.services.custom_packages_service import CustomPackagesService
+
+            modules = CustomPackagesService.modules_for_org(db, org_id)
+        except Exception:
+            return None
+        if not isinstance(modules, dict):
+            return None
+        cf = modules.get("customer_feedback")
+        if not isinstance(cf, dict) or not bool(cf.get("enabled")):
+            return None
+        return cf
+
+    @staticmethod
+    def ensure_private_feedback_subscription(db: Session, org_id: str) -> Subscription | None:
+        """If a private CF plan is assigned, ensure an active Feedback subscription exists."""
+        try:
+            from app.services.private_packages_service import PrivatePackagesService
+
+            for row in PrivatePackagesService.assignments_for_org(db, org_id):
+                if str(row.get("service_kind") or "") != FEEDBACK_SERVICE_CODE:
+                    continue
+                plan_id = str(row.get("plan_id") or "").strip()
+                if not plan_id:
+                    continue
+                try:
+                    sub, _plan, _action = FeedbackBillingService.admin_assign_plan(
+                        db, org_id=org_id, plan_id=plan_id, status="active"
+                    )
+                    return sub
+                except Exception:
+                    continue
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _custom_feedback_plan_code(package_code: str) -> str:
+        return f"cpkg-cf-{str(package_code or '').strip().lower()}"[:50]
+
+    @staticmethod
+    def _ensure_custom_feedback_plan(db: Session, *, package_code: str, package_name: str, cf: dict[str, Any]) -> Plan:
+        """Shadow customer_feedback Plan + FeedbackPackage mirroring custom package CF limits."""
+        code = FeedbackBillingService._custom_feedback_plan_code(package_code)
+        now = datetime.utcnow()
+        plan = db.execute(select(Plan).where(Plan.code == code)).scalar_one_or_none()
+        if plan is None:
+            plan = Plan(
+                id=str(uuid.uuid4()),
+                code=code,
+                name=f"{str(package_name or 'Private package')[:200]} (Feedback)"[:255],
+                description=f"Private package Customer feedback ({package_code})",
+                price_gbp_pence=0,
+                interval="monthly",
+                features_json="[]",
+                service_kind=FEEDBACK_SERVICE_CODE,
+                is_private=True,
+                is_active=True,
+                is_enterprise=False,
+                sort_order=9600,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(plan)
+            db.flush()
+        else:
+            plan.service_kind = FEEDBACK_SERVICE_CODE
+            plan.is_private = True
+            plan.is_active = True
+            plan.name = f"{str(package_name or plan.name)[:200]} (Feedback)"[:255]
+            plan.updated_at = now
+            db.add(plan)
+
+        max_loc = max(0, int(cf.get("max_locations") or 0))
+        wa_inc = max(0, int(cf.get("wa_units_included") or 0))
+        web_inc = int(cf.get("web_units_included") or 0)
+        pkg = FeedbackBillingService.get_package_for_plan(db, plan.id)
+        if pkg is None:
+            pkg = FeedbackPackage(
+                id=str(uuid.uuid4()),
+                plan_id=plan.id,
+                market_zone="gb",
+                max_locations=max_loc or 1,
+                wa_units_included=wa_inc,
+                web_units_included=web_inc,
+                is_active=True,
+                display_order=9600,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(pkg)
+        else:
+            pkg.max_locations = max_loc or int(pkg.max_locations or 1)
+            pkg.wa_units_included = wa_inc
+            pkg.web_units_included = web_inc
+            pkg.is_active = True
+            pkg.updated_at = now
+            db.add(pkg)
+        db.flush()
+        return plan
+
+    @staticmethod
+    def _sync_usage_period_caps(db: Session, *, subscription: Subscription, pkg: FeedbackPackage) -> None:
+        row = (
+            db.execute(
+                select(FeedbackUsagePeriod)
+                .where(FeedbackUsagePeriod.subscription_id == subscription.id)
+                .order_by(FeedbackUsagePeriod.period_start.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            return
+        row.wa_units_included = int(pkg.wa_units_included or 0)
+        row.web_units_included = int(pkg.web_units_included or 0)
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+
+    @staticmethod
+    def ensure_custom_feedback_subscription(db: Session, org_id: str) -> Subscription | None:
+        """Active custom package with CF enabled → shadow CF sub + usage period (no checkout)."""
+        cf = FeedbackBillingService.custom_feedback_modules(db, org_id)
+        if cf is None:
+            return None
+        try:
+            from app.services.custom_packages_service import CustomPackagesService
+
+            pkg_row = CustomPackagesService.get_row_for_org(db, org_id)
+        except Exception:
+            return None
+        if pkg_row is None:
+            return None
+
+        existing = FeedbackBillingService.get_usage_eligible_subscription(db, org_id)
+        try:
+            plan = FeedbackBillingService._ensure_custom_feedback_plan(
+                db,
+                package_code=str(pkg_row.code or ""),
+                package_name=str(pkg_row.name or ""),
+                cf=cf,
+            )
+            if existing is not None:
+                existing_plan = db.get(Plan, existing.plan_id)
+                on_custom_shadow = str(getattr(existing_plan, "code", "") or "").startswith("cpkg-cf-")
+                if not on_custom_shadow:
+                    # Paid / private CF subscription already meters this org — do not replace it.
+                    return existing
+                fb_pkg = FeedbackBillingService.get_package_for_plan(db, plan.id)
+                if existing.plan_id != plan.id:
+                    existing.plan_id = plan.id
+                    existing.status = "active"
+                    existing.payment_provider = "manual_cash"
+                    existing.updated_at = datetime.utcnow()
+                    db.add(existing)
+                    db.flush()
+                if fb_pkg is not None:
+                    FeedbackBillingService._sync_usage_period_caps(db, subscription=existing, pkg=fb_pkg)
+                    has_period = (
+                        db.execute(
+                            select(FeedbackUsagePeriod.id)
+                            .where(FeedbackUsagePeriod.subscription_id == existing.id)
+                            .limit(1)
+                        )
+                        .scalars()
+                        .first()
+                    )
+                    if has_period is None:
+                        FeedbackBillingService.on_subscription_activated(
+                            db, org_id=org_id, subscription=existing, plan=plan
+                        )
+                    else:
+                        db.commit()
+                return existing
+
+            sub, _plan, _action = FeedbackBillingService.admin_assign_plan(
+                db, org_id=org_id, plan_id=plan.id, status="active"
+            )
+            return sub
+        except Exception:
+            return None
+
+    @staticmethod
+    def ensure_entitled_feedback_subscription(db: Session, org_id: str) -> Subscription | None:
+        """Heal private-plan or custom-package entitlement into an active CF subscription."""
+        healed = FeedbackBillingService.ensure_private_feedback_subscription(db, org_id)
+        if healed is not None and str(healed.status or "").lower() in FeedbackBillingService._USAGE_ELIGIBLE_STATUSES:
+            return healed
+        return FeedbackBillingService.ensure_custom_feedback_subscription(db, org_id)
+
+    @staticmethod
+    def has_live_entitlement(db: Session, org_id: str) -> bool:
+        """True when org may run live CF (paid sub, private plan, or custom package)."""
+        if FeedbackBillingService.get_usage_eligible_subscription(db, org_id) is not None:
+            return True
+        healed = FeedbackBillingService.ensure_entitled_feedback_subscription(db, org_id)
+        return healed is not None and str(healed.status or "").lower() in FeedbackBillingService._USAGE_ELIGIBLE_STATUSES
+
+    @staticmethod
     def access_mode(db: Session, org_id: str) -> str:
         """live | preview | preview_exhausted | expired | inactive."""
         from app.models.customer_feedback import FEEDBACK_PREVIEW_TESTS_LIMIT
 
+        # Heal private/custom entitlement → subscription + usage meters before classifying.
+        FeedbackBillingService.ensure_entitled_feedback_subscription(db, org_id)
+
         sub = FeedbackBillingService.get_active_subscription(db, org_id)
         if sub is not None and str(sub.status or "").lower() in {"active", "trial"}:
+            return "live"
+        if FeedbackBillingService.custom_feedback_modules(db, org_id) is not None:
             return "live"
         if sub is not None and str(sub.status or "").lower() in {"cancelled", "expired"}:
             return "expired"
@@ -77,10 +284,13 @@ class FeedbackBillingService:
         sub_payload = FeedbackBillingService.subscription_payload(db, org_id)
         used = FeedbackBillingService.preview_tests_used(db, org_id)
         remaining = max(0, FEEDBACK_PREVIEW_TESTS_LIMIT - used)
+        can_activate = mode == "live"
         payload: dict[str, Any] = {
             "mode": mode,
             "renew_url": "https://dashboard.voxbulk.com/account/feedback/packages",
             "subscription": sub_payload,
+            "can_activate_without_payment": can_activate,
+            "activation_cta": "activate" if can_activate else "pay_and_activate",
         }
         if mode in {"preview", "preview_exhausted"}:
             payload["preview_tests_used"] = used
@@ -590,10 +800,14 @@ class FeedbackBillingService:
     @staticmethod
     def max_locations(db: Session, org_id: str) -> int:
         sub = FeedbackBillingService.get_active_subscription(db, org_id)
-        if sub is None:
-            return 0
-        pkg = FeedbackBillingService.get_package_for_plan(db, sub.plan_id)
-        return int(pkg.max_locations or 0) if pkg else 0
+        if sub is not None:
+            pkg = FeedbackBillingService.get_package_for_plan(db, sub.plan_id)
+            if pkg is not None:
+                return int(pkg.max_locations or 0)
+        cf = FeedbackBillingService.custom_feedback_modules(db, org_id)
+        if cf is not None:
+            return max(0, int(cf.get("max_locations") or 0))
+        return 0
 
     @staticmethod
     def on_period_renewed(db: Session, *, org_id: str, subscription: Subscription, plan: Plan) -> None:

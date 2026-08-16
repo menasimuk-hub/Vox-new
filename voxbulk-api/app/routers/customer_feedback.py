@@ -104,10 +104,14 @@ def get_feedback_entitlement(db: Session = Depends(get_db), principal=Depends(ge
 
 @router.post("/locations/activate-preview")
 def activate_preview_locations(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
-    """Flip saved preview QRs to active after a package is purchased."""
+    """Flip saved preview QRs to active after a package is entitled (paid or private/custom)."""
     _require_feedback_enabled(db, principal.org_id)
-    if FeedbackBillingService.get_usage_eligible_subscription(db, principal.org_id) is None:
-        raise HTTPException(status_code=400, detail="Subscribe to a Customer feedback package first.")
+    FeedbackBillingService.ensure_entitled_feedback_subscription(db, principal.org_id)
+    if not FeedbackBillingService.has_live_entitlement(db, principal.org_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Subscribe to a Customer feedback package first, or ask admin to assign your private package.",
+        )
     from app.services.customer_feedback.location_service import FeedbackLocationService
 
     result = FeedbackLocationService.activate_preview_locations(db, principal.org_id)

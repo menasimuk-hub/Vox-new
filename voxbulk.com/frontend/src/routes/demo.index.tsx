@@ -23,39 +23,41 @@ export const Route = createFileRoute("/demo/")({
   component: DemoRequestPage,
 });
 
-const COUNTRY_CODES = [
-  { code: "+44", label: "UK (+44)" },
-  { code: "+966", label: "SA (+966)" },
-  { code: "+971", label: "AE (+971)" },
-  { code: "+1", label: "US/CA (+1)" },
-  { code: "+33", label: "FR (+33)" },
-  { code: "+49", label: "DE (+49)" },
-  { code: "+91", label: "IN (+91)" },
-];
-
 const schema = z.object({
   contact_name: z.string().trim().min(2, "Please enter your name").max(100),
   email: z.string().trim().email("Enter a valid email").max(255),
   company_name: z.string().trim().min(2, "Company name is required").max(255),
-  whatsapp_local: z.string().trim().min(6, "Enter your WhatsApp number").max(20),
+  whatsapp: z
+    .string()
+    .trim()
+    .min(8, "Enter WhatsApp with country code, e.g. +447123456789")
+    .max(24)
+    .refine((v) => /^\+[1-9]\d{6,18}$/.test(v), "Use international format with + and country code"),
   website: z.string().trim().min(3, "Company website is required").max(512),
   preferred_language: z.enum(["en", "ar"]),
   message: z.string().trim().min(10, "Please write at least 10 characters").max(2000),
 });
+
+function normalizeWhatsapp(raw: string): string {
+  let v = raw.trim().replace(/[\s()-]/g, "");
+  if (v.startsWith("00")) v = `+${v.slice(2)}`;
+  if (!v.startsWith("+") && /^\d{8,}$/.test(v)) v = `+${v}`;
+  return v;
+}
 
 function DemoRequestPage() {
   const [step, setStep] = useState(0);
   const [contactName, setContactName] = useState("");
   const [email, setEmail] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [countryCode, setCountryCode] = useState("+44");
-  const [whatsappLocal, setWhatsappLocal] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
   const [website, setWebsite] = useState("");
   const [preferredLanguage, setPreferredLanguage] = useState<"en" | "ar">("en");
   const [message, setMessage] = useState("");
   const [callbackConsent, setCallbackConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [slideKey, setSlideKey] = useState(0);
 
   const totalSteps = 6;
 
@@ -76,7 +78,7 @@ function DemoRequestPage() {
       if (!w.success) return setError(w.error.issues[0].message);
     }
     if (step === 3) {
-      const r = schema.shape.whatsapp_local.safeParse(whatsappLocal.replace(/\s+/g, ""));
+      const r = schema.shape.whatsapp.safeParse(normalizeWhatsapp(whatsapp));
       if (!r.success) return setError(r.error.issues[0].message);
     }
     setStep((s) => Math.min(totalSteps - 1, s + 1));
@@ -84,6 +86,7 @@ function DemoRequestPage() {
 
   const back = () => {
     setError(null);
+    setSlideKey((k) => k + 1);
     setStep((s) => Math.max(0, s - 1));
   };
 
@@ -91,20 +94,21 @@ function DemoRequestPage() {
     setError(null);
     if (!callbackConsent) {
       setError("Please confirm that we may call you back on your WhatsApp number.");
+      setSlideKey((k) => k + 1);
       return;
     }
-    const local = whatsappLocal.replace(/\s+/g, "").replace(/^0+/, "");
     const parsed = schema.safeParse({
       contact_name: contactName,
       email,
       company_name: companyName,
-      whatsapp_local: local,
+      whatsapp: normalizeWhatsapp(whatsapp),
       website,
       preferred_language: preferredLanguage,
       message,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0].message);
+      setSlideKey((k) => k + 1);
       return;
     }
     setSubmitting(true);
@@ -113,7 +117,7 @@ function DemoRequestPage() {
         contact_name: parsed.data.contact_name,
         email: parsed.data.email,
         company_name: parsed.data.company_name,
-        whatsapp: `${countryCode}${parsed.data.whatsapp_local}`,
+        whatsapp: parsed.data.whatsapp,
         website: parsed.data.website,
         preferred_language: parsed.data.preferred_language,
         message: parsed.data.message,
@@ -123,6 +127,7 @@ function DemoRequestPage() {
       toast.success("Request received — we'll email your demo link shortly.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+      setSlideKey((k) => k + 1);
     } finally {
       setSubmitting(false);
     }
@@ -207,27 +212,17 @@ function DemoRequestPage() {
                 <label className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-text mb-3">
                   <Phone size={18} /> WhatsApp number
                 </label>
-                <div className="flex gap-2">
-                  <select
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
-                    className="w-[140px] rounded-xl border border-border bg-secondary/30 px-3 py-3.5 text-[15px]"
-                  >
-                    {COUNTRY_CODES.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={whatsappLocal}
-                    onChange={(e) => setWhatsappLocal(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && next()}
-                    placeholder="7123 456789"
-                    className="flex-1 rounded-xl border border-border bg-secondary/30 px-4 py-3.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-                    autoFocus
-                  />
-                </div>
+                <input
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && next()}
+                  placeholder="+44 7123 456789"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  className="w-full rounded-xl border border-border bg-secondary/30 px-4 py-3.5 text-[16px] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  autoFocus
+                />
+                <p className="mt-2 text-[12.5px] text-muted-text">Include your country code (e.g. +44, +966, +1).</p>
               </div>
             )}
             {step === 4 && (
@@ -318,7 +313,7 @@ function DemoRequestPage() {
                     Continue <ArrowRight size={16} />
                   </button>
                 ) : (
-                  <SlideToSubmit onConfirm={submit} loading={submitting} />
+                  <SlideToSubmit key={slideKey} onConfirm={submit} loading={submitting} />
                 )}
               </div>
             )}
@@ -372,7 +367,7 @@ function Field({
   );
 }
 
-function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void; loading: boolean }) {
+function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void | Promise<void>; loading: boolean }) {
   const [x, setX] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -387,6 +382,18 @@ function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void; loading:
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+
+  useEffect(() => {
+    if (!loading && confirmed) {
+      // Parent remounts on error via key; keep idle state when loading ends without remount.
+    }
+  }, [loading, confirmed]);
+
+  const reset = () => {
+    setConfirmed(false);
+    setX(0);
+    startXRef.current = null;
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (confirmed || loading) return;
@@ -403,7 +410,7 @@ function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void; loading:
     if (x >= maxRef.current - 4) {
       setX(maxRef.current);
       setConfirmed(true);
-      onConfirm();
+      void Promise.resolve(onConfirm()).catch(() => reset());
     } else setX(0);
   };
   const pct = maxRef.current ? (x / maxRef.current) * 100 : 0;
@@ -418,7 +425,7 @@ function SlideToSubmit({ onConfirm, loading }: { onConfirm: () => void; loading:
         if ((e.key === "Enter" || e.key === " ") && !confirmed && !loading) {
           e.preventDefault();
           setConfirmed(true);
-          onConfirm();
+          void Promise.resolve(onConfirm()).catch(() => reset());
         }
       }}
       className="relative flex-1 max-w-[320px] h-14 rounded-full bg-secondary border border-border overflow-hidden select-none touch-none"

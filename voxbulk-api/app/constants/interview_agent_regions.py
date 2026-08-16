@@ -14,6 +14,8 @@ class InterviewRegionMeta:
     english_label: str
     sample_phrase_male: str
     sample_phrase_female: str
+    followup_sample_phrase_male: str
+    followup_sample_phrase_female: str
     market_zones: tuple[str, ...]
 
 
@@ -25,6 +27,8 @@ INTERVIEW_REGIONS: dict[str, InterviewRegionMeta] = {
         english_label="British English",
         sample_phrase_male="Hello, this is Leo calling from the hiring team. Can you hear me clearly?",
         sample_phrase_female="Hello, this is Jode calling from the hiring team. Can you hear me clearly?",
+        followup_sample_phrase_male="Hello, this is Leo calling from the team about your recent feedback. Have you got a moment?",
+        followup_sample_phrase_female="Hello, this is Jode calling from the team about your recent feedback. Have you got a moment?",
         market_zones=("gb",),
     ),
     "SC": InterviewRegionMeta(
@@ -34,6 +38,8 @@ INTERVIEW_REGIONS: dict[str, InterviewRegionMeta] = {
         english_label="Scottish English",
         sample_phrase_male="Hello, this is Callum from the hiring team. Can you hear me alright?",
         sample_phrase_female="Hello, this is Fiona from the hiring team. Can you hear me alright?",
+        followup_sample_phrase_male="Hello, this is Callum calling about the feedback you left. Have you got a minute?",
+        followup_sample_phrase_female="Hello, this is Fiona calling about the feedback you left. Have you got a minute?",
         market_zones=("gb",),
     ),
     "IE": InterviewRegionMeta(
@@ -43,6 +49,8 @@ INTERVIEW_REGIONS: dict[str, InterviewRegionMeta] = {
         english_label="Irish English",
         sample_phrase_male="Hello, this is Sean from the hiring team. Can you hear me clearly?",
         sample_phrase_female="Hello, this is Niamh from the hiring team. Can you hear me clearly?",
+        followup_sample_phrase_male="Hello, this is Sean calling about your recent feedback. Can you hear me clearly?",
+        followup_sample_phrase_female="Hello, this is Niamh calling about your recent feedback. Can you hear me clearly?",
         market_zones=("gb", "eu"),
     ),
     "US": InterviewRegionMeta(
@@ -52,6 +60,8 @@ INTERVIEW_REGIONS: dict[str, InterviewRegionMeta] = {
         english_label="US English",
         sample_phrase_male="Hi, this is Marcus calling from the hiring team. Can you hear me okay?",
         sample_phrase_female="Hi, this is Elena calling from the hiring team. Can you hear me okay?",
+        followup_sample_phrase_male="Hi, this is Marcus calling about the feedback you shared. Do you have a quick minute?",
+        followup_sample_phrase_female="Hi, this is Elena calling about the feedback you shared. Do you have a quick minute?",
         market_zones=("us",),
     ),
     "CA": InterviewRegionMeta(
@@ -61,6 +71,8 @@ INTERVIEW_REGIONS: dict[str, InterviewRegionMeta] = {
         english_label="Canadian English",
         sample_phrase_male="Hello, this is Liam from the hiring team. Can you hear me clearly?",
         sample_phrase_female="Hello, this is Maya from the hiring team. Can you hear me clearly?",
+        followup_sample_phrase_male="Hello, this is Liam calling about your recent feedback. Can you hear me clearly?",
+        followup_sample_phrase_female="Hello, this is Maya calling about your recent feedback. Can you hear me clearly?",
         market_zones=("ca",),
     ),
     "AU": InterviewRegionMeta(
@@ -70,6 +82,8 @@ INTERVIEW_REGIONS: dict[str, InterviewRegionMeta] = {
         english_label="Australian English",
         sample_phrase_male="G'day, this is Jack from the hiring team. Can you hear me clearly?",
         sample_phrase_female="G'day, this is Chloe from the hiring team. Can you hear me clearly?",
+        followup_sample_phrase_male="G'day, this is Jack calling about the feedback you left. Got a quick moment?",
+        followup_sample_phrase_female="G'day, this is Chloe calling about the feedback you left. Got a quick moment?",
         market_zones=("au",),
     ),
 }

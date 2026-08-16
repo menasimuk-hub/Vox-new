@@ -50,6 +50,7 @@ import {
   useFeedbackMarketingSubscriberCount,
   useFeedbackSurveyTypes,
   useFeedbackSubscription,
+  useFeedbackEntitlement,
   useFeedbackLocations,
   useOrganisation,
   type FeedbackIndustry,
@@ -120,6 +121,12 @@ function CreateFeedback() {
   const { duplicate_from: duplicateFrom } = Route.useSearch();
   const orgQ = useOrganisation();
   const subscriptionQ = useFeedbackSubscription();
+  const entitlementQ = useFeedbackEntitlement();
+  const liveEntitled = Boolean(
+    subscriptionQ.data?.active ||
+      entitlementQ.data?.can_activate_without_payment ||
+      entitlementQ.data?.mode === "live",
+  );
   const locationsQ = useFeedbackLocations();
   const industriesQ = useFeedbackIndustries();
   const createM = useCreateFeedbackLocation();
@@ -233,8 +240,8 @@ function CreateFeedback() {
 
   const onSave = async (asLive: boolean) => {
     if (!industryId || selectedTypeIds.length === 0) return;
-    if (asLive && !subscriptionQ.data?.active) {
-      toast.error("Subscribe to a Customer feedback package before activating QR surveys.");
+    if (asLive && !liveEntitled) {
+      toast.error("Activate your package first, or save as a demo QR.");
       window.location.assign("/account/feedback/packages");
       return;
     }
@@ -708,14 +715,14 @@ function CreateFeedback() {
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button
                   size="lg"
-                  variant={subscriptionQ.data?.active ? "outline" : "default"}
+                  variant={liveEntitled ? "outline" : "default"}
                   className="gap-1.5"
                   disabled={!canNext[6] || createM.isPending}
                   onClick={() => void onSave(false)}
                 >
                   <QrCode className="size-4" /> {createM.isPending ? "Saving…" : "Save QR survey"}
                 </Button>
-                {subscriptionQ.data?.active ? (
+                {liveEntitled ? (
                   <Button
                     size="lg"
                     className="gap-1.5"
@@ -830,7 +837,7 @@ function LaunchSuccess({ locations, company }: { locations: FeedbackLocation[]; 
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {allDemo
-              ? "You can print and test with up to 20 demo scans. Use Pay and activate on the saved list when ready."
+              ? "You can print and test with up to 20 demo scans. Use Activate on the saved list when your package is ready."
               : "Print these QR codes and place them in each venue. Responses appear in real-time per branch."}
           </p>
         </div>

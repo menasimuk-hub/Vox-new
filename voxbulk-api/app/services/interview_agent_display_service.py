@@ -98,8 +98,16 @@ def filter_canonical_interview_agents(agents: list[AgentDefinition]) -> list[Age
     return [agent for agent in agents if _row_key(agent) in kept_ids]
 
 
-def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
-    """Human-facing dialect badge + sample line for the interview agent picker."""
+def interview_agent_dialect_meta(
+    agent: AgentDefinition,
+    *,
+    sample_purpose: str = "interview",
+) -> dict[str, str]:
+    """Human-facing dialect badge + sample line for the agent picker.
+
+    sample_purpose: "interview" (hiring) or "followup" (customer feedback / survey follow-back).
+    """
+    followup = str(sample_purpose or "").strip().lower() in {"followup", "follow_up", "feedback", "survey"}
     blob = " ".join(
         str(getattr(agent, attr, "") or "")
         for attr in ("slug", "name", "voice_label", "voice_type_label", "description")
@@ -109,8 +117,16 @@ def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
         return {
             "dialect_code": "SA",
             "dialect_label": "Saudi Gulf",
-            "dialect_description": "Colloquial Khaleeji phone style — natural, not formal Arabic",
-            "sample_phrase": "السلام عليكم، معك سلطان من فريق التوظيف. تسمعني زين؟",
+            "dialect_description": (
+                "Colloquial Khaleeji phone style for customer follow-up"
+                if followup
+                else "Colloquial Khaleeji phone style — natural, not formal Arabic"
+            ),
+            "sample_phrase": (
+                "السلام عليكم، معك سلطان نتواصل بخصوص ملاحظاتك الأخيرة. تسمعني زين؟"
+                if followup
+                else "السلام عليكم، معك سلطان من فريق التوظيف. تسمعني زين؟"
+            ),
             "accent_region": "SA",
             "flag_emoji": "🇸🇦",
         }
@@ -118,8 +134,16 @@ def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
         return {
             "dialect_code": "EG",
             "dialect_label": "Egyptian Arabic",
-            "dialect_description": "Natural Egyptian phone style — understands Gulf & Levant replies",
-            "sample_phrase": "أهلاً، معاك جمال من فريق التوظيف. عندك شوية وقت نبدأ المقابلة؟",
+            "dialect_description": (
+                "Natural Egyptian phone style for customer follow-up"
+                if followup
+                else "Natural Egyptian phone style — understands Gulf & Levant replies"
+            ),
+            "sample_phrase": (
+                "أهلاً، معاك جمال بنتكلم بخصوص ملاحظاتك. عندك دقيقة؟"
+                if followup
+                else "أهلاً، معاك جمال من فريق التوظيف. عندك شوية وقت نبدأ المقابلة؟"
+            ),
             "accent_region": "EG",
             "flag_emoji": "🇪🇬",
         }
@@ -129,8 +153,16 @@ def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
         return {
             "dialect_code": "AR",
             "dialect_label": "Arabic",
-            "dialect_description": "Colloquial Arabic for phone interviews",
-            "sample_phrase": "السلام عليكم، معك فريق التوظيف. تسمعني؟",
+            "dialect_description": (
+                "Colloquial Arabic for customer follow-up calls"
+                if followup
+                else "Colloquial Arabic for phone interviews"
+            ),
+            "sample_phrase": (
+                "السلام عليكم، نتواصل بخصوص ملاحظاتك. تسمعني؟"
+                if followup
+                else "السلام عليكم، معك فريق التوظيف. تسمعني؟"
+            ),
             "accent_region": "AR",
             "flag_emoji": "🇸🇦",
         }
@@ -138,11 +170,16 @@ def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
     region = region_meta_for_agent(agent)
     gender = _agent_gender(agent)
     if region:
-        sample = region.sample_phrase_female if gender == "female" else region.sample_phrase_male
+        if followup:
+            sample = region.followup_sample_phrase_female if gender == "female" else region.followup_sample_phrase_male
+            description = f"Professional {region.label} customer follow-up style"
+        else:
+            sample = region.sample_phrase_female if gender == "female" else region.sample_phrase_male
+            description = f"Professional {region.label} phone screening style"
         return {
             "dialect_code": region.code,
             "dialect_label": region.english_label,
-            "dialect_description": f"Professional {region.label} phone screening style",
+            "dialect_description": description,
             "sample_phrase": sample,
             "accent_region": region.code,
             "flag_emoji": region.flag_emoji,
@@ -151,8 +188,14 @@ def interview_agent_dialect_meta(agent: AgentDefinition) -> dict[str, str]:
     return {
         "dialect_code": "GB",
         "dialect_label": "British English",
-        "dialect_description": "Professional UK phone screening style",
-        "sample_phrase": "Hello, this is your AI interviewer calling from the hiring team. Can you hear me clearly?",
+        "dialect_description": (
+            "Professional UK customer follow-up style" if followup else "Professional UK phone screening style"
+        ),
+        "sample_phrase": (
+            "Hello, this is your AI assistant calling about the feedback you left. Can you hear me clearly?"
+            if followup
+            else "Hello, this is your AI interviewer calling from the hiring team. Can you hear me clearly?"
+        ),
         "accent_region": "GB",
         "flag_emoji": "🇬🇧",
     }
@@ -291,6 +334,7 @@ def dashboard_agent_row(
     org_country: str | None = None,
     db: Session | None = None,
     runtime_cache: dict[str, dict[str, Any]] | None = None,
+    sample_purpose: str = "interview",
 ) -> dict[str, Any]:
     from app.services.survey_voice_agent_service import (
         _agent_dashboard_language,
@@ -298,7 +342,7 @@ def dashboard_agent_row(
         _agent_zone_match,
     )
 
-    dialect = interview_agent_dialect_meta(agent)
+    dialect = interview_agent_dialect_meta(agent, sample_purpose=sample_purpose)
     gender = _agent_gender(agent)
     accent = str(getattr(agent, "accent_region", None) or dialect.get("accent_region") or "").upper()
     region_label = INTERVIEW_REGIONS.get(accent, INTERVIEW_REGIONS["GB"]).label if accent in INTERVIEW_REGIONS else dialect.get("dialect_label", "")
@@ -378,7 +422,10 @@ def preview_interview_agent_voice(
         )
         raise ValueError(f"{label} agent not found")
 
-    dialect = interview_agent_dialect_meta(agent)
+    dialect = interview_agent_dialect_meta(
+        agent,
+        sample_purpose="followup" if service_key == SERVICE_SURVEY else "interview",
+    )
     sample_text = dialect["sample_phrase"]
     assistant_id = str(agent.telnyx_assistant_id or "").strip()
 
