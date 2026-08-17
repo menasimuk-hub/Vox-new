@@ -676,6 +676,14 @@ class PricingPackagesService:
             pkg.updated_at = now
             db.add(p)
             db.add(pkg)
+        for p, pkg in targets:
+            FeedbackBillingService.sync_open_period_limits_for_plan(
+                db,
+                p.id,
+                wa_included=int(pkg.wa_units_included or 0),
+                web_included=int(pkg.web_units_included or 0),
+                commit=False,
+            )
         db.commit()
 
     @staticmethod

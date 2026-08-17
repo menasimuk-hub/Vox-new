@@ -73,6 +73,35 @@ function moneyMinor(minor, currency = 'GBP') {
   }
 }
 
+function feedbackWebMode(row) {
+  const mode = String(row?.web_mode || '').toLowerCase()
+  if (mode === 'shared' || mode === 'none' || mode === 'separate') return mode
+  const web = Number(row?.web_units_included ?? 0)
+  if (web < 0) return 'shared'
+  if (web === 0) return 'none'
+  return 'separate'
+}
+
+function feedbackUsageUsedLabel(row) {
+  const mode = feedbackWebMode(row)
+  if (mode === 'shared') {
+    const used = Number(row?.survey_units_used ?? (Number(row?.wa_units_used ?? 0) + Number(row?.web_units_used ?? 0)))
+    const included = Number(row?.survey_units_included ?? row?.wa_units_included ?? 0)
+    return `${used} / ${included} surveys`
+  }
+  if (mode === 'none') {
+    return `WA ${Number(row?.wa_units_used ?? 0)} / ${Number(row?.wa_units_included ?? 0)}`
+  }
+  return `WA ${Number(row?.wa_units_used ?? 0)}/${Number(row?.wa_units_included ?? 0)} · Web ${Number(row?.web_units_used ?? 0)}/${Number(row?.web_units_included ?? 0)}`
+}
+
+function feedbackRemainingTotal(row) {
+  const mode = feedbackWebMode(row)
+  if (mode === 'shared') return Number(row?.survey_units_remaining ?? row?.wa_units_remaining ?? 0)
+  if (mode === 'none') return Number(row?.wa_units_remaining ?? 0)
+  return Number(row?.wa_units_remaining ?? 0) + Number(row?.web_units_remaining ?? 0)
+}
+
 // Kept for the (untouched) Packages tab.
 function statusPill(active) {
   return active ? 'leadPill leadPillAdvance' : 'leadPill leadPillNeutral'
@@ -402,7 +431,7 @@ export default function CustomerFeedbackHub() {
       { label: 'Locations', value: locations.length, icon: MapPin, tone: 'info' },
       { label: 'Total scans', value: sum(locations, 'scan_count'), icon: QrCode, tone: 'primary' },
       { label: 'WA units used', value: sum(subscriptions, 'wa_units_used'), icon: Activity, tone: 'warning' },
-      { label: 'WA units remaining', value: sum(subscriptions, 'wa_units_remaining'), icon: Gauge, tone: 'success' },
+      { label: 'Survey units remaining', value: subscriptions.reduce((acc, r) => acc + feedbackRemainingTotal(r), 0), icon: Gauge, tone: 'success' },
       { label: 'Responses', value: results.length, icon: MessageSquare, tone: 'info' },
     ]
   }, [overview, surveyTypes, subscriptions, locations, results])
@@ -743,15 +772,15 @@ export default function CustomerFeedbackHub() {
       ) : null}
 
       {!loading && tab === 'subscriptions' ? (
-        <Panel title="Subscriptions" subtitle="Active customer feedback subscriptions and WhatsApp unit usage.">
+        <Panel title="Subscriptions" subtitle="Active customer feedback subscriptions and survey unit usage (shared, WA-only, or separate WA + web).">
           <StripeTable>
             <TableHeader>
               <TableRow>
                 <TableHead>Organisation</TableHead>
                 <TableHead>Plan</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>WA used</TableHead>
-                <TableHead>WA remaining</TableHead>
+                <TableHead>Usage</TableHead>
+                <TableHead>Remaining</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -760,8 +789,8 @@ export default function CustomerFeedbackHub() {
                   <TableCell><strong className="font-medium">{row.org_name}</strong></TableCell>
                   <TableCell className="text-muted-foreground">{row.plan_name || '—'}</TableCell>
                   <TableCell><Pill tone="info">{row.status}</Pill></TableCell>
-                  <TableCell>{row.wa_units_used ?? 0} / {row.wa_units_included ?? 0}</TableCell>
-                  <TableCell>{row.wa_units_remaining ?? 0}</TableCell>
+                  <TableCell>{feedbackUsageUsedLabel(row)}</TableCell>
+                  <TableCell>{feedbackRemainingTotal(row)}</TableCell>
                 </TableRow>
               ))}
               {!subscriptions.length ? <TableEmpty colSpan={5}>No customer feedback subscriptions yet.</TableEmpty> : null}

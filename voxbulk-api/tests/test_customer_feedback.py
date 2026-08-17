@@ -579,6 +579,60 @@ def test_shared_survey_pool_consume_mixes_wa_and_web():
             FeedbackBillingService.consume_web_unit(db, org_id)
 
 
+def test_sync_open_period_limits_for_plan():
+    from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+    org_id, _user_id = _seed_org()
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(select(Plan).where(Plan.code == "cf_starter_gb")).scalar_one()
+        pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one()
+        now = datetime.utcnow()
+        sub = Subscription(
+            org_id=org_id,
+            service_code=FEEDBACK_SERVICE_CODE,
+            plan_id=plan.id,
+            status="active",
+            payment_provider="gocardless",
+            current_period_end=now,
+        )
+        db.add(sub)
+        db.flush()
+        db.add(
+            FeedbackUsagePeriod(
+                org_id=org_id,
+                subscription_id=sub.id,
+                period_start=now,
+                period_end=now,
+                wa_units_included=100,
+                wa_units_used=50,
+                web_units_included=0,
+                web_units_used=0,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+
+        pkg.wa_units_included = 1000
+        pkg.web_units_included = -1
+        db.add(pkg)
+        db.commit()
+
+        updated = FeedbackBillingService.sync_open_period_limits_for_plan(
+            db,
+            plan.id,
+            wa_included=1000,
+            web_included=-1,
+        )
+        assert updated >= 1
+        usage = FeedbackBillingService.get_current_usage(db, org_id)
+        assert usage["web_mode"] == "shared"
+        assert usage["wa_units_included"] == 1000
+        assert usage["web_units_included"] == -1
+        assert usage["survey_units_remaining"] == 950
+
+
 def test_feedback_period_renewal_opens_new_usage_period():
     org_id, _user_id = _seed_org()
     with get_sessionmaker()() as db:

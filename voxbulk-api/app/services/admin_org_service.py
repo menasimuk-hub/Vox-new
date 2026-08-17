@@ -56,6 +56,11 @@ class AdminOrganisationSummary:
     feedback_wa_units_included: int = 0
     feedback_wa_units_used: int = 0
     feedback_wa_units_remaining: int = 0
+    feedback_web_units_included: int = 0
+    feedback_web_units_used: int = 0
+    feedback_web_units_remaining: int = 0
+    feedback_survey_units_remaining: int = 0
+    feedback_web_mode: str = "none"
     wallet_balance_pence: int = 0
 
 
@@ -113,6 +118,11 @@ class AdminOrganisationService:
             "feedback_wa_units_included": int(usage.get("wa_units_included", 0) or 0),
             "feedback_wa_units_used": int(usage.get("wa_units_used", 0) or 0),
             "feedback_wa_units_remaining": int(usage.get("wa_units_remaining", 0) or 0),
+            "feedback_web_units_included": int(usage.get("web_units_included", 0) or 0),
+            "feedback_web_units_used": int(usage.get("web_units_used", 0) or 0),
+            "feedback_web_units_remaining": int(usage.get("web_units_remaining", 0) or 0),
+            "feedback_survey_units_remaining": int(usage.get("survey_units_remaining", 0) or 0),
+            "feedback_web_mode": str(usage.get("web_mode") or "none"),
         }
 
     @staticmethod
@@ -289,4 +299,9 @@ class AdminOrganisationService:
             "feedback_wa_units_included": o.feedback_wa_units_included,
             "feedback_wa_units_used": o.feedback_wa_units_used,
             "feedback_wa_units_remaining": o.feedback_wa_units_remaining,
+            "feedback_web_units_included": o.feedback_web_units_included,
+            "feedback_web_units_used": o.feedback_web_units_used,
+            "feedback_web_units_remaining": o.feedback_web_units_remaining,
+            "feedback_survey_units_remaining": o.feedback_survey_units_remaining,
+            "feedback_web_mode": o.feedback_web_mode,
         }

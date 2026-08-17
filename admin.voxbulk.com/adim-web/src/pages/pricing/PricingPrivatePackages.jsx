@@ -122,7 +122,10 @@ function draftToPayload(draft) {
     cv_scans_included: Number(draft.cv_scans_included || 0),
     max_locations: Number(draft.max_locations || 1),
     wa_units_included: Number(draft.wa_units_included || draft.whatsapp_included || 0),
-    web_units_included: Number(draft.web_units_included || 100),
+    web_units_included:
+      draft.web_units_included === '' || draft.web_units_included == null
+        ? 0
+        : Number(draft.web_units_included),
     duration_days: Number(draft.duration_days || 1),
     tier: draft.tier || (isSmartCard ? 'seat' : undefined),
     monthly_unit_hint_usd_cents: isSmartCard ? Number(draft.monthly_unit_hint_usd_cents ?? 500) : undefined,

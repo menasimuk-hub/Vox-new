@@ -104,6 +104,13 @@ class SubscriptionSummaryService:
             "wa_units_included": usage.get("wa_units_included", 0),
             "wa_units_used": usage.get("wa_units_used", 0),
             "wa_units_remaining": usage.get("wa_units_remaining", 0),
+            "web_units_included": usage.get("web_units_included", 0),
+            "web_units_used": usage.get("web_units_used", 0),
+            "web_units_remaining": usage.get("web_units_remaining", 0),
+            "survey_units_included": usage.get("survey_units_included", 0),
+            "survey_units_used": usage.get("survey_units_used", 0),
+            "survey_units_remaining": usage.get("survey_units_remaining", 0),
+            "web_mode": usage.get("web_mode", "none"),
         }
 
     @staticmethod

@@ -58,6 +58,7 @@ import {
   type FeedbackSurveyType,
 } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { feedbackRemainingSummary } from "@/lib/feedback-usage";
 import { canDuplicateFeedbackSurvey, isMultiLocationFeedbackPlan } from "@/lib/feedback-plan";
 import {
   BASE_TEMPLATE,
@@ -630,7 +631,7 @@ function CreateFeedback() {
                   <p className="font-medium text-success">Customer feedback subscription active</p>
                   <p className="text-xs text-muted-foreground">
                     {subscriptionQ.data.plan_name || "Plan"} ·{" "}
-                    {Math.max(0, Number(subscriptionQ.data.wa_units_remaining || 0)).toLocaleString()} responses remaining this month
+                    {feedbackRemainingSummary(subscriptionQ.data)}
                   </p>
                 </div>
               ) : (

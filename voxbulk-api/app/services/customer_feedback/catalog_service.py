@@ -846,4 +846,11 @@ class FeedbackCatalogService:
         row.updated_at = now
         db.commit()
         db.refresh(row)
+        FeedbackBillingService.sync_open_period_limits_for_plan(
+            db,
+            plan.id,
+            wa_included=int(row.wa_units_included or 0),
+            web_included=int(row.web_units_included or 0),
+        )
+        db.refresh(row)
         return package_to_dict(db, row)

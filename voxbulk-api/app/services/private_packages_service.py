@@ -327,6 +327,13 @@ class PrivatePackagesService:
                     pkg.is_active = bool(payload["is_active"])
                 pkg.updated_at = now
                 db.add(pkg)
+                FeedbackBillingService.sync_open_period_limits_for_plan(
+                    db,
+                    plan.id,
+                    wa_included=int(pkg.wa_units_included or 0),
+                    web_included=int(pkg.web_units_included or 0),
+                    commit=False,
+                )
 
         if plan.service_kind == EXPO_SERVICE_CODE:
             pkg = db.execute(select(ExpoPackage).where(ExpoPackage.plan_id == plan.id)).scalar_one_or_none()

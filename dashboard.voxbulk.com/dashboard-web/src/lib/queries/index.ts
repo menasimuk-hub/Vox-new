@@ -233,6 +233,10 @@ export type FeedbackSubscription = {
   web_units_included?: number;
   web_units_used?: number;
   web_units_remaining?: number;
+  survey_units_included?: number;
+  survey_units_used?: number;
+  survey_units_remaining?: number;
+  web_mode?: "shared" | "none" | "separate" | string;
   payment_provider?: string | null;
   current_period_end?: string | null;
   finance?: Record<string, unknown> | null;

@@ -1370,11 +1370,31 @@ export default function OrganisationProfile() {
               Current: <strong className='text-foreground'>{org?.feedback_plan_name || org?.feedback_plan_code || 'None — assign below'}</strong>
               {org?.feedback_subscription_status ? ` (${org.feedback_subscription_status})` : ''}
             </p>
-            {(org?.feedback_wa_units_included || org?.feedback_wa_units_used) ? (
+            {(org?.feedback_wa_units_included || org?.feedback_wa_units_used || org?.feedback_survey_units_remaining) ? (
               <div className='space-y-1.5 text-[13px]'>
-                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA included</span><strong>{org?.feedback_wa_units_included ?? 0}</strong></div>
-                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA used</span><strong>{org?.feedback_wa_units_used ?? 0}</strong></div>
-                <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA remaining</span><strong>{org?.feedback_wa_units_remaining ?? 0}</strong></div>
+                {String(org?.feedback_web_mode || '').toLowerCase() === 'shared' ? (
+                  <>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Surveys included</span><strong>{org?.feedback_wa_units_included ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Surveys used (WA + web)</span><strong>{(Number(org?.feedback_wa_units_used ?? 0) + Number(org?.feedback_web_units_used ?? 0))}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Surveys remaining</span><strong>{org?.feedback_survey_units_remaining ?? org?.feedback_wa_units_remaining ?? 0}</strong></div>
+                  </>
+                ) : String(org?.feedback_web_mode || '').toLowerCase() === 'separate' ? (
+                  <>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA included</span><strong>{org?.feedback_wa_units_included ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA used</span><strong>{org?.feedback_wa_units_used ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA remaining</span><strong>{org?.feedback_wa_units_remaining ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Web included</span><strong>{org?.feedback_web_units_included ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Web used</span><strong>{org?.feedback_web_units_used ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Web remaining</span><strong>{org?.feedback_web_units_remaining ?? 0}</strong></div>
+                  </>
+                ) : (
+                  <>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA included</span><strong>{org?.feedback_wa_units_included ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA used</span><strong>{org?.feedback_wa_units_used ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>WA remaining</span><strong>{org?.feedback_wa_units_remaining ?? 0}</strong></div>
+                    <div className='flex justify-between gap-3'><span className='text-muted-foreground'>Web surveys</span><strong>Not included</strong></div>
+                  </>
+                )}
               </div>
             ) : null}
             <label className='grid gap-1.5'>

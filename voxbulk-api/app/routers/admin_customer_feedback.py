@@ -630,6 +630,13 @@ def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depen
         db.add(plan)
         db.add(pkg)
         db.add(price)
+        FeedbackBillingService.sync_open_period_limits_for_plan(
+            db,
+            plan.id,
+            wa_included=int(pkg.wa_units_included or 0),
+            web_included=int(pkg.web_units_included or 0),
+            commit=False,
+        )
         saved += 1
     db.commit()
     return {"ok": True, "saved": saved}

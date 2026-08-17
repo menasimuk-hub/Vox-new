@@ -91,6 +91,83 @@ class FeedbackBillingService:
         return FeedbackBillingService.wa_units_remaining(wa_included, wa_used, web_included, web_used)
 
     @staticmethod
+    def sync_open_period_limits_for_plan(
+        db: Session,
+        plan_id: str,
+        *,
+        wa_included: int,
+        web_included: int,
+        commit: bool = True,
+    ) -> int:
+        """Apply catalog limits to the latest open usage period for each org on this plan."""
+        wa, web = FeedbackBillingService.fold_shared_survey_units(wa_included, web_included)
+        org_ids = list(
+            db.execute(
+                select(Subscription.org_id)
+                .where(
+                    Subscription.plan_id == plan_id,
+                    Subscription.service_code == FEEDBACK_SERVICE_CODE,
+                    Subscription.status.in_(("active", "trial", "pending_first_payment")),
+                )
+                .distinct()
+            )
+            .scalars()
+            .all()
+        )
+        now = datetime.utcnow()
+        updated = 0
+        for org_id in org_ids:
+            row = (
+                db.execute(
+                    select(FeedbackUsagePeriod)
+                    .where(FeedbackUsagePeriod.org_id == org_id)
+                    .order_by(FeedbackUsagePeriod.period_start.desc())
+                    .limit(1)
+                )
+                .scalars()
+                .first()
+            )
+            if row is None:
+                continue
+            new_wa = max(int(row.wa_units_used or 0), wa)
+            if FeedbackBillingService.web_mode(web) == "shared":
+                new_web = -1
+            elif FeedbackBillingService.web_mode(web) == "none":
+                new_web = 0
+            else:
+                new_web = max(int(row.web_units_used or 0), web)
+            if int(row.wa_units_included or 0) == new_wa and int(row.web_units_included or 0) == new_web:
+                continue
+            row.wa_units_included = new_wa
+            row.web_units_included = new_web
+            row.updated_at = now
+            db.add(row)
+            updated += 1
+        if updated and commit:
+            db.commit()
+        return updated
+
+    @staticmethod
+    def apply_package_limits_to_current_period(
+        db: Session,
+        org_id: str,
+        pkg: FeedbackPackage,
+        *,
+        commit: bool = True,
+    ) -> bool:
+        """Sync one org's latest usage period from its FeedbackPackage row."""
+        return (
+            FeedbackBillingService.sync_open_period_limits_for_plan(
+                db,
+                pkg.plan_id,
+                wa_included=int(pkg.wa_units_included or 0),
+                web_included=int(pkg.web_units_included or 0),
+                commit=commit,
+            )
+            > 0
+        )
+
+    @staticmethod
     def get_active_subscription(db: Session, org_id: str) -> Subscription | None:
         sub = BillingAccessService.get_feedback_subscription(db, org_id)
         if sub is None:
@@ -183,8 +260,10 @@ class FeedbackBillingService:
             db.add(plan)
 
         max_loc = max(0, int(cf.get("max_locations") or 0))
-        wa_inc = max(0, int(cf.get("wa_units_included") or 0))
-        web_inc = int(cf.get("web_units_included") or 0)
+        wa_inc, web_inc = FeedbackBillingService.fold_shared_survey_units(
+            int(cf.get("wa_units_included") or 0),
+            int(cf.get("web_units_included") or 0),
+        )
         pkg = FeedbackBillingService.get_package_for_plan(db, plan.id)
         if pkg is None:
             pkg = FeedbackPackage(
@@ -208,6 +287,13 @@ class FeedbackBillingService:
             pkg.updated_at = now
             db.add(pkg)
         db.flush()
+        FeedbackBillingService.sync_open_period_limits_for_plan(
+            db,
+            plan.id,
+            wa_included=wa_inc,
+            web_included=web_inc,
+            commit=False,
+        )
         return plan
 
     @staticmethod
@@ -413,6 +499,10 @@ class FeedbackBillingService:
             "web_units_included": usage.get("web_units_included", 0),
             "web_units_used": usage.get("web_units_used", 0),
             "web_units_remaining": usage.get("web_units_remaining", 0),
+            "survey_units_included": usage.get("survey_units_included", 0),
+            "survey_units_used": usage.get("survey_units_used", 0),
+            "survey_units_remaining": usage.get("survey_units_remaining", 0),
+            "web_mode": usage.get("web_mode", "none"),
             "payment_provider": sub.payment_provider,
             "billing_interval": getattr(sub, "billing_interval", None) or "monthly",
             "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
@@ -1025,22 +1115,21 @@ class FeedbackBillingService:
                 .scalars()
                 .first()
             )
-            if row is not None and old_pkg is not None:
-                wa_delta = int(new_pkg.wa_units_included or 0) - int(old_pkg.wa_units_included or 0)
-                changed = False
-                if wa_delta > 0:
-                    row.wa_units_included = int(row.wa_units_included or 0) + wa_delta
-                    changed = True
-                if int(new_pkg.web_units_included or 0) < 0:
-                    if int(row.web_units_included or 0) != -1:
-                        row.web_units_included = -1
-                        changed = True
+            if row is not None and new_pkg is not None:
+                wa, web = FeedbackBillingService.fold_shared_survey_units(
+                    int(new_pkg.wa_units_included or 0),
+                    int(new_pkg.web_units_included or 0),
+                )
+                new_wa = max(int(row.wa_units_used or 0), wa)
+                if FeedbackBillingService.web_mode(web) == "shared":
+                    new_web = -1
+                elif FeedbackBillingService.web_mode(web) == "none":
+                    new_web = 0
                 else:
-                    web_delta = int(new_pkg.web_units_included or 0) - int(old_pkg.web_units_included or 0)
-                    if web_delta > 0:
-                        row.web_units_included = int(row.web_units_included or 0) + web_delta
-                        changed = True
-                if changed:
+                    new_web = max(int(row.web_units_used or 0), web)
+                if int(row.wa_units_included or 0) != new_wa or int(row.web_units_included or 0) != new_web:
+                    row.wa_units_included = new_wa
+                    row.web_units_included = new_web
                     row.updated_at = datetime.utcnow()
                     db.add(row)
                     db.commit()

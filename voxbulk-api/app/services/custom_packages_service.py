@@ -827,11 +827,20 @@ class CustomPackagesService:
         used: int,
         included: int,
         unit: str,
+        remaining_override: int | None = None,
+        unlimited: bool = False,
     ) -> dict[str, Any]:
         used_n = max(0, int(used or 0))
         included_n = max(0, int(included or 0))
-        remaining = max(0, included_n - used_n) if included_n > 0 else None
-        pct = round((used_n / included_n) * 100, 1) if included_n > 0 else 0.0
+        if unlimited:
+            remaining = None
+            pct = 0.0
+        elif remaining_override is not None:
+            remaining = max(0, int(remaining_override))
+            pct = round((used_n / included_n) * 100, 1) if included_n > 0 else 0.0
+        else:
+            remaining = max(0, included_n - used_n) if included_n > 0 else None
+            pct = round((used_n / included_n) * 100, 1) if included_n > 0 else 0.0
         return {
             "module": module,
             "key": key,
@@ -841,6 +850,7 @@ class CustomPackagesService:
             "remaining": remaining,
             "unit": unit,
             "pct_used": pct,
+            "unlimited": unlimited,
         }
 
     @staticmethod
@@ -912,6 +922,14 @@ class CustomPackagesService:
         usage_rows: list[dict[str, Any]] = []
         cf = modules.get("customer_feedback") or {}
         if cf.get("enabled"):
+            from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+            fb_usage: dict[str, Any] = {}
+            try:
+                fb_usage = FeedbackBillingService.get_current_usage(db, org_id)
+            except Exception:
+                fb_usage = {}
+            cf_mode = str(fb_usage.get("web_mode") or FeedbackBillingService.web_mode(int(cf.get("web_units_included") or 0)))
             usage_rows.append(
                 CustomPackagesService._usage_row(
                     module="customer_feedback",
@@ -922,26 +940,44 @@ class CustomPackagesService:
                     unit="venues",
                 )
             )
-            usage_rows.append(
-                CustomPackagesService._usage_row(
-                    module="customer_feedback",
-                    key="wa_units",
-                    label="Feedback WhatsApp units",
-                    used=feedback_used["wa"],
-                    included=int(cf.get("wa_units_included") or 0),
-                    unit="units",
+            if cf_mode == "shared":
+                usage_rows.append(
+                    CustomPackagesService._usage_row(
+                        module="customer_feedback",
+                        key="surveys",
+                        label="Surveys (WhatsApp or web)",
+                        used=int(fb_usage.get("survey_units_used") or 0),
+                        included=int(fb_usage.get("survey_units_included") or cf.get("wa_units_included") or 0),
+                        unit="surveys",
+                        remaining_override=int(fb_usage.get("survey_units_remaining") or 0)
+                        if fb_usage
+                        else None,
+                    )
                 )
-            )
-            usage_rows.append(
-                CustomPackagesService._usage_row(
-                    module="customer_feedback",
-                    key="web_units",
-                    label="Feedback web / scan units",
-                    used=feedback_used["web"],
-                    included=int(cf.get("web_units_included") or 0),
-                    unit="units",
+            else:
+                usage_rows.append(
+                    CustomPackagesService._usage_row(
+                        module="customer_feedback",
+                        key="wa_units",
+                        label="Feedback WhatsApp units",
+                        used=int(fb_usage.get("wa_units_used") or feedback_used["wa"]),
+                        included=int(fb_usage.get("wa_units_included") or cf.get("wa_units_included") or 0),
+                        unit="units",
+                        remaining_override=int(fb_usage.get("wa_units_remaining") or 0) if fb_usage else None,
+                    )
                 )
-            )
+                if cf_mode == "separate":
+                    usage_rows.append(
+                        CustomPackagesService._usage_row(
+                            module="customer_feedback",
+                            key="web_units",
+                            label="Feedback web / scan units",
+                            used=int(fb_usage.get("web_units_used") or feedback_used["web"]),
+                            included=int(fb_usage.get("web_units_included") or cf.get("web_units_included") or 0),
+                            unit="units",
+                            remaining_override=int(fb_usage.get("web_units_remaining") or 0) if fb_usage else None,
+                        )
+                    )
 
         ai = ai_followback_config(modules)
         survey_on = bool((modules.get("survey") or {}).get("enabled"))
