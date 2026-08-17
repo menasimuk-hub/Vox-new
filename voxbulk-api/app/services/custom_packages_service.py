@@ -60,7 +60,7 @@ def default_modules() -> dict[str, Any]:
             "enabled": False,
             "max_locations": 1,
             "wa_units_included": 100,
-            "web_units_included": 100,
+            "web_units_included": 0,
             "wa_extra_minor": 0,
             "web_extra_minor": 0,
             "notes": "",

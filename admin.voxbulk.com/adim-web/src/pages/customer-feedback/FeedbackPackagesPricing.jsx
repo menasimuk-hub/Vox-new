@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Globe, Info, Infinity, PackageOpen, Plus, Save, Trash2 } from 'lucide-react'
+import { Globe, Info, PackageOpen, Plus, Save, Trash2 } from 'lucide-react'
 import { apiFetch } from '../../lib/api'
 import { CURRENCY_SYMBOLS } from '../../lib/billingAdminUtils'
 import { penceToPounds, poundsToPence } from '../pricing/pricingUtils'
@@ -99,14 +99,36 @@ export default function FeedbackPackagesPricing() {
   }
 
   const toggleWebUnlimited = (planId, unlimited) => {
-    updateRow(planId, 'web_units_included', unlimited ? -1 : 200)
+    updateRow(planId, 'web_units_included', unlimited ? -1 : 0)
+  }
+
+  const updateSurveyPool = (planId, value) => {
+    setItems((rows) =>
+      rows.map((row) => {
+        if (row.plan_id !== planId) return row
+        const unlimited = webUnitsUnlimited(row.web_units_included)
+        return {
+          ...row,
+          wa_units_included: Number(value || 0),
+          web_units_included: unlimited ? -1 : 0,
+        }
+      }),
+    )
   }
 
   const save = async (subset) => {
     setBusy(true)
     setError('')
     try {
-      const payload = subset || items
+      const payload = (subset || items).map((row) => {
+        const web = Number(row.web_units_included)
+        if (web < 0) return row
+        return {
+          ...row,
+          wa_units_included: Number(row.wa_units_included || 0) + Math.max(0, web),
+          web_units_included: 0,
+        }
+      })
       await apiFetch('/admin/customer-feedback/plans/pricing/bulk', {
         method: 'PUT',
         body: JSON.stringify({ currency, items: payload }),
@@ -294,8 +316,8 @@ export default function FeedbackPackagesPricing() {
                       <thead>
                         <tr>
                           <th style={{ width: 80 }}>Locations</th>
-                          <th style={{ width: 100 }}>WhatsApp / mo</th>
-                          <th style={{ width: 120 }}>Web surveys / mo</th>
+                          <th style={{ width: 160 }}>Surveys / mo (WA or web)</th>
+                          <th style={{ width: 120 }}>Unlimited web</th>
                           <th style={{ width: 90 }}>Monthly ({symbol})</th>
                           <th style={{ width: 90 }}>Yearly ({symbol})</th>
                           <th style={{ width: 90 }}>Promo msg</th>
@@ -317,26 +339,14 @@ export default function FeedbackPackagesPricing() {
                               type="number"
                               min="0"
                               disabled={frozen}
-                              value={row.wa_units_included ?? 0}
-                              onChange={(e) => updateRow(row.plan_id, 'wa_units_included', Number(e.target.value || 0))}
+                              value={
+                                Number(row.wa_units_included || 0) +
+                                (unlimitedWeb ? 0 : Math.max(0, Number(row.web_units_included || 0)))
+                              }
+                              onChange={(e) => updateSurveyPool(row.plan_id, e.target.value)}
                             />
                           </td>
                           <td>
-                            {unlimitedWeb ? (
-                              <span className="web-unlimited-badge">
-                                <Infinity size={12} /> Unlimited
-                              </span>
-                            ) : (
-                              <input
-                                type="number"
-                                min="0"
-                                disabled={frozen}
-                                value={row.web_units_included ?? 0}
-                                onChange={(e) =>
-                                  updateRow(row.plan_id, 'web_units_included', Number(e.target.value || 0))
-                                }
-                              />
-                            )}
                             <div className="unlimited-toggle">
                               <label className="toggle-switch">
                                 <input
@@ -347,7 +357,7 @@ export default function FeedbackPackagesPricing() {
                                 />
                                 <span className="toggle-slider" />
                               </label>
-                              <label>Unlimited</label>
+                              <label>Unlimited web</label>
                             </div>
                           </td>
                           <td>

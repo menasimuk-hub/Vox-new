@@ -38,6 +38,39 @@ class FeedbackBillingService:
     _USAGE_ELIGIBLE_STATUSES = frozenset({"active", "trial"})
 
     @staticmethod
+    def fold_shared_survey_units(wa_included: int, web_included: int) -> tuple[int, int]:
+        """Store one shared pool on wa_units_included. web < 0 stays unlimited web."""
+        wa = int(wa_included or 0)
+        web = int(web_included or 0)
+        if web < 0:
+            return max(0, wa), -1
+        return max(0, wa) + max(0, web), 0
+
+    @staticmethod
+    def survey_pool_included(wa_included: int, web_included: int) -> int:
+        wa = int(wa_included or 0)
+        web = int(web_included or 0)
+        if wa < 0:
+            return -1
+        if web < 0:
+            return max(0, wa)
+        return max(0, wa) + max(0, web)
+
+    @staticmethod
+    def survey_pool_used(wa_used: int, web_used: int, web_included: int) -> int:
+        if int(web_included or 0) < 0:
+            return max(0, int(wa_used or 0))
+        return max(0, int(wa_used or 0)) + max(0, int(web_used or 0))
+
+    @staticmethod
+    def survey_pool_remaining(wa_included: int, wa_used: int, web_included: int, web_used: int) -> int:
+        included = FeedbackBillingService.survey_pool_included(wa_included, web_included)
+        if included < 0:
+            return 999_999
+        used = FeedbackBillingService.survey_pool_used(wa_used, web_used, web_included)
+        return max(0, included - used)
+
+    @staticmethod
     def get_active_subscription(db: Session, org_id: str) -> Subscription | None:
         sub = BillingAccessService.get_feedback_subscription(db, org_id)
         if sub is None:
@@ -386,19 +419,28 @@ class FeedbackBillingService:
                 "web_units_included": 0,
                 "web_units_used": 0,
                 "web_units_remaining": 0,
+                "survey_units_included": 0,
+                "survey_units_used": 0,
+                "survey_units_remaining": 0,
             }
         wa_included = int(row.wa_units_included or 0)
         wa_used = int(row.wa_units_used or 0)
         web_included = int(row.web_units_included or 0)
         web_used = int(row.web_units_used or 0)
-        web_remaining = 999_999 if web_included < 0 else max(0, web_included - web_used)
+        remaining = FeedbackBillingService.survey_pool_remaining(
+            wa_included, wa_used, web_included, web_used
+        )
+        web_unlimited = web_included < 0
         return {
             "wa_units_included": wa_included,
             "wa_units_used": wa_used,
-            "wa_units_remaining": max(0, wa_included - wa_used),
+            "wa_units_remaining": remaining if not web_unlimited else max(0, wa_included - wa_used),
             "web_units_included": web_included,
             "web_units_used": web_used,
-            "web_units_remaining": web_remaining,
+            "web_units_remaining": remaining if not web_unlimited else 999_999,
+            "survey_units_included": FeedbackBillingService.survey_pool_included(wa_included, web_included),
+            "survey_units_used": FeedbackBillingService.survey_pool_used(wa_used, web_used, web_included),
+            "survey_units_remaining": remaining,
         }
 
     @staticmethod
@@ -721,11 +763,11 @@ class FeedbackBillingService:
                     return False, "Your Customer feedback subscription payment is not active. Resolve billing before collecting responses."
             return False, "Subscribe to a Customer feedback package to start collecting responses."
         usage = FeedbackBillingService.get_current_usage(db, org_id)
-        if int(usage.get("wa_units_remaining") or 0) <= 0:
+        if int(usage.get("survey_units_remaining") or usage.get("wa_units_remaining") or 0) <= 0:
             org = db.get(Organisation, org_id)
             promo_units = int(getattr(org, "feedback_credits_balance", 0) or 0) if org else 0
             if promo_units <= 0:
-                return False, "Your included WhatsApp survey units are used up. Upgrade your Customer feedback package to continue."
+                return False, "Your included survey units are used up. Upgrade your Customer feedback package to continue."
         return True, None
 
     @staticmethod
@@ -742,8 +784,11 @@ class FeedbackBillingService:
         web_included = int(usage.get("web_units_included") or 0)
         if web_included < 0:
             return True, None
-        if int(usage.get("web_units_remaining") or 0) <= 0:
-            return False, "Your included web survey units are used up. Upgrade your Customer feedback package to continue."
+        if int(usage.get("survey_units_remaining") or usage.get("web_units_remaining") or 0) <= 0:
+            org = db.get(Organisation, org_id)
+            promo_units = int(getattr(org, "feedback_credits_balance", 0) or 0) if org else 0
+            if promo_units <= 0:
+                return False, "Your included survey units are used up. Upgrade your Customer feedback package to continue."
         return True, None
 
     @staticmethod
@@ -758,7 +803,17 @@ class FeedbackBillingService:
             .scalars()
             .first()
         )
-        if row is not None and int(row.wa_units_used or 0) < int(row.wa_units_included or 0):
+        remaining = (
+            FeedbackBillingService.survey_pool_remaining(
+                int(row.wa_units_included or 0),
+                int(row.wa_units_used or 0),
+                int(row.web_units_included or 0),
+                int(row.web_units_used or 0),
+            )
+            if row is not None
+            else 0
+        )
+        if row is not None and remaining > 0:
             row.wa_units_used = int(row.wa_units_used or 0) + 1
             row.updated_at = datetime.utcnow()
             db.add(row)
@@ -772,7 +827,7 @@ class FeedbackBillingService:
             return
         if row is None:
             raise FeedbackBillingError("No active usage period")
-        raise FeedbackBillingError("No WhatsApp units remaining")
+        raise FeedbackBillingError("No survey units remaining")
 
     @staticmethod
     def consume_web_unit(db: Session, org_id: str) -> None:
@@ -789,13 +844,26 @@ class FeedbackBillingService:
         if row is None:
             raise FeedbackBillingError("No active usage period")
         web_included = int(row.web_units_included or 0)
-        if web_included >= 0 and int(row.web_units_used or 0) >= web_included:
-            raise FeedbackBillingError("No web survey units remaining")
-        if web_included >= 0:
-            row.web_units_used = int(row.web_units_used or 0) + 1
-            row.updated_at = datetime.utcnow()
-            db.add(row)
-            db.commit()
+        if web_included < 0:
+            return
+        remaining = FeedbackBillingService.survey_pool_remaining(
+            int(row.wa_units_included or 0),
+            int(row.wa_units_used or 0),
+            web_included,
+            int(row.web_units_used or 0),
+        )
+        if remaining <= 0:
+            org = db.get(Organisation, org_id)
+            if org is not None and int(getattr(org, "feedback_credits_balance", 0) or 0) > 0:
+                org.feedback_credits_balance = int(org.feedback_credits_balance or 0) - 1
+                db.add(org)
+                db.commit()
+                return
+            raise FeedbackBillingError("No survey units remaining")
+        row.web_units_used = int(row.web_units_used or 0) + 1
+        row.updated_at = datetime.utcnow()
+        db.add(row)
+        db.commit()
 
     @staticmethod
     def max_locations(db: Session, org_id: str) -> int:

@@ -107,8 +107,7 @@ PACKAGE_TIERS: list[dict] = [
         "prices": {"GBP": 2500, "EUR": 2900, "USD": 3500, "CAD": 4900, "AUD": 4900},
         "features": [
             "1 location",
-            "150 WhatsApp surveys/mo",
-            "200 Web surveys/mo",
+            "350 surveys/mo (WhatsApp or web)",
             "Monthly report",
             "Email support",
         ],
@@ -125,8 +124,7 @@ PACKAGE_TIERS: list[dict] = [
         "prices": {"GBP": 6500, "EUR": 7500, "USD": 8900, "CAD": 12500, "AUD": 12900},
         "features": [
             "3 locations",
-            "450 WhatsApp surveys/mo",
-            "600 Web surveys/mo",
+            "1,050 surveys/mo (WhatsApp or web)",
             "Live dashboard",
             "Priority support",
         ],
@@ -284,11 +282,18 @@ class FeedbackSeedService:
         for pkg in PACKAGE_SEEDS:
             currency = str(pkg["currency"])
             features_json = json.dumps(pkg["features"])
-            description = (
-                f"WhatsApp QR feedback — {pkg['name']} "
-                f"({pkg['locations']} location(s), {pkg['wa_units']} WA + "
-                f"{'unlimited' if int(pkg['web_units']) < 0 else pkg['web_units']} web surveys/month)"
-            )
+            web_n = int(pkg["web_units"])
+            if web_n < 0:
+                description = (
+                    f"WhatsApp QR feedback — {pkg['name']} "
+                    f"({pkg['locations']} location(s), {pkg['wa_units']} WhatsApp surveys/month + unlimited web)"
+                )
+            else:
+                total = int(pkg["wa_units"]) + max(web_n, 0)
+                description = (
+                    f"WhatsApp QR feedback — {pkg['name']} "
+                    f"({pkg['locations']} location(s), {total} surveys/month — WhatsApp or web)"
+                )
 
             plan = db.execute(select(Plan).where(Plan.code == pkg["code"])).scalar_one_or_none()
             if plan is None:

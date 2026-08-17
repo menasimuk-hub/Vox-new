@@ -436,20 +436,32 @@ def _pricing_row_dict(plan, pkg, price, currency: str) -> dict[str, Any]:
 def _sync_plan_marketing(plan, row: dict[str, Any]) -> None:
     import json
 
+    from app.services.customer_feedback.billing_service import FeedbackBillingService
+
     locs = int(row.get("max_locations") or 0)
     wa = int(row.get("wa_units_included") or 0)
     web = int(row.get("web_units_included") or 0)
-    web_label = "unlimited" if web < 0 else str(web)
+    wa, web = FeedbackBillingService.fold_shared_survey_units(wa, web)
     name = str(row.get("name") or plan.name or "Package").strip()
-    plan.description = (
-        f"WhatsApp + web QR feedback — {name} "
-        f"({locs} location(s), {wa} WA + {web_label} web surveys/month)"
-    )
-    features = [
-        f"{locs} location{'s' if locs != 1 else ''}",
-        f"{wa:,} WhatsApp surveys/mo",
-        "Unlimited web surveys/mo" if web < 0 else f"{web:,} web surveys/mo",
-    ]
+    if web < 0:
+        plan.description = (
+            f"WhatsApp + web QR feedback — {name} "
+            f"({locs} location(s), {wa} WhatsApp surveys/month + unlimited web)"
+        )
+        features = [
+            f"{locs} location{'s' if locs != 1 else ''}",
+            f"{wa:,} WhatsApp surveys/mo",
+            "Unlimited web surveys/mo",
+        ]
+    else:
+        plan.description = (
+            f"WhatsApp + web QR feedback — {name} "
+            f"({locs} location(s), {wa} surveys/month — WhatsApp or web)"
+        )
+        features = [
+            f"{locs} location{'s' if locs != 1 else ''}",
+            f"{wa:,} surveys/mo (WhatsApp or web)",
+        ]
     plan.features_json = json.dumps(features)
     plan.whatsapp_included = wa
 
@@ -497,7 +509,7 @@ def create_pricing_row(payload: dict, db: Session = Depends(get_db), _admin=Depe
         market_zone=zone,
         max_locations=1,
         wa_units_included=100,
-        web_units_included=100,
+        web_units_included=0,
         promo_message_cost_minor=5,
         display_order=display_order,
         is_active=True,
@@ -584,9 +596,11 @@ def save_pricing_rows(payload: dict, db: Session = Depends(get_db), _admin=Depen
             plan.is_frozen = bool(row.get("is_frozen"))
         plan.updated_at = now
         pkg.max_locations = int(row.get("max_locations") or pkg.max_locations or 1)
-        pkg.wa_units_included = int(row.get("wa_units_included") or pkg.wa_units_included or 0)
-        if "web_units_included" in row:
-            pkg.web_units_included = int(row.get("web_units_included") or pkg.web_units_included or 0)
+        from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+        wa = int(row.get("wa_units_included") or pkg.wa_units_included or 0)
+        web = int(row.get("web_units_included") if "web_units_included" in row else (pkg.web_units_included or 0))
+        pkg.wa_units_included, pkg.web_units_included = FeedbackBillingService.fold_shared_survey_units(wa, web)
         pkg.promo_message_cost_minor = int(row.get("promo_message_cost_minor") or pkg.promo_message_cost_minor or 5)
         pkg.updated_at = now
         _sync_plan_marketing(plan, row)

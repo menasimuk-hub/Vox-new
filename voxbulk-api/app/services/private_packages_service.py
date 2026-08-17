@@ -217,14 +217,19 @@ class PrivatePackagesService:
         db.flush()
 
         if kind == FEEDBACK_SERVICE_CODE:
+            from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+            wa = int(payload.get("wa_units_included") or payload.get("whatsapp_included") or 100)
+            web = int(payload["web_units_included"]) if "web_units_included" in payload else 0
+            wa, web = FeedbackBillingService.fold_shared_survey_units(wa, web)
             db.add(
                 FeedbackPackage(
                     id=str(uuid.uuid4()),
                     plan_id=plan.id,
                     market_zone="gb",
                     max_locations=int(payload.get("max_locations") or 1),
-                    wa_units_included=int(payload.get("wa_units_included") or payload.get("whatsapp_included") or 100),
-                    web_units_included=int(payload.get("web_units_included") or 100),
+                    wa_units_included=wa,
+                    web_units_included=web,
                     promo_message_cost_minor=int(payload.get("promo_message_cost_minor") or 5),
                     display_order=int(payload.get("sort_order") or 900),
                     is_active=True,
@@ -309,11 +314,15 @@ class PrivatePackagesService:
             if pkg:
                 if "max_locations" in payload:
                     pkg.max_locations = int(payload["max_locations"] or 1)
-                if "wa_units_included" in payload:
-                    pkg.wa_units_included = int(payload["wa_units_included"] or 0)
-                    plan.whatsapp_included = pkg.wa_units_included
-                if "web_units_included" in payload:
-                    pkg.web_units_included = int(payload["web_units_included"] or 0)
+                if "wa_units_included" in payload or "web_units_included" in payload:
+                    from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+                    wa = int(payload["wa_units_included"]) if "wa_units_included" in payload else int(pkg.wa_units_included or 0)
+                    web = int(payload["web_units_included"]) if "web_units_included" in payload else int(pkg.web_units_included or 0)
+                    wa, web = FeedbackBillingService.fold_shared_survey_units(wa, web)
+                    pkg.wa_units_included = wa
+                    pkg.web_units_included = web
+                    plan.whatsapp_included = wa
                 if "is_active" in payload:
                     pkg.is_active = bool(payload["is_active"])
                 pkg.updated_at = now

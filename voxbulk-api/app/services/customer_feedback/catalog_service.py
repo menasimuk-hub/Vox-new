@@ -831,9 +831,14 @@ class FeedbackCatalogService:
             db.add(row)
         row.market_zone = normalize_zone(payload.get("market_zone")) or row.market_zone or "gb"
         row.max_locations = int(payload.get("max_locations", row.max_locations or 1))
-        row.wa_units_included = int(payload.get("wa_units_included", row.wa_units_included or 100))
-        if "web_units_included" in payload:
-            row.web_units_included = int(payload.get("web_units_included", row.web_units_included or 0))
+        from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+        wa = int(payload.get("wa_units_included", row.wa_units_included or 100))
+        web = int(payload.get("web_units_included", row.web_units_included or 0)) if "web_units_included" in payload else int(row.web_units_included or 0)
+        if "wa_units_included" in payload or "web_units_included" in payload:
+            wa, web = FeedbackBillingService.fold_shared_survey_units(wa, web)
+        row.wa_units_included = wa
+        row.web_units_included = web
         row.promo_message_cost_minor = int(payload.get("promo_message_cost_minor", row.promo_message_cost_minor or 5))
         row.admin_notes = payload.get("admin_notes")
         row.is_active = bool(payload.get("is_active", row.is_active))

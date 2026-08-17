@@ -507,13 +507,18 @@ class PricingPackagesService:
         )
         db.add(plan)
         db.flush()
+        wa = int(payload.get("wa_units_included") or 100)
+        web = int(payload["web_units_included"]) if "web_units_included" in payload else 0
+        from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+        wa, web = FeedbackBillingService.fold_shared_survey_units(wa, web)
         pkg = FeedbackPackage(
             id=str(uuid.uuid4()),
             plan_id=plan.id,
             market_zone=zone,
             max_locations=int(payload.get("max_locations") or 1),
-            wa_units_included=int(payload.get("wa_units_included") or 100),
-            web_units_included=int(payload.get("web_units_included") or 100),
+            wa_units_included=wa,
+            web_units_included=web,
             promo_message_cost_minor=int(payload.get("promo_message_cost_minor") or 5),
             display_order=display_order,
             is_active=bool(payload.get("is_active", True)),
@@ -653,10 +658,14 @@ class PricingPackagesService:
                 pkg.is_active = active
             if "max_locations" in payload:
                 pkg.max_locations = int(payload["max_locations"] or 1)
-            if "wa_units_included" in payload:
-                pkg.wa_units_included = int(payload["wa_units_included"] or 0)
-            if "web_units_included" in payload:
-                pkg.web_units_included = int(payload["web_units_included"] or 0)
+            if "wa_units_included" in payload or "web_units_included" in payload:
+                from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+                wa = int(payload["wa_units_included"]) if "wa_units_included" in payload else int(pkg.wa_units_included or 0)
+                web = int(payload["web_units_included"]) if "web_units_included" in payload else int(pkg.web_units_included or 0)
+                wa, web = FeedbackBillingService.fold_shared_survey_units(wa, web)
+                pkg.wa_units_included = wa
+                pkg.web_units_included = web
             if "promo_message_cost_minor" in payload:
                 pkg.promo_message_cost_minor = int(payload["promo_message_cost_minor"] or 5)
             if "sort_order" in payload:

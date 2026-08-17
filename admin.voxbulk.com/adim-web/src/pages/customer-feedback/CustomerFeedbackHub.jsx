@@ -686,8 +686,8 @@ export default function CustomerFeedbackHub() {
                   <Field label="Max locations">
                     <input className="input" type="number" value={packageEdit.max_locations ?? 1} onChange={(e) => setPackageEdit((f) => ({ ...f, max_locations: Number(e.target.value) }))} />
                   </Field>
-                  <Field label="WA units included">
-                    <input className="input" type="number" value={packageEdit.wa_units_included ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, wa_units_included: Number(e.target.value) }))} />
+                  <Field label="Surveys / mo (WhatsApp or web)">
+                    <input className="input" type="number" value={packageEdit.wa_units_included ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, wa_units_included: Number(e.target.value), web_units_included: 0 }))} />
                   </Field>
                   <Field label="Display order">
                     <input className="input" type="number" value={packageEdit.display_order ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, display_order: Number(e.target.value) }))} />

@@ -520,6 +520,59 @@ def test_products_hub_copy_syncs_feedback_family():
         ProductsHubService.update_plan_copy(db, gb, {"is_active": True, "name": "Growth"})
 
 
+def test_fold_shared_survey_units():
+    from app.services.customer_feedback.billing_service import FeedbackBillingService
+
+    assert FeedbackBillingService.fold_shared_survey_units(1000, 0) == (1000, 0)
+    assert FeedbackBillingService.fold_shared_survey_units(1000, 200) == (1200, 0)
+    assert FeedbackBillingService.fold_shared_survey_units(1500, -1) == (1500, -1)
+    assert FeedbackBillingService.survey_pool_remaining(1000, 400, 0, 600) == 0
+    assert FeedbackBillingService.survey_pool_remaining(150, 50, 200, 50) == 250
+
+
+def test_shared_survey_pool_consume_mixes_wa_and_web():
+    from app.services.customer_feedback.billing_service import FeedbackBillingError, FeedbackBillingService
+
+    org_id, _user_id = _seed_org()
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(select(Plan).where(Plan.code == "cf_starter_gb")).scalar_one()
+        now = datetime.utcnow()
+        sub = Subscription(
+            org_id=org_id,
+            service_code=FEEDBACK_SERVICE_CODE,
+            plan_id=plan.id,
+            status="active",
+            payment_provider="gocardless",
+            current_period_end=now,
+        )
+        db.add(sub)
+        db.flush()
+        db.add(
+            FeedbackUsagePeriod(
+                org_id=org_id,
+                subscription_id=sub.id,
+                period_start=now,
+                period_end=now,
+                wa_units_included=2,
+                wa_units_used=0,
+                web_units_included=0,
+                web_units_used=0,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.commit()
+        FeedbackBillingService.consume_unit(db, org_id)
+        FeedbackBillingService.consume_web_unit(db, org_id)
+        usage = FeedbackBillingService.get_current_usage(db, org_id)
+        assert usage["survey_units_remaining"] == 0
+        assert usage["wa_units_used"] == 1
+        assert usage["web_units_used"] == 1
+        with pytest.raises(FeedbackBillingError, match="survey units"):
+            FeedbackBillingService.consume_web_unit(db, org_id)
+
+
 def test_feedback_period_renewal_opens_new_usage_period():
     org_id, _user_id = _seed_org()
     with get_sessionmaker()() as db:

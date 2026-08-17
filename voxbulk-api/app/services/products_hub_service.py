@@ -147,12 +147,12 @@ class ProductsHubService:
     def limits_summary(plan: Plan, *, fb_pkg: FeedbackPackage | None = None, campaign_desc: str | None = None) -> str:
         line = ProductsHubService.product_line_for_plan(plan)
         if line == "customer_feedback" and fb_pkg is not None:
-            web = (
-                "Unlimited Web"
-                if int(fb_pkg.web_units_included or 0) < 0
-                else f"{int(fb_pkg.web_units_included)} Web"
-            )
-            return f"{int(fb_pkg.wa_units_included or 0)} WhatsApp · {web}"
+            wa = int(fb_pkg.wa_units_included or 0)
+            web = int(fb_pkg.web_units_included or 0)
+            if web < 0:
+                return f"{int(wa)} WhatsApp · Unlimited Web"
+            total = wa + max(web, 0)
+            return f"{total} surveys/mo (WhatsApp or web)"
         if line == "voxbulk":
             parts: list[str] = []
             if int(plan.calls_included or 0):
@@ -173,20 +173,21 @@ class ProductsHubService:
         if line == "customer_feedback" and fb_pkg is not None:
             wa = int(fb_pkg.wa_units_included or 0)
             web = int(fb_pkg.web_units_included or 0)
-            wa_label = _fmt_count(wa)
-            web_label = _fmt_count(web)
-            if web < 0 or wa < 0:
-                total_label = "Unlimited"
-            else:
-                total_label = f"{(max(wa, 0) + max(web, 0)):,}"
             tier_key = ProductsHubService.tier_key_for_plan(plan)
-            features = [
-                f"{wa_label} WhatsApp surveys/mo",
-                f"{web_label} Web surveys/mo",
-                f"{total_label} total responses/mo",
-                "Voice-note transcription included",
-                f"{int(fb_pkg.max_locations or 1)} location(s)",
-            ]
+            if web < 0 or wa < 0:
+                features = [
+                    f"{_fmt_count(wa)} WhatsApp surveys/mo",
+                    "Unlimited Web surveys",
+                    "Voice-note transcription included",
+                    f"{int(fb_pkg.max_locations or 1)} location(s)",
+                ]
+            else:
+                total = wa + max(web, 0)
+                features = [
+                    f"{_fmt_count(total)} surveys/mo (WhatsApp or web)",
+                    "Voice-note transcription included",
+                    f"{int(fb_pkg.max_locations or 1)} location(s)",
+                ]
             for extra in _FB_TIER_EXTRAS.get(tier_key, []):
                 if extra not in features:
                     features.append(extra)

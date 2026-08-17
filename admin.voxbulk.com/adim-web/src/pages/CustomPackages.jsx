@@ -75,7 +75,7 @@ function emptyModules() {
       enabled: false,
       max_locations: 1,
       wa_units_included: 100,
-      web_units_included: 100,
+      web_units_included: 0,
       wa_extra_minor: 0,
       web_extra_minor: 0,
       notes: '',
@@ -501,8 +501,7 @@ export default function CustomPackages() {
               >
                 <div className="cpGrid3">
                   <div className="cpField"><label>Max locations</label><input type="number" min="0" value={draft.modules.customer_feedback.max_locations} onChange={(e) => setModule('customer_feedback', { max_locations: Number(e.target.value) })} /></div>
-                  <div className="cpField"><label>WhatsApp units</label><input type="number" min="0" value={draft.modules.customer_feedback.wa_units_included} onChange={(e) => setModule('customer_feedback', { wa_units_included: Number(e.target.value) })} /></div>
-                  <div className="cpField"><label>Web / scan units</label><input type="number" min="0" value={draft.modules.customer_feedback.web_units_included} onChange={(e) => setModule('customer_feedback', { web_units_included: Number(e.target.value) })} /></div>
+                  <div className="cpField"><label>Surveys / mo (WhatsApp or web)</label><input type="number" min="0" value={Number(draft.modules.customer_feedback.wa_units_included || 0) + Math.max(0, Number(draft.modules.customer_feedback.web_units_included || 0))} onChange={(e) => setModule('customer_feedback', { wa_units_included: Number(e.target.value), web_units_included: 0 })} /></div>
                 </div>
                 <div className="cpGrid3" style={{ marginTop: 8 }}>
                   <div className="cpField"><label>WA extra / unit</label><MoneyInput currency={currency} value={minorToMajor(draft.modules.customer_feedback.wa_extra_minor || 0)} onChange={(v) => setModule('customer_feedback', { wa_extra_minor: poundsToMinor(v) })} /></div>

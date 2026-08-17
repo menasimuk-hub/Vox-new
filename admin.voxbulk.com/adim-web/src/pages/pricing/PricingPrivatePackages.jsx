@@ -212,7 +212,7 @@ export default function PricingPrivatePackages() {
         cv_scans_included: 0,
         max_locations: 1,
         wa_units_included: 100,
-        web_units_included: 100,
+        web_units_included: 0,
         duration_days: 1,
         tier: serviceKey === 'smart_card' ? 'seat' : undefined,
         monthly_unit_hint_usd_cents: serviceKey === 'smart_card' ? 500 : undefined,
@@ -441,12 +441,8 @@ export default function PricingPrivatePackages() {
                       <input className="input" type="number" value={drawer.draft.max_locations ?? 1} onChange={(e) => setDraftField('max_locations', e.target.value)} />
                     </div>
                     <div className="pricingPkgField">
-                      <label>WA units</label>
-                      <input className="input" type="number" value={drawer.draft.wa_units_included ?? 100} onChange={(e) => setDraftField('wa_units_included', e.target.value)} />
-                    </div>
-                    <div className="pricingPkgField">
-                      <label>Web units</label>
-                      <input className="input" type="number" value={drawer.draft.web_units_included ?? 100} onChange={(e) => setDraftField('web_units_included', e.target.value)} />
+                      <label>Surveys / mo (WhatsApp or web)</label>
+                      <input className="input" type="number" value={Number(drawer.draft.wa_units_included || 0) + Math.max(0, Number(drawer.draft.web_units_included || 0))} onChange={(e) => setDrawer((d) => (d ? { ...d, draft: { ...d.draft, wa_units_included: e.target.value, web_units_included: 0 } } : d))} />
                     </div>
                   </div>
                 ) : null}
