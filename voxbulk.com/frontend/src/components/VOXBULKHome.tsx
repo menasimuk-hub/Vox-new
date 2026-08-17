@@ -11,7 +11,7 @@ import {
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { HeroSlider } from "@/components/HeroSlider";
 import { useTalkModal } from "@/components/TalkModal";
-import { useCurrency, FX, SYM } from "@/components/CurrencyContext";
+import { useCurrency, FX, SYM, formatMoney } from "@/components/CurrencyContext";
 import { usePublicPricing, type PublicPlan } from "@/hooks/usePricing";
 import { frontpageApiFetch } from "@/lib/api";
 import { isRouteEnabled, useProductVisibility } from "@/lib/product-visibility";
@@ -710,7 +710,7 @@ export function Pricing() {
                       <span className="text-[13px] text-muted-text">/mo</span>
                     </div>
                     <div className="mt-1 text-[12px] text-muted-text">
-                      Per minute: <strong className="text-heading">{s}{fmt((p.ratePerMinGBP as number) * priceFx)}</strong>
+                      Per minute: <strong className="text-heading">{formatMoney(s, fmt((p.ratePerMinGBP as number) * priceFx))}</strong>
                     </div>
                     {p.description ? (
                       <p className="mt-1.5 text-[12.5px] leading-snug text-muted-text">{p.description}</p>
@@ -724,12 +724,12 @@ export function Pricing() {
                   <>
                     <div className="mt-3 flex items-baseline gap-1">
                       <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>
-                        {s}{Math.round((p.priceGBP as number) * priceFx)}
+                        {formatMoney(s, Math.round((p.priceGBP as number) * priceFx))}
                       </span>
                       <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
                     </div>
                     <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>
-                      Per minute: <strong className={featured ? "text-white" : "text-heading"}>{s}{fmt((p.ratePerMinGBP as number) * priceFx)}</strong>
+                      Per minute: <strong className={featured ? "text-white" : "text-heading"}>{formatMoney(s, fmt((p.ratePerMinGBP as number) * priceFx))}</strong>
                     </div>
                     {p.description ? (
                       <p className={`mt-1.5 text-[12.5px] leading-snug ${featured ? "text-white/65" : "text-muted-text"}`}>
@@ -737,7 +737,7 @@ export function Pricing() {
                       </p>
                     ) : (
                       <div className={`mt-1 text-[11.5px] ${featured ? "text-white/55" : "text-muted-text"}`}>
-                        Typical interview · {s}{fmt((p.ratePerMinGBP as number) * 10 * priceFx)} – {s}{fmt((p.ratePerMinGBP as number) * 15 * priceFx)}
+                        Typical interview · {formatMoney(s, fmt((p.ratePerMinGBP as number) * 10 * priceFx))} – {formatMoney(s, fmt((p.ratePerMinGBP as number) * 15 * priceFx))}
                       </div>
                     )}
                   </>
@@ -831,8 +831,8 @@ export function Pricing() {
                 return (
                   <div key={p.name} className="bg-beige rounded-xl px-4 py-3 text-center">
                     <div className="text-[11px] text-muted-text mb-1">{p.name}</div>
-                    <div className="text-[16px] font-bold text-heading tabular-nums">{s}{fmt(total)}</div>
-                    <div className="text-[10.5px] text-muted-text mt-0.5">{s}{fmt(perCall)}/call</div>
+                    <div className="text-[16px] font-bold text-heading tabular-nums">{formatMoney(s, fmt(total))}</div>
+                    <div className="text-[10.5px] text-muted-text mt-0.5">{formatMoney(s, fmt(perCall))}/call</div>
                   </div>
                 );
               })}
@@ -851,15 +851,15 @@ export function Pricing() {
               tone="blue"
               icon={<PhoneCall size={16} />}
               title="Interview & survey call"
-              price={`${s}${fmt(0.25 * fx)} – ${s}${fmt(0.35 * fx)}/min`}
+              price={`${formatMoney(s, fmt(0.25 * fx))} – ${formatMoney(s, fmt(0.35 * fx))}/min`}
               unit="per minute · depends on your plan"
-              desc={`Starter: ${s}${fmt(0.35 * fx)}/min · Pro: ${s}${fmt(0.30 * fx)}/min · Business: ${s}${fmt(0.25 * fx)}/min · Enterprise: custom. A typical 10–15 min interview costs ${s}${fmt(3.5 * fx)} – ${s}${fmt(5.25 * fx)} on Starter, down to ${s}${fmt(2.5 * fx)} – ${s}${fmt(3.75 * fx)} on Business.`}
+              desc={`Starter: ${formatMoney(s, fmt(0.35 * fx))}/min · Pro: ${formatMoney(s, fmt(0.30 * fx))}/min · Business: ${formatMoney(s, fmt(0.25 * fx))}/min · Enterprise: custom. A typical 10–15 min interview costs ${formatMoney(s, fmt(3.5 * fx))} – ${formatMoney(s, fmt(5.25 * fx))} on Starter, down to ${formatMoney(s, fmt(2.5 * fx))} – ${formatMoney(s, fmt(3.75 * fx))} on Business.`}
             />
             <ServiceCard
               tone="teal"
               icon={<MessageCircle size={16} />}
               title="WhatsApp survey"
-              price={`${s}${fmt(WA_GBP * fx)}`}
+              price={formatMoney(s, fmt(WA_GBP * fx))}
               unit="per user sent"
               desc="One flat charge every time a survey is sent to a candidate or employee via WhatsApp. No per-reply charge — just the send."
             />
@@ -867,7 +867,7 @@ export function Pricing() {
               tone="gold"
               icon={<FileText size={16} />}
               title="ATS CV scan"
-              price={`${s}${fmt(CV_GBP * fx)}`}
+              price={formatMoney(s, fmt(CV_GBP * fx))}
               unit="per CV scanned"
               desc="Each CV uploaded and processed by the ATS costs a flat fee. Applies to every scan regardless of outcome."
             />
@@ -901,7 +901,7 @@ export function Pricing() {
                 aria-label="Top-up amount"
               />
               <div className="text-[15px] font-semibold text-heading min-w-[80px] text-right tabular-nums">
-                {s}{fmt(topup * fx)}
+                {formatMoney(s, fmt(topup * fx))}
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">

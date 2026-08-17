@@ -9,7 +9,7 @@ import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { BottomCTA } from "@/components/VOXBULKHome";
 import { SmartCardGallery } from "@/components/templates/TemplateGallery";
-import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
+import { useCurrency, SYM, FX, formatMoney } from "@/components/CurrencyContext";
 
 export const Route = createFileRoute("/smart-card/")({
   loader: async () => {
@@ -148,7 +148,7 @@ function SmartCardPage() {
   const monthly = (5 / FX.usd) * FX[cur];
   const yearlyTotal = monthly * 12 * 0.8;
   const shown = yearly ? yearlyTotal : monthly;
-  const fmt = (n: number) => `${s}${n < 20 ? n.toFixed(2) : Math.round(n)}`;
+  const fmt = (n: number) => formatMoney(s, n < 20 ? n.toFixed(2) : Math.round(n));
 
   return (
     <div className="bg-background text-body antialiased">

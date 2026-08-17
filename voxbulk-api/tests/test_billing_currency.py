@@ -47,6 +47,22 @@ def test_currency_symbol_eur():
     assert currency_symbol("EUR") == "€"
 
 
+def test_money_display_does_not_glue_dollar_to_digits():
+    from app.services.billing_currency import money_display
+
+    aud = money_display(9600, "AUD")
+    usd = money_display(1300, "USD")
+    cad = money_display(4000, "CAD")
+    gbp = money_display(4900, "GBP")
+    assert "\u00a0" in aud
+    assert aud.endswith("96.00")
+    assert not any(aud[i] == "$" and aud[i + 1].isdigit() for i in range(len(aud) - 1))
+    assert "\u00a0" in usd
+    assert usd.endswith("13.00")
+    assert "\u00a0" in cad
+    assert gbp == "£49.00"
+
+
 def test_profile_country_updates_currency_when_unlocked():
     with get_sessionmaker()() as db:
         org = Organisation(name="Currency Test", country="United Kingdom")

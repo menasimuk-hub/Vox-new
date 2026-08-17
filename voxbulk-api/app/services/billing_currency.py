@@ -56,6 +56,19 @@ def normalize_currency(value: str | None) -> str:
     return code if code in SUPPORTED_CURRENCIES else _DEFAULT_CURRENCY
 
 
+def glue_symbol_amount(symbol: str, amount: str) -> str:
+    """Join a currency symbol and numeric amount without `$` touching a digit.
+
+    `A$96` / `$13` are special in JS `String.replace` and in YAML/Playwright
+    snapshots (`$n` / `$``), which renders as file paths instead of prices.
+    """
+    sym = str(symbol or "")
+    num = str(amount or "")
+    if "$" in sym and num[:1].isdigit():
+        return f"{sym}\u00a0{num}"
+    return f"{sym}{num}"
+
+
 def currency_symbol(currency: str | None) -> str:
     return CURRENCY_SYMBOLS.get(normalize_currency(currency), "$")
 
@@ -64,7 +77,8 @@ def money_display(amount_minor: int | None, currency: str | None = None) -> str:
     if amount_minor is None:
         return "Custom"
     sym = currency_symbol(currency or _DEFAULT_CURRENCY)
-    return f"{sym}{(int(amount_minor) / 100):,.2f}"
+    amount = f"{(int(amount_minor) / 100):,.2f}"
+    return glue_symbol_amount(sym, amount)
 
 
 def major_amount_to_minor(raw: Any) -> int:

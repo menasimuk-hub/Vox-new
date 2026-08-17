@@ -9,7 +9,7 @@ import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { BottomCTA } from "@/components/VOXBULKHome";
 import { SurveyTemplateGallery } from "@/components/templates/TemplateGallery";
-import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
+import { useCurrency, SYM, FX, formatMoney } from "@/components/CurrencyContext";
 
 export const Route = createFileRoute("/expo/")({
   loader: async () => {
@@ -188,7 +188,7 @@ function ExpoPage() {
   const s = SYM[cur];
   const fx = FX[cur];
   const [openIdx, setOpenIdx] = useState<number | null>(0);
-  const price = (gbp: number) => `${s}${Math.round(gbp * fx)}`;
+  const price = (gbp: number) => formatMoney(s, Math.round(gbp * fx));
 
   return (
     <div className="bg-background text-body antialiased">

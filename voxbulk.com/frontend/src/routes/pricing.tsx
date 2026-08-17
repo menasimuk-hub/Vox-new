@@ -6,7 +6,7 @@ import {
   BottomCTA, PLANS, WA_GBP, CV_GBP, fmt, SliderRow, ServiceCard, TopupCell,
   BillingToggle, type Billing,
 } from "@/components/VOXBULKHome";
-import { useCurrency, SYM, FX, MARKETS } from "@/components/CurrencyContext";
+import { useCurrency, SYM, FX, MARKETS, formatMoney, sanitizeMoneyLabel } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, usePublicPricing, usePublicExpoPricing, type PublicFeedbackPlan, type PublicPlan, type PublicExpoPlan } from "@/hooks/usePricing";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
@@ -295,7 +295,7 @@ function SimplePlanCard({
       {p.featured && <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Most popular</span>}
       <div className={`text-[14px] font-semibold ${p.featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
       <div className="mt-3 flex items-baseline gap-1">
-        <span className={`text-[30px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{s}{displayPrice}</span>
+        <span className={`text-[30px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{formatMoney(s, displayPrice)}</span>
         <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>{period}</span>
       </div>
       {(apiPlan?.description || p.description) ? (
@@ -458,8 +458,8 @@ function PricingPage() {
                       </>
                     ) : p.payg ? (
                       <>
-                        <div className="mt-3 flex items-baseline gap-1"><span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{s}0</span><span className="text-[13px] text-muted-text">/mo</span></div>
-                        <div className="mt-1 text-[12px] text-muted-text">Per minute: <strong className="text-heading">{apiPlan?.per_min_display || `${s}${fmt((p.ratePerMinGBP as number) * fx)}`}</strong></div>
+                        <div className="mt-3 flex items-baseline gap-1"><span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{formatMoney(s, 0)}</span><span className="text-[13px] text-muted-text">/mo</span></div>
+                        <div className="mt-1 text-[12px] text-muted-text">Per minute: <strong className="text-heading">{sanitizeMoneyLabel(apiPlan?.per_min_display || formatMoney(s, fmt((p.ratePerMinGBP as number) * fx)))}</strong></div>
                         {(apiPlan?.description || p.description) ? (
                           <p className="mt-1.5 text-[12.5px] leading-snug text-muted-text">
                             {apiPlan?.description || p.description}
@@ -469,10 +469,10 @@ function PricingPage() {
                     ) : (
                       <>
                         <div className="mt-3 flex items-baseline gap-1">
-                          <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>{s}{displayPrice ?? Math.round((p.priceGBP as number) * (coreBilling === "yearly" ? 10 : 1) * fx)}</span>
+                          <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>{formatMoney(s, displayPrice ?? Math.round((p.priceGBP as number) * (coreBilling === "yearly" ? 10 : 1) * fx))}</span>
                           <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>{coreBilling === "yearly" ? "/yr" : "/mo"}</span>
                         </div>
-                        <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>Per minute: <strong className={featured ? "text-white" : "text-heading"}>{apiPlan?.per_min_display || `${s}${perMinDisplay}`}</strong></div>
+                        <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>Per minute: <strong className={featured ? "text-white" : "text-heading"}>{sanitizeMoneyLabel(apiPlan?.per_min_display || (perMinDisplay != null ? formatMoney(s, perMinDisplay) : ""))}</strong></div>
                         {(apiPlan?.description || p.description) ? (
                           <p className={`mt-1.5 text-[12.5px] leading-snug ${featured ? "text-white/65" : "text-muted-text"}`}>
                             {apiPlan?.description || p.description}
@@ -527,8 +527,8 @@ function PricingPage() {
                   return (
                     <div key={p.code} className="bg-beige rounded-xl px-4 py-3 text-center">
                       <div className="text-[11px] text-muted-text mb-1">{p.name}</div>
-                      <div className="text-[16px] font-bold text-heading tabular-nums">{s}{fmt(total)}</div>
-                      <div className="text-[10.5px] text-muted-text mt-0.5">{s}{fmt(perCall)}/call</div>
+                      <div className="text-[16px] font-bold text-heading tabular-nums">{formatMoney(s, fmt(total))}</div>
+                      <div className="text-[10.5px] text-muted-text mt-0.5">{formatMoney(s, fmt(perCall))}/call</div>
                     </div>
                   );
                 })}
@@ -604,7 +604,7 @@ function PricingPage() {
                     <div className={`text-[14px] font-semibold ${featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
                     <div className="mt-3 flex items-baseline gap-1">
                       <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>
-                        {s}{displayPrice}
+                        {formatMoney(s, displayPrice)}
                       </span>
                       <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/ exhibition</span>
                     </div>
@@ -641,7 +641,7 @@ function PricingPage() {
               <div className="rounded-2xl p-6 bg-white border border-border shadow-elegant flex flex-col">
                 <div className="text-[14px] font-semibold text-heading">Monthly</div>
                 <div className="mt-3 flex items-baseline gap-1">
-                  <span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{s}{seatMonthly}</span>
+                  <span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{formatMoney(s, seatMonthly)}</span>
                   <span className="text-[13px] text-muted-text">/ seat / month</span>
                 </div>
                 <ul className="mt-5 space-y-2.5 text-[13.5px] text-body flex-1">
@@ -657,7 +657,7 @@ function PricingPage() {
                 <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Save 20%</span>
                 <div className="text-[14px] font-semibold text-white/90">Yearly</div>
                 <div className="mt-3 flex items-baseline gap-1">
-                  <span className="text-[30px] font-bold tracking-[-0.02em] text-gold">{s}{Math.round(seatMonthly * 12 * 0.8)}</span>
+                  <span className="text-[30px] font-bold tracking-[-0.02em] text-gold">{formatMoney(s, Math.round(seatMonthly * 12 * 0.8))}</span>
                   <span className="text-[13px] text-white/60">/ seat / year</span>
                 </div>
                 <ul className="mt-5 space-y-2.5 text-[13.5px] text-white/80 flex-1">
@@ -732,13 +732,13 @@ function PricingPage() {
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text mb-4">What each service costs</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <ServiceCard tone="blue" icon={<PhoneCall size={16} />} title="Interview & survey call"
-                price={`${s}${fmt(0.25 * fx)} – ${s}${fmt(0.35 * fx)}/min`} unit="per minute · depends on your plan"
-                desc={`Starter: ${s}${fmt(0.35 * fx)}/min · Pro: ${s}${fmt(0.30 * fx)}/min · Business: ${s}${fmt(0.25 * fx)}/min.`} />
+                price={`${formatMoney(s, fmt(0.25 * fx))} – ${formatMoney(s, fmt(0.35 * fx))}/min`} unit="per minute · depends on your plan"
+                desc={`Starter: ${formatMoney(s, fmt(0.35 * fx))}/min · Pro: ${formatMoney(s, fmt(0.30 * fx))}/min · Business: ${formatMoney(s, fmt(0.25 * fx))}/min.`} />
               <ServiceCard tone="teal" icon={<MessageCircle size={16} />} title="WhatsApp survey"
-                price={`${s}${fmt(waRate)}`} unit="per user sent"
+                price={formatMoney(s, fmt(waRate))} unit="per user sent"
                 desc="One flat charge every time a survey is sent. No per-reply charge — just the send." />
               <ServiceCard tone="gold" icon={<FileText size={16} />} title="ATS CV scan"
-                price={`${s}${fmt(cvRate)}`} unit="per CV scanned"
+                price={formatMoney(s, fmt(cvRate))} unit="per CV scanned"
                 desc="Each CV uploaded and processed by the ATS costs a flat fee." />
             </div>
 
@@ -753,7 +753,7 @@ function PricingPage() {
               </div>
               <div className="flex items-center gap-4 mb-5">
                 <input type="range" min={10} max={500} step={10} value={topup} onChange={(e) => setTopup(parseInt(e.target.value))} className="flex-1 accent-primary" aria-label="Top-up amount" />
-                <div className="text-[15px] font-semibold text-heading min-w-[80px] text-right tabular-nums">{s}{fmt(topup * fx)}</div>
+                <div className="text-[15px] font-semibold text-heading min-w-[80px] text-right tabular-nums">{formatMoney(s, fmt(topup * fx))}</div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <TopupCell label="Minutes of calls" value={`~${Math.floor(topup / 0.35)} mins`} />

@@ -813,10 +813,9 @@ class CustomPackagesService:
 
     @staticmethod
     def _money_display(minor: int, currency: str) -> str:
-        from app.services.billing_currency import CURRENCY_SYMBOLS
+        from app.services.billing_currency import money_display
 
-        sym = CURRENCY_SYMBOLS.get(currency, currency + " ")
-        return f"{sym}{(int(minor or 0) / 100):,.2f}"
+        return money_display(int(minor or 0), currency)
 
     @staticmethod
     def _usage_row(

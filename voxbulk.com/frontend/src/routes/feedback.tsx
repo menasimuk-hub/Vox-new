@@ -4,7 +4,7 @@ import { ArrowRight, Check, Utensils, ShoppingBag, Scissors, Hotel, Languages, S
 import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { StatsRow, BottomCTA } from "@/components/VOXBULKHome";
-import { useCurrency, SYM, FX } from "@/components/CurrencyContext";
+import { useCurrency, SYM, FX, formatMoney } from "@/components/CurrencyContext";
 import { SurveyTemplateGallery } from "@/components/templates/TemplateGallery";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
@@ -227,7 +227,7 @@ function FeedbackPage() {
                   {p.featured && <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Most popular</span>}
                   <div className={`text-[14px] font-semibold ${p.featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
                   <div className="mt-3 flex items-baseline gap-1">
-                    <span className={`text-[32px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{s}{Math.round(p.price * fx)}</span>
+                    <span className={`text-[32px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{formatMoney(s, Math.round(p.price * fx))}</span>
                     <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
                   </div>
                   <ul className={`mt-5 space-y-2.5 text-[14px] flex-1 ${p.featured ? "text-white/80" : "text-body"}`}>
