@@ -48,7 +48,7 @@ EU_MEMBER_STATES = frozenset(
 )
 
 _COUNTRY_CURRENCY = {"GB": "GBP", "US": "USD", "CA": "CAD", "AU": "AUD"}
-_DEFAULT_CURRENCY = "USD"
+_DEFAULT_CURRENCY = "GBP"
 
 
 def normalize_currency(value: str | None) -> str:
@@ -98,6 +98,15 @@ def major_amount_to_minor(raw: Any) -> int:
     except (InvalidOperation, AttributeError, ValueError):
         return 0
     return int((value * Decimal(100)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def documented_major_to_minor(raw: Any) -> int:
+    """Convert a documented major-unit field (string/decimal). Bare ints stay minor units."""
+    if raw is None or isinstance(raw, bool):
+        return 0
+    if isinstance(raw, int):
+        return int(raw)
+    return major_amount_to_minor(raw)
 
 
 def currency_for_country_code(country_code: str | None) -> str:

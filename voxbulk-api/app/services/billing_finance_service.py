@@ -184,6 +184,7 @@ class BillingFinanceService:
             "new_monthly_display": money_display(new_monthly, currency),
             "currency": currency,
             "pending_plan_id": sub.pending_plan_id,
+            "payment_provider": str(sub.payment_provider or ""),
         }
 
     @staticmethod

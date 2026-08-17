@@ -50,11 +50,12 @@ def test_render_html_to_pdf_prefers_weasyprint():
     assert out == fake_pdf
 
 
-def test_render_html_to_pdf_falls_back_to_fpdf_when_weasyprint_unavailable():
+def test_render_html_to_pdf_fails_closed_when_weasyprint_unavailable():
     with patch("app.services.invoice_pdf_service._render_with_weasyprint", return_value=None):
-        out = render_html_to_pdf_bytes("<html><body><p>Invoice INV-1</p></body></html>")
+        import pytest
 
-    assert out.startswith(b"%PDF")
+        with pytest.raises(RuntimeError, match="WeasyPrint"):
+            render_html_to_pdf_bytes("<html><body><p>Invoice INV-1</p></body></html>")
 
 
 def test_build_variables_does_not_compare_due_date_to_int():

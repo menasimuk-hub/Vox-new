@@ -195,7 +195,7 @@ class SubscriptionCancellationService:
 
     @staticmethod
     def _amount_paid_for_period_minor(db: Session, org: Organisation, sub: Subscription, plan: Plan) -> int:
-        invoice = SubscriptionCancellationService._latest_paid_subscription_invoice(db, org.id)
+        invoice = SubscriptionCancellationService._latest_paid_subscription_invoice(db, org.id, sub=sub)
         if invoice is not None:
             paid = int(invoice.subtotal_pence if invoice.subtotal_pence is not None else invoice.amount_gbp_pence or 0)
             if paid > 0:
@@ -260,20 +260,31 @@ class SubscriptionCancellationService:
         return base
 
     @staticmethod
-    def _latest_paid_subscription_invoice(db: Session, org_id: str) -> BillingInvoice | None:
-        rows = list(
-            db.execute(
-                select(BillingInvoice)
-                .where(
-                    BillingInvoice.org_id == org_id,
-                    BillingInvoice.status == "paid",
-                )
-                .order_by(BillingInvoice.created_at.desc())
-                .limit(20)
+    def _latest_paid_subscription_invoice(
+        db: Session, org_id: str, sub: Subscription | None = None
+    ) -> BillingInvoice | None:
+        stmt = (
+            select(BillingInvoice)
+            .where(
+                BillingInvoice.org_id == org_id,
+                BillingInvoice.status == "paid",
             )
-            .scalars()
-            .all()
+            .order_by(BillingInvoice.created_at.desc())
+            .limit(20)
         )
+        rows = list(db.execute(stmt).scalars().all())
+        if sub is not None:
+            sid = str(sub.id)
+            svc = str(sub.service_code or "voxbulk")
+            scoped = [
+                row
+                for row in rows
+                if str(row.service_code or "") == svc
+                or sid in str(row.external_invoice_id or "")
+                or sid in str(row.description or "")
+            ]
+            if scoped:
+                rows = scoped
         for row in rows:
             desc = str(row.description or "").lower()
             if "subscription" in desc or str(row.external_invoice_id or "").startswith("sub-monthly"):
@@ -558,7 +569,7 @@ class SubscriptionCancellationService:
         if open_review is not None:
             return open_review
 
-        invoice = SubscriptionCancellationService._latest_paid_subscription_invoice(db, org.id)
+        invoice = SubscriptionCancellationService._latest_paid_subscription_invoice(db, org.id, sub=sub)
         unused = SubscriptionCancellationService.calculate_unused_value_pence(db, org, sub, plan) if plan else 0
         now = datetime.utcnow()
         row = BillingRefundReview(

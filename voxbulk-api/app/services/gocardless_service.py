@@ -28,52 +28,6 @@ from app.services.billing_access_service import BillingAccessService
 from app.services.provider_settings import ProviderSettingsService
 
 
-_DEFAULT_PLANS: list[dict] = [
-    {
-        "code": "starter",
-        "name": "Starter",
-        "price_gbp_pence": 9900,
-        "interval": "monthly",
-        "description": "Ideal for a single practice getting started with automated recovery.",
-        "features": [
-            "1 branch · up to 2 dentists",
-            "100 recovery touches / month",
-            "WhatsApp + voice outreach",
-            "Dentally integration",
-            "Email support",
-        ],
-    },
-    {
-        "code": "practice",
-        "name": "Practice",
-        "price_gbp_pence": 19900,
-        "interval": "monthly",
-        "description": "Most teams: multi-chair clinics that want full reporting and priority support.",
-        "features": [
-            "Up to 3 branches",
-            "300 recovery touches / month",
-            "No-show follow-up workflows",
-            "PDF reports & dashboards",
-            "Priority support",
-        ],
-    },
-    {
-        "code": "group",
-        "name": "Group",
-        "price_gbp_pence": 39900,
-        "interval": "monthly",
-        "description": "Multi-site groups needing SLAs, analytics, and flexible seats.",
-        "features": [
-            "Unlimited branches",
-            "600+ recovery touches / month",
-            "Advanced analytics",
-            "Dedicated account manager",
-            "API access",
-        ],
-    },
-]
-
-
 class GoCardlessConfigError(ValueError):
     pass
 
@@ -87,23 +41,9 @@ class BillingService:
 
     @staticmethod
     def ensure_default_plans(db: Session) -> None:
-        n = db.execute(select(func.count()).select_from(Plan)).scalar_one()
-        if int(n or 0) > 0:
-            return
-        now = datetime.utcnow()
-        for row in _DEFAULT_PLANS:
-            db.add(
-                Plan(
-                    code=row["code"],
-                    name=row["name"],
-                    price_gbp_pence=int(row["price_gbp_pence"]),
-                    interval=str(row["interval"]),
-                    description=row.get("description"),
-                    features_json=json.dumps(row.get("features") or []),
-                    created_at=now,
-                )
-            )
-        db.commit()
+        from app.services.voxbulk_pricing_service import VoxbulkPricingService
+
+        VoxbulkPricingService.ensure_seeded(db)
 
     @staticmethod
     def get_subscription(db: Session, org_id: str) -> Subscription | None:
@@ -932,43 +872,12 @@ class BillingService:
             amount_minor = int(amount_minor or 0) * int(seat_quantity)
         if amount_minor <= 0:
             return None
-        gc_interval = "yearly" if interval == "yearly" else "monthly"
-        config = BillingService._get_gocardless_config(db)
-        meta_kwargs: dict[str, str] = {
-            "org_id": org_id,
-            "plan_id": plan.id,
-            "client_email": client_email,
-        }
-        # GoCardless allows at most 3 metadata keys — prefer seats over interval when set.
-        if seat_quantity is not None and int(seat_quantity) > 0:
-            meta_kwargs["seats"] = str(int(seat_quantity))
-        else:
-            meta_kwargs["billing_interval"] = interval
-        subscription_body: dict[str, Any] = {
-            "amount": amount_minor,
-            "currency": currency,
-            "name": f"VOXBULK.COM {plan.name}",
-            "interval_unit": gc_interval,
-            "links": {"mandate": mandate_id},
-            "metadata": BillingService._gocardless_metadata(**meta_kwargs),
-        }
-        if start_date:
-            subscription_body["start_date"] = str(start_date)
-        subscription_payload = {"subscriptions": subscription_body}
-        with httpx.Client(timeout=20) as client:
-            subscription_response = client.post(
-                f"{config['api_base']}/subscriptions",
-                headers=BillingService._gocardless_headers(config["access_token"]),
-                json=subscription_payload,
-            )
-        if subscription_response.status_code >= 400:
-            BillingService._log_gocardless_http_failure(
-                "subscription_create",
-                response=subscription_response,
-            )
-            BillingService._raise_for_gocardless_error(subscription_response)
-        provider_sub = subscription_response.json().get("subscriptions") or {}
-        return str(provider_sub.get("id") or "").strip() or None
+        logger.info(
+            "gocardless_subscription_create_skipped_payment_api mandate_id=%s org_id=%s",
+            mandate_id,
+            org_id,
+        )
+        return None
 
     @staticmethod
     def has_active_mandate(db: Session, org_id: str) -> bool:
@@ -1308,6 +1217,8 @@ class BillingService:
             )
             trial_days = int(discounted.get("trial_days") or 0)
             charge_minor = int(discounted["amount_minor"])
+        if trial_days <= 0 and service_code_preview == "voxbulk":
+            trial_days = int(getattr(plan, "trial_days_default", 0) or 0)
         # Smart Card product default: 1 month free when no promo trial.
         if service_code_preview == "smart_card" and trial_days <= 0:
             plan_default = int(getattr(plan, "trial_days_default", 0) or 0)
@@ -1330,7 +1241,7 @@ class BillingService:
             start_date=start_date,
         )
         if not external_subscription_id:
-            raise GoCardlessProviderError("GoCardless did not return a subscription id")
+            external_subscription_id = f"mandate:{mandate_id}"
         logger.info(
             "gocardless_subscription_created",
             extra={

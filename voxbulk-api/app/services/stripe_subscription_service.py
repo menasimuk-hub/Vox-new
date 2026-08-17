@@ -52,20 +52,43 @@ class StripeSubscriptionService:
         if amount_minor <= 0:
             raise StripeSubscriptionError("Plan price is not configured for your billing currency.")
         from app.services.promo_discount_service import PromoDiscountService
+        from app.services.subscription_live_guard import promo_service_kind
 
-        service_kind = "customer_feedback" if str(service_code or "").lower() in {
-            "customer_feedback",
-            "feedback",
-        } else "smart_card" if str(service_code or "").lower() in {
-            "smart_card",
-            "smartcard",
-        } else "voxbulk"
-        discounted = PromoDiscountService.apply_and_consume(
+        service_kind = promo_service_kind(service_code)
+        discounted = PromoDiscountService.peek_amount(
             db, org_id=org.id, service_kind=service_kind, amount_minor=amount_minor
         )
         trial_days = int(discounted.get("trial_days") or 0)
         amount_minor = int(discounted["amount_minor"])
-        if trial_days > 0 or amount_minor <= 0:
+        if trial_days <= 0 and str(service_code or "voxbulk").lower() == "voxbulk":
+            trial_days = int(getattr(plan, "trial_days_default", 0) or 0)
+        if trial_days > 0:
+            catalog = int(discounted.get("original_amount_minor") or amount_minor or 0)
+            intent = StripePaymentService.create_subscription_setup_intent(
+                db,
+                org,
+                plan_id=plan.id,
+                billing_interval=interval,
+                service_code=service_code,
+                customer_email=user_email,
+                trial_days=trial_days,
+                catalog_amount_minor=catalog,
+            )
+            return {
+                "provider": "stripe",
+                "currency": currency,
+                "amount_minor": 0,
+                "billing_interval": interval,
+                "client_secret": intent.get("client_secret"),
+                "intent_id": intent.get("setup_intent_id") or intent.get("payment_intent_id"),
+                "checkout": intent,
+                "plan_id": plan.id,
+                "service_code": service_code,
+                "mode": "setup",
+                "trial_days": trial_days,
+                "promo_discount_applied": bool(discounted.get("discount_applied")),
+            }
+        if amount_minor <= 0:
             # Trial or 100% discount — activate without card charge.
             from datetime import timedelta
 
@@ -87,7 +110,13 @@ class StripeSubscriptionService:
             sub.external_subscription_id = f"promo-{'trial' if trial_days else 'discount'}-{org.id[:8]}"[:255]
             sub.current_period_end = now + timedelta(days=period_days)
             sub.updated_at = now
+            from app.services.subscription_live_guard import apply_live_slot
+
+            apply_live_slot(sub)
             db.add(sub)
+            PromoDiscountService.apply_and_consume(
+                db, org_id=org.id, service_kind=service_kind, amount_minor=int(discounted.get("original_amount_minor") or amount_minor)
+            )
             db.commit()
             db.refresh(sub)
             if str(service_code or "").lower() not in {"smart_card", "customer_feedback", "feedback"}:

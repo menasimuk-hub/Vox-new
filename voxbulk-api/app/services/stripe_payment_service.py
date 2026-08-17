@@ -256,6 +256,8 @@ class StripePaymentService:
         meta = intent.get("metadata") or {}
         if str(meta.get("voxbulk_org_id") or "") != org.id:
             raise StripeProviderError("Payment does not belong to this organisation")
+        if str(meta.get("voxbulk_kind") or "") != "wallet_topup":
+            raise StripeProviderError("Payment is not a wallet top-up")
         status = str(intent.get("status") or "")
         if status != "succeeded":
             return {"ok": False, "status": status, "credited": False}
@@ -274,6 +276,11 @@ class StripePaymentService:
             description="Wallet top-up via Stripe",
         )
         StripePaymentService._issue_topup_invoice(db, org, amount_minor=amount, reference=pid, provider="stripe")
+        from app.services.promo_discount_service import PromoDiscountService
+
+        PromoDiscountService.apply_and_consume(
+            db, org_id=org.id, service_kind="wallet", amount_minor=amount, commit=False
+        )
         return {"ok": True, "status": status, "credited": True, "amount_minor": amount}
 
     @staticmethod
@@ -388,16 +395,16 @@ class StripePaymentService:
         secret = str(cfg.get("webhook_secret") or "").strip()
         if not secret:
             raise StripeConfigError("Stripe webhook secret is not configured")
-        parts = dict(p.split("=", 1) for p in str(signature_header or "").split(",") if "=" in p)
-        timestamp = parts.get("t")
-        sig = parts.get("v1")
-        if not timestamp or not sig:
+        pieces = [p.strip() for p in str(signature_header or "").split(",") if "=" in p]
+        timestamp = next((p.split("=", 1)[1] for p in pieces if p.startswith("t=")), None)
+        v1_sigs = [p.split("=", 1)[1] for p in pieces if p.startswith("v1=")]
+        if not timestamp or not v1_sigs:
             raise StripeProviderError("Invalid Stripe signature header")
         if abs(time.time() - int(timestamp)) > 300:
             raise StripeProviderError("Stripe webhook timestamp outside tolerance")
         signed = f"{timestamp}.{payload.decode('utf-8')}"
         expected = hmac.new(secret.encode("utf-8"), signed.encode("utf-8"), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, sig):
+        if not any(hmac.compare_digest(expected, sig) for sig in v1_sigs):
             raise StripeProviderError("Stripe webhook signature mismatch")
         return json.loads(payload)
 
@@ -432,6 +439,52 @@ class StripePaymentService:
             return CardRenewalLifecycleService.handle_renewal_webhook_failure(
                 db, org=org, intent=intent, provider="stripe", failure_reason=reason
             )
+
+        if kind in {"charge.refunded", "charge.dispute.created", "charge.dispute.closed"}:
+            charge = intent if str(intent.get("object") or "") == "charge" else (event.get("data") or {}).get("object") or {}
+            pid = str(charge.get("payment_intent") or charge.get("id") or pid)
+            charge_meta = charge.get("metadata") or meta
+            org_id = str(charge_meta.get("voxbulk_org_id") or org_id)
+            payment_kind = str(charge_meta.get("voxbulk_kind") or payment_kind)
+            refunds = charge.get("refunds") or {}
+            refund_id = ""
+            if isinstance(refunds, dict):
+                data = refunds.get("data") or []
+                if data and isinstance(data[0], dict):
+                    refund_id = str(data[0].get("id") or "")
+            from app.services.billing_refund_service import BillingRefundService
+
+            return BillingRefundService.handle_provider_refund(
+                db,
+                provider="stripe",
+                org_id=org_id,
+                payment_kind=payment_kind,
+                payment_intent_id=pid,
+                refund_id=refund_id or str(charge.get("id") or pid),
+                amount_minor=int(charge.get("amount_refunded") or charge.get("amount") or 0),
+                metadata=charge_meta if isinstance(charge_meta, dict) else {},
+            )
+
+        if kind == "setup_intent.succeeded":
+            from app.services.card_subscription_activation_service import CardSubscriptionActivationService
+
+            setup_kind = str(meta.get("voxbulk_kind") or "")
+            if setup_kind != "subscription_checkout":
+                return {"ok": True, "ignored": True, "reason": "unsupported_setup_kind"}
+            org = db.get(Organisation, org_id)
+            if org is None:
+                return {"ok": True, "ignored": True, "reason": "org_not_found"}
+            result = CardSubscriptionActivationService.activate_from_webhook_intent(
+                db, org=org, intent=intent, provider="stripe"
+            )
+            sub_id = result.get("subscription_id")
+            if sub_id:
+                from app.services.stripe_billing_service import StripeBillingService
+
+                sub = db.get(Subscription, sub_id)
+                if sub is not None:
+                    StripeBillingService.sync_credentials_from_setup_intent(db, sub, setup_intent_id=pid)
+            return result
 
         if kind != "payment_intent.succeeded":
             return {"ok": True, "ignored": True, "type": kind}

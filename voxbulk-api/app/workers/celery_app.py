@@ -18,7 +18,7 @@ celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
-    timezone="UTC",
+    timezone="Europe/London",
     enable_utc=True,
     # Dedicated queue so other Redis workers (fresh@, wa-stt@) cannot steal
     # VoxBulk tasks they do not register (they share broker DB 6 / queue "celery").
@@ -105,6 +105,10 @@ celery_app.conf.update(
         "seo-keyword-ideas-weekly": {
             "task": "seo.refresh_keyword_ideas",
             "schedule": crontab(hour=6, minute=30, day_of_week="mon"),
+        },
+        "retry-unprocessed-webhooks-5m": {
+            "task": "webhooks.retry_unprocessed",
+            "schedule": 300.0,
         },
         "expo-visitor-day-summaries-hourly": {
             "task": "expo.send_visitor_day_summaries",

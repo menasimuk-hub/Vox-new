@@ -24,6 +24,7 @@ class BillingSettings(Base):
 
     invoice_prefix: Mapped[str] = mapped_column(String(16), nullable=False, default="INV")
     invoice_next_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    credit_note_next_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     invoice_due_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

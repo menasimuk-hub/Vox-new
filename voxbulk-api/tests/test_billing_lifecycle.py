@@ -232,7 +232,18 @@ def test_monthly_billing_skips_gocardless_managed_subscription():
 def test_monthly_billing_creates_subscription_invoice():
     org_id, _, email = _seed_org_with_wallet()
     with get_sessionmaker()() as db:
-        plan = db.execute(select(Plan).limit(1)).scalar_one()
+        plan = (
+            db.execute(
+                select(Plan).where(
+                    Plan.is_active.is_(True),
+                    Plan.code != "payg",
+                    Plan.price_gbp_pence > 0,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert plan is not None
         sub = Subscription(
             org_id=org_id,
             plan_id=plan.id,

@@ -125,7 +125,7 @@ class SmartCardBillingService:
         promo_applied = False
         trial_days = 0
         if apply_promo:
-            discounted = PromoDiscountService.apply_and_consume(
+            discounted = PromoDiscountService.peek_amount(
                 db, org_id=org.id, service_kind=SMART_CARD_SERVICE_CODE, amount_minor=amount_minor
             )
             amount_minor = int(discounted["amount_minor"])
@@ -218,11 +218,6 @@ class SmartCardBillingService:
 
         # Free trial: collect card (SetupIntent / zero-amount consent), charge later.
         if trial_days > 0:
-            # Consume pending trial promo so it cannot be reused.
-            if peeked.get("discount_applied") and int(peeked.get("trial_days") or 0) > 0:
-                PromoDiscountService.apply_and_consume(
-                    db, org_id=org.id, service_kind=SMART_CARD_SERVICE_CODE, amount_minor=catalog_minor
-                )
             try:
                 if prov == "airwallex":
                     from app.services.airwallex_payment_service import AirwallexPaymentService
@@ -432,16 +427,14 @@ class SmartCardBillingService:
         if prov == "airwallex":
             ok = status_raw.upper() == "SUCCEEDED" or status_raw.lower() in {
                 "succeeded",
-                "processing",
-                "requires_capture",
             }
             # Zero-amount / consent setup may land in REQUIRES_CUSTOMER_ACTION until confirmed via HPP.
             if is_setup and status_raw.upper() in {"SUCCEEDED", "PENDING", "REQUIRES_CAPTURE"}:
                 ok = True
         elif is_setup:
-            ok = status_raw.lower() in {"succeeded", "processing"}
+            ok = status_raw.lower() in {"succeeded"}
         else:
-            ok = status_raw.lower() in {"succeeded", "processing", "requires_capture"}
+            ok = status_raw.lower() in {"succeeded"}
         if not ok:
             raise SmartCardBillingError("Payment not completed yet")
 
@@ -456,20 +449,23 @@ class SmartCardBillingService:
         if str(meta.get("voxbulk_service_code") or "").strip() != SMART_CARD_SERVICE_CODE:
             raise SmartCardBillingError("Payment is not a Smart Card QR subscription checkout")
 
-        seats = seat_quantity
-        if seats is None:
-            try:
-                seats = int(meta.get("voxbulk_seat_quantity") or 0)
-            except Exception:
-                seats = 0
-        if seats < 1:
+        seats = None
+        try:
+            seats = int(meta.get("voxbulk_seat_quantity") or 0) or None
+        except Exception:
+            seats = None
+        if seats is None or seats < 1:
             raise SmartCardBillingError("seat_quantity missing from payment")
+        if seat_quantity is not None and int(seat_quantity) != int(seats):
+            raise SmartCardBillingError("seat_quantity does not match payment")
 
         interval = PlanPriceService.normalize_billing_interval(
-            billing_interval
-            or meta.get("voxbulk_billing_interval")
-            or "yearly"
+            meta.get("voxbulk_billing_interval") or "yearly"
         )
+        if billing_interval:
+            client_interval = PlanPriceService.normalize_billing_interval(billing_interval)
+            if client_interval != interval:
+                raise SmartCardBillingError("billing_interval does not match payment")
         try:
             trial_days = max(0, int(meta.get("voxbulk_trial_days") or 0))
         except Exception:

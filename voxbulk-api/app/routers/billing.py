@@ -37,7 +37,7 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 
 
 @router.get("/plans", response_model=list[PlanOut])
-def list_plans(db: Session = Depends(get_db)):
+def list_plans(db: Session = Depends(get_db), principal=Depends(require_billing_access)):
     from app.services.voxbulk_pricing_service import VoxbulkPricingService
 
     VoxbulkPricingService.ensure_seeded(db)
@@ -310,10 +310,6 @@ def wallet_topup_intent(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except (StripeProviderError, AirwallexProviderError) as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
-    if peeked.get("discount_applied"):
-        PromoDiscountService.apply_and_consume(
-            db, org_id=org.id, service_kind="wallet", amount_minor=amount, commit=True
-        )
     result["catalog_amount_minor"] = amount
     result["charge_amount_minor"] = charge_minor
     result["discount_applied"] = bool(peeked.get("discount_applied"))
@@ -505,22 +501,29 @@ def complete_card_subscription_checkout(
             intent = StripePaymentService.retrieve_intent(db, pid)
         except StripeProviderError as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
-        if str(intent.get("status") or "").lower() not in {"succeeded", "processing", "requires_capture"}:
+        if str(intent.get("status") or "").lower() != "succeeded":
             raise HTTPException(status_code=400, detail="Payment not completed yet")
         try:
-            CardSubscriptionActivationService.verify_intent_metadata(
+            verified = CardSubscriptionActivationService.verify_intent_metadata(
                 intent.get("metadata") or {},
                 org_id=org.id,
                 plan_id=payload.plan_id,
             )
         except CardSubscriptionActivationError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+        if payload.billing_interval:
+            from app.services.plan_price_service import PlanPriceService
+
+            client_interval = PlanPriceService.normalize_billing_interval(payload.billing_interval)
+            if client_interval != verified["billing_interval"]:
+                raise HTTPException(status_code=400, detail="billing_interval does not match payment")
         sub = StripeSubscriptionService.activate_from_payment(
             db,
             org=org,
             plan=plan,
             provider_reference=pid,
-            billing_interval=payload.billing_interval,
+            billing_interval=verified["billing_interval"],
+            service_code=verified.get("service_code") or "voxbulk",
         )
         StripeSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
     elif provider == "airwallex":
@@ -532,19 +535,26 @@ def complete_card_subscription_checkout(
         if status_val not in {"succeeded", "success", "captured", "paid"}:
             raise HTTPException(status_code=400, detail="Payment not completed yet")
         try:
-            CardSubscriptionActivationService.verify_intent_metadata(
+            verified = CardSubscriptionActivationService.verify_intent_metadata(
                 (intent or {}).get("metadata") or {},
                 org_id=org.id,
                 plan_id=payload.plan_id,
             )
         except CardSubscriptionActivationError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+        if payload.billing_interval:
+            from app.services.plan_price_service import PlanPriceService
+
+            client_interval = PlanPriceService.normalize_billing_interval(payload.billing_interval)
+            if client_interval != verified["billing_interval"]:
+                raise HTTPException(status_code=400, detail="billing_interval does not match payment")
         sub = AirwallexSubscriptionService.activate_from_payment(
             db,
             org=org,
             plan=plan,
             provider_reference=pid,
-            billing_interval=payload.billing_interval,
+            billing_interval=verified["billing_interval"],
+            service_code=verified.get("service_code") or "voxbulk",
         )
         AirwallexSubscriptionService.sync_checkout_credentials(db, sub, payment_intent_id=pid)
     else:
@@ -1046,6 +1056,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(require_b
         display_gbp: str | None = None,
         estimate_source: str | None = None,
         sublabel: str | None = None,
+        unlimited: bool = False,
     ) -> dict:
         pct = round((used / included) * 100, 1) if included > 0 else 0.0
         if remaining_override is not None:
@@ -1060,7 +1071,7 @@ def get_usage_summary(db: Session = Depends(get_db), principal=Depends(require_b
             "remaining": remaining,
             "percent": pct,
             "unit": unit,
-            "unlimited": included <= 0,
+            "unlimited": bool(unlimited),
             "informational": informational,
         }
         if display_gbp is not None:

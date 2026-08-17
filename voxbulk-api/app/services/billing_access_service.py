@@ -104,6 +104,22 @@ class BillingAccessService:
 
     @staticmethod
     def get_subscription(db: Session, org_id: str, *, service_code: str = "voxbulk") -> Subscription | None:
+        live = (
+            db.execute(
+                select(Subscription)
+                .where(
+                    Subscription.org_id == org_id,
+                    Subscription.service_code == service_code,
+                    Subscription.live_slot == 1,
+                )
+                .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if live is not None:
+            return live
         return (
             db.execute(
                 select(Subscription)
@@ -231,8 +247,11 @@ class BillingAccessService:
         now = datetime.utcnow()
         if sub.first_payment_at is None:
             sub.first_payment_at = now
-        if str(sub.status or "").strip().lower() == "pending_first_payment":
+        if str(sub.status or "").strip().lower() in {"pending_first_payment", "suspended", "past_due"}:
             sub.status = "active"
+            from app.services.subscription_live_guard import apply_live_slot
+
+            apply_live_slot(sub)
         sub.updated_at = now
         db.add(sub)
         db.commit()

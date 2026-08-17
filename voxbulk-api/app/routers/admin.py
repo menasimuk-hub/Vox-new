@@ -4642,10 +4642,41 @@ def admin_retry_webhook_event(event_id: int, db: Session = Depends(get_db), _adm
     if not event.signature_valid:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot retry webhook with invalid signature")
 
+    provider = str(event.provider or "").lower()
+    if provider in {"stripe", "airwallex"}:
+        try:
+            payload = json.loads(event.raw_body or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid stored webhook body") from exc
+        event.status = "processing"
+        event.last_error = None
+        db.add(event)
+        db.commit()
+        try:
+            if provider == "stripe":
+                from app.services.stripe_payment_service import StripePaymentService
+
+                result = StripePaymentService.handle_webhook_event(db, payload if isinstance(payload, dict) else {})
+            else:
+                from app.services.airwallex_payment_service import AirwallexPaymentService
+
+                result = AirwallexPaymentService.handle_webhook_event(db, payload if isinstance(payload, dict) else {})
+            from app.services.recovery_service import WebhookEventService
+
+            WebhookEventService.mark_processed(db, event.id)
+            db.refresh(event)
+            return {"ok": True, "event": _webhook_event_out(event), "result": result}
+        except Exception as exc:
+            from app.services.recovery_service import WebhookEventService
+
+            WebhookEventService.mark_failed(db, event.id, str(exc))
+            db.refresh(event)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)[:500]) from exc
+
     handler = {
         "vapi": handle_vapi_webhook,
         "gocardless": handle_gocardless_webhook,
-    }.get(str(event.provider).lower())
+    }.get(provider)
     if handler is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No retry handler for provider")
 

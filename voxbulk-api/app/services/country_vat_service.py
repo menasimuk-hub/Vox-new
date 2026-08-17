@@ -72,7 +72,7 @@ class CountryVatService:
     def resolve_country_code(db: Session, raw: str | None) -> str:
         text = str(raw or "").strip()
         if not text:
-            return "GB"
+            return ""
         if len(text) == 2 and text.isalpha():
             return text.upper()
         key = re.sub(r"\s+", " ", text.lower())
@@ -82,22 +82,21 @@ class CountryVatService:
         for row in rows:
             if row.country_name.strip().lower() == key:
                 return row.country_code.upper()
-        return "GB"
+        return ""
 
     @staticmethod
     def resolve_org_country_code(db: Session, org: Organisation | None) -> str:
         if org is None:
-            return "GB"
+            return ""
         return CountryVatService.resolve_country_code(db, org.country)
 
     @staticmethod
     def get_rate(db: Session, country_code: str) -> tuple[float, str]:
-        code = str(country_code or "GB").upper()[:2]
+        code = str(country_code or "").strip().upper()[:2]
+        if len(code) != 2:
+            return 0.0, code or "XX"
         row = db.execute(select(CountryVatRate).where(CountryVatRate.country_code == code)).scalar_one_or_none()
         if row is None or not row.is_enabled:
-            fallback = db.execute(select(CountryVatRate).where(CountryVatRate.country_code == "GB")).scalar_one_or_none()
-            if fallback and fallback.is_enabled:
-                return float(fallback.vat_rate_percent or 0), fallback.country_name
             return 0.0, code
         return float(row.vat_rate_percent or 0), row.country_name
 
@@ -172,7 +171,7 @@ class CountryVatService:
     @staticmethod
     def is_gb_gbp_customer(country_code: str, currency: str) -> bool:
         """VAT-inclusive catalog extraction applies only to GB customers billed in GBP."""
-        code = str(country_code or "GB").upper()[:2]
+        code = str(country_code or "").upper()[:2]
         cur = str(currency or "GBP").upper()
         return code == "GB" and cur == "GBP"
 

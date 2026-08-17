@@ -331,6 +331,32 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                     org_id=org_id,
                     client_email=client_email,
                 )
+        elif resource_type in {"subscriptions", "subscription"}:
+            org_id, client_email, sub = _resolve_org_email_from_subscription(
+                db,
+                subscription_external_id=subscription_id or event_id,
+                org_id=org_id,
+                client_email=client_email,
+            )
+
+        if resource_type in {"subscriptions", "subscription"} and action in {"cancelled", "canceled"} and sub is not None:
+            from app.services.subscription_live_guard import apply_live_slot
+
+            now = datetime.utcnow()
+            if str(sub.status or "").lower() in {"active", "trial", "pending_first_payment", "past_due", "suspended"}:
+                sub.status = "cancelled"
+            sub.cancellation_status = "cancelled"
+            sub.cancelled_at = now
+            sub.updated_at = now
+            apply_live_slot(sub)
+            db.add(sub)
+            db.commit()
+            summary["processed"] += 1
+            logger.info(
+                "gocardless_subscription_cancelled",
+                extra={"org_id": sub.org_id, "subscription_id": sub.id, "external_id": subscription_id},
+            )
+            continue
 
         if not org_id or not client_email:
             logger.info(
@@ -437,7 +463,10 @@ def apply_gocardless_billing_events(db: Session, events: list[dict[str, Any]]) -
                         except Exception:  # noqa: BLE001
                             pass
                     if sub is not None and plan is not None and subscription_id:
-                        BillingLifecycleService._advance_subscription_period(db, sub, plan)
+                        if action == "confirmed":
+                            BillingLifecycleService._advance_subscription_period(
+                                db, sub, plan, payment_id=payment_id
+                            )
                         if str(getattr(plan, "service_kind", "") or "") == "customer_feedback":
                             from app.services.customer_feedback.billing_service import FeedbackBillingService
 

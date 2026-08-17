@@ -43,7 +43,7 @@ def test_billing_plans_and_subscription_empty(app_client):
     token = r.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    plans = app_client.get("/billing/plans")
+    plans = app_client.get("/billing/plans", headers=headers)
     assert plans.status_code == 200
     pj = plans.json()
     assert isinstance(pj, list)

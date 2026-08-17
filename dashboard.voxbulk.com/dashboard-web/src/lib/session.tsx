@@ -168,14 +168,20 @@ function GoCardlessReturnHandler({
               });
             }
           } else if (pending.flow === "invoice" && pending.invoice_id) {
-            await apiFetch(`/billing/invoices/${encodeURIComponent(pending.invoice_id)}/pay/card/confirm`, {
+            const paid = await apiFetch<{ paid?: boolean }>(`/billing/invoices/${encodeURIComponent(pending.invoice_id)}/pay/card/confirm`, {
               method: "POST",
               body: JSON.stringify({
                 payment_intent_id: pending.payment_intent_id,
                 provider: "airwallex",
               }),
             });
-            toast.success("Invoice paid by card");
+            if (!paid?.paid) {
+              toast.message("Payment is still processing", {
+                description: "The invoice will show as paid once the card charge settles.",
+              });
+            } else {
+              toast.success("Invoice paid by card");
+            }
           } else if (pending.flow === "subscription") {
             const { completeCardSubscription, clearCardSubscriptionState } = await import(
               "@/lib/billing/subscription-payment"

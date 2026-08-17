@@ -314,7 +314,7 @@ export function SmartCardPlansPanel() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Flat {currencySym}5/seat/month (local equivalent). First month free on signup. New seats added later also get
+        Flat catalog price per seat (see package cards). First month free on signup. New seats added later also get
         30 days free. Yearly includes 20% off after the trial.
       </p>
 

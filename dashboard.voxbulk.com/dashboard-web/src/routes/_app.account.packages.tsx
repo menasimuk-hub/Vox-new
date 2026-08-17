@@ -115,7 +115,7 @@ const SERVICE_TABS: Record<ServiceTab, { label: string; icon: React.ComponentTyp
   core: { label: "Interview & Survey", icon: Sparkles, tint: "text-primary", ring: "ring-primary/30", bg: "from-primary/10", chip: "bg-primary/15 text-primary", blurb: "AI interviews + outbound WA & AI-call surveys. Does not include Customer Feedback QR.", billing: "Subscription + top-up" },
   feedback: { label: "Customer Feedback", icon: Smile, tint: "text-success", ring: "ring-success/30", bg: "from-success/10", chip: "bg-success/15 text-success", blurb: "QR-driven inbound WhatsApp feedback. Separate subscription — not included in Core platform.", billing: "Subscription only" },
   expo: { label: "Expo", icon: Building2, tint: "text-sky-600", ring: "ring-sky-500/30", bg: "from-sky-500/10", chip: "bg-sky-500/15 text-sky-700 dark:text-sky-400", blurb: "Trade-show booth QR capture — pay per event, not per month.", billing: "Pay per show" },
-  smartCard: { label: "Smart Card QR", icon: QrCode, tint: "text-violet-600", ring: "ring-violet-500/30", bg: "from-violet-500/10", chip: "bg-violet-500/15 text-violet-700 dark:text-violet-400", blurb: "Personal Smart Card QR for reps — £5/seat/month.", billing: "Subscription" },
+  smartCard: { label: "Smart Card QR", icon: QrCode, tint: "text-violet-600", ring: "ring-violet-500/30", bg: "from-violet-500/10", chip: "bg-violet-500/15 text-violet-700 dark:text-violet-400", blurb: "Personal Smart Card QR for reps — billed per seat from the catalog.", billing: "Subscription" },
 };
 
 const CAMPAIGN_CREDIT_PACKS = [
@@ -384,9 +384,9 @@ function PackagesPage() {
 
   const connEnabled = Boolean(services.connection_fee_enabled);
   const connPence = Number(services.connection_fee_pence || 0);
-  const waPkgFee = Number(services.wa_survey_package_fee_pence || services.whatsapp_survey_fee_pence || 50);
-  const atsFee = Number(services.ats_cv_scan_fee_pence || 75);
-  const paygPerMin = Number(services.interview_per_min_pence || 35);
+  const waPkgFee = Number(services.wa_survey_package_fee_pence || services.whatsapp_survey_fee_pence || 0);
+  const atsFee = Number(services.ats_cv_scan_fee_pence || 0);
+  const paygPerMin = Number(services.interview_per_min_pence || 0);
   const extraRatePlan =
     (effectiveCurrentPlan as PlanRow | null) ||
     plans.find((p) => isPaygPlan(p)) ||
@@ -470,6 +470,17 @@ function PackagesPage() {
     if (hasActiveCoreGcSub) {
       setBusyPlanId(String(plan.id));
       try {
+        const preview = await apiFetch<{
+          pro_rata_display?: string;
+          payment_provider?: string;
+          new_plan_name?: string;
+        }>(`/billing/subscription/upgrade-preview?plan_code=${encodeURIComponent(String(plan.code || ""))}`);
+        const due = preview.pro_rata_display || "£0.00";
+        const provider = preview.payment_provider || "your saved payment method";
+        if (!window.confirm(`Due now: ${due} via ${provider}. Continue with this plan change?`)) {
+          setBusyPlanId(null);
+          return;
+        }
         const result = await changeCorePlan(String(plan.id), billingInterval);
         const planName = String(result.plan?.name || plan.name || "plan");
         toast.success(

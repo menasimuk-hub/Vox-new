@@ -3,10 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Check, Clock, FileText, MessageCircle, PhoneCall, Wallet } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import {
-  BottomCTA, PLANS, WA_GBP, CV_GBP, fmt, SliderRow, ServiceCard, TopupCell,
+  BottomCTA, fmt, SliderRow, ServiceCard, TopupCell,
   BillingToggle, type Billing,
 } from "@/components/VOXBULKHome";
-import { useCurrency, SYM, FX, MARKETS, formatMoney, sanitizeMoneyLabel } from "@/components/CurrencyContext";
+import { useCurrency, SYM, MARKETS, formatMoney, sanitizeMoneyLabel } from "@/components/CurrencyContext";
 import { usePublicFeedbackPricing, usePublicPricing, usePublicExpoPricing, type PublicFeedbackPlan, type PublicPlan, type PublicExpoPlan } from "@/hooks/usePricing";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
@@ -28,7 +28,7 @@ export const Route = createFileRoute("/pricing")({
   component: PricingPage,
 });
 
-// WhatsApp Surveys + AI Interview Screening share one combined plan (see PLANS).
+// WhatsApp Surveys + AI Interview Screening share one combined plan from the public pricing API.
 
 type FeedbackPlan = {
   code: string;
@@ -41,12 +41,6 @@ type FeedbackPlan = {
   extraFeatures: string[];
 };
 
-const FALLBACK_FEEDBACK: FeedbackPlan[] = [
-  { code: "feedback_starter_gb", name: "Starter", price: 49, waSurveys: 200, webSurveys: 100, extraFeatures: ["1 location", "Monthly report", "Email support"] },
-  { code: "feedback_growth_gb", name: "Growth", price: 99, featured: true, waSurveys: 600, webSurveys: 300, extraFeatures: ["3 locations", "Weekly report", "Live dashboard", "Priority support"] },
-  { code: "feedback_pro_gb", name: "Pro", price: 199, waSurveys: "Unlimited", webSurveys: "Unlimited", extraFeatures: ["10 locations", "Real-time dashboard", "Branded PDF report", "Dedicated AM"] },
-];
-
 type ExpoPlanView = {
   code: string;
   name: string;
@@ -55,49 +49,6 @@ type ExpoPlanView = {
   featured?: boolean;
   features: string[];
 };
-
-const FALLBACK_EXPO: ExpoPlanView[] = [
-  {
-    code: "expo_day1",
-    name: "Expo 1 Day",
-    durationDays: 1,
-    price: 49,
-    features: [
-      "Booth active 1 day",
-      "1 product category",
-      "Up to 20 files",
-      "Hot / Warm / Cold scoring",
-      "CSV & Excel export",
-    ],
-  },
-  {
-    code: "expo_day3",
-    name: "Expo 3 Days",
-    durationDays: 3,
-    price: 99,
-    featured: true,
-    features: [
-      "Booth active 3 days",
-      "Up to 3 categories",
-      "Up to 40 files",
-      "Hot / Warm / Cold scoring",
-      "CSV & Excel export",
-    ],
-  },
-  {
-    code: "expo_day7",
-    name: "Expo 7 Days",
-    durationDays: 7,
-    price: 149,
-    features: [
-      "Booth active 7 days",
-      "Unlimited categories",
-      "Up to 100 files",
-      "Post-show follow-up ready",
-      "AI summary report ready",
-    ],
-  },
-];
 
 function mapExpoPlan(p: PublicExpoPlan): ExpoPlanView {
   const price =
@@ -116,14 +67,6 @@ function mapExpoPlan(p: PublicExpoPlan): ExpoPlanView {
     features: p.features?.length ? p.features : [`Booth active for ${days} day${days === 1 ? "" : "s"}`],
   };
 }
-
-const FALLBACK_NAME_TO_CODE: Record<string, string> = {
-  "Pay as you go": "payg",
-  Starter: "starter",
-  Pro: "pro",
-  Business: "business",
-  Enterprise: "enterprise",
-};
 
 type CorePlanView = {
   code: string;
@@ -156,10 +99,6 @@ function mapCorePlan(p: PublicPlan): CorePlanView {
     payg: p.is_payg,
     enterprise: p.is_enterprise,
   };
-}
-
-function fallbackCorePlans(): CorePlanView[] {
-  return PLANS.map((p) => ({ ...p, code: FALLBACK_NAME_TO_CODE[p.name] || p.name.toLowerCase().replace(/\s+/g, "_") }));
 }
 
 function mapFeedbackPlan(p: PublicFeedbackPlan): FeedbackPlan {
@@ -266,10 +205,6 @@ function corePlanFeatureLines(p: CorePlanView, apiPlan?: PublicPlan | null): str
   ];
 }
 
-// $5 USD per seat / month, converted from the GBP base used across the site.
-const SMART_SEAT_GBP = 5 / FX.usd;
-const smartSeat = (fx: number) => Math.max(4, Math.round(SMART_SEAT_GBP * fx));
-
 function SimplePlanCard({
   p,
   s,
@@ -325,7 +260,6 @@ function PricingPage() {
   const showExpo = isPricingKindEnabled(productVis, "expo");
   const showSmartCard = isPricingKindEnabled(productVis, "smart_card");
   const s = SYM[cur];
-  const fx = FX[cur];
   const [topup, setTopup] = useState(50);
   const [dur, setDur] = useState(12);
   const [num, setNum] = useState(100);
@@ -334,18 +268,17 @@ function PricingPage() {
 
   const coreApiPlans = corePricing.data?.plans ?? [];
   const corePlans = useMemo(
-    () => (coreApiPlans.length ? coreApiPlans.map(mapCorePlan) : fallbackCorePlans()),
+    () => (coreApiPlans.length ? coreApiPlans.map(mapCorePlan) : []),
     [coreApiPlans],
   );
   const feedbackApiPlans = feedbackPricing.data?.plans ?? [];
   const feedbackPlans = useMemo(() => {
     if (feedbackPricing.data) return feedbackApiPlans.map(mapFeedbackPlan);
-    if (feedbackPricing.error) return FALLBACK_FEEDBACK;
     return [];
-  }, [feedbackApiPlans, feedbackPricing.data, feedbackPricing.error]);
+  }, [feedbackApiPlans, feedbackPricing.data]);
   const expoApiPlans = expoPricing.data?.plans ?? [];
   const expoPlans = useMemo(
-    () => (expoApiPlans.length ? expoApiPlans.map(mapExpoPlan) : FALLBACK_EXPO),
+    () => (expoApiPlans.length ? expoApiPlans.map(mapExpoPlan) : []),
     [expoApiPlans],
   );
   const services = corePricing.data?.services;
@@ -364,14 +297,14 @@ function PricingPage() {
     return () => window.clearTimeout(timer);
   }, [highlightPlan, highlightProduct, corePlans.length, feedbackPlans.length, expoPlans.length]);
 
-  const waRate = services?.whatsapp_survey_display
-    ? Number.parseFloat(String(services.whatsapp_survey_display).replace(/[^\d.]/g, "")) || WA_GBP * fx
-    : WA_GBP * fx;
-  const cvRate = services?.ats_cv_scan_display
-    ? Number.parseFloat(String(services.ats_cv_scan_display).replace(/[^\d.]/g, "")) || CV_GBP * fx
-    : CV_GBP * fx;
-
-  const seatMonthly = smartSeat(fx);
+  const waRateDisplay = services?.whatsapp_survey_display || "";
+  const cvRateDisplay = services?.ats_cv_scan_display || "";
+  const perMinDisplay = services?.interview_per_min_display || "";
+  const seatMonthlyDisplay = services?.smart_card_seat_monthly_display || "";
+  const seatYearlyDisplay = services?.smart_card_seat_yearly_display || "";
+  const waRateMajor = Number(services?.whatsapp_survey_fee_pence || 0) / 100;
+  const cvRateMajor = Number(services?.ats_cv_scan_fee_pence || 0) / 100;
+  const perMinMajorSvc = Number(services?.interview_per_min_pence || 0) / 100;
 
   return (
     <div className="bg-background text-body antialiased">
@@ -421,7 +354,11 @@ function PricingPage() {
               <BillingToggle value={coreBilling} onChange={setCoreBilling} />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-              {corePlans.map((p) => {
+              {corePricing.loading ? (
+                <p className="text-[14px] text-muted-text">Loading live prices…</p>
+              ) : corePricing.error || corePlans.length === 0 ? (
+                <p className="text-[14px] text-muted-text">Live prices are unavailable. Please try again shortly.</p>
+              ) : corePlans.map((p) => {
                 const apiPlan = coreApiPlans.find((row) => row.code === p.code);
                 const featured = p.badge === "Most popular";
                 const highlighted = highlightProduct !== "feedback" && highlightProduct !== "expo" && highlightPlan === p.code;
@@ -430,7 +367,7 @@ function PricingPage() {
                 const perMinDisplay = apiPlan?.per_min_display
                   ? apiPlan.per_min_display.replace(/[^\d.,]/g, "").replace(",", ".")
                   : p.ratePerMinGBP != null
-                    ? fmt(p.ratePerMinGBP * fx)
+                    ? fmt(p.ratePerMinGBP)
                     : null;
                 return (
                   <div
@@ -459,7 +396,7 @@ function PricingPage() {
                     ) : p.payg ? (
                       <>
                         <div className="mt-3 flex items-baseline gap-1"><span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{formatMoney(s, 0)}</span><span className="text-[13px] text-muted-text">/mo</span></div>
-                        <div className="mt-1 text-[12px] text-muted-text">Per minute: <strong className="text-heading">{sanitizeMoneyLabel(apiPlan?.per_min_display || formatMoney(s, fmt((p.ratePerMinGBP as number) * fx)))}</strong></div>
+                        <div className="mt-1 text-[12px] text-muted-text">Per minute: <strong className="text-heading">{sanitizeMoneyLabel(apiPlan?.per_min_display || (p.ratePerMinGBP != null ? formatMoney(s, fmt(p.ratePerMinGBP)) : "—"))}</strong></div>
                         {(apiPlan?.description || p.description) ? (
                           <p className="mt-1.5 text-[12.5px] leading-snug text-muted-text">
                             {apiPlan?.description || p.description}
@@ -469,7 +406,7 @@ function PricingPage() {
                     ) : (
                       <>
                         <div className="mt-3 flex items-baseline gap-1">
-                          <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>{formatMoney(s, displayPrice ?? Math.round((p.priceGBP as number) * (coreBilling === "yearly" ? 10 : 1) * fx))}</span>
+                          <span className={`text-[30px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>{formatMoney(s, displayPrice ?? (p.priceGBP != null ? Math.round(p.priceGBP * (coreBilling === "yearly" ? 10 : 1)) : "—"))}</span>
                           <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>{coreBilling === "yearly" ? "/yr" : "/mo"}</span>
                         </div>
                         <div className={`mt-1 text-[12px] ${featured ? "text-white/70" : "text-muted-text"}`}>Per minute: <strong className={featured ? "text-white" : "text-heading"}>{sanitizeMoneyLabel(apiPlan?.per_min_display || (perMinDisplay != null ? formatMoney(s, perMinDisplay) : ""))}</strong></div>
@@ -521,7 +458,7 @@ function PricingPage() {
                     );
                   }
                   const apiPlan = coreApiPlans.find((row) => row.code === p.code);
-                  const perMinMajor = apiPlan?.per_min_minor != null ? apiPlan.per_min_minor / 100 : (p.ratePerMinGBP as number) * fx;
+                  const perMinMajor = apiPlan?.per_min_minor != null ? apiPlan.per_min_minor / 100 : Number(p.ratePerMinGBP || 0);
                   const total = perMinMajor * dur * num;
                   const perCall = perMinMajor * dur;
                   return (
@@ -581,11 +518,14 @@ function PricingPage() {
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text">VoxBulk Expo · one-off per exhibition</div>
             <p className="mb-6 text-[14px] text-body max-w-[720px]">One package = one booth QR. No monthly Expo subscription — buy again for another booth or another show.</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {expoPlans.map((p) => {
+              {expoPricing.loading ? (
+                <p className="text-[14px] text-muted-text">Loading live prices…</p>
+              ) : expoPricing.error || expoPlans.length === 0 ? (
+                <p className="text-[14px] text-muted-text">No Expo packages are published for this market.</p>
+              ) : expoPlans.map((p) => {
                 const featured = Boolean(p.featured);
                 const highlighted = highlightProduct === "expo" && highlightPlan === p.code;
-                // API returns market currency already; fallback GBP amounts need FX.
-                const displayPrice = Math.round(expoApiPlans.length ? p.price : p.price * fx);
+                const displayPrice = Math.round(p.price);
                 return (
                   <div
                     key={p.code}
@@ -641,7 +581,7 @@ function PricingPage() {
               <div className="rounded-2xl p-6 bg-white border border-border shadow-elegant flex flex-col">
                 <div className="text-[14px] font-semibold text-heading">Monthly</div>
                 <div className="mt-3 flex items-baseline gap-1">
-                  <span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{formatMoney(s, seatMonthly)}</span>
+                  <span className="text-[30px] font-bold tracking-[-0.02em] text-heading">{seatMonthlyDisplay || "—"}</span>
                   <span className="text-[13px] text-muted-text">/ seat / month</span>
                 </div>
                 <ul className="mt-5 space-y-2.5 text-[13.5px] text-body flex-1">
@@ -657,7 +597,7 @@ function PricingPage() {
                 <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Save 20%</span>
                 <div className="text-[14px] font-semibold text-white/90">Yearly</div>
                 <div className="mt-3 flex items-baseline gap-1">
-                  <span className="text-[30px] font-bold tracking-[-0.02em] text-gold">{formatMoney(s, Math.round(seatMonthly * 12 * 0.8))}</span>
+                  <span className="text-[30px] font-bold tracking-[-0.02em] text-gold">{seatYearlyDisplay || "—"}</span>
                   <span className="text-[13px] text-white/60">/ seat / year</span>
                 </div>
                 <ul className="mt-5 space-y-2.5 text-[13.5px] text-white/80 flex-1">
@@ -732,13 +672,13 @@ function PricingPage() {
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-text mb-4">What each service costs</div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <ServiceCard tone="blue" icon={<PhoneCall size={16} />} title="Interview & survey call"
-                price={`${formatMoney(s, fmt(0.25 * fx))} – ${formatMoney(s, fmt(0.35 * fx))}/min`} unit="per minute · depends on your plan"
-                desc={`Starter: ${formatMoney(s, fmt(0.35 * fx))}/min · Pro: ${formatMoney(s, fmt(0.30 * fx))}/min · Business: ${formatMoney(s, fmt(0.25 * fx))}/min.`} />
+                price={perMinDisplay ? `${perMinDisplay}/min` : "—"} unit="per minute · depends on your plan"
+                desc="Live per-minute rate from the catalog for your selected currency." />
               <ServiceCard tone="teal" icon={<MessageCircle size={16} />} title="WhatsApp survey"
-                price={formatMoney(s, fmt(waRate))} unit="per user sent"
+                price={waRateDisplay || "—"} unit="per user sent"
                 desc="One flat charge every time a survey is sent. No per-reply charge — just the send." />
               <ServiceCard tone="gold" icon={<FileText size={16} />} title="ATS CV scan"
-                price={formatMoney(s, fmt(cvRate))} unit="per CV scanned"
+                price={cvRateDisplay || "—"} unit="per CV scanned"
                 desc="Each CV uploaded and processed by the ATS costs a flat fee." />
             </div>
 
@@ -753,12 +693,12 @@ function PricingPage() {
               </div>
               <div className="flex items-center gap-4 mb-5">
                 <input type="range" min={10} max={500} step={10} value={topup} onChange={(e) => setTopup(parseInt(e.target.value))} className="flex-1 accent-primary" aria-label="Top-up amount" />
-                <div className="text-[15px] font-semibold text-heading min-w-[80px] text-right tabular-nums">{formatMoney(s, fmt(topup * fx))}</div>
+                <div className="text-[15px] font-semibold text-heading min-w-[80px] text-right tabular-nums">{formatMoney(s, topup)}</div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <TopupCell label="Minutes of calls" value={`~${Math.floor(topup / 0.35)} mins`} />
-                <TopupCell label="WhatsApp surveys" value={`${Math.floor(topup / (waRate || WA_GBP)).toLocaleString()} surveys`} />
-                <TopupCell label="CV scans" value={`${Math.floor(topup / (cvRate || CV_GBP)).toLocaleString()} scans`} />
+                <TopupCell label="Minutes of calls" value={`~${perMinMajorSvc > 0 ? Math.floor(topup / perMinMajorSvc) : 0} mins`} />
+                <TopupCell label="WhatsApp surveys" value={`${waRateMajor > 0 ? Math.floor(topup / waRateMajor).toLocaleString() : "0"} surveys`} />
+                <TopupCell label="CV scans" value={`${cvRateMajor > 0 ? Math.floor(topup / cvRateMajor).toLocaleString() : "0"} scans`} />
               </div>
             </div>
           </div>

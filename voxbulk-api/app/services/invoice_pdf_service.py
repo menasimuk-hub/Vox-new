@@ -96,6 +96,4 @@ def render_html_to_pdf_bytes(html: str) -> bytes:
     pdf_bytes = _render_with_weasyprint(clean)
     if pdf_bytes is not None:
         return pdf_bytes
-
-    logger.warning("invoice_pdf_fpdf_fallback")
-    return _render_with_fpdf(clean)
+    raise RuntimeError("Invoice PDF renderer is unavailable (WeasyPrint is not installed)")

@@ -263,6 +263,10 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_deepinfra_config(config)
 
         config = ProviderSettingsService._strip_empty_secrets(config, provider)
+        if provider in {"stripe", "airwallex"} and is_enabled:
+            secret = str(config.get("webhook_secret") or "").strip()
+            if not secret:
+                raise ValueError(f"{provider} webhook_secret is required before enabling")
 
         payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         cipher = enc.encrypt_str(payload)

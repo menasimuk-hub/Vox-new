@@ -236,6 +236,11 @@ class CardRenewalLifecycleService:
             if sub is None or org is None or plan is None:
                 stats["skipped"] += 1
                 continue
+            from app.services.subscription_live_guard import is_cancel_skip
+
+            if is_cancel_skip(sub):
+                stats["skipped"] += 1
+                continue
 
             provider = str(invoice.provider or "").lower()
             amount = int(invoice.subtotal_pence if invoice.subtotal_pence is not None else invoice.amount_gbp_pence or 0)

@@ -240,10 +240,14 @@ class BillingLifecycleService:
         else:
             invoice.dd_next_retry_at = None
             invoice.status = "past_due"
+            svc = str(invoice.service_code or "voxbulk")
             sub = (
                 db.execute(
                     select(Subscription)
-                    .where(Subscription.org_id == org_id)
+                    .where(
+                        Subscription.org_id == org_id,
+                        Subscription.service_code == svc,
+                    )
                     .order_by(Subscription.updated_at.desc())
                     .limit(1)
                 )
@@ -280,18 +284,25 @@ class BillingLifecycleService:
         invoice.dd_next_retry_at = None
         db.add(invoice)
 
+        svc = str(invoice.service_code or "voxbulk")
         sub = (
             db.execute(
                 select(Subscription)
-                .where(Subscription.org_id == invoice.org_id)
+                .where(
+                    Subscription.org_id == invoice.org_id,
+                    Subscription.service_code == svc,
+                )
                 .order_by(Subscription.updated_at.desc())
                 .limit(1)
             )
             .scalars()
             .first()
         )
-        if sub is not None and sub.status == "past_due":
+        if sub is not None and str(sub.status or "").lower() in {"past_due", "suspended"}:
+            from app.services.subscription_live_guard import apply_live_slot
+
             sub.status = "active"
+            apply_live_slot(sub)
             sub.updated_at = datetime.utcnow()
             db.add(sub)
         db.commit()
@@ -410,7 +421,10 @@ class BillingLifecycleService:
             latest_review = (
                 db.execute(
                     select(BillingRefundReview)
-                    .where(BillingRefundReview.org_id == sub.org_id)
+                    .where(
+                        BillingRefundReview.org_id == sub.org_id,
+                        BillingRefundReview.subscription_id == sub.id,
+                    )
                     .order_by(BillingRefundReview.requested_at.desc())
                     .limit(1)
                 )
@@ -427,6 +441,15 @@ class BillingLifecycleService:
                 stats["skipped"] += 1
                 continue
             if str(plan.code or "").lower() == "payg":
+                stats["skipped"] += 1
+                continue
+            if str(sub.payment_provider or "").lower() == "promo_discount":
+                from app.services.subscription_live_guard import apply_live_slot
+
+                sub.status = "cancelled"
+                apply_live_slot(sub)
+                sub.updated_at = now
+                db.add(sub)
                 stats["skipped"] += 1
                 continue
 
@@ -568,14 +591,25 @@ class BillingLifecycleService:
         return StripeBillingService.is_managed_subscription(sub)
 
     @staticmethod
-    def _advance_subscription_period(db: Session, sub: Subscription, plan: Plan) -> None:
+    def _advance_subscription_period(db: Session, sub: Subscription, plan: Plan, *, payment_id: str | None = None) -> None:
         from app.models.customer_feedback import FEEDBACK_SERVICE_CODE
+        from app.services.billing_period import add_billing_period
+        from app.services.subscription_live_guard import is_cancel_skip
         from app.services.usage_wallet_service import UsageWalletService
 
+        if is_cancel_skip(sub):
+            return
+        pid = str(payment_id or "").strip()
+        if pid and str(getattr(sub, "last_advanced_payment_id", None) or "") == pid:
+            return
+
         now = datetime.utcnow()
-        next_end = (sub.current_period_end or now) + timedelta(days=30)
+        interval = str(sub.billing_interval or "monthly")
+        next_end = add_billing_period(sub.current_period_end or now, interval)
         sub.current_period_end = next_end
         sub.updated_at = now
+        if pid:
+            sub.last_advanced_payment_id = pid[:128]
 
         org = db.get(Organisation, sub.org_id)
         from app.services.billing_finance_service import BillingFinanceService
@@ -615,20 +649,28 @@ class BillingLifecycleService:
         old_plan: Plan,
         new_plan: Plan,
     ) -> int:
-        _currency, old_monthly = PlanPriceService.monthly_minor_for_org(db, org, old_plan)
-        _currency, new_monthly = PlanPriceService.monthly_minor_for_org(db, org, new_plan)
-        delta = max(0, new_monthly - old_monthly)
+        _currency, old_amount, _ = PlanPriceService.billing_amount_for_org(
+            db, org, old_plan, str(sub.billing_interval or "monthly")
+        )
+        _currency, new_amount, _ = PlanPriceService.billing_amount_for_org(
+            db, org, new_plan, str(sub.billing_interval or "monthly")
+        )
+        delta = max(0, new_amount - old_amount)
         if delta <= 0:
             return 0
 
-        period_end = sub.current_period_end or (datetime.utcnow() + timedelta(days=30))
-        period_start = period_end - timedelta(days=30)
+        from app.services.billing_period import add_billing_period, period_start_from_end
+
+        interval = str(sub.billing_interval or "monthly")
+        period_end = sub.current_period_end or add_billing_period(datetime.utcnow(), interval)
+        period_start = period_start_from_end(period_end, interval)
         now = datetime.utcnow()
         if now >= period_end:
             return delta
 
         total_seconds = max(1, int((period_end - period_start).total_seconds()))
         remaining_seconds = max(0, int((period_end - now).total_seconds()))
+        remaining_seconds = min(remaining_seconds, total_seconds)
         return max(0, int(delta * remaining_seconds / total_seconds))
 
     @staticmethod
@@ -757,7 +799,22 @@ class BillingLifecycleService:
             direction = "same"
 
         extra: dict[str, Any] | None = None
-        if sub is not None and sub.status in {"active", "trial", "past_due"} and str(sub.payment_provider or "").lower() in {
+        from app.services.custom_packages_service import CustomPackagesError, CustomPackagesService
+
+        try:
+            CustomPackagesService.assert_checkout_allowed(db, org, new_plan)
+        except CustomPackagesError as exc:
+            raise ValueError(str(exc)) from exc
+
+        if sub is not None and str(sub.status or "").lower() not in {
+            "active",
+            "trial",
+            "pending_payment",
+            "pending_first_payment",
+        }:
+            raise ValueError("No active subscription to change")
+
+        if sub is not None and str(sub.status or "").lower() in {"active", "trial"} and str(sub.payment_provider or "").lower() in {
             "stripe",
             "airwallex",
         }:

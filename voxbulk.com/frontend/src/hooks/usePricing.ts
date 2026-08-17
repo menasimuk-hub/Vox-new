@@ -52,9 +52,15 @@ export type PublicPricing = {
   plans: PublicPlan[];
   services: {
     interview_per_min_display?: string;
+    interview_per_min_pence?: number;
     whatsapp_survey_display?: string;
+    whatsapp_survey_fee_pence?: number;
     ats_cv_scan_display?: string;
+    ats_cv_scan_fee_pence?: number;
     connection_fee_display?: string;
+    smart_card_seat_monthly_display?: string;
+    smart_card_seat_yearly_display?: string;
+    per_min_display?: string;
   };
   estimator_defaults?: { duration_min?: number; interview_count?: number };
 };

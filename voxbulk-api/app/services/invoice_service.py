@@ -213,7 +213,12 @@ class InvoiceDocumentService:
             gross = int(invoice.amount_gbp_pence or 0)
         if amount_due <= 0 and gross > 0:
             amount_due = int(invoice.amount_gbp_pence or 0)
-        if vat_inclusive and amount_due > 0:
+        if vat_inclusive and invoice.subtotal_pence is not None and invoice.tax_pence is not None:
+            subtotal = int(invoice.subtotal_pence or 0)
+            tax = int(invoice.tax_pence or 0)
+            total = int(invoice.amount_gbp_pence if invoice.amount_gbp_pence is not None else subtotal + tax)
+            rate = float(invoice.tax_rate_percent or 0) or CountryVatService.gb_vat_rate_percent()
+        elif vat_inclusive and amount_due > 0:
             subtotal, tax = CountryVatService.split_gross_pence(amount_due, CountryVatService.gb_vat_rate_percent())
             total = amount_due
             rate = CountryVatService.gb_vat_rate_percent()
@@ -249,9 +254,9 @@ class InvoiceDocumentService:
             "invoice_date": created.strftime("%d %b %Y"),
             "due_date": due_on.strftime("%d %b %Y"),
             "invoice_status": (invoice.status or "issued").replace("_", " ").title(),
-            "organisation_name": (org.name if org else "Customer") or "Customer",
+            "organisation_name": getattr(invoice, "issued_customer_name", None) or (org.name if org else "Customer") or "Customer",
             "client_email": invoice.client_email,
-            "billing_address": _format_address(org),
+            "billing_address": getattr(invoice, "issued_customer_address", None) or _format_address(org),
             "country_code": country_code,
             "country_name": country_name,
             "description": invoice.description or "",
@@ -282,6 +287,10 @@ class InvoiceDocumentService:
             "pay_invoice_url": f"{dashboard_origin}/account/billing?pay={invoice.id}",
         }
         vars_.update(InvoiceDocumentService._company_defaults(db))
+        if str(getattr(invoice, "issued_company_name", None) or "").strip():
+            vars_["company_name"] = invoice.issued_company_name.strip()
+        if str(getattr(invoice, "issued_company_address", None) or "").strip():
+            vars_["company_address"] = invoice.issued_company_address.strip()
         return vars_
 
     @staticmethod
@@ -335,18 +344,9 @@ class InvoiceService:
         try:
             return BillingSettingsService.allocate_invoice_number(db)
         except Exception:
-            logger.exception("invoice_number_settings_allocation_failed_fallback_to_count")
-            year = datetime.utcnow().year
-            prefix = f"INV-{year}-"
-            count = (
-                db.execute(
-                    select(func.count())
-                    .select_from(BillingInvoice)
-                    .where(BillingInvoice.invoice_number.like(f"{prefix}%"))
-                ).scalar_one()
-                or 0
-            )
-            return f"{prefix}{int(count) + 1:04d}"
+            logger.exception("invoice_number_settings_allocation_failed_retry")
+            db.rollback()
+            return BillingSettingsService.allocate_invoice_number(db)
 
     @staticmethod
     def invoice_to_dict(
@@ -606,10 +606,14 @@ class InvoiceService:
         country_code: str,
         currency: str = "GBP",
     ) -> float:
-        """20% VAT extraction for GB customers billed in GBP only; otherwise 0%."""
-        if CountryVatService.is_gb_gbp_customer(country_code, currency):
-            return CountryVatService.gb_vat_rate_percent()
-        return 0.0
+        """Admin vat_enabled + CountryVatRate. Unknown country is 0% (never GB fallback)."""
+        from app.services.billing_settings_service import BillingSettingsService
+
+        settings = BillingSettingsService.get(db)
+        if not bool(settings.vat_enabled):
+            return 0.0
+        rate, _name = CountryVatService.get_rate(db, country_code)
+        return float(rate or 0)
 
     @staticmethod
     def compute_invoice_amounts(
@@ -621,10 +625,10 @@ class InvoiceService:
         currency: str = "GBP",
     ) -> tuple[int, int, int, float, bool]:
         """Return (net_subtotal_pence, tax_pence, total_due_pence, rate, vat_inclusive)."""
-        code = str(country_code or "GB").upper()[:2]
+        code = str(country_code or "").upper()[:2]
         cur = str(currency or "GBP").upper()
         rate = InvoiceService.effective_vat_rate(db, country_code=code, currency=cur)
-        vat_inclusive = CountryVatService.is_vat_inclusive_pricing(db, code, cur)
+        vat_inclusive = CountryVatService.is_vat_inclusive_pricing(db, code, cur) and rate > 0
         items_total = InvoiceLineItemService.gross_total_pence(line_items) if line_items else 0
         gross = items_total if items_total > 0 else max(0, int(amount_pence or 0))
 
@@ -695,6 +699,11 @@ class InvoiceService:
             due_date=now + timedelta(days=due_days),
             created_at=now,
         )
+        defaults = InvoiceDocumentService._company_defaults(db)
+        row.issued_company_name = str(defaults.get("company_name") or "")[:255] or None
+        row.issued_company_address = str(defaults.get("company_address") or "") or None
+        row.issued_customer_name = str(getattr(org, "name", None) or "")[:255] or None
+        row.issued_customer_address = _format_address(org) or None
         db.add(row)
         db.commit()
         db.refresh(row)

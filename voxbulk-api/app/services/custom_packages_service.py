@@ -768,11 +768,11 @@ class CustomPackagesService:
         if interval == "yearly":
             row.yearly_price_minor = amount
             if row.monthly_price_minor is None:
-                row.monthly_price_minor = amount
+                row.monthly_price_minor = max(0, int(round(amount / 10)))
         else:
             row.monthly_price_minor = amount
             if row.yearly_price_minor is None:
-                row.yearly_price_minor = amount * 12
+                row.yearly_price_minor = amount * 10
         row.is_active = True
         row.updated_at = now
 

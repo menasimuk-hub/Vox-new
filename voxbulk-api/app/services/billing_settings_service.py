@@ -65,7 +65,14 @@ class BillingSettingsService:
     @staticmethod
     def allocate_invoice_number(db: Session) -> str:
         """Allocate the next sequential invoice number, e.g. INV-2026-000123."""
-        row = BillingSettingsService.get(db)
+        from sqlalchemy import select
+
+        from app.models.billing_settings import BillingSettings
+
+        row = db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one_or_none()
+        if row is None:
+            row = BillingSettingsService.get(db)
+            db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one()
         seq = int(row.invoice_next_number or 1)
         row.invoice_next_number = seq + 1
         row.updated_at = datetime.utcnow()
@@ -76,9 +83,15 @@ class BillingSettingsService:
 
     @staticmethod
     def allocate_credit_note_number(db: Session) -> str:
-        row = BillingSettingsService.get(db)
-        seq = int(row.invoice_next_number or 1)
-        row.invoice_next_number = seq + 1
+        from sqlalchemy import select
+
+        from app.models.billing_settings import BillingSettings
+
+        row = db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one_or_none()
+        if row is None:
+            row = BillingSettingsService.get(db)
+        seq = int(getattr(row, "credit_note_next_number", None) or 1)
+        row.credit_note_next_number = seq + 1
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.flush()

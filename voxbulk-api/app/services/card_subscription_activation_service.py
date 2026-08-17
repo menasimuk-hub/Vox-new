@@ -110,6 +110,10 @@ class CardSubscriptionActivationService:
         period_days = trial if trial > 0 else (365 if interval == "yearly" else 30)
 
         sub = BillingAccessService.get_subscription(db, org.id, service_code=svc)
+        if sub is None:
+            from app.services.subscription_live_guard import lock_live_subscription
+
+            sub = lock_live_subscription(db, org.id, service_code=svc)
         if (
             sub is not None
             and str(sub.external_subscription_id or "") == pid
@@ -145,9 +149,20 @@ class CardSubscriptionActivationService:
         if trial <= 0 and sub.first_payment_at is None:
             sub.first_payment_at = now
         sub.updated_at = now
+        from app.services.subscription_live_guard import apply_live_slot, promo_service_kind
+
+        apply_live_slot(sub)
         db.add(sub)
         db.commit()
         db.refresh(sub)
+        from app.services.promo_discount_service import PromoDiscountService
+
+        PromoDiscountService.apply_and_consume(
+            db,
+            org_id=org.id,
+            service_kind=promo_service_kind(svc),
+            amount_minor=catalog,
+        )
 
         email = UsageWalletService.get_org_billing_email(db, org.id) or (org.contact_email or "")
         ext_inv = CardSubscriptionActivationService.external_invoice_id(prov, pid)

@@ -146,10 +146,6 @@ class ExpoBoothPaymentService:
             intent_prefix = "trial" if trial_covers else "promo" if discount_meta.get("discount_applied") else "free"
             if trial_covers:
                 ExpoSignupTrialService.consume_for_booth(db, org_id=org.id, booth=booth)
-            elif discount_meta.get("discount_applied"):
-                PromoDiscountService.apply_and_consume(
-                    db, org_id=org.id, service_kind="expo", amount_minor=catalog
-                )
             ExpoBoothPaymentService.mark_paid(
                 db,
                 booth=booth,
@@ -165,12 +161,7 @@ class ExpoBoothPaymentService:
                 "booth": ExpoBoothService.serialize_booth(db, booth),
             }
 
-        # Paid path: consume discount when creating the charge so amount matches.
-        if discount_meta.get("discount_applied"):
-            PromoDiscountService.apply_and_consume(
-                db, org_id=org.id, service_kind="expo", amount_minor=catalog
-            )
-
+        # Paid path: consume discount when the charge succeeds (complete/webhook).
         prov = str(provider or "").strip().lower()
         meta = {
             "voxbulk_booth_id": booth.id,
@@ -249,6 +240,16 @@ class ExpoBoothPaymentService:
         db.add(booth)
         db.commit()
         db.refresh(booth)
+        from app.services.promo_discount_service import PromoDiscountService
+
+        try:
+            currency = resolve_org_currency(db, db.get(Organisation, booth.org_id))
+            promo_amount = ExpoBoothPaymentService.package_price_minor(db, booth, currency=currency)
+        except Exception:
+            promo_amount = 0
+        PromoDiscountService.apply_and_consume(
+            db, org_id=booth.org_id, service_kind="expo", amount_minor=int(promo_amount or 0)
+        )
         logger.info(
             "expo_booth_paid booth_id=%s provider=%s intent=%s",
             booth.id,

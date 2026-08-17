@@ -1029,14 +1029,36 @@ class FeedbackBillingService:
         _currency, new_monthly = PlanPriceService.monthly_minor_for_org(db, org, new_plan)
         if new_monthly > old_monthly:
             from app.services.billing_lifecycle_service import BillingLifecycleService
+            from app.services.card_plan_change_service import CardPlanChangeError, CardPlanChangeService
             from app.services.invoice_service import InvoiceService
             from app.services.usage_wallet_service import UsageWalletService
+
+            provider = str(sub.payment_provider or "").lower()
+            if provider in {"stripe", "airwallex"}:
+                try:
+                    extra = CardPlanChangeService.apply_upgrade_with_pro_rata(
+                        db, org_id=org_id, sub=sub, old_plan=old_plan, new_plan=new_plan
+                    )
+                except CardPlanChangeError as exc:
+                    raise FeedbackBillingError(str(exc)) from exc
+                sub.billing_interval = interval
+                _currency, next_minor, _ = PlanPriceService.billing_amount_for_org(db, org, new_plan, interval)
+                sub.amount_next_payment_minor = next_minor
+                sub.updated_at = datetime.utcnow()
+                db.add(sub)
+                db.commit()
+                return {
+                    "ok": True,
+                    "direction": "upgrade",
+                    "plan_id": new_plan.id,
+                    **(extra or {}),
+                }
 
             pro_rata = BillingLifecycleService.calculate_pro_rata_minor(
                 db, org=org, sub=sub, old_plan=old_plan, new_plan=new_plan
             )
             invoice_id = None
-            if pro_rata > 0 and str(sub.payment_provider or "").lower() == "gocardless":
+            if pro_rata > 0 and provider == "gocardless":
                 currency = PlanPriceService.monthly_minor_for_org(db, org, new_plan)[0]
                 email = UsageWalletService.get_org_billing_email(db, org_id) or (org.contact_email or "")
                 desc = f"Pro-rata upgrade to {new_plan.name}"
@@ -1075,17 +1097,19 @@ class FeedbackBillingService:
                         currency=currency,
                         metadata={"invoice_id": invoice.id, "service_code": FEEDBACK_SERVICE_CODE},
                     )
-                    if payment is not None:
-                        invoice.dd_payment_id = str(payment.get("payment_id") or "")
-                        invoice.dd_status = str(payment.get("status") or "pending_submission")
-                        invoice.payment_reference = invoice.dd_payment_id
-                        invoice.status = "collecting"
-                        db.add(invoice)
-                        db.commit()
-                except (GoCardlessConfigError, GoCardlessProviderError):
+                    if payment is None:
+                        raise FeedbackBillingError("Could not collect the upgrade charge")
+                    invoice.dd_payment_id = str(payment.get("payment_id") or "")
+                    invoice.dd_status = str(payment.get("status") or "pending_submission")
+                    invoice.payment_reference = invoice.dd_payment_id
+                    invoice.status = "collecting"
+                    db.add(invoice)
+                    db.commit()
+                except (GoCardlessConfigError, GoCardlessProviderError) as exc:
                     invoice.dd_status = "submission_failed"
                     db.add(invoice)
                     db.commit()
+                    raise FeedbackBillingError("Could not collect the upgrade charge") from exc
 
                 from app.services.billing_event_email_service import BillingEventEmailService
 

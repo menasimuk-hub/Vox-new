@@ -69,9 +69,15 @@ class VoxbulkPricingService:
         extra = int(plan.overage_per_min_pence or 0)
         wa_unit = int(settings.wa_survey_package_fee_pence or 0)
         cv_unit = int(settings.ats_cv_scan_fee_pence or 0)
-        mins = price // per_min if per_min > 0 else 0
-        wa = price // wa_unit if wa_unit > 0 else 0
-        cv = price // cv_unit if cv_unit > 0 else 0
+        mins = int(getattr(plan, "calls_included", 0) or 0)
+        wa = int(getattr(plan, "whatsapp_included", 0) or 0)
+        cv = int(getattr(plan, "cv_scans_included", 0) or 0)
+        if mins <= 0 and per_min > 0 and price > 0:
+            mins = price // per_min
+        if wa <= 0 and wa_unit > 0 and price > 0:
+            wa = price // wa_unit
+        if cv <= 0 and cv_unit > 0 and price > 0:
+            cv = price // cv_unit
         return {
             "minutes_included": mins,
             "whatsapp_included": wa,
@@ -91,9 +97,12 @@ class VoxbulkPricingService:
             return plan
         settings = settings or VoxbulkPricingService.get_settings(db)
         calc = VoxbulkPricingService.compute_plan_allowances(plan, settings)
-        plan.calls_included = int(calc["minutes_included"])
-        plan.whatsapp_included = int(calc["whatsapp_included"])
-        plan.cv_scans_included = int(calc["cv_scans_included"])
+        if int(getattr(plan, "calls_included", 0) or 0) <= 0:
+            plan.calls_included = int(calc["minutes_included"])
+        if int(getattr(plan, "whatsapp_included", 0) or 0) <= 0:
+            plan.whatsapp_included = int(calc["whatsapp_included"])
+        if int(getattr(plan, "cv_scans_included", 0) or 0) <= 0:
+            plan.cv_scans_included = int(calc["cv_scans_included"])
         plan.updated_at = datetime.utcnow()
         db.add(plan)
         return plan
@@ -513,6 +522,25 @@ class VoxbulkPricingService:
         wa_extra = int(rates["wa_extra_minor"]) if rates else int(unit.wa_extra_minor or 0)
         cv_fee = int(rates["cv_scan_fee_minor"]) if rates else int(unit.cv_scan_fee_minor or 0)
 
+        smart_monthly = 0
+        smart_yearly = 0
+        smart_display = ""
+        smart_yearly_display = ""
+        sc_plan = (
+            db.execute(
+                select(Plan).where(Plan.service_kind == "smart_card", Plan.is_active.is_(True)).limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if sc_plan is not None:
+            sc_price = PlanPriceService.get_price(db, sc_plan.id, code)
+            if sc_price is not None:
+                smart_monthly = int(sc_price.monthly_price_minor or 0)
+                smart_yearly = int(sc_price.yearly_price_minor or 0)
+                smart_display = currency_money_display(smart_monthly, code) if smart_monthly else ""
+                smart_yearly_display = currency_money_display(smart_yearly, code) if smart_yearly else ""
+
         plan_rows = [VoxbulkPricingService.plan_to_public_dict(db, p, currency=code) for p in plans if p.is_active]
         tiers = [
             VoxbulkPricingService.topup_tier_to_dict(t, currency=code)
@@ -533,6 +561,10 @@ class VoxbulkPricingService:
             "whatsapp_survey_display": currency_money_display(wa_pkg, code),
             "ats_cv_scan_fee_pence": cv_fee,
             "ats_cv_scan_display": currency_money_display(cv_fee, code),
+            "smart_card_seat_monthly_minor": smart_monthly,
+            "smart_card_seat_monthly_display": smart_display,
+            "smart_card_seat_yearly_minor": smart_yearly,
+            "smart_card_seat_yearly_display": smart_yearly_display,
         }
         return {
             "currency": code,

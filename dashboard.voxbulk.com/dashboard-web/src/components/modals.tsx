@@ -617,7 +617,7 @@ export function AtsPreviewGateModal({
 }) {
   const count = Number(quote?.candidate_count || 0);
   const alreadyScored = Number(quote?.already_scored_count || 0);
-  const unitPrice = quote?.unit_price_gbp || "£0.50";
+  const unitPrice = quote?.unit_price_gbp || (quoteLoading ? "…" : "—");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">

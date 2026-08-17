@@ -60,10 +60,22 @@ async def gocardless_webhook(request: Request, db: Session = Depends(get_db)):
     secret = settings.gocardless_webhook_secret
     try:
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
-        if enabled and isinstance(cfg, dict) and str(cfg.get("webhook_secret") or "").strip():
-            secret = str(cfg["webhook_secret"]).strip()
-    except Exception:
-        pass
+        if enabled:
+            admin_secret = str((cfg or {}).get("webhook_secret") or "").strip() if isinstance(cfg, dict) else ""
+            if not admin_secret:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="GoCardless is enabled but webhook secret could not be decrypted",
+                )
+            secret = admin_secret
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("gocardless_webhook_config_decrypt_failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="GoCardless webhook configuration is unavailable",
+        ) from exc
     ok = verify_gocardless_signature_hex(secret=secret, body=body, signature_hex=sig)
     if not ok:
         raise _invalid_sig()
@@ -71,8 +83,15 @@ async def gocardless_webhook(request: Request, db: Session = Depends(get_db)):
     event, created = WebhookEventService.persist_received(
         db, provider="gocardless", raw_body=body, external_event_id=external_event_id, signature_valid=True
     )
-    if created:
-        handle_gocardless_webhook.delay(event_id=event.id)
+    if created or str(event.status or "").lower() != "processed":
+        try:
+            handle_gocardless_webhook.delay(event_id=event.id)
+        except Exception as exc:
+            WebhookEventService.mark_failed(db, event.id, f"enqueue failed: {exc}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="GoCardless webhook queued for retry",
+            ) from exc
     return {"status": "ok"}
 
 
@@ -92,12 +111,18 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         event = StripePaymentService.verify_webhook_signature(db, payload=body, signature_header=sig)
     except (StripeConfigError, StripeProviderError) as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
-    _event_row, created = WebhookEventService.persist_received(
+    event_row, created = WebhookEventService.persist_received(
         db, provider="stripe", raw_body=body, external_event_id=str(event.get("id") or "") or None, signature_valid=True
     )
-    if not created:
+    if not created and str(event_row.status or "").lower() == "processed":
         return {"status": "ok", "duplicate": True}
-    return StripePaymentService.handle_webhook_event(db, event)
+    try:
+        result = StripePaymentService.handle_webhook_event(db, event)
+        WebhookEventService.mark_processed(db, event_row.id)
+        return result
+    except Exception as exc:
+        WebhookEventService.mark_failed(db, event_row.id, str(exc))
+        raise
 
 
 @router.post("/airwallex")
@@ -117,12 +142,18 @@ async def airwallex_webhook(request: Request, db: Session = Depends(get_db)):
         event = AirwallexPaymentService.verify_webhook_signature(db, payload=body, timestamp=timestamp, signature=sig)
     except (AirwallexConfigError, AirwallexProviderError) as e:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
-    _event_row, created = WebhookEventService.persist_received(
+    event_row, created = WebhookEventService.persist_received(
         db, provider="airwallex", raw_body=body, external_event_id=str(event.get("id") or "") or None, signature_valid=True
     )
-    if not created:
+    if not created and str(event_row.status or "").lower() == "processed":
         return {"status": "ok", "duplicate": True}
-    return AirwallexPaymentService.handle_webhook_event(db, event)
+    try:
+        result = AirwallexPaymentService.handle_webhook_event(db, event)
+        WebhookEventService.mark_processed(db, event_row.id)
+        return result
+    except Exception as exc:
+        WebhookEventService.mark_failed(db, event_row.id, str(exc))
+        raise
 
 
 def _meta_whatsapp_verify_token(db: Session) -> str:

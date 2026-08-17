@@ -141,6 +141,49 @@ def billing_counts(db: Session, org_id: str) -> dict[str, int]:
 
 def purge_billing_for_org(db: Session, org_id: str) -> dict[str, int]:
     counts = billing_counts(db, org_id)
+    subs = list(db.execute(select(Subscription).where(Subscription.org_id == org_id)).scalars().all())
+    errors: list[str] = []
+    for sub in subs:
+        provider = str(sub.payment_provider or "").lower()
+        try:
+            if provider == "gocardless":
+                from app.services.gocardless_service import BillingService
+
+                ext_id = str(sub.external_subscription_id or "").strip()
+                if ext_id and not ext_id.startswith(("promo-", "mandate:")):
+                    if not BillingService._cancel_gocardless_subscription(db, ext_id):
+                        errors.append(f"gocardless subscription {ext_id}")
+                mandate_id = str(sub.mandate_id or "").strip()
+                if mandate_id:
+                    if not BillingService._cancel_gocardless_mandate(db, mandate_id):
+                        errors.append(f"gocardless mandate {mandate_id}")
+            elif provider == "stripe":
+                from app.services.stripe_payment_service import StripePaymentService, StripeProviderError
+
+                cust = str(sub.external_customer_id or "").strip()
+                if cust:
+                    try:
+                        StripePaymentService._request(db, "DELETE", f"/customers/{cust}")
+                    except StripeProviderError as exc:
+                        if "No such customer" not in str(exc) and "404" not in str(exc):
+                            raise
+            elif provider == "airwallex":
+                from app.services.airwallex_payment_service import AirwallexPaymentService, AirwallexProviderError
+
+                cust = str(sub.external_customer_id or "").strip()
+                if cust:
+                    try:
+                        AirwallexPaymentService._request(
+                            db, "POST", f"/api/v1/customers/{cust}/disable", payload={}
+                        )
+                    except AirwallexProviderError as exc:
+                        if "404" not in str(exc).lower() and "not found" not in str(exc).lower():
+                            raise
+        except Exception as exc:
+            errors.append(f"{provider}:{sub.id}:{exc}")
+    if errors:
+        raise RuntimeError("Provider billing cancel failed: " + "; ".join(errors[:8]))
+
     db.execute(
         update(Subscription)
         .where(Subscription.org_id == org_id)

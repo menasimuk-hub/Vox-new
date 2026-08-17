@@ -84,7 +84,7 @@ def test_gocardless_sandbox_redirect_start_and_complete(app_client, monkeypatch)
 
     monkeypatch.setattr("app.services.gocardless_service.httpx.Client", _FakeClient)
 
-    plans = app_client.get("/billing/plans").json()
+    plans = app_client.get("/billing/plans", headers=headers).json()
     start = app_client.post("/billing/subscription/gocardless/start", json={"plan_id": plans[0]["id"]}, headers=headers)
     assert start.status_code == 200
     assert start.json()["environment"] == "sandbox"
@@ -104,11 +104,11 @@ def test_gocardless_sandbox_redirect_start_and_complete(app_client, monkeypatch)
     assert body["status"] == "completed"
     assert body["subscription"]["payment_provider"] == "gocardless"
     assert body["subscription"]["payment_mode"] == "sandbox"
-    assert body["subscription"]["external_subscription_id"] == "SB_PHASE7"
+    assert body["subscription"]["external_subscription_id"] == "mandate:MD_PHASE7"
 
     with get_sessionmaker()() as db:
         inv = db.execute(
-            select(BillingInvoice).where(BillingInvoice.external_invoice_id == "sub:SB_PHASE7:initial")
+            select(BillingInvoice).where(BillingInvoice.external_invoice_id == "sub:mandate:MD_PHASE7:initial")
         ).scalar_one()
         assert inv.org_id == org_id
         assert inv.provider == "gocardless"
@@ -172,7 +172,7 @@ def test_gocardless_test_connection(app_client, monkeypatch):
 def test_cash_subscription_requires_admin_approval(app_client):
     headers, org_id, _user_id = _seed_user(app_client, email="phase7_cash@example.com", superuser=True)
     admin_headers = headers
-    plans = app_client.get("/billing/plans").json()
+    plans = app_client.get("/billing/plans", headers=headers).json()
     target = plans[1] if len(plans) > 1 else plans[0]
 
     change = app_client.post("/billing/subscription/change-plan", json={"plan_id": target["id"]}, headers=headers)

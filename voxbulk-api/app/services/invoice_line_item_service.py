@@ -149,21 +149,33 @@ class InvoiceLineItemService:
             units = max(0, int(costs.get("actual_units") or 0))
             included = max(0, int(costs.get("included_units") or 0))
             extra = max(0, int(costs.get("extra_units") or 0))
-            pkg_rate = max(0, int(costs.get("wa_package_fee_minor") or costs.get("catalog_per_min_minor") or 0))
             extra_rate = max(0, int(costs.get("wa_extra_minor") or costs.get("per_min_rate_minor") or 0))
-            if units > 0 and pkg_rate > 0:
+            pkg_rate = max(0, int(costs.get("wa_package_fee_minor") or costs.get("catalog_per_min_minor") or 0))
+            charged = extra * extra_rate
+            if extra > 0 and extra_rate > 0:
+                lines.append(
+                    InvoiceLineItemService._line(
+                        description=f"WA survey extra — {title}",
+                        quantity=extra,
+                        unit_pence=extra_rate,
+                        total_pence=charged,
+                        kind="wa_survey",
+                    )
+                )
+                lines[-1]["catalog_pence"] = units * pkg_rate if units > 0 and pkg_rate > 0 else charged
+            elif units > 0 and pkg_rate > 0:
                 catalog_total = units * pkg_rate
                 lines.append(
                     InvoiceLineItemService._line(
                         description=f"WA survey — {title}",
                         quantity=units,
                         unit_pence=pkg_rate,
-                        total_pence=extra * extra_rate if extra > 0 else 0,
+                        total_pence=0,
                         kind="wa_survey",
                     )
                 )
                 lines[-1]["catalog_pence"] = catalog_total
-                if included > 0 and extra <= 0:
+                if included > 0:
                     lines.append(
                         InvoiceLineItemService._line(
                             description="Included in plan allowance",

@@ -149,14 +149,19 @@ class InvoiceLifecycleService:
         if amount_minor is not None:
             subtotal = max(0, int(amount_minor))
             code = (invoice.country_code or CountryVatService.resolve_org_country_code(db, org)).upper()[:2]
-            rate = InvoiceService.effective_vat_rate(db, country_code=code)
-            tax = CountryVatService.compute_tax(subtotal, rate)
-            total = subtotal + tax
-            invoice.subtotal_pence = subtotal
+            rate = InvoiceService.effective_vat_rate(db, country_code=code, currency=str(invoice.currency or "GBP"))
+            net, tax, total, rate, vat_inclusive = InvoiceService.compute_invoice_amounts(
+                db,
+                country_code=code,
+                line_items=None,
+                amount_pence=subtotal,
+                currency=str(invoice.currency or "GBP"),
+            )
+            invoice.subtotal_pence = net
             invoice.tax_pence = tax
             invoice.tax_rate_percent = rate
             invoice.amount_gbp_pence = total
-            changes["subtotal_pence"] = subtotal
+            changes["subtotal_pence"] = net
             changes["amount_gbp_pence"] = total
 
         if not changes:

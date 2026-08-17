@@ -244,10 +244,16 @@ export function InvoicePayDialog({ invoice, open, onOpenChange, onPaid }: Props)
         }
         paymentIntentId = result.paymentIntent?.id || s.intentId;
       }
-      await apiFetch(`/billing/invoices/${encodeURIComponent(invoice.id)}/pay/card/confirm`, {
+      const paid = await apiFetch<{ paid?: boolean }>(`/billing/invoices/${encodeURIComponent(invoice.id)}/pay/card/confirm`, {
         method: "POST",
         body: JSON.stringify({ payment_intent_id: paymentIntentId, provider }),
       });
+      if (!paid?.paid) {
+        toast.message("Payment is still processing", {
+          description: "The invoice will show as paid once the card charge settles.",
+        });
+        return;
+      }
       toast.success("Invoice paid by card");
       onOpenChange(false);
       onPaid?.();

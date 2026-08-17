@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -11,6 +11,9 @@ from app.core.database import Base
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
+    __table_args__ = (
+        UniqueConstraint("org_id", "service_code", "live_slot", name="uq_subscriptions_org_service_live"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organisations.id"), nullable=False, index=True)
@@ -54,6 +57,10 @@ class Subscription(Base):
     added_seats_free_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     tax_rate_percent: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     tax_country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
+
+    # 1 while status is live (active/trial/past_due/suspended/…); NULL when cancelled so many ended rows can coexist.
+    live_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_advanced_payment_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

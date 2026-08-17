@@ -50,6 +50,49 @@ def handle_gocardless_webhook(*, event_id: int) -> dict:
     return {"status": "processed", "event_id": event_id, "billing": summary}
 
 
+@celery_app.task(name="webhooks.retry_unprocessed")
+def retry_unprocessed_webhooks() -> dict:
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.utcnow() - timedelta(minutes=2)
+    retried = 0
+    with get_sessionmaker()() as db:
+        rows = list(
+            db.execute(
+                select(WebhookEvent).where(
+                    WebhookEvent.status.in_(("received", "failed")),
+                    WebhookEvent.signature_valid.is_(True),
+                    WebhookEvent.received_at <= cutoff,
+                ).limit(50)
+            ).scalars().all()
+        )
+        for row in rows:
+            provider = str(row.provider or "").lower()
+            try:
+                if provider == "gocardless":
+                    handle_gocardless_webhook.delay(event_id=row.id)
+                elif provider == "vapi":
+                    handle_vapi_webhook.delay(event_id=row.id)
+                elif provider == "stripe":
+                    from app.services.stripe_payment_service import StripePaymentService
+
+                    payload = json.loads(row.raw_body or "{}")
+                    StripePaymentService.handle_webhook_event(db, payload if isinstance(payload, dict) else {})
+                    WebhookEventService.mark_processed(db, row.id)
+                elif provider == "airwallex":
+                    from app.services.airwallex_payment_service import AirwallexPaymentService
+
+                    payload = json.loads(row.raw_body or "{}")
+                    AirwallexPaymentService.handle_webhook_event(db, payload if isinstance(payload, dict) else {})
+                    WebhookEventService.mark_processed(db, row.id)
+                else:
+                    continue
+                retried += 1
+            except Exception as exc:
+                WebhookEventService.mark_failed(db, row.id, str(exc))
+    return {"retried": retried}
+
+
 @celery_app.task(name="dentally.sync_tenant")
 def dentally_sync_tenant(*, org_id: str) -> dict:
     """
