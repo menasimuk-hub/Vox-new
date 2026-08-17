@@ -313,12 +313,9 @@ class FeedbackSeedService:
                 db.flush()
             elif bool(plan.is_frozen):
                 continue
-            else:
+            elif str(plan.service_kind or "") != FEEDBACK_SERVICE_CODE:
+                # Existing catalog rows are Admin-owned. Never reset name, copy, prices, or is_active.
                 plan.service_kind = FEEDBACK_SERVICE_CODE
-                plan.description = description
-                plan.features_json = features_json
-                plan.whatsapp_included = int(pkg["wa_units"])
-                plan.is_active = True
                 plan.updated_at = now
                 db.add(plan)
 
@@ -339,11 +336,6 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
-            elif not bool(plan.is_frozen):
-                price_row.monthly_price_minor = int(pkg["price_pence"])
-                price_row.yearly_price_minor = int(pkg["price_pence"]) * 10
-                price_row.updated_at = now
-                db.add(price_row)
 
             fb_pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one_or_none()
             if fb_pkg is None:
@@ -361,12 +353,4 @@ class FeedbackSeedService:
                         updated_at=now,
                     )
                 )
-            elif not bool(plan.is_frozen):
-                fb_pkg.max_locations = int(pkg["locations"])
-                fb_pkg.wa_units_included = int(pkg["wa_units"])
-                fb_pkg.web_units_included = int(pkg["web_units"])
-                fb_pkg.promo_message_cost_minor = int(pkg.get("promo_cost_minor") or 5)
-                fb_pkg.is_active = True
-                fb_pkg.updated_at = now
-                db.add(fb_pkg)
         db.commit()

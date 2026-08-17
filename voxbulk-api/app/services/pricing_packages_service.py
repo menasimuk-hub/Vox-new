@@ -643,6 +643,10 @@ class PricingPackagesService:
             if "description" in payload:
                 desc = str(payload.get("description") or "").strip()
                 p.description = desc or None
+            if "features_json" in payload:
+                p.features_json = payload.get("features_json")
+            if isinstance(payload.get("features"), list):
+                p.features_json = json.dumps([str(x).strip() for x in payload["features"] if str(x).strip()]) or None
             if "is_active" in payload:
                 active = bool(payload["is_active"])
                 p.is_active = active

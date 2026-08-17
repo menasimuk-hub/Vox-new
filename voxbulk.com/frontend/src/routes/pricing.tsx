@@ -329,10 +329,11 @@ function PricingPage() {
     [coreApiPlans],
   );
   const feedbackApiPlans = feedbackPricing.data?.plans ?? [];
-  const feedbackPlans = useMemo(
-    () => (feedbackApiPlans.length ? feedbackApiPlans.map(mapFeedbackPlan) : FALLBACK_FEEDBACK),
-    [feedbackApiPlans],
-  );
+  const feedbackPlans = useMemo(() => {
+    if (feedbackPricing.data) return feedbackApiPlans.map(mapFeedbackPlan);
+    if (feedbackPricing.error) return FALLBACK_FEEDBACK;
+    return [];
+  }, [feedbackApiPlans, feedbackPricing.data, feedbackPricing.error]);
   const expoApiPlans = expoPricing.data?.plans ?? [];
   const expoPlans = useMemo(
     () => (expoApiPlans.length ? expoApiPlans.map(mapExpoPlan) : FALLBACK_EXPO),
@@ -538,7 +539,11 @@ function PricingPage() {
               <BillingToggle value={feedbackBilling} onChange={setFeedbackBilling} />
             </div>
             <div className={`grid gap-4 ${feedbackPlans.length >= 4 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" : "grid-cols-1 md:grid-cols-3"}`}>
-              {feedbackPlans.map((p) => {
+              {feedbackPricing.loading ? (
+                <p className="text-[14px] text-muted-text">Loading live prices…</p>
+              ) : feedbackPlans.length === 0 ? (
+                <p className="text-[14px] text-muted-text">No Customer Feedback packages are published for this market.</p>
+              ) : feedbackPlans.map((p) => {
                 const apiPlan = feedbackApiPlans.find((row) => row.code === p.code) ?? null;
                 const highlighted = highlightProduct === "feedback" && highlightPlan === p.code;
                 return (

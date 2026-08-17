@@ -466,6 +466,60 @@ def test_list_packages_for_eu_org():
         assert pro["wa_units_included"] == 450
 
 
+def test_ensure_seeded_does_not_revive_or_overwrite_admin_copy():
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(select(Plan).where(Plan.code == "cf_starter_gb")).scalar_one()
+        pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one()
+        plan.name = "Stopped Starter"
+        plan.description = "Admin-owned description"
+        plan.is_active = False
+        pkg.is_active = False
+        db.commit()
+
+        FeedbackSeedService.ensure_seeded(db)
+        plan = db.execute(select(Plan).where(Plan.code == "cf_starter_gb")).scalar_one()
+        pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == plan.id)).scalar_one()
+        assert plan.name == "Stopped Starter"
+        assert plan.description == "Admin-owned description"
+        assert plan.is_active is False
+        assert pkg.is_active is False
+        hidden = FeedbackCatalogService.list_packages(db, market_zone="gb", active_only=True)
+        assert all(item["plan_code"] != "cf_starter_gb" for item in hidden)
+        plan.name = "Starter"
+        plan.description = None
+        plan.is_active = True
+        pkg.is_active = True
+        db.commit()
+
+
+def test_products_hub_copy_syncs_feedback_family():
+    from app.services.products_hub_service import ProductsHubService
+
+    with get_sessionmaker()() as db:
+        FeedbackSeedService.ensure_seeded(db)
+        gb = db.execute(select(Plan).where(Plan.code == "cf_pro_gb")).scalar_one()
+        ProductsHubService.update_plan_copy(
+            db,
+            gb,
+            {
+                "name": "Growth Plus",
+                "description": "Centralised growth copy",
+                "is_active": False,
+                "features": ["Family feature A", "Family feature B"],
+            },
+        )
+        au = db.execute(select(Plan).where(Plan.code == "cf_pro_au")).scalar_one()
+        au_pkg = db.execute(select(FeedbackPackage).where(FeedbackPackage.plan_id == au.id)).scalar_one()
+        assert au.name == "Growth Plus"
+        assert au.description == "Centralised growth copy"
+        assert au.is_active is False
+        assert au_pkg.is_active is False
+        features = json.loads(au.features_json or "[]")
+        assert "Family feature A" in features
+        ProductsHubService.update_plan_copy(db, gb, {"is_active": True, "name": "Growth"})
+
+
 def test_feedback_period_renewal_opens_new_usage_period():
     org_id, _user_id = _seed_org()
     with get_sessionmaker()() as db:

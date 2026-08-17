@@ -75,6 +75,7 @@ def package_to_dict(db: Session, row: FeedbackPackage) -> dict[str, Any]:
         "plan_id": row.plan_id,
         "plan_code": plan.code if plan else None,
         "plan_name": plan.name if plan else None,
+        "description": plan.description if plan else None,
         "market_zone": row.market_zone,
         "max_locations": row.max_locations,
         "wa_units_included": row.wa_units_included,

@@ -207,6 +207,7 @@ export type FeedbackPackage = {
   plan_id: string;
   plan_code?: string | null;
   plan_name?: string | null;
+  description?: string | null;
   market_zone?: string;
   max_locations: number;
   wa_units_included: number;
@@ -2567,6 +2568,7 @@ export function useFeedbackPackages() {
       const data = await apiFetch<{ ok?: boolean; items?: FeedbackPackage[] }>("/customer-feedback/packages");
       return data.items || [];
     },
+    refetchOnMount: "always",
   });
 }
 

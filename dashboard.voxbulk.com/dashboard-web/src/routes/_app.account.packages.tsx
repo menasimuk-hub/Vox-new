@@ -1002,6 +1002,9 @@ function PackagesPage() {
                                   <CardTitle className="text-base pt-1">{pkg.plan_name || pkg.plan_code || "Feedback plan"}</CardTitle>
                                   <CardDescription>
                                     <span className="text-2xl font-semibold tracking-tight text-foreground">{formatFeedbackPrice(pkg)}</span>
+                                    {pkg.description ? (
+                                      <span className="mt-1 block text-xs font-normal text-muted-foreground">{pkg.description}</span>
+                                    ) : null}
                                   </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-2 text-sm">

@@ -510,6 +510,24 @@ class ProductsHubService:
             row.is_active = bool(payload.get("is_active"))
         row.updated_at = datetime.utcnow()
         db.add(row)
+
+        if ProductsHubService.product_line_for_plan(row) == "customer_feedback":
+            from app.services.pricing_packages_service import PricingPackagesService
+
+            family_payload: dict[str, Any] = {}
+            if payload.get("name") is not None:
+                family_payload["name"] = row.name
+            if "description" in payload:
+                family_payload["description"] = row.description or ""
+            if payload.get("is_active") is not None:
+                family_payload["is_active"] = bool(row.is_active)
+            if isinstance(payload.get("features"), list) or payload.get("features_text") is not None:
+                family_payload["features_json"] = row.features_json
+            if family_payload:
+                PricingPackagesService._update_feedback_family(db, row, family_payload, now=row.updated_at)
+                db.refresh(row)
+                return row
+
         db.commit()
         db.refresh(row)
         return row
