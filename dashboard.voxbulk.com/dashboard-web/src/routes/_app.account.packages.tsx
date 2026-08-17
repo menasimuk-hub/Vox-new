@@ -239,6 +239,15 @@ function interviewCost(perMin: number, duration: number, conn: number, count: nu
   return { perCall, total: perCall * count };
 }
 
+function planDisplay(p: PlanRow | undefined, keys: string[], fallback = "—"): string {
+  if (!p) return fallback;
+  for (const key of keys) {
+    const raw = p[key];
+    if (raw != null && String(raw).trim()) return String(raw);
+  }
+  return fallback;
+}
+
 function corePlanFeatures(p: PlanRow): string[] {
   const raw = p.features;
   if (Array.isArray(raw) && raw.length) return raw.map((x) => String(x));
@@ -374,9 +383,16 @@ function PackagesPage() {
   const connEnabled = Boolean(services.connection_fee_enabled);
   const connPence = Number(services.connection_fee_pence || 0);
   const waPkgFee = Number(services.wa_survey_package_fee_pence || services.whatsapp_survey_fee_pence || 50);
-  const waExtraDisplay = String(services.wa_survey_extra_display || services.whatsapp_survey_display || "£0.49");
   const atsFee = Number(services.ats_cv_scan_fee_pence || 75);
   const paygPerMin = Number(services.interview_per_min_pence || 35);
+  const extraRatePlan =
+    (effectiveCurrentPlan as PlanRow | null) ||
+    plans.find((p) => isPaygPlan(p)) ||
+    plans.find((p) => !p.is_enterprise) ||
+    null;
+  const serviceExtraMin = planDisplay(extraRatePlan || undefined, ["extra_per_min_display", "per_min_display"], String(services.interview_per_min_display || "—"));
+  const serviceExtraWa = planDisplay(extraRatePlan || undefined, ["wa_extra_display", "wa_survey_extra_display", "wa_unit_display"], String(services.wa_survey_extra_display || services.whatsapp_survey_display || "—"));
+  const serviceExtraAts = planDisplay(extraRatePlan || undefined, ["cv_unit_display"], String(services.ats_cv_scan_display || "—"));
 
   const breakdown = React.useMemo(() => {
     const avgDuration = Number(settings.estimator_default_duration_min || duration || 12);
@@ -792,11 +808,17 @@ function PackagesPage() {
                     <CardContent className="flex flex-1 flex-col space-y-2 text-xs">
                       {!ent && (
                         <>
-                          <p>Cost per min: <strong>{String(p.per_min_display)}</strong></p>
+                          <p>Cost per min: <strong>{planDisplay(p, ["per_min_display"])}</strong></p>
+                          <p>WA survey: <strong>{planDisplay(p, ["wa_unit_display", "wa_survey_package_fee_display"])}</strong> per survey</p>
+                          <p>ATS: <strong>{planDisplay(p, ["cv_unit_display", "ats_cv_scan_display"])}</strong> per scan</p>
                           {payg ? (
                             <p className="text-muted-foreground">Use wallet top-ups — pay only for what you use.</p>
                           ) : (
-                            <p className="text-muted-foreground">Extra min (after package): <strong>{String(p.extra_per_min_display || p.per_min_display)}</strong></p>
+                            <>
+                              <p className="text-muted-foreground">Extra min: <strong>{planDisplay(p, ["extra_per_min_display", "per_min_display"])}</strong></p>
+                              <p className="text-muted-foreground">Extra WA: <strong>{planDisplay(p, ["wa_extra_display", "wa_survey_extra_display", "wa_unit_display"])}</strong> per survey</p>
+                              <p className="text-muted-foreground">Extra ATS: <strong>{planDisplay(p, ["cv_unit_display"])}</strong> per scan</p>
+                            </>
                           )}
                           {connEnabled && <p className="text-muted-foreground">{String(services.connection_fee_label)}: {String(services.connection_fee_display)}</p>}
                           <p className="text-muted-foreground">Typical interview<br />{sym(data)}{low.toFixed(2)} – {sym(data)}{high.toFixed(2)} per call</p>
@@ -880,15 +902,16 @@ function PackagesPage() {
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">What each service costs</h2>
         <div className="mb-4 space-y-1 rounded-lg border border-border bg-muted/20 px-4 py-3 text-sm">
-          <p>Extra recipients: <strong>{waExtraDisplay}</strong> each after allowance is used.</p>
+          <p>Extra min: <strong>{serviceExtraMin}</strong></p>
+          <p>Extra WA: <strong>{serviceExtraWa}</strong> per survey</p>
+          <p>Extra ATS: <strong>{serviceExtraAts}</strong> per scan</p>
           <p>Interview WhatsApp: <strong>included</strong>.</p>
           <p>AI phone survey: <strong>billed by connection + minutes</strong>.</p>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><Phone className="size-4 text-primary" /><span className="font-medium">Interview call</span></div><p className="text-xl font-semibold">{String(services.interview_per_min_display)}/min</p>{connEnabled && <p className="text-xs text-muted-foreground">+ {String(services.connection_fee_display)} connection fee per call</p>}</CardContent></Card>
-          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><MessageCircle className="size-4 text-green-600" /><span className="font-medium">WA survey allowance</span></div><p className="text-xl font-semibold">{String(services.wa_survey_package_fee_display || services.whatsapp_survey_display)}</p><p className="text-xs text-muted-foreground">Package fee used to calculate plan recipients/month</p></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><MessageCircle className="size-4 text-green-600" /><span className="font-medium">WA survey extra</span></div><p className="text-xl font-semibold">{waExtraDisplay}</p><p className="text-xs text-muted-foreground">Each recipient after allowance is used</p></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><FileText className="size-4 text-amber-600" /><span className="font-medium">ATS CV scan</span></div><p className="text-xl font-semibold">{String(services.ats_cv_scan_display)}</p><p className="text-xs text-muted-foreground">Per CV screened · Interview WhatsApp included</p></CardContent></Card>
+        <div className="grid gap-3 md:grid-cols-3">
+          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><Phone className="size-4 text-primary" /><span className="font-medium">Extra min</span></div><p className="text-xl font-semibold">{serviceExtraMin}/min</p>{connEnabled && <p className="text-xs text-muted-foreground">+ {String(services.connection_fee_display)} connection fee per call</p>}</CardContent></Card>
+          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><MessageCircle className="size-4 text-green-600" /><span className="font-medium">Extra WA</span></div><p className="text-xl font-semibold">{serviceExtraWa}</p><p className="text-xs text-muted-foreground">Per survey after included WA is used</p></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="mb-2 flex items-center gap-2"><FileText className="size-4 text-amber-600" /><span className="font-medium">Extra ATS</span></div><p className="text-xl font-semibold">{serviceExtraAts}</p><p className="text-xs text-muted-foreground">Per CV scan after included scans are used</p></CardContent></Card>
         </div>
       </section>
 
