@@ -147,51 +147,53 @@ class UsageAllowanceService:
             return []
         usage = FeedbackBillingService.get_current_usage(db, org_id)
         period_end = sub.current_period_end.isoformat() if sub.current_period_end else None
+        mode = str(usage.get("web_mode") or FeedbackBillingService.web_mode(int(usage.get("web_units_included") or 0)))
+        wa_included = int(usage.get("wa_units_included") or 0)
+        wa_used = int(usage.get("wa_units_used") or 0)
         web_included = int(usage.get("web_units_included") or 0)
-        web_unlimited = web_included < 0
-        if web_unlimited:
-            wa_included = int(usage.get("wa_units_included") or 0)
-            wa_used = int(usage.get("wa_units_used") or 0)
+        web_used = int(usage.get("web_units_used") or 0)
+        if mode == "shared":
             return [
                 UsageAllowanceService._allowance_row(
                     product="feedback",
-                    key="feedback_wa",
-                    label="WA responses",
-                    used=wa_used,
-                    included=wa_included,
-                    unit="responses",
+                    key="feedback_surveys",
+                    label="Surveys (WhatsApp or web)",
+                    used=int(usage.get("survey_units_used") or 0),
+                    included=int(usage.get("survey_units_included") or wa_included),
+                    unit="surveys",
                     period_start=None,
                     period_end=period_end,
-                    remaining_override=int(usage.get("wa_units_remaining") or 0),
+                    remaining_override=int(usage.get("survey_units_remaining") or 0),
                 ),
+            ]
+        rows = [
+            UsageAllowanceService._allowance_row(
+                product="feedback",
+                key="feedback_wa",
+                label="WA responses",
+                used=wa_used,
+                included=wa_included,
+                unit="responses",
+                period_start=None,
+                period_end=period_end,
+                remaining_override=int(usage.get("wa_units_remaining") or 0),
+            ),
+        ]
+        if mode == "separate":
+            rows.append(
                 UsageAllowanceService._allowance_row(
                     product="feedback",
                     key="feedback_web",
                     label="Web surveys",
-                    used=int(usage.get("web_units_used") or 0),
-                    included=0,
+                    used=web_used,
+                    included=web_included,
                     unit="surveys",
-                    unlimited=True,
                     period_start=None,
                     period_end=period_end,
-                    remaining_override=None,
-                ),
-            ]
-        included = int(usage.get("survey_units_included") or usage.get("wa_units_included") or 0)
-        used = int(usage.get("survey_units_used") or 0)
-        return [
-            UsageAllowanceService._allowance_row(
-                product="feedback",
-                key="feedback_surveys",
-                label="Surveys (WhatsApp or web)",
-                used=used,
-                included=included,
-                unit="surveys",
-                period_start=None,
-                period_end=period_end,
-                remaining_override=int(usage.get("survey_units_remaining") or 0),
-            ),
-        ]
+                    remaining_override=int(usage.get("web_units_remaining") or 0),
+                )
+            )
+        return rows
 
     @staticmethod
     def build_for_org(

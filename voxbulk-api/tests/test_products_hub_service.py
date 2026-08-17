@@ -73,6 +73,7 @@ def test_marketing_features_feedback():
         is_active=True,
     )
     features = ProductsHubService.marketing_features_for_plan(plan, fb_pkg=fb)
-    assert features[0] == "350 surveys/mo (WhatsApp or web)"
+    assert features[0] == "150 WhatsApp surveys/mo"
+    assert "200 Web surveys/mo" in features
     assert "Voice-note transcription included" in features
     assert "Monthly report" in features

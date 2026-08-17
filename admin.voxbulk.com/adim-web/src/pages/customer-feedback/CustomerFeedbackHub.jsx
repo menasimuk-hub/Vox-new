@@ -645,6 +645,7 @@ export default function CustomerFeedbackHub() {
                     plan_id: '',
                     max_locations: 1,
                     wa_units_included: 100,
+                    web_units_included: -1,
                     admin_notes: '',
                     is_active: true,
                     display_order: 100,
@@ -686,8 +687,11 @@ export default function CustomerFeedbackHub() {
                   <Field label="Max locations">
                     <input className="input" type="number" value={packageEdit.max_locations ?? 1} onChange={(e) => setPackageEdit((f) => ({ ...f, max_locations: Number(e.target.value) }))} />
                   </Field>
-                  <Field label="Surveys / mo (WhatsApp or web)">
-                    <input className="input" type="number" value={packageEdit.wa_units_included ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, wa_units_included: Number(e.target.value), web_units_included: 0 }))} />
+                  <Field label="WA units / mo">
+                    <input className="input" type="number" value={packageEdit.wa_units_included ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, wa_units_included: Number(e.target.value) }))} />
+                  </Field>
+                  <Field label="Web / mo (−1 share, 0 none)">
+                    <input className="input" type="number" value={packageEdit.web_units_included ?? 0} onChange={(e) => setPackageEdit((f) => ({ ...f, web_units_included: Number(e.target.value) }))} />
                   </Field>
                   <Field label="Display order">
                     <input className="input" type="number" value={packageEdit.display_order ?? 100} onChange={(e) => setPackageEdit((f) => ({ ...f, display_order: Number(e.target.value) }))} />

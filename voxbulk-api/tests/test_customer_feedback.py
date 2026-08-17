@@ -524,10 +524,15 @@ def test_fold_shared_survey_units():
     from app.services.customer_feedback.billing_service import FeedbackBillingService
 
     assert FeedbackBillingService.fold_shared_survey_units(1000, 0) == (1000, 0)
-    assert FeedbackBillingService.fold_shared_survey_units(1000, 200) == (1200, 0)
-    assert FeedbackBillingService.fold_shared_survey_units(1500, -1) == (1500, -1)
-    assert FeedbackBillingService.survey_pool_remaining(1000, 400, 0, 600) == 0
-    assert FeedbackBillingService.survey_pool_remaining(150, 50, 200, 50) == 250
+    assert FeedbackBillingService.fold_shared_survey_units(5600, 400) == (5600, 400)
+    assert FeedbackBillingService.fold_shared_survey_units(1000, -1) == (1000, -1)
+    assert FeedbackBillingService.web_mode(-1) == "shared"
+    assert FeedbackBillingService.web_mode(0) == "none"
+    assert FeedbackBillingService.web_mode(400) == "separate"
+    assert FeedbackBillingService.survey_pool_remaining(1000, 400, -1, 600) == 0
+    assert FeedbackBillingService.wa_units_remaining(5600, 100, 400, 50) == 5500
+    assert FeedbackBillingService.web_units_remaining(5600, 100, 400, 50) == 350
+    assert FeedbackBillingService.web_units_remaining(1000, 0, 0, 0) == 0
 
 
 def test_shared_survey_pool_consume_mixes_wa_and_web():
@@ -556,7 +561,7 @@ def test_shared_survey_pool_consume_mixes_wa_and_web():
                 period_end=now,
                 wa_units_included=2,
                 wa_units_used=0,
-                web_units_included=0,
+                web_units_included=-1,
                 web_units_used=0,
                 created_at=now,
                 updated_at=now,
@@ -566,6 +571,7 @@ def test_shared_survey_pool_consume_mixes_wa_and_web():
         FeedbackBillingService.consume_unit(db, org_id)
         FeedbackBillingService.consume_web_unit(db, org_id)
         usage = FeedbackBillingService.get_current_usage(db, org_id)
+        assert usage["web_mode"] == "shared"
         assert usage["survey_units_remaining"] == 0
         assert usage["wa_units_used"] == 1
         assert usage["web_units_used"] == 1

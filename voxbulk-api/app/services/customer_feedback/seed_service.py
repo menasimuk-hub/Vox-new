@@ -107,7 +107,8 @@ PACKAGE_TIERS: list[dict] = [
         "prices": {"GBP": 2500, "EUR": 2900, "USD": 3500, "CAD": 4900, "AUD": 4900},
         "features": [
             "1 location",
-            "350 surveys/mo (WhatsApp or web)",
+            "150 WhatsApp surveys/mo",
+            "200 Web surveys/mo",
             "Monthly report",
             "Email support",
         ],
@@ -124,7 +125,8 @@ PACKAGE_TIERS: list[dict] = [
         "prices": {"GBP": 6500, "EUR": 7500, "USD": 8900, "CAD": 12500, "AUD": 12900},
         "features": [
             "3 locations",
-            "1,050 surveys/mo (WhatsApp or web)",
+            "450 WhatsApp surveys/mo",
+            "600 Web surveys/mo",
             "Live dashboard",
             "Priority support",
         ],
@@ -141,8 +143,7 @@ PACKAGE_TIERS: list[dict] = [
         "prices": {"GBP": 17500, "EUR": 19900, "USD": 22900, "CAD": 32900, "AUD": 33500},
         "features": [
             "10 locations",
-            "1,500 WhatsApp surveys/mo",
-            "Unlimited Web surveys",
+            "1,500 surveys/mo (WhatsApp or web)",
             "Real-time dashboard",
             "Branded PDF report",
             "Dedicated account manager",
@@ -286,13 +287,17 @@ class FeedbackSeedService:
             if web_n < 0:
                 description = (
                     f"WhatsApp QR feedback — {pkg['name']} "
-                    f"({pkg['locations']} location(s), {pkg['wa_units']} WhatsApp surveys/month + unlimited web)"
+                    f"({pkg['locations']} location(s), {pkg['wa_units']} surveys/month — WhatsApp or web)"
                 )
-            else:
-                total = int(pkg["wa_units"]) + max(web_n, 0)
+            elif web_n == 0:
                 description = (
                     f"WhatsApp QR feedback — {pkg['name']} "
-                    f"({pkg['locations']} location(s), {total} surveys/month — WhatsApp or web)"
+                    f"({pkg['locations']} location(s), {pkg['wa_units']} WhatsApp surveys/month)"
+                )
+            else:
+                description = (
+                    f"WhatsApp QR feedback — {pkg['name']} "
+                    f"({pkg['locations']} location(s), {pkg['wa_units']} WA + {web_n} web surveys/month)"
                 )
 
             plan = db.execute(select(Plan).where(Plan.code == pkg["code"])).scalar_one_or_none()

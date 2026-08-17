@@ -446,21 +446,30 @@ def _sync_plan_marketing(plan, row: dict[str, Any]) -> None:
     if web < 0:
         plan.description = (
             f"WhatsApp + web QR feedback — {name} "
-            f"({locs} location(s), {wa} WhatsApp surveys/month + unlimited web)"
-        )
-        features = [
-            f"{locs} location{'s' if locs != 1 else ''}",
-            f"{wa:,} WhatsApp surveys/mo",
-            "Unlimited web surveys/mo",
-        ]
-    else:
-        plan.description = (
-            f"WhatsApp + web QR feedback — {name} "
             f"({locs} location(s), {wa} surveys/month — WhatsApp or web)"
         )
         features = [
             f"{locs} location{'s' if locs != 1 else ''}",
             f"{wa:,} surveys/mo (WhatsApp or web)",
+        ]
+    elif web == 0:
+        plan.description = (
+            f"WhatsApp QR feedback — {name} "
+            f"({locs} location(s), {wa} WhatsApp surveys/month)"
+        )
+        features = [
+            f"{locs} location{'s' if locs != 1 else ''}",
+            f"{wa:,} WhatsApp surveys/mo",
+        ]
+    else:
+        plan.description = (
+            f"WhatsApp + web QR feedback — {name} "
+            f"({locs} location(s), {wa} WhatsApp + {web} web surveys/month)"
+        )
+        features = [
+            f"{locs} location{'s' if locs != 1 else ''}",
+            f"{wa:,} WhatsApp surveys/mo",
+            f"{web:,} web surveys/mo",
         ]
     plan.features_json = json.dumps(features)
     plan.whatsapp_included = wa

@@ -38,37 +38,57 @@ class FeedbackBillingService:
     _USAGE_ELIGIBLE_STATUSES = frozenset({"active", "trial"})
 
     @staticmethod
-    def fold_shared_survey_units(wa_included: int, web_included: int) -> tuple[int, int]:
-        """Store one shared pool on wa_units_included. web < 0 stays unlimited web."""
-        wa = int(wa_included or 0)
+    def web_mode(web_included: int) -> str:
+        """-1 = shared WA pool, 0 = no web, >0 = separate web allowance."""
         web = int(web_included or 0)
         if web < 0:
-            return max(0, wa), -1
-        return max(0, wa) + max(0, web), 0
+            return "shared"
+        if web == 0:
+            return "none"
+        return "separate"
+
+    @staticmethod
+    def fold_shared_survey_units(wa_included: int, web_included: int) -> tuple[int, int]:
+        """Keep WA and web as entered. Negative web is stored as -1 (shared)."""
+        wa = max(0, int(wa_included or 0))
+        web = int(web_included or 0)
+        if web < 0:
+            return wa, -1
+        return wa, max(0, web)
+
+    @staticmethod
+    def wa_units_remaining(wa_included: int, wa_used: int, web_included: int, web_used: int) -> int:
+        wa = max(0, int(wa_included or 0))
+        if FeedbackBillingService.web_mode(web_included) == "shared":
+            used = max(0, int(wa_used or 0)) + max(0, int(web_used or 0))
+            return max(0, wa - used)
+        return max(0, wa - max(0, int(wa_used or 0)))
+
+    @staticmethod
+    def web_units_remaining(wa_included: int, wa_used: int, web_included: int, web_used: int) -> int:
+        mode = FeedbackBillingService.web_mode(web_included)
+        if mode == "none":
+            return 0
+        if mode == "shared":
+            return FeedbackBillingService.wa_units_remaining(wa_included, wa_used, web_included, web_used)
+        return max(0, int(web_included or 0) - max(0, int(web_used or 0)))
 
     @staticmethod
     def survey_pool_included(wa_included: int, web_included: int) -> int:
-        wa = int(wa_included or 0)
-        web = int(web_included or 0)
-        if wa < 0:
-            return -1
-        if web < 0:
-            return max(0, wa)
-        return max(0, wa) + max(0, web)
+        wa = max(0, int(wa_included or 0))
+        if FeedbackBillingService.web_mode(web_included) == "shared":
+            return wa
+        return wa
 
     @staticmethod
     def survey_pool_used(wa_used: int, web_used: int, web_included: int) -> int:
-        if int(web_included or 0) < 0:
-            return max(0, int(wa_used or 0))
-        return max(0, int(wa_used or 0)) + max(0, int(web_used or 0))
+        if FeedbackBillingService.web_mode(web_included) == "shared":
+            return max(0, int(wa_used or 0)) + max(0, int(web_used or 0))
+        return max(0, int(wa_used or 0))
 
     @staticmethod
     def survey_pool_remaining(wa_included: int, wa_used: int, web_included: int, web_used: int) -> int:
-        included = FeedbackBillingService.survey_pool_included(wa_included, web_included)
-        if included < 0:
-            return 999_999
-        used = FeedbackBillingService.survey_pool_used(wa_used, web_used, web_included)
-        return max(0, included - used)
+        return FeedbackBillingService.wa_units_remaining(wa_included, wa_used, web_included, web_used)
 
     @staticmethod
     def get_active_subscription(db: Session, org_id: str) -> Subscription | None:
@@ -422,25 +442,29 @@ class FeedbackBillingService:
                 "survey_units_included": 0,
                 "survey_units_used": 0,
                 "survey_units_remaining": 0,
+                "web_mode": "none",
             }
         wa_included = int(row.wa_units_included or 0)
         wa_used = int(row.wa_units_used or 0)
         web_included = int(row.web_units_included or 0)
         web_used = int(row.web_units_used or 0)
-        remaining = FeedbackBillingService.survey_pool_remaining(
+        wa_remaining = FeedbackBillingService.wa_units_remaining(
             wa_included, wa_used, web_included, web_used
         )
-        web_unlimited = web_included < 0
+        web_remaining = FeedbackBillingService.web_units_remaining(
+            wa_included, wa_used, web_included, web_used
+        )
         return {
             "wa_units_included": wa_included,
             "wa_units_used": wa_used,
-            "wa_units_remaining": remaining if not web_unlimited else max(0, wa_included - wa_used),
+            "wa_units_remaining": wa_remaining,
             "web_units_included": web_included,
             "web_units_used": web_used,
-            "web_units_remaining": remaining if not web_unlimited else 999_999,
+            "web_units_remaining": web_remaining,
             "survey_units_included": FeedbackBillingService.survey_pool_included(wa_included, web_included),
             "survey_units_used": FeedbackBillingService.survey_pool_used(wa_used, web_used, web_included),
-            "survey_units_remaining": remaining,
+            "survey_units_remaining": wa_remaining,
+            "web_mode": FeedbackBillingService.web_mode(web_included),
         }
 
     @staticmethod
@@ -763,7 +787,7 @@ class FeedbackBillingService:
                     return False, "Your Customer feedback subscription payment is not active. Resolve billing before collecting responses."
             return False, "Subscribe to a Customer feedback package to start collecting responses."
         usage = FeedbackBillingService.get_current_usage(db, org_id)
-        if int(usage.get("survey_units_remaining") or usage.get("wa_units_remaining") or 0) <= 0:
+        if int(usage.get("wa_units_remaining") or 0) <= 0:
             org = db.get(Organisation, org_id)
             promo_units = int(getattr(org, "feedback_credits_balance", 0) or 0) if org else 0
             if promo_units <= 0:
@@ -781,10 +805,9 @@ class FeedbackBillingService:
                     return False, "Your Customer feedback subscription payment is not active. Resolve billing before running web surveys."
             return False, "Subscribe to a Customer feedback package to run web surveys."
         usage = FeedbackBillingService.get_current_usage(db, org_id)
-        web_included = int(usage.get("web_units_included") or 0)
-        if web_included < 0:
-            return True, None
-        if int(usage.get("survey_units_remaining") or usage.get("web_units_remaining") or 0) <= 0:
+        if str(usage.get("web_mode") or "") == "none":
+            return False, "This package does not include web surveys."
+        if int(usage.get("web_units_remaining") or 0) <= 0:
             org = db.get(Organisation, org_id)
             promo_units = int(getattr(org, "feedback_credits_balance", 0) or 0) if org else 0
             if promo_units <= 0:
@@ -804,7 +827,7 @@ class FeedbackBillingService:
             .first()
         )
         remaining = (
-            FeedbackBillingService.survey_pool_remaining(
+            FeedbackBillingService.wa_units_remaining(
                 int(row.wa_units_included or 0),
                 int(row.wa_units_used or 0),
                 int(row.web_units_included or 0),
@@ -844,9 +867,9 @@ class FeedbackBillingService:
         if row is None:
             raise FeedbackBillingError("No active usage period")
         web_included = int(row.web_units_included or 0)
-        if web_included < 0:
-            return
-        remaining = FeedbackBillingService.survey_pool_remaining(
+        if FeedbackBillingService.web_mode(web_included) == "none":
+            raise FeedbackBillingError("This package does not include web surveys")
+        remaining = FeedbackBillingService.web_units_remaining(
             int(row.wa_units_included or 0),
             int(row.wa_units_used or 0),
             web_included,

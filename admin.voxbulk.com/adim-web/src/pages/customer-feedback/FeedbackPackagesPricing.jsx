@@ -16,7 +16,7 @@ const CURRENCIES = [
 
 const SEEDED_CODES = new Set(['cf_starter_gb', 'cf_growth_gb', 'cf_pro_gb', 'cf_business_gb'])
 
-function webUnitsUnlimited(webUnits) {
+function webUnitsShared(webUnits) {
   return Number(webUnits) < 0
 }
 
@@ -98,37 +98,15 @@ export default function FeedbackPackagesPricing() {
     updateRow(planId, 'yearly_price_minor', poundsToPence(poundsStr))
   }
 
-  const toggleWebUnlimited = (planId, unlimited) => {
-    updateRow(planId, 'web_units_included', unlimited ? -1 : 0)
-  }
-
-  const updateSurveyPool = (planId, value) => {
-    setItems((rows) =>
-      rows.map((row) => {
-        if (row.plan_id !== planId) return row
-        const unlimited = webUnitsUnlimited(row.web_units_included)
-        return {
-          ...row,
-          wa_units_included: Number(value || 0),
-          web_units_included: unlimited ? -1 : 0,
-        }
-      }),
-    )
+  const toggleWebShared = (planId, shared) => {
+    updateRow(planId, 'web_units_included', shared ? -1 : 0)
   }
 
   const save = async (subset) => {
     setBusy(true)
     setError('')
     try {
-      const payload = (subset || items).map((row) => {
-        const web = Number(row.web_units_included)
-        if (web < 0) return row
-        return {
-          ...row,
-          wa_units_included: Number(row.wa_units_included || 0) + Math.max(0, web),
-          web_units_included: 0,
-        }
-      })
+      const payload = subset || items
       await apiFetch('/admin/customer-feedback/plans/pricing/bulk', {
         method: 'PUT',
         body: JSON.stringify({ currency, items: payload }),
@@ -267,7 +245,7 @@ export default function FeedbackPackagesPricing() {
           <div id="packageContainer">
             {items.map((row) => {
               const frozen = Boolean(row.is_frozen)
-              const unlimitedWeb = webUnitsUnlimited(row.web_units_included)
+              const sharedWeb = webUnitsShared(row.web_units_included)
               const canEditCode = codeEditable(row.code)
               const highlight = searchParams.get('plan') === row.code
               return (
@@ -316,8 +294,8 @@ export default function FeedbackPackagesPricing() {
                       <thead>
                         <tr>
                           <th style={{ width: 80 }}>Locations</th>
-                          <th style={{ width: 160 }}>Surveys / mo (WA or web)</th>
-                          <th style={{ width: 120 }}>Unlimited web</th>
+                          <th style={{ width: 110 }}>WA / mo</th>
+                          <th style={{ width: 140 }}>Web / mo (-1 share, 0 none)</th>
                           <th style={{ width: 90 }}>Monthly ({symbol})</th>
                           <th style={{ width: 90 }}>Yearly ({symbol})</th>
                           <th style={{ width: 90 }}>Promo msg</th>
@@ -339,25 +317,35 @@ export default function FeedbackPackagesPricing() {
                               type="number"
                               min="0"
                               disabled={frozen}
-                              value={
-                                Number(row.wa_units_included || 0) +
-                                (unlimitedWeb ? 0 : Math.max(0, Number(row.web_units_included || 0)))
-                              }
-                              onChange={(e) => updateSurveyPool(row.plan_id, e.target.value)}
+                              value={row.wa_units_included ?? 0}
+                              onChange={(e) => updateRow(row.plan_id, 'wa_units_included', Number(e.target.value || 0))}
                             />
                           </td>
                           <td>
+                            {sharedWeb ? (
+                              <span className="web-unlimited-badge">Shared (−1)</span>
+                            ) : (
+                              <input
+                                type="number"
+                                min="-1"
+                                disabled={frozen}
+                                value={row.web_units_included ?? 0}
+                                onChange={(e) =>
+                                  updateRow(row.plan_id, 'web_units_included', Number(e.target.value || 0))
+                                }
+                              />
+                            )}
                             <div className="unlimited-toggle">
                               <label className="toggle-switch">
                                 <input
                                   type="checkbox"
                                   disabled={frozen}
-                                  checked={unlimitedWeb}
-                                  onChange={(e) => toggleWebUnlimited(row.plan_id, e.target.checked)}
+                                  checked={sharedWeb}
+                                  onChange={(e) => toggleWebShared(row.plan_id, e.target.checked)}
                                 />
                                 <span className="toggle-slider" />
                               </label>
-                              <label>Unlimited web</label>
+                              <label>Share WA total</label>
                             </div>
                           </td>
                           <td>

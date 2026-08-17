@@ -178,8 +178,8 @@ function mapFeedbackPlan(p: PublicFeedbackPlan): FeedbackPlan {
     description: p.description || null,
     price,
     featured: p.is_featured,
-    waSurveys: wa < 0 ? "Unlimited" : wa,
-    webSurveys: web < 0 ? "Unlimited" : web,
+    waSurveys: wa,
+    webSurveys: web,
     extraFeatures: extras.length ? extras : [`${p.max_locations || 1} location(s)`],
   };
 }
@@ -217,17 +217,26 @@ function fmtSurveyCount(n: number | "Unlimited") {
   return n === "Unlimited" ? "Unlimited" : n.toLocaleString();
 }
 
-function fmtTotalResponses(wa: number | "Unlimited", web: number | "Unlimited") {
-  if (wa === "Unlimited" || web === "Unlimited") return "Unlimited";
-  return (wa + web).toLocaleString();
-}
-
 function feedbackPlanFeatures(p: FeedbackPlan, apiPlan?: PublicFeedbackPlan | null): string[] {
   if (apiPlan?.features?.length) return apiPlan.features;
+  const web = p.webSurveys;
+  if (typeof web === "number" && web < 0) {
+    return [
+      `${fmtSurveyCount(p.waSurveys)} surveys/mo (WhatsApp or web)`,
+      "Voice-note transcription included",
+      ...p.extraFeatures,
+    ];
+  }
+  if (web === 0) {
+    return [
+      `${fmtSurveyCount(p.waSurveys)} WhatsApp surveys/mo`,
+      "Voice-note transcription included",
+      ...p.extraFeatures,
+    ];
+  }
   return [
     `${fmtSurveyCount(p.waSurveys)} WhatsApp surveys/mo`,
-    `${fmtSurveyCount(p.webSurveys)} Web surveys/mo`,
-    `${fmtTotalResponses(p.waSurveys, p.webSurveys)} total responses/mo`,
+    `${fmtSurveyCount(web)} Web surveys/mo`,
     "Voice-note transcription included",
     ...p.extraFeatures,
   ];

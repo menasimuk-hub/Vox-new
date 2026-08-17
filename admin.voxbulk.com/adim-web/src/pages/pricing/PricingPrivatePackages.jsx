@@ -441,8 +441,12 @@ export default function PricingPrivatePackages() {
                       <input className="input" type="number" value={drawer.draft.max_locations ?? 1} onChange={(e) => setDraftField('max_locations', e.target.value)} />
                     </div>
                     <div className="pricingPkgField">
-                      <label>Surveys / mo (WhatsApp or web)</label>
-                      <input className="input" type="number" value={Number(drawer.draft.wa_units_included || 0) + Math.max(0, Number(drawer.draft.web_units_included || 0))} onChange={(e) => setDrawer((d) => (d ? { ...d, draft: { ...d.draft, wa_units_included: e.target.value, web_units_included: 0 } } : d))} />
+                      <label>WA / mo</label>
+                      <input className="input" type="number" value={drawer.draft.wa_units_included ?? 100} onChange={(e) => setDraftField('wa_units_included', e.target.value)} />
+                    </div>
+                    <div className="pricingPkgField">
+                      <label>Web / mo (−1 share, 0 none)</label>
+                      <input className="input" type="number" value={drawer.draft.web_units_included ?? 0} onChange={(e) => setDraftField('web_units_included', e.target.value)} />
                     </div>
                   </div>
                 ) : null}

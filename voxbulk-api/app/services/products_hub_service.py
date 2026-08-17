@@ -150,9 +150,10 @@ class ProductsHubService:
             wa = int(fb_pkg.wa_units_included or 0)
             web = int(fb_pkg.web_units_included or 0)
             if web < 0:
-                return f"{int(wa)} WhatsApp · Unlimited Web"
-            total = wa + max(web, 0)
-            return f"{total} surveys/mo (WhatsApp or web)"
+                return f"{int(wa)} surveys/mo (WhatsApp or web)"
+            if web == 0:
+                return f"{int(wa)} WhatsApp surveys/mo"
+            return f"{int(wa)} WhatsApp · {int(web)} Web"
         if line == "voxbulk":
             parts: list[str] = []
             if int(plan.calls_included or 0):
@@ -174,17 +175,22 @@ class ProductsHubService:
             wa = int(fb_pkg.wa_units_included or 0)
             web = int(fb_pkg.web_units_included or 0)
             tier_key = ProductsHubService.tier_key_for_plan(plan)
-            if web < 0 or wa < 0:
+            if web < 0:
+                features = [
+                    f"{_fmt_count(wa)} surveys/mo (WhatsApp or web)",
+                    "Voice-note transcription included",
+                    f"{int(fb_pkg.max_locations or 1)} location(s)",
+                ]
+            elif web == 0:
                 features = [
                     f"{_fmt_count(wa)} WhatsApp surveys/mo",
-                    "Unlimited Web surveys",
                     "Voice-note transcription included",
                     f"{int(fb_pkg.max_locations or 1)} location(s)",
                 ]
             else:
-                total = wa + max(web, 0)
                 features = [
-                    f"{_fmt_count(total)} surveys/mo (WhatsApp or web)",
+                    f"{_fmt_count(wa)} WhatsApp surveys/mo",
+                    f"{_fmt_count(web)} Web surveys/mo",
                     "Voice-note transcription included",
                     f"{int(fb_pkg.max_locations or 1)} location(s)",
                 ]

@@ -215,13 +215,15 @@ function feedbackPackageAmountMinor(pkg: FeedbackPackage, orgCurrency: string, y
 }
 
 function feedbackWebSurveyLine(webIncluded: number) {
-  if (webIncluded < 0) return "Unlimited web surveys/mo";
+  if (webIncluded < 0) return "Shared with WhatsApp surveys";
+  if (webIncluded === 0) return "No web surveys";
   return `${webIncluded.toLocaleString()} web surveys/mo`;
 }
 
 function feedbackTotalResponsesLine(waIncluded: number, webIncluded: number) {
-  if (webIncluded < 0) return "Unlimited total responses/mo";
-  return `${(waIncluded + webIncluded).toLocaleString()} total responses/mo`;
+  if (webIncluded < 0) return `${waIncluded.toLocaleString()} surveys/mo (WhatsApp or web)`;
+  if (webIncluded === 0) return `${waIncluded.toLocaleString()} WhatsApp surveys/mo`;
+  return `${waIncluded.toLocaleString()} WhatsApp + ${webIncluded.toLocaleString()} web / mo`;
 }
 
 function isPaygPlan(plan: PlanRow) {

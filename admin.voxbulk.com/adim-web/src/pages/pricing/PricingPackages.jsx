@@ -22,7 +22,7 @@ function money(minor, currency = 'GBP') {
   return `${sym}${(Number(minor) / 100).toFixed(2)}`
 }
 
-function Num({ value, onChange, prefix, disabled, step = '0.01' }) {
+function Num({ value, onChange, prefix, disabled, step = '0.01', min = '0' }) {
   return (
     <div className="uppInputWrap">
       {prefix ? <span className="uppPrefix">{prefix}</span> : null}
@@ -30,7 +30,7 @@ function Num({ value, onChange, prefix, disabled, step = '0.01' }) {
         className={`input uppNum${prefix ? ' withPrefix' : ''}`}
         type="number"
         step={step}
-        min="0"
+        min={min}
         disabled={disabled}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
@@ -240,8 +240,8 @@ export default function PricingPackages() {
           }
         }
       } else if (active === 'customer_feedback') {
-        payload.wa_units_included = Number(draft.wa_units_included || 0) + Math.max(0, Number(draft.web_units_included || 0))
-        payload.web_units_included = Number(draft.web_units_included) < 0 ? -1 : 0
+        payload.wa_units_included = Number(draft.wa_units_included || 0)
+        payload.web_units_included = Number(draft.web_units_included || 0)
         payload.max_locations = Number(draft.max_locations || 1)
         payload.prices = {
           GBP: {
@@ -441,7 +441,12 @@ export default function PricingPackages() {
     <>
       <div className="uppStory">
         <strong>{draft.name || pkg.name}</strong> costs <strong>{money(poundsToPence(draft.monthly), 'GBP')}/mo</strong>
-        {' '}→ <strong>{Number(draft.wa_units_included || 0) + Math.max(0, Number(draft.web_units_included || 0))} surveys/mo</strong> (WhatsApp or web)
+        {' '}→ {Number(draft.web_units_included) < 0
+          ? <><strong>{Number(draft.wa_units_included || 0)} surveys/mo</strong> shared (WhatsApp or web)</>
+          : Number(draft.web_units_included || 0) === 0
+            ? <><strong>{Number(draft.wa_units_included || 0)} WhatsApp/mo</strong> (no web)</>
+            : <><strong>{Number(draft.wa_units_included || 0)} WA</strong> + <strong>{Number(draft.web_units_included || 0)} web</strong></>
+        }
         {' '}across <strong>{Number(draft.max_locations || 0)} location(s)</strong>. When units run out, upgrade (no auto overage charge).
       </div>
       <section className="uppSection">
@@ -466,14 +471,10 @@ export default function PricingPackages() {
       <section className="uppSection">
         <h4><span className="uppLetter">B</span> Included</h4>
         <div className="uppGrid">
+          <label>WA surveys / mo <Num step="1" value={draft.wa_units_included} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { wa_units_included: v })} /></label>
           <label>
-            Surveys / mo (WhatsApp or web)
-            <Num
-              step="1"
-              value={Number(draft.wa_units_included || 0) + Math.max(0, Number(draft.web_units_included || 0))}
-              disabled={!editable}
-              onChange={(v) => patchDraft(pkg.id, { wa_units_included: v, web_units_included: Number(draft.web_units_included) < 0 ? -1 : 0 })}
-            />
+            Web / mo (−1 share, 0 none)
+            <Num step="1" min="-1" value={draft.web_units_included} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { web_units_included: v })} />
           </label>
           <label>Locations <Num step="1" value={draft.max_locations} disabled={!editable} onChange={(v) => patchDraft(pkg.id, { max_locations: v })} /></label>
         </div>
