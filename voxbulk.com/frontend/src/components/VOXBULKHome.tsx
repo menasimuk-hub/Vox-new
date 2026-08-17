@@ -564,17 +564,6 @@ type Plan = {
   payg?: boolean;
 };
 
-export const PLANS: Plan[] = [
-  { name: "Pay as you go", priceGBP: 0,    ratePerMinGBP: 0.40, mins: null, wa: "Pay/use", cv: "Pay/use", badge: "No commitment", payg: true },
-  { name: "Starter",    priceGBP: 59,   ratePerMinGBP: 0.35, mins: 400,  wa: 200,         cv: 100 },
-  { name: "Pro",        priceGBP: 129,  ratePerMinGBP: 0.30, mins: 1200, wa: 600,         cv: 400,  badge: "Most popular" },
-  { name: "Business",   priceGBP: 249,  ratePerMinGBP: 0.25, mins: 3000, wa: 2000,        cv: 1500 },
-  { name: "Enterprise", priceGBP: null, ratePerMinGBP: null, mins: null, wa: "Unlimited", cv: "Unlimited", badge: "Custom pricing", enterprise: true },
-];
-
-export const WA_GBP = 1.5;
-export const CV_GBP = 0.75;
-
 export function fmt(n: number, dp = 2) { return n.toFixed(dp); }
 
 export type Billing = "monthly" | "yearly";

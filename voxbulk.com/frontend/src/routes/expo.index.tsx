@@ -9,7 +9,7 @@ import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { BottomCTA } from "@/components/VOXBULKHome";
 import { SurveyTemplateGallery } from "@/components/templates/TemplateGallery";
-import { useCurrency, SYM, FX, formatMoney } from "@/components/CurrencyContext";
+import { usePublicExpoPricing } from "@/hooks/usePricing";
 
 export const Route = createFileRoute("/expo/")({
   loader: async () => {
@@ -69,35 +69,6 @@ const lines = [
   "Visitor scans. Lead in your dashboard.",
   "Skip the badge wait. Capture them at the stand.",
   "Pay once per show. Export leads after the event.",
-];
-
-const plans = [
-  {
-    name: "Expo 1 Day",
-    gbp: 49,
-    days: "Booth active 1 day",
-    features: ["1 product category", "Up to 20 files", "Hot / Warm / Cold scoring", "Full CSV & Excel export"],
-  },
-  {
-    name: "Expo 3 Days",
-    gbp: 99,
-    featured: true,
-    days: "Booth active 3 days",
-    features: ["Up to 3 categories", "Up to 40 files", "Hot / Warm / Cold scoring", "Full CSV & Excel export"],
-  },
-  {
-    name: "Expo 7 Days",
-    gbp: 149,
-    days: "Booth active 7 days",
-    features: [
-      "Unlimited categories",
-      "Up to 100 files",
-      "Hot / Warm / Cold scoring",
-      "Full CSV & Excel export",
-      "Post-show follow-up ready",
-      "AI summary report ready",
-    ],
-  },
 ];
 
 const faqs = [
@@ -184,11 +155,9 @@ function BoothQR() {
 }
 
 function ExpoPage() {
-  const { currency: cur } = useCurrency();
-  const s = SYM[cur];
-  const fx = FX[cur];
+  const expoPricing = usePublicExpoPricing();
+  const catalogPlans = expoPricing.data?.plans ?? [];
   const [openIdx, setOpenIdx] = useState<number | null>(0);
-  const price = (gbp: number) => formatMoney(s, Math.round(gbp * fx));
 
   return (
     <div className="bg-background text-body antialiased">
@@ -318,43 +287,56 @@ function ExpoPage() {
               </p>
             </div>
             <div className="mt-12 grid md:grid-cols-3 gap-5 items-start">
-              {plans.map((p) => (
+              {expoPricing.loading ? (
+                <p className="text-[14px] text-muted-text">Loading live prices…</p>
+              ) : expoPricing.error ? (
+                <p className="text-[14px] text-muted-text">Live prices are unavailable. Please try again shortly.</p>
+              ) : catalogPlans.length === 0 ? (
+                <p className="text-[14px] text-muted-text">No Expo packages are published for this market.</p>
+              ) : catalogPlans.map((p) => {
+                const featured = Boolean(p.is_featured);
+                const days = Math.max(1, Number(p.duration_days) || 1);
+                const features = p.features?.length ? p.features : [`Booth active for ${days} day${days === 1 ? "" : "s"}`];
+                return (
                 <div
-                  key={p.name}
+                  key={p.code}
                   className={`relative rounded-2xl p-7 border ${
-                    p.featured ? "bg-navy border-navy text-white shadow-elevated" : "bg-white border-border shadow-elegant"
+                    featured ? "bg-navy border-navy text-white shadow-elevated" : "bg-white border-border shadow-elegant"
                   }`}
                 >
-                  {p.featured && (
+                  {featured && (
                     <span className="absolute -top-3 left-7 inline-flex items-center px-3 h-6 rounded-full bg-gold text-navy text-[10.5px] font-bold uppercase tracking-[0.14em]">
                       Most popular
                     </span>
                   )}
-                  <div className={`text-[13px] font-bold uppercase tracking-[0.14em] ${p.featured ? "text-gold" : "text-primary"}`}>
+                  <div className={`text-[13px] font-bold uppercase tracking-[0.14em] ${featured ? "text-gold" : "text-primary"}`}>
                     {p.name}
                   </div>
                   <div className="mt-4 flex items-end gap-1.5">
-                    <span className={`text-[40px] font-bold tracking-[-0.03em] ${p.featured ? "text-white" : "text-heading"}`}>
-                      {price(p.gbp)}
+                    <span className={`text-[40px] font-bold tracking-[-0.03em] ${featured ? "text-white" : "text-heading"}`}>
+                      {p.price_display || "—"}
                     </span>
-                    <span className={`pb-2 text-[13.5px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>/ exhibition</span>
+                    <span className={`pb-2 text-[13.5px] ${featured ? "text-white/60" : "text-muted-text"}`}>/ exhibition</span>
                   </div>
-                  <div className={`mt-2 text-[13.5px] font-semibold ${p.featured ? "text-white/75" : "text-heading"}`}>{p.days}</div>
+                  <div className={`mt-2 text-[13.5px] font-semibold ${featured ? "text-white/75" : "text-heading"}`}>
+                    Booth active {days} day{days === 1 ? "" : "s"}
+                  </div>
                   <ul className="mt-6 space-y-2.5">
-                    {p.features.map((f) => (
-                      <li key={f} className={`flex items-start gap-2 text-[14px] ${p.featured ? "text-white/80" : "text-body"}`}>
-                        <Check size={15} className={`mt-0.5 shrink-0 ${p.featured ? "text-gold" : "text-primary"}`} /> {f}
+                    {features.map((f) => (
+                      <li key={f} className={`flex items-start gap-2 text-[14px] ${featured ? "text-white/80" : "text-body"}`}>
+                        <Check size={15} className={`mt-0.5 shrink-0 ${featured ? "text-gold" : "text-primary"}`} /> {f}
                       </li>
                     ))}
                   </ul>
                   <Link
                     to="/contact"
-                    className={`mt-7 w-full ${p.featured ? "btn-primary" : "btn-outline"} text-[14.5px]`}
+                    className={`mt-7 w-full ${featured ? "btn-primary" : "btn-outline"} text-[14.5px]`}
                   >
                     Get this package <ArrowRight size={15} />
                   </Link>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <p className="mt-6 text-[13.5px] text-muted-text">
               Also available in EUR, USD, CAD and AUD. Switch country at the bottom of the page to see your local price.

@@ -4,7 +4,7 @@ import { ArrowRight, Check, Utensils, ShoppingBag, Scissors, Hotel, Languages, S
 import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { StatsRow, BottomCTA } from "@/components/VOXBULKHome";
-import { useCurrency, SYM, FX, formatMoney } from "@/components/CurrencyContext";
+import { usePublicFeedbackPricing } from "@/hooks/usePricing";
 import { SurveyTemplateGallery } from "@/components/templates/TemplateGallery";
 import { fetchSeoSettings } from "@/lib/seo";
 import { pageMeta } from "@/lib/seo-defaults";
@@ -35,12 +35,6 @@ const audiences = [
   { icon: Hotel, title: "Hotels & hospitality" },
 ];
 
-const plans = [
-  { name: "Starter", price: 49, features: ["1 location", "200 surveys/mo", "Monthly report", "Email support"] },
-  { name: "Growth", price: 99, featured: true, features: ["3 locations", "600 surveys/mo", "Weekly report", "Live dashboard", "Priority support"] },
-  { name: "Pro", price: 199, features: ["10 locations", "Unlimited surveys", "Real-time dashboard", "Branded PDF report", "Dedicated account manager"] },
-];
-
 const faqs = [
   { q: "Do my customers need to download anything?", a: "No. They scan the QR code and WhatsApp opens automatically. Nothing to download or sign up for." },
   { q: "What questions does the AI ask?", a: "We set up a default question set for your business type. You can customise questions on Growth and Pro plans." },
@@ -50,8 +44,8 @@ const faqs = [
 ];
 
 function FeedbackPage() {
-  const { currency: cur } = useCurrency();
-  const s = SYM[cur]; const fx = FX[cur];
+  const feedbackPricing = usePublicFeedbackPricing();
+  const catalogPlans = feedbackPricing.data?.plans ?? [];
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   return (
     <div className="bg-background text-body antialiased">
@@ -222,22 +216,33 @@ function FeedbackPage() {
               <h2 className="mt-4 text-[36px] md:text-[48px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">Simple monthly plans.</h2>
             </div>
             <div className="mt-12 grid md:grid-cols-3 gap-5">
-              {plans.map((p) => (
-                <div key={p.name} className={`relative rounded-2xl p-6 flex flex-col ${p.featured ? "bg-navy text-white border-2 border-gold shadow-elevated" : "bg-white border border-border shadow-elegant"}`}>
-                  {p.featured && <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Most popular</span>}
-                  <div className={`text-[14px] font-semibold ${p.featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
+              {feedbackPricing.loading ? (
+                <p className="text-[14px] text-muted-text">Loading live prices…</p>
+              ) : feedbackPricing.error ? (
+                <p className="text-[14px] text-muted-text">Live prices are unavailable. Please try again shortly.</p>
+              ) : catalogPlans.length === 0 ? (
+                <p className="text-[14px] text-muted-text">No Customer Feedback packages are published for this market.</p>
+              ) : catalogPlans.map((p) => {
+                const featured = Boolean(p.is_featured);
+                const price = p.monthly_price_display || "—";
+                const features = p.features?.length ? p.features : [];
+                return (
+                <div key={p.code} className={`relative rounded-2xl p-6 flex flex-col ${featured ? "bg-navy text-white border-2 border-gold shadow-elevated" : "bg-white border border-border shadow-elegant"}`}>
+                  {featured && <span className="absolute -top-3 left-5 text-[10.5px] font-bold uppercase tracking-[0.14em] px-2.5 py-1 rounded-full bg-gold text-navy">Most popular</span>}
+                  <div className={`text-[14px] font-semibold ${featured ? "text-white/90" : "text-heading"}`}>{p.name}</div>
                   <div className="mt-3 flex items-baseline gap-1">
-                    <span className={`text-[32px] font-bold tracking-[-0.02em] ${p.featured ? "text-gold" : "text-heading"}`}>{formatMoney(s, Math.round(p.price * fx))}</span>
-                    <span className={`text-[13px] ${p.featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
+                    <span className={`text-[32px] font-bold tracking-[-0.02em] ${featured ? "text-gold" : "text-heading"}`}>{price}</span>
+                    <span className={`text-[13px] ${featured ? "text-white/60" : "text-muted-text"}`}>/mo</span>
                   </div>
-                  <ul className={`mt-5 space-y-2.5 text-[14px] flex-1 ${p.featured ? "text-white/80" : "text-body"}`}>
-                    {p.features.map((f) => <li key={f} className="flex items-center gap-2"><Check size={13} className={p.featured ? "text-gold" : "text-primary"} /> {f}</li>)}
+                  <ul className={`mt-5 space-y-2.5 text-[14px] flex-1 ${featured ? "text-white/80" : "text-body"}`}>
+                    {features.map((f) => <li key={f} className="flex items-center gap-2"><Check size={13} className={featured ? "text-gold" : "text-primary"} /> {f}</li>)}
                   </ul>
-                  <Link to="/contact" className={`mt-6 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] transition-all ${p.featured ? "bg-gold text-navy hover:brightness-105" : "bg-navy text-white hover:bg-navy/90"}`}>
+                  <Link to="/contact" className={`mt-6 w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-xl font-semibold text-[13.5px] transition-all ${featured ? "bg-gold text-navy hover:brightness-105" : "bg-navy text-white hover:bg-navy/90"}`}>
                     Get started <ArrowRight size={13} />
                   </Link>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <p className="mt-8 text-center text-[13px] text-muted-text">
               WhatsApp delivery included in all plans · No per-message charges · Cancel anytime with 30 days notice

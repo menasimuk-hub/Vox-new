@@ -9,7 +9,7 @@ import { ServiceHero } from "@/components/HeroSlider";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { BottomCTA } from "@/components/VOXBULKHome";
 import { SmartCardGallery } from "@/components/templates/TemplateGallery";
-import { useCurrency, SYM, FX, formatMoney } from "@/components/CurrencyContext";
+import { usePublicPricing } from "@/hooks/usePricing";
 
 export const Route = createFileRoute("/smart-card/")({
   loader: async () => {
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/smart-card/")({
       {
         name: "description",
         content:
-          "One QR per sales rep. Prospects scan, chat on WhatsApp or web, and the scored lead lands in your dashboard — tied to that rep. From $5 per seat per month.",
+          "One QR per sales rep. Prospects scan, chat on WhatsApp or web, and the scored lead lands in your dashboard — tied to that rep.",
       },
       { property: "og:title", content: "Smart Card QR — A Personal Lead-Capture QR for Every Rep" },
       { property: "og:description", content: "Your rep's QR. Their leads. Your dashboard." },
@@ -139,16 +139,12 @@ function RepCardMock() {
 }
 
 function SmartCardPage() {
-  const { currency: cur } = useCurrency();
-  const s = SYM[cur];
   const [openIdx, setOpenIdx] = useState<number | null>(0);
   const [yearly, setYearly] = useState(false);
-
-  // Base price is $5 per seat / month; converted via GBP-pegged FX table.
-  const monthly = (5 / FX.usd) * FX[cur];
-  const yearlyTotal = monthly * 12 * 0.8;
-  const shown = yearly ? yearlyTotal : monthly;
-  const fmt = (n: number) => formatMoney(s, n < 20 ? n.toFixed(2) : Math.round(n));
+  const pricing = usePublicPricing();
+  const monthlyDisplay = pricing.data?.services?.smart_card_seat_monthly_display || "—";
+  const yearlyDisplay = pricing.data?.services?.smart_card_seat_yearly_display || "—";
+  const shown = yearly ? yearlyDisplay : monthlyDisplay;
 
   return (
     <div className="bg-background text-body antialiased">
@@ -269,7 +265,7 @@ function SmartCardPage() {
                 Subscription <span className="serif-italic text-primary">per seat</span>.
               </h2>
               <p className="mt-4 text-[16px] text-body">
-                One seat = one rep = one QR. From $5 per seat per month, with local currency equivalents. Pay yearly and save 20%.
+                One seat = one rep = one QR. Prices are live from the catalog for your selected currency. Pay yearly and save 20%.
               </p>
             </div>
 
@@ -295,13 +291,17 @@ function SmartCardPage() {
                   </div>
                 </div>
                 <div className="mt-6 flex items-end gap-2">
-                  <span className="text-[46px] md:text-[54px] font-bold tracking-[-0.035em] leading-none">{fmt(shown)}</span>
+                  <span className="text-[46px] md:text-[54px] font-bold tracking-[-0.035em] leading-none">
+                    {pricing.loading ? "…" : shown}
+                  </span>
                   <span className="pb-1.5 text-[14px] text-white/60">/ seat / {yearly ? "year" : "month"}</span>
                 </div>
                 <div className="mt-2 text-[13.5px] text-white/60">
-                  {yearly
-                    ? `Billed annually · equivalent to ${fmt(yearlyTotal / 12)} per seat per month`
-                    : `Billed monthly · switch to yearly and pay ${fmt(yearlyTotal)} per seat per year`}
+                  {pricing.error
+                    ? "Live prices are unavailable. Please try again shortly."
+                    : yearly
+                      ? `Billed annually · ${yearlyDisplay} per seat per year`
+                      : `Billed monthly · yearly is ${yearlyDisplay} per seat`}
                 </div>
                 <ul className="mt-7 grid sm:grid-cols-2 gap-y-2.5 gap-x-6">
                   {[
@@ -334,12 +334,12 @@ function SmartCardPage() {
                   </ul>
                 </div>
                 <div className="rounded-2xl border border-border bg-beige p-7">
-                  <h3 className="text-[17px] font-bold text-heading">Example (USD)</h3>
+                  <h3 className="text-[17px] font-bold text-heading">Catalog price</h3>
                   <div className="mt-4 space-y-2 text-[14.5px] text-body">
-                    <div className="flex items-center justify-between"><span>Monthly</span><span className="font-semibold text-heading">$5 / seat / month</span></div>
-                    <div className="flex items-center justify-between"><span>Yearly</span><span className="font-semibold text-heading">$48 / seat / year</span></div>
+                    <div className="flex items-center justify-between"><span>Monthly</span><span className="font-semibold text-heading">{monthlyDisplay} / seat / month</span></div>
+                    <div className="flex items-center justify-between"><span>Yearly</span><span className="font-semibold text-heading">{yearlyDisplay} / seat / year</span></div>
                   </div>
-                  <p className="mt-3 text-[13px] text-muted-text">Local equivalents shown automatically based on your country.</p>
+                  <p className="mt-3 text-[13px] text-muted-text">Amounts follow the catalog for your selected country.</p>
                 </div>
               </div>
             </div>

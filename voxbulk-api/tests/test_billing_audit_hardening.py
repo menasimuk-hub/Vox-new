@@ -322,3 +322,82 @@ def test_unknown_country_code_is_not_gb(db):
     assert CountryVatService.resolve_country_code(db, "") == ""
     assert CountryVatService.resolve_country_code(db, "Neverland") == ""
     assert CountryVatService.resolve_country_code(db, "GB") == "GB"
+
+
+def test_allocate_invoice_number_skips_existing_unique(db):
+    from app.models.billing_invoice import BillingInvoice
+    from app.services.billing_settings_service import BillingSettingsService
+
+    org, _plan = _org_plan(db)
+    settings = BillingSettingsService.get(db)
+    year = datetime.utcnow().year
+    taken = f"{settings.invoice_prefix or 'INV'}-{year}-000001"
+    db.add(
+        BillingInvoice(
+            org_id=org.id,
+            provider="internal",
+            external_invoice_id="taken-inv-1",
+            invoice_number=taken,
+            client_email="audit@example.com",
+            amount_gbp_pence=1000,
+            currency="GBP",
+            status="issued",
+        )
+    )
+    settings.invoice_next_number = 1
+    db.add(settings)
+    db.commit()
+
+    allocated = BillingSettingsService.allocate_invoice_number(db)
+    assert allocated == f"{settings.invoice_prefix or 'INV'}-{year}-000002"
+    db.refresh(settings)
+    assert int(settings.invoice_next_number) == 3
+
+
+def test_allocate_credit_note_number_skips_existing_unique(db):
+    from app.models.credit_note import CreditNote
+    from app.services.billing_settings_service import BillingSettingsService
+
+    org, _plan = _org_plan(db)
+    settings = BillingSettingsService.get(db)
+    year = datetime.utcnow().year
+    taken = f"CN-{year}-000001"
+    db.add(
+        CreditNote(
+            org_id=org.id,
+            credit_note_number=taken,
+            amount_minor=500,
+            currency="GBP",
+            status="issued",
+        )
+    )
+    settings.credit_note_next_number = 1
+    db.add(settings)
+    db.commit()
+
+    allocated = BillingSettingsService.allocate_credit_note_number(db)
+    assert allocated == f"CN-{year}-000002"
+    db.refresh(settings)
+    assert int(settings.credit_note_next_number) == 3
+
+
+def test_allocate_invoice_number_retries_integrity_error(db):
+    from sqlalchemy.exc import IntegrityError
+
+    from app.services.billing_settings_service import BillingSettingsService
+
+    BillingSettingsService.get(db)
+    year = datetime.utcnow().year
+    real_flush = db.flush
+    calls = {"n": 0}
+
+    def flaky_flush(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise IntegrityError("INSERT", {}, Exception("uniq"))
+        return real_flush(*args, **kwargs)
+
+    with patch.object(db, "flush", flaky_flush):
+        allocated = BillingSettingsService.allocate_invoice_number(db)
+    assert allocated in {f"INV-{year}-000001", f"INV-{year}-000002"}
+    assert calls["n"] >= 2

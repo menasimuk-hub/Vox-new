@@ -368,7 +368,7 @@ export function buildSlides(platformVisual?: ReactNode): Slide[] {
       href: "/expo",
       cta: "Explore Expo",
       facts: [
-        { Icon: Wallet, label: "From £49 per show" },
+        { Icon: Wallet, label: "Pay once per show" },
         { Icon: Flame, label: "Hot / Warm / Cold scoring" },
         { Icon: FileDown, label: "CSV & Excel export" },
       ],
@@ -383,7 +383,7 @@ export function buildSlides(platformVisual?: ReactNode): Slide[] {
       accent: "teal",
       badge: "New · Smart Card QR",
       headline: <>Paper card out. <span className="serif-italic text-teal">Smart QR in.</span></>,
-      sub: <>One personal QR per sales rep. Prospects scan, chat, receive your catalogue — and every lead is scored and attributed to that rep. From $5 per seat.</>,
+      sub: <>One personal QR per sales rep. Prospects scan, chat, receive your catalogue — and every lead is scored and attributed to that rep.</>,
       href: "/smart-card",
       cta: "Explore Smart Card",
       facts: [

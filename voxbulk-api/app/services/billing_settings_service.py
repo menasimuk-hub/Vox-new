@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.billing_settings import BillingSettings
+
+_ALLOCATE_ATTEMPTS = 8
 
 
 class BillingSettingsService:
@@ -63,37 +66,70 @@ class BillingSettingsService:
         return row
 
     @staticmethod
+    def _lock_settings(db: Session) -> BillingSettings:
+        from sqlalchemy import select
+
+        row = db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one_or_none()
+        if row is None:
+            BillingSettingsService.get(db)
+            row = db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one()
+        return row
+
+    @staticmethod
     def allocate_invoice_number(db: Session) -> str:
         """Allocate the next sequential invoice number, e.g. INV-2026-000123."""
         from sqlalchemy import select
 
-        from app.models.billing_settings import BillingSettings
+        from app.models.billing_invoice import BillingInvoice
 
-        row = db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one_or_none()
-        if row is None:
-            row = BillingSettingsService.get(db)
-            db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one()
-        seq = int(row.invoice_next_number or 1)
-        row.invoice_next_number = seq + 1
-        row.updated_at = datetime.utcnow()
-        db.add(row)
-        db.flush()
-        year = datetime.utcnow().year
-        return f"{row.invoice_prefix or 'INV'}-{year}-{seq:06d}"
+        last_error: BaseException | None = None
+        for _ in range(_ALLOCATE_ATTEMPTS):
+            row = BillingSettingsService._lock_settings(db)
+            seq = int(row.invoice_next_number or 1)
+            year = datetime.utcnow().year
+            number = f"{row.invoice_prefix or 'INV'}-{year}-{seq:06d}"
+            taken = db.execute(
+                select(BillingInvoice.id).where(BillingInvoice.invoice_number == number).limit(1)
+            ).first()
+            row.invoice_next_number = seq + 1
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            try:
+                with db.begin_nested():
+                    db.flush()
+            except IntegrityError as exc:
+                last_error = exc
+                continue
+            if taken:
+                continue
+            return number
+        raise RuntimeError("Could not allocate a unique invoice number") from last_error
 
     @staticmethod
     def allocate_credit_note_number(db: Session) -> str:
         from sqlalchemy import select
 
-        from app.models.billing_settings import BillingSettings
+        from app.models.credit_note import CreditNote
 
-        row = db.execute(select(BillingSettings).where(BillingSettings.id == 1).with_for_update()).scalar_one_or_none()
-        if row is None:
-            row = BillingSettingsService.get(db)
-        seq = int(getattr(row, "credit_note_next_number", None) or 1)
-        row.credit_note_next_number = seq + 1
-        row.updated_at = datetime.utcnow()
-        db.add(row)
-        db.flush()
-        year = datetime.utcnow().year
-        return f"CN-{year}-{seq:06d}"
+        last_error: BaseException | None = None
+        for _ in range(_ALLOCATE_ATTEMPTS):
+            row = BillingSettingsService._lock_settings(db)
+            seq = int(getattr(row, "credit_note_next_number", None) or 1)
+            year = datetime.utcnow().year
+            number = f"CN-{year}-{seq:06d}"
+            taken = db.execute(
+                select(CreditNote.id).where(CreditNote.credit_note_number == number).limit(1)
+            ).first()
+            row.credit_note_next_number = seq + 1
+            row.updated_at = datetime.utcnow()
+            db.add(row)
+            try:
+                with db.begin_nested():
+                    db.flush()
+            except IntegrityError as exc:
+                last_error = exc
+                continue
+            if taken:
+                continue
+            return number
+        raise RuntimeError("Could not allocate a unique credit note number") from last_error
