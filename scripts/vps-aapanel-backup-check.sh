@@ -25,14 +25,21 @@ remote_hint=0
 
 if [[ -d "$BACKUP_ROOT" ]]; then
   ok "Backup directory exists: $BACKUP_ROOT"
-  echo "--- newest files under $BACKUP_ROOT (depth 3) ---"
-  # shellcheck disable=SC2012
-  find "$BACKUP_ROOT" -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.tar.gz' -o -name '*.zip' -o -name '*.tgz' \) \
-    -printf '%T@ %TY-%Tm-%Td %TH:%TM %s %p\n' 2>/dev/null \
-    | sort -nr | head -20 | while read -r epoch rest; do
-      echo "  $rest"
-    done || ls -lt "$BACKUP_ROOT" 2>/dev/null | head -15
-  newest="$(find "$BACKUP_ROOT" -type f \( -name '*.sql' -o -name '*.sql.gz' -o -name '*.tar.gz' -o -name '*.zip' \) -printf '%T@\n' 2>/dev/null | sort -nr | head -1 || true)"
+  echo "--- newest dump-like files (maxdepth 4, 20s cap) ---"
+  newest=""
+  mapfile -t listing < <(timeout 20 find "$BACKUP_ROOT" -maxdepth 4 -type f \( \
+      -name '*.sql' -o -name '*.sql.gz' -o -name '*.tar.gz' -o -name '*.zip' -o -name '*.tgz' \
+    \) -printf '%T@ %TY-%Tm-%Td %TH:%TM %s %p\n' 2>/dev/null | sort -nr | head -20 || true)
+  if [[ ${#listing[@]} -eq 0 ]]; then
+    echo "  (none matched — listing directory mtimes)"
+    ls -lt "$BACKUP_ROOT" 2>/dev/null | head -15 || true
+    ls -lt "$BACKUP_ROOT"/database "$BACKUP_ROOT"/database_incremental 2>/dev/null | head -10 || true
+  else
+    for line in "${listing[@]}"; do
+      echo "  ${line#* }"
+    done
+    newest="${listing[0]%% *}"
+  fi
   if [[ -n "${newest:-}" ]]; then
     newest_int="${newest%.*}"
     if [[ "$newest_int" -ge "$cutoff_epoch" ]]; then
@@ -42,7 +49,7 @@ if [[ -d "$BACKUP_ROOT" ]]; then
       fail "Newest backup under $BACKUP_ROOT is older than ${DAYS} days — check aaPanel scheduled task"
     fi
   else
-    fail "No .sql/.sql.gz/.tar.gz backup files found under $BACKUP_ROOT"
+    fail "No .sql/.sql.gz/.tar.gz backup files found under $BACKUP_ROOT (aaPanel may store dumps elsewhere — check Backup → Database)"
   fi
 else
   fail "Missing $BACKUP_ROOT — aaPanel Backup plugin may use another path"

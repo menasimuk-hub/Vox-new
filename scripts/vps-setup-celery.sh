@@ -127,12 +127,17 @@ fi
 info "Reloading supervisor …"
 sudo supervisorctl reread
 sudo supervisorctl update
+sleep 2
 
-info "Starting voxbulk-celery …"
-sudo supervisorctl start voxbulk-celery || sudo supervisorctl restart voxbulk-celery
-
-info "Starting voxbulk-celery-beat …"
-sudo supervisorctl start voxbulk-celery-beat || sudo supervisorctl restart voxbulk-celery-beat
+for prog in voxbulk-celery voxbulk-celery-beat; do
+  st="$(sudo supervisorctl status "$prog" 2>/dev/null || true)"
+  if echo "$st" | grep -qE 'RUNNING|STARTING'; then
+    info "$prog already up"
+  else
+    info "Starting $prog …"
+    sudo supervisorctl start "$prog" || sudo supervisorctl restart "$prog" || true
+  fi
+done
 
 sleep 2
 sudo supervisorctl status voxbulk-celery

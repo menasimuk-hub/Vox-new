@@ -27,7 +27,7 @@ fi
 
 get_val() {
   local key="$1"
-  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '\r' | sed 's/^["'\'']//;s/["'\'']$//'
+  grep -E "^${key}=" "$ENV_FILE" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '\r' | sed 's/^["'\'']//;s/["'\'']$//' || true
 }
 
 check_eq() {
@@ -89,12 +89,15 @@ check_set_not_placeholder ENCRYPTION_KEY
 check_set_not_placeholder HEALTH_SECRET_TOKEN
 
 db="$(get_val DATABASE_URL)"
-if echo "$db" | grep -qi mysql; then
-  echo -e "${GREEN}[ok]${NC} DATABASE_URL looks like MySQL"
-else
-  echo -e "${YELLOW}[warn]${NC} DATABASE_URL does not look like MySQL"
-  warn=$((warn + 1))
-fi
+case "$db" in
+  *mysql*|*MySQL*|*pymysql*)
+    echo -e "${GREEN}[ok]${NC} DATABASE_URL looks like MySQL"
+    ;;
+  *)
+    echo -e "${YELLOW}[warn]${NC} DATABASE_URL does not look like MySQL"
+    warn=$((warn + 1))
+    ;;
+esac
 
 echo ""
 echo "Set HEALTH_SECRET_TOKEN then curl:"

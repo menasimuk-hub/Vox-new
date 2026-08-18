@@ -91,14 +91,41 @@ echo "=== TLS expiry check (warn < ${WARN_DAYS} days) ==="
 echo "time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo ""
 
-echo "--- files (aaPanel + mail_sys) ---"
-check_pem "nginx voxbulk.com" /www/server/panel/vhost/cert/voxbulk.com/fullchain.pem
-check_pem "nginx api.voxbulk.com" /www/server/panel/vhost/cert/api.voxbulk.com/fullchain.pem
-check_pem "nginx dashboard.voxbulk.com" /www/server/panel/vhost/cert/dashboard.voxbulk.com/fullchain.pem
-check_pem "nginx admin.voxbulk.com" /www/server/panel/vhost/cert/admin.voxbulk.com/fullchain.pem
-check_pem "mail_sys voxbulk.com" /www/server/panel/plugin/mail_sys/cert/voxbulk.com/fullchain.pem
-check_pem "letsencrypt voxbulk.com" /etc/letsencrypt/live/voxbulk.com/fullchain.pem
-check_pem "letsencrypt api" /etc/letsencrypt/live/api.voxbulk.com/fullchain.pem
+echo "--- files (aaPanel + mail_sys; needs read access) ---"
+file_checks=0
+for pair in \
+  "nginx voxbulk.com|/www/server/panel/vhost/cert/voxbulk.com/fullchain.pem" \
+  "nginx api.voxbulk.com|/www/server/panel/vhost/cert/api.voxbulk.com/fullchain.pem" \
+  "nginx dashboard.voxbulk.com|/www/server/panel/vhost/cert/dashboard.voxbulk.com/fullchain.pem" \
+  "nginx admin.voxbulk.com|/www/server/panel/vhost/cert/admin.voxbulk.com/fullchain.pem" \
+  "mail_sys voxbulk.com|/www/server/panel/plugin/mail_sys/cert/voxbulk.com/fullchain.pem"; do
+  label="${pair%%|*}"
+  path="${pair#*|}"
+  if [[ -r "$path" ]]; then
+    check_pem "$label" "$path"
+    file_checks=$((file_checks + 1))
+  fi
+done
+# Discover ssl_certificate paths from aaPanel vhosts (often readable even when cert dir is not listed above).
+while IFS= read -r cert_path; do
+  [[ -z "$cert_path" || ! -r "$cert_path" ]] && continue
+  check_pem "vhost $(basename "$(dirname "$cert_path")")" "$cert_path"
+  file_checks=$((file_checks + 1))
+done < <(grep -hE '^\s*ssl_certificate\s+' /www/server/panel/vhost/nginx/*.conf 2>/dev/null \
+  | awk '{print $2}' | tr -d ';' | sort -u || true)
+
+if [[ -r /etc/letsencrypt/live/voxbulk.com/fullchain.pem ]]; then
+  check_pem "letsencrypt voxbulk.com" /etc/letsencrypt/live/voxbulk.com/fullchain.pem
+  file_checks=$((file_checks + 1))
+fi
+if [[ -r /etc/letsencrypt/live/api.voxbulk.com/fullchain.pem ]]; then
+  check_pem "letsencrypt api" /etc/letsencrypt/live/api.voxbulk.com/fullchain.pem
+  file_checks=$((file_checks + 1))
+fi
+if [[ "$file_checks" -eq 0 ]]; then
+  echo -e "${YELLOW}[info]${NC} No cert files readable as this user (aaPanel dirs are often root-only)."
+  echo "  Live HTTPS below is the source of truth. Optional: sudo bash scripts/vps-cert-check.sh"
+fi
 
 echo ""
 echo "--- live HTTPS ---"
