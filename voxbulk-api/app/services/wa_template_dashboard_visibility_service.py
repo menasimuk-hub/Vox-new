@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackSurveyType, FeedbackWaTemplate
@@ -11,7 +11,6 @@ from app.models.survey_type_template import SurveyTypeTemplate
 from app.models.telnyx_whatsapp_template import TelnyxWhatsappTemplate
 from app.services.customer_feedback.feedback_marketing_policy import is_marketing_wa_template
 from app.services.customer_feedback.feedback_telnyx_push_service import (
-    english_anchor_template,
     feedback_meta_template_name,
 )
 
@@ -91,44 +90,75 @@ def hidden_platform_survey_type_ids_by_status(db: Session) -> set[str]:
     return blocked_type_ids
 
 
-def _feedback_meta_name_for_row(db: Session, tpl: FeedbackWaTemplate) -> str:
-    industry_slug = ""
-    survey_type_slug = ""
-    if tpl.industry_id:
-        from app.models.customer_feedback import FeedbackIndustry
-
-        industry = db.get(FeedbackIndustry, tpl.industry_id)
-        industry_slug = str(getattr(industry, "slug", None) or "")
-    if tpl.survey_type_id:
-        survey_type = db.get(FeedbackSurveyType, tpl.survey_type_id)
-        survey_type_slug = str(getattr(survey_type, "slug", None) or "")
+def _feedback_meta_name_for_row(
+    tpl: FeedbackWaTemplate,
+    *,
+    industry_slug: str = "",
+    survey_type_slug: str = "",
+) -> str:
     try:
-        anchor = english_anchor_template(db, tpl)
+        # name_anchor_id is unused by cfs_* names — skip english_anchor_template (extra DB hit).
         return feedback_meta_template_name(
             tpl,
             industry_slug=industry_slug,
             survey_type_slug=survey_type_slug,
-            name_anchor_id=anchor.id,
         )
     except Exception:  # noqa: BLE001
         return ""
 
 
-def hidden_feedback_survey_type_ids_by_status(db: Session) -> set[str]:
+def hidden_feedback_survey_type_ids_by_status(
+    db: Session,
+    *,
+    survey_type_ids: set[str] | None = None,
+) -> set[str]:
     """Customer-feedback topics hidden when any step/language or its Meta mirror pair is pending/marketing."""
-    rows = list(
-        db.execute(
-            select(FeedbackWaTemplate).where(FeedbackWaTemplate.survey_type_id.is_not(None))
-        ).scalars().all()
-    )
+    q = select(FeedbackWaTemplate).where(FeedbackWaTemplate.survey_type_id.is_not(None))
+    if survey_type_ids is not None:
+        if not survey_type_ids:
+            return set()
+        q = q.where(FeedbackWaTemplate.survey_type_id.in_(list(survey_type_ids)))
+    rows = list(db.execute(q).scalars().all())
     if not rows:
         return set()
 
+    from app.models.customer_feedback import FeedbackIndustry
+
+    industry_ids = {str(r.industry_id) for r in rows if r.industry_id}
+    type_ids = {str(r.survey_type_id) for r in rows if r.survey_type_id}
+    industry_slugs: dict[str, str] = {}
+    if industry_ids:
+        for row in db.execute(select(FeedbackIndustry.id, FeedbackIndustry.slug).where(FeedbackIndustry.id.in_(industry_ids))):
+            industry_slugs[str(row.id)] = str(row.slug or "")
+    type_slugs: dict[str, str] = {}
+    if type_ids:
+        for row in db.execute(
+            select(FeedbackSurveyType.id, FeedbackSurveyType.slug).where(FeedbackSurveyType.id.in_(type_ids))
+        ):
+            type_slugs[str(row.id)] = str(row.slug or "")
+
+    meta_by_tpl_id: dict[str, str] = {}
+    needed_names: list[str] = []
+    for tpl in rows:
+        name = _feedback_meta_name_for_row(
+            tpl,
+            industry_slug=industry_slugs.get(str(tpl.industry_id or ""), ""),
+            survey_type_slug=type_slugs.get(str(tpl.survey_type_id or ""), ""),
+        ).strip()
+        meta_by_tpl_id[str(tpl.id)] = name
+        if name:
+            needed_names.append(name)
+
     platform_by_name: dict[str, TelnyxWhatsappTemplate] = {}
-    for row in db.execute(select(TelnyxWhatsappTemplate)).scalars():
-        key = str(row.name or "").strip().lower()
-        if key:
-            platform_by_name[key] = row
+    if needed_names:
+        unique_lower = list(dict.fromkeys(n.strip().lower() for n in needed_names if n.strip()))
+        if unique_lower:
+            for row in db.execute(
+                select(TelnyxWhatsappTemplate).where(func.lower(TelnyxWhatsappTemplate.name).in_(unique_lower))
+            ).scalars():
+                key = str(row.name or "").strip().lower()
+                if key:
+                    platform_by_name[key] = row
 
     by_type: dict[str, list[FeedbackWaTemplate]] = {}
     for row in rows:
@@ -143,7 +173,7 @@ def hidden_feedback_survey_type_ids_by_status(db: Session) -> set[str]:
             if feedback_template_blocks_dashboard(tpl):
                 hidden.add(survey_type_id)
                 break
-            meta_name = _feedback_meta_name_for_row(db, tpl).strip().lower()
+            meta_name = meta_by_tpl_id.get(str(tpl.id), "").strip().lower()
             if meta_name:
                 mirror = platform_by_name.get(meta_name)
                 if platform_template_blocks_dashboard(mirror):

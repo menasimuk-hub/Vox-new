@@ -173,5 +173,40 @@ def test_feedback_survey_type_hidden_when_marketing_pair_pending():
             exclude_disabled=True,
         )
         assert all(row["id"] != survey_type.id for row in visible)
+
+        from app.services.wa_template_dashboard_visibility_service import (
+            hidden_feedback_survey_type_ids_by_status,
+        )
+
+        hidden = hidden_feedback_survey_type_ids_by_status(db, survey_type_ids={survey_type.id})
+        assert survey_type.id in hidden
+        assert hidden_feedback_survey_type_ids_by_status(db, survey_type_ids=set()) == set()
+    finally:
+        db.close()
+
+
+def test_visible_industry_ids_skips_restricted_without_org_link():
+    db = _session()
+    try:
+        open_ind = FeedbackIndustry(
+            id=str(uuid.uuid4()),
+            slug=f"open-{uuid.uuid4().hex[:6]}",
+            name="Open",
+            is_active=True,
+            visibility_mode="all",
+        )
+        restricted = FeedbackIndustry(
+            id=str(uuid.uuid4()),
+            slug=f"rest-{uuid.uuid4().hex[:6]}",
+            name="Restricted",
+            is_active=True,
+            visibility_mode="restricted",
+        )
+        db.add(open_ind)
+        db.add(restricted)
+        db.commit()
+        ids = FeedbackCatalogService.visible_industry_ids(db, org_id="missing-org")
+        assert open_ind.id in ids
+        assert restricted.id not in ids
     finally:
         db.close()

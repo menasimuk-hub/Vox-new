@@ -65,7 +65,9 @@ def list_industries(db: Session = Depends(get_db), principal=Depends(get_current
     _require_feedback_enabled(db, principal.org_id)
     return {
         "ok": True,
-        "items": FeedbackCatalogService.list_industries(db, org_id=principal.org_id),
+        "items": FeedbackCatalogService.list_industries(
+            db, org_id=principal.org_id, include_stats=False
+        ),
     }
 
 
@@ -76,8 +78,7 @@ def list_survey_types(
     principal=Depends(get_current_principal),
 ):
     _require_feedback_enabled(db, principal.org_id)
-    visible = FeedbackCatalogService.list_industries(db, org_id=principal.org_id)
-    visible_ids = {str(item["id"]) for item in visible}
+    visible_ids = FeedbackCatalogService.visible_industry_ids(db, principal.org_id)
     if industry_id:
         if str(industry_id) not in visible_ids:
             return {"ok": True, "items": []}

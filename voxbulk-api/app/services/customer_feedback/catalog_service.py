@@ -157,12 +157,51 @@ class FeedbackCatalogService:
         return linked is not None
 
     @staticmethod
+    def _filter_visible_industries(
+        db: Session,
+        rows: list[FeedbackIndustry],
+        org_id: str | None,
+    ) -> list[FeedbackIndustry]:
+        """One batched org-link query instead of N visibility lookups."""
+        if org_id is None:
+            return rows
+        restricted_ids = [
+            r.id for r in rows if str(getattr(r, "visibility_mode", None) or "all").strip().lower() == "restricted"
+        ]
+        allowed_restricted: set[str] = set()
+        if restricted_ids:
+            allowed_restricted = {
+                str(i)
+                for i in db.execute(
+                    select(FeedbackIndustryOrganisation.industry_id).where(
+                        FeedbackIndustryOrganisation.industry_id.in_(restricted_ids),
+                        FeedbackIndustryOrganisation.org_id == org_id,
+                    )
+                ).scalars()
+            }
+        visible: list[FeedbackIndustry] = []
+        for row in rows:
+            mode = str(getattr(row, "visibility_mode", None) or "all").strip().lower()
+            if mode != "restricted" or row.id in allowed_restricted:
+                visible.append(row)
+        return visible
+
+    @staticmethod
+    def visible_industry_ids(db: Session, org_id: str | None) -> set[str]:
+        """Cheap id set for catalog reads — no template stats or Telnyx seed."""
+        FeedbackSeedService._seed_industries_if_needed(db)
+        q = select(FeedbackIndustry).where(FeedbackIndustry.is_active.is_(True))
+        rows = list(db.execute(q).scalars().all())
+        return {str(r.id) for r in FeedbackCatalogService._filter_visible_industries(db, rows, org_id)}
+
+    @staticmethod
     def list_industries(
         db: Session,
         *,
         include_inactive: bool = False,
         org_id: str | None = None,
         include_org_ids: bool = False,
+        include_stats: bool = True,
     ) -> list[dict[str, Any]]:
         FeedbackCatalogService.ensure_ready(db)
         q = select(FeedbackIndustry).order_by(FeedbackIndustry.sort_order, FeedbackIndustry.name)
@@ -170,14 +209,16 @@ class FeedbackCatalogService:
             q = q.where(FeedbackIndustry.is_active.is_(True))
         rows = list(db.execute(q).scalars().all())
         if org_id is not None:
-            rows = [r for r in rows if FeedbackCatalogService._industry_visible_to_org(db, r, org_id)]
-        stats_map = FeedbackCatalogService._batch_industry_template_stats(db, [r.id for r in rows])
+            rows = FeedbackCatalogService._filter_visible_industries(db, rows, org_id)
+        stats_map: dict[str, dict[str, Any]] = {}
+        if include_stats:
+            stats_map = FeedbackCatalogService._batch_industry_template_stats(db, [r.id for r in rows])
         return [
             FeedbackCatalogService.industry_with_stats(
                 db,
                 r,
                 include_org_ids=include_org_ids,
-                prefetched=stats_map.get(r.id),
+                prefetched=stats_map.get(r.id) if include_stats else {},
             )
             for r in rows
         ]
@@ -562,7 +603,7 @@ class FeedbackCatalogService:
         include_archived: bool = False,
         exclude_disabled: bool = False,
     ) -> list[dict[str, Any]]:
-        FeedbackCatalogService.ensure_ready(db)
+        FeedbackSeedService._seed_industries_if_needed(db)
         q = select(FeedbackSurveyType).order_by(FeedbackSurveyType.sort_order, FeedbackSurveyType.name)
         if industry_id:
             q = q.where(FeedbackSurveyType.industry_id == industry_id)
@@ -576,7 +617,9 @@ class FeedbackCatalogService:
             )
 
             hidden = DisabledWaTemplateService.hidden_feedback_survey_type_ids(db)
-            hidden |= hidden_feedback_survey_type_ids_by_status(db)
+            hidden |= hidden_feedback_survey_type_ids_by_status(
+                db, survey_type_ids={str(r.id) for r in rows}
+            )
             if hidden:
                 rows = [r for r in rows if r.id not in hidden]
         return [survey_type_to_dict(r) for r in rows]

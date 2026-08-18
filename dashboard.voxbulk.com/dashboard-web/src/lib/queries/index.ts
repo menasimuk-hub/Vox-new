@@ -2464,6 +2464,7 @@ export function useFeedbackIndustries() {
       const data = await apiFetch<{ ok?: boolean; items?: FeedbackIndustry[] }>("/customer-feedback/catalog/industries");
       return data.items || [];
     },
+    staleTime: 60_000,
   });
 }
 
@@ -2478,6 +2479,7 @@ export function useFeedbackSurveyTypes(industryId?: string | null) {
       return data.items || [];
     },
     enabled: Boolean(industryId),
+    staleTime: 60_000,
   });
 }
 
