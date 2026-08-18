@@ -439,3 +439,56 @@ def test_production_startup_rejects_default_secrets():
     )
     logger.warning.assert_called()
 
+
+def test_token_sets_httponly_cookie_and_me_accepts_cookie(app_client):
+    from app.core.database import get_sessionmaker
+    from app.core.session_cookie import SESSION_COOKIE_NAME
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_user_org(db)
+
+    r = app_client.post("/auth/token", data={"username": user.email, "password": "pass123", "org_id": org.id})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["access_token"]
+    assert SESSION_COOKIE_NAME in r.cookies
+
+    r2 = app_client.get("/auth/me")
+    assert r2.status_code == 200
+    assert r2.json()["org_id"] == org.id
+
+
+def test_browser_origin_omits_access_token_from_json(app_client):
+    from app.core.database import get_sessionmaker
+    from app.core.session_cookie import SESSION_COOKIE_NAME
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_user_org(db)
+
+    r = app_client.post(
+        "/auth/token",
+        data={"username": user.email, "password": "pass123", "org_id": org.id},
+        headers={"Origin": "http://localhost:5175"},
+    )
+    assert r.status_code == 200
+    assert "access_token" not in r.json()
+    assert r.json()["org_id"] == org.id
+    assert SESSION_COOKIE_NAME in r.cookies
+    r2 = app_client.get("/auth/me")
+    assert r2.status_code == 200
+
+
+def test_logout_clears_session_cookie(app_client):
+    from app.core.database import get_sessionmaker
+    from app.core.session_cookie import SESSION_COOKIE_NAME
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_user_org(db)
+
+    app_client.post("/auth/token", data={"username": user.email, "password": "pass123", "org_id": org.id})
+    assert app_client.get("/auth/me").status_code == 200
+    out = app_client.post("/auth/logout")
+    assert out.status_code == 200
+    assert not app_client.cookies.get(SESSION_COOKIE_NAME)
+    assert app_client.get("/auth/me").status_code == 401
+

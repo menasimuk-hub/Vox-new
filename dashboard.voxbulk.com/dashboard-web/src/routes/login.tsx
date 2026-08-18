@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { brandAssets } from "@/lib/brand";
-import { apiFetch, getAccessToken, oauthStartUrl } from "@/lib/api";
+import { apiFetch, getAccessToken, getApiBaseUrl, oauthStartUrl } from "@/lib/api";
 import { clearAllSessionStorage, writeSessionToStorage } from "@/lib/session-storage";
 
 export const Route = createFileRoute("/login")({
@@ -43,9 +43,18 @@ function DashboardLoginPage() {
       }
       return;
     }
-    if (getAccessToken()) {
-      void navigate({ to: "/" });
+    const hash = window.location.hash.replace(/^#/, "");
+    const hp = new URLSearchParams(hash);
+    if (hp.get("oauth") === "1" && !hp.get("oauth_org_select")) {
+      window.history.replaceState(window.history.state, "", "/login");
+      window.location.replace("/");
+      return;
     }
+    void apiFetch("/auth/me", { redirectOn401: false })
+      .then(() => navigate({ to: "/" }))
+      .catch(() => {
+        if (getAccessToken()) void navigate({ to: "/" });
+      });
   }, [navigate, loggedOut]);
 
   React.useEffect(() => {
@@ -61,8 +70,10 @@ function DashboardLoginPage() {
   }, []);
 
   const completeLogin = async (body: URLSearchParams) => {
-    const tokenRes = await fetch("/auth/token", {
+    const base = getApiBaseUrl().replace(/\/+$/, "");
+    const tokenRes = await fetch(`${base}/auth/token`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
@@ -81,8 +92,8 @@ function DashboardLoginPage() {
       setSelectedOrgId(String(main?.org_id || data.organisations[0]?.org_id || ""));
       return;
     }
-    if (!data.access_token) throw new Error("Sign in failed");
-    writeSessionToStorage(String(data.access_token), data.org_id, data.user_id);
+    if (!data.org_id && !data.access_token) throw new Error("Sign in failed");
+    writeSessionToStorage(String(data.access_token || ""), data.org_id, data.user_id);
     window.location.replace("/");
   };
 

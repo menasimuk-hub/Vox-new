@@ -1,5 +1,5 @@
 import * as React from "react";
-import { apiFetch, clearSession, getAccessToken, getApiBaseUrl, oauthStartUrl, setSession, needsOnboardingFor, type InvitePreview, type OrgLoginOption } from "@/lib/api";
+import { apiFetch, clearSession, getApiBaseUrl, oauthStartUrl, setSession, needsOnboardingFor, type InvitePreview, type OrgLoginOption } from "@/lib/api";
 import { consumeLogoutQueryParam } from "@/lib/session-storage";
 
 export type AuthUser = {
@@ -47,15 +47,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = React.useState(true);
 
   const refresh = React.useCallback(async (): Promise<AuthUser | null> => {
-    const token = getAccessToken();
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return null;
-    }
     try {
       const me = await apiFetch<AuthUser>("/auth/me");
       setUser(me);
+      if (me?.org_id && me?.user_id) {
+        setSession("", me.org_id, me.user_id);
+      }
       return me;
     } catch {
       clearSession();
@@ -85,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const tokenUrl = import.meta.env.DEV ? "/auth/token" : base ? `${base}/auth/token` : "/auth/token";
     const tokenRes = await fetch(tokenUrl, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
@@ -103,7 +101,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (data.org_selection_required && Array.isArray(data.organisations)) {
       return { kind: "org_selection", organisations: data.organisations };
     }
-    setSession(String(data.access_token), String(data.org_id), String(data.user_id));
+    if (!data.org_id && !data.access_token) throw new Error("Sign in failed");
+    setSession(String(data.access_token || ""), String(data.org_id || ""), String(data.user_id || ""));
     const me = await refresh();
     if (!me) throw new Error("Sign in failed");
     return { kind: "authenticated", user: me };
@@ -117,11 +116,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
     const promo = promoCode?.trim().toUpperCase();
     if (promo) body.promo_code = promo;
-    const data = await apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/register", {
+    const data = await apiFetch<{ access_token?: string; org_id: string; user_id: string }>("/auth/register", {
       method: "POST",
       body: JSON.stringify(body),
     });
-    setSession(data.access_token, data.org_id, data.user_id);
+    setSession(data.access_token || "", data.org_id, data.user_id);
     const me = await refresh();
     if (!me) throw new Error("Registration failed");
     return me;
@@ -132,26 +131,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const acceptInvite = React.useCallback(async (token: string, password: string): Promise<AuthUser> => {
-    const data = await apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/accept-invite", {
+    const data = await apiFetch<{ access_token?: string; org_id: string; user_id: string }>("/auth/accept-invite", {
       method: "POST",
       body: JSON.stringify({ token, password }),
     });
-    setSession(data.access_token, data.org_id, data.user_id);
+    setSession(data.access_token || "", data.org_id, data.user_id);
     const me = await refresh();
     if (!me) throw new Error("Could not complete invitation");
     return me;
   }, [refresh]);
 
   const logout = React.useCallback(() => {
-    const token = getAccessToken();
     try {
-      if (token) {
-        void fetch(`${getApiBaseUrl().replace(/\/+$/, "")}/auth/logout`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-          keepalive: true,
-        });
-      }
+      void fetch(`${getApiBaseUrl().replace(/\/+$/, "")}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+        headers: { Accept: "application/json" },
+        keepalive: true,
+      });
     } catch {
       /* ignore */
     }
@@ -176,14 +173,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const completeOAuthOrgSelection = React.useCallback(async (selectionToken: string, orgId: string): Promise<AuthUser> => {
-    const data = await apiFetch<{ access_token: string; org_id: string; user_id: string }>(
+    const data = await apiFetch<{ access_token?: string; org_id: string; user_id: string }>(
       "/auth/oauth/complete-org-selection",
       {
         method: "POST",
         body: JSON.stringify({ selection_token: selectionToken, org_id: orgId }),
       },
     );
-    setSession(data.access_token, data.org_id, data.user_id);
+    setSession(data.access_token || "", data.org_id, data.user_id);
     const me = await refresh();
     if (!me) throw new Error("Sign in failed");
     return me;
@@ -197,6 +194,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (orgSelect) {
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
       return { kind: "org_selection", selectionToken: orgSelect };
+    }
+    if (params.get("oauth") === "1") {
+      const orgId = params.get("org_id") || undefined;
+      const userId = params.get("user_id") || undefined;
+      if (orgId || userId) setSession("", orgId, userId);
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      void refresh();
+      return { kind: "authenticated" };
     }
     const token = params.get("access_token");
     if (!token) return { kind: "none" };

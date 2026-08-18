@@ -9,11 +9,37 @@ from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.core.session_cookie import (
+    assert_csrf_for_cookie_auth,
+    read_session_cookie,
+)
 from app.models.membership import OrganisationMembership
 from app.models.user import User
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
+
+
+def resolve_access_token(
+    request: Request,
+    bearer: str | None,
+    *,
+    required: bool = True,
+) -> str | None:
+    header = str(bearer or "").strip()
+    if header:
+        return header
+    cookie = read_session_cookie(request)
+    if cookie:
+        assert_csrf_for_cookie_auth(request)
+        return cookie
+    if required:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return None
 
 
 @dataclass(frozen=True)
@@ -128,9 +154,10 @@ def _assert_user_access(user: User | None, *, allow_pending: bool = False) -> Us
 def get_current_principal(
     request: Request,
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    bearer: str | None = Depends(oauth2_scheme),
 ) -> CurrentPrincipal:
-    principal = _principal_from_token(request, db, token)
+    token = resolve_access_token(request, bearer, required=True)
+    principal = _principal_from_token(request, db, str(token))
     user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
     _assert_user_access(user, allow_pending=False)
     _assert_demo_writes_blocked(request, principal)
@@ -140,10 +167,11 @@ def get_current_principal(
 def get_current_principal_allow_pending(
     request: Request,
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    bearer: str | None = Depends(oauth2_scheme),
 ) -> CurrentPrincipal:
     """For deletion-status and cancel-delete routes while request is pending."""
-    principal = _principal_from_token(request, db, token)
+    token = resolve_access_token(request, bearer, required=True)
+    principal = _principal_from_token(request, db, str(token))
     user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
     _assert_user_access(user, allow_pending=True)
     _assert_demo_writes_blocked(request, principal)

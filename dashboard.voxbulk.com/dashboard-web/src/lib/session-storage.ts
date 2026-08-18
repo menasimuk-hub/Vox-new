@@ -49,10 +49,11 @@ export function readOrgIdFromStorage() {
   return readKey(STORAGE_KEYS.orgId, LEGACY_KEYS.orgId);
 }
 
-export function writeSessionToStorage(token: string, orgId?: string, userId?: string) {
-  localStorage.setItem(STORAGE_KEYS.accessToken, token);
+export function writeSessionToStorage(_token: string, orgId?: string, userId?: string) {
+  // Session JWT lives in an HttpOnly cookie — never persist it for XSS to read.
+  localStorage.removeItem(STORAGE_KEYS.accessToken);
   localStorage.removeItem(LEGACY_KEYS.accessToken);
-  localStorage.setItem("access_token", token);
+  localStorage.removeItem("access_token");
   if (orgId) {
     localStorage.setItem(STORAGE_KEYS.orgId, orgId);
     localStorage.removeItem(LEGACY_KEYS.orgId);

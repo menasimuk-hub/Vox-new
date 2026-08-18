@@ -226,7 +226,7 @@ async function requestFetch(
       : null;
   try {
     const signal = fetchOptions.signal ?? controller?.signal;
-    return await fetch(url, signal ? { ...fetchOptions, signal } : fetchOptions);
+    return await fetch(url, signal ? { ...fetchOptions, credentials: "include", signal } : { ...fetchOptions, credentials: "include" });
   } catch (cause) {
     const name = cause instanceof Error ? cause.name : "";
     const message =

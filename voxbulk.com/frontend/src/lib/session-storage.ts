@@ -42,10 +42,10 @@ export function readUserIdFromStorage() {
   return readKey(STORAGE_KEYS.userId, LEGACY_KEYS.userId);
 }
 
-export function writeSessionToStorage(token: string, orgId?: string, userId?: string) {
-  localStorage.setItem(STORAGE_KEYS.accessToken, token);
+export function writeSessionToStorage(_token: string, orgId?: string, userId?: string) {
+  localStorage.removeItem(STORAGE_KEYS.accessToken);
   localStorage.removeItem(LEGACY_KEYS.accessToken);
-  localStorage.setItem("access_token", token);
+  localStorage.removeItem("access_token");
   if (orgId) {
     localStorage.setItem(STORAGE_KEYS.orgId, orgId);
     localStorage.removeItem(LEGACY_KEYS.orgId);

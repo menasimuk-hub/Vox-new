@@ -9,13 +9,13 @@ import { toast } from "sonner";
 
 
 
-import { apiFetch, ApiError, getAccessToken, logoutDashboard, redirectToSignIn } from "@/lib/api";
+import { apiFetch, logoutDashboard, redirectToSignIn } from "@/lib/api";
 import {
   consumeAuthHandoffFromHash,
   hasAuthHandoffInHash,
-  storeAuthHandoffFromHash,
   stripAuthHashFromUrl,
 } from "@/lib/auth-handoff";
+import { writeSessionToStorage } from "@/lib/session-storage";
 import { notifyInterviewLaunch } from "@/lib/interviewLaunchFeedback";
 
 import {
@@ -96,20 +96,6 @@ async function loadSession(): Promise<SessionState> {
   ]);
 
   return { profile, org, subscription };
-
-}
-
-
-
-function isAuthSessionFailure(err: unknown) {
-
-  if (err instanceof ApiError) {
-
-    return err.status === 401 || err.status === 403;
-
-  }
-
-  return false;
 
 }
 
@@ -590,83 +576,46 @@ function GoCardlessReturnHandler({
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
 
-  const [token, setToken] = React.useState(() => {
-    if (typeof window === "undefined") return "";
-    const handoffToken = storeAuthHandoffFromHash();
-    if (handoffToken) return handoffToken;
-    return getAccessToken();
-  });
-
   const qc = useQueryClient();
 
   React.useLayoutEffect(() => {
     if (hasAuthHandoffInHash()) {
       consumeAuthHandoffFromHash();
-    } else if (window.location.hash.includes("access_token")) {
+    } else if (
+      window.location.hash.includes("access_token") ||
+      window.location.hash.includes("oauth=")
+    ) {
       stripAuthHashFromUrl();
     }
-    setToken(getAccessToken());
   }, []);
-
-  React.useEffect(() => {
-    const sync = () => setToken(getAccessToken());
-    window.addEventListener("storage", sync);
-    return () => window.removeEventListener("storage", sync);
-  }, []);
-
-
 
   const q = useQuery({
-
-    queryKey: ["session", token],
-
+    queryKey: ["session"],
     queryFn: loadSession,
-
-    enabled: Boolean(token),
-
     retry: false,
-
     staleTime: 60_000,
-
   });
 
-
+  React.useEffect(() => {
+    if (!q.data) return;
+    writeSessionToStorage("", q.data.profile?.org_id || q.data.org?.id, q.data.profile?.id);
+  }, [q.data]);
 
   React.useEffect(() => {
-    if (token || hasAuthHandoffInHash()) return;
-    redirectToSignIn();
-  }, [token]);
-
-
-
-  React.useEffect(() => {
-
+    if (q.isPending) return;
     if (q.error && "status" in (q.error as object) && (q.error as { status?: number }).status === 401) {
-
       logoutDashboard();
-
     }
-
-  }, [q.error]);
-
-
+  }, [q.error, q.isPending]);
 
   const value = React.useMemo(
-
     () => ({
-
       session: q.data ?? null,
-
-      loading: Boolean(token) && q.isLoading,
-
+      loading: q.isPending,
       error: q.error instanceof Error ? q.error.message : "",
-
       refetch: () => void q.refetch(),
-
     }),
-
-    [q.data, q.error, q.isLoading, q.refetch, token],
-
+    [q.data, q.error, q.isPending, q.refetch],
   );
 
 
@@ -698,47 +647,21 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
 
 
-  if (!token && !hasAuthHandoffInHash()) return null;
-
-  if (!token) {
+  if (q.isPending) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0f1b3d] px-4 text-white">
         <div className="max-w-sm text-center">
           <img src="/brand/icon-white.svg" alt="VoxBulk" className="mx-auto h-10 w-auto opacity-90" />
-          <h2 className="mt-4 text-lg font-semibold tracking-tight">Signing you in…</h2>
-          <p className="mt-2 text-sm text-white/60">Finishing login handoff.</p>
-        </div>
-      </div>
-    );
-  }
-
-
-
-  if (value.loading) {
-
-    return (
-
-      <div className="flex min-h-screen items-center justify-center bg-[#0f1b3d] px-4 text-white">
-
-        <div className="max-w-sm text-center">
-
-          <img src="/brand/icon-white.svg" alt="VoxBulk" className="mx-auto h-10 w-auto opacity-90" />
-
           <h2 className="mt-4 text-lg font-semibold tracking-tight">Loading your dashboard…</h2>
-
           <p className="mt-2 text-sm text-white/60">Checking your VoxBulk session.</p>
-
         </div>
-
       </div>
-
     );
-
   }
 
 
 
-  if (value.error && !value.session && isAuthSessionFailure(q.error)) {
+  if (q.isError && !value.session) {
 
     return (
 

@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 import httpx
 import secrets
 from sqlalchemy import func, select
@@ -12,8 +12,13 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db, get_engine, get_sessionmaker
-from app.core.dependencies import CurrentPrincipal, get_current_principal
+from app.core.dependencies import CurrentPrincipal, get_current_principal, oauth2_scheme, resolve_access_token, _principal_from_token
 from app.core.security import create_access_token, hash_password, verify_password
+from app.core.session_cookie import (
+    clear_session_cookie,
+    session_json_response,
+    set_session_cookie,
+)
 from app.models.membership import OrganisationMembership
 from app.models.onboarding_request import OnboardingRequest
 from app.models.organisation import Organisation
@@ -177,7 +182,7 @@ def accept_invite(payload: dict, request: Request, db: Session = Depends(get_db)
             )
 
     token = _token_for_user(user, inv.org_id)
-    return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
+    return session_json_response(request, token=token, org_id=inv.org_id, user_id=user.id)
 
 
 @router.get("/pending-invites")
@@ -220,7 +225,7 @@ def accept_invite_session(
     db.commit()
 
     token = _token_for_user(user, inv.org_id)
-    return {"access_token": token, "token_type": "bearer", "org_id": inv.org_id, "user_id": user.id}
+    return session_json_response(request, token=token, org_id=inv.org_id, user_id=user.id)
 
 
 def _oauth_org_selection_token(*, user_id: str, organisations: list[dict[str, object]]) -> str:
@@ -286,7 +291,7 @@ def oauth_complete_org_selection(payload: dict, request: Request, db: Session = 
         if org_ent is not None and bool(org_ent.is_suspended):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation suspended")
     token = _token_for_user(user, org_id)
-    return {"access_token": token, "token_type": "bearer", "org_id": org_id, "user_id": user.id}
+    return session_json_response(request, token=token, org_id=org_id, user_id=user.id)
 
 
 @router.get("/my-organisations")
@@ -333,6 +338,7 @@ def set_preferred_organisation(
 @router.post("/switch-organisation")
 def switch_organisation(
     payload: dict,
+    request: Request,
     db: Session = Depends(get_db),
     principal: CurrentPrincipal = Depends(get_current_principal),
 ):
@@ -349,7 +355,7 @@ def switch_organisation(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
     token = _token_for_user(user, org_id)
-    return {"access_token": token, "token_type": "bearer", "org_id": org_id, "user_id": principal.user_id}
+    return session_json_response(request, token=token, org_id=org_id, user_id=principal.user_id)
 
 
 def _ensure_onboarding_requests_table_for_local_dev() -> None:
@@ -371,15 +377,26 @@ def set_my_role(payload: dict, db: Session = Depends(get_db), principal: Current
 
 
 @router.post("/logout")
-def logout(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
-    """Invalidate all JWTs for this user by bumping token_version (same mechanism as password reset)."""
-    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
-    user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
-    db.add(user)
-    db.commit()
-    return {"ok": True}
+def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    bearer: str | None = Depends(oauth2_scheme),
+):
+    """Clear the session cookie and invalidate JWTs when we can identify the user."""
+    token = resolve_access_token(request, bearer, required=False)
+    if token:
+        try:
+            principal = _principal_from_token(request, db, token)
+            user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+            if user is not None:
+                user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
+                db.add(user)
+                db.commit()
+        except HTTPException:
+            pass
+    res = JSONResponse({"ok": True})
+    clear_session_cookie(res, request)
+    return res
 
 
 @router.post("/me/change-password")
@@ -560,7 +577,7 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
         )
 
     token = _token_for_user(user, org.id)
-    return {"access_token": token, "token_type": "bearer", "org_id": org.id, "user_id": user.id}
+    return session_json_response(request, token=token, org_id=org.id, user_id=user.id)
 
 
 @router.post("/self-serve")
@@ -663,7 +680,7 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation suspended")
 
     token = _token_for_user(user, resolved_org_id)
-    return {"access_token": token, "token_type": "bearer", "org_id": resolved_org_id, "user_id": user.id}
+    return session_json_response(request, token=token, org_id=resolved_org_id, user_id=user.id)
 
 
 @router.get("/me")
@@ -931,7 +948,8 @@ async def oauth_callback(
     """
     OAuth callback endpoint.
 
-    Redirects back to the sign-in page with the normal FastAPI bearer token handed off in the URL hash.
+    Redirects back to the sign-in page. The session JWT is set as an HttpOnly cookie
+    (not placed in the URL hash).
     """
     _enforce_auth_rate_limit(scope="oauth-callback", identity=_client_ip(request))
     settings = get_settings()
@@ -1010,17 +1028,17 @@ async def oauth_callback(
         _clear_oauth_cookies(res)
         return res
 
-    # Handoff via fragment so it is not sent to the server.
+    # Cookie holds the JWT. Hash only carries non-secret flags (and org-select token when needed).
     frag = httpx.QueryParams(
         {
-            "access_token": token,
+            "oauth": "1",
             "org_id": org_id,
             "user_id": user_id,
-            "oauth": "1",
             "new_user": "1" if is_new else "0",
         }
     )
     res = RedirectResponse(url=f"{landing}#{frag}", status_code=302)
+    set_session_cookie(res, request, token)
     _clear_oauth_cookies(res)
     return res
 

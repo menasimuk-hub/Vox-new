@@ -1205,12 +1205,12 @@ export function useSwitchOrganisation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (orgId: string) =>
-      apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/switch-organisation", {
+      apiFetch<{ access_token?: string; org_id: string; user_id: string }>("/auth/switch-organisation", {
         method: "POST",
         body: JSON.stringify({ org_id: orgId }),
       }),
     onSuccess: (data) => {
-      writeSessionToStorage(data.access_token, data.org_id, data.user_id);
+      writeSessionToStorage(data.access_token || "", data.org_id, data.user_id);
       qc.clear();
       window.location.href = "/";
     },
@@ -1237,12 +1237,12 @@ export function useAcceptInviteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (token: string) =>
-      apiFetch<{ access_token: string; org_id: string; user_id: string }>("/auth/accept-invite-session", {
+      apiFetch<{ access_token?: string; org_id: string; user_id: string }>("/auth/accept-invite-session", {
         method: "POST",
         body: JSON.stringify({ token }),
       }),
     onSuccess: (data) => {
-      writeSessionToStorage(data.access_token, data.org_id, data.user_id);
+      writeSessionToStorage(data.access_token || "", data.org_id, data.user_id);
       qc.clear();
       window.location.href = "/";
     },

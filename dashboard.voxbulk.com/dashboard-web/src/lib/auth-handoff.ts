@@ -1,4 +1,4 @@
-import { writeSessionToStorage } from "@/lib/session-storage";
+import { STORAGE_KEYS, writeSessionToStorage } from "@/lib/session-storage";
 
 function parseAuthHandoffFromHash(): { accessToken: string; orgId?: string; userId?: string } | null {
   if (typeof window === "undefined") return null;
@@ -22,11 +22,16 @@ export function hasAuthHandoffInHash(): boolean {
   return parseAuthHandoffFromHash() != null;
 }
 
-/** Store tokens from the URL hash without changing the address bar. */
+/** Store a legacy hash JWT (in-flight OAuth links). New OAuth uses an HttpOnly cookie instead. */
 export function storeAuthHandoffFromHash(): string | null {
   const parsed = parseAuthHandoffFromHash();
   if (!parsed) return null;
+  localStorage.setItem(STORAGE_KEYS.accessToken, parsed.accessToken);
+  localStorage.setItem("access_token", parsed.accessToken);
   writeSessionToStorage(parsed.accessToken, parsed.orgId, parsed.userId);
+  // writeSessionToStorage clears JWTs; restore the one-time hash token for Bearer fallback.
+  localStorage.setItem(STORAGE_KEYS.accessToken, parsed.accessToken);
+  localStorage.setItem("access_token", parsed.accessToken);
   return parsed.accessToken;
 }
 

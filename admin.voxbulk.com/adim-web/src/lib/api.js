@@ -236,7 +236,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   }
   const t = window.setTimeout(() => timeoutCtl.abort(), timeoutMs)
   try {
-    return await fetch(url, { ...options, signal: merged.signal })
+    return await fetch(url, { ...options, credentials: 'include', signal: merged.signal })
   } finally {
     window.clearTimeout(t)
     timeoutCtl.signal.removeEventListener('abort', abortMerged)
@@ -393,16 +393,18 @@ async function resolveAdminBearerToken() {
   _adminSyncInFlight = (async () => {
     try {
       const shared = getSharedJwtFromStorage()
-      if (!shared) return ''
       const baseUrl = getApiBaseUrl()
+      const headers = { Accept: 'application/json' }
+      if (shared) headers.Authorization = `Bearer ${shared}`
       const r = await fetch(joinOriginAndPath(baseUrl, '/auth/me'), {
-        headers: { Authorization: `Bearer ${shared}`, Accept: 'application/json' },
+        credentials: 'include',
+        headers,
       })
       const text = await r.text()
       const data = text ? safeJson(text) : null
       if (!r.ok) return ''
       if (data?.admin_access || data?.is_superuser) {
-        persistPromotedAdminSession(shared)
+        if (shared) persistPromotedAdminSession(shared)
         return shared
       }
       return ''
@@ -589,12 +591,9 @@ export async function apiFetch(path, options = {}) {
   headers.set('Accept', 'application/json')
 
   const token = await resolveAdminBearerToken()
-  if (!token) {
-    throw new Error(
-      'No admin session. Sign in on the public app with a platform-admin account first; the console will stash voxbulk_admin_access_token.'
-    )
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
   }
-  headers.set('Authorization', `Bearer ${token}`)
 
   if (options.body != null && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -672,10 +671,9 @@ export async function apiFetchBlob(path, options = {}) {
   const joined = joinOriginAndPath(getApiBaseUrl(), path)
   const headers = new Headers(options.headers || {})
   const token = await resolveAdminBearerToken()
-  if (!token) throw new Error('No admin session.')
-  headers.set('Authorization', `Bearer ${token}`)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const res = await fetch(joined, { ...options, headers })
+  const res = await fetch(joined, { ...options, credentials: 'include', headers })
   if (!res.ok) {
     const text = await res.text()
     const data = text ? safeJson(text) : null
@@ -691,10 +689,9 @@ export async function apiFetchText(path, options = {}) {
   const joined = joinOriginAndPath(getApiBaseUrl(), path)
   const headers = new Headers(options.headers || {})
   const token = await resolveAdminBearerToken()
-  if (!token) throw new Error('No admin session.')
-  headers.set('Authorization', `Bearer ${token}`)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const res = await fetch(joined, { ...options, headers })
+  const res = await fetch(joined, { ...options, credentials: 'include', headers })
   if (!res.ok) {
     const text = await res.text()
     const data = text ? safeJson(text) : null
@@ -719,13 +716,10 @@ export async function apiUpload(path, formData, options = {}) {
   const joined = joinOriginAndPath(getApiBaseUrl(), path)
   const headers = new Headers(options.headers || {})
   const token = await resolveAdminBearerToken()
-  if (!token) {
-    throw new Error('No admin session. Sign in on the public app with a platform-admin account first.')
-  }
-  headers.set('Authorization', `Bearer ${token}`)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
   headers.set('Accept', 'application/json')
 
-  const res = await fetch(joined, { ...options, method: options.method || 'POST', headers, body: formData })
+  const res = await fetch(joined, { ...options, credentials: 'include', method: options.method || 'POST', headers, body: formData })
   const text = await res.text()
   const data = text ? safeJson(text) : null
   if (!res.ok) {
@@ -741,13 +735,14 @@ export function adminLogoutRedirect() {
   if (typeof window === 'undefined') return
   const token = readAdminAccessToken() || readSharedAccessToken()
   try {
-    if (token) {
-      void fetch(`${getApiBaseUrl().replace(/\/+$/, '')}/auth/logout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-        keepalive: true,
-      })
-    }
+    const headers = { Accept: 'application/json' }
+    if (token) headers.Authorization = `Bearer ${token}`
+    void fetch(`${getApiBaseUrl().replace(/\/+$/, '')}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      keepalive: true,
+    })
   } catch {
     /* ignore */
   }
