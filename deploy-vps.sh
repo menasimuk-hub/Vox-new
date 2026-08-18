@@ -167,7 +167,13 @@ api_deps_and_migrate() {
   info "Building $name …"
   vox_npm_ci_or_install "$dir" || fail "npm install failed in $dir"
   cd "$dir"
-  npm run build
+  if ! npm run build; then
+    if [[ -f dist/client/index.html || -f dist/index.html ]]; then
+      warn "$name: vite exited non-zero but index.html exists — continuing"
+    else
+      fail "$name build failed"
+    fi
+  fi
 }
 
 build_all_frontends() {
@@ -181,6 +187,8 @@ build_all_frontends() {
   build_frontend "$DASH_DIR" "dashboard"
   if [[ -d "$PUBLIC_DIR" ]]; then
     build_frontend "$PUBLIC_DIR" "public site"
+    [[ -f "$PUBLIC_DIR/dist/client/index.html" ]] \
+      || fail "public site build did not emit dist/client/index.html (SPA shell required for static wwwroot)"
     # vite preview (systemd User=qusay) must write node_modules/.vite-temp — root-owned
     # leftovers after sudo deploy cause Bad Gateway crash-loops on voxbulk.com.
     rm -rf "$PUBLIC_DIR/node_modules/.vite-temp" 2>/dev/null || true
@@ -439,10 +447,10 @@ sync_well_known() {
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
   copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard-dist-client"
-  if [[ -d "$PUBLIC_DIR/dist/client" ]]; then
+  if [[ -f "$PUBLIC_DIR/dist/client/index.html" ]]; then
     copy_dist "$PUBLIC_DIR/dist/client" "${VOX_PUBLIC_DIST:-}" "public-dist-client"
   else
-    warn "Public dist/client missing — marketing site wwwroot not updated"
+    fail "Public dist/client/index.html missing after build — cannot rsync static wwwroot"
   fi
   if [[ -d "$VOXBOX_DIR/dist" ]]; then
     copy_dist "$VOXBOX_DIR/dist" "${VOX_VOXBOX_DIST:-}" "voxbox"
