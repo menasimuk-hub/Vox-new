@@ -460,9 +460,18 @@ post_checks() {
   sleep 2
   bash "$VOX_SH" status || warn "Status check reported issues — see $DEPLOY_LOG"
 
+  local health_token=""
+  local health_auth=()
+  if [[ -f "$API_DIR/.env" ]]; then
+    health_token="$(grep -E '^HEALTH_SECRET_TOKEN=' "$API_DIR/.env" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '\r' | sed 's/^["'\'']//;s/["'\'']$//' || true)"
+  fi
+  if [[ -n "$health_token" ]]; then
+    health_auth=(-H "X-Health-Token: ${health_token}")
+  fi
+
   info "Verifying /health/build …"
-  if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null \
-    || curl -sf http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
+  if curl -sf -H "Host: api.voxbulk.com" "${health_auth[@]}" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null \
+    || curl -sf "${health_auth[@]}" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
     python3 - <<'PY' || fail "API process stale — /health/build git_sha does not match repo HEAD (run: pkill -f uvicorn && ./vox.sh restart)"
 import json
 import subprocess

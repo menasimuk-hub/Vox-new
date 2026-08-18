@@ -59,7 +59,8 @@ def test_cors_on_unhandled_500(prod_cors_client):
     res = client.get("/__test/crash", headers={"Origin": ORIGIN})
     assert res.status_code == 500
     assert res.headers.get("access-control-allow-origin") == ORIGIN
-    assert res.json()["error_type"] == "RuntimeError"
+    assert res.json() == {"detail": "Internal server error"}
+    assert "error_type" not in res.json()
 
 
 def test_cors_on_wallet_topup_auth_error(prod_cors_client):

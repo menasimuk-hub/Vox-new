@@ -17,6 +17,7 @@ from app.core.cors_utils import apply_cors_headers
 from app.core.database import get_sessionmaker, init_db
 from app.core.logging import configure_logging, get_logger
 from app.core.security import hash_password
+from app.core.sentry import init_sentry
 from app.models.membership import OrganisationMembership
 from app.models.organisation import Organisation
 from app.models.user import User
@@ -440,6 +441,7 @@ async def lifespan(app: FastAPI):
 
 
 settings = get_settings()
+init_sentry()
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
@@ -482,16 +484,34 @@ async def ensure_cors_on_all_responses(request: Request, call_next):
             "unhandled_exception",
             extra={"path": request.url.path, "error_type": type(exc).__name__},
         )
-        detail = _client_safe_exception_detail(exc)
         response = JSONResponse(
             status_code=400 if _is_client_data_error(exc) else 500,
-            content={
-                "detail": detail,
-                "error_type": type(exc).__name__,
-                "path": request.url.path,
-            },
+            content=_unhandled_exception_response_content(exc, request.url.path),
         )
     return apply_cors_headers(request, response, settings)
+
+
+def _is_production_env(env: str | None = None) -> bool:
+    value = env if env is not None else get_settings().env
+    return str(value or "").lower() in {"production", "prod"}
+
+
+def _unhandled_exception_response_content(
+    exc: BaseException,
+    path: str,
+    *,
+    env: str | None = None,
+) -> dict:
+    """JSON body for unhandled exceptions. Production 500s must not leak types or paths."""
+    if _is_production_env(env):
+        if _is_client_data_error(exc):
+            return {"detail": _client_safe_exception_detail(exc)}
+        return {"detail": "Internal server error"}
+    return {
+        "detail": _client_safe_exception_detail(exc),
+        "error_type": type(exc).__name__,
+        "path": path,
+    }
 
 
 def _is_client_data_error(exc: BaseException) -> bool:

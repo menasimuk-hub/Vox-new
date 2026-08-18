@@ -9,10 +9,12 @@ import {
 } from "@tanstack/react-router";
 
 import { consumeAuthHandoffFromHash } from "@/lib/auth-handoff";
+import { captureDashboardException, initDashboardSentry } from "@/lib/sentry";
 import appCss from "../styles.css?url";
 
 if (typeof window !== "undefined") {
   consumeAuthHandoffFromHash();
+  initDashboardSentry();
 }
 
 function NotFoundComponent() {
@@ -39,6 +41,7 @@ function NotFoundComponent() {
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
+  captureDashboardException(error);
   const router = useRouter();
 
   return (

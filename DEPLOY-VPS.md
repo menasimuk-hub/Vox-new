@@ -42,6 +42,10 @@ Alert email/SMS on failure. Do **not** put Cloudflare orange-cloud in front of t
 
 **Required `voxbulk-api/.env` on production:** `ENV=production`, `ALLOW_INSECURE_WEBHOOKS=0`, strong `JWT_SECRET_KEY` + `ENCRYPTION_KEY` (not `change-me`), `HEALTH_SECRET_TOKEN` set (`bash scripts/vps-set-health-token.sh` then one API restart), `PUBLIC_APP_ORIGIN=https://voxbulk.com`, `DASHBOARD_APP_ORIGIN=https://dashboard.voxbulk.com`.
 
+**Optional Sentry:** set `SENTRY_DSN` in `voxbulk-api/.env` (API + Celery). Dashboard needs `VITE_SENTRY_DSN` in `dashboard.voxbulk.com/dashboard-web/.env.production` **before** `./deploy-vps.sh` (Vite bakes it in at build time). Empty DSN = no events sent. After deploy, `bash scripts/vps-verify-deploy.sh` checks `/health/build` git SHA vs `HEAD` and Celery ping; `VOX_SENTRY_TEST=1 bash scripts/vps-verify-deploy.sh` sends one test event if the DSN is set.
+
+GitHub Actions on `main` (pytest + dashboard lint/test + admin build) does **not** deploy. Live update is still `git pull origin main` then `./deploy-vps.sh` on this server.
+
 ---
 
 ## Smart Card public rate limit (aaPanel nginx — no Cloudflare)

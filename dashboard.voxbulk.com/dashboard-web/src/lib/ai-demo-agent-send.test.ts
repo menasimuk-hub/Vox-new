@@ -42,7 +42,7 @@ describe("ai-demo-agent-send", () => {
     expect(result.reason).toBe("sent");
     expect(result.callControlId).toBe("v3:test-call");
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatch(/^I clicked Next\./);
+    expect(sent[0]).toBe(msg);
     expect(call.sendConversationMessage).toHaveBeenCalledTimes(1);
     expect(queue).toHaveLength(0);
   });

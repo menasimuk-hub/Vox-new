@@ -88,6 +88,14 @@ check_set_not_placeholder JWT_SECRET_KEY
 check_set_not_placeholder ENCRYPTION_KEY
 check_set_not_placeholder HEALTH_SECRET_TOKEN
 
+sentry_dsn="$(get_val SENTRY_DSN)"
+if [[ -n "$sentry_dsn" ]]; then
+  echo -e "${GREEN}[ok]${NC} SENTRY_DSN is set (${#sentry_dsn} chars)"
+else
+  echo -e "${YELLOW}[warn]${NC} SENTRY_DSN is empty — API/Celery errors will not go to Sentry (optional)"
+  warn=$((warn + 1))
+fi
+
 db="$(get_val DATABASE_URL)"
 case "$db" in
   *mysql*|*MySQL*|*pymysql*)

@@ -136,6 +136,9 @@ class Settings(BaseSettings):
     bootstrap_token: str = Field(default="", alias="BOOTSTRAP_TOKEN")
     # Protects /health/build|/db|/pricing when set (X-Health-Token or Bearer).
     health_secret_token: str = Field(default="", alias="HEALTH_SECRET_TOKEN")
+    # Optional error reporting. Empty = no-op (no events leave the process).
+    sentry_dsn: str = Field(default="", alias="SENTRY_DSN")
+    sentry_traces_sample_rate: float = Field(default=0.05, alias="SENTRY_TRACES_SAMPLE_RATE")
     enable_test_cash_billing: bool = Field(default=False, alias="ENABLE_TEST_CASH_BILLING")
 
     # Invite links returned by admin API (public sign-in origin)

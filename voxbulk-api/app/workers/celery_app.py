@@ -4,9 +4,11 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import get_settings
+from app.core.sentry import init_sentry
 
 
 settings = get_settings()
+init_sentry()
 
 celery_app = Celery(
     "retover",
