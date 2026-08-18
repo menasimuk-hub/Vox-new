@@ -99,14 +99,50 @@ stop_public() {
   fi
 }
 
-# ── Celery (Supervisor — unchanged) ──────────────────────────────────────────
+_env_val() {
+  local key="$1"
+  grep -E "^${key}=" "$API_DIR/.env" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '\r' | sed 's/^["'\'']//;s/["'\'']$//' || true
+}
+
+is_production_env() {
+  local e
+  e="$(_env_val ENV)"
+  [[ "$e" == "production" || "$e" == "prod" ]]
+}
+
+skip_dashboard_preview() {
+  if [[ "${VOX_DASHBOARD_PREVIEW:-0}" == "1" ]]; then
+    return 1
+  fi
+  if [[ "${VOX_SKIP_DASHBOARD_PREVIEW:-0}" == "1" ]]; then
+    return 0
+  fi
+  is_production_env && return 0
+  [[ -d /www/wwwroot/dashboard.voxbulk.com ]] && return 0
+  return 1
+}
+
+_supervisorctl() {
+  if command -v supervisorctl >/dev/null 2>&1; then
+    if supervisorctl "$@" >/dev/null 2>&1; then
+      supervisorctl "$@"
+      return $?
+    fi
+    if command -v sudo >/dev/null 2>&1; then
+      sudo -n supervisorctl "$@" 2>/dev/null && return 0
+    fi
+  fi
+  return 1
+}
+
+# ── Celery (Supervisor) ──────────────────────────────────────────────────────
 
 celery_supervisor_name() {
-  if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status voxbulk-celery >/dev/null 2>&1; then
+  if _supervisorctl status voxbulk-celery >/dev/null 2>&1; then
     echo "voxbulk-celery"
     return 0
   fi
-  if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status retover-celery >/dev/null 2>&1; then
+  if _supervisorctl status retover-celery >/dev/null 2>&1; then
     echo "retover-celery"
     return 0
   fi
@@ -114,7 +150,7 @@ celery_supervisor_name() {
 }
 
 celery_beat_supervisor_name() {
-  if command -v supervisorctl >/dev/null 2>&1 && supervisorctl status voxbulk-celery-beat >/dev/null 2>&1; then
+  if _supervisorctl status voxbulk-celery-beat >/dev/null 2>&1; then
     echo "voxbulk-celery-beat"
     return 0
   fi
@@ -144,24 +180,24 @@ restart_celery() {
 status_celery() {
   echo ""
   echo "=== Celery (WA voice notes, async jobs, billing beat) ==="
-  if ! command -v supervisorctl >/dev/null 2>&1; then
-    echo "supervisorctl not installed"
-    return 1
-  fi
   local name beat ok=0
   if name="$(celery_supervisor_name)"; then
-    supervisorctl status "$name" || true
-    if supervisorctl status "$name" 2>/dev/null | grep -q RUNNING; then
+    _supervisorctl status "$name" || true
+    if _supervisorctl status "$name" 2>/dev/null | grep -q RUNNING; then
       ok=1
     fi
+  elif pgrep -af "celery.*worker" >/dev/null 2>&1; then
+    echo "supervisorctl cannot see voxbulk-celery (try sudo) — worker process is running"
   else
     echo "voxbulk-celery not configured — run: sudo bash scripts/vps-setup-celery.sh"
   fi
   if beat="$(celery_beat_supervisor_name)"; then
-    supervisorctl status "$beat" || true
-    if supervisorctl status "$beat" 2>/dev/null | grep -q RUNNING; then
+    _supervisorctl status "$beat" || true
+    if _supervisorctl status "$beat" 2>/dev/null | grep -q RUNNING; then
       ok=1
     fi
+  elif pgrep -af "celery.*beat" >/dev/null 2>&1; then
+    echo "supervisorctl cannot see voxbulk-celery-beat (try sudo) — beat process is running"
   else
     echo "voxbulk-celery-beat not configured — run: sudo bash scripts/vps-setup-celery.sh"
   fi
@@ -177,10 +213,17 @@ status_celery() {
   else
     echo "no celery beat process"
   fi
-  if redis-cli ping >/dev/null 2>&1; then
+  local redis_url
+  redis_url="$(_env_val CELERY_BROKER_URL)"
+  [[ -z "$redis_url" ]] && redis_url="$(_env_val REDIS_URL)"
+  if [[ -n "$redis_url" ]] && command -v redis-cli >/dev/null 2>&1 && redis-cli -u "$redis_url" ping >/dev/null 2>&1; then
+    echo "redis: PONG (from .env broker URL)"
+  elif command -v redis-cli >/dev/null 2>&1 && redis-cli ping >/dev/null 2>&1; then
     echo "redis: PONG"
+  elif pgrep -af "celery.*worker" >/dev/null 2>&1; then
+    echo "redis: default redis-cli ping failed (workers are up — broker URL likely has a password; that is OK)"
   else
-    echo "redis: not responding (CELERY_BROKER_URL)"
+    echo "redis: not responding"
     ok=0
   fi
   [[ "$ok" -eq 1 ]]
@@ -310,8 +353,8 @@ start_public() {
 }
 
 start_dashboard() {
-  if [[ "${VOX_SKIP_DASHBOARD_PREVIEW:-0}" == "1" ]]; then
-    echo "Skipping dashboard preview (VOX_SKIP_DASHBOARD_PREVIEW=1 — nginx serves static wwwroot)"
+  if skip_dashboard_preview; then
+    echo "Skipping dashboard preview — production uses nginx static /www/wwwroot/dashboard.voxbulk.com"
     return
   fi
   cd "$DASH_DIR"
@@ -408,9 +451,9 @@ status() {
   fi
 
   echo ""
-  echo "=== Dashboard (5175) ==="
-  if [[ "${VOX_SKIP_DASHBOARD_PREVIEW:-0}" == "1" ]]; then
-    echo "Skipped (VOX_SKIP_DASHBOARD_PREVIEW=1 — static wwwroot via nginx)"
+  echo "=== Dashboard ==="
+  if skip_dashboard_preview; then
+    echo "Static wwwroot /www/wwwroot/dashboard.voxbulk.com (no vite :5175 in production)"
     dashboard_ok=1
   elif wait_for_http "http://127.0.0.1:5175/" "" "$wait_attempts"; then
     curl -sf -I http://127.0.0.1:5175/ | head -1
@@ -429,7 +472,12 @@ status() {
 
   echo ""
   echo "=== Processes ==="
-  pgrep -af "uvicorn.*main:app" || echo "no uvicorn"
+  if api_systemd_installed; then
+    systemctl is-active "${API_UNIT_NAME}.service" 2>/dev/null || true
+  fi
+  pgrep -af "gunicorn.*main:app" || true
+  pgrep -af "uvicorn.*main:app" || echo "(no uvicorn master — gunicorn is normal in production)"
+  ss -ltnp 2>/dev/null | grep -E ':8000|:5173|:5175' || netstat -ltnp 2>/dev/null | grep -E ':8000|:5173|:5175' || true
   pgrep -af "vite preview" || echo "no vite preview"
   status_celery || true
 
