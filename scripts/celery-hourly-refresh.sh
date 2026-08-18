@@ -11,6 +11,18 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORKER="voxbulk-celery"
 LOG_PREFIX="[celery-hourly $(date -u +%Y-%m-%dT%H:%M:%SZ)]"
 
+# Worker only — beat stays up (hourly beat restarts can double-fire schedules).
+# Rolling stop→start (not pkill) so in-flight WA/billing tasks can finish.
+ROLL="$ROOT/scripts/celery-rolling-refresh.sh"
+if [[ -f "$ROLL" ]]; then
+  chmod +x "$ROLL" 2>/dev/null || true
+  if VOX_CELERY_WORKER="$WORKER" VOX_CELERY_SKIP_BEAT=1 bash "$ROLL"; then
+    echo "$LOG_PREFIX rolling refresh $WORKER OK"
+    exit 0
+  fi
+  echo "$LOG_PREFIX rolling refresh failed — falling back to supervisor restart" >&2
+fi
+
 _restart() {
   local prog="$1"
   if command -v supervisorctl >/dev/null 2>&1; then
@@ -31,7 +43,6 @@ _restart() {
   return 1
 }
 
-# Worker only — beat stays up (hourly beat restarts can double-fire schedules).
 if _restart "$WORKER"; then
   sleep 2
   if command -v supervisorctl >/dev/null 2>&1; then

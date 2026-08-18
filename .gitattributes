@@ -1,1 +1,4 @@
 voxbulk.com/frontend/public/legal/*.pdf binary
+scripts/*.sh text eol=lf
+vox.sh text eol=lf
+deploy-vps.sh text eol=lf

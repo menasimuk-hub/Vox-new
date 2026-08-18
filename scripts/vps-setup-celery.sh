@@ -29,6 +29,7 @@ fail()  { echo -e "${RED}[error]${NC} $*" >&2; exit 1; }
 [[ -f "$BEAT_SCRIPT" ]] || fail "Missing $BEAT_SCRIPT"
 
 chmod +x "$RUN_SCRIPT" "$BEAT_SCRIPT"
+chmod +x "$ROOT/scripts/celery-rolling-refresh.sh" 2>/dev/null || true
 
 if [[ ! -x "$CELERY_BIN" ]]; then
   info "Installing Python deps (celery) into venv …"
@@ -73,7 +74,9 @@ autostart=true
 autorestart=true
 startretries=5
 startsecs=3
-stopwaitsecs=30
+stopwaitsecs=120
+stopasgroup=true
+killasgroup=true
 stdout_logfile=/tmp/voxbulk-celery.log
 stderr_logfile=/tmp/voxbulk-celery.err.log
 stdout_logfile_maxbytes=10MB
@@ -95,7 +98,9 @@ autostart=true
 autorestart=true
 startretries=5
 startsecs=3
-stopwaitsecs=30
+stopwaitsecs=120
+stopasgroup=true
+killasgroup=true
 stdout_logfile=/tmp/voxbulk-celery-beat.log
 stderr_logfile=/tmp/voxbulk-celery-beat.err.log
 stdout_logfile_maxbytes=10MB
@@ -203,9 +208,10 @@ Celery setup complete
   Logs:      tail -f /tmp/voxbulk-celery.log
   Beat logs: tail -f /tmp/voxbulk-celery-beat.log
   Watchdog:  $WATCHDOG  (cron every 5m + email on failure)
-  Hourly:    $HOURLY  (cron :05 each hour — reloads worker code/tasks)
-  Restart:   sudo supervisorctl restart voxbulk-celery voxbulk-celery-beat
+  Hourly:    $HOURLY  (cron :05 each hour — rolling worker refresh)
+  Refresh:   bash $ROOT/scripts/celery-rolling-refresh.sh
   Or:        cd /www/voxbulk && ./vox.sh restart
+  Do not:    pkill celery
   Admin UI:  Dashboard → Celery / background jobs
 
 Alert emails (optional in voxbulk-api/.env):

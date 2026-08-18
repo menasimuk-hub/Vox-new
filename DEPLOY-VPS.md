@@ -1,5 +1,49 @@
 # VOXBULK VPS deploy
 
+## Phase 0 — backups, TLS, uptime, production env
+
+Run **on the dedicated server** after `git pull` (not from Windows). aaPanel scheduled backup stays the backup system — this repo does **not** add a second `mysqldump` cron.
+
+```bash
+cd /www/voxbulk
+git pull origin main
+chmod +x scripts/vps-*.sh scripts/celery-rolling-refresh.sh scripts/fix-ssl-voxbulk.sh
+
+# 1) Confirm aaPanel dumps exist and hint if they are only on this disk
+bash scripts/vps-aapanel-backup-check.sh
+
+# 2) Production .env (does not print secret values)
+bash scripts/vps-prod-env-check.sh
+
+# 3) TLS files + live HTTPS + SMTP :587 (fails if < 14 days left)
+bash scripts/vps-cert-check.sh
+
+# 4) One-time: Certbot renew copies into aaPanel nginx AND Postfix mail_sys
+sudo bash scripts/vps-install-cert-renew-hook.sh
+
+# 5) Celery: wait up to 120s for in-flight jobs, then start (never pkill celery)
+# Re-apply Supervisor stopwaitsecs=120:
+sudo bash scripts/vps-setup-celery.sh
+```
+
+**aaPanel Backup:** in the panel, confirm the scheduled MySQL job copies **off this server** (FTP/S3/rsync), not only `/www/backup` on the same disk. Run the restore drill printed by `vps-aapanel-backup-check.sh` once.
+
+**External uptime (no Cloudflare):** ping from a third party (UptimeRobot, Better Stack, or similar) — not from this machine:
+
+| Check | URL / port |
+|-------|------------|
+| API | `https://api.voxbulk.com/health` |
+| Public | `https://voxbulk.com` |
+| Dashboard | `https://dashboard.voxbulk.com` |
+| Admin | `https://admin.voxbulk.com` |
+| Mail | SMTP STARTTLS `voxbulk.com:587` if the monitor supports it |
+
+Alert email/SMS on failure. Do **not** put Cloudflare orange-cloud in front of the API or webhooks.
+
+**Required `voxbulk-api/.env` on production:** `ENV=production`, `ALLOW_INSECURE_WEBHOOKS=0`, strong `JWT_SECRET_KEY` + `ENCRYPTION_KEY` (not `change-me`), `HEALTH_SECRET_TOKEN` set, `PUBLIC_APP_ORIGIN=https://voxbulk.com`, `DASHBOARD_APP_ORIGIN=https://dashboard.voxbulk.com`.
+
+---
+
 ## Smart Card public rate limit (aaPanel nginx — no Cloudflare)
 
 One-time on the VPS after `git pull` (edge flood brake for `/public/smart-card/` on `api.voxbulk.com`):
@@ -29,7 +73,7 @@ systemctl status voxbulk-api
 ./vox.sh status
 ```
 
-Afterwards, `./deploy-vps.sh` **reloads** the API via gunicorn (`systemctl reload`) so `:8000` stays up during deploy. Admin/dashboard are static (no downtime). Public vite preview may blip briefly on restart. Celery stays under Supervisor (`sudo bash scripts/vps-setup-celery.sh`). That setup also installs a **hourly worker refresh** cron (`scripts/celery-hourly-refresh.sh`) so new Celery tasks load even if a deploy-time restart was skipped.
+Afterwards, `./deploy-vps.sh` **reloads** the API via gunicorn (`systemctl reload`) so `:8000` stays up during deploy. Admin/dashboard are static (no downtime). Public vite preview may blip briefly on restart. Celery uses a **rolling Supervisor stop→start** (`scripts/celery-rolling-refresh.sh`, `stopwaitsecs=120`) so in-flight jobs can finish — never `pkill celery`. Hourly worker refresh uses the same rolling path.
 
 **One-time upgrade** (if unit was installed before gunicorn reload support):
 

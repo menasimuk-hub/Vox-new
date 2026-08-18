@@ -122,48 +122,22 @@ celery_beat_supervisor_name() {
 }
 
 restart_celery() {
-  if ! command -v supervisorctl >/dev/null 2>&1; then
-    echo "supervisorctl not found — install Celery via: sudo bash scripts/vps-setup-celery.sh"
-    return
-  fi
-  _sup() {
-    if supervisorctl "$@" >/dev/null 2>&1; then
-      supervisorctl "$@"
-      return $?
-    fi
-    if command -v sudo >/dev/null 2>&1; then
-      sudo -n supervisorctl "$@" 2>/dev/null || sudo supervisorctl "$@"
-      return $?
-    fi
-    return 1
-  }
-  local name beat
-  if name="$(celery_supervisor_name)"; then
-    if _sup restart "$name"; then
-      echo "Celery worker restarted ($name)"
-    else
-      echo "WARNING: Celery worker restart FAILED ($name) — new tasks will not load until: sudo supervisorctl restart $name"
-    fi
-  else
-    echo "Celery not in supervisor — run once: sudo bash scripts/vps-setup-celery.sh"
-    echo "  (Required for WA voice-note transcription, billing jobs, webhooks)"
-  fi
-  if beat="$(celery_beat_supervisor_name)"; then
-    if _sup restart "$beat"; then
-      echo "Celery beat restarted ($beat)"
-    else
-      echo "WARNING: Celery beat restart FAILED ($beat)"
-    fi
-  else
-    echo "Celery beat not in supervisor — run: sudo bash scripts/vps-setup-celery.sh"
-  fi
-  # Drop stale beat schedule so new beat_schedule entries (e.g. deferred WA retry) load after deploy.
+  # Drop stale beat schedule before rolling start so new beat_schedule entries load.
   if [[ -f "$ROOT/voxbulk-api/celerybeat-schedule.db" ]]; then
     rm -f "$ROOT/voxbulk-api/celerybeat-schedule.db" "$ROOT/voxbulk-api/celerybeat-schedule.db-shm" "$ROOT/voxbulk-api/celerybeat-schedule.db-wal" 2>/dev/null || true
-    if beat="$(celery_beat_supervisor_name)"; then
-      _sup restart "$beat" >/dev/null 2>&1 || true
-      echo "Celery beat schedule refreshed"
+    echo "Removed stale celerybeat-schedule.db (beat will recreate)"
+  fi
+  # Rolling stop→start so in-flight tasks can finish (Supervisor stopwaitsecs). Never pkill celery.
+  local roller="$ROOT/scripts/celery-rolling-refresh.sh"
+  if [[ -x "$roller" ]] || [[ -f "$roller" ]]; then
+    chmod +x "$roller" 2>/dev/null || true
+    if bash "$roller"; then
+      echo "Celery rolling refresh OK"
+    else
+      echo "WARNING: Celery rolling refresh failed — sudo bash scripts/celery-rolling-refresh.sh"
     fi
+  else
+    echo "WARNING: missing $roller — sudo bash scripts/vps-setup-celery.sh"
   fi
 }
 
