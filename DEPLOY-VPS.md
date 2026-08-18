@@ -26,7 +26,7 @@ sudo bash scripts/vps-install-cert-renew-hook.sh
 sudo bash scripts/vps-setup-celery.sh
 ```
 
-**aaPanel Backup:** in the panel, confirm the scheduled MySQL job copies **off this server** (FTP/S3/rsync), not only `/www/backup` on the same disk. Run the restore drill printed by `vps-aapanel-backup-check.sh` once.
+**Backup (ops policy):** you take an **aaPanel complete backup** and **download it off this server**. That download is the off-box copy — this repo will **not** add a second `mysqldump` cron. `/www/backup` can be empty after you download. Restore from the file on your PC/NAS, never only from this disk. Risk = time since the last download.
 
 **External uptime (no Cloudflare):** ping from a third party (UptimeRobot, Better Stack, or similar) — not from this machine:
 

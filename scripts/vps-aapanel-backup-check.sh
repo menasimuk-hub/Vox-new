@@ -49,7 +49,7 @@ if [[ -d "$BACKUP_ROOT" ]]; then
       fail "Newest backup under $BACKUP_ROOT is older than ${DAYS} days — check aaPanel scheduled task"
     fi
   else
-    fail "No .sql/.sql.gz/.tar.gz backup files found under $BACKUP_ROOT (aaPanel may store dumps elsewhere — check Backup → Database)"
+    warn "No dump archives currently on this disk under $BACKUP_ROOT — expected if you download the aaPanel complete backup and do not leave copies here."
   fi
 else
   fail "Missing $BACKUP_ROOT — aaPanel Backup plugin may use another path"
@@ -120,35 +120,29 @@ for plugin in \
   fi
 done
 if [[ "$remote_hint" -eq 0 ]]; then
-  fail "No obvious remote-backup plugin dir. If dumps only live on this disk, a disk failure loses MySQL + the backups."
-  echo "  Fix in aaPanel: Backup → add FTP / S3 / rsync to another machine (do not add a second dump cron in this repo)."
+  warn "No remote-backup plugin dir. Ops policy: aaPanel complete backup is downloaded off this server (not a second dump cron)."
 fi
 
 echo ""
-echo "=== restore drill (run once, not every deploy) ==="
+echo "=== restore drill (from the complete backup you downloaded) ==="
 cat <<'DRILL'
-1. In aaPanel → Backup, note the latest MySQL dump filename.
-2. Create a TEMP database (never overwrite production):
-     mysql -e "CREATE DATABASE voxbulk_restore_drill CHARACTER SET utf8mb4;"
-3. Restore into the temp DB only:
-     gunzip -c /www/backup/database/<file>.sql.gz | mysql voxbulk_restore_drill
-4. Confirm tables + alembic:
-     mysql voxbulk_restore_drill -e "SHOW TABLES;" | head
-     mysql voxbulk_restore_drill -e "SELECT version_num FROM alembic_version;"
-5. Drop the drill DB:
-     mysql -e "DROP DATABASE voxbulk_restore_drill;"
-6. Record date + dump filename in ops notes.
+Ops policy: aaPanel → Backup → complete backup, then download that archive off the server
+(PC / NAS / extra drive). That download IS the off-box copy. Do not add a repo mysqldump cron.
 
-Do NOT add scripts/vps-mysql-backup.sh — aaPanel scheduled backup is the system of record.
+After a disaster:
+1. Keep the downloaded archive somewhere that is not this server.
+2. Restore via aaPanel Backup → restore, or unpack and restore MySQL into a TEMP database first.
+3. Never restore over production until the temp DB looks right (SHOW TABLES + alembic_version).
+
+RPO = time since your last successful download. If the server dies today, you only have
+whatever you last copied to your PC.
+
+Do NOT add scripts/vps-mysql-backup.sh — this process is the system of record.
 DRILL
 
 echo ""
-if [[ "$fresh" -eq 1 && "$remote_hint" -eq 1 ]]; then
-  ok "Backup looks scheduled and a remote plugin is installed — still confirm the last job copied off-box in aaPanel."
-  exit 0
-fi
+ok "Backup policy: manual aaPanel complete backup + off-server download."
 if [[ "$fresh" -eq 1 ]]; then
-  warn "Local dumps look fresh, but off-server copy was not proven. Check aaPanel Backup destination."
-  exit 0
+  ok "A dump file is also present on disk (newer than ${DAYS} days)."
 fi
-exit 1
+exit 0
