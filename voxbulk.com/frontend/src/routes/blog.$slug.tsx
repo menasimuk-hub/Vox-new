@@ -3,6 +3,7 @@ import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { fetchBlogBySlug, fetchBlogList, type PublicBlogPost } from "@/lib/site-content";
 import { buildHeadFromSeo, fetchContentSeo, fetchSeoSettings, resolveRedirect } from "@/lib/seo";
 import { ArrowLeft, ArrowRight, Clock } from "lucide-react";
+import { sanitizeCmsHtml } from "@/lib/sanitize-html";
 
 export const Route = createFileRoute("/blog/$slug")({
   loader: async ({ params, location }) => {
@@ -85,7 +86,7 @@ function BlogBody({ post }: { post: PublicBlogPost }) {
     return (
       <div
         className="mt-10 space-y-6 text-[16.5px] leading-[1.8] text-navy/85 [&_h2]:mt-10 [&_h2]:font-serif [&_h2]:text-[26px] [&_h2]:md:text-[30px] [&_h2]:leading-[1.2] [&_h2]:text-navy [&_blockquote]:my-8 [&_blockquote]:border-l-2 [&_blockquote]:border-gold [&_blockquote]:pl-6 [&_blockquote]:py-1 [&_blockquote_p]:font-serif [&_blockquote_p]:italic [&_blockquote_p]:text-[22px] [&_ul]:space-y-2.5 [&_ul]:pl-1 [&_li]:list-disc [&_li]:ml-5"
-        dangerouslySetInnerHTML={{ __html: post.body }}
+        dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(post.body) }}
       />
     );
   }

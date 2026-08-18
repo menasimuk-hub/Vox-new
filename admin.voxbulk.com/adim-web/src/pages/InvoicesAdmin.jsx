@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { apiFetch, apiFetchBlob, apiFetchText } from '../lib/api'
+import { sanitizeCmsHtml } from '../lib/sanitizeHtml'
 import { buildEmailTestVariables } from '../lib/messagingConstants'
 import { currencySymbol, money } from '../lib/billingAdminUtils'
 import { Button } from '@/components/ui/Button'
@@ -827,7 +828,7 @@ export default function InvoicesAdmin() {
               </Label>
               <div className="emailPreviewBox emailPreviewBoxTall invoiceDocPreviewBox">
                 {previewHtml ? (
-                  <div className="emailPreviewInner invoiceDocPreviewInner" dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                  <div className="emailPreviewInner invoiceDocPreviewInner" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(previewHtml) }} />
                 ) : (
                   <p className="m-0 text-sm text-muted-foreground">HTML preview appears here.</p>
                 )}

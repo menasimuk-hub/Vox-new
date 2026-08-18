@@ -16,6 +16,7 @@ cryptography==43.0.3
 celery==5.4.0
 redis==5.0.8
 sentry-sdk[fastapi,celery]==2.29.1
+pyotp==2.9.0
 
 pytest==8.3.3
 PyYAML>=6.0.1

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
+import { sanitizeCmsHtml } from '../lib/sanitizeHtml'
 import { TemplateDbKeyField, TemplateMetaGrid } from '../components/TemplateDbKeyField'
 import {
   COMMON_PLACEHOLDERS,
@@ -313,7 +314,7 @@ export default function EmailTemplateEdit() {
                   </label>
                   <div className="emailPreviewBox emailPreviewBoxTall">
                     {draft.body ? (
-                      <div className="emailPreviewInner" dangerouslySetInnerHTML={{ __html: draft.body }} />
+                      <div className="emailPreviewInner" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(draft.body) }} />
                     ) : (
                       <p className="muted" style={{ margin: 0 }}>
                         HTML preview appears here.

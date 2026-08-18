@@ -16,12 +16,18 @@ import {
   TableRow,
 } from '@/components/ui/Table'
 
+import { Input } from '@/components/ui/Input'
+
 export default function AdminUsers() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [rows, setRows] = useState([])
-  const { profile } = useAdminProfile()
+  const { profile, reload: reloadProfile } = useAdminProfile()
   const canManage = !!profile?.can_manage_admin_users
+  const [mfaSecret, setMfaSecret] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+  const [mfaBusy, setMfaBusy] = useState(false)
+  const [mfaMsg, setMfaMsg] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -80,6 +86,113 @@ export default function AdminUsers() {
         <div className='rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive'>
           {error}
         </div>
+      ) : null}
+
+      {profile?.mfa_available ? (
+        <Panel
+          title='Authenticator (this login)'
+          subtitle={
+            profile.mfa_enabled
+              ? 'TOTP is on. Sign-in will ask for a 6-digit code.'
+              : 'Optional for now. Enable after scanning the secret in Google Authenticator / Authy.'
+          }
+          className='mx-auto w-full max-w-[980px]'
+        >
+          <div className='flex flex-wrap items-end gap-2'>
+            {!profile.mfa_enabled ? (
+              <>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='h-8'
+                  disabled={mfaBusy}
+                  onClick={async () => {
+                    setMfaBusy(true)
+                    setMfaMsg('')
+                    try {
+                      const data = await apiFetch('/auth/me/mfa/setup', { method: 'POST' })
+                      setMfaSecret(data?.secret || '')
+                      setMfaMsg('Scan or enter the secret, then confirm with a code.')
+                    } catch (e) {
+                      setMfaMsg(e?.message || 'Could not start MFA')
+                    } finally {
+                      setMfaBusy(false)
+                    }
+                  }}
+                >
+                  Generate secret
+                </Button>
+                {mfaSecret ? (
+                  <>
+                    <label className='grid min-w-[160px] gap-1'>
+                      <span className='text-[11px] text-muted-foreground'>Secret</span>
+                      <Input className='h-8 font-mono text-xs' readOnly value={mfaSecret} />
+                    </label>
+                    <label className='grid min-w-[120px] gap-1'>
+                      <span className='text-[11px] text-muted-foreground'>Code</span>
+                      <Input className='h-8' value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} placeholder='123456' />
+                    </label>
+                    <Button
+                      type='button'
+                      size='sm'
+                      className='h-8'
+                      disabled={mfaBusy || !mfaCode}
+                      onClick={async () => {
+                        setMfaBusy(true)
+                        setMfaMsg('')
+                        try {
+                          await apiFetch('/auth/me/mfa/enable', { method: 'POST', body: JSON.stringify({ code: mfaCode }) })
+                          setMfaSecret('')
+                          setMfaCode('')
+                          setMfaMsg('Authenticator enabled.')
+                          await reloadProfile()
+                        } catch (e) {
+                          setMfaMsg(e?.message || 'Invalid code')
+                        } finally {
+                          setMfaBusy(false)
+                        }
+                      }}
+                    >
+                      Enable
+                    </Button>
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <label className='grid min-w-[120px] gap-1'>
+                  <span className='text-[11px] text-muted-foreground'>Code to disable</span>
+                  <Input className='h-8' value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} placeholder='123456' />
+                </label>
+                <Button
+                  type='button'
+                  variant='outline'
+                  size='sm'
+                  className='h-8'
+                  disabled={mfaBusy || !mfaCode}
+                  onClick={async () => {
+                    setMfaBusy(true)
+                    setMfaMsg('')
+                    try {
+                      await apiFetch('/auth/me/mfa/disable', { method: 'POST', body: JSON.stringify({ code: mfaCode }) })
+                      setMfaCode('')
+                      setMfaMsg('Authenticator disabled.')
+                      await reloadProfile()
+                    } catch (e) {
+                      setMfaMsg(e?.message || 'Invalid code')
+                    } finally {
+                      setMfaBusy(false)
+                    }
+                  }}
+                >
+                  Disable
+                </Button>
+              </>
+            )}
+            {mfaMsg ? <span className='text-xs text-muted-foreground'>{mfaMsg}</span> : null}
+          </div>
+        </Panel>
       ) : null}
 
       <Panel

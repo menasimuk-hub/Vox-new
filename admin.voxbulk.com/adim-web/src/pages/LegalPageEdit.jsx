@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { copyText, fetchLegalPage, saveLegalPage } from '../lib/legalPagesApi'
+import { sanitizeCmsHtml } from '../lib/sanitizeHtml'
 import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -193,7 +194,7 @@ export default function LegalPageEdit() {
               </Label>
               <div className="min-h-[320px] overflow-auto rounded-md border border-border bg-background p-3">
                 {draft.body ? (
-                  <div className="legalPreviewInner" dangerouslySetInnerHTML={{ __html: draft.body }} />
+                  <div className="legalPreviewInner" dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(draft.body) }} />
                 ) : (
                   <p className="m-0 text-sm text-muted-foreground">HTML preview appears here.</p>
                 )}

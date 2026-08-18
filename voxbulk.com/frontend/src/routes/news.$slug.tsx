@@ -3,6 +3,7 @@ import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { fetchNewsBySlug, fetchNewsList, type PublicNewsItem } from "@/lib/site-content";
 import { buildHeadFromSeo, fetchContentSeo, fetchSeoSettings, resolveRedirect } from "@/lib/seo";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { sanitizeCmsHtml } from "@/lib/sanitize-html";
 
 export const Route = createFileRoute("/news/$slug")({
   loader: async ({ params, location }) => {
@@ -111,7 +112,7 @@ function NewsDetail() {
             {item.body_mode === "html" ? (
               <div
                 className="text-[17px] leading-[1.75] text-navy/85 prose-p:mb-4"
-                dangerouslySetInnerHTML={{ __html: item.body }}
+                dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(item.body) }}
               />
             ) : (
               <p className="text-[17px] leading-[1.75] text-navy/85 whitespace-pre-wrap">{item.body}</p>

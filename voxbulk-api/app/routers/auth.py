@@ -22,6 +22,7 @@ from app.models.user import User
 from app.schemas.auth import ForgotPasswordIn, RegisterIn, ResetPasswordIn
 from app.services.password_reset_service import PasswordResetService
 from app.services.auth_rate_limit import check_auth_rate_limit
+from app.services import admin_mfa_service
 from app.services.product_email_triggers import ProductEmailTriggers
 from app.services.provider_settings import ProviderSettingsService
 from app.services.telnyx_voice_service import TelnyxCallerIdService
@@ -406,6 +407,58 @@ def change_password(
     return {"ok": True}
 
 
+@router.post("/me/mfa/setup")
+def mfa_setup(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_current_principal)):
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    try:
+        payload = admin_mfa_service.start_setup(user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    db.add(user)
+    db.commit()
+    return payload
+
+
+@router.post("/me/mfa/enable")
+def mfa_enable(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    try:
+        admin_mfa_service.enable(user, str(payload.get("code") or payload.get("totp") or ""))
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    db.add(user)
+    db.commit()
+    return {"ok": True, "mfa_enabled": True}
+
+
+@router.post("/me/mfa/disable")
+def mfa_disable(
+    payload: dict,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
+    user = db.execute(select(User).where(User.id == principal.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials")
+    try:
+        admin_mfa_service.disable(user, str(payload.get("code") or payload.get("totp") or ""))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    db.add(user)
+    db.commit()
+    return {"ok": True, "mfa_enabled": False}
+
+
 @router.get("/me/email-preferences")
 def get_email_preferences(
     db: Session = Depends(get_db),
@@ -568,6 +621,13 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
     if not verify_password(str(password), user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    if admin_mfa_service.mfa_enabled(user):
+        totp = str(form.get("totp") or form.get("otp") or "").strip()
+        if not totp:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="mfa_required")
+        if not admin_mfa_service.verify_totp(user, totp):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
     joined = attach_pending_invites(db, user=user)
     db.commit()
 
@@ -666,6 +726,8 @@ def me(db: Session = Depends(get_db), principal: CurrentPrincipal = Depends(get_
         "onboarding_state": org_onboarding_state,
         "onboarding_complete": org_onboarding_state == "onboarding_completed" or member_skips_onboarding,
         "preferred_org_id": getattr(user, "preferred_org_id", None),
+        "mfa_enabled": bool(getattr(user, "mfa_enabled", False)) if user.is_superuser else False,
+        "mfa_available": bool(user.is_superuser),
         "booking_software_slug": getattr(org_ent, "booking_software_slug", None),
         "category_id": getattr(org_ent, "category_id", None),
         "phone": TelnyxCallerIdService.phone_status(user),

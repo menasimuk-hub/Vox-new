@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, apiUpload, getApiBaseUrl } from '../lib/api'
+import { sanitizeCmsHtml } from '../lib/sanitizeHtml'
 import { Button } from '@/components/ui/Button'
 import { Panel } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -486,7 +487,7 @@ export default function NewsBlog() {
           ) : null}
           <div className="text-[15px] leading-relaxed text-foreground">
             {draft.body_mode === 'html' ? (
-              <div dangerouslySetInnerHTML={{ __html: draft.body }} />
+              <div dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(draft.body) }} />
             ) : (
               <pre className="whitespace-pre-wrap font-sans">{draft.body}</pre>
             )}

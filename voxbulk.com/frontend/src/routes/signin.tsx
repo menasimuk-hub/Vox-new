@@ -58,6 +58,8 @@ function SignInPage() {
   const [promoPreview, setPromoPreview] = useState<PromoPreview | null>(null);
   const [promoLoading, setPromoLoading] = useState(false);
   const [acceptedLegal, setAcceptedLegal] = useState(false);
+  const [totp, setTotp] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
 
   useEffect(() => {
     const oauthResult = auth.consumeOAuthHash();
@@ -177,7 +179,12 @@ function SignInPage() {
         routeAfterAuth(user);
         return;
       }
-      const result = await auth.login(email, password);
+      const result = await auth.login(email, password, undefined, totp || undefined);
+      if (result.kind === "mfa_required") {
+        setMfaRequired(true);
+        toast.message("Enter the 6-digit code from your authenticator app");
+        return;
+      }
       if (result.kind === "org_selection") {
         setOrgChoices(result.organisations);
         toast.message("Choose which company to open");
@@ -201,7 +208,7 @@ function SignInPage() {
         routeAfterAuth(user);
         return;
       }
-      const result = await auth.login(email, password, orgId);
+      const result = await auth.login(email, password, orgId, totp || undefined);
       if (result.kind !== "authenticated") return;
       toast.success("Welcome back!");
       routeAfterAuth(result.user);
@@ -357,6 +364,27 @@ function SignInPage() {
                           This sets your login password for this email (also if you already used VoxBulk before).
                         </p>
                       ) : null}
+                    </label>
+                  ) : null}
+                  {mode === "signin" && mfaRequired ? (
+                    <label className="block">
+                      <span className="text-[12.5px] font-semibold uppercase tracking-wider text-muted-text">
+                        Authenticator code
+                      </span>
+                      <div className="mt-1.5 relative">
+                        <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-text" />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          required
+                          value={totp}
+                          onChange={(e) => setTotp(e.target.value)}
+                          placeholder="123456"
+                          maxLength={8}
+                          className="w-full pl-10 pr-3 py-3 rounded-xl border border-border bg-secondary/30 text-[15px] tracking-[0.2em] focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                        />
+                      </div>
                     </label>
                   ) : null}
                   {needsLegalAccept ? (

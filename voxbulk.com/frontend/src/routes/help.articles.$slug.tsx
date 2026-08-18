@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { frontpageApiFetch } from "@/lib/api";
+import { sanitizeCmsHtml } from "@/lib/sanitize-html";
 
 type Article = {
   id: number;
@@ -39,7 +40,7 @@ function HelpArticlePage() {
             {a.author ? <p className="mt-2 text-sm text-slate-500">By {a.author}</p> : null}
             <div
               className="prose prose-slate mt-8 max-w-none"
-              dangerouslySetInnerHTML={{ __html: a.body || "" }}
+              dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(a.body || "") }}
             />
           </article>
         ) : null}

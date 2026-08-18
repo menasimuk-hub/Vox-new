@@ -62,6 +62,27 @@ Adds `limit_req_zone sc_public` (http include) + `location ^~ /public/smart-card
 
 ---
 
+## Phase 2 — API rate limits + CSP report-only (no Cloudflare)
+
+One-time on the server after `git pull`:
+
+```bash
+cd /www/voxbulk
+sudo bash scripts/vps-install-api-nginx-limits.sh
+sudo bash scripts/vps-install-csp-report-only.sh
+./deploy-vps.sh
+```
+
+- **Auth** (`/auth/`): 10 r/s burst 20 → **429**
+- **Webhooks** (`/webhooks/`, `/telnyx/webhooks/`): 40 r/s burst 80 (provider retries)
+- **Rest of API**: 50 r/s burst 100
+- Client IP is nginx `$remote_addr` / `X-Real-IP` (not Cloudflare)
+- CSP is **Report-Only** on dashboard, admin, and public for 7 days. Reports go to `POST https://api.voxbulk.com/csp-report`. Do not switch to enforcing until the console is clean.
+- Production auth/Smart Card app limits use **Redis** (no silent per-worker memory). If Redis is down, login stays up and the API logs a CRITICAL line.
+- Platform admin (`is_superuser`) can enable TOTP on Admin → Users. After enable, public sign-in asks for a 6-digit code. Tenants are not enrolled.
+
+---
+
 ## Always-on API (systemd)
 
 API + public preview can run under **systemd** (`Restart=always`) so they come back after a crash or VPS reboot — no manual `./vox.sh start` after reboot.

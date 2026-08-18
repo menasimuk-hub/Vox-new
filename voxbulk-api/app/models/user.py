@@ -42,5 +42,9 @@ class User(Base):
     # When the user belongs to multiple orgs, login opens this company by default.
     preferred_org_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
 
+    # Platform-admin TOTP (encrypted). Tenants are not enrolled in v1.
+    mfa_totp_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 

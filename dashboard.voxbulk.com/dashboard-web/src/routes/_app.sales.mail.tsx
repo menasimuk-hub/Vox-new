@@ -1,5 +1,6 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { sanitizeCmsHtml } from "@/lib/sanitize-html";
 import {
   ArrowLeft,
   Code2,
@@ -692,7 +693,7 @@ function SalesMailPage() {
                 <div
                   className="prose prose-sm max-w-none text-sm text-neutral-900"
                   dangerouslySetInnerHTML={{
-                    __html: body.trim().includes("<") ? body : textToHtml(body),
+                    __html: sanitizeCmsHtml(body.trim().includes("<") ? body : textToHtml(body)),
                   }}
                 />
               </div>
@@ -715,7 +716,7 @@ function SalesMailPage() {
                 {replyContext.body_html ? (
                   <div
                     className="prose prose-sm mt-3 max-w-none text-sm text-neutral-800"
-                    dangerouslySetInnerHTML={{ __html: replyContext.body_html }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(replyContext.body_html) }}
                   />
                 ) : (
                   <pre className="mt-3 whitespace-pre-wrap font-sans text-sm text-neutral-800">
@@ -821,7 +822,7 @@ function SalesMailPage() {
             {msg.body_html ? (
               <div
                 className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: msg.body_html }}
+                dangerouslySetInnerHTML={{ __html: sanitizeCmsHtml(msg.body_html) }}
               />
             ) : (
               <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{msg.body_text || "No message body."}</pre>

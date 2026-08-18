@@ -16,7 +16,8 @@ export type AuthUser = {
 
 export type LoginResult =
   | { kind: "authenticated"; user: AuthUser }
-  | { kind: "org_selection"; organisations: OrgLoginOption[] };
+  | { kind: "org_selection"; organisations: OrgLoginOption[] }
+  | { kind: "mfa_required" };
 
 export type OAuthHashResult =
   | { kind: "none" }
@@ -27,7 +28,7 @@ type AuthCtx = {
   user: AuthUser | null;
   loading: boolean;
   refresh: () => Promise<AuthUser | null>;
-  login: (email: string, password: string, orgId?: string) => Promise<LoginResult>;
+  login: (email: string, password: string, orgId?: string, totp?: string) => Promise<LoginResult>;
   register: (email: string, password: string, organisationName: string, promoCode?: string) => Promise<AuthUser>;
   acceptInvite: (token: string, password: string) => Promise<AuthUser>;
   previewInvite: (token: string) => Promise<InvitePreview>;
@@ -75,10 +76,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  const login = React.useCallback(async (email: string, password: string, orgId?: string): Promise<LoginResult> => {
+  const login = React.useCallback(async (email: string, password: string, orgId?: string, totp?: string): Promise<LoginResult> => {
     const { getApiBaseUrl } = await import("@/lib/api");
     const body = new URLSearchParams({ username: email.trim(), password });
     if (orgId) body.set("org_id", orgId);
+    if (totp) body.set("totp", totp.trim());
     const base = getApiBaseUrl().replace(/\/+$/, "");
     const tokenUrl = import.meta.env.DEV ? "/auth/token" : base ? `${base}/auth/token` : "/auth/token";
     const tokenRes = await fetch(tokenUrl, {
@@ -94,6 +96,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       org_selection_required?: boolean;
       organisations?: OrgLoginOption[];
     };
+    if (tokenRes.status === 403 && data?.detail === "mfa_required") {
+      return { kind: "mfa_required" };
+    }
     if (!tokenRes.ok) throw new Error(String(data?.detail || "Sign in failed"));
     if (data.org_selection_required && Array.isArray(data.organisations)) {
       return { kind: "org_selection", organisations: data.organisations };

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import DataError, IntegrityError, OperationalError, ProgrammingError, StatementError
 
@@ -656,6 +656,21 @@ def health_pricing(request: Request):
 @app.get("/health", tags=["health"])
 def health():
     return {"status": "ok"}
+
+
+@app.post("/csp-report", tags=["health"], include_in_schema=False)
+async def csp_report(request: Request):
+    """Browser CSP Report-Only sink. No PII collection beyond truncated JSON + IP in logs."""
+    from app.services.sliding_window_rate_limit import check_sliding_window
+
+    ip = request.client.host if request.client else "unknown"
+    decision = check_sliding_window(key=f"csp:rl:{ip}", limit=40, window_sec=60, log_name="csp_report")
+    if not decision.allowed:
+        return Response(status_code=429, headers={"Retry-After": str(decision.retry_after_sec)})
+    raw = await request.body()
+    snippet = raw[:1500].decode("utf-8", errors="replace")
+    get_logger(__name__).warning("csp_report bytes=%s body=%s", len(raw), snippet[:400])
+    return Response(status_code=204)
 
 
 @app.get("/health/build", tags=["health"])
