@@ -40,7 +40,7 @@ sudo bash scripts/vps-setup-celery.sh
 
 Alert email/SMS on failure. Do **not** put Cloudflare orange-cloud in front of the API or webhooks.
 
-**Required `voxbulk-api/.env` on production:** `ENV=production`, `ALLOW_INSECURE_WEBHOOKS=0`, strong `JWT_SECRET_KEY` + `ENCRYPTION_KEY` (not `change-me`), `HEALTH_SECRET_TOKEN` set, `PUBLIC_APP_ORIGIN=https://voxbulk.com`, `DASHBOARD_APP_ORIGIN=https://dashboard.voxbulk.com`.
+**Required `voxbulk-api/.env` on production:** `ENV=production`, `ALLOW_INSECURE_WEBHOOKS=0`, strong `JWT_SECRET_KEY` + `ENCRYPTION_KEY` (not `change-me`), `HEALTH_SECRET_TOKEN` set (`bash scripts/vps-set-health-token.sh` then one API restart), `PUBLIC_APP_ORIGIN=https://voxbulk.com`, `DASHBOARD_APP_ORIGIN=https://dashboard.voxbulk.com`.
 
 ---
 

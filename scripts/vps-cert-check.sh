@@ -16,7 +16,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 check_pem() {
-  local label="$1" path="$2"
+  local label="$1" path="$2" mode="${3:-fail}"
   if [[ ! -f "$path" ]]; then
     echo -e "${YELLOW}[skip]${NC} $label — missing $path"
     return 0
@@ -39,8 +39,12 @@ check_pem() {
     echo -e "${RED}[EXPIRED]${NC} $label — $end ($path)"
     fail_count=$((fail_count + 1))
   elif [[ "$end_epoch" -lt "$CUTOFF" ]]; then
-    echo -e "${RED}[soon]${NC} $label — ${days_left}d left (notAfter $end) $path"
-    fail_count=$((fail_count + 1))
+    if [[ "$mode" == "warn" ]]; then
+      echo -e "${YELLOW}[warn]${NC} $label — ${days_left}d left (notAfter $end) $path"
+    else
+      echo -e "${RED}[soon]${NC} $label — ${days_left}d left (notAfter $end) $path"
+      fail_count=$((fail_count + 1))
+    fi
   else
     echo -e "${GREEN}[ok]${NC} $label — ${days_left}d left (notAfter $end)"
   fi
@@ -106,10 +110,22 @@ for pair in \
     file_checks=$((file_checks + 1))
   fi
 done
-# Discover ssl_certificate paths from aaPanel vhosts (often readable even when cert dir is not listed above).
+# Discover ssl_certificate paths from aaPanel vhosts.
+# Skip /www/server/panel/ssl/ (aaPanel default panel cert — not a public site).
+# Other hosted domains: warn only. VOXBULK / mail / voxbox: fail if soon.
 while IFS= read -r cert_path; do
   [[ -z "$cert_path" || ! -r "$cert_path" ]] && continue
-  check_pem "vhost $(basename "$(dirname "$cert_path")")" "$cert_path"
+  case "$cert_path" in
+    /www/server/panel/ssl/*)
+      echo -e "${YELLOW}[info]${NC} skip aaPanel panel cert $cert_path (renew in aaPanel → Panel SSL if the panel UI needs HTTPS)"
+      continue
+      ;;
+  esac
+  mode="warn"
+  case "$cert_path" in
+    *voxbulk*|*voxbox*|*mail_sys*) mode="fail" ;;
+  esac
+  check_pem "vhost $(basename "$(dirname "$cert_path")")" "$cert_path" "$mode"
   file_checks=$((file_checks + 1))
 done < <(grep -hE '^\s*ssl_certificate\s+' /www/server/panel/vhost/nginx/*.conf 2>/dev/null \
   | awk '{print $2}' | tr -d ';' | sort -u || true)

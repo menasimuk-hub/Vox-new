@@ -69,6 +69,33 @@ if crontab -l 2>/dev/null | grep -qiE 'backup|mysqldump|btbackup'; then
 fi
 
 echo ""
+echo "--- aaPanel sqlite / extra dump dirs ---"
+for extra in \
+  /www/backup/database \
+  /www/backup/database_incremental \
+  /www/server/panel/backup \
+  /www/server/data \
+  /home/backup; do
+  if [[ -d "$extra" ]]; then
+    echo "  ls $extra:"
+    ls -lt "$extra" 2>/dev/null | head -8 || true
+  fi
+done
+for db in \
+  /www/server/panel/data/db/crontab.db \
+  /www/server/panel/data/db.sqlite \
+  /www/server/panel/data/default.db \
+  /www/server/panel/data/crontab.db; do
+  if [[ -r "$db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    echo "  sqlite $db (backup-like cron names):"
+    sqlite3 "$db" "SELECT name, sType, sBody FROM crontab LIMIT 20;" 2>/dev/null | head -20 || \
+      sqlite3 "$db" ".tables" 2>/dev/null | head -5 || true
+  elif [[ -f "$db" ]]; then
+    warn "Found $db but not readable or sqlite3 missing — run: sudo bash scripts/vps-aapanel-backup-check.sh"
+  fi
+done
+
+echo ""
 echo "--- aaPanel / remote destination hints ---"
 if [[ -f "$PANEL_CRON" ]]; then
   if grep -qiE 'backup|ftp|s3|oss|cos|google|dropbox|webdav' "$PANEL_CRON" 2>/dev/null; then
