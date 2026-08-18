@@ -57,7 +57,7 @@ jobs:
         continue-on-error: true
 
   admin:
-    name: Admin build smoke
+    name: Admin lint and build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -71,6 +71,9 @@ jobs:
           cache: npm
           cache-dependency-path: admin.voxbulk.com/adim-web/package-lock.json
       - run: npm ci
+      - name: ESLint (advisory — existing JSX debt is not a merge gate)
+        run: npm run lint:ci
+        continue-on-error: true
       - run: npm run build
         env:
           NODE_OPTIONS: --max-old-space-size=4096

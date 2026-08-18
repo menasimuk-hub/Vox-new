@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import * as React from "react";
-import { Upload, Trash2 } from "lucide-react";
+import { Download, Loader2, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/page-header";
@@ -35,11 +35,11 @@ import {
 import { PROFILE_COUNTRIES } from "@/lib/billing/market";
 import { assistantHighlightClass, useAssistantHighlight } from "@/lib/assistant-highlight";
 import { cn } from "@/lib/utils";
-import { canEditOrgProfile, normalizeOrgRole } from "@/lib/org-roles";
+import { canEditOrgProfile, canExportOrgData, normalizeOrgRole } from "@/lib/org-roles";
 import { requireNonBillingOnlySettings } from "@/lib/guards/settings-route";
 import { useOrgLogoPreview } from "@/lib/use-org-logo";
 import { useSession } from "@/lib/session";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, downloadAuthenticatedFile } from "@/lib/api";
 import { isAiDemoMode } from "@/lib/ai-demo";
 
 export const Route = createFileRoute("/_app/settings/profile")({
@@ -59,6 +59,7 @@ function ProfileSettings() {
 
   const role = normalizeOrgRole(session?.profile?.role);
   const canEdit = canEditOrgProfile(role);
+  const canExport = canExportOrgData(role);
   const orgDisplayName = orgQ.data?.name || session?.org?.name || "this organisation";
 
   const [name, setName] = React.useState("");
@@ -82,6 +83,7 @@ function ProfileSettings() {
   >([]);
   const [emailPrefsLoading, setEmailPrefsLoading] = React.useState(true);
   const [emailPrefsSaving, setEmailPrefsSaving] = React.useState(false);
+  const [exportingData, setExportingData] = React.useState(false);
   const deletionQ = useDeletionStatus();
   const requestDeletionM = useRequestAccountDeletion();
   const cancelDeletionM = useCancelAccountDeletion();
@@ -212,6 +214,18 @@ function ProfileSettings() {
       toast.success("Deletion request cancelled");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not cancel deletion request");
+    }
+  };
+
+  const onDownloadDataExport = async () => {
+    setExportingData(true);
+    try {
+      await downloadAuthenticatedFile("/organisations/me/data-export", "voxbulk-org-export.zip");
+      toast.success("Data export downloaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not download data export");
+    } finally {
+      setExportingData(false);
     }
   };
 
@@ -471,6 +485,30 @@ function ProfileSettings() {
           )}
         </CardContent>
       </Card>
+
+      {canExport ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Download a copy of your data</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Owners and managers can download a ZIP of this organisation&apos;s profile, team, consent preferences,
+              audit summary, and survey/interview metadata. Recordings and full result payloads are not included.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              disabled={exportingData}
+              onClick={() => void onDownloadDataExport()}
+            >
+              {exportingData ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+              {exportingData ? "Preparing…" : "Download ZIP"}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card className="border-destructive/30">
         <CardHeader>

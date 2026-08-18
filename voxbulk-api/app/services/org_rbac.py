@@ -114,6 +114,16 @@ class OrgRbacService:
         return mem
 
     @staticmethod
+    def assert_can_export_org_data(db: Session, *, org_id: str, user_id: str) -> OrganisationMembership:
+        mem = OrgRbacService.membership_for(db, org_id=org_id, user_id=user_id)
+        if mem is None:
+            raise PermissionError("Tenant access denied")
+        role = _normalize_role(mem.role)
+        if role not in ORG_TEAM_MANAGERS:
+            raise PermissionError("Only owners and managers can export organisation data")
+        return mem
+
+    @staticmethod
     def preferred_org_id_for_user(db: Session, *, user_id: str) -> str | None:
         raw = db.execute(select(User.preferred_org_id).where(User.id == user_id)).scalar_one_or_none()
         pref = str(raw or "").strip()

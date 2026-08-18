@@ -12,7 +12,9 @@
     "dev:api": "node ../../scripts/dev-api.mjs",
     "dev:full": "concurrently -k -n api,admin -c blue,magenta \"npm run dev:api\" \"wait-on -t 120000 http-get://127.0.0.1:8000/health && vite\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "lint:ci": "eslint ."
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -39,6 +41,11 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^9.1.2",
+    "eslint": "^9.32.0",
+    "@eslint/js": "^9.32.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^15.15.0",
     "tailwindcss": "^4.2.1",
     "tw-animate-css": "^1.3.4",
     "typescript": "^5.8.3",

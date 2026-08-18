@@ -24,6 +24,10 @@ export function canEditOrgProfile(role?: string | null) {
   return canManageTeam(role);
 }
 
+export function canExportOrgData(role?: string | null) {
+  return canManageTeam(role);
+}
+
 export function canAccessBilling(role?: string | null) {
   const r = normalizeOrgRole(role);
   return r === "owner" || r === "manager" || r === "accountant";

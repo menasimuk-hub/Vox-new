@@ -40,3 +40,11 @@ def test_ensure_system_templates_includes_sales_offer():
         assert digest is not None
         assert "{{organisation_name}}" in (digest.body or "")
         assert "Recovery queue" not in (digest.body or "")
+
+
+def test_sales_offer_default_footer_uses_hello_not_careers():
+    from app.data.sales_offer_email_default import SALES_OFFER_EMAIL_BODY
+
+    assert "hello@voxbulk.com" in SALES_OFFER_EMAIL_BODY
+    assert "careers@voxbulk.com" not in SALES_OFFER_EMAIL_BODY
+    assert "Manage Email Preferences" in SALES_OFFER_EMAIL_BODY

@@ -623,6 +623,30 @@ def delete_my_logo(db: Session = Depends(get_db), principal=Depends(get_current_
     return {"ok": True}
 
 
+@router.get("/me/data-export")
+def export_my_org_data(
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    from fastapi.responses import Response
+
+    from app.services.org_data_export_service import OrgDataExportService
+
+    try:
+        blob, filename = OrgDataExportService.build_zip(
+            db, org_id=principal.org_id, actor_user_id=principal.user_id
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return Response(
+        content=blob,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/me/deletion-status")
 def get_my_deletion_status(
     db: Session = Depends(get_db),

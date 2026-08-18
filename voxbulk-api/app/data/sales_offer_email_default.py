@@ -17,7 +17,7 @@ SALES_OFFER_EMAIL_BODY = wrap_brand_email(
     + """
   <p style="word-break:break-all;font-size:13px;color:#6b6560;"><a href="{{signup_url}}" style="color:#1a2d5c;">{{signup_url}}</a></p>
   <p>Your offer applies automatically when you sign up with this link.</p>""",
-    footer="Sent by VOXBULK Sales · careers@voxbulk.com",
+    footer="Sent by VOXBULK Sales · hello@voxbulk.com",
 )
 
 SALES_OFFER_WHATSAPP_BODY = """Hi {{first_name}},

@@ -721,7 +721,7 @@ export const BUILT_IN_DOCS: DocsCategory[] = [
         group: "What is it for",
         title: "Profile settings — organisation details and logo",
         routes: ["/settings/profile"],
-        body: "Edit your organisation's display name, country, contact details, brand logo (shown in the sidebar) and request account deletion.\n\nWho can edit: Owner and Manager. Member and Accountant can view only.\n\nOn the same page you can change your login password (current password + new password, at least 8 characters).",
+        body: "Edit your organisation's display name, country, contact details, brand logo (shown in the sidebar), download a copy of your organisation data (owners and managers), and request account deletion.\n\nWho can edit: Owner and Manager. Member and Accountant can view only.\n\nOn the same page you can change your login password (current password + new password, at least 8 characters).",
       },
       {
         id: "settings-password",
