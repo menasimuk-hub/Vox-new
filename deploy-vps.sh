@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# VOXBULK VPS — pull latest code, migrate DB, build frontends, restart services
+# VOXBULK VPS — pull latest code, migrate DB, build frontends, rolling-reload APIs
 #
 # Usage (on VPS):
 #   cd /path/to/Vox   # repo root (same folder as vox.sh)
@@ -104,7 +104,10 @@ git_pull() {
   VOX_GIT_BRANCH="$GIT_BRANCH" vox_git_sync "$ROOT" || fail "git sync failed — try: VOX_HARD_RESET=1 VOX_GIT_BRANCH=$GIT_BRANCH ./deploy-vps.sh"
   chmod +x "$ROOT/scripts/run-celery-worker.sh" "$ROOT/scripts/run-celery-beat.sh" \
     "$ROOT/scripts/celery-rolling-refresh.sh" "$ROOT/scripts/vps-cert-check.sh" \
-    "$ROOT/scripts/vps-aapanel-backup-check.sh" "$ROOT/scripts/vps-prod-env-check.sh" 2>/dev/null || true
+    "$ROOT/scripts/vps-aapanel-backup-check.sh" "$ROOT/scripts/vps-prod-env-check.sh" \
+    "$ROOT/scripts/vps-install-dual-api-nginx.sh" "$ROOT/scripts/vps-install-public-static-nginx.sh" \
+    "$ROOT/scripts/vps-setup-api-systemd.sh" "$ROOT/scripts/vps-recover-api.sh" \
+    "$ROOT/scripts/vps-verify-deploy.sh" 2>/dev/null || true
 }
 
 api_deps_and_migrate() {
@@ -183,7 +186,7 @@ build_all_frontends() {
     rm -rf "$PUBLIC_DIR/node_modules/.vite-temp" 2>/dev/null || true
     mkdir -p "$PUBLIC_DIR/node_modules/.vite-temp" 2>/dev/null || true
     vox_ensure_frontend_dir_writable "$PUBLIC_DIR" \
-      || warn "Public frontend may not be writable for vite preview — fix: sudo chown -R \$(whoami) $PUBLIC_DIR"
+      || warn "Public frontend dir not writable — fix: sudo chown -R \$(whoami) $PUBLIC_DIR"
   else
     warn "Public frontend not found at $PUBLIC_DIR — skip"
   fi
@@ -259,10 +262,11 @@ verify_api_import() {
 
 _poll_api_health() {
   local attempts="${1:-30}"
+  local port="${2:-8000}"
   local i=0
   while (( i < attempts )); do
-    if curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health >/dev/null 2>&1 \
-      || curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health >/dev/null 2>&1; then
+    if curl -sf -H "Host: api.voxbulk.com" "http://127.0.0.1:${port}/health" >/dev/null 2>&1 \
+      || curl -sf -H "Host: 127.0.0.1" "http://127.0.0.1:${port}/health" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -272,7 +276,7 @@ _poll_api_health() {
 }
 
 ensure_api_systemd() {
-  # Install or upgrade unit to gunicorn+ExecReload (needed for zero-downtime deploy).
+  # Install or upgrade units to gunicorn+ExecReload (A :8000, B :8001).
   local setup="$ROOT/scripts/vps-setup-api-systemd.sh"
   local need_install=0
   [[ -f "$setup" ]] || return 0
@@ -283,13 +287,16 @@ ensure_api_systemd() {
   elif ! grep -q 'ExecReload=' /etc/systemd/system/voxbulk-api.service 2>/dev/null; then
     info "Upgrading systemd unit for graceful reload (gunicorn) …"
     need_install=1
+  elif [[ ! -f /etc/systemd/system/voxbulk-api-b.service ]]; then
+    info "Installing API B unit (:8001) …"
+    need_install=1
   else
-    info "Systemd unit voxbulk-api ready (graceful reload)"
+    info "Systemd units voxbulk-api + voxbulk-api-b ready (rolling reload)"
     return 0
   fi
 
   [[ "$need_install" -eq 1 ]] || return 0
-  info "Installing systemd always-on units (voxbulk-api / voxbulk-public) …"
+  info "Installing systemd always-on units (voxbulk-api / voxbulk-api-b) …"
   if [[ "$(id -u)" -eq 0 ]]; then
     VOX_SYSTEMD_SKIP_START=1 bash "$setup" || warn "systemd install failed — API will use nohup fallback"
     return 0
@@ -308,15 +315,53 @@ ensure_api_systemd() {
   fi
 }
 
+_run_sudo_script() {
+  local script="$1"
+  [[ -f "$script" ]] || return 1
+  chmod +x "$script" 2>/dev/null || true
+  if [[ "$(id -u)" -eq 0 ]]; then
+    bash "$script"
+    return $?
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    if sudo -n true 2>/dev/null; then
+      sudo bash "$script"
+      return $?
+    fi
+    sudo bash "$script"
+    return $?
+  fi
+  return 1
+}
+
+ensure_never_offline_nginx() {
+  local dual="$ROOT/scripts/vps-install-dual-api-nginx.sh"
+  local pub="$ROOT/scripts/vps-install-public-static-nginx.sh"
+  local vhost="${VOX_NGINX_VHOST:-/www/server/panel/vhost/nginx/api.voxbulk.com.conf}"
+  local pub_vhost="${VOX_PUBLIC_VHOST:-/www/server/panel/vhost/nginx/voxbulk.com.conf}"
+
+  if [[ -f "$vhost" ]] && ! grep -q 'proxy_pass http://voxbulk_api' "$vhost" 2>/dev/null; then
+    info "Installing nginx upstream for :8000 + :8001 …"
+    _run_sudo_script "$dual" || warn "Dual-API nginx install failed — run: sudo bash scripts/vps-install-dual-api-nginx.sh"
+  fi
+  if [[ -f "$pub_vhost" ]] && grep -q '127.0.0.1:5173' "$pub_vhost" 2>/dev/null; then
+    info "Switching voxbulk.com from vite preview to static wwwroot …"
+    _run_sudo_script "$pub" || warn "Public static nginx install failed — run: sudo bash scripts/vps-install-public-static-nginx.sh"
+  fi
+}
+
 # Force-start API: prefer systemd (Restart=always); fall back to detached nohup.
 _force_start_api() {
   if [[ -f /etc/systemd/system/voxbulk-api.service ]]; then
     info "Recovery start via systemctl start voxbulk-api …"
     if [[ "$(id -u)" -eq 0 ]]; then
-      systemctl start voxbulk-api.service && return 0
+      systemctl start voxbulk-api.service || true
+      systemctl start voxbulk-api-b.service 2>/dev/null || true
+      return 0
     elif command -v sudo >/dev/null 2>&1; then
-      sudo -n systemctl start voxbulk-api.service 2>/dev/null && return 0
-      sudo systemctl start voxbulk-api.service && return 0
+      sudo -n systemctl start voxbulk-api.service 2>/dev/null || sudo systemctl start voxbulk-api.service || true
+      sudo -n systemctl start voxbulk-api-b.service 2>/dev/null || sudo systemctl start voxbulk-api-b.service 2>/dev/null || true
+      return 0
     fi
     warn "systemctl start failed — falling back to nohup"
   fi
@@ -331,28 +376,52 @@ _force_start_api() {
 
 require_api_health() {
   local attempts="${1:-30}"
-  info "Waiting for API /health (up to ${attempts}s) …"
-  if _poll_api_health "$attempts"; then
-    info "API health OK on 127.0.0.1:8000"
-    return 0
+  info "Waiting for API A /health on :8000 (up to ${attempts}s) …"
+  if _poll_api_health "$attempts" 8000; then
+    info "API A health OK on 127.0.0.1:8000"
+  else
+    warn "API A not healthy after reload — attempting one recovery start …"
+    _force_start_api
+    if _poll_api_health "$attempts" 8000; then
+      info "API A recovered and healthy on 127.0.0.1:8000"
+    else
+      warn "API health check failed — tail of /tmp/voxbulk-api.log:"
+      tail -n 30 /tmp/voxbulk-api.log 2>/dev/null || true
+      fail "API A did not respond on /health after reload. Run: bash scripts/vps-recover-api.sh"
+    fi
   fi
-
-  warn "API not healthy after restart — attempting one recovery start …"
-  _force_start_api
-  if _poll_api_health "$attempts"; then
-    info "API recovered and healthy on 127.0.0.1:8000"
-    return 0
+  if [[ -f /etc/systemd/system/voxbulk-api-b.service ]]; then
+    info "Waiting for API B /health on :8001 …"
+    if _poll_api_health 20 8001; then
+      info "API B health OK on 127.0.0.1:8001"
+    else
+      warn "API B not healthy — nginx will skip :8001 until it recovers"
+    fi
   fi
-
-  warn "API health check failed — tail of /tmp/voxbulk-api.log:"
-  tail -n 30 /tmp/voxbulk-api.log 2>/dev/null || true
-  fail "API did not respond on /health after restart. Run: bash scripts/vps-recover-api.sh"
 }
 
 nginx_test_if_present() {
   if command -v nginx >/dev/null 2>&1; then
     info "Running nginx -t …"
     sudo nginx -t || fail "nginx -t failed — fix nginx config before reloading"
+  fi
+}
+
+restart_services() {
+  nginx_test_if_present
+  verify_api_import
+  ensure_auth_url_env
+  ensure_api_systemd
+  ensure_never_offline_nginx
+  info "Rolling API reload (A then B) — public/admin/dashboard stay static …"
+  VOX_SKIP_MIGRATE=1 bash "$VOX_SH" reload
+  require_api_health 45
+  if [[ "${VOX_SKIP_CELERY_RESTART:-0}" != "1" ]]; then
+    local roller="$ROOT/scripts/celery-rolling-refresh.sh"
+    if [[ -f "$roller" ]]; then
+      chmod +x "$roller" 2>/dev/null || true
+      bash "$roller" || warn "Celery rolling refresh failed — sudo bash scripts/celery-rolling-refresh.sh"
+    fi
   fi
 }
 
@@ -370,25 +439,15 @@ sync_well_known() {
 deploy_static() {
   copy_dist "$ADMIN_DIR/dist" "${VOX_ADMIN_DIST:-}" "admin"
   copy_dist "$DASH_DIR/dist/client" "${VOX_DASH_DIST:-}" "dashboard-dist-client"
+  if [[ -d "$PUBLIC_DIR/dist/client" ]]; then
+    copy_dist "$PUBLIC_DIR/dist/client" "${VOX_PUBLIC_DIST:-}" "public-dist-client"
+  else
+    warn "Public dist/client missing — marketing site wwwroot not updated"
+  fi
   if [[ -d "$VOXBOX_DIR/dist" ]]; then
     copy_dist "$VOXBOX_DIR/dist" "${VOX_VOXBOX_DIST:-}" "voxbox"
   fi
   sync_well_known
-  # Public site (TanStack Start) is served via vite preview :5173 — NOT static wwwroot.
-}
-
-restart_services() {
-  nginx_test_if_present
-  verify_api_import
-  ensure_auth_url_env
-  ensure_api_systemd
-  info "Reloading API gracefully (stays online) + refreshing public/Celery …"
-  # Deploy already migrated DB and rsynced admin/dashboard static files.
-  # API: systemctl reload (gunicorn HUP) — port 8000 stays up.
-  # Public vite preview still needs a short restart (marketing site only).
-  VOX_SKIP_MIGRATE=1 VOX_SKIP_DASHBOARD_BUILD=1 VOX_SKIP_DASHBOARD_PREVIEW=1 \
-    bash "$VOX_SH" restart
-  require_api_health 45
 }
 
 ensure_auth_url_env() {
@@ -470,9 +529,24 @@ post_checks() {
   fi
 
   info "Verifying /health/build …"
+  if [[ -f /etc/systemd/system/voxbulk-api-b.service ]]; then
+    if curl -sf -H "Host: api.voxbulk.com" "${health_auth[@]}" http://127.0.0.1:8001/health >/dev/null 2>&1 \
+      || curl -sf "${health_auth[@]}" http://127.0.0.1:8001/health >/dev/null 2>&1; then
+      info "  API B /health OK on :8001"
+    else
+      warn "  API B /health failed on :8001 — nginx will skip it until voxbulk-api-b recovers"
+    fi
+  fi
+
+  if [[ -f "${VOX_PUBLIC_DIST}/index.html" ]]; then
+    info "  Public wwwroot index.html present: $VOX_PUBLIC_DIST"
+  else
+    warn "  Missing $VOX_PUBLIC_DIST/index.html — public site static switch needs a public build"
+  fi
+
   if curl -sf -H "Host: api.voxbulk.com" "${health_auth[@]}" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null \
     || curl -sf "${health_auth[@]}" http://127.0.0.1:8000/health/build >/tmp/voxbulk-health-build.json 2>/dev/null; then
-    python3 - <<'PY' || fail "API process stale — /health/build git_sha does not match repo HEAD (run: pkill -f uvicorn && ./vox.sh restart)"
+    python3 - <<'PY' || fail "API process stale — /health/build git_sha does not match repo HEAD (run: bash scripts/vps-recover-api.sh)"
 import json
 import subprocess
 from pathlib import Path
@@ -494,7 +568,7 @@ live_sha = str(data.get("git_sha") or "").strip()
 if repo_sha and live_sha and repo_sha != live_sha:
     raise SystemExit(
         f"API process stale: /health/build git_sha={live_sha!r} but repo HEAD={repo_sha!r}. "
-        "Run: pkill -f 'uvicorn.*main:app' && ./vox.sh restart"
+        "Run: bash scripts/vps-recover-api.sh"
     )
 PY
   else
@@ -638,7 +712,8 @@ After deploy — manual checks
 
 Known problems to watch:
 - Canonical GitHub repo: menasimuk-hub/Vox-new only (not menasimuk-hub/Vox)
-- Port 8000 already in use → ./vox.sh stop before deploy
+- Do not pkill gunicorn/uvicorn on a normal deploy — use ./vox.sh reload (A then B)
+- Disaster recovery: bash scripts/vps-recover-api.sh (sequential A then B)
 - SQLite vs MySQL: set DATABASE_URL in voxbulk-api/.env before migrate
 
 Legacy product removal (one-time on upgraded VPS):

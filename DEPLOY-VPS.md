@@ -85,7 +85,18 @@ sudo bash scripts/vps-install-csp-report-only.sh
 
 ## Always-on API (systemd)
 
-API + public preview can run under **systemd** (`Restart=always`) so they come back after a crash or VPS reboot — no manual `./vox.sh start` after reboot.
+Two gunicorn units (`Restart=always`) so one can reload while the other serves:
+
+| Unit | Port | Role |
+|------|------|------|
+| `voxbulk-api` | `:8000` | API A |
+| `voxbulk-api-b` | `:8001` | API B |
+| Public site | static `/www/wwwroot/voxbulk.com` | **not** vite preview `:5173` |
+| Celery | Supervisor `voxbulk-celery` / `voxbulk-celery-beat` | rolling refresh |
+
+nginx `upstream voxbulk_api` load-balances both ports. Deploy **reloads A → `/health` 200 → reloads B**. Never restart both; never `pkill gunicorn`.
+
+**Honest limits:** disk / MySQL / Redis / reboot still take everything down. Dual process only survives one API crash or a rolling reload.
 
 **One-time on the VPS** (after `git pull`):
 
@@ -93,20 +104,27 @@ API + public preview can run under **systemd** (`Restart=always`) so they come b
 cd /www/voxbulk
 ./vox.sh install-service
 # same as: sudo bash scripts/vps-setup-api-systemd.sh
-./deploy-vps.sh
-systemctl status voxbulk-api
+sudo bash scripts/vps-install-dual-api-nginx.sh
+./deploy-vps.sh   # rsync public dist/client first
+sudo bash scripts/vps-install-public-static-nginx.sh
+systemctl status voxbulk-api voxbulk-api-b
 ./vox.sh status
 ```
 
-Afterwards, `./deploy-vps.sh` **reloads** the API via gunicorn (`systemctl reload`) so `:8000` stays up during deploy. Admin/dashboard are static (no downtime). Public vite preview may blip briefly on restart. Celery uses a **rolling Supervisor stop→start** (`scripts/celery-rolling-refresh.sh`, `stopwaitsecs=120`) so in-flight jobs can finish — never `pkill celery`. Hourly worker refresh uses the same rolling path.
+`./deploy-vps.sh` also runs those nginx scripts when the vhosts still point at `:8000` only or `:5173`. Afterwards it **reloads** gunicorn (`systemctl reload` A then B) so a listen port stays up. Admin / dashboard / public are static (no downtime). Celery uses a **rolling Supervisor stop→start** (`scripts/celery-rolling-refresh.sh`, `stopwaitsecs=120`) — never `pkill celery`.
 
-**One-time upgrade** (if unit was installed before gunicorn reload support):
+**One-time upgrade** (if unit was installed before gunicorn reload / API B):
 
 ```bash
 cd /www/voxbulk
 git pull origin main
 sudo bash scripts/vps-setup-api-systemd.sh
+sudo bash scripts/vps-install-dual-api-nginx.sh
+./deploy-vps.sh
+sudo bash scripts/vps-install-public-static-nginx.sh
 curl -s https://api.voxbulk.com/health
+curl -s -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health
+curl -s -H "Host: api.voxbulk.com" http://127.0.0.1:8001/health
 ```
 
 ### If deploy dies with `status=209/STDOUT`
@@ -379,6 +397,7 @@ VOX_HARD_RESET=1 ./deploy-vps.sh    # discard local edits (incl. routeTree.gen.t
 |-----|--------------|--------------|
 | Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
 | Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
+| Public site | `voxbulk.com/frontend/dist/client/` | `/www/wwwroot/voxbulk.com` |
 | Voxbox | `voxbox.voxbulk.com/voxbox-web/dist/` | `/www/wwwroot/voxbox.voxbulk.com` |
 
 One-time Voxbox site (aaPanel/nginx): `sudo bash scripts/vps-setup-voxbox-site.sh` then apply SSL in aaPanel if needed. Set `VOXBOX_ADMIN_*` in `voxbulk-api/.env`.

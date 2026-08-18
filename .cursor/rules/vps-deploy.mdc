@@ -27,7 +27,9 @@ chmod +x deploy-vps.sh vox.sh
 
 ## Always-on services (systemd)
 
-API + public preview use **systemd** (`Restart=always`). One-time: `./vox.sh install-service`, then normal `./deploy-vps.sh`. Celery stays under Supervisor. When adding new VPS daemons, follow `.cursor/rules/vps-systemd-always-on.mdc` — wire through `vox.sh` + `deploy-vps.sh`, do not ship nohup-only.
+API A (`:8000`) + API B (`:8001`) use **systemd** (`Restart=always`). nginx `upstream voxbulk_api` load-balances them. Deploy **reloads A then B** — never both at once, never `pkill gunicorn`. Public / admin / dashboard are **static wwwroot**. One-time: `./vox.sh install-service`, `sudo bash scripts/vps-install-dual-api-nginx.sh`, `./deploy-vps.sh`, `sudo bash scripts/vps-install-public-static-nginx.sh`. Celery stays under Supervisor. When adding new VPS daemons, follow `.cursor/rules/vps-systemd-always-on.mdc`.
+
+**Honest limits:** disk / MySQL / Redis / reboot still take the box down. Dual process only covers one API crash or rolling reload.
 
 ## Static wwwroot (Baota defaults in deploy-vps.sh)
 
@@ -35,7 +37,7 @@ API + public preview use **systemd** (`Restart=always`). One-time: `./vox.sh ins
 |-----|--------------|---------|
 | Admin | `admin.voxbulk.com/adim-web/dist/` | `/www/wwwroot/admin.voxbulk.com` |
 | Dashboard | `dashboard.voxbulk.com/dashboard-web/dist/client/` | `/www/wwwroot/dashboard.voxbulk.com` |
-| Public site | vite preview :5173 (not static wwwroot by default) | — |
+| Public site | `voxbulk.com/frontend/dist/client/` | `/www/wwwroot/voxbulk.com` |
 
 ## Post–legacy product removal rollout (VPS)
 
@@ -55,9 +57,10 @@ Survey Celery/whisper, interview voice, and platform Telnyx region routing are u
 
 ## API
 
-- FastAPI: `127.0.0.1:8000` (uvicorn via `vox.sh`)
-- Production API host: `https://api.voxbulk.com`
+- FastAPI: `127.0.0.1:8000` (API A) + `127.0.0.1:8001` (API B) via gunicorn systemd units
+- Production API host: `https://api.voxbulk.com` (nginx `upstream voxbulk_api`)
 - Config: `voxbulk-api/.env` (never commit)
+- Recover a 502 without taking both down: `bash scripts/vps-recover-api.sh`
 
 ## Git pull blocked by untracked brand/logo files
 
@@ -105,9 +108,9 @@ git checkout -- dashboard.voxbulk.com/dashboard-web/src/routeTree.gen.ts
 - Google/Apple/LinkedIn callback: `https://api.voxbulk.com/auth/oauth/{provider}/callback`
 - Configure in Admin → Integrations → Social login **and** the provider console
 
-## Vite preview host check (nginx → :5173)
+## Public site (static wwwroot)
 
-If the public site shows **Blocked request. This host ("voxbulk.com") is not allowed**, ensure `voxbulk.com/frontend/vite.config.ts` has `preview.allowedHosts` including `voxbulk.com` and `www.voxbulk.com`, then rebuild and `./vox.sh restart`.
+Production serves `https://voxbulk.com` from `/www/wwwroot/voxbulk.com` (`try_files`). nginx proxies `/frontpage/`, `/robots.txt`, `/sitemap.xml`, and `/news-sitemap.xml` to the API with `Host: api.voxbulk.com`. Rollback to vite preview only with `VOX_INSTALL_PUBLIC_PREVIEW=1` + `VOX_PUBLIC_PREVIEW=1`.
 
 ## Skip flags
 

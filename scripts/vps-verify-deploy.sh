@@ -117,6 +117,45 @@ PY
 fi
 echo ""
 
+echo "--- API B /health (:8001) ---"
+if [[ -f /etc/systemd/system/voxbulk-api-b.service ]]; then
+  set +e
+  if [[ -n "$HEALTH_TOKEN" ]]; then
+    curl -sS -H "Host: api.voxbulk.com" -H "X-Health-Token: ${HEALTH_TOKEN}" \
+      http://127.0.0.1:8001/health >/tmp/voxbulk-verify-b-health.json 2>/tmp/voxbulk-verify-b-health.err
+    b_rc=$?
+  else
+    curl -sS -H "Host: api.voxbulk.com" \
+      http://127.0.0.1:8001/health >/tmp/voxbulk-verify-b-health.json 2>/tmp/voxbulk-verify-b-health.err
+    b_rc=$?
+  fi
+  set -e
+  if [[ "$b_rc" -ne 0 ]]; then
+    echo "WARN: :8001 not healthy — nginx will skip it until voxbulk-api-b recovers"
+    cat /tmp/voxbulk-verify-b-health.err 2>/dev/null || true
+  else
+    echo "OK: API B /health on :8001"
+    python3 -m json.tool </tmp/voxbulk-verify-b-health.json 2>/dev/null | head -n 20 || cat /tmp/voxbulk-verify-b-health.json
+  fi
+else
+  echo "skip: voxbulk-api-b.service not installed — sudo bash scripts/vps-setup-api-systemd.sh"
+fi
+echo ""
+
+echo "--- public wwwroot ---"
+PUBLIC_WWWROOT="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
+if [[ -f "$PUBLIC_WWWROOT/index.html" ]]; then
+  echo "OK: $PUBLIC_WWWROOT/index.html"
+  pub_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: voxbulk.com" "http://127.0.0.1/" 2>/dev/null || echo "000")
+  echo "http://127.0.0.1/ Host:voxbulk.com → HTTP $pub_code (want 200)"
+  sm_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Host: voxbulk.com" "http://127.0.0.1/sitemap.xml" 2>/dev/null || echo "000")
+  echo "http://127.0.0.1/sitemap.xml Host:voxbulk.com → HTTP $sm_code (want 200)"
+else
+  echo "MISS: $PUBLIC_WWWROOT/index.html — run ./deploy-vps.sh then sudo bash scripts/vps-install-public-static-nginx.sh"
+  fail=1
+fi
+echo ""
+
 echo "--- Celery ping ---"
 CELERY_BIN="$API_DIR/.venv/bin/celery"
 if [[ -x "$CELERY_BIN" ]]; then

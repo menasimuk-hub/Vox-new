@@ -1128,6 +1128,92 @@ def sitemap_stats(db: Session) -> dict[str, Any]:
     }
 
 
+def _xml_escape(value: str) -> str:
+    return (
+        str(value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def render_robots_txt(db: Session) -> str:
+    row = ensure_settings(db)
+    return (row.robots_txt or DEFAULT_ROBOTS).strip() + "\n"
+
+
+def render_sitemap_xml(db: Session) -> str:
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for entry in build_sitemap_entries(db):
+        path = str(entry.get("path") or "")
+        if not path.startswith("/"):
+            path = f"/{path}"
+        lines.append("  <url>")
+        lines.append(f"    <loc>{_xml_escape(SITE_ORIGIN + path)}</loc>")
+        changefreq = str(entry.get("changefreq") or "").strip()
+        if changefreq:
+            lines.append(f"    <changefreq>{_xml_escape(changefreq)}</changefreq>")
+        priority = str(entry.get("priority") or "").strip()
+        if priority:
+            lines.append(f"    <priority>{_xml_escape(priority)}</priority>")
+        lastmod = str(entry.get("lastmod") or "").strip()
+        if lastmod:
+            lines.append(f"    <lastmod>{_xml_escape(lastmod[:10])}</lastmod>")
+        lines.append("  </url>")
+    lines.append("</urlset>")
+    return "\n".join(lines) + "\n"
+
+
+def render_news_sitemap_xml(db: Session) -> str:
+    settings = ensure_settings(db)
+    empty = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>\n'
+    )
+    if not settings.google_news_enabled:
+        return empty
+    pub_name = settings.google_news_publication or "VoxBulk"
+    lang = settings.google_news_language or "en"
+    cutoff = datetime.utcnow() - timedelta(days=2)
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">',
+    ]
+    found = False
+    for row in db.execute(select(SiteBlogNewsItem).where(SiteBlogNewsItem.kind == KIND_NEWS)).scalars().all():
+        if not row.is_visible or not _is_indexable_robots(row.robots):
+            continue
+        pub = datetime.combine(row.published_at, datetime.min.time()) if row.published_at else None
+        if pub is None or pub < cutoff:
+            continue
+        found = True
+        pub_iso = pub.isoformat() + "Z"
+        lines.extend(
+            [
+                "  <url>",
+                f"    <loc>{_xml_escape(SITE_ORIGIN + PATH_PREFIX[KIND_NEWS] + row.slug)}</loc>",
+                "    <news:news>",
+                "      <news:publication>",
+                f"        <news:name>{_xml_escape(pub_name)}</news:name>",
+                f"        <news:language>{_xml_escape(lang)}</news:language>",
+                "      </news:publication>",
+                f"      <news:publication_date>{_xml_escape(pub_iso)}</news:publication_date>",
+                f"      <news:title>{_xml_escape(row.title)}</news:title>",
+                "    </news:news>",
+                "  </url>",
+            ]
+        )
+    if not found:
+        return empty
+    lines.append("</urlset>")
+    return "\n".join(lines) + "\n"
+
+
 def _indexnow_static_dirs() -> list[Path]:
     """Public-site dirs that can serve /{key}.txt without SSR API calls."""
     dirs = [

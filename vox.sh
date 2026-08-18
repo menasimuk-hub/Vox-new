@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# VOXBULK VPS — start / stop / restart API + public site (nginx serves admin/dashboard static)
-# Prefers systemd units (voxbulk-api / voxbulk-public) when installed; falls back to nohup.
+# VOXBULK VPS — start / stop / reload API A+B; public/admin/dashboard are static wwwroot
+# Prefers systemd units (voxbulk-api / voxbulk-api-b) when installed; falls back to nohup.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -12,7 +12,9 @@ PUBLIC_LOG="/tmp/voxbulk-public.log"
 DASH_LOG="/tmp/voxbulk-dashboard.log"
 SETUP_SYSTEMD="$ROOT/scripts/vps-setup-api-systemd.sh"
 API_UNIT_NAME="voxbulk-api"
+API_B_UNIT_NAME="voxbulk-api-b"
 PUBLIC_UNIT_NAME="voxbulk-public"
+PUBLIC_WWWROOT="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
 
 api_supports_graceful_reload() {
   # gunicorn unit has ExecReload=HUP — keeps the listen socket up during deploy
@@ -53,6 +55,11 @@ api_systemd_installed() {
     || _sys cat "${API_UNIT_NAME}.service" >/dev/null 2>&1
 }
 
+api_b_systemd_installed() {
+  [[ -f "/etc/systemd/system/${API_B_UNIT_NAME}.service" ]] \
+    || _sys cat "${API_B_UNIT_NAME}.service" >/dev/null 2>&1
+}
+
 public_systemd_installed() {
   [[ -f "/etc/systemd/system/${PUBLIC_UNIT_NAME}.service" ]] \
     || _sys cat "${PUBLIC_UNIT_NAME}.service" >/dev/null 2>&1
@@ -61,11 +68,14 @@ public_systemd_installed() {
 # ── process stop (nohup / orphans) ───────────────────────────────────────────
 
 stop_api_processes() {
+  # Full stop only (vox.sh stop). Never call this during deploy/reload — it takes both ports down.
   pkill -f "uvicorn.*main:app" 2>/dev/null || true
   pkill -f "python -m uvicorn.*main:app" 2>/dev/null || true
+  pkill -f "gunicorn.*main:app" 2>/dev/null || true
   sleep 1
   if command -v fuser >/dev/null 2>&1; then
     fuser -k 8000/tcp 2>/dev/null || true
+    fuser -k 8001/tcp 2>/dev/null || true
   fi
   sleep 1
 }
@@ -83,11 +93,11 @@ stop_dashboard() {
 stop_api() {
   if api_systemd_installed; then
     _sys stop "${API_UNIT_NAME}.service" 2>/dev/null || true
-    # Clear orphans that predate systemd adoption.
-    stop_api_processes
-  else
-    stop_api_processes
   fi
+  if api_b_systemd_installed; then
+    _sys stop "${API_B_UNIT_NAME}.service" 2>/dev/null || true
+  fi
+  stop_api_processes
 }
 
 stop_public() {
@@ -108,6 +118,18 @@ is_production_env() {
   local e
   e="$(_env_val ENV)"
   [[ "$e" == "production" || "$e" == "prod" ]]
+}
+
+skip_public_preview() {
+  if [[ "${VOX_PUBLIC_PREVIEW:-0}" == "1" ]]; then
+    return 1
+  fi
+  if [[ "${VOX_SKIP_PUBLIC_RESTART:-0}" == "1" ]]; then
+    return 0
+  fi
+  [[ -f "$PUBLIC_WWWROOT/index.html" ]] && return 0
+  is_production_env && return 0
+  return 1
 }
 
 skip_dashboard_preview() {
@@ -280,21 +302,28 @@ start_api() {
   migrate_api_if_needed
   if api_systemd_installed; then
     if _sys is-active --quiet "${API_UNIT_NAME}.service" 2>/dev/null; then
-      echo "API already active via systemd ($API_UNIT_NAME)"
-      return 0
+      echo "API A already active via systemd ($API_UNIT_NAME)"
+    elif _sys start "${API_UNIT_NAME}.service"; then
+      echo "API A started via systemd ($API_UNIT_NAME)"
+    else
+      echo "Warning: systemctl start $API_UNIT_NAME failed — falling back to nohup"
+      start_api_nohup
     fi
-    # Only clear orphans when the unit is not running (avoid killing a healthy API).
-    stop_api_processes
-    if _sys start "${API_UNIT_NAME}.service"; then
-      echo "API started via systemd ($API_UNIT_NAME)"
-      return 0
-    fi
-    echo "Warning: systemctl start $API_UNIT_NAME failed — falling back to nohup"
+  else
+    start_api_nohup
   fi
-  start_api_nohup
+  if api_b_systemd_installed; then
+    if _sys is-active --quiet "${API_B_UNIT_NAME}.service" 2>/dev/null; then
+      echo "API B already active via systemd ($API_B_UNIT_NAME)"
+    elif _sys start "${API_B_UNIT_NAME}.service"; then
+      echo "API B started via systemd ($API_B_UNIT_NAME)"
+    else
+      echo "Warning: systemctl start $API_B_UNIT_NAME failed"
+    fi
+  fi
 }
 
-# Graceful recycle — preferred for deploy (API stays on :8000).
+# Rolling recycle — reload A, wait /health, then reload B. Never both at once.
 reload_api() {
   migrate_api_if_needed
   if ! api_systemd_installed; then
@@ -306,21 +335,54 @@ reload_api() {
   fi
   if ! api_supports_graceful_reload; then
     echo "Unit has no ExecReload — run: sudo bash scripts/vps-setup-api-systemd.sh"
-    echo "Falling back to systemctl restart (brief downtime)"
+    echo "Falling back to sequential systemctl restart"
     _sys restart "${API_UNIT_NAME}.service" || start_api_nohup
+    if api_b_systemd_installed; then
+      if wait_for_http "http://127.0.0.1:8000/health" "api.voxbulk.com" 30 \
+        || wait_for_http "http://127.0.0.1:8000/health" "127.0.0.1" 10; then
+        _sys restart "${API_B_UNIT_NAME}.service" || true
+      else
+        echo "FAILED: API A unhealthy — not touching API B"
+        return 1
+      fi
+    fi
     return $?
   fi
   if ! _sys is-active --quiet "${API_UNIT_NAME}.service" 2>/dev/null; then
-    echo "API not active — starting instead of reload"
+    echo "API A not active — starting instead of reload"
     start_api
     return $?
   fi
   if _sys reload "${API_UNIT_NAME}.service"; then
-    echo "API reloaded gracefully via systemd (no offline window on :8000)"
-    return 0
+    echo "API A reloaded gracefully (:8000 stays bound)"
+  else
+    echo "Warning: reload A failed — sequential restart"
+    _sys restart "${API_UNIT_NAME}.service" || start_api_nohup
   fi
-  echo "Warning: systemctl reload failed — trying restart"
-  _sys restart "${API_UNIT_NAME}.service" || start_api_nohup
+  if ! wait_for_http "http://127.0.0.1:8000/health" "api.voxbulk.com" 30 \
+    && ! wait_for_http "http://127.0.0.1:8000/health" "127.0.0.1" 10; then
+    echo "FAILED: API A /health after reload — not touching API B"
+    return 1
+  fi
+  echo "API A healthy on :8000"
+  if api_b_systemd_installed; then
+    if ! _sys is-active --quiet "${API_B_UNIT_NAME}.service" 2>/dev/null; then
+      echo "API B not active — starting"
+      _sys start "${API_B_UNIT_NAME}.service" || true
+    elif _sys reload "${API_B_UNIT_NAME}.service"; then
+      echo "API B reloaded gracefully (:8001 stays bound)"
+    else
+      echo "Warning: reload B failed — sequential restart (A stays up)"
+      _sys restart "${API_B_UNIT_NAME}.service" || true
+    fi
+    if wait_for_http "http://127.0.0.1:8001/health" "api.voxbulk.com" 30 \
+      || wait_for_http "http://127.0.0.1:8001/health" "127.0.0.1" 10; then
+      echo "API B healthy on :8001"
+    else
+      echo "Warning: API B /health failed — nginx will skip :8001 until it recovers"
+    fi
+  fi
+  return 0
 }
 
 start_public_nohup() {
@@ -406,6 +468,15 @@ status_systemd() {
   else
     echo "voxbulk-api: not installed — run: ./vox.sh install-service"
   fi
+  if api_b_systemd_installed; then
+    if _sys is-active --quiet "${API_B_UNIT_NAME}.service" 2>/dev/null; then
+      echo "voxbulk-api-b: active (:8001)"
+    else
+      echo "voxbulk-api-b: installed but not active"
+    fi
+  else
+    echo "voxbulk-api-b: not installed — sudo bash scripts/vps-setup-api-systemd.sh"
+  fi
   if public_systemd_installed; then
     if _sys is-active --quiet "${PUBLIC_UNIT_NAME}.service" 2>/dev/null; then
       echo "voxbulk-public: active (enabled on boot)"
@@ -426,7 +497,7 @@ status() {
   status_systemd
 
   echo ""
-  echo "=== API (8000) ==="
+  echo "=== API A (8000) ==="
   # Direct localhost check (works when TRUSTED_HOSTS is localhost-only on VPS)
   if wait_for_http "http://127.0.0.1:8000/health" "127.0.0.1" "$wait_attempts"; then
     curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8000/health && echo
@@ -435,14 +506,32 @@ status() {
     curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8000/health && echo
     api_ok=1
   else
-    echo "API not responding on /health"
-    show_log_tail "$API_LOG" "API"
+    echo "API A not responding on /health"
+    show_log_tail "$API_LOG" "API A"
     echo "Tip: set TRUSTED_HOSTS=api.voxbulk.com,localhost,127.0.0.1 in voxbulk-api/.env if nginx uses Host: api.voxbulk.com"
   fi
 
   echo ""
-  echo "=== Public (5173) ==="
-  if wait_for_http "http://127.0.0.1:5173/" "" "$wait_attempts"; then
+  echo "=== API B (8001) ==="
+  if api_b_systemd_installed; then
+    if wait_for_http "http://127.0.0.1:8001/health" "api.voxbulk.com" "$wait_attempts" \
+      || wait_for_http "http://127.0.0.1:8001/health" "127.0.0.1" "$wait_attempts"; then
+      curl -sf -H "Host: api.voxbulk.com" http://127.0.0.1:8001/health 2>/dev/null \
+        || curl -sf -H "Host: 127.0.0.1" http://127.0.0.1:8001/health
+      echo
+    else
+      echo "API B not responding on /health — nginx will skip :8001 until it recovers"
+    fi
+  else
+    echo "not installed"
+  fi
+
+  echo ""
+  echo "=== Public ==="
+  if skip_public_preview; then
+    echo "Static wwwroot $PUBLIC_WWWROOT (no vite :5173 in production)"
+    public_ok=1
+  elif wait_for_http "http://127.0.0.1:5173/" "" "$wait_attempts"; then
     curl -sf -I http://127.0.0.1:5173/ | head -1
     public_ok=1
   else
@@ -466,18 +555,22 @@ status() {
   echo ""
   echo "=== Static admin (nginx wwwroot — not managed by vox.sh) ==="
   echo "  admin:      /www/wwwroot/admin.voxbulk.com"
-  echo "  dashboard:  /www/wwwroot/dashboard.voxbulk.com (static) or 127.0.0.1:5175 preview in dev"
-  echo "  Deploy UI:  ./deploy-vps.sh  (build + rsync admin + restart)"
-  echo "  Always-on:  ./vox.sh install-service  (systemd Restart=always)"
+  echo "  dashboard:  /www/wwwroot/dashboard.voxbulk.com"
+  echo "  public:     $PUBLIC_WWWROOT (static)"
+  echo "  Deploy UI:  ./deploy-vps.sh  (build + rsync + rolling API reload)"
+  echo "  Always-on:  ./vox.sh install-service  (systemd Restart=always, ports 8000+8001)"
 
   echo ""
   echo "=== Processes ==="
   if api_systemd_installed; then
     systemctl is-active "${API_UNIT_NAME}.service" 2>/dev/null || true
   fi
+  if api_b_systemd_installed; then
+    systemctl is-active "${API_B_UNIT_NAME}.service" 2>/dev/null || true
+  fi
   pgrep -af "gunicorn.*main:app" || true
   pgrep -af "uvicorn.*main:app" || echo "(no uvicorn master — gunicorn is normal in production)"
-  ss -ltnp 2>/dev/null | grep -E ':8000|:5173|:5175' || netstat -ltnp 2>/dev/null | grep -E ':8000|:5173|:5175' || true
+  ss -ltnp 2>/dev/null | grep -E ':8000|:8001|:5173|:5175' || netstat -ltnp 2>/dev/null | grep -E ':8000|:8001|:5173|:5175' || true
   pgrep -af "vite preview" || echo "no vite preview"
   status_celery || true
 
@@ -490,7 +583,15 @@ case "${1:-}" in
   start)
     start_api
     sleep 1
-    start_public
+    if skip_public_preview; then
+      echo "Public is static wwwroot ($PUBLIC_WWWROOT)"
+      if public_systemd_installed; then
+        _sys disable --now "${PUBLIC_UNIT_NAME}.service" 2>/dev/null || _sys stop "${PUBLIC_UNIT_NAME}.service" 2>/dev/null || true
+      fi
+      stop_public_processes
+    else
+      start_public
+    fi
     start_dashboard
     sleep 2
     status
@@ -502,23 +603,42 @@ case "${1:-}" in
     echo "Stopped API + public preview + dashboard preview"
     ;;
   restart)
-    # Prefer graceful API reload so deploy / restart does not drop :8000.
+    # Prefer rolling API reload so deploy never drops both :8000 and :8001.
     if [[ "${VOX_FORCE_API_RESTART:-0}" == "1" ]]; then
+      echo "VOX_FORCE_API_RESTART=1 — sequential hard restart (never both units at once)"
+      migrate_api_if_needed
       if api_systemd_installed; then
-        migrate_api_if_needed
-        _sys restart "${API_UNIT_NAME}.service" || { stop_api_processes; start_api_nohup; }
-        echo "API hard-restarted via systemd ($API_UNIT_NAME)"
+        if _sys restart "${API_UNIT_NAME}.service"; then
+          echo "API A hard-restarted via systemd ($API_UNIT_NAME)"
+        else
+          echo "FAILED: systemctl restart A — leaving API B running (do not pkill gunicorn)"
+        fi
       else
-        stop_api
+        echo "No systemd unit — sequential nohup on :8000 only"
+        if command -v fuser >/dev/null 2>&1; then
+          fuser -k 8000/tcp 2>/dev/null || true
+        fi
         sleep 1
-        start_api
+        start_api_nohup
+      fi
+      if ! wait_for_http "http://127.0.0.1:8000/health" "api.voxbulk.com" 30 \
+        && ! wait_for_http "http://127.0.0.1:8000/health" "127.0.0.1" 10; then
+        echo "FAILED: API A unhealthy after force restart — not touching API B"
+      elif api_b_systemd_installed; then
+        _sys restart "${API_B_UNIT_NAME}.service" || true
+        echo "API B hard-restarted via systemd ($API_B_UNIT_NAME)"
       fi
     else
       reload_api
     fi
-    if [[ "${VOX_SKIP_PUBLIC_RESTART:-0}" != "1" ]]; then
+    if skip_public_preview; then
+      echo "Skipping public vite preview — production uses nginx static $PUBLIC_WWWROOT"
       if public_systemd_installed; then
-        # Do not pkill first — systemctl restart owns the stop/start.
+        _sys disable --now "${PUBLIC_UNIT_NAME}.service" 2>/dev/null || _sys stop "${PUBLIC_UNIT_NAME}.service" 2>/dev/null || true
+      fi
+      stop_public_processes
+    elif [[ "${VOX_SKIP_PUBLIC_RESTART:-0}" != "1" ]]; then
+      if public_systemd_installed; then
         _sys restart "${PUBLIC_UNIT_NAME}.service" || start_public_nohup
         echo "Public restarted via systemd ($PUBLIC_UNIT_NAME)"
       else
@@ -535,7 +655,7 @@ case "${1:-}" in
     if [[ "${VOX_SKIP_CELERY_RESTART:-0}" != "1" ]]; then
       restart_celery
     fi
-    echo "Waiting for API, public preview, and dashboard preview to become ready…"
+    echo "Waiting for API A/B and static sites to become ready…"
     status || true
     ;;
   reload|reload-api|reload_api)

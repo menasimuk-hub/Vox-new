@@ -11,8 +11,9 @@ Production long-running processes on the aaPanel/Ubuntu VPS must **survive crash
 
 | Piece | Manager | Unit / program |
 |-------|---------|----------------|
-| API (gunicorn + uvicorn workers :8000) | **systemd** | `voxbulk-api.service` (`ExecReload` HUP) |
-| Public site (vite preview :5173) | **systemd** | `voxbulk-public.service` |
+| API A (gunicorn + uvicorn workers :8000) | **systemd** | `voxbulk-api.service` (`ExecReload` HUP) |
+| API B (gunicorn + uvicorn workers :8001) | **systemd** | `voxbulk-api-b.service` (`ExecReload` HUP) |
+| Public / admin / dashboard | nginx static wwwroot | **not** vite preview |
 | Celery worker + beat | **Supervisor** | `voxbulk-celery` / `voxbulk-celery-beat` |
 
 Install / control:
@@ -21,13 +22,15 @@ Install / control:
 cd /www/voxbulk
 ./vox.sh install-service          # sudo bash scripts/vps-setup-api-systemd.sh
 ./vox.sh start|stop|restart|reload|status
-./deploy-vps.sh                   # graceful API reload (stays online) + public/Celery refresh
+./deploy-vps.sh                   # rolling reload A then B; static sites stay up
 ```
 
-Deploy must **reload** the API (not hard-restart) so `:8000` stays bound. Use `VOX_FORCE_API_RESTART=1` only when a full restart is required.
+Deploy must **reload** one API unit at a time so the other port stays bound. Never `pkill gunicorn` / `pkill uvicorn` on a normal deploy. Use `VOX_FORCE_API_RESTART=1` only for disaster recovery — it is still **sequential** (A health, then B).
+
+nginx `upstream voxbulk_api` (`scripts/vps-install-dual-api-nginx.sh`) skips a dead port (`max_fails`). Public site is rsynced to `/www/wwwroot/voxbulk.com` (`scripts/vps-install-public-static-nginx.sh`).
 
 - Setup script: [`scripts/vps-setup-api-systemd.sh`](scripts/vps-setup-api-systemd.sh)
-- Public runner: [`scripts/run-public-preview.sh`](scripts/run-public-preview.sh)
+- Public runner (rollback only): [`scripts/run-public-preview.sh`](scripts/run-public-preview.sh)
 - `vox.sh` prefers `systemctl` when the unit file exists; **nohup is fallback only**
 - Celery stays Supervisor: `sudo bash scripts/vps-setup-celery.sh`
 
@@ -37,11 +40,11 @@ Deploy must **reload** the API (not hard-restart) so `:8000` stays bound. Use `V
 2. Add an **idempotent install script** under `scripts/` (mirror `vps-setup-api-systemd.sh` / `vps-setup-celery.sh`).
 3. Wire **`vox.sh`**: detect unit → `systemctl` start/stop/restart/status; keep nohup fallback.
 4. Wire **`deploy-vps.sh`**: ensure unit on deploy; recovery start via systemd first.
-5. Logs under `/tmp/voxbulk-*.log` unless aaPanel already owns another path.
+5. Logs under `/var/log/voxbulk/` (compat symlinks in `/tmp/voxbulk-*.log`) unless aaPanel already owns another path.
 6. Document one-time VPS install in `DEPLOY-VPS.md` (short note only).
 7. **Do not** rely on bare `nohup … &` as the production lifecycle.
 
 ## Honest limits
 
-- Deploy still has a short restart blip (stop → start). Not blue-green.
+- Dual gunicorn survives **one API crash or a rolling reload**. Disk, MySQL, Redis, or a reboot still take everything down.
 - nginx / MySQL / Redis stay under aaPanel — do not replace those with custom units unless asked.

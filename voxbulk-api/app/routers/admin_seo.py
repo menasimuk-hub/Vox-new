@@ -3,7 +3,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -424,6 +424,21 @@ def public_seo_settings(db: Session = Depends(get_db)):
 def public_robots(db: Session = Depends(get_db)):
     row = svc.ensure_settings(db)
     return {"robots_txt": row.robots_txt or svc.DEFAULT_ROBOTS}
+
+
+@public_router.get("/seo/robots-plain")
+def public_robots_plain(db: Session = Depends(get_db)):
+    return PlainTextResponse(svc.render_robots_txt(db), media_type="text/plain; charset=utf-8")
+
+
+@public_router.get("/seo/sitemap.xml")
+def public_sitemap_xml(db: Session = Depends(get_db)):
+    return Response(content=svc.render_sitemap_xml(db), media_type="application/xml")
+
+
+@public_router.get("/seo/news-sitemap.xml")
+def public_news_sitemap_xml(db: Session = Depends(get_db)):
+    return Response(content=svc.render_news_sitemap_xml(db), media_type="application/xml")
 
 
 @public_router.get("/seo/sitemap-entries")

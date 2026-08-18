@@ -9,7 +9,8 @@
 # Env:
 #   VOX_UVICORN_WORKERS=2          gunicorn workers (use >=2 so reload stays online)
 #   VOX_SYSTEMD_SKIP_START=1       write+enable units but do not start/restart yet
-#   VOX_SKIP_PUBLIC_SYSTEMD=1      install API unit only
+#   VOX_SKIP_PUBLIC_SYSTEMD=1      default — public is static wwwroot (not vite preview)
+#   VOX_INSTALL_PUBLIC_PREVIEW=1   also enable voxbulk-public (rollback only)
 #
 set -euo pipefail
 
@@ -22,11 +23,13 @@ UVICORN_BIN="$API_DIR/.venv/bin/uvicorn"
 GUNICORN_BIN="$API_DIR/.venv/bin/gunicorn"
 WORKERS="${VOX_UVICORN_WORKERS:-${VOX_GUNICORN_WORKERS:-2}}"
 API_UNIT="/etc/systemd/system/voxbulk-api.service"
+API_B_UNIT="/etc/systemd/system/voxbulk-api-b.service"
 PUBLIC_UNIT="/etc/systemd/system/voxbulk-public.service"
 # Prefer /var/log/voxbulk (LogsDirectory=) — append:/tmp/... often hits status=209/STDOUT
 # when the log is root-owned or unreadable by the service User=.
 LOG_DIR="/var/log/voxbulk"
 API_LOG="$LOG_DIR/api.log"
+API_B_LOG="$LOG_DIR/api-b.log"
 PUBLIC_LOG="$LOG_DIR/public.log"
 # Compat symlinks for older scripts that tail /tmp/voxbulk-*.log
 API_LOG_COMPAT="/tmp/voxbulk-api.log"
@@ -68,11 +71,12 @@ fi
 
 chmod +x "$API_RUN" "$PUBLIC_RUN" 2>/dev/null || true
 mkdir -p "$LOG_DIR"
-touch "$API_LOG" "$PUBLIC_LOG"
+touch "$API_LOG" "$API_B_LOG" "$PUBLIC_LOG"
 chown -R "$RUN_USER:$RUN_GROUP" "$LOG_DIR"
 chmod 755 "$LOG_DIR"
-chmod 644 "$API_LOG" "$PUBLIC_LOG"
+chmod 644 "$API_LOG" "$API_B_LOG" "$PUBLIC_LOG"
 ln -sfn "$API_LOG" "$API_LOG_COMPAT"
+ln -sfn "$API_B_LOG" /tmp/voxbulk-api-b.log
 ln -sfn "$PUBLIC_LOG" "$PUBLIC_LOG_COMPAT"
 # Clear stale root-owned /tmp logs that caused 209/STDOUT on append:
 if [[ -f "$API_LOG_COMPAT" && ! -L "$API_LOG_COMPAT" ]]; then
@@ -86,24 +90,30 @@ if [[ -f "$PUBLIC_LOG_COMPAT" && ! -L "$PUBLIC_LOG_COMPAT" ]]; then
   ln -sfn "$PUBLIC_LOG" "$PUBLIC_LOG_COMPAT"
 fi
 
-# Stop orphan nohup/old uvicorn so only systemd owns the ports (brief — install only).
-info "Stopping leftover nohup uvicorn/gunicorn / vite preview (if any) …"
-systemctl stop voxbulk-api.service 2>/dev/null || true
-pkill -f "uvicorn.*main:app" 2>/dev/null || true
-pkill -f "python -m uvicorn.*main:app" 2>/dev/null || true
-pkill -f "gunicorn.*main:app" 2>/dev/null || true
-pkill -f "vite preview.*5173" 2>/dev/null || true
-pkill -f "npm run preview.*5173" 2>/dev/null || true
-sleep 1
-if command -v fuser >/dev/null 2>&1; then
-  fuser -k 8000/tcp 2>/dev/null || true
-  fuser -k 5173/tcp 2>/dev/null || true
+# Stop leftover nohup only when systemd is not already serving (never kill both live APIs).
+A_ACTIVE=0
+B_ACTIVE=0
+systemctl is-active --quiet voxbulk-api.service 2>/dev/null && A_ACTIVE=1
+systemctl is-active --quiet voxbulk-api-b.service 2>/dev/null && B_ACTIVE=1
+if [[ "$A_ACTIVE" -eq 0 && "$B_ACTIVE" -eq 0 ]]; then
+  info "Stopping leftover nohup uvicorn/gunicorn (units not active) …"
+  pkill -f "uvicorn.*main:app" 2>/dev/null || true
+  pkill -f "python -m uvicorn.*main:app" 2>/dev/null || true
+  pkill -f "gunicorn.*main:app" 2>/dev/null || true
+  sleep 1
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k 8000/tcp 2>/dev/null || true
+    fuser -k 8001/tcp 2>/dev/null || true
+  fi
+else
+  info "Leaving running API units in place (A active=$A_ACTIVE B active=$B_ACTIVE)"
 fi
 
-info "Writing $API_UNIT (user=$RUN_USER workers=$WORKERS — graceful reload via HUP)"
-cat >"$API_UNIT" <<EOF
+_write_api_unit() {
+  local unit="$1" port="$2" log="$3" ident="$4" desc="$5"
+  cat >"$unit" <<EOF
 [Unit]
-Description=VoxBulk API (gunicorn + uvicorn workers)
+Description=$desc
 After=network.target mysql.service mariadb.service redis.service redis-server.service
 Wants=network-online.target
 # Must be in [Unit] (not [Service]) on this systemd — avoids "Unknown key name" warning
@@ -114,34 +124,41 @@ Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
 WorkingDirectory=$API_DIR
-# systemd creates /var/log/voxbulk owned by User= — avoids 209/STDOUT on /tmp
 LogsDirectory=voxbulk
 Environment=PYTHONUNBUFFERED=1
 Environment=VOX_UVICORN_WORKERS=$WORKERS
+Environment=VOX_API_HOST=127.0.0.1
+Environment=VOX_API_PORT=$port
 ExecStart=$API_RUN
-# Graceful worker recycle — keeps :8000 bound so deploy does not take the API offline
 ExecReload=/bin/kill -s HUP \$MAINPID
 Restart=always
 RestartSec=3
 KillMode=mixed
 KillSignal=SIGTERM
 TimeoutStopSec=60
-StandardOutput=append:$API_LOG
-StandardError=append:$API_LOG
-SyslogIdentifier=voxbulk-api
+StandardOutput=append:$log
+StandardError=append:$log
+SyslogIdentifier=$ident
 
 [Install]
 WantedBy=multi-user.target
 EOF
+}
 
-if [[ "${VOX_SKIP_PUBLIC_SYSTEMD:-0}" != "1" ]]; then
+info "Writing $API_UNIT (user=$RUN_USER workers=$WORKERS port=8000 — graceful reload via HUP)"
+_write_api_unit "$API_UNIT" 8000 "$API_LOG" "voxbulk-api" "VoxBulk API A (gunicorn :8000)"
+
+info "Writing $API_B_UNIT (user=$RUN_USER workers=$WORKERS port=8001)"
+_write_api_unit "$API_B_UNIT" 8001 "$API_B_LOG" "voxbulk-api-b" "VoxBulk API B (gunicorn :8001)"
+
+if [[ "${VOX_INSTALL_PUBLIC_PREVIEW:-0}" == "1" ]]; then
   [[ -f "$PUBLIC_RUN" ]] || fail "Missing $PUBLIC_RUN"
   # Resolve npm for the deploy user (n/nvm/aaPanel paths vary).
   NPM_BIN="$(sudo -u "$RUN_USER" bash -lc 'command -v npm' 2>/dev/null || true)"
   [[ -n "$NPM_BIN" ]] || NPM_BIN="$(command -v npm || true)"
   [[ -n "$NPM_BIN" ]] || warn "npm not found in PATH — public unit may fail until npm is on PATH for $RUN_USER"
 
-  info "Writing $PUBLIC_UNIT (user=$RUN_USER)"
+  info "Writing $PUBLIC_UNIT (user=$RUN_USER) — rollback / preview only"
   cat >"$PUBLIC_UNIT" <<EOF
 [Unit]
 Description=VoxBulk public site (vite preview :5173)
@@ -169,28 +186,45 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 EOF
 else
-  warn "Skipping public systemd unit (VOX_SKIP_PUBLIC_SYSTEMD=1)"
+  info "Skipping vite preview unit (public site is static wwwroot). Rollback: VOX_INSTALL_PUBLIC_PREVIEW=1"
 fi
 
 info "daemon-reload + enable …"
 systemctl daemon-reload
 systemctl enable voxbulk-api.service
-if [[ "${VOX_SKIP_PUBLIC_SYSTEMD:-0}" != "1" && -f "$PUBLIC_UNIT" ]]; then
+systemctl enable voxbulk-api-b.service
+if [[ "${VOX_SKIP_PUBLIC_SYSTEMD:-1}" != "1" && -f "$PUBLIC_UNIT" ]]; then
   systemctl enable voxbulk-public.service
 fi
 
 if [[ "${VOX_SYSTEMD_SKIP_START:-0}" == "1" ]]; then
   info "Units installed; start skipped (VOX_SYSTEMD_SKIP_START=1)"
 else
-  info "Starting voxbulk-api …"
-  systemctl restart voxbulk-api.service
-  if [[ "${VOX_SKIP_PUBLIC_SYSTEMD:-0}" != "1" && -f "$PUBLIC_UNIT" ]]; then
+  if [[ "$A_ACTIVE" -eq 1 ]]; then
+    info "API A already active — not restarting :8000"
+  else
+    info "Starting voxbulk-api (:8000) …"
+    systemctl start voxbulk-api.service || systemctl restart voxbulk-api.service
+  fi
+  if [[ "$B_ACTIVE" -eq 1 ]]; then
+    info "API B already active — not restarting :8001"
+  else
+    info "Starting voxbulk-api-b (:8001) …"
+    systemctl start voxbulk-api-b.service || systemctl restart voxbulk-api-b.service
+  fi
+  if [[ "${VOX_SKIP_PUBLIC_SYSTEMD:-1}" != "1" && -f "$PUBLIC_UNIT" ]]; then
     info "Starting voxbulk-public …"
     systemctl restart voxbulk-public.service || warn "voxbulk-public failed to start — build public frontend first"
+  else
+    if systemctl is-enabled --quiet voxbulk-public.service 2>/dev/null; then
+      info "Public site is static wwwroot — disabling vite preview unit"
+      systemctl disable --now voxbulk-public.service 2>/dev/null || true
+    fi
   fi
   sleep 2
   systemctl --no-pager --full status voxbulk-api.service || true
-  if [[ -f "$PUBLIC_UNIT" ]]; then
+  systemctl --no-pager --full status voxbulk-api-b.service || true
+  if [[ -f "$PUBLIC_UNIT" && "${VOX_SKIP_PUBLIC_SYSTEMD:-1}" != "1" ]]; then
     systemctl --no-pager --full status voxbulk-public.service || true
   fi
 fi
@@ -200,14 +234,15 @@ cat <<NOTES
 ══════════════════════════════════════════════════════════════
 Systemd always-on setup complete
 ══════════════════════════════════════════════════════════════
-  API unit:     systemctl status voxbulk-api
-  Public unit:  systemctl status voxbulk-public
-  Logs:         tail -f $API_LOG
-                journalctl -u voxbulk-api -f
-  Control:      cd $ROOT && ./vox.sh start|stop|restart|status
+  API A:        systemctl status voxbulk-api      (:8000)
+  API B:        systemctl status voxbulk-api-b    (:8001)
+  Logs:         tail -f $API_LOG $API_B_LOG
+  Control:      cd $ROOT && ./vox.sh start|stop|reload|status
   Re-install:   sudo bash $ROOT/scripts/vps-setup-api-systemd.sh
-  If 209/STDOUT: re-run this script (fixes log path / ownership)
+  nginx:        sudo bash $ROOT/scripts/vps-install-dual-api-nginx.sh
+  Public site:  static /www/wwwroot/voxbulk.com (not vite preview)
+                sudo bash $ROOT/scripts/vps-install-public-static-nginx.sh
 
-After reboot, API (+ public preview) start automatically.
+After reboot, both API ports start automatically.
 Celery remains under Supervisor: sudo bash $ROOT/scripts/vps-setup-celery.sh
 NOTES

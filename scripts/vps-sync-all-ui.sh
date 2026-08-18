@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pull latest code + rebuild + publish ALL static UIs (admin + dashboard).
+# Pull latest code + rebuild + publish ALL static UIs (admin + dashboard + public).
 # Run ON THE VPS after every GitHub push.
 #
 # Usage:
@@ -17,13 +17,15 @@ DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
+VOX_PUBLIC_DIST="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
 DEPLOY_LOG="${VOX_DEPLOY_LOG:-/tmp/voxbulk-deploy.log}"
 
 # Print immediately (before redirect) so the terminal is never silent.
-echo "=== VoxBulk full UI sync (admin + dashboard) ==="
+echo "=== VoxBulk full UI sync (admin + dashboard + public) ==="
 echo "Repo:    $ROOT"
 echo "Admin:   $VOX_ADMIN_DIST"
 echo "Dash:    $VOX_DASH_DIST"
+echo "Public:  $VOX_PUBLIC_DIST"
 echo "Branch:  ${VOX_GIT_BRANCH:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
 echo "Log:     $DEPLOY_LOG  (if terminal looks stuck: tail -f $DEPLOY_LOG)"
 echo ""
@@ -81,10 +83,14 @@ fi
 
 rsync_dist "$ADMIN_DIR/dist" "$VOX_ADMIN_DIST" "admin"
 rsync_dist "$DASH_DIR/dist/client" "$VOX_DASH_DIST" "dashboard"
+if [[ -f "$PUBLIC_DIR/dist/client/index.html" ]]; then
+  rsync_dist "$PUBLIC_DIR/dist/client" "$VOX_PUBLIC_DIST" "public"
+else
+  echo "WARN: public dist/client missing — skip wwwroot rsync"
+fi
 
-echo ">>> Restart services"
+echo ">>> Static wwwroot updated (rolling API reload not required for UI-only)"
 cd "$ROOT"
-bash ./vox.sh restart || true
 
 echo ""
 echo "=== Verify deployed SHA ==="

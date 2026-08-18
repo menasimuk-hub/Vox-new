@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Rebuild + publish admin + dashboard (+ build public preview bundle).
+# Rebuild + publish admin + dashboard + public static wwwroot.
 # No git pull, no migrations. Run ON THE VPS after git pull when UI is stale.
 #
 # Full deploy (git + migrate + all builds): ./deploy-vps.sh
 # Dashboard only (git pull + build + rsync): bash scripts/vps-sync-dashboard.sh
-# Public marketing site is served via vite preview (vox.sh), not static wwwroot.
+# Public marketing site is static /www/wwwroot/voxbulk.com (not vite preview).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=lib/vps-frontend-perms.sh
@@ -14,6 +14,7 @@ DASH_DIR="$ROOT/dashboard.voxbulk.com/dashboard-web"
 PUBLIC_DIR="$ROOT/voxbulk.com/frontend"
 VOX_ADMIN_DIST="${VOX_ADMIN_DIST:-/www/wwwroot/admin.voxbulk.com}"
 VOX_DASH_DIST="${VOX_DASH_DIST:-/www/wwwroot/dashboard.voxbulk.com}"
+VOX_PUBLIC_DIST="${VOX_PUBLIC_DIST:-/www/wwwroot/voxbulk.com}"
 
 echo "=== VoxBulk UI-only deploy (no git pull) ==="
 echo "WARN: This script does NOT pull from GitHub. Run git pull first, or use scripts/vps-sync-all-ui.sh"
@@ -55,11 +56,15 @@ fi
 
 rsync_dist "$ADMIN_DIR/dist" "$VOX_ADMIN_DIST" "admin dist"
 rsync_dist "$DASH_DIR/dist/client" "$VOX_DASH_DIST" "dashboard dist/client"
+if [[ -f "$PUBLIC_DIR/dist/client/index.html" ]]; then
+  rsync_dist "$PUBLIC_DIR/dist/client" "$VOX_PUBLIC_DIST" "public dist/client"
+else
+  echo "WARN: public dist/client missing — skip wwwroot rsync"
+fi
 
 echo ""
-echo ">>> Restart preview + API (serves dashboard on :5175 if nginx proxies there)"
+echo ">>> Static wwwroot updated (no vite preview restart)"
 cd "$ROOT"
-bash ./vox.sh restart || true
 
 echo ""
 echo "=== Verify ==="
