@@ -17,6 +17,7 @@ from app.models.organisation import Organisation
 from app.models.subscription import Subscription
 from app.services.billing_currency import documented_major_to_minor, resolve_org_currency
 from app.services.provider_settings import ProviderSettingsService
+from app.services.redis_cache import cache_get, cache_set
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +26,9 @@ AIRWALLEX_BASES = {
     "prod": "https://api.airwallex.com",
 }
 
-# Short-lived bearer token cache: {cache_key: (expiry_epoch, token)}
-_TOKEN_CACHE: dict[str, tuple[float, str]] = {}
+# Bearer token lives in Redis (TTL 24 min) so both gunicorn workers share it.
+_AIRWALLEX_TOKEN_TTL_SEC = 24 * 60
+_AIRWALLEX_TOKEN_PREFIX = "airwallex:token:"
 
 
 class AirwallexConfigError(ValueError):
@@ -65,11 +67,10 @@ class AirwallexPaymentService:
         cfg = AirwallexPaymentService.get_config(db)
         base = AirwallexPaymentService._base_url(cfg)
         client_id = str(cfg.get("client_id") or "").strip()
-        cache_key = f"{base}:{client_id}"
-        cached = _TOKEN_CACHE.get(cache_key)
-        now = time.time()
-        if cached and cached[0] > now + 60:
-            return cached[1], base
+        cache_key = f"{_AIRWALLEX_TOKEN_PREFIX}{hashlib.sha256(f'{base}:{client_id}'.encode()).hexdigest()[:24]}"
+        cached = cache_get(cache_key)
+        if isinstance(cached, str) and cached:
+            return cached, base
         try:
             resp = httpx.post(
                 f"{base}/api/v1/authentication/login",
@@ -83,7 +84,7 @@ class AirwallexPaymentService:
         token = str(resp.json().get("token") or "")
         if not token:
             raise AirwallexProviderError("Airwallex auth returned no token")
-        _TOKEN_CACHE[cache_key] = (now + 25 * 60, token)
+        cache_set(cache_key, token, _AIRWALLEX_TOKEN_TTL_SEC)
         return token, base
 
     @staticmethod
