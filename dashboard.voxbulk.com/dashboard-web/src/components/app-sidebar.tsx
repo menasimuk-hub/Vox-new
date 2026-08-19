@@ -3,7 +3,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { brandAssets } from "@/lib/brand";
 import { useTheme } from "@/lib/theme";
 import {
-  LayoutDashboard, ChevronDown, LogOut,
+  LayoutDashboard, ChevronDown,
   PhoneCall, FilePlus2, FolderOpen, BarChart3,
   ClipboardList, MessageSquareText, ListChecks,
   HeartPulse, AlarmClockOff, Bell, Megaphone, Tag,
@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useServices, type ServiceKey } from "@/lib/services";
-import { logoutDashboard } from "@/lib/api";
 import { isRecoveryServiceKey, showRecoveryModules } from "@/lib/feature-flags";
 import { initialsFromName, useSession } from "@/lib/session";
 import { canAccessBilling, canManageOrgSettings, canManageTeam, isBillingOnlyRole, normalizeOrgRole } from "@/lib/org-roles";
@@ -324,14 +323,6 @@ export function AppSidebar() {
             </div>
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => logoutDashboard()}
-          className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground group-data-[collapsible=icon]:justify-center"
-        >
-          <LogOut className="size-4" />
-          <span className="group-data-[collapsible=icon]:hidden">Log out</span>
-        </button>
       </SidebarFooter>
     </Sidebar>
   );

@@ -45,6 +45,23 @@ def sales_me(db: Session = Depends(get_db), principal=Depends(get_current_princi
     return {"ok": True, "rep": SalesRepService.rep_to_dict(rep, user)}
 
 
+@router.patch("/me")
+def update_my_promo(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
+    from app.models.user import User
+    from sqlalchemy import select
+
+    rep = _require_rep(db, principal)
+    code = str((payload or {}).get("promo_code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="promo_code is required")
+    try:
+        SalesRepService.update_rep(db, rep=rep, patch={"promo_code": code})
+    except SalesRepError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
+    return {"ok": True, "rep": SalesRepService.rep_to_dict(rep, user)}
+
+
 @router.patch("/me/payout")
 def update_my_payout(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.models.user import User

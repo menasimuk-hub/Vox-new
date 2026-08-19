@@ -113,6 +113,7 @@ class SalesRepService:
             parse_promo_benefits,
         )
         from app.services.sales_payout_service import SalesPayoutService
+        from app.services.promo_offer_service import PromoOfferService
 
         currency = currency_of_rep(rep)
         benefits = parse_promo_benefits(rep)
@@ -128,6 +129,11 @@ class SalesRepService:
             "kind": SalesRepService.rep_kind(rep),
             "email": user.email if user else None,
             "promo_code": rep.promo_code,
+            "signup_url": (
+                PromoOfferService.signup_url(str(rep.promo_code).strip())
+                if str(rep.promo_code or "").strip()
+                else None
+            ),
             "country": rep.country,
             "currency": currency,
             "caller_id": rep.caller_id,

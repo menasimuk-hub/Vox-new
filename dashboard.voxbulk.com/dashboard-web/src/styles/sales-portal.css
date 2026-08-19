@@ -248,15 +248,18 @@
   display: flex; justify-content: center; align-items: center; z-index: 999;
 }
 .salesPortal .sp-qr {
-  background: #faf7f0; padding: 40px 48px; border-radius: 28px; text-align: center;
-  max-width: 360px; border: 1px solid #e5ddd0; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  background: #faf7f0; padding: 32px 36px; border-radius: 28px; text-align: center;
+  max-width: 400px; width: min(400px, calc(100vw - 32px)); border: 1px solid #e5ddd0; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
 }
 .salesPortal .sp-qr .sp-qr-box {
-  color: #1a2332; background: #fff; padding: 20px; border-radius: 16px;
-  border: 2px dashed #b8aa96; margin-bottom: 16px; display: flex; justify-content: center;
+  color: #1a2332; background: #fff; padding: 16px; border-radius: 16px;
+  border: 2px dashed #b8aa96; margin-bottom: 16px; display: flex; justify-content: center; align-items: center;
 }
+.salesPortal .sp-qr .sp-qr-box img { width: 200px; height: 200px; display: block; }
 .salesPortal .sp-qr h3 { font-size: 18px; margin-bottom: 6px; }
-.salesPortal .sp-qr p { color: #6b5d4b; font-size: 14px; margin-bottom: 16px; }
+.salesPortal .sp-qr p { color: #6b5d4b; font-size: 14px; margin-bottom: 16px; word-break: break-all; }
+.salesPortal .sp-qr .sp-qr-link { color: #2c4a73; font-size: 12px; }
+.salesPortal .sp-qr-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 
 /* Funnel stage badge + interested flag (My customers + Track) */
 .salesPortal .sp-stage {

@@ -1,9 +1,10 @@
 import * as React from "react";
-import { UserPlus, Save, Send, Phone, QrCode, Gift, MessageCircle, Mail, PhoneCall, X } from "lucide-react";
+import { UserPlus, Save, Send, Phone, QrCode, Gift, MessageCircle, Mail, PhoneCall, X, Download } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
+import { buildExpoQrImageCandidates } from "@/lib/expo-qr";
 
-export type Rep = { id: string; name: string; promo_code: string; caller_id?: string | null };
+export type Rep = { id: string; name: string; promo_code: string; signup_url?: string | null; caller_id?: string | null };
 
 export type SalesCustomer = {
   id: string;
@@ -57,6 +58,9 @@ export function CustomerEditor({ customerId, onChanged }: Props) {
   const [busy, setBusy] = React.useState(false);
   const [toast, setToast] = React.useState<{ msg: string; err?: boolean } | null>(null);
   const [showQr, setShowQr] = React.useState(false);
+  const [draftPromo, setDraftPromo] = React.useState("");
+  const [qrSrcIndex, setQrSrcIndex] = React.useState(0);
+  const [qrBusy, setQrBusy] = React.useState(false);
 
   const flash = (msg: string, err = false) => {
     setToast({ msg, err });
@@ -102,6 +106,12 @@ export function CustomerEditor({ customerId, onChanged }: Props) {
       }
     })();
   }, [customerId]);
+
+  React.useEffect(() => {
+    if (!showQr) return;
+    setDraftPromo(String(rep?.promo_code || "").toUpperCase());
+    setQrSrcIndex(0);
+  }, [showQr, rep?.promo_code]);
 
   const setField = (k: string, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -153,6 +163,67 @@ export function CustomerEditor({ customerId, onChanged }: Props) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const previewPromo = draftPromo.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const previewSignupUrl = (() => {
+    if (!previewPromo) return "";
+    const base = String(rep?.signup_url || "").trim();
+    if (base) {
+      try {
+        const u = new URL(base);
+        u.searchParams.set("promo", previewPromo);
+        return u.toString();
+      } catch {
+        return base.replace(/promo=[^&]*/i, `promo=${encodeURIComponent(previewPromo)}`);
+      }
+    }
+    return `https://voxbulk.com/signin?promo=${encodeURIComponent(previewPromo)}`;
+  })();
+  const qrCandidates = previewSignupUrl ? buildExpoQrImageCandidates(previewSignupUrl, 240) : [];
+  const qrSrc = qrCandidates[Math.min(qrSrcIndex, Math.max(0, qrCandidates.length - 1))] || "";
+
+  const savePromoCode = async () => {
+    if (previewPromo.length < 4) return flash("Promo code must be at least 4 letters or numbers.", true);
+    setQrBusy(true);
+    try {
+      const res = await apiFetch<{ rep: Rep }>("/sales/me", {
+        method: "PATCH",
+        body: JSON.stringify({ promo_code: previewPromo }),
+      });
+      setRep(res.rep);
+      setDraftPromo(res.rep.promo_code || previewPromo);
+      flash("Promo code saved.");
+    } catch (e: any) {
+      flash(e?.message || "Could not save promo code", true);
+    } finally {
+      setQrBusy(false);
+    }
+  };
+
+  const downloadQr = async () => {
+    if (!previewSignupUrl || !qrCandidates.length) return flash("Add a promo code first.", true);
+    const filename = `voxbulk-signup-${previewPromo || "promo"}.png`;
+    const hiRes = buildExpoQrImageCandidates(previewSignupUrl, 480);
+    for (const src of hiRes) {
+      try {
+        const res = await fetch(src);
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const href = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(href);
+        return;
+      } catch {
+        /* try next provider */
+      }
+    }
+    window.open(hiRes[0] || qrSrc, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -314,18 +385,56 @@ export function CustomerEditor({ customerId, onChanged }: Props) {
       {showQr ? (
         <div className="sp-qr-overlay" onClick={() => setShowQr(false)}>
           <div className="sp-qr" onClick={(e) => e.stopPropagation()}>
-            <div className="sp-qr-box">
-              <QrCode size={120} />
-            </div>
-            <h3>Promo code</h3>
+            {previewSignupUrl && qrSrc ? (
+              <div className="sp-qr-box">
+                <img
+                  src={qrSrc}
+                  alt={`Signup QR for ${previewPromo}`}
+                  width={200}
+                  height={200}
+                  onError={() => setQrSrcIndex((i) => (i + 1 < qrCandidates.length ? i + 1 : i))}
+                />
+              </div>
+            ) : (
+              <div className="sp-qr-box">
+                <p style={{ margin: 0 }}>Add a promo code to generate a signup QR.</p>
+              </div>
+            )}
+            <h3>Signup QR</h3>
             <p>
-              Share this code with the customer
-              <br />
-              <strong style={{ fontSize: 16, color: "#1a2332" }}>{rep?.promo_code || "—"}</strong>
+              Customers scan this to register with your promo
+              {previewSignupUrl ? (
+                <>
+                  <br />
+                  <a href={previewSignupUrl} target="_blank" rel="noreferrer" className="sp-qr-link">
+                    {previewSignupUrl}
+                  </a>
+                </>
+              ) : null}
             </p>
-            <button className="sp-btn primary" onClick={() => setShowQr(false)}>
-              <X size={14} /> Close
-            </button>
+            <div className="sp-group" style={{ textAlign: "left", marginBottom: 12 }}>
+              <label>Promo code</label>
+              <input
+                value={draftPromo}
+                onChange={(e) => {
+                  setDraftPromo(e.target.value.toUpperCase());
+                  setQrSrcIndex(0);
+                }}
+                placeholder="YOURCODE"
+                maxLength={12}
+              />
+            </div>
+            <div className="sp-qr-actions">
+              <button type="button" className="sp-btn primary" onClick={() => void savePromoCode()} disabled={qrBusy}>
+                <Save size={14} /> Save
+              </button>
+              <button type="button" className="sp-btn-offer" onClick={() => void downloadQr()} disabled={!previewSignupUrl || qrBusy}>
+                <Download size={14} /> Download
+              </button>
+              <button type="button" className="sp-btn primary" onClick={() => setShowQr(false)}>
+                <X size={14} /> Close
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

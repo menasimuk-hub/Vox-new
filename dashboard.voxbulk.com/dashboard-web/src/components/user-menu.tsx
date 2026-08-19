@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { logoutDashboard } from "@/lib/api";
 import { normalizeOrgRole } from "@/lib/org-roles";
-import { useMyOrganisations, useSetPreferredOrganisation, useSwitchOrganisation } from "@/lib/queries";
+import { useMyOrganisations, useOrganisation, useSetPreferredOrganisation, useSwitchOrganisation } from "@/lib/queries";
 import { initialsFromName, useSession } from "@/lib/session";
+import { useOrgLogoPreview } from "@/lib/use-org-logo";
 
 function roleLabel(role: string) {
   const labels: Record<string, string> = {
@@ -29,6 +30,7 @@ function roleLabel(role: string) {
 export function UserMenu() {
   const { session } = useSession();
   const orgsQ = useMyOrganisations();
+  const orgQ = useOrganisation();
   const switchM = useSwitchOrganisation();
   const preferredM = useSetPreferredOrganisation();
 
@@ -39,6 +41,7 @@ export function UserMenu() {
   const email = session?.profile?.email || "";
   const role = normalizeOrgRole(session?.profile?.role);
   const avatar = initialsFromName(orgName || email || "U");
+  const orgLogo = useOrgLogoPreview(orgQ.data?.logo_url || session?.org?.logo_url);
   const showSwitcher = orgs.length > 1;
 
   const setMain = (orgId: string, isMain: boolean, e: MouseEvent) => {
@@ -62,9 +65,17 @@ export function UserMenu() {
           className="h-9 gap-2 px-1.5 sm:px-2"
           aria-label="Account and company menu"
         >
-          <span className="grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold sm:size-9">
-            {avatar}
-          </span>
+          {orgLogo ? (
+            <img
+              src={orgLogo}
+              alt=""
+              className="size-8 shrink-0 rounded-full object-cover bg-white ring-1 ring-border sm:size-9"
+            />
+          ) : (
+            <span className="grid size-8 place-items-center rounded-full bg-accent text-accent-foreground text-xs font-semibold sm:size-9">
+              {avatar}
+            </span>
+          )}
           <span className="hidden max-w-[120px] flex-col items-start text-left leading-tight md:flex">
             <span className="truncate text-xs font-medium">{orgName}</span>
             <span className="truncate text-[10px] text-muted-foreground capitalize">{roleLabel(role)}</span>
