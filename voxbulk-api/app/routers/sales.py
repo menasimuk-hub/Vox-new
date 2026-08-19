@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -60,6 +60,55 @@ def update_my_promo(payload: dict, db: Session = Depends(get_db), principal=Depe
         raise HTTPException(status_code=400, detail=str(e)) from e
     user = db.execute(select(User).where(User.id == rep.user_id)).scalar_one_or_none()
     return {"ok": True, "rep": SalesRepService.rep_to_dict(rep, user)}
+
+
+@router.get("/signup-qr.png")
+def sales_signup_qr_png(
+    promo: str = Query(..., min_length=4, max_length=12),
+    s: int = Query(default=512, ge=64, le=2048),
+    fg: str | None = Query(default=None),
+    bg: str | None = Query(default=None),
+    t: str | None = Query(default=None),
+    m: str | None = Query(default=None),
+    c: str | None = Query(default=None),
+    a: str | None = Query(default=None),
+    f: str | None = Query(default=None),
+):
+    """Public styled PNG of the signup URL for a promo code (live preview + download)."""
+    from app.services.promo_offer_service import PromoOfferService
+    from app.services.qr_style_render import merge_style_query_overrides, render_styled_qr_png
+
+    code = SalesRepService.normalize_code(promo)
+    if len(code) < 4 or len(code) > 12:
+        raise HTTPException(status_code=400, detail="Promo code must be 4–12 letters or numbers.")
+    signup_url = PromoOfferService.signup_url(code)
+    style = merge_style_query_overrides(
+        {
+            "fg_hex": "000000",
+            "bg_hex": "ffffff",
+            "transparent": False,
+            "module_style": "square",
+            "corner_style": "square",
+            "show_arrow": False,
+            "frame_round": "none",
+        },
+        fg=fg,
+        bg=bg,
+        t=t,
+        m=m,
+        c=c,
+        a=a,
+        f=f,
+    )
+    png = render_styled_qr_png(signup_url, size=int(s), **style)
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="voxbulk-signup-{code}.png"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @router.patch("/me/payout")

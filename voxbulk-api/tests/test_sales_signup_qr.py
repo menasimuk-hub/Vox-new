@@ -80,3 +80,13 @@ def test_sales_me_patch_promo_updates_signup_url_and_rejects_duplicate(app_clien
     assert rep["promo_code"] == new_code
     assert new_code in str(rep.get("signup_url") or "")
     assert "/signin?promo=" in str(rep.get("signup_url") or "")
+
+
+def test_sales_signup_qr_png_honours_style_query(app_client):
+    png = app_client.get("/sales/signup-qr.png?promo=STYLE12&fg=112233&t=1&m=dots")
+    assert png.status_code == 200, png.text
+    assert png.headers["content-type"].startswith("image/png")
+    assert png.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    bad = app_client.get("/sales/signup-qr.png?promo=ab")
+    assert bad.status_code == 422

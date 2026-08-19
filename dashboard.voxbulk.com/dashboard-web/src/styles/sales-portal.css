@@ -245,11 +245,12 @@
 
 .salesPortal .sp-qr-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px);
-  display: flex; justify-content: center; align-items: center; z-index: 999;
+  display: flex; justify-content: center; align-items: center; z-index: 40;
 }
 .salesPortal .sp-qr {
-  background: #faf7f0; padding: 32px 36px; border-radius: 28px; text-align: center;
-  max-width: 400px; width: min(400px, calc(100vw - 32px)); border: 1px solid #e5ddd0; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  background: #faf7f0; padding: 28px 32px; border-radius: 28px; text-align: center;
+  max-width: 440px; width: min(440px, calc(100vw - 32px)); max-height: min(92vh, 900px); overflow: auto;
+  border: 1px solid #e5ddd0; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
 }
 .salesPortal .sp-qr .sp-qr-box {
   color: #1a2332; background: #fff; padding: 16px; border-radius: 16px;
