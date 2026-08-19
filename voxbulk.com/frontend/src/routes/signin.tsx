@@ -35,10 +35,23 @@ type PromoPreview = {
   name: string;
   offer_type: string;
   benefit_summary?: string;
+  benefit_lines?: string[];
   wallet_credit_pence?: number;
   wallet_credit_gbp?: string;
   signup_url?: string;
 };
+
+function promoBenefitLines(promo: PromoPreview): string[] {
+  const fromApi = (promo.benefit_lines || []).map((line) => line.trim()).filter(Boolean);
+  if (fromApi.length) return fromApi;
+  if (promo.benefit_summary?.trim()) return [promo.benefit_summary.trim()];
+  if (promo.wallet_credit_pence) {
+    return [
+      `Includes ${promo.wallet_credit_gbp || `£${(promo.wallet_credit_pence / 100).toFixed(2)}`} welcome wallet credit after signup.`,
+    ];
+  }
+  return [];
+}
 
 function SignInPage() {
   const navigate = useNavigate();
@@ -126,6 +139,7 @@ function SignInPage() {
 
   const inviteActive = Boolean(inviteToken && invitePreview);
   const needsLegalAccept = mode === "signup" || inviteActive;
+  const offerLines = promoPreview ? promoBenefitLines(promoPreview) : [];
 
   const handleEmail = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -259,12 +273,12 @@ function SignInPage() {
             {promoPreview && !inviteActive ? (
               <div className="mb-5 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-sm text-heading">
                 <p className="font-semibold text-primary">Offer applied: {promoPreview.name}</p>
-                {promoPreview.benefit_summary ? (
-                  <p className="mt-1 text-muted-text">{promoPreview.benefit_summary}</p>
-                ) : promoPreview.wallet_credit_pence ? (
-                  <p className="mt-1 text-muted-text">
-                    Includes {promoPreview.wallet_credit_gbp || `£${(promoPreview.wallet_credit_pence / 100).toFixed(2)}`} welcome wallet credit after signup.
-                  </p>
+                {offerLines.length ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-text">
+                    {offerLines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
                 ) : null}
               </div>
             ) : null}

@@ -203,14 +203,35 @@ class PromoOfferService:
         mode = str(getattr(row, "redeem_mode", None) or REDEEM_ANYONE).strip().lower()
         if mode == REDEEM_ADMIN:
             raise PromoOfferError("This promo can only be applied by an administrator")
-        return PromoOfferService.to_public_dict(row)
+        return PromoOfferService.to_public_dict(row, db)
 
     @staticmethod
-    def to_public_dict(row: PromoOffer) -> dict:
+    def _sales_rep_signup_copy(row: PromoOffer, db: Session | None) -> tuple[str | None, list[str]]:
+        """Headline + perk lines from the salesman's full benefit set (wallet + every service)."""
+        if not row.sales_rep_id or db is None:
+            return None, []
+        from app.models.sales_rep import SalesRep
+        from app.services.sales_hub_benefits import currency_of_rep, parse_promo_benefits, signup_benefit_lines
+
+        rep = db.get(SalesRep, row.sales_rep_id)
+        if rep is None:
+            return None, []
+        lines = signup_benefit_lines(parse_promo_benefits(rep), currency=currency_of_rep(rep))
+        title = f"{(rep.name or '').strip()}'s offer" if (rep.name or "").strip() else None
+        return title, lines
+
+    @staticmethod
+    def to_public_dict(row: PromoOffer, db: Session | None = None) -> dict:
         benefit = PromoOfferService.resolve_benefit(row)
+        title, lines = PromoOfferService._sales_rep_signup_copy(row, db)
+        if not lines:
+            summary = PromoOfferService.benefit_summary(row)
+            lines = [summary] if summary else []
+        else:
+            summary = " · ".join(lines)
         return {
             "code": row.code,
-            "name": row.name,
+            "name": title or row.name,
             "offer_type": row.offer_type,
             "plan_code": row.plan_code,
             "service_kind": benefit["service_kind"],
@@ -219,7 +240,8 @@ class PromoOfferService:
             "discount_value": int(benefit["discount_value"] or 0),
             "usage_amount": int(benefit["usage_amount"] or 0),
             "redeem_mode": str(getattr(row, "redeem_mode", None) or REDEEM_ANYONE),
-            "benefit_summary": PromoOfferService.benefit_summary(row),
+            "benefit_summary": summary,
+            "benefit_lines": lines,
             "trial_days": int(row.trial_days or 0),
             "free_call_credits": int(row.free_call_credits or 0),
             "calls_included": int(row.calls_included or 0),
@@ -240,9 +262,9 @@ class PromoOfferService:
         return list(db.execute(select(PromoOffer).order_by(PromoOffer.created_at.desc())).scalars().all())
 
     @staticmethod
-    def to_admin_dict(row: PromoOffer) -> dict:
+    def to_admin_dict(row: PromoOffer, db: Session | None = None) -> dict:
         return {
-            **PromoOfferService.to_public_dict(row),
+            **PromoOfferService.to_public_dict(row, db),
             "id": row.id,
             "prospect_email": row.prospect_email,
             "prospect_phone": row.prospect_phone,
@@ -524,12 +546,10 @@ class PromoOfferService:
     @staticmethod
     def upsert_for_sales_rep(db: Session, rep) -> PromoOffer:
         from app.models.sales_rep import SalesRep
-        from app.services.billing_currency import money_display
         from app.services.sales_hub_benefits import (
             DEFAULT_VOUCHER_MINOR,
             parse_expires_at,
             parse_promo_benefits,
-            currency_of_rep,
         )
 
         if not isinstance(rep, SalesRep):
@@ -549,14 +569,9 @@ class PromoOfferService:
         credit = max(0, int(wv.get("amount_minor") or 0)) if voucher_on else 0
         if voucher_on and credit <= 0:
             credit = DEFAULT_VOUCHER_MINOR
-        currency = currency_of_rep(rep)
         now = datetime.utcnow()
-        if voucher_on:
-            display_name = f"{rep.name} · {money_display(credit, currency)} welcome credit"
-            offer_type = "sales_wallet_voucher"
-        else:
-            display_name = f"{rep.name} · sales promo"
-            offer_type = "sales_multi_benefit"
+        display_name = f"{rep.name}'s offer"
+        offer_type = "sales_wallet_voucher" if voucher_on else "sales_multi_benefit"
 
         expires = parse_expires_at(benefits.get("expires_at")) or (now + timedelta(days=3650))
         max_red = benefits.get("usage_limit")

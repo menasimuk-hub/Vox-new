@@ -39,17 +39,18 @@ def redeem_promo_authenticated(
         )
     except PromoOfferError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    public = PromoOfferService.to_public_dict(row, db)
     return {
         "ok": True,
-        "promo": PromoOfferService.to_public_dict(row),
-        "benefit_summary": PromoOfferService.benefit_summary(row),
+        "promo": public,
+        "benefit_summary": public["benefit_summary"],
     }
 
 
 @router.get("/admin/promo-offers")
 def admin_list_promo_offers(db: Session = Depends(get_db), _admin=Depends(require_platform_admin)):
     rows = PromoOfferService.list_all(db)
-    return [PromoOfferService.to_admin_dict(row) for row in rows]
+    return [PromoOfferService.to_admin_dict(row, db) for row in rows]
 
 
 @router.get("/admin/promo-offers/{promo_id}")
@@ -61,7 +62,7 @@ def admin_get_promo_offer(
     row = db.get(PromoOffer, promo_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Promo not found")
-    return PromoOfferService.to_admin_dict(row)
+    return PromoOfferService.to_admin_dict(row, db)
 
 
 @router.post("/admin/promo-offers")
@@ -74,7 +75,7 @@ def admin_create_promo_offer(
         row = PromoOfferService.create_admin(db, payload)
     except PromoOfferError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return {"ok": True, "promo": PromoOfferService.to_admin_dict(row)}
+    return {"ok": True, "promo": PromoOfferService.to_admin_dict(row, db)}
 
 
 @router.post("/admin/promo-offers/{promo_id}/apply")
@@ -110,4 +111,4 @@ def admin_update_promo_offer(
         row = PromoOfferService.update_admin(db, promo_id, payload)
     except PromoOfferError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return {"ok": True, "promo": PromoOfferService.to_admin_dict(row)}
+    return {"ok": True, "promo": PromoOfferService.to_admin_dict(row, db)}

@@ -120,6 +120,7 @@ def default_promo_benefits(*, voucher_enabled: bool = True, voucher_minor: int =
         "services": services,
         "usage_limit": None,
         "expires_at": None,
+        "signup_message": None,
     }
 
 
@@ -180,6 +181,9 @@ def parse_promo_benefits(rep) -> dict[str, Any]:
             base["usage_limit"] = raw.get("usage_limit")
         if "expires_at" in raw:
             base["expires_at"] = raw.get("expires_at")
+        if "signup_message" in raw:
+            msg = str(raw.get("signup_message") or "").strip()
+            base["signup_message"] = msg[:800] if msg else None
         return base
     # Legacy: always £20 / 20 local voucher
     return default_promo_benefits(voucher_enabled=True, voucher_minor=DEFAULT_VOUCHER_MINOR)
@@ -310,6 +314,8 @@ def normalize_promo_benefits(payload: Any) -> dict[str, Any]:
     base["usage_limit"] = None if ul in (None, "", 0, "0") else max(1, int(ul))
     exp = payload.get("expires_at")
     base["expires_at"] = str(exp).strip() if exp else None
+    msg = str(payload.get("signup_message") or "").strip()
+    base["signup_message"] = msg[:800] if msg else None
     return base
 
 
@@ -357,8 +363,55 @@ def benefit_summaries(benefits: dict[str, Any], *, currency: str = "GBP") -> lis
             lines.append(f"{name}: {int(val)} free days")
         elif kind == "free_package_days":
             lines.append(f"{name}: {int(val)} free package days")
-        else:
-            lines.append(f"{name}: {kind} {val:g}")
+    return lines
+
+
+SIGNUP_LABELS = {
+    "core_package": "Core package",
+    "ai_interview": "AI Interview Screening",
+    "wa_survey": "WhatsApp Survey",
+    "customer_feedback": "Customer Feedback",
+    "voxbulk_expo": "Expo",
+    "smart_card": "Smart Card",
+}
+
+
+def signup_benefit_lines(benefits: dict[str, Any], *, currency: str = "GBP") -> list[str]:
+    """Customer-facing perk list for signup / sign-in (not internal sales copy)."""
+    custom = str(benefits.get("signup_message") or "").strip()
+    if custom:
+        return [ln.strip() for ln in custom.replace("\r\n", "\n").split("\n") if ln.strip()][:12]
+
+    lines: list[str] = []
+    wv = benefits.get("wallet_voucher") or {}
+    if wv.get("enabled"):
+        amt = max(0, int(wv.get("amount_minor") or 0))
+        lines.append(f"{money_display(amt, currency)} welcome wallet credit")
+    for sid in SERVICE_IDS:
+        svc = (benefits.get("services") or {}).get(sid) or {}
+        if not isinstance(svc, dict) or not svc.get("enabled"):
+            continue
+        name = SIGNUP_LABELS.get(sid, SERVICE_META[sid]["name"])
+        kind = str(svc.get("kind") or "")
+        val = float(svc.get("value") or 0)
+        n = int(round(val))
+        if kind == "percent_discount":
+            lines.append(f"{val:g}% off {name}")
+        elif kind == "fixed_topup":
+            lines.append(f"{money_display(int(round(val)), currency)} {name} credit")
+        elif kind == "free_package_days":
+            if sid == "voxbulk_expo":
+                lines.append(f"{n}-day free Expo booth")
+            else:
+                lines.append(f"{n} free package days of {name}")
+        elif kind == "free_days":
+            unit = "day" if n == 1 else "days"
+            if sid == "smart_card":
+                lines.append(f"{n} free {unit} of Smart Card")
+            elif sid == "core_package":
+                lines.append(f"{n}-day Core trial")
+            else:
+                lines.append(f"{n} free {unit} of {name}")
     return lines
 
 

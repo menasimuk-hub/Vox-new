@@ -247,6 +247,7 @@ function defaultPromoBenefits() {
     services,
     usage_limit: '',
     expires_at: '',
+    signup_message: '',
   }
 }
 
@@ -349,6 +350,7 @@ function repToForm(rep) {
       services,
       usage_limit: benefits.usage_limit != null ? String(benefits.usage_limit) : '',
       expires_at: benefits.expires_at ? String(benefits.expires_at).slice(0, 10) : '',
+      signup_message: benefits.signup_message ? String(benefits.signup_message) : '',
     },
     commission_tiers: tiers,
     partner_terms: {
@@ -386,6 +388,7 @@ function buildPromoBenefitsPayload(form, currency) {
     services,
     usage_limit: pb.usage_limit ? parseInt(pb.usage_limit, 10) : null,
     expires_at: pb.expires_at || null,
+    signup_message: (pb.signup_message || '').trim() || null,
   }
 }
 
@@ -1600,6 +1603,22 @@ export default function SalesTeam() {
             </div>
           )
         })}
+      </div>
+      <div className='field' style={{ marginTop: 12 }}>
+        <label>What customers see at signup (optional)</label>
+        <textarea
+          rows={3}
+          maxLength={800}
+          placeholder='Leave blank to list every enabled benefit automatically (wallet credit, Expo days, Smart Card, …)'
+          value={form.promo_benefits.signup_message || ''}
+          onChange={(e) => setForm({
+            ...form,
+            promo_benefits: { ...form.promo_benefits, signup_message: e.target.value },
+          })}
+        />
+        <p className='muted' style={{ marginTop: 6, fontSize: 12 }}>
+          One perk per line if you write your own copy. Tick the services above to control what is actually granted — this box only changes the signup wording.
+        </p>
       </div>
     </div>
   )

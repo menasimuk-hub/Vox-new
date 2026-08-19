@@ -9,6 +9,7 @@ from app.services.sales_hub_benefits import (
     normalize_commission_tiers,
     normalize_promo_benefits,
     parse_promo_benefits,
+    signup_benefit_lines,
 )
 
 
@@ -54,7 +55,7 @@ def test_normalize_promo_benefits_services():
     assert b["services"]["customer_feedback"]["value"] == 1500
     assert b["services"]["voxbulk_expo"]["kind"] == "free_package_days"
     lines = benefit_summaries(b, currency="EUR")
-    assert any("Wallet voucher" in x for x in lines)
+    assert any("wallet credit" in x.lower() for x in lines)
     assert any("20%" in x for x in lines)
     assert any("top-up" in x for x in lines)
 
@@ -91,6 +92,24 @@ def test_smart_card_in_promo_normalize():
     assert b["services"]["smart_card"]["kind"] == "percent_discount"
     lines = benefit_summaries(b, currency="GBP")
     assert any("Smart Card" in x or "smart" in x.lower() for x in lines)
+
+
+def test_signup_benefit_lines_lists_wallet_expo_and_smart_card():
+    b = default_promo_benefits()
+    b["services"]["voxbulk_expo"] = {"enabled": True, "kind": "free_package_days", "value": 3}
+    b["services"]["smart_card"] = {"enabled": True, "kind": "free_days", "value": 30}
+    lines = signup_benefit_lines(b, currency="GBP")
+    joined = " ".join(lines).lower()
+    assert any("welcome wallet credit" in x.lower() for x in lines)
+    assert "expo" in joined
+    assert "smart card" in joined
+    assert any("3" in x for x in lines)
+    assert any("30" in x for x in lines)
+
+
+def test_signup_message_overrides_auto_lines():
+    lines = signup_benefit_lines({"signup_message": "Free Expo\nSmart Card 30 days"}, currency="GBP")
+    assert lines == ["Free Expo", "Smart Card 30 days"]
 
 
 def test_commission_mode_helpers():

@@ -1541,7 +1541,7 @@ class AiTeamService:
             elif row.expires_at and row.expires_at < AiTeamService._now():
                 status = "expired"
             out.append({
-                **PromoOfferService.to_admin_dict(row),
+                **PromoOfferService.to_admin_dict(row, db),
                 "usage_status": status,
             })
         return out

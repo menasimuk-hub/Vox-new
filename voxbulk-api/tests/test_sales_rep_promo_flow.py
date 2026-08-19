@@ -115,6 +115,32 @@ def test_upsert_for_sales_rep_creates_wallet_voucher(db):
     assert promo.sales_rep_id == rep.id
 
 
+def test_public_promo_lists_all_salesman_benefits(db):
+    from app.services.sales_hub_benefits import set_promo_benefits
+
+    rep = _seed_rep(db, code="QUSAY20")
+    set_promo_benefits(
+        rep,
+        {
+            "wallet_voucher": {"enabled": True, "amount_minor": 2000},
+            "services": {
+                "voxbulk_expo": {"enabled": True, "kind": "free_package_days", "value": 3},
+                "smart_card": {"enabled": True, "kind": "free_days", "value": 30},
+            },
+        },
+    )
+    db.add(rep)
+    db.commit()
+    PromoOfferService.upsert_for_sales_rep(db, rep)
+    public = PromoOfferService.validate_public(db, "QUSAY20")
+    assert public["name"] == "Test Rep's offer"
+    joined = " ".join(public["benefit_lines"]).lower()
+    assert "wallet" in joined
+    assert "expo" in joined
+    assert "smart card" in joined
+    assert "£20.00 welcome wallet credit" in public["benefit_summary"]
+
+
 def test_redeem_wallet_voucher_credits_promo_wallet(db):
     rep = _seed_rep(db, code="WELCOME20")
     PromoOfferService.upsert_for_sales_rep(db, rep)
