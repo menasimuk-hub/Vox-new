@@ -2349,6 +2349,7 @@ def admin_org_control_center_list(
     overage_only: bool = False,
     invoices_due_only: bool = False,
     running_campaigns_only: bool = False,
+    registered: str | None = None,
     db: Session = Depends(get_db),
     _admin=Depends(require_cap(CAP_ORG_OPS)),
 ):
@@ -2368,6 +2369,7 @@ def admin_org_control_center_list(
         overage_only=overage_only,
         invoices_due_only=invoices_due_only,
         running_campaigns_only=running_campaigns_only,
+        registered=registered,
     )
 
 

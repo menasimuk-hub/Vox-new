@@ -62,6 +62,14 @@ def test_register_creates_org_user_and_returns_token(app_client):
     r2 = app_client.get("/auth/me", headers={"Authorization": f"Bearer {body['access_token']}"})
     assert r2.status_code == 200
 
+    from app.core.database import get_sessionmaker
+    from app.models.organisation import Organisation
+
+    with get_sessionmaker()() as db:
+        org = db.get(Organisation, body["org_id"])
+        assert org is not None
+        assert org.contact_email == "new@example.com"
+
 
 def test_register_does_not_auto_assign_starter_plan(app_client):
     from app.core.database import get_sessionmaker

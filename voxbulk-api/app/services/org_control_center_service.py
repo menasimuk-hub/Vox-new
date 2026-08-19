@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.billing_invoice import BillingInvoice
+from app.models.membership import OrganisationMembership
 from app.models.org_usage_period import OrgUsagePeriod
 from app.models.organisation import Organisation
 from app.models.plan import Plan
 from app.models.service_order import ServiceOrder, ServiceOrderRecipient
 from app.models.subscription import Subscription
+from app.models.user import User
 from app.services.account_deletion_service import AccountDeletionService
 from app.services.admin_org_service import AdminOrganisationService
 from app.services.billing_access_service import BillingAccessService
@@ -32,6 +35,8 @@ _COMPLETED_RECIPIENT = frozenset({"completed", "done", "answered", "finished"})
 _FAILED_RECIPIENT = frozenset({"failed", "error", "cancelled", "rejected", "no_answer", "busy"})
 _OPEN_INVOICE_STATUSES = frozenset({"due", "open", "sent", "pending", "unpaid", "overdue", "collecting", "issued"})
 _RUNNING_CAMPAIGN_STATUSES = ("running", "paused", "scheduled", "paid")
+_LONDON = ZoneInfo("Europe/London")
+_REGISTERED_KEYS = frozenset({"7d", "30d", "month"})
 
 
 def _payment_status_from_invoices(invoices: list) -> str:
@@ -172,6 +177,37 @@ def _service_label(order: ServiceOrder, recipients: list | None = None) -> str:
     return "Call Survey"
 
 
+def _registered_since_utc(registered: str | None) -> datetime | None:
+    key = str(registered or "").strip().lower()
+    if key not in _REGISTERED_KEYS:
+        return None
+    now = datetime.now(_LONDON)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if key == "7d":
+        start = today - timedelta(days=7)
+    elif key == "30d":
+        start = today - timedelta(days=30)
+    else:
+        start = today.replace(day=1)
+    return start.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _email_local_part(email: str | None) -> str | None:
+    em = str(email or "").strip()
+    if "@" not in em:
+        return None
+    local = em.split("@", 1)[0].strip()
+    return local or None
+
+
+def _dt_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
 def _search_org_ids(db: Session, term: str) -> set[str] | None:
     q = term.strip()
     if not q:
@@ -183,9 +219,22 @@ def _search_org_ids(db: Session, term: str) -> set[str] | None:
             or_(
                 Organisation.name.ilike(like),
                 Organisation.id.ilike(like),
+                Organisation.contact_name.ilike(like),
                 Organisation.contact_email.ilike(like),
                 Organisation.contact_phone.ilike(like),
                 Organisation.country.ilike(like),
+            )
+        )
+    ).all():
+        org_ids.add(row[0])
+    for row in db.execute(
+        select(OrganisationMembership.org_id)
+        .join(User, User.id == OrganisationMembership.user_id)
+        .where(
+            or_(
+                User.email.ilike(like),
+                User.phone_number.ilike(like),
+                User.phone_e164.ilike(like),
             )
         )
     ).all():
@@ -205,6 +254,52 @@ def _search_org_ids(db: Session, term: str) -> set[str] | None:
     ).all():
         org_ids.add(row[0])
     return org_ids
+
+
+def _batch_member_contacts(db: Session, org_ids: list[str]) -> dict[str, dict[str, str | None]]:
+    if not org_ids:
+        return {}
+    from app.services.org_rbac import effective_role
+
+    rows = db.execute(
+        select(
+            OrganisationMembership.org_id,
+            OrganisationMembership.role,
+            User.email,
+            User.phone_number,
+            User.phone_e164,
+            User.created_at,
+        )
+        .join(User, User.id == OrganisationMembership.user_id)
+        .where(OrganisationMembership.org_id.in_(org_ids), User.is_active.is_(True))
+        .order_by(User.created_at.asc())
+    ).all()
+    first: dict[str, dict[str, str | None]] = {}
+    owner: dict[str, dict[str, str | None]] = {}
+    for org_id, role, email, phone_number, phone_e164, _created in rows:
+        contact = {
+            "email": str(email or "").strip() or None,
+            "phone": str(phone_e164 or phone_number or "").strip() or None,
+            "name": _email_local_part(str(email or "")),
+        }
+        if org_id not in first:
+            first[org_id] = contact
+        if org_id not in owner and effective_role(role) == "owner":
+            owner[org_id] = contact
+    out: dict[str, dict[str, str | None]] = {}
+    for oid in org_ids:
+        picked = owner.get(oid) or first.get(oid)
+        if picked:
+            out[oid] = picked
+    return out
+
+
+def _display_contact(org: Organisation, member: dict[str, str | None] | None) -> tuple[str | None, str | None, str | None]:
+    member = member or {}
+    name = str(org.contact_name or "").strip() or member.get("name")
+    email = str(org.contact_email or "").strip() or member.get("email")
+    phone = str(org.contact_phone or "").strip() or member.get("phone")
+    return name or None, email or None, phone or None
 
 
 def _batch_usage_rows(db: Session, org_ids: list[str]) -> dict[str, OrgUsagePeriod]:
@@ -407,23 +502,40 @@ class OrgControlCenterService:
         overage_only: bool = False,
         invoices_due_only: bool = False,
         running_campaigns_only: bool = False,
+        registered: str | None = None,
     ) -> dict[str, Any]:
         zone_key = normalize_zone(country)
         search_ids = _search_org_ids(db, search) if search else None
+        registered_start = _registered_since_utc(registered)
+
+        if search_ids is not None and not search_ids:
+            return {"items": [], "count": 0}
+
+        filters = []
+        if zone_key:
+            filters.append(country_column_matches_zone(Organisation.country, zone_key))
+        if search_ids is not None:
+            filters.append(Organisation.id.in_(list(search_ids)))
+        if registered_start is not None:
+            filters.append(Organisation.created_at >= registered_start)
+
+        count_stmt = select(func.count()).select_from(Organisation)
+        if filters:
+            count_stmt = count_stmt.where(*filters)
+        total = int(db.execute(count_stmt).scalar() or 0)
+        if total <= 0:
+            return {"items": [], "count": 0}
 
         org_query = select(Organisation).order_by(Organisation.created_at.desc())
-        if zone_key:
-            org_query = org_query.where(country_column_matches_zone(Organisation.country, zone_key))
-        if search_ids is not None:
-            if not search_ids:
-                return {"items": [], "count": 0}
-            org_query = org_query.where(Organisation.id.in_(list(search_ids)))
+        if filters:
+            org_query = org_query.where(*filters)
 
         org_rows = list(db.execute(org_query.limit(max(1, min(limit, 500))).offset(max(0, offset))).scalars().all())
         if not org_rows:
-            return {"items": [], "count": 0}
+            return {"items": [], "count": total}
 
         org_ids = [org.id for org in org_rows]
+        member_contacts = _batch_member_contacts(db, org_ids)
         subs_by_org = AdminOrganisationService._subs_by_org_service(db, org_ids)
         plan_fields_by_org = _batch_plan_fields(db, org_ids, subs_by_org)
         usage_by_org = _batch_usage_rows(db, org_ids)
@@ -459,6 +571,7 @@ class OrgControlCenterService:
 
             row_status = "frozen" if org.is_suspended else "active"
             wallet_pence = int(org.wallet_balance_pence or 0)
+            contact_name, contact_email, contact_phone = _display_contact(org, member_contacts.get(org.id))
 
             item = {
                 "id": org.id,
@@ -483,8 +596,10 @@ class OrgControlCenterService:
                 "subscription_status": o.get("subscription_status"),
                 "campaigns": running_campaigns,
                 "invoices": len(open_invoices),
-                "contact_email": org.contact_email,
-                "contact_phone": org.contact_phone,
+                "contact_name": contact_name,
+                "contact_email": contact_email,
+                "contact_phone": contact_phone,
+                "created_at": _dt_iso(org.created_at),
                 "country": org.country,
                 "country_code": profile.get("country_code"),
                 "market_zone": profile.get("market_zone"),
@@ -514,7 +629,7 @@ class OrgControlCenterService:
 
             items.append(item)
 
-        return {"items": items, "count": len(items)}
+        return {"items": items, "count": total}
 
     @staticmethod
     def get_detail(db: Session, org_id: str, *, invoice_search: str | None = None) -> dict[str, Any] | None:
@@ -600,6 +715,9 @@ class OrgControlCenterService:
 
         subscription_finance = sub_summary.get("core")
         feedback_subscription_finance = sub_summary.get("feedback")
+        contact_name, contact_email, contact_phone = _display_contact(
+            org, _batch_member_contacts(db, [org_id]).get(org_id)
+        )
 
         return {
             "organisation": {
@@ -608,6 +726,7 @@ class OrgControlCenterService:
                 "company": org.name,
                 "status": "frozen" if org.is_suspended else "active",
                 "is_suspended": org.is_suspended,
+                "created_at": _dt_iso(org.created_at),
                 "plan": o.core_plan_name or o.core_plan_code or "—",
                 "plan_code": o.core_plan_code,
                 "plan_name": o.core_plan_name,
@@ -627,9 +746,9 @@ class OrgControlCenterService:
                 "survey_credits": int(org.survey_credits_balance or 0),
                 "interview_credits": int(org.interview_credits_balance or 0),
                 "profile_notes": org.profile_notes,
-                "contact_name": org.contact_name,
-                "contact_email": org.contact_email,
-                "contact_phone": org.contact_phone,
+                "contact_name": contact_name,
+                "contact_email": contact_email,
+                "contact_phone": contact_phone,
                 "billing_email": profile.get("billing_email"),
                 "country": org.country,
                 "country_code": profile.get("country_code"),

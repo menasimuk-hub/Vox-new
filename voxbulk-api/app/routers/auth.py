@@ -531,7 +531,7 @@ def register(payload: RegisterIn, request: Request, db: Session = Depends(get_db
             detail="Use an organisation invite link to join an existing organisation",
         )
 
-    org = Organisation(name=payload.organisation_name)
+    org = Organisation(name=payload.organisation_name, contact_email=str(payload.email).strip().lower())
     db.add(org)
     db.flush()
 

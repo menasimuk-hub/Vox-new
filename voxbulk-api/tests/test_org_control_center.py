@@ -203,3 +203,86 @@ def test_admin_created_invoice_visible_to_customer(mock_send, app_client):
     assert usage.status_code == 200
     open_count = usage.json().get("billing_monitor", {}).get("status", {}).get("open_invoices_count", 0)
     assert open_count >= 1
+
+
+def _seed_member_org(*, email: str, phone: str | None = None, created_at=None, contact_email=None) -> str:
+    with get_sessionmaker()() as db:
+        org = Organisation(
+            name=f"OCC Member {uuid.uuid4().hex[:6]}",
+            country="United Kingdom",
+            contact_email=contact_email,
+        )
+        db.add(org)
+        db.flush()
+        user = User(
+            email=email,
+            password_hash=hash_password("pass123"),
+            is_active=True,
+            phone_e164=phone,
+        )
+        db.add(user)
+        db.flush()
+        db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
+        if created_at is not None:
+            org.created_at = created_at
+        db.commit()
+        sync_org_country_code(db, org, commit=True)
+        return org.id
+
+
+def test_control_center_search_finds_login_email_and_falls_back_contact(app_client):
+    from datetime import datetime, timedelta
+
+    admin = _admin_headers(app_client)
+    token = uuid.uuid4().hex[:8]
+    email = f"ameen.bardi.{token}@voxbulk.com"
+    phone = "447700900123"
+    org_id = _seed_member_org(email=email, phone=phone, contact_email=None)
+
+    listed = app_client.get(
+        f"/admin/organisations/control-center?search={email}",
+        headers=admin,
+    )
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()["items"]
+    match = next((row for row in rows if row["id"] == org_id), None)
+    assert match is not None
+    assert match["contact_email"] == email
+    assert match["contact_phone"] == phone
+    assert match.get("created_at")
+
+    partial = app_client.get(
+        f"/admin/organisations/control-center?search=ameen.bardi.{token}",
+        headers=admin,
+    )
+    assert partial.status_code == 200, partial.text
+    assert any(row["id"] == org_id for row in partial.json()["items"])
+
+    detail = app_client.get(f"/admin/organisations/{org_id}/control-center", headers=admin)
+    assert detail.status_code == 200, detail.text
+    org = detail.json()["organisation"]
+    assert org["contact_email"] == email
+    assert org["contact_phone"] == phone
+    assert org["contact_name"] == f"ameen.bardi.{token}"
+    assert org.get("created_at")
+
+    recent_id = _seed_member_org(
+        email=f"recent.{token}@example.com",
+        created_at=datetime.utcnow() - timedelta(days=3),
+    )
+    old_id = _seed_member_org(
+        email=f"old.{token}@example.com",
+        created_at=datetime.utcnow() - timedelta(days=40),
+    )
+    week = app_client.get("/admin/organisations/control-center?registered=7d", headers=admin)
+    assert week.status_code == 200, week.text
+    week_ids = {row["id"] for row in week.json()["items"]}
+    assert recent_id in week_ids
+    assert old_id not in week_ids
+    assert week.json()["count"] >= 1
+
+    all_time = app_client.get("/admin/organisations/control-center", headers=admin)
+    assert all_time.status_code == 200
+    all_ids = {row["id"] for row in all_time.json()["items"]}
+    assert old_id in all_ids
+    assert all_time.json()["count"] > week.json()["count"]

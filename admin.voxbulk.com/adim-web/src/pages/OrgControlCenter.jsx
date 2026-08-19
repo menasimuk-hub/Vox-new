@@ -83,6 +83,13 @@ function fmtWhen(iso) {
   return d.toLocaleString()
 }
 
+function fmtDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-GB')
+}
+
 function barClass(pct) {
   const p = Number(pct || 0)
   if (p >= 90) return 'occ-bar-red'
@@ -332,6 +339,8 @@ export default function OrgControlCenter() {
   const [statusFilter, setStatusFilter] = useState('')
   const [planFilter, setPlanFilter] = useState('')
   const [payFilter, setPayFilter] = useState('')
+  const [registeredFilter, setRegisteredFilter] = useState('')
+  const [listCount, setListCount] = useState(0)
   const [chips, setChips] = useState(() => new Set())
   const [sortField, setSortField] = useState('name')
   const [sortAsc, setSortAsc] = useState(true)
@@ -394,13 +403,14 @@ export default function OrgControlCenter() {
     if (countryFilter) params.set('country', countryFilter)
     if (campaignStatusFilter) params.set('campaign_status', campaignStatusFilter)
     if (channelFilter) params.set('channel', channelFilter)
+    if (registeredFilter) params.set('registered', registeredFilter)
     if (chips.has('overage')) params.set('overage_only', 'true')
     if (chips.has('invoices')) params.set('invoices_due_only', 'true')
     if (chips.has('campaigns')) params.set('running_campaigns_only', 'true')
     if (chips.has('active') && !chips.has('frozen')) params.set('status', 'active')
     if (chips.has('frozen') && !chips.has('active')) params.set('status', 'frozen')
     return params.toString()
-  }, [search, statusFilter, planFilter, payFilter, countryFilter, campaignStatusFilter, channelFilter, chips])
+  }, [search, statusFilter, planFilter, payFilter, countryFilter, campaignStatusFilter, channelFilter, registeredFilter, chips])
 
   const loadList = useCallback(async () => {
     setError('')
@@ -410,12 +420,15 @@ export default function OrgControlCenter() {
         timeoutMs: 90000,
         quietNetworkHint: true,
       })
-      setItems(Array.isArray(res?.items) ? res.items : [])
+      const rows = Array.isArray(res?.items) ? res.items : []
+      setItems(rows)
+      setListCount(typeof res?.count === 'number' ? res.count : rows.length)
     } catch (e) {
       const raw = e?.message || 'Could not load organisations'
       const short = raw.split('\n')[0].replace(/\.$/, '')
       setError(short || 'Could not load organisations')
       setItems([])
+      setListCount(0)
     } finally {
       setLoading(false)
     }
@@ -493,14 +506,14 @@ export default function OrgControlCenter() {
   const aggregateKpis = useMemo(() => {
     const isDue = (s) => ['due', 'overdue', 'failed', 'past_due'].includes(String(s || '').toLowerCase())
     return {
-      total: items.length,
+      total: typeof listCount === 'number' ? listCount : items.length,
       active: items.filter((o) => o.status === 'active').length,
       frozen: items.filter((o) => o.status === 'frozen').length,
       paymentDue: items.filter((o) => isDue(o.payment_status)).length,
       campaigns: items.reduce((acc, o) => acc + (Number(o.campaigns) || 0), 0),
       invoices: items.reduce((acc, o) => acc + (Number(o.invoices) || 0), 0),
     }
-  }, [items])
+  }, [items, listCount])
 
   const org = detail?.organisation
   const subscriptionRouting = org?.subscription_routing
@@ -1373,7 +1386,7 @@ export default function OrgControlCenter() {
             <Input
               type="text"
               className="h-9 pl-8 text-[13px]"
-              placeholder="Search by org name, ID, email, invoice #…"
+              placeholder="Search by org, login email, phone, invoice #…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => {
@@ -1406,6 +1419,12 @@ export default function OrgControlCenter() {
             <option value="paid">Paid</option>
             <option value="due">Due</option>
             <option value="overdue">Overdue</option>
+          </select>
+          <select className="h-9 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-muted-foreground shadow-sm" value={registeredFilter} onChange={(e) => setRegisteredFilter(e.target.value)}>
+            <option value="">All time</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="month">This month</option>
           </select>
           <Button type="button" size="sm" onClick={loadList}>
             Apply
@@ -1491,7 +1510,11 @@ export default function OrgControlCenter() {
                       <TableCell className="font-mono text-[12px]">{o.id.slice(0, 8)}…</TableCell>
                       <TableCell>
                         <div className="font-medium">{o.name}</div>
-                        <div className="text-[11px] text-muted-foreground">{o.contact_email || o.market_label || '—'}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {[o.contact_email, o.created_at ? `Registered ${fmtDate(o.created_at)}` : null]
+                            .filter(Boolean)
+                            .join(' · ') || o.market_label || '—'}
+                        </div>
                       </TableCell>
                       <TableCell>{o.market_label || o.country || '—'}</TableCell>
                       <TableCell>{statusBadge(o.status)}</TableCell>
@@ -1661,6 +1684,7 @@ export default function OrgControlCenter() {
                   <OccInfoRow label="Contact" value={org?.contact_name || '—'} />
                   <OccInfoRow label="Email" value={org?.contact_email || '—'} />
                   <OccInfoRow label="Phone" value={org?.contact_phone || '—'} />
+                  <OccInfoRow label="Registered" value={fmtWhen(org?.created_at)} />
                   <OccInfoRow label="Market" value={org?.market_label || org?.country || '—'} />
                   <OccInfoRow label="Status" value={statusBadge(org?.status)} />
                   <OccInfoRow label="Deletion" value={statusBadge(org?.deletion_status || 'active')} />
