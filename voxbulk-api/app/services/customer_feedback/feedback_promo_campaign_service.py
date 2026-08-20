@@ -443,9 +443,30 @@ class FeedbackPromoCampaignService:
                     variables = {str(k): str(v) for k, v in parsed.items()}
             except json.JSONDecodeError:
                 variables = {}
+        from app.services.uk_compliance_audit_service import UkComplianceAuditService
+        from app.services.uk_compliance_opt_out import should_block_outbound_phone
+
         sent = 0
+        skipped = 0
         for phone in recipients:
             try:
+                skip_reason = should_block_outbound_phone(db, org_id=org_id, phone_e164=phone)
+                if skip_reason:
+                    skipped += 1
+                    UkComplianceAuditService.record(
+                        db,
+                        event_type="send.blocked",
+                        org_id=org_id,
+                        order_id=None,
+                        resource_type="feedback_promo",
+                        resource_id=str(row.id),
+                        detail={
+                            "reason": skip_reason,
+                            "workflow": "feedback_promo",
+                            "campaign_id": row.id,
+                        },
+                    )
+                    continue
                 if template is not None:
                     meta_name = _promo_meta_template_name(str(row.template_id or ""))
                     components = _promo_template_components(template, variables)
@@ -487,4 +508,10 @@ class FeedbackPromoCampaignService:
         row.updated_at = datetime.utcnow()
         db.add(row)
         db.commit()
-        return {"ok": True, "status": "completed", "sent_count": sent, "recipient_count": len(recipients)}
+        return {
+            "ok": True,
+            "status": "completed",
+            "sent_count": sent,
+            "skipped_count": skipped,
+            "recipient_count": len(recipients),
+        }

@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { generateAiReply } from "@/lib/ai-reply.functions";
+import { sanitizeMailHtml } from "@/lib/sanitize-html";
 import type { MailAccount, MailAttachment, MailMessage } from "@/lib/mail-store";
 import { cn } from "@/lib/utils";
 
@@ -241,7 +242,7 @@ export function MessageView({
             {hasHtml ? (
               <div
                 className="mail-html text-sm leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: message.html }}
+                dangerouslySetInnerHTML={{ __html: sanitizeMailHtml(message.html) }}
               />
             ) : (
               <p className="text-sm text-muted-foreground">

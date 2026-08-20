@@ -45,6 +45,21 @@ class OutboundWhatsappService:
                 None,
             )
 
+        if org_id:
+            from app.services.uk_compliance_opt_out import should_block_outbound_phone
+
+            skip_reason = should_block_outbound_phone(db, org_id=str(org_id), phone_e164=to_number)
+            if skip_reason:
+                return (
+                    TelnyxMessageResult(
+                        ok=False,
+                        status="opt_out_blocked",
+                        detail=str(skip_reason),
+                        channel="whatsapp",
+                    ),
+                    None,
+                )
+
         profile = ConnectionProfileResolver.resolve_whatsapp(
             db,
             org_id=org_id,

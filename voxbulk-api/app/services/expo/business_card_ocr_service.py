@@ -115,21 +115,42 @@ def _resolve_meta_media_url(db: Session, media_id: str) -> str | None:
 
 
 def download_image_bytes(db: Session, *, media_url: str, max_bytes: int = 8_000_000) -> tuple[bytes, str]:
-    headers = _download_auth_headers(db, media_url)
-    with httpx.Client(timeout=45.0, verify=httpx_ssl_verify(), follow_redirects=True) as client:
-        with client.stream("GET", media_url, headers=headers) as response:
-            response.raise_for_status()
-            ctype = str(response.headers.get("content-type") or "image/jpeg").split(";")[0].strip().lower()
-            chunks: list[bytes] = []
-            total = 0
-            for chunk in response.iter_bytes(chunk_size=65536):
-                if not chunk:
+    from urllib.parse import urljoin
+
+    from app.utils.safe_outbound_url import classify_media_download_host, media_url_hostname
+
+    initial_kind = classify_media_download_host(media_url_hostname(media_url))
+    if initial_kind is None:
+        raise ValueError("Media URL host is not allowlisted for download")
+
+    current_url = str(media_url)
+    with httpx.Client(timeout=45.0, verify=httpx_ssl_verify(), follow_redirects=False) as client:
+        for _redir in range(5):
+            headers = _download_auth_headers(db, current_url)
+            with client.stream("GET", current_url, headers=headers) as response:
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    loc = str(response.headers.get("location") or "").strip()
+                    if not loc:
+                        raise ValueError("Media download redirect missing Location")
+                    next_url = urljoin(current_url, loc)
+                    next_kind = classify_media_download_host(media_url_hostname(next_url))
+                    if next_kind != initial_kind:
+                        raise ValueError("Media download redirect left allowlisted host")
+                    current_url = next_url
                     continue
-                total += len(chunk)
-                if total > max_bytes:
-                    raise ValueError("Business card image exceeds maximum size")
-                chunks.append(chunk)
-    return b"".join(chunks), ctype or "image/jpeg"
+                response.raise_for_status()
+                ctype = str(response.headers.get("content-type") or "image/jpeg").split(";")[0].strip().lower()
+                chunks: list[bytes] = []
+                total = 0
+                for chunk in response.iter_bytes(chunk_size=65536):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError("Business card image exceeds maximum size")
+                    chunks.append(chunk)
+                return b"".join(chunks), ctype or "image/jpeg"
+        raise ValueError("Media download exceeded redirect limit")
 
 
 def _clean_phone(raw: str | None) -> str | None:

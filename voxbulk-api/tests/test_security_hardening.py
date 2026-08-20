@@ -125,3 +125,16 @@ def test_media_auth_headers_reject_substring_host_trick():
 
     headers = _download_auth_headers(db=_DummyDb(), media_url=evil)
     assert "Authorization" not in headers
+
+
+def test_business_card_download_rejects_non_allowlisted_host():
+    from app.services.expo.business_card_ocr_service import download_image_bytes
+
+    class _DummyDb:
+        pass
+
+    try:
+        download_image_bytes(db=_DummyDb(), media_url="http://127.0.0.1:8000/health")
+        raise AssertionError("expected allowlist rejection")
+    except ValueError as exc:
+        assert "allowlisted" in str(exc).lower()
