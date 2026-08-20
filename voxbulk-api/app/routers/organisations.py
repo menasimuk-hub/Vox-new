@@ -176,6 +176,11 @@ def update_enabled_services(
     from app.models.membership import OrganisationMembership
     from app.schemas.organisation import EnabledServicesUpdate
 
+    try:
+        OrgRbacService.assert_can_edit_org_profile(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
     body = EnabledServicesUpdate.model_validate(payload or {})
     org = OrganisationService.get_org(db, principal.org_id)
     if org is None:

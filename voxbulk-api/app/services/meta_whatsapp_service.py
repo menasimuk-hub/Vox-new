@@ -586,9 +586,20 @@ class MetaWhatsappService:
                 "text": {"body": text_body},
             }
 
-        from app.services.wa_send_rate_limit import acquire_whatsapp_send_slot
+        from app.services.wa_send_rate_limit import (
+            WhatsAppOrgRateLimitExceeded,
+            acquire_whatsapp_send_slot,
+        )
 
-        acquire_whatsapp_send_slot(block=True)
+        try:
+            acquire_whatsapp_send_slot(block=True, org_id=org_id)
+        except WhatsAppOrgRateLimitExceeded as exc:
+            return TelnyxMessageResult(
+                ok=False,
+                status="rate_limited",
+                detail=str(exc),
+                channel="whatsapp",
+            )
         try:
             payload = MetaWhatsappService._graph_request(
                 config=config,

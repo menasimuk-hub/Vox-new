@@ -15,7 +15,7 @@ from app.services.org_enabled_services import (
 )
 
 
-def _seed_org_user(db, *, email: str = "appt-enable@example.com"):
+def _seed_org_user(db, *, email: str = "appt-enable@example.com", role: str = "owner"):
     from app.models.membership import OrganisationMembership
     from app.models.organisation import Organisation
     from app.models.user import User
@@ -26,7 +26,7 @@ def _seed_org_user(db, *, email: str = "appt-enable@example.com"):
     user = User(email=email, password_hash=hash_password("pass123"), is_active=True)
     db.add(user)
     db.flush()
-    db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
+    db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role=role))
     db.commit()
     return user, org
 
@@ -114,6 +114,27 @@ def test_enabled_services_patch_includes_smart_card(app_client):
 
     me = app_client.get("/organisations/me", headers=headers)
     assert me.json()["enabled_services"]["smart_card"] is True
+
+
+def test_enabled_services_patch_requires_owner_or_manager(app_client):
+    from app.core.database import get_sessionmaker
+
+    with get_sessionmaker()() as db:
+        user, org = _seed_org_user(db, email="member-enable@example.com", role="member")
+        allowed, enabled, _ = org_service_maps(org, db)
+        allowed, enabled = merge_admin_allowed_services(allowed, enabled, {"appointments": True})
+        org.allowed_services_json = serialize_allowed_services(allowed)
+        org.enabled_services_json = serialize_enabled_services(enabled)
+        db.add(org)
+        db.commit()
+
+    headers = _headers(app_client, user, org)
+    res = app_client.patch(
+        "/organisations/me/enabled-services",
+        headers=headers,
+        json={"appointments": True},
+    )
+    assert res.status_code == 403, res.text
 
 
 def test_appointment_wa_templates_seeded():

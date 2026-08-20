@@ -96,9 +96,15 @@ class TelnyxMessagingService:
         )
 
         if str(channel or "").lower() == "whatsapp":
-            from app.services.wa_send_rate_limit import acquire_whatsapp_send_slot
+            from app.services.wa_send_rate_limit import (
+                WhatsAppOrgRateLimitExceeded,
+                acquire_whatsapp_send_slot,
+            )
 
-            acquire_whatsapp_send_slot(block=True)
+            try:
+                acquire_whatsapp_send_slot(block=True, org_id=org_id)
+            except WhatsAppOrgRateLimitExceeded as e:
+                return TelnyxMessageResult(ok=False, status="rate_limited", detail=str(e), channel=channel)
 
         try:
             with httpx.Client(timeout=20.0, verify=httpx_ssl_verify()) as client:

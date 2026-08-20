@@ -7,6 +7,6 @@ export function sanitizeCmsHtml(html: string): string {
   try {
     return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
   } catch {
-    return raw.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+    return "";
   }
 }

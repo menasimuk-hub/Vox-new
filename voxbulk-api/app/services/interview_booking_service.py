@@ -286,6 +286,20 @@ def _now() -> datetime:
     return datetime.utcnow()
 
 
+def _booking_token_expiry(order: ServiceOrder, *, now: datetime | None = None) -> datetime:
+    current = now or _now()
+    max_days = max(1, int(getattr(get_settings(), "interview_booking_token_max_days", 30) or 30))
+    hard_cap = current + timedelta(days=max_days)
+    if order.scheduled_end_at is None:
+        return hard_cap
+    return min(order.scheduled_end_at, hard_cap)
+
+
+def _assert_booking_token_active(row: InterviewBookingToken) -> None:
+    if row.expires_at is None or _now() > row.expires_at:
+        raise ValueError("This booking link has expired")
+
+
 def _order_config(order: ServiceOrder) -> dict[str, Any]:
     try:
         data = json.loads(order.config_json or "{}")
@@ -709,7 +723,7 @@ class InterviewBookingService:
             recipient_id=recipient.id,
             org_id=order.org_id,
             token=token,
-            expires_at=order.scheduled_end_at,
+            expires_at=_booking_token_expiry(order),
             created_at=_now(),
             updated_at=_now(),
         )
@@ -1219,9 +1233,7 @@ class InterviewBookingService:
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
 
-        now = _now()
-        if row.expires_at and now > row.expires_at:
-            raise ValueError("This booking link has expired")
+        _assert_booking_token_active(row)
 
         if not order.scheduled_start_at or not order.scheduled_end_at:
             raise ValueError("Interview schedule is not configured yet")
@@ -1357,6 +1369,7 @@ class InterviewBookingService:
         recipient = db.get(ServiceOrderRecipient, row.recipient_id)
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
+        _assert_booking_token_active(row)
 
         _assert_order_accepts_booking(db, order)
         _assert_booking_allowed(recipient)
@@ -1516,6 +1529,7 @@ class InterviewBookingService:
         recipient = db.get(ServiceOrderRecipient, row.recipient_id)
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
+        _assert_booking_token_active(row)
         if _booking_withdrawn(recipient):
             raise ValueError("This interview was cancelled")
 
@@ -2140,6 +2154,7 @@ class InterviewBookingService:
         recipient = db.get(ServiceOrderRecipient, row.recipient_id)
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
+        _assert_booking_token_active(row)
 
         _assert_booking_allowed(recipient)
 
@@ -2217,6 +2232,7 @@ class InterviewBookingService:
         recipient = db.get(ServiceOrderRecipient, row.recipient_id)
         if order is None or recipient is None:
             raise ValueError("Booking link is no longer valid")
+        _assert_booking_token_active(row)
 
         _assert_order_accepts_booking(db, order)
         _assert_booking_allowed(recipient)

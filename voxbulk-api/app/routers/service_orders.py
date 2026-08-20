@@ -47,6 +47,13 @@ def _campaign_owner_user_id(db: Session, principal) -> str | None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
 
+def _require_campaign_pii_access(db: Session, principal) -> None:
+    try:
+        OrgRbacService.assert_can_export_org_data(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
 def _require_org_service(db: Session, org_id: str, service_code: str) -> Organisation:
     from app.services.org_enabled_services import (
         is_service_enabled,
@@ -2896,6 +2903,7 @@ def get_interview_candidate_report_html(
     from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
     from fastapi.responses import HTMLResponse
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -2918,6 +2926,7 @@ def get_interview_candidate_report_pdf(
     from app.services.interview_candidate_report_export_service import InterviewCandidateReportExportService
     from fastapi.responses import Response
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -2951,6 +2960,7 @@ def get_interview_recipient_recording(
         fetch_interview_recording,
     )
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -2994,6 +3004,7 @@ def export_interview_results_csv(
     from app.services.interview_results_service import InterviewResultsService
     from fastapi.responses import Response
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -3012,6 +3023,7 @@ def export_interview_results_pdf(
     from app.services.interview_results_service import InterviewResultsService
     from fastapi.responses import Response
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -3027,6 +3039,7 @@ def export_interview_results_pdf(
 def get_interview_batch_report(order_id: str, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     from app.services.interview_report_service import InterviewReportService
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -3043,6 +3056,7 @@ def export_interview_batch_report_csv(
     from app.services.interview_report_service import InterviewReportService
     from fastapi.responses import Response
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -3074,6 +3088,7 @@ def download_survey_voice_note_audio(
     from app.models.survey_voice_note_job import SurveyVoiceNoteJob
     from app.services.survey_analysis_service import _recipient_result
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -3133,6 +3148,7 @@ def export_survey_results_csv(order_id: str, db: Session = Depends(get_db), prin
     from app.services.survey_results_service import SurveyResultsService
     from fastapi.responses import Response
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -3153,6 +3169,7 @@ def export_survey_results_pdf(order_id: str, db: Session = Depends(get_db), prin
     from app.services.survey_results_service import SurveyResultsService
     from fastapi.responses import Response
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
@@ -3173,6 +3190,7 @@ def export_survey_results_xlsx(order_id: str, db: Session = Depends(get_db), pri
     from app.services.survey_results_service import SurveyResultsService
     from fastapi.responses import Response
 
+    _require_campaign_pii_access(db, principal)
     order = ServiceOrderService.get_order(db, order_id, org_id=principal.org_id, created_by_user_id=_campaign_owner_user_id(db, principal))
     if order is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
