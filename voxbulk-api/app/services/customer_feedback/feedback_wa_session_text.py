@@ -31,3 +31,12 @@ def feedback_template_must_send_as_session_text(tpl: FeedbackWaTemplate | None) 
         if not parse_feedback_buttons(tpl.buttons_json):
             return True
     return False
+
+
+def feedback_template_skip_meta_sync(tpl: FeedbackWaTemplate | None, *, industry_slug: str | None = None) -> bool:
+    """True when this row must never be created, updated, or status-pulled on Meta."""
+    if feedback_template_must_send_as_session_text(tpl):
+        return True
+    from app.services.customer_feedback.elections_demo import is_elections_industry_slug
+
+    return is_elections_industry_slug(industry_slug)

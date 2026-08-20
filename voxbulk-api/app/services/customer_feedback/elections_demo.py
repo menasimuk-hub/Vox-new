@@ -117,6 +117,27 @@ def is_elections_industry_slug(slug: str | None) -> bool:
     return str(slug or "").strip().lower() == ELECTIONS_INDUSTRY_SLUG
 
 
+def is_elections_feedback_template(db: Any, tpl: Any) -> bool:
+    """True when the row belongs to the throwaway elections industry (never Meta)."""
+    if tpl is None or db is None:
+        return False
+    from app.models.customer_feedback import FeedbackIndustry, FeedbackSurveyType
+
+    industry_id = getattr(tpl, "industry_id", None)
+    if industry_id:
+        ind = db.get(FeedbackIndustry, industry_id)
+        if is_elections_industry_slug(getattr(ind, "slug", None)):
+            return True
+    survey_type_id = getattr(tpl, "survey_type_id", None)
+    if survey_type_id:
+        st = db.get(FeedbackSurveyType, survey_type_id)
+        if st is not None:
+            ind = db.get(FeedbackIndustry, st.industry_id)
+            if is_elections_industry_slug(getattr(ind, "slug", None)):
+                return True
+    return False
+
+
 def is_session_menu_template(tpl: Any) -> bool:
     if tpl is None:
         return False

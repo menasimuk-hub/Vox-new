@@ -30,6 +30,8 @@ from app.services.wa_template_utility_lint import assert_utility_template
 
 logger = logging.getLogger(__name__)
 
+_ELECTIONS_NO_META_MSG = "Elections demo is local session text only — not synced with Meta."
+
 META_QUICK_REPLY_MAX = 3
 META_BUTTON_MAX_LEN = 20
 META_SUBCODE_CATEGORY_MISMATCH = 2388026
@@ -412,12 +414,66 @@ def _feedback_meta_name_for_template(db: Session, tpl: FeedbackWaTemplate) -> st
     )
 
 
+def _is_elections_industry(industry: FeedbackIndustry | None) -> bool:
+    from app.services.customer_feedback.elections_demo import is_elections_industry_slug
+
+    return is_elections_industry_slug(getattr(industry, "slug", None) if industry is not None else None)
+
+
+def _is_elections_template(db: Session, tpl: FeedbackWaTemplate) -> bool:
+    from app.services.customer_feedback.elections_demo import is_elections_feedback_template
+
+    return is_elections_feedback_template(db, tpl)
+
+
+def _local_only_no_meta_result(*, industry: FeedbackIndustry | None = None, phase: str = "push") -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": True,
+        "skipped_meta": True,
+        "phase": phase,
+        "total": 0,
+        "processed": 0,
+        "offset": 0,
+        "limit": 0,
+        "has_more": False,
+        "next_offset": 0,
+        "pushed": 0,
+        "linked": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": [],
+        "results": [],
+        "content_updated": 0,
+        "error_count": 0,
+        "message": _ELECTIONS_NO_META_MSG,
+    }
+    if industry is not None:
+        payload.update(
+            {
+                "industry_id": industry.id,
+                "industry_slug": industry.slug,
+                "industry_name": industry.name,
+                "template_count": 0,
+                "matched": 0,
+                "updated": 0,
+            }
+        )
+    return payload
+
+
 def _feedback_template_needs_push(
     db: Session,
     tpl: FeedbackWaTemplate,
     remote_items: list[dict[str, Any]],
 ) -> bool:
     """Skip approved on Meta + unchanged local rows during industry batch sync."""
+    from app.services.customer_feedback.feedback_wa_session_text import (
+        feedback_template_skip_meta_sync,
+    )
+
+    slug, _ = _feedback_template_meta_context(db, tpl)
+    if feedback_template_skip_meta_sync(tpl, industry_slug=slug) or _is_elections_template(db, tpl):
+        return False
     if not str(tpl.body_text or "").strip():
         return False
     local_status = str(tpl.telnyx_sync_status or "draft").lower()
@@ -446,14 +502,7 @@ def push_feedback_template_to_telnyx(
     service_code: str = "customer_feedback",
     force_push: bool = False,
 ) -> dict[str, Any]:
-    industry_slug: str | None = None
-    survey_slug: str | None = None
-    if tpl.industry_id:
-        ind = db.get(FeedbackIndustry, tpl.industry_id)
-        industry_slug = ind.slug if ind else None
-    if tpl.survey_type_id:
-        st = db.get(FeedbackSurveyType, tpl.survey_type_id)
-        survey_slug = st.slug if st else None
+    industry_slug, survey_slug = _feedback_template_meta_context(db, tpl)
 
     name = feedback_meta_template_name(
         tpl,
@@ -461,18 +510,22 @@ def push_feedback_template_to_telnyx(
         survey_type_slug=survey_slug,
     )
 
+    from app.services.customer_feedback.elections_demo import is_elections_industry_slug
     from app.services.customer_feedback.feedback_wa_session_text import (
-        feedback_template_must_send_as_session_text,
+        feedback_template_skip_meta_sync,
     )
 
-    if feedback_template_must_send_as_session_text(tpl):
+    if feedback_template_skip_meta_sync(tpl, industry_slug=industry_slug) or is_elections_industry_slug(industry_slug):
         return {
             "ok": True,
             "skipped_push": True,
+            "skipped_meta": True,
             "template_id": tpl.id,
             "template_key": tpl.template_key,
             "meta_name": name,
-            "message": "Session-text template — not pushed to Meta.",
+            "message": _ELECTIONS_NO_META_MSG
+            if is_elections_industry_slug(industry_slug)
+            else "Session-text template — not pushed to Meta.",
         }
 
     if not is_marketing_wa_template(tpl):
@@ -839,6 +892,13 @@ def push_all_feedback_templates_for_industry(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     industry = resolve_feedback_industry(db, industry_id=industry_id, industry_slug=industry_slug)
+    if _is_elections_industry(industry):
+        return {
+            **_local_only_no_meta_result(industry=industry, phase="push"),
+            "industry_slug": industry.slug,
+            "template_count": 0,
+            "dry_run": dry_run,
+        }
     templates = list_feedback_templates_for_industry(db, industry.id)
     if not templates:
         return {
@@ -941,7 +1001,9 @@ def list_all_feedback_platform_templates(db: Session) -> list[FeedbackWaTemplate
     return [
         tpl
         for tpl in rows
-        if not is_marketing_wa_template(tpl) and str(tpl.body_text or "").strip()
+        if not is_marketing_wa_template(tpl)
+        and str(tpl.body_text or "").strip()
+        and not _is_elections_template(db, tpl)
     ]
 
 
@@ -958,6 +1020,8 @@ def push_feedback_platform_batch(
     """Hub or industry batch — push changed (default) or mirror-all (force_push) for Customer Feedback."""
     if industry_id:
         industry = resolve_feedback_industry(db, industry_id=industry_id)
+        if _is_elections_industry(industry):
+            return _local_only_no_meta_result(industry=industry, phase="push")
         work = list_feedback_templates_for_industry(db, industry.id)
         scope_label = industry.name
     else:
@@ -965,7 +1029,13 @@ def push_feedback_platform_batch(
         work = list_all_feedback_platform_templates(db)
         scope_label = "all customer feedback templates"
 
-    work = [tpl for tpl in work if not is_marketing_wa_template(tpl) and str(tpl.body_text or "").strip()]
+    work = [
+        tpl
+        for tpl in work
+        if not is_marketing_wa_template(tpl)
+        and str(tpl.body_text or "").strip()
+        and not _is_elections_template(db, tpl)
+    ]
     total = len(work)
     if total == 0:
         return {
@@ -1106,6 +1176,9 @@ def push_feedback_templates_batch(
     """Batched industry sync — push slice or pull statuses (mirrors WA Survey push-all)."""
     industry = resolve_feedback_industry(db, industry_id=industry_id)
     phase_norm = str(phase or "push").strip().lower()
+
+    if _is_elections_industry(industry):
+        return _local_only_no_meta_result(industry=industry, phase=phase_norm)
 
     if phase_norm == "pull":
         refresh = refresh_feedback_template_status_from_telnyx_for_industry(
@@ -1283,6 +1356,19 @@ def push_all_feedback_templates_for_survey_type(
     if not rows:
         return {"ok": True, "pushed": 0, "failed": 0, "results": [], "message": "No templates for topic"}
 
+    topic = db.get(FeedbackSurveyType, survey_type_id)
+    industry = db.get(FeedbackIndustry, topic.industry_id) if topic is not None else None
+    if _is_elections_industry(industry):
+        return {
+            "ok": True,
+            "skipped_meta": True,
+            "pushed": 0,
+            "failed": 0,
+            "results": [],
+            "errors": [],
+            "message": _ELECTIONS_NO_META_MSG,
+        }
+
     remote_items: list[dict[str, Any]] | None = None
     if not dry_run:
         try:
@@ -1354,6 +1440,13 @@ def refresh_feedback_template_status_from_telnyx_for_industry(
 ) -> dict[str, Any]:
     """Pull Meta/Telnyx approval status for all templates in an industry."""
     industry = resolve_feedback_industry(db, industry_id=industry_id, industry_slug=industry_slug)
+    if _is_elections_industry(industry):
+        return {
+            **_local_only_no_meta_result(industry=industry, phase="pull"),
+            "approved": 0,
+            "pending": 0,
+            "not_found": 0,
+        }
     templates = list_feedback_templates_for_industry(db, industry.id)
     if not templates:
         return {

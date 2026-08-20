@@ -731,28 +731,32 @@ class FeedbackCatalogService:
                 by_id[tpl.id] = tpl
         templates = list(by_id.values())
         # Prefer unique Meta names (shared across languages via English anchor).
+        from app.services.customer_feedback.elections_demo import is_elections_industry_slug
+
+        skip_meta = is_elections_industry_slug(industry_slug)
         meta_names: set[str] = set()
         warnings: list[str] = []
-        for tpl in templates:
-            try:
-                anchor = english_anchor_template(db, tpl)
-                survey_slug = type_slug_by_id.get(str(tpl.survey_type_id or ""))
-                meta_names.add(
-                    feedback_meta_template_name(
-                        tpl,
-                        industry_slug=industry_slug,
-                        survey_type_slug=survey_slug,
-                        name_anchor_id=anchor.id,
+        if not skip_meta:
+            for tpl in templates:
+                try:
+                    anchor = english_anchor_template(db, tpl)
+                    survey_slug = type_slug_by_id.get(str(tpl.survey_type_id or ""))
+                    meta_names.add(
+                        feedback_meta_template_name(
+                            tpl,
+                            industry_slug=industry_slug,
+                            survey_type_slug=survey_slug,
+                            name_anchor_id=anchor.id,
+                        )
                     )
-                )
-            except Exception as exc:  # noqa: BLE001 — best-effort Meta cleanup
-                warnings.append(f"{tpl.template_key}: could not resolve Meta name ({exc})")
+                except Exception as exc:  # noqa: BLE001 — best-effort Meta cleanup
+                    warnings.append(f"{tpl.template_key}: could not resolve Meta name ({exc})")
 
-        for name in sorted(meta_names):
-            try:
-                MetaWhatsappTemplateService.delete_message_template(db, name=name)
-            except Exception as exc:  # noqa: BLE001 — remove locally even if Meta fails
-                warnings.append(f"{name}: Meta delete failed; removed locally ({exc})")
+            for name in sorted(meta_names):
+                try:
+                    MetaWhatsappTemplateService.delete_message_template(db, name=name)
+                except Exception as exc:  # noqa: BLE001 — remove locally even if Meta fails
+                    warnings.append(f"{name}: Meta delete failed; removed locally ({exc})")
 
         deleted_templates = 0
         for tpl in templates:

@@ -764,6 +764,30 @@ def _push_convert_feedback(
     if frow is None:
         raise SurveyWhatsappTemplateError("Feedback template not found")
 
+    from app.services.customer_feedback.elections_demo import is_elections_feedback_template
+
+    if is_elections_feedback_template(db, frow):
+        steps.append(
+            {
+                "id": "skip_meta",
+                "title": "Skip Meta",
+                "status": "done",
+                "detail": "Elections demo is local session text only — not synced with Meta.",
+            }
+        )
+        return {
+            "ok": True,
+            "product": "feedback",
+            "db_id": frow.id,
+            "skipped_meta": True,
+            "targets": targets,
+            "push_results": [],
+            "deleted_remote": [],
+            "steps": steps,
+            "status": frow.telnyx_sync_status,
+            "message": "Elections demo is local session text only — not synced with Meta.",
+        }
+
     old_name = str(feedback_meta_template_name(frow) or "").strip()
     language = frow.language
     used = collect_used_cfs_meta_names(db)

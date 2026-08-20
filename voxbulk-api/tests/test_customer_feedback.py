@@ -1680,6 +1680,25 @@ def test_session_menu_sends_as_session_text():
     assert feedback_template_must_send_as_session_text(tpl) is True
 
 
+def test_elections_skip_meta_sync_even_without_session_menu():
+    from types import SimpleNamespace
+
+    from app.services.customer_feedback.feedback_wa_session_text import (
+        feedback_template_skip_meta_sync,
+    )
+
+    tpl = SimpleNamespace(
+        template_key="top_issue",
+        step_role="topic",
+        industry_id="ind",
+        survey_type_id="st",
+        buttons_json='["a"]',
+        body_text="سؤال",
+    )
+    assert feedback_template_skip_meta_sync(tpl, industry_slug="elections") is True
+    assert feedback_template_skip_meta_sync(tpl, industry_slug="restaurant") is False
+
+
 def test_session_menu_maps_numbered_reply():
     from types import SimpleNamespace
 

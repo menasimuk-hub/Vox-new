@@ -1024,12 +1024,15 @@ def delete_wa_template(template_id: str, db: Session = Depends(get_db), _admin=D
     except Exception:
         name = None
     if name and is_meta_whatsapp_primary(db, service_code="customer_feedback"):
-        try:
-            MetaWhatsappTemplateService.delete_message_template(db, name=name)
-            meta_deleted = True
-        except Exception:
-            # Still remove locally if Meta already gone or name unknown.
-            pass
+        from app.services.customer_feedback.elections_demo import is_elections_industry_slug
+
+        if not is_elections_industry_slug(industry_slug):
+            try:
+                MetaWhatsappTemplateService.delete_message_template(db, name=name)
+                meta_deleted = True
+            except Exception:
+                # Still remove locally if Meta already gone or name unknown.
+                pass
     # Drop matching catalog row(s) so hub counts stay accurate.
     if name:
         catalog_rows = list(
