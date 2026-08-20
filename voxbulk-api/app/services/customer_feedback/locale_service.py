@@ -179,8 +179,13 @@ def resolve_session_language(
     phone: str,
     trigger_hint: str | None = None,
     location_country: str | None = None,
+    industry_slug: str | None = None,
 ) -> str:
     """Pick template language: QR hint → phone prefix → venue country → en_GB."""
+    from app.services.customer_feedback.elections_demo import is_elections_industry_slug
+
+    if is_elections_industry_slug(industry_slug):
+        return "ar"
     hint = str(trigger_hint or "").strip().lower().replace("-", "_")
     if hint in {"ar", "arabic"}:
         return "ar"

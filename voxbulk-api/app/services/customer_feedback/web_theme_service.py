@@ -14,6 +14,7 @@ INDUSTRY_DEFAULT_THEME: dict[str, str] = {
     "fitness": "fitness-gyms",
     "events": "events-entertainment",
     "others": "others",
+    "elections": "elections",
 }
 
 OVERLAY_WINDOWS: dict[str, dict[str, str]] = {

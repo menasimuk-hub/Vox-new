@@ -133,10 +133,13 @@ def _web_question_text(tpl: Any, *, fallback: str) -> str:
 def _web_choice_options(tpl: Any) -> tuple[list[dict[str, str]], bool, list[str]]:
     """Build web buttons from the WA template; fall back to Excellent/Good/Poor."""
     labels = _template_button_labels(tpl)
+    role = str(getattr(tpl, "step_role", None) or "").strip().lower()
+    if role == "session_menu":
+        options = [{"label": label, "value": label} for label in labels]
+        return options, False, []
     if not labels:
         return list(_RATING_OPTIONS), True, list(_LOW_RATING_VALUES)
 
-    role = str(getattr(tpl, "step_role", None) or "").strip().lower()
     lowered = [label.lower() for label in labels]
     yes_no = (
         role in {"yes_no", "opt_in"}
@@ -213,13 +216,13 @@ class FeedbackWebSurveyService:
         base = get_settings().public_site_base_url.rstrip("/")
         loc = location_to_dict(db, location)
         steps = _web_steps(db, location)
-        lang = "en_GB"
+        config_raw = parse_web_theme_config(getattr(location, "survey_config_json", None))
+        lang = str(config_raw.get("force_language") or "en_GB").strip() or "en_GB"
         questions = [_step_to_question(db, location, step, language=lang) for step in steps]
         has_logo = bool(org and getattr(org, "logo_storage_key", None))
         web_theme = load_web_theme_from_location(location)
         industry_slug = industry.slug if industry else None
         theme_id = resolve_theme_id(industry_slug=industry_slug, web_theme=web_theme)
-        config_raw = parse_web_theme_config(getattr(location, "survey_config_json", None))
         ai_follow_up = config_raw.get("ai_follow_up") if isinstance(config_raw.get("ai_follow_up"), dict) else None
         return {
             "token": token,
@@ -237,6 +240,7 @@ class FeedbackWebSurveyService:
             "theme_id": theme_id,
             "web_theme": web_theme or None,
             "ai_follow_up": ai_follow_up,
+            "thank_you_text": str(config_raw.get("thank_you_text") or "").strip() or None,
         }
 
     @staticmethod

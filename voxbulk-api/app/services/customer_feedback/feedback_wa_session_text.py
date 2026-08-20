@@ -9,7 +9,9 @@ from app.services.customer_feedback.feedback_telnyx_push_service import parse_fe
 # System templates that stay local per wa-template-sync-contract (no Meta push/approval).
 CF_SESSION_TEXT_TEMPLATE_KEYS = frozenset({"thank_you", "tell_us_more", "open_question"})
 
-CF_SESSION_TEXT_STEP_ROLES = frozenset({"thank_you", "tell_us_more", "final_feedback_text"})
+CF_SESSION_TEXT_STEP_ROLES = frozenset(
+    {"thank_you", "tell_us_more", "final_feedback_text", "session_menu"}
+)
 
 
 def feedback_template_must_send_as_session_text(tpl: FeedbackWaTemplate | None) -> bool:

@@ -1649,3 +1649,121 @@ def test_web_survey_rejects_wrong_location_token():
                 token="",
                 answer="Excellent",
             )
+
+
+def test_session_menu_sends_as_session_text():
+    from types import SimpleNamespace
+
+    from app.services.customer_feedback.feedback_wa_session_text import (
+        feedback_template_must_send_as_session_text,
+    )
+
+    tpl = SimpleNamespace(
+        template_key="top_issue",
+        step_role="session_menu",
+        industry_id="ind",
+        survey_type_id="st",
+        buttons_json='["فرص العمل والدخل","التعليم"]',
+        body_text="سؤال",
+    )
+    assert feedback_template_must_send_as_session_text(tpl) is True
+
+
+def test_session_menu_maps_numbered_reply():
+    from types import SimpleNamespace
+
+    from app.services.customer_feedback.feedback_answer_service import (
+        is_negative_topic_answer,
+        map_answer_to_english_label,
+    )
+
+    tpl = SimpleNamespace(
+        template_key="top_issue",
+        step_role="session_menu",
+        survey_type_id=None,
+        language="ar",
+        buttons_json=json.dumps(["فرص العمل والدخل", "التعليم", "الصحة"], ensure_ascii=False),
+    )
+    with get_sessionmaker()() as db:
+        assert map_answer_to_english_label(db, answer="1", tpl=tpl, detected_language="ar") == "فرص العمل والدخل"
+        assert map_answer_to_english_label(db, answer="2️⃣", tpl=tpl, detected_language="ar") == "التعليم"
+        assert is_negative_topic_answer(db, answer="3", tpl=tpl, detected_language="ar") is False
+
+
+def test_elections_industry_hidden_from_dashboard_catalog():
+    from app.services.customer_feedback.elections_demo import ELECTIONS_INDUSTRY_SLUG
+
+    org_id, _ = _seed_org()
+    now = datetime.utcnow()
+    with get_sessionmaker()() as db:
+        row = db.execute(
+            select(FeedbackIndustry).where(FeedbackIndustry.slug == ELECTIONS_INDUSTRY_SLUG)
+        ).scalar_one_or_none()
+        if row is None:
+            row = FeedbackIndustry(
+                id=str(uuid.uuid4()),
+                slug=ELECTIONS_INDUSTRY_SLUG,
+                name="الانتخابات التشريعية 2026",
+                is_active=True,
+                visibility_mode="restricted",
+                sort_order=9000,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+            db.commit()
+        dashboard = FeedbackCatalogService.list_industries(db, org_id=org_id, include_stats=False)
+        assert all(item.get("slug") != ELECTIONS_INDUSTRY_SLUG for item in dashboard)
+        admin = FeedbackCatalogService.list_industries(db, include_stats=False)
+        assert any(item.get("slug") == ELECTIONS_INDUSTRY_SLUG for item in admin)
+
+
+def test_build_survey_config_allows_seven_topics():
+    from app.services.customer_feedback.survey_config_service import build_survey_config
+
+    now = datetime.utcnow()
+    with get_sessionmaker()() as db:
+        industry = FeedbackIndustry(
+            id=str(uuid.uuid4()),
+            slug=f"seven-topics-{uuid.uuid4().hex[:8]}",
+            name="Seven topics",
+            is_active=True,
+            visibility_mode="all",
+            sort_order=50,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(industry)
+        db.flush()
+        type_ids: list[str] = []
+        for idx in range(7):
+            row = FeedbackSurveyType(
+                id=str(uuid.uuid4()),
+                industry_id=industry.id,
+                slug=f"topic-{idx + 1}",
+                name=f"Topic {idx + 1}",
+                is_active=True,
+                sort_order=(idx + 1) * 10,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+            db.flush()
+            type_ids.append(row.id)
+        db.commit()
+        config = build_survey_config(
+            db,
+            industry_id=industry.id,
+            selected_type_ids=type_ids,
+            open_question_enabled=False,
+            marketing_opt_in_enabled=False,
+        )
+        topics = [step for step in config["steps"] if step.get("kind") == "topic"]
+        assert len(topics) == 7
+
+
+def test_resolve_session_language_elections_forces_arabic():
+    from app.services.customer_feedback.locale_service import resolve_session_language
+
+    assert resolve_session_language(phone="+447700900000", industry_slug="elections") == "ar"
+

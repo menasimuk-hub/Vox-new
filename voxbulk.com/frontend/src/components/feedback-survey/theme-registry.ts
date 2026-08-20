@@ -23,6 +23,7 @@ import * as ramadanEid from "./themes/ramadan-eid";
 import * as eidAlAdha from "./themes/eid-al-adha";
 import * as island from "./themes/island";
 import * as expo from "./themes/expo";
+import * as elections from "./themes/elections";
 
 type ThemeModule = { theme: Theme; Art: ComponentType };
 
@@ -37,6 +38,7 @@ const THEME_MODULES: Record<string, ThemeModule> = {
   "events-entertainment": eventsEntertainment,
   "fitness-gyms": fitnessGyms,
   expo,
+  elections,
   others,
   christmas,
   "new-year": newYear,
@@ -59,6 +61,7 @@ const INDUSTRY_DEFAULT_THEME: Record<string, string> = {
   fitness: "fitness-gyms",
   events: "events-entertainment",
   others: "others",
+  elections: "elections",
 };
 
 const COPY_DEFAULTS: Record<string, Omit<Copy, "companyName">> = {
@@ -131,6 +134,14 @@ const COPY_DEFAULTS: Record<string, Omit<Copy, "companyName">> = {
     metaDescription: "Quick booth feedback",
     thankYouTitle: "Thank you",
     thankYouSubtitle: "We appreciate your time at our booth — our team will be in touch soon. 🤝",
+  },
+  elections: {
+    serviceLabel: "الانتخابات التشريعية 2026",
+    metaTitle: "الانتخابات التشريعية 2026",
+    metaDescription: "استبيان عربي قصير عن الانتخابات.",
+    thankYouTitle: "شكرًا إلك 🙏",
+    thankYouSubtitle:
+      "إجاباتك بتساعدنا نفهم شو أهم القضايا اللي بتهم الناس. إذا بتحب، فيك الآن تسأل عن برنامج المرشح بأي موضوع، ورح نجاوبك بالمعلومات والمصادر.",
   },
   others: {
     serviceLabel: "Others",
@@ -308,13 +319,14 @@ export function getThemePack(
 }
 
 export function buildCopy(pack: ThemePack, companyName: string, industryName?: string | null): Copy {
+  const subtitle = pack.copyDefaults.thankYouSubtitle;
   return {
     companyName,
     serviceLabel: industryName || pack.copyDefaults.serviceLabel,
     metaTitle: pack.copyDefaults.metaTitle,
     metaDescription: pack.copyDefaults.metaDescription,
     thankYouTitle: pack.copyDefaults.thankYouTitle,
-    thankYouSubtitle: pack.copyDefaults.thankYouSubtitle.replace("us", companyName),
+    thankYouSubtitle: pack.id === "elections" ? subtitle : subtitle.replace("us", companyName),
   };
 }
 

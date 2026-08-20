@@ -85,19 +85,33 @@ function ArrowGlyph({ className = "" }: { className?: string }) {
   );
 }
 
+function PalestineFlag({ className = "h-16 w-24" }: { className?: string }) {
+  return (
+    <svg className={`${className} rounded-md shadow-lift`} viewBox="0 0 120 80" role="img" aria-label="فلسطين">
+      <rect width="120" height="26.67" fill="#000" />
+      <rect y="26.67" width="120" height="26.67" fill="#fff" />
+      <rect y="53.33" width="120" height="26.67" fill="#007a3d" />
+      <polygon points="0,0 52,40 0,80" fill="#ce1126" />
+    </svg>
+  );
+}
+
 function SurveyThankYou({
   theme,
   copy,
   Art,
+  elections,
 }: {
   theme: Theme;
   copy: Copy;
   Art: ThemePack["Art"];
+  elections?: boolean;
 }) {
   return (
     <main
       className={`relative grid h-[100svh] place-items-center overflow-hidden px-6 ${theme.bgClass}`}
       style={{ color: theme.ink }}
+      dir={elections ? "rtl" : undefined}
     >
       <Art />
       <div className="relative max-w-sm text-center">
@@ -111,21 +125,23 @@ function SurveyThankYou({
         </div>
         <h1 className="animate-confetti-rise mt-6 font-display text-4xl" style={{ animationDelay: "120ms", color: theme.ink }}>
           {copy.thankYouTitle}
-          <span style={{ color: theme.accent }}>.</span>
+          {elections ? null : <span style={{ color: theme.accent }}>.</span>}
         </h1>
         <p
-          className="animate-confetti-rise mt-3 text-[15px] leading-relaxed"
+          className="animate-confetti-rise mt-3 whitespace-pre-line text-[15px] leading-relaxed"
           style={{ animationDelay: "240ms", color: theme.sub }}
         >
           {copy.thankYouSubtitle}
         </p>
-        <Link
-          to="/"
-          className="animate-confetti-rise mt-8 inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-medium shadow-soft transition-transform hover:-translate-y-0.5"
-          style={{ animationDelay: "360ms", background: theme.card, borderColor: theme.border, color: theme.ink }}
-        >
-          Back to start
-        </Link>
+        {elections ? null : (
+          <Link
+            to="/"
+            className="animate-confetti-rise mt-8 inline-flex items-center gap-2 rounded-full border px-5 py-2.5 text-sm font-medium shadow-soft transition-transform hover:-translate-y-0.5"
+            style={{ animationDelay: "360ms", background: theme.card, borderColor: theme.border, color: theme.ink }}
+          >
+            Back to start
+          </Link>
+        )}
       </div>
     </main>
   );
@@ -138,6 +154,8 @@ function WelcomeChoose({
   busy,
   error,
   onStartWeb,
+  Art,
+  elections,
 }: {
   payload: SurveyPayload;
   theme: Theme;
@@ -145,9 +163,83 @@ function WelcomeChoose({
   busy: boolean;
   error: string;
   onStartWeb: () => void;
+  Art: ThemePack["Art"];
+  elections?: boolean;
 }) {
   const bgClass = theme.bgClass || "bg-warm-gradient";
   const logo = logoSrc(payload.logo_url);
+
+  if (elections) {
+    return (
+      <main className={`relative h-[100svh] overflow-hidden ${bgClass}`} style={{ color: theme.ink }} dir="rtl">
+        <Art />
+        <div className="relative mx-auto flex h-[100svh] w-full max-w-md flex-col px-5 pb-5 pt-6 sm:max-w-lg sm:px-6">
+          <header className="animate-rise flex flex-col items-center gap-3 text-center" style={{ animationDelay: "60ms" }}>
+            <PalestineFlag className="h-[4.5rem] w-28" />
+            <h1 className="font-display text-[28px] leading-[1.15] sm:text-4xl" style={{ color: theme.ink }}>
+              {copy.metaTitle}
+            </h1>
+            <p className="max-w-sm text-[14px] leading-relaxed" style={{ color: theme.sub }}>
+              بدنا نعرف شو أهم شيء بالنسبة إلك بالانتخابات. ما رح نطلب اسمك أو أي معلومات شخصية.
+            </p>
+          </header>
+
+          <div className="mt-8 grid gap-3">
+            {payload.wa_url ? (
+              <a
+                href={payload.wa_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="animate-rise group relative overflow-hidden rounded-2xl p-4 text-right shadow-lift transition-transform active:scale-[0.98] hover:-translate-y-0.5"
+                style={{ animationDelay: "560ms", background: "#25D366", color: "#fff" }}
+              >
+                <div className="flex items-center gap-3.5">
+                  <ArrowGlyph className="rotate-180" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[15.5px] font-semibold tracking-tight">كمّل على واتساب</div>
+                    <div className="mt-0.5 text-[11.5px] opacity-85">💬 جاوب برقم على الأسئلة</div>
+                  </div>
+                  <span className="animate-float-icon shrink-0 drop-shadow-[0_4px_8px_rgba(0,0,0,0.25)]" style={{ animationDelay: "0s" }}>
+                    <WhatsAppGlyph />
+                  </span>
+                </div>
+              </a>
+            ) : null}
+
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onStartWeb}
+              className="animate-rise group relative overflow-hidden rounded-2xl border p-4 text-right shadow-soft transition-transform active:scale-[0.98] hover:-translate-y-0.5 disabled:opacity-60"
+              style={{ animationDelay: "640ms", background: theme.card, borderColor: theme.border, color: theme.ink }}
+            >
+              <div className="flex items-center gap-3.5">
+                <ArrowGlyph className="opacity-60 rotate-180" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[15.5px] font-semibold tracking-tight">كمّل من هون</div>
+                  <div className="mt-0.5 text-[11.5px]" style={{ color: theme.sub }}>
+                    استبيان قصير على الصفحة · عربي
+                  </div>
+                </div>
+                <span
+                  className="animate-float-icon shrink-0"
+                  style={{ animationDelay: "0.7s", color: theme.ink }}
+                >
+                  <SparkGlyph />
+                </span>
+              </div>
+            </button>
+          </div>
+
+          {error ? <p className="mt-3 text-center text-[13px] text-red-600">{error}</p> : null}
+
+          <footer className="animate-rise mt-auto pt-4 text-center text-[10.5px]" style={{ animationDelay: "780ms", color: theme.sub, opacity: 0.8 }}>
+            إجاباتك سرية وما منطلب اسمك.
+          </footer>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className={`relative h-[100svh] overflow-hidden ${bgClass}`} style={{ color: theme.ink }}>
@@ -459,6 +551,15 @@ export function PublicFeedbackSurvey({
   const theme = themePack.theme;
   const Art = themePack.Art;
   const questions = payload?.questions ?? [];
+
+  useEffect(() => {
+    if (themePack.id !== "elections") return;
+    const previous = document.title;
+    document.title = copy.metaTitle;
+    return () => {
+      document.title = previous;
+    };
+  }, [themePack.id, copy.metaTitle]);
 
   useEffect(() => {
     stepIndexRef.current = stepIndex;
@@ -1004,7 +1105,7 @@ export function PublicFeedbackSurvey({
     (voiceReady || Boolean(detailText.trim()) || (inReasonOverlay && reasonChips.length > 0));
 
   return (
-    <div className="feedback-survey-root" style={themeStyleVars(theme)}>
+    <div className="feedback-survey-root" style={themeStyleVars(theme)} dir={themePack.id === "elections" ? "rtl" : undefined}>
       {phase === "loading" && (
         <main className={`grid h-[100svh] place-items-center ${theme.bgClass}`} style={{ color: theme.ink }}>
           <p className="text-sm" style={{ color: theme.sub }}>Loading survey…</p>
@@ -1030,10 +1131,14 @@ export function PublicFeedbackSurvey({
           busy={busy}
           error={error}
           onStartWeb={startWeb}
+          Art={Art}
+          elections={themePack.id === "elections"}
         />
       ) : null}
 
-      {phase === "thanks" ? <SurveyThankYou theme={theme} copy={copy} Art={Art} /> : null}
+      {phase === "thanks" ? (
+        <SurveyThankYou theme={theme} copy={copy} Art={Art} elections={themePack.id === "elections"} />
+      ) : null}
 
       {phase === "callback" && payload ? (
         <main

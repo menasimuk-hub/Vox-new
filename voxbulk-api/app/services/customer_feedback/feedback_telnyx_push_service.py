@@ -461,6 +461,20 @@ def push_feedback_template_to_telnyx(
         survey_type_slug=survey_slug,
     )
 
+    from app.services.customer_feedback.feedback_wa_session_text import (
+        feedback_template_must_send_as_session_text,
+    )
+
+    if feedback_template_must_send_as_session_text(tpl):
+        return {
+            "ok": True,
+            "skipped_push": True,
+            "template_id": tpl.id,
+            "template_key": tpl.template_key,
+            "meta_name": name,
+            "message": "Session-text template — not pushed to Meta.",
+        }
+
     if not is_marketing_wa_template(tpl):
         tpl.meta_category = "utility"
         db.add(tpl)

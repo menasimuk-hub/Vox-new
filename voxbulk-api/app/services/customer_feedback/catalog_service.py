@@ -141,6 +141,10 @@ class FeedbackCatalogService:
 
     @staticmethod
     def _industry_visible_to_org(db: Session, row: FeedbackIndustry, org_id: str | None) -> bool:
+        from app.services.customer_feedback.elections_demo import is_elections_industry_slug
+
+        if is_elections_industry_slug(row.slug) and org_id is not None:
+            return False
         if not row.is_active:
             return False
         mode = str(getattr(row, "visibility_mode", None) or "all").strip().lower()
@@ -181,6 +185,10 @@ class FeedbackCatalogService:
             }
         visible: list[FeedbackIndustry] = []
         for row in rows:
+            from app.services.customer_feedback.elections_demo import is_elections_industry_slug
+
+            if org_id is not None and is_elections_industry_slug(row.slug):
+                continue
             mode = str(getattr(row, "visibility_mode", None) or "all").strip().lower()
             if mode != "restricted" or row.id in allowed_restricted:
                 visible.append(row)

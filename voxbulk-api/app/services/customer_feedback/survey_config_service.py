@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import FeedbackLocation, FeedbackSurveyType, FeedbackWaTemplate
+from app.services.customer_feedback.elections_demo import FEEDBACK_MAX_TOPIC_STEPS
 from app.services.customer_feedback.feedback_marketing_policy import (
     effective_marketing_opt_in_enabled,
     filter_survey_steps,
@@ -57,6 +58,13 @@ def _pick_template_row(rows: list[FeedbackWaTemplate], language: str | None) -> 
     ]
     if approved:
         return approved[0]
+    session_rows = [
+        row
+        for row in visible
+        if str(getattr(row, "step_role", None) or "").strip().lower() == "session_menu"
+    ]
+    if session_rows:
+        return session_rows[0]
     return None
 
 
@@ -157,7 +165,7 @@ def build_survey_config(
 ) -> dict[str, Any]:
     """Build interactive survey steps (thank-you is sent on completion, not as a step)."""
     steps: list[dict[str, Any]] = []
-    for type_id in selected_type_ids[:6]:
+    for type_id in selected_type_ids[:FEEDBACK_MAX_TOPIC_STEPS]:
         row = db.get(FeedbackSurveyType, type_id)
         if row is None or row.industry_id != industry_id or not bool(row.is_active) or row.archived_at is not None:
             continue
@@ -212,7 +220,7 @@ def survey_config_needs_rebuild(location: FeedbackLocation, steps: list[dict[str
         return True
     selected = parse_selected_type_ids_from_location(location)
     topic_steps = [step for step in interactive if str(step.get("kind") or "") == "topic"]
-    expected = selected[:6]
+    expected = selected[:FEEDBACK_MAX_TOPIC_STEPS]
     if len(topic_steps) != len(expected):
         return True
     topic_ids = [str(step.get("survey_type_id") or "") for step in topic_steps]
@@ -227,7 +235,7 @@ def _preserve_survey_config_extras(existing_raw: str | None, config: dict[str, A
     try:
         parsed = json.loads(existing_raw)
         if isinstance(parsed, dict):
-            for key in ("web_theme", "ai_follow_up"):
+            for key in ("web_theme", "ai_follow_up", "force_language", "thank_you_text"):
                 if key in parsed:
                     out[key] = parsed[key]
     except json.JSONDecodeError:

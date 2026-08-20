@@ -170,6 +170,15 @@ def map_answer_to_english_label(
     raw = str(answer or "").strip()
     if not raw:
         return ""
+    from app.services.customer_feedback.elections_demo import is_session_menu_template
+    from app.services.expo.question_bank import remap_choice_reply
+
+    if is_session_menu_template(tpl):
+        labels = parse_template_buttons(tpl)
+        options = [{"value": label, "label": label} for label in labels]
+        mapped = remap_choice_reply(raw, options, multi=False)
+        return mapped or raw
+
     lang = resolve_template_language(detected_language)
     if lang == "en_GB":
         return raw.lower()
@@ -214,6 +223,10 @@ def is_negative_topic_answer(
     tpl: FeedbackWaTemplate | None,
     detected_language: str | None,
 ) -> bool:
+    from app.services.customer_feedback.elections_demo import is_session_menu_template
+
+    if is_session_menu_template(tpl):
+        return False
     normalized = map_answer_to_english_label(
         db,
         answer=answer,
@@ -312,6 +325,14 @@ def translate_answer_to_english(
                 tpl=tpl,
                 detected_language=detected_language or lang,
             )
+            from app.services.customer_feedback.elections_demo import is_session_menu_template
+
+            if is_session_menu_template(tpl) and mapped:
+                return {
+                    "original_text": original,
+                    "answer_text_en": mapped,
+                    "translation_status": "button_mapped",
+                }
             if mapped and mapped != original.lower():
                 return {
                     "original_text": original,

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.customer_feedback import (
+    FeedbackIndustry,
     FeedbackLocation,
     FeedbackMarketingSubscriber,
     FeedbackResponse,
@@ -357,6 +358,7 @@ class FeedbackWhatsappService:
         for old in stale:
             old.status = "abandoned"
             db.add(old)
+        industry_row = db.get(FeedbackIndustry, location.industry_id)
         session = FeedbackSession(
             id=str(uuid.uuid4()),
             org_id=location.org_id,
@@ -369,6 +371,7 @@ class FeedbackWhatsappService:
                 phone=from_phone,
                 trigger_hint=language_hint,
                 location_country=getattr(location, "wa_sender_country", None),
+                industry_slug=industry_row.slug if industry_row else None,
             ),
             trigger_dedupe_key=dedupe_key,
             started_at=now,
@@ -720,15 +723,19 @@ class FeedbackWhatsappService:
         except Exception:
             logger.exception("feedback_ai_followup_schedule_failed session_id=%s", session.id)
         thank_tpl = get_system_template(db, "thank_you", language=session.detected_language)
-        thank_body = thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded."
+        from app.services.customer_feedback.web_theme_service import parse_web_theme_config
+
+        extra = parse_web_theme_config(getattr(location, "survey_config_json", None))
+        thank_override = str(extra.get("thank_you_text") or "").strip()
+        thank_body = thank_override or (thank_tpl.body_text if thank_tpl else "Thank you — your feedback has been recorded.")
         sent = FeedbackWhatsappService._send_wa(
             db,
             to_number=session.visitor_phone,
             body=thank_body,
             org_id=session.org_id,
-            tpl=thank_tpl,
+            tpl=None if thank_override else thank_tpl,
             location=location,
-            require_template=thank_tpl is not None,
+            require_template=not thank_override and thank_tpl is not None,
         )
         if not sent and thank_body:
             logger.error(

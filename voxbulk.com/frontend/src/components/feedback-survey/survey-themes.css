@@ -228,6 +228,13 @@
     radial-gradient(80% 60% at 50% 50%, oklch(0.20 0.03 245) 0%, transparent 60%),
     oklch(0.14 0.02 245);
 }
+.feedback-survey-root .bg-elections-gradient {
+  background:
+    radial-gradient(120% 80% at 0% 0%, #1a1a1a 0%, transparent 55%),
+    radial-gradient(120% 80% at 100% 100%, #0d3d24 0%, transparent 55%),
+    radial-gradient(80% 60% at 50% 50%, #4a0c14 0%, transparent 60%),
+    #111111;
+}
 .feedback-survey-root .bg-others-gradient {
   background:
     radial-gradient(120% 80% at 0% 0%, oklch(0.94 0.03 180) 0%, transparent 55%),
