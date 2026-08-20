@@ -281,6 +281,13 @@ def _route_inbound_handlers(
             )
             handled_feedback = bool(feedback_result.get("handled"))
             result["handled_feedback"] = handled_feedback
+            logger.info(
+                "meta_feedback_wa_inbound_result handled=%s reason=%s token=%s from=%r",
+                handled_feedback,
+                (feedback_result or {}).get("reason"),
+                (feedback_result or {}).get("token"),
+                from_phone,
+            )
         except Exception:
             logger.exception(
                 "meta_feedback_wa_inbound_handler_failed body_len=%s from_hash=%s",

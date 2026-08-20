@@ -72,6 +72,17 @@ def test_parse_trigger_ref():
         "rottnest-island-wadj-rottnest-7k3yfo6dgfn3kish"
     )
     assert multi == "rottnest-island-wadj-rottnest-7k3yfo6dgfn3kish"
+    apostrophe = FeedbackLocationService.parse_trigger_ref(
+        "Hi! I'd like to share feedback for Jomlauk's organisation at elections. "
+        "jomlauk-s-organisati-2026-uqotgwpcdeezjj50"
+    )
+    assert apostrophe == "jomlauk-s-organisati-2026-uqotgwpcdeezjj50"
+
+
+def test_slug_part_collapses_single_char_segments():
+    from app.services.customer_feedback.location_service import _slug_part
+
+    assert _slug_part("Jomlauk's organisation") == "jomlauks-organisatio"
 
 
 def test_parse_trigger_language_hint():

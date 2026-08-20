@@ -41,8 +41,9 @@ from app.services.customer_feedback.feedback_ai_followup_service import (
 
 TRIGGER_TEMPLATE = "Hi! I'd like to share feedback for {company} at {branch}. {token}"
 # company/branch slugs may contain hyphens (e.g. rottnest-island-wadj-rottnest-<suffix>).
+# Allow 1-char segments so apostrophes survive slugify ("Jomlauk's" → "jomlauk-s-...").
 # Require ≥2 slug segments + a 6–32 char suffix; prefer the longest match when parsing.
-TOKEN_PATTERN = re.compile(r"\b((?:[a-z0-9]{2,24}-){2,}[a-z0-9]{6,32})\b", re.IGNORECASE)
+TOKEN_PATTERN = re.compile(r"\b((?:[a-z0-9]{1,24}-){2,}[a-z0-9]{6,32})\b", re.IGNORECASE)
 REF_PATTERN = re.compile(r"\bref:\s*([A-Za-z0-9-]+)", re.IGNORECASE)
 LEGACY_REF_PATTERN = re.compile(r"\[ref:([A-Za-z0-9_-]+)\]", re.IGNORECASE)
 LANGUAGE_HINT_PATTERN = re.compile(
@@ -59,7 +60,15 @@ SCAN_QR_HINT = "Please scan the QR code at the location to start your feedback s
 
 def _slug_part(text: str, *, max_len: int = 20) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
-    return (base or "location")[:max_len]
+    parts = [p for p in base.split("-") if p]
+    collapsed: list[str] = []
+    for part in parts:
+        if len(part) == 1 and collapsed:
+            collapsed[-1] += part
+        else:
+            collapsed.append(part)
+    base = "-".join(collapsed) or "location"
+    return base[:max_len]
 
 
 def _random_suffix(length: int = 16) -> str:
@@ -612,10 +621,22 @@ class FeedbackLocationService:
 
     @staticmethod
     def resolve_by_token(db: Session, token: str) -> FeedbackLocation | None:
-        tok = str(token or "").strip()
+        tok = str(token or "").strip().lower()
         if not tok:
             return None
-        return db.execute(select(FeedbackLocation).where(FeedbackLocation.qr_token == tok)).scalar_one_or_none()
+        row = db.execute(select(FeedbackLocation).where(FeedbackLocation.qr_token == tok)).scalar_one_or_none()
+        if row is not None:
+            return row
+        # Older regex truncated tokens at 1-char slug segments; unique suffix still matches.
+        if len(tok) < 12:
+            return None
+        hits = list(
+            db.execute(select(FeedbackLocation).where(FeedbackLocation.qr_token.like(f"%{tok}"))).scalars().all()
+        )
+        suffix_hits = [r for r in hits if str(r.qr_token or "").lower().endswith(tok)]
+        if len(suffix_hits) == 1:
+            return suffix_hits[0]
+        return None
 
     @staticmethod
     def parse_trigger_language_hint(body: str) -> str | None:
