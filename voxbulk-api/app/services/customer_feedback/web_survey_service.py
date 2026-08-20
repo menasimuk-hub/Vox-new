@@ -103,15 +103,9 @@ _LOW_RATING_REASONS = ["Service", "Speed", "Staff", "Price", "Cleanliness", "Qua
 
 
 def _template_button_labels(tpl: Any) -> list[str]:
-    if tpl is None or not getattr(tpl, "buttons_json", None):
-        return []
-    try:
-        parsed = json.loads(tpl.buttons_json)
-    except (TypeError, json.JSONDecodeError):
-        return []
-    if not isinstance(parsed, list):
-        return []
-    return [str(item).strip() for item in parsed if str(item).strip()]
+    from app.services.customer_feedback.feedback_answer_service import parse_template_buttons
+
+    return parse_template_buttons(tpl)
 
 
 def _web_question_text(tpl: Any, *, fallback: str) -> str:

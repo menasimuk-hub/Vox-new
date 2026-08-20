@@ -1720,6 +1720,30 @@ def test_session_menu_maps_numbered_reply():
         assert is_negative_topic_answer(db, answer="3", tpl=tpl, detected_language="ar") is False
 
 
+def test_parse_template_buttons_extracts_quick_reply_text():
+    from types import SimpleNamespace
+
+    from app.services.customer_feedback.feedback_answer_service import parse_template_buttons
+    from app.services.expo.question_bank import format_numbered_prompt
+
+    tpl = SimpleNamespace(
+        buttons_json=json.dumps(
+            [
+                {"type": "quick_reply", "text": "فرص العمل والدخل"},
+                {"type": "QUICK_REPLY", "text": "الأسعار وتكاليف المعيشة"},
+                "التعليم",
+            ],
+            ensure_ascii=False,
+        )
+    )
+    labels = parse_template_buttons(tpl)
+    assert labels == ["فرص العمل والدخل", "الأسعار وتكاليف المعيشة", "التعليم"]
+    rendered = format_numbered_prompt("شو أهم قضية؟", labels, hint="جاوب برقم، مثلاً 1")
+    assert "{'type'" not in rendered
+    assert "1️⃣ فرص العمل والدخل" in rendered
+    assert "2️⃣ الأسعار وتكاليف المعيشة" in rendered
+
+
 def test_elections_industry_hidden_from_dashboard_catalog():
     from app.services.customer_feedback.elections_demo import ELECTIONS_INDUSTRY_SLUG
 

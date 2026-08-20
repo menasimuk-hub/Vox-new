@@ -94,13 +94,14 @@ class FeedbackWaSendService:
         if feedback_template_must_send_as_session_text(tpl):
             from app.services.customer_feedback.elections_demo import (
                 WA_NUMBER_HINT,
+                is_elections_feedback_template,
                 is_session_menu_template,
             )
             from app.services.customer_feedback.feedback_answer_service import parse_template_buttons
             from app.services.expo.question_bank import format_numbered_prompt
 
             body = format_template_message(tpl, for_hsm=True)
-            if is_session_menu_template(tpl):
+            if is_session_menu_template(tpl) or is_elections_feedback_template(db, tpl):
                 labels = parse_template_buttons(tpl)
                 if labels:
                     body = format_numbered_prompt(body, labels, hint=WA_NUMBER_HINT)

@@ -118,16 +118,40 @@ def _likely_non_english_latin(text: str) -> bool:
     return bool(_LATIN_FOREIGN_HINT_RE.search(sample))
 
 
+def _button_label_from_item(item: Any) -> str:
+    """Return the visible option label; ignore Meta {type, text} wrappers."""
+    if isinstance(item, dict):
+        return str(item.get("text") or item.get("title") or item.get("label") or "").strip()
+    return str(item or "").strip()
+
+
+def labels_from_buttons_payload(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError:
+            return [text]
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        label = _button_label_from_item(item)
+        if label:
+            out.append(label)
+    return out
+
+
 def parse_template_buttons(tpl: FeedbackWaTemplate | None) -> list[str]:
-    if tpl is None or not tpl.buttons_json:
+    if tpl is None or not getattr(tpl, "buttons_json", None):
         return []
     try:
         parsed = json.loads(tpl.buttons_json)
     except json.JSONDecodeError:
         return []
-    if not isinstance(parsed, list):
-        return []
-    return [str(item).strip() for item in parsed if str(item).strip()]
+    return labels_from_buttons_payload(parsed)
 
 
 def _english_template_for(db: Session, tpl: FeedbackWaTemplate | None) -> FeedbackWaTemplate | None:

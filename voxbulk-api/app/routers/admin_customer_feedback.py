@@ -976,8 +976,10 @@ def upsert_wa_template(payload: dict, db: Session = Depends(get_db), _admin=Depe
         cat = str(payload.get("meta_category") or "utility").strip().lower()
         row.meta_category = "utility" if cat == "marketing" else cat
     if "buttons" in payload:
-        buttons = payload.get("buttons")
-        row.buttons_json = json.dumps(buttons) if isinstance(buttons, list) else None
+        from app.services.customer_feedback.feedback_answer_service import labels_from_buttons_payload
+
+        labels = labels_from_buttons_payload(payload.get("buttons"))
+        row.buttons_json = json.dumps(labels, ensure_ascii=False) if labels else None
     if "is_active" in payload:
         from app.services.wa_template_admin_visibility_service import apply_admin_survey_visibility
 

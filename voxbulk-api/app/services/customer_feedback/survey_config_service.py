@@ -359,14 +359,9 @@ def format_template_message(tpl: FeedbackWaTemplate, *, for_hsm: bool = False) -
     body = str(tpl.body_text or "").strip()
     if for_hsm:
         return body
-    buttons: list[str] = []
-    if tpl.buttons_json:
-        try:
-            parsed = json.loads(tpl.buttons_json)
-            if isinstance(parsed, list):
-                buttons = [str(b).strip() for b in parsed if str(b).strip()]
-        except json.JSONDecodeError:
-            buttons = []
+    from app.services.customer_feedback.feedback_answer_service import parse_template_buttons
+
+    buttons = parse_template_buttons(tpl)
     if not buttons:
         return body
     opts = " | ".join(buttons)

@@ -571,24 +571,22 @@ class FeedbackCatalogService:
             "marketing_opt_in": "Opt in",
             "open_question": "Share your feedback",
         }
-        label = key_labels.get(key) or key.replace("_", " ").title() or "Template"
-        # Normalize buttons for admin UI (always list of {text}).
-        norm_buttons: list[dict[str, str]] = []
-        for b in buttons:
-            if isinstance(b, str) and b.strip():
-                norm_buttons.append({"type": "QUICK_REPLY", "text": b.strip()[:25]})
-            elif isinstance(b, dict):
-                text = str(b.get("text") or b.get("title") or "").strip()
-                if text:
-                    norm_buttons.append({"type": "QUICK_REPLY", "text": text[:25]})
+        name_label = key_labels.get(key) or key.replace("_", " ").title() or "Template"
+        from app.services.customer_feedback.feedback_answer_service import labels_from_buttons_payload
+
+        # Full labels — session-text menus are not Meta 25-char quick replies.
+        norm_buttons = [
+            {"type": "QUICK_REPLY", "text": btn_label}
+            for btn_label in labels_from_buttons_payload(buttons)
+        ]
         return {
             "id": row.id,
             "industry_id": row.industry_id,
             "survey_type_id": row.survey_type_id,
             "step_order": row.step_order,
             "template_key": row.template_key,
-            "name": label,
-            "display_name": label,
+            "name": name_label,
+            "display_name": name_label,
             "body_text": row.body_text,
             "body_preview": row.body_text,
             "body": row.body_text,
