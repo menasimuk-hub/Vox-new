@@ -1744,6 +1744,34 @@ def test_parse_template_buttons_extracts_quick_reply_text():
     assert "2️⃣ الأسعار وتكاليف المعيشة" in rendered
 
 
+def test_web_choice_options_from_quick_reply_dicts():
+    from types import SimpleNamespace
+
+    from app.services.customer_feedback.web_survey_service import (
+        _sanitize_web_question_text,
+        _web_choice_options,
+    )
+
+    tpl = SimpleNamespace(
+        step_role="session_menu",
+        buttons_json=json.dumps(
+            [
+                {"type": "quick_reply", "text": "فرص العمل والدخل"},
+                {"type": "quick_reply", "text": "الأسعار وتكاليف المعيشة"},
+                {"type": "quick_reply", "text": "التعليم"},
+            ],
+            ensure_ascii=False,
+        ),
+    )
+    options, is_rating, low = _web_choice_options(tpl)
+    assert is_rating is False
+    assert low == []
+    assert [o["label"] for o in options] == ["فرص العمل والدخل", "الأسعار وتكاليف المعيشة", "التعليم"]
+    dirty = "سؤال\n{'type': 'quick_reply', 'text': 'فرص العمل والدخل'}"
+    assert "quick_reply" not in _sanitize_web_question_text(dirty).lower()
+    assert "سؤال" in _sanitize_web_question_text(dirty)
+
+
 def test_elections_industry_hidden_from_dashboard_catalog():
     from app.services.customer_feedback.elections_demo import ELECTIONS_INDUSTRY_SLUG
 

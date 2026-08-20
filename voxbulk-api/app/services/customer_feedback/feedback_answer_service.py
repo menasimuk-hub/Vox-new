@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from typing import Any
@@ -122,7 +123,21 @@ def _button_label_from_item(item: Any) -> str:
     """Return the visible option label; ignore Meta {type, text} wrappers."""
     if isinstance(item, dict):
         return str(item.get("text") or item.get("title") or item.get("label") or "").strip()
-    return str(item or "").strip()
+    text = str(item or "").strip()
+    if text.startswith("{") and "text" in text.lower():
+        try:
+            parsed = ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            parsed = None
+        if isinstance(parsed, dict):
+            return str(parsed.get("text") or parsed.get("title") or parsed.get("label") or "").strip()
+        try:
+            parsed_json = json.loads(text)
+        except json.JSONDecodeError:
+            parsed_json = None
+        if isinstance(parsed_json, dict):
+            return str(parsed_json.get("text") or parsed_json.get("title") or parsed_json.get("label") or "").strip()
+    return text
 
 
 def labels_from_buttons_payload(raw: Any) -> list[str]:

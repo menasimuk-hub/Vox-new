@@ -46,6 +46,27 @@ function themeStyleVars(theme: Theme): CSSProperties {
   } as CSSProperties;
 }
 
+const ELECTION_OPTION_DIGITS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"];
+
+function choiceOptionText(opt: { label?: unknown; value?: string }): string {
+  const raw = opt.label;
+  if (raw && typeof raw === "object") {
+    const obj = raw as { text?: string; title?: string; label?: string };
+    return String(obj.text || obj.title || obj.label || opt.value || "").trim();
+  }
+  const text = String(raw ?? opt.value ?? "").trim();
+  const fromDict = text.match(/['"]text['"]\s*:\s*['"]([^'"]+)['"]/);
+  return fromDict ? fromDict[1] : text;
+}
+
+function displayQuestionTitle(title: string): string {
+  return String(title || "")
+    .replace(/\{[^{}]*quick_reply[^{}]*\}/gi, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 function logoSrc(logoUrl?: string) {
   if (!logoUrl) return "";
   return `${getApiBaseUrl().replace(/\/+$/, "")}${logoUrl}`;
@@ -367,6 +388,7 @@ function QuestionView({
   question,
   selectedValue,
   disabled,
+  numbered,
   onSelect,
 }: {
   theme: Theme;
@@ -374,6 +396,7 @@ function QuestionView({
   question: SurveyQuestion;
   selectedValue: string;
   disabled: boolean;
+  numbered?: boolean;
   onSelect: (value: string) => void;
 }) {
   return (
@@ -381,19 +404,24 @@ function QuestionView({
       <p className="text-[11px] font-medium uppercase tracking-[0.2em]" style={{ color: theme.sub }}>
         Question {index + 1}
       </p>
-      <h1 className="mt-2 font-display text-[28px] leading-[1.15] sm:text-[32px]" style={{ color: theme.ink }}>{question.title}</h1>
+      <h1 className="mt-2 font-display text-[28px] leading-[1.15] sm:text-[32px]" style={{ color: theme.ink }}>
+        {displayQuestionTitle(question.title)}
+      </h1>
       {question.body ? (
         <p className="mt-2 text-[13px] leading-relaxed" style={{ color: theme.sub }}>{question.body}</p>
       ) : null}
       <div className="mt-6 grid gap-2.5">
-        {(question.options || []).map((opt) => {
-          const selected = selectedValue === opt.value;
+        {(question.options || []).map((opt, optIndex) => {
+          const label = choiceOptionText(opt);
+          const value = String(opt.value || label);
+          const selected = selectedValue === value;
+          const shown = numbered && label ? `${ELECTION_OPTION_DIGITS[optIndex] || `${optIndex + 1}.`} ${label}` : label;
           return (
             <button
-              key={opt.value}
+              key={value}
               type="button"
               disabled={disabled}
-              onClick={() => onSelect(opt.value)}
+              onClick={() => onSelect(value)}
               className="group flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-[15px] font-medium transition-all active:scale-[0.98] disabled:opacity-50"
               style={
                 selected
@@ -406,7 +434,7 @@ function QuestionView({
                   : { background: theme.card, borderColor: theme.border, color: theme.ink }
               }
             >
-              <span>{opt.label}</span>
+              <span className={numbered ? "text-right" : undefined}>{shown}</span>
               <span
                 className="grid h-5 w-5 place-items-center rounded-full"
                 style={
@@ -1353,6 +1381,7 @@ export function PublicFeedbackSurvey({
                     question={q}
                     selectedValue={choiceSelection}
                     disabled={busy}
+                    numbered={themePack.id === "elections"}
                     onSelect={(value) => setChoiceSelection(value)}
                   />
                 )}

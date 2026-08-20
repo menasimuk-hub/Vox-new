@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -102,6 +103,18 @@ _RATING_LABEL_EMOJI = {
 _LOW_RATING_REASONS = ["Service", "Speed", "Staff", "Price", "Cleanliness", "Quality"]
 
 
+_QUICK_REPLY_BLOB_RE = re.compile(r"\{[^{}]*quick_reply[^{}]*\}", re.IGNORECASE | re.DOTALL)
+
+
+def _sanitize_web_question_text(text: str) -> str:
+    """Drop leftover Meta button objects if they were pasted into the question body."""
+    cleaned = _QUICK_REPLY_BLOB_RE.sub(" ", str(text or ""))
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    return cleaned.strip(" \n\t,'\"}")
+
+
 def _template_button_labels(tpl: Any) -> list[str]:
     from app.services.customer_feedback.feedback_answer_service import parse_template_buttons
 
@@ -112,7 +125,7 @@ def _web_question_text(tpl: Any, *, fallback: str) -> str:
     """Use the same WA template body as WhatsApp (no 'Reply with:' suffix)."""
     raw = str(getattr(tpl, "body_text", None) or "").strip() if tpl is not None else ""
     if raw:
-        return raw
+        return _sanitize_web_question_text(raw)
     if tpl is not None:
         formatted = format_template_message(tpl)
         # Strip option prompt if present.
@@ -120,15 +133,15 @@ def _web_question_text(tpl: Any, *, fallback: str) -> str:
             if marker in formatted:
                 formatted = formatted.split(marker, 1)[0].strip()
         if formatted:
-            return formatted
+            return _sanitize_web_question_text(formatted)
     return fallback
 
 
-def _web_choice_options(tpl: Any) -> tuple[list[dict[str, str]], bool, list[str]]:
+def _web_choice_options(tpl: Any, *, as_menu: bool = False) -> tuple[list[dict[str, str]], bool, list[str]]:
     """Build web buttons from the WA template; fall back to Excellent/Good/Poor."""
     labels = _template_button_labels(tpl)
     role = str(getattr(tpl, "step_role", None) or "").strip().lower()
-    if role == "session_menu":
+    if as_menu or role == "session_menu":
         options = [{"label": label, "value": label} for label in labels]
         return options, False, []
     if not labels:
@@ -152,6 +165,18 @@ def _web_choice_options(tpl: Any) -> tuple[list[dict[str, str]], bool, list[str]
         return options, False, []
     low = [label for label in labels if label.lower() in {"poor", "bad", "سيئ", "dissatisfied", "unsatisfied"}]
     return options, True, low or list(_LOW_RATING_VALUES)
+
+
+def _web_step_is_menu(db: Session, location: FeedbackLocation, tpl: Any) -> bool:
+    from app.services.customer_feedback.elections_demo import (
+        is_elections_industry_slug,
+        is_session_menu_template,
+    )
+
+    if is_session_menu_template(tpl):
+        return True
+    industry = db.get(FeedbackIndustry, location.industry_id) if getattr(location, "industry_id", None) else None
+    return is_elections_industry_slug(getattr(industry, "slug", None))
 
 
 def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, Any], *, language: str | None) -> dict[str, Any]:
@@ -183,7 +208,7 @@ def _step_to_question(db: Session, location: FeedbackLocation, step: dict[str, A
             "is_rating": False,
         }
 
-    options, is_rating, low_values = _web_choice_options(tpl)
+    options, is_rating, low_values = _web_choice_options(tpl, as_menu=_web_step_is_menu(db, location, tpl))
     return {
         "kind": kind,
         "title": question_text,
