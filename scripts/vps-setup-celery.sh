@@ -187,21 +187,29 @@ else
   warn "and: $HOURLY_LINE"
 fi
 
-# Allow API (non-interactive) restart without a password prompt when using sudo -n.
-SUDOERS_HINT="/etc/sudoers.d/voxbulk-celery"
-if [[ ! -f "$SUDOERS_HINT" ]]; then
-  RUN_USER="$(id -un 2>/dev/null || echo qusay)"
-  cat <<SUDOERS
-
-══════════════════════════════════════════════════════════════
-Optional: allow passwordless Celery restart for Admin UI
-══════════════════════════════════════════════════════════════
-  sudo tee $SUDOERS_HINT >/dev/null <<EOF
-$RUN_USER ALL=(root) NOPASSWD: /usr/bin/supervisorctl status voxbulk-celery, /usr/bin/supervisorctl status voxbulk-celery-beat, /usr/bin/supervisorctl restart voxbulk-celery, /usr/bin/supervisorctl restart voxbulk-celery-beat, /usr/bin/supervisorctl start voxbulk-celery, /usr/bin/supervisorctl start voxbulk-celery-beat, /usr/bin/supervisorctl stop voxbulk-celery, /usr/bin/supervisorctl stop voxbulk-celery-beat
-EOF
-  sudo chmod 440 $SUDOERS_HINT
-SUDOERS
+# Allow API (non-interactive) status/restart via sudo -n (Admin Celery ops UI).
+# Without this, Admin reports "process found but Supervisor program is not RUNNING"
+# even when Celery is healthy — supervisor.sock is root-only (0700).
+SUDOERS_FILE="/etc/sudoers.d/voxbulk-celery"
+RUN_USER="${VOX_RUN_USER:-$(id -un 2>/dev/null || echo qusay)}"
+# Prefer the systemd API unit user when present.
+if [[ -f /etc/systemd/system/voxbulk-api.service ]]; then
+  unit_user="$(grep -E '^User=' /etc/systemd/system/voxbulk-api.service | head -1 | cut -d= -f2 || true)"
+  [[ -n "$unit_user" ]] && RUN_USER="$unit_user"
 fi
+SUDOERS_LINE="$RUN_USER ALL=(root) NOPASSWD: /usr/bin/supervisorctl status voxbulk-celery, /usr/bin/supervisorctl status voxbulk-celery-beat, /usr/bin/supervisorctl restart voxbulk-celery, /usr/bin/supervisorctl restart voxbulk-celery-beat, /usr/bin/supervisorctl start voxbulk-celery, /usr/bin/supervisorctl start voxbulk-celery-beat, /usr/bin/supervisorctl stop voxbulk-celery, /usr/bin/supervisorctl stop voxbulk-celery-beat"
+tmp_sudoers="$(mktemp)"
+cat >"$tmp_sudoers" <<EOF
+# VoxBulk: passwordless supervisorctl for API/Admin Celery ops (sudo -n)
+$SUDOERS_LINE
+EOF
+if sudo cp "$tmp_sudoers" "$SUDOERS_FILE" && sudo chmod 440 "$SUDOERS_FILE" && sudo visudo -cf "$SUDOERS_FILE" >/dev/null; then
+  info "Installed $SUDOERS_FILE for user $RUN_USER (Admin Celery status/restart)"
+else
+  warn "Could not install $SUDOERS_FILE — Admin may show false Celery Supervisor warnings."
+  warn "Install manually: sudo tee $SUDOERS_FILE <<EOF / sudo chmod 440 $SUDOERS_FILE"
+fi
+rm -f "$tmp_sudoers"
 
 cat <<NOTES
 
