@@ -448,6 +448,40 @@ def test_production_startup_rejects_default_secrets():
     logger.warning.assert_called()
 
 
+def test_warn_long_lived_access_token_in_production():
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from app.core.config import warn_long_lived_access_token
+    from main import _warn_production_app_origins
+
+    logger = MagicMock()
+    warn_long_lived_access_token(
+        SimpleNamespace(env="production", access_token_expire_minutes=43200),
+        logger,
+    )
+    assert any(
+        "ACCESS_TOKEN_EXPIRE_MINUTES" in str(c.args[0]) for c in logger.warning.call_args_list
+    )
+
+    logger2 = MagicMock()
+    _warn_production_app_origins(
+        SimpleNamespace(
+            env="production",
+            allow_insecure_webhooks=False,
+            jwt_secret_key="strong-unique-secret",
+            encryption_key="strong-unique-fernet-key",
+            access_token_expire_minutes=43200,
+            public_app_origin="https://voxbulk.com",
+            dashboard_app_origin="https://dashboard.voxbulk.com",
+        ),
+        logger2,
+    )
+    assert any(
+        "ACCESS_TOKEN_EXPIRE_MINUTES" in str(c.args[0]) for c in logger2.warning.call_args_list
+    )
+
+
 def test_token_sets_httponly_cookie_and_me_accepts_cookie(app_client):
     from app.core.database import get_sessionmaker
     from app.core.session_cookie import SESSION_COOKIE_NAME

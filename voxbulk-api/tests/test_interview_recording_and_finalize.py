@@ -65,6 +65,26 @@ def test_fetch_interview_recording_uses_fresh_audio_bytes():
     assert result == (b"fake-audio", "audio/mpeg")
 
 
+def test_fetch_interview_recording_proxies_recording_url_without_redirect():
+    """Legacy AI phone results may only store recording_url — proxy bytes, never 302."""
+    recipient = ServiceOrderRecipient(
+        order_id="ord-1",
+        row_number=1,
+        name="Test",
+        result_json=json.dumps({"recording_url": "https://cdn.example.com/call.mp3"}),
+    )
+    db = MagicMock()
+
+    with patch(
+        "app.services.interview_recording_service._download_url_bytes",
+        return_value=(b"proxied-audio", "audio/mpeg"),
+    ) as download:
+        result = fetch_interview_recording(db, recipient)
+
+    assert result == (b"proxied-audio", "audio/mpeg")
+    download.assert_called_once_with("https://cdn.example.com/call.mp3")
+
+
 def test_user_recording_messages_hide_provider():
     assert "Telnyx" not in USER_RECORDING_UNAVAILABLE
     assert "Telnyx" not in USER_RECORDING_PROCESSING

@@ -262,3 +262,18 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def warn_long_lived_access_token(settings: Settings, logger) -> None:
+    """Log (do not fail) when production JWT TTL exceeds 24h — stolen-token window."""
+    env = str(getattr(settings, "env", "") or "").lower()
+    if env not in {"production", "prod"}:
+        return
+    minutes = int(getattr(settings, "access_token_expire_minutes", 1440) or 1440)
+    if minutes > 1440:
+        logger.warning(
+            "ACCESS_TOKEN_EXPIRE_MINUTES=%s exceeds 1440 (24h) in production — "
+            "stolen JWTs remain valid longer. Set ACCESS_TOKEN_EXPIRE_MINUTES=1440 "
+            "(or lower) in .env and restart; rely on token_version after password change.",
+            minutes,
+        )

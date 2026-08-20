@@ -2942,7 +2942,7 @@ def get_interview_recipient_recording(
     db: Session = Depends(get_db),
     principal=Depends(get_current_principal),
 ):
-    from fastapi.responses import RedirectResponse, Response
+    from fastapi.responses import Response
 
     from app.models.service_order import ServiceOrderRecipient
     from app.services.interview_recording_service import (
@@ -2957,17 +2957,6 @@ def get_interview_recipient_recording(
     recipient = db.get(ServiceOrderRecipient, recipient_id)
     if recipient is None or recipient.order_id != order.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found")
-
-    try:
-        parsed = json.loads(recipient.result_json or "{}")
-        if not isinstance(parsed, dict):
-            parsed = {}
-    except Exception:
-        parsed = {}
-
-    remote = str(parsed.get("recording_url") or "").strip()
-    if remote.startswith("http://") or remote.startswith("https://"):
-        return RedirectResponse(url=remote, status_code=302)
 
     try:
         result = fetch_interview_recording(db, recipient)

@@ -233,6 +233,8 @@ def _log_provider_key_status(logger) -> None:
 
 
 def _warn_production_app_origins(settings, logger) -> None:
+    from app.core.config import warn_long_lived_access_token
+
     env = str(getattr(settings, "env", "") or "").lower()
     if bool(getattr(settings, "allow_insecure_webhooks", False)):
         if env in {"production", "prod"}:
@@ -256,6 +258,7 @@ def _warn_production_app_origins(settings, logger) -> None:
             "ENCRYPTION_KEY is empty or still 'change-me' while ENV is production/prod. "
             "Set a Fernet ENCRYPTION_KEY before starting."
         )
+    warn_long_lived_access_token(settings, logger)
     for name, value in (
         ("PUBLIC_APP_ORIGIN", getattr(settings, "public_app_origin", "")),
         ("DASHBOARD_APP_ORIGIN", getattr(settings, "dashboard_app_origin", "")),

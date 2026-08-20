@@ -120,4 +120,11 @@ def fetch_interview_recording(
                 _persist_recording_meta(db, recipient, parsed, rec)
                 return bytes(audio), _media_type_for_format(str(rec.get("format") or "mp3"))
 
+    # Server-side proxy only — never redirect the client to this URL (auth bypass).
+    recording_url = str(parsed.get("recording_url") or "").strip()
+    if recording_url.startswith("http://") or recording_url.startswith("https://"):
+        content, media_type = _download_url_bytes(recording_url)
+        if content:
+            return content, media_type
+
     return None
