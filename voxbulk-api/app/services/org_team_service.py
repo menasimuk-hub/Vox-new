@@ -19,8 +19,9 @@ ORG_TEAM_MANAGERS = frozenset({"owner", "manager"})
 
 
 def _can_manage_team(role: str | None) -> bool:
-    r = str(role or "owner").strip().lower()
-    return r in ORG_TEAM_MANAGERS or not role
+    from app.services.org_rbac import effective_role
+
+    return effective_role(role) in ORG_TEAM_MANAGERS
 
 
 def _normalize_role(role: str | None) -> str:

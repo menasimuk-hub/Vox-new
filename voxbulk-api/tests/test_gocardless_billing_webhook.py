@@ -370,3 +370,17 @@ def test_gocardless_payment_confirmed_skips_duplicate_initial(app_client):
             ).scalar_one_or_none()
             is None
         )
+
+
+def test_payment_amount_pence_prefers_details_over_metadata():
+    from unittest.mock import MagicMock
+
+    from app.services.gocardless_billing_webhook_service import _payment_amount_pence
+
+    db = MagicMock()
+    event = {"details": {"amount": 5000}}
+    meta = {"amount_gbp_pence": "9900"}
+    assert _payment_amount_pence(event, meta, None, db) == 5000
+
+    event_meta_only = {}
+    assert _payment_amount_pence(event_meta_only, meta, None, db) == 9900

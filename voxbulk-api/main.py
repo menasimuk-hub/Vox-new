@@ -233,7 +233,7 @@ def _log_provider_key_status(logger) -> None:
 
 
 def _warn_production_app_origins(settings, logger) -> None:
-    from app.core.config import warn_long_lived_access_token
+    from app.core.config import assert_production_crypto_secrets, warn_long_lived_access_token
 
     env = str(getattr(settings, "env", "") or "").lower()
     if bool(getattr(settings, "allow_insecure_webhooks", False)):
@@ -248,16 +248,7 @@ def _warn_production_app_origins(settings, logger) -> None:
         )
     if env not in {"production", "prod"}:
         return
-    if str(getattr(settings, "jwt_secret_key", "") or "").strip() in {"", "change-me"}:
-        raise RuntimeError(
-            "JWT_SECRET_KEY is empty or still 'change-me' while ENV is production/prod. "
-            "Set a strong unique JWT_SECRET_KEY before starting."
-        )
-    if str(getattr(settings, "encryption_key", "") or "").strip() in {"", "change-me"}:
-        raise RuntimeError(
-            "ENCRYPTION_KEY is empty or still 'change-me' while ENV is production/prod. "
-            "Set a Fernet ENCRYPTION_KEY before starting."
-        )
+    assert_production_crypto_secrets(settings)
     warn_long_lived_access_token(settings, logger)
     for name, value in (
         ("PUBLIC_APP_ORIGIN", getattr(settings, "public_app_origin", "")),

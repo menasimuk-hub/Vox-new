@@ -187,14 +187,25 @@ def _resolve_org_email_from_payment(
 
 
 def _payment_amount_pence(event: dict[str, Any], meta: dict[str, Any], sub: Subscription | None, db: Session) -> int:
-    amount = _parse_int(_meta_get(meta, "amount_gbp_pence"))
-    if amount > 0:
-        return amount
+    """Prefer provider details.amount; metadata is fallback only (log when they disagree)."""
+    details_amount = 0
     details = event.get("details")
     if isinstance(details, dict):
-        amount = _parse_int(details.get("amount"))
-        if amount > 0:
-            return amount
+        details_amount = _parse_int(details.get("amount"))
+
+    meta_amount = _parse_int(_meta_get(meta, "amount_gbp_pence"))
+
+    if details_amount > 0 and meta_amount > 0 and details_amount != meta_amount:
+        logger.warning(
+            "gocardless_payment_amount_mismatch details_amount=%s meta_amount_gbp_pence=%s — using provider details.amount",
+            details_amount,
+            meta_amount,
+        )
+
+    if details_amount > 0:
+        return details_amount
+    if meta_amount > 0:
+        return meta_amount
     if sub is not None and sub.plan_id:
         plan = db.get(Plan, sub.plan_id)
         if plan is not None:

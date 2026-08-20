@@ -188,14 +188,14 @@ def test_team_invite_template_registered():
     assert "{{signup_url}}" in SYSTEM_EMAIL_DEFAULTS["team_invite"]["body"]
 
 
-def test_null_role_membership_treated_as_owner(app_client):
+def test_null_role_membership_treated_as_member(app_client):
     from app.core.database import get_sessionmaker
 
     with get_sessionmaker()() as db:
-        org = Organisation(name="Legacy Owner Co")
+        org = Organisation(name="Legacy Null Role Co")
         db.add(org)
         db.flush()
-        user = User(email="legacy_owner@example.com", password_hash=hash_password("pass123"), is_active=True)
+        user = User(email="legacy_null_role@example.com", password_hash=hash_password("pass123"), is_active=True)
         db.add(user)
         db.flush()
         db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role=None))
@@ -204,16 +204,17 @@ def test_null_role_membership_treated_as_owner(app_client):
 
     tok = app_client.post(
         "/auth/token",
-        data={"username": "legacy_owner@example.com", "password": "pass123", "org_id": org_id},
+        data={"username": "legacy_null_role@example.com", "password": "pass123", "org_id": org_id},
     ).json()["access_token"]
     headers = {"Authorization": f"Bearer {tok}"}
 
     me = app_client.get("/auth/me", headers=headers)
     assert me.status_code == 200
-    assert me.json()["role"] == "owner"
+    assert me.json()["role"] == "member"
 
+    # Member without billing role cannot access wallet
     wallet = app_client.get("/billing/wallet", headers=headers)
-    assert wallet.status_code == 200
+    assert wallet.status_code == 403
 
 
 def test_register_sets_owner_role(app_client):
@@ -428,7 +429,8 @@ def test_org_rbac_service_roles():
 
     assert effective_role("receptionist") == "member"
     assert effective_role("sales") == "owner"
-    assert effective_role(None) == "owner"
+    assert effective_role(None) == "member"
+    assert effective_role("") == "member"
 
     with get_sessionmaker()() as db:
         org = Organisation(name="RBAC Unit")

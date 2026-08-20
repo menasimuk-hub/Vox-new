@@ -397,7 +397,7 @@ class SocialOAuthService:
             )
         ).scalar_one_or_none()
         if chk is None:
-            db.add(OrganisationMembership(org_id=org_id, user_id=user_id))
+            db.add(OrganisationMembership(org_id=org_id, user_id=user_id, role="member"))
             db.commit()
 
     @staticmethod

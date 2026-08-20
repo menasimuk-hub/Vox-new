@@ -277,3 +277,20 @@ def warn_long_lived_access_token(settings: Settings, logger) -> None:
             "(or lower) in .env and restart; rely on token_version after password change.",
             minutes,
         )
+
+
+def assert_production_crypto_secrets(settings: Settings) -> None:
+    """Refuse to boot when production still uses placeholder JWT / Fernet keys."""
+    env = str(getattr(settings, "env", "") or "").lower()
+    if env not in {"production", "prod"}:
+        return
+    if str(getattr(settings, "jwt_secret_key", "") or "").strip() in {"", "change-me"}:
+        raise RuntimeError(
+            "JWT_SECRET_KEY is empty or still 'change-me' while ENV is production/prod. "
+            "Set a strong unique JWT_SECRET_KEY before starting."
+        )
+    if str(getattr(settings, "encryption_key", "") or "").strip() in {"", "change-me"}:
+        raise RuntimeError(
+            "ENCRYPTION_KEY is empty or still 'change-me' while ENV is production/prod. "
+            "Set a Fernet ENCRYPTION_KEY before starting."
+        )

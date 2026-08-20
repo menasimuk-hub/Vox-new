@@ -17,10 +17,14 @@ ORG_DIGEST_ROLES = frozenset({"owner", "manager", "accountant"})
 
 
 def effective_role(role: str | None) -> str:
-    """Legacy memberships often have NULL role for the org creator — treat as owner."""
+    """Map stored membership role to a canonical RBAC role.
+
+    Empty/NULL roles are treated as the lowest privilege (member) — never elevate.
+    Legacy labels: receptionist → member, sales → owner.
+    """
     r = str(role or "").strip().lower()
     if not r:
-        return "owner"
+        return "member"
     if r == "receptionist":
         return "member"
     if r == "sales":

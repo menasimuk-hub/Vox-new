@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, UploadFile, status
 from fastapi.responses import HTMLResponse, Response
 from datetime import datetime, timedelta
+import hmac
 import json
 import secrets
 import uuid
@@ -98,7 +99,7 @@ def bootstrap(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Bootstrap disabled")
     if not x_bootstrap_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bootstrap token")
-    if x_bootstrap_token != settings.bootstrap_token:
+    if not hmac.compare_digest(str(x_bootstrap_token), str(settings.bootstrap_token)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid bootstrap token")
 
     existing_org = db.execute(select(Organisation.id).limit(1)).scalar_one_or_none()
@@ -113,7 +114,7 @@ def bootstrap(
     db.add(user)
     db.flush()
 
-    db.add(OrganisationMembership(org_id=org.id, user_id=user.id))
+    db.add(OrganisationMembership(org_id=org.id, user_id=user.id, role="owner"))
     db.commit()
 
     return {"org_id": org.id, "admin_user_id": user.id}
@@ -4945,7 +4946,7 @@ def admin_create_admin_user(payload: dict, db: Session = Depends(get_db), _admin
         )
     )
     db.add(User(id=uid, email=email, password_hash=pwd_hash, is_active=is_active, is_superuser=user_is_super))
-    db.add(OrganisationMembership(org_id=str(org_id), user_id=uid))
+    db.add(OrganisationMembership(org_id=str(org_id), user_id=uid, role="member"))
     db.commit()
     return {"ok": True, "id": uid, "email": email, "role": role}
 
@@ -5720,7 +5721,7 @@ def debug_capture_dentally_appointments_sample(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Debug capture disabled")
     if not x_debug_capture_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing debug capture token")
-    if x_debug_capture_token != settings.bootstrap_token:
+    if not hmac.compare_digest(str(x_debug_capture_token), str(settings.bootstrap_token)):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid debug capture token")
 
     try:
