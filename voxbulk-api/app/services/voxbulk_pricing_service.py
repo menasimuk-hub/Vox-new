@@ -632,7 +632,7 @@ class VoxbulkPricingService:
             cv_scans_included=0,
             per_min_pence=int(s.get("per_min_pence") or 0),
             overage_per_min_pence=int(s.get("extra_per_min_pence") or 0),
-            trial_days_default=14,
+            trial_days_default=0,
             service_kind="voxbulk",
             is_active=bool(s.get("is_active", True)),
             is_featured=bool(s.get("is_featured")),

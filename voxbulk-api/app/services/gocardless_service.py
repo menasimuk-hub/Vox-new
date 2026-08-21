@@ -1234,8 +1234,7 @@ class BillingService:
             )
             trial_days = int(discounted.get("trial_days") or 0)
             charge_minor = int(discounted["amount_minor"])
-        if trial_days <= 0 and service_code_preview == "voxbulk":
-            trial_days = int(getattr(plan, "trial_days_default", 0) or 0)
+        # Core (voxbulk): no automatic plan.trial_days_default — promo trial only.
         # Smart Card product default: 1 month free when no promo trial.
         if service_code_preview == "smart_card" and trial_days <= 0:
             plan_default = int(getattr(plan, "trial_days_default", 0) or 0)

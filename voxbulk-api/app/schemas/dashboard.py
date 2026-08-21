@@ -101,6 +101,7 @@ class CardSubscriptionStartOut(BaseModel):
     checkout: dict | None = None
     paid: bool = False
     trial_days: int = 0
+    mode: str | None = None
     subscription_id: str | None = None
 
 

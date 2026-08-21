@@ -58,10 +58,10 @@ class StripeSubscriptionService:
         discounted = PromoDiscountService.peek_amount(
             db, org_id=org.id, service_kind=service_kind, amount_minor=amount_minor
         )
+        # Core (voxbulk): trial only via pending promo — never auto-apply plan.trial_days_default.
+        # Smart Card uses its own billing service (30-day product trial).
         trial_days = int(discounted.get("trial_days") or 0)
         amount_minor = int(discounted["amount_minor"])
-        if trial_days <= 0 and str(service_code or "voxbulk").lower() == "voxbulk":
-            trial_days = int(getattr(plan, "trial_days_default", 0) or 0)
         if trial_days > 0:
             catalog = int(discounted.get("original_amount_minor") or amount_minor or 0)
             intent = StripePaymentService.create_subscription_setup_intent(

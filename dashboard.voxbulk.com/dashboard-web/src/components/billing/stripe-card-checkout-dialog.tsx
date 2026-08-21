@@ -66,10 +66,18 @@ export function StripeCardCheckoutDialog({
   onPaid,
 }: Props) {
   const isSetup = session?.mode === "setup" || Boolean(session?.payment_intent_id?.startsWith("seti_"));
-  const dialogTitle = isSetup ? "Save card for free trial" : title;
-  const dialogDescription = isSetup
-    ? "Enter your card to start the free trial. You will not be charged today — billing starts after the trial."
-    : description;
+  const trialDays = Math.max(0, Number(session?.trial_days || 0));
+  const isFreeTrial = isSetup && trialDays > 0;
+  const dialogTitle = isFreeTrial
+    ? "Save card for free trial"
+    : isSetup
+      ? "Save card"
+      : title;
+  const dialogDescription = isFreeTrial
+    ? `Enter your card to start the free trial. You will not be charged today — billing starts after ${trialDays} day${trialDays === 1 ? "" : "s"}.`
+    : isSetup
+      ? "Enter your card details. You will not be charged today."
+      : description;
   const [ready, setReady] = React.useState(false);
   const [paying, setPaying] = React.useState(false);
   const [mountEl, setMountEl] = React.useState<HTMLDivElement | null>(null);
@@ -233,8 +241,10 @@ export function StripeCardCheckoutDialog({
                 <Loader2 className="mr-2 size-4 animate-spin" />
                 {isSetup ? "Saving…" : "Paying…"}
               </>
-            ) : isSetup ? (
+            ) : isFreeTrial ? (
               "Start free trial"
+            ) : isSetup ? (
+              "Save card"
             ) : (
               "Pay now"
             )}

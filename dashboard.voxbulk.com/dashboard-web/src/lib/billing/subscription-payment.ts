@@ -16,6 +16,7 @@ type CardStartResponse = {
   plan_id: string;
   paid?: boolean;
   trial_days?: number;
+  mode?: "setup" | "payment" | string;
   checkout?: Record<string, unknown> & { environment?: string };
   /** When true, open StripeCardCheckoutDialog — do not call confirmPayment bare. */
   needs_stripe_elements?: boolean;
@@ -121,6 +122,43 @@ export function coreCheckoutAvailable(subscription: Record<string, unknown> | nu
 
 export type PaymentMethodChoice = "gocardless" | "stripe";
 
+const PAY_METHOD_STORAGE_PREFIX = "voxbulk_pay_method_";
+
+function normalizePayServiceKey(serviceKind: string | null | undefined): string {
+  const raw = String(serviceKind || "voxbulk").trim().toLowerCase();
+  if (raw === "smart_card") return "smart_card";
+  if (raw === "customer_feedback" || raw === "feedback") return "customer_feedback";
+  if (raw === "expo") return "expo";
+  return "voxbulk";
+}
+
+export function readSavedPaymentMethod(
+  serviceKind: string | null | undefined,
+  available: PaymentMethodChoice[],
+): PaymentMethodChoice | null {
+  if (typeof window === "undefined" || !available.length) return null;
+  try {
+    const key = `${PAY_METHOD_STORAGE_PREFIX}${normalizePayServiceKey(serviceKind)}`;
+    const saved = String(window.localStorage.getItem(key) || "").toLowerCase();
+    if (saved === "gocardless" || saved === "stripe") {
+      if (available.includes(saved)) return saved;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export function savePaymentMethod(serviceKind: string | null | undefined, method: PaymentMethodChoice): void {
+  if (typeof window === "undefined") return;
+  try {
+    const key = `${PAY_METHOD_STORAGE_PREFIX}${normalizePayServiceKey(serviceKind)}`;
+    window.localStorage.setItem(key, method);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function availablePaymentMethods(
   subscription: Record<string, unknown> | null | undefined,
 ): PaymentMethodChoice[] {
@@ -193,6 +231,11 @@ export async function startCardSubscription(
     currency: result.currency,
     amount_minor: result.amount_minor,
     billing_interval: result.billing_interval || billingInterval,
+    mode:
+      result.mode === "setup" || String(result.payment_intent_id || "").startsWith("seti_")
+        ? "setup"
+        : "payment",
+    trial_days: result.trial_days || 0,
     environment: result.environment,
     livemode: result.livemode,
     stripe_mode: result.stripe_mode,

@@ -12,7 +12,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
-import type { PaymentMethodChoice } from "@/lib/billing/subscription-payment";
+import {
+  readSavedPaymentMethod,
+  savePaymentMethod,
+  type PaymentMethodChoice,
+} from "@/lib/billing/subscription-payment";
 import { cn } from "@/lib/utils";
 
 export type CheckoutConfirmDetails = {
@@ -82,9 +86,15 @@ export function CheckoutConfirmDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    const next = defaultPaymentMethod || methods[0] || "gocardless";
+    const saved = readSavedPaymentMethod(details?.serviceKind, methods);
+    const next = saved || defaultPaymentMethod || methods[0] || "gocardless";
     setPaymentMethod(next);
-  }, [open, defaultPaymentMethod, methods.join("|")]);
+  }, [open, defaultPaymentMethod, details?.serviceKind, methods.join("|")]);
+
+  const selectPaymentMethod = (method: PaymentMethodChoice) => {
+    setPaymentMethod(method);
+    savePaymentMethod(details?.serviceKind, method);
+  };
 
   const refreshQuote = React.useCallback(async () => {
     if (!details?.amountMinor || details.amountMinor <= 0 || !details.serviceKind) {
@@ -224,7 +234,7 @@ export function CheckoutConfirmDialog({
                     type="radio"
                     name="checkout-pay-method"
                     checked={paymentMethod === "gocardless"}
-                    onChange={() => setPaymentMethod("gocardless")}
+                    onChange={() => selectPaymentMethod("gocardless")}
                   />
                   <span>
                     <span className="font-medium">Direct Debit</span>
@@ -243,7 +253,7 @@ export function CheckoutConfirmDialog({
                     type="radio"
                     name="checkout-pay-method"
                     checked={paymentMethod === "stripe"}
-                    onChange={() => setPaymentMethod("stripe")}
+                    onChange={() => selectPaymentMethod("stripe")}
                   />
                   <span>
                     <span className="font-medium">Card</span>
@@ -265,6 +275,9 @@ export function CheckoutConfirmDialog({
             type="button"
             disabled={loading}
             onClick={() => {
+              if (methods.length) {
+                savePaymentMethod(details?.serviceKind, paymentMethod);
+              }
               void onConfirm(methods.length ? paymentMethod : undefined);
             }}
           >

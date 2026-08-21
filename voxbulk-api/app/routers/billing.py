@@ -464,6 +464,7 @@ def start_card_subscription_checkout(
         checkout=checkout.get("checkout"),
         paid=bool(checkout.get("paid")),
         trial_days=int(checkout.get("trial_days") or 0),
+        mode=str(checkout.get("mode") or "") or None,
         subscription_id=checkout.get("subscription_id"),
     )
 
