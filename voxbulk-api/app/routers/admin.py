@@ -544,9 +544,13 @@ def test_deepgram_connection(db: Session = Depends(get_db), _admin=Depends(requi
 
 
 @router.post("/integrations/gocardless/test")
-def test_gocardless_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+def test_gocardless_connection(
+    environment: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
     try:
-        result = BillingService.test_gocardless_connection(db)
+        result = BillingService.test_gocardless_connection(db, environment=environment)
     except GoCardlessConfigError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except GoCardlessProviderError as e:

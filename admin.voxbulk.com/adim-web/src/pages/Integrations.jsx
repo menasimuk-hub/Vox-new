@@ -304,6 +304,36 @@ function telnyxValidation(config, draft, summary) {
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
+function gcEnv(config) {
+  const raw = String(config?.environment || '').trim().toLowerCase()
+  if (raw === 'live' || raw === 'prod' || raw === 'production') return 'live'
+  return 'sandbox'
+}
+
+function gcEnvReady(summary, env) {
+  const set = summary?.secret_set || {}
+  if (env === 'live') {
+    return Boolean(set.access_token_live || (gcEnv(summary?.config) === 'live' && set.access_token))
+  }
+  return Boolean(set.access_token_sandbox || (gcEnv(summary?.config) !== 'live' && set.access_token))
+}
+
+const GOCARDLESS_WEBHOOK_HTTPS = 'https://api.voxbulk.com/webhooks/gocardless'
+
+function httpsWebhookUrl(raw, fallback = GOCARDLESS_WEBHOOK_HTTPS) {
+  const value = String(raw || '').trim()
+  if (!value) return fallback
+  const lower = value.toLowerCase()
+  if (lower.startsWith('https://')) return value
+  if (lower.startsWith('http://')) {
+    const rest = value.slice(7)
+    const host = rest.split('/')[0].split(':')[0].toLowerCase()
+    if (host === 'localhost' || host === '127.0.0.1') return fallback
+    return `https://${rest}`
+  }
+  return fallback
+}
+
 function stripeEnv(config) {
   const raw = String(config?.environment || '').trim().toLowerCase()
   if (raw === 'live' || raw === 'prod' || raw === 'production') return 'live'
@@ -338,7 +368,7 @@ function WebhooksOverview({ summaries }) {
     { label: 'Telnyx messaging (SMS)', url: telnyx.messaging_webhook_url || `${webhookBase}/telnyx/webhooks/messages` },
     { label: 'Telnyx call status', url: telnyx.status_callback_url || `${webhookBase}/telnyx/webhooks/status` },
     { label: 'Meta WhatsApp', url: summaries?.meta_whatsapp?.config?.webhook_url || `${webhookBase}/webhooks/meta/whatsapp` },
-    { label: 'GoCardless billing', url: gc.webhook_url || 'https://your-api-host/webhooks/gocardless' },
+    { label: 'GoCardless billing', url: httpsWebhookUrl(gc.webhook_url) },
     { label: 'Vapi call events', url: 'Configure in Vapi dashboard → Server URL (see Vapi integration)' },
   ]
 
@@ -660,7 +690,7 @@ export default function Integrations() {
   ]
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
-  const [gocardlessTestResult, setGocardlessTestResult] = useState('')
+  const [gocardlessTestResults, setGocardlessTestResults] = useState({ sandbox: '', live: '' })
   const [stripeTestResults, setStripeTestResults] = useState({ sandbox: '', live: '' })
   const [airwallexTestResult, setAirwallexTestResult] = useState('')
   const [subscriptionRouting, setSubscriptionRouting] = useState(null)
@@ -870,13 +900,18 @@ export default function Integrations() {
       const draft = providerDrafts[providerKey] || {}
       const config = { ...(existing.config || {}), ...(draft.config || {}) }
       if (providerKey === 'gocardless') {
+        const env = gcEnv(config)
+        config.environment = env
         const token = String(draft.access_token_draft || '').trim()
         if (token) config.access_token = token
+        else delete config.access_token
         const webhookSecret = String(draft.webhook_secret_draft || '').trim()
         if (webhookSecret) config.webhook_secret = webhookSecret
+        else delete config.webhook_secret
+        config.webhook_url = httpsWebhookUrl(config.webhook_url)
         for (const key of ['success_redirect_url', 'cancel_redirect_url']) {
-          const value = String(config[key] || '').trim()
-          const lower = value.toLowerCase()
+          const value = httpsWebhookUrl(config[key], '')
+          const lower = String(value || '').toLowerCase()
           const looksInvalid =
             !value ||
             lower.includes('localhost') ||
@@ -886,6 +921,7 @@ export default function Integrations() {
             lower.includes(':5175') ||
             (lower.includes('voxbulk.com') && !lower.includes('dashboard.voxbulk.com'))
           if (looksInvalid) delete config[key]
+          else config[key] = value
         }
       }
       if (providerKey === 'stripe') {
@@ -1395,17 +1431,19 @@ export default function Integrations() {
     }
   }
 
-  const testGocardless = async () => {
+  const testGocardless = async (env) => {
+    const target = env === 'live' ? 'live' : 'sandbox'
+    const label = target === 'live' ? 'Live' : 'Sandbox'
     setProviderError('')
-    setGocardlessTestResult('Testing GoCardless sandbox…')
+    setGocardlessTestResults((s) => ({ ...s, [target]: `Testing ${label}…` }))
     try {
-      const result = await apiFetch('/admin/integrations/gocardless/test', { method: 'POST' })
+      const result = await apiFetch(`/admin/integrations/gocardless/test?environment=${target}`, { method: 'POST' })
       const name = result.creditor_name || result.creditor_id || 'creditor'
       const write = result.redirect_flows_ok || result.write_ok ? ' · Redirect Flows OK' : ''
-      setGocardlessTestResult(`GoCardless OK (${result.environment || 'sandbox'}) — ${name}${write}`)
+      setGocardlessTestResults((s) => ({ ...s, [target]: `${result.label || label} OK — ${name}${write}` }))
     } catch (e) {
-      setGocardlessTestResult('')
-      setProviderError(e?.message || 'GoCardless test failed')
+      setGocardlessTestResults((s) => ({ ...s, [target]: '' }))
+      setProviderError(e?.message || `${label} test failed`)
     }
   }
 
@@ -3061,7 +3099,7 @@ export default function Integrations() {
             ) : activeProvider === 'gocardless' ? (
               <div className='card'>
                 <div className='cardHead'>
-                  <h3>GoCardless sandbox setup</h3>
+                  <h3>GoCardless Direct Debit</h3>
                   <span className={`pill ${statusPill(activeSummary).cls}`}>{statusPill(activeSummary).text}</span>
                 </div>
                 <div className='cardBody'>
@@ -3072,27 +3110,77 @@ export default function Integrations() {
                       <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('gocardless', e.target.checked)} />
                       <span>Enable GoCardless billing</span>
                     </label>
+                    <div className='note'>Used for Direct Debit / bank payments. Save both sandbox and live tokens, then switch which one is active. Webhook URL must be HTTPS.</div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Environment</label>
-                      <select className='input' value={String(activeConfig.environment || 'sandbox')} onChange={(e) => setProviderField('gocardless', 'environment', e.target.value)}>
+                      <select
+                        className='input'
+                        value={gcEnv(activeConfig)}
+                        onChange={(e) => {
+                          const next = e.target.value === 'live' ? 'live' : 'sandbox'
+                          setProviderDrafts((s) => ({
+                            ...s,
+                            gocardless: {
+                              ...(s.gocardless || {}),
+                              access_token_draft: '',
+                              webhook_secret_draft: '',
+                              config: {
+                                ...((s.gocardless || {}).config || {}),
+                                environment: next,
+                                webhook_url: httpsWebhookUrl((s.gocardless || {}).config?.webhook_url || activeConfig.webhook_url),
+                              },
+                            },
+                          }))
+                        }}
+                      >
                         <option value='sandbox'>Sandbox</option>
                         <option value='live'>Live</option>
                       </select>
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        Active: <strong>{gcEnv(activeConfig) === 'live' ? 'Live' : 'Sandbox'}</strong>
+                        {activeSummary?.secret_set?.access_token_sandbox || (gcEnv(activeSummary.config) !== 'live' && activeSummary?.secret_set?.access_token) ? ' · sandbox token saved' : ''}
+                        {activeSummary?.secret_set?.access_token_live || (gcEnv(activeSummary.config) === 'live' && activeSummary?.secret_set?.access_token) ? ' · live token saved' : ''}
+                      </div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Access token</label>
-                      <input className='input' type='password' value={String(activeDraft.access_token_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, gocardless: { ...(s.gocardless || {}), access_token_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.access_token ? 'Leave blank to keep current token' : 'Paste sandbox access token'} />
+                      <input
+                        className='input'
+                        type='password'
+                        value={String(activeDraft.access_token_draft || '')}
+                        onChange={(e) => setProviderDrafts((s) => ({ ...s, gocardless: { ...(s.gocardless || {}), access_token_draft: e.target.value } }))}
+                        placeholder={
+                          (gcEnv(activeConfig) === 'live'
+                            ? (activeSummary?.secret_set?.access_token_live || (gcEnv(activeConfig) === 'live' && activeSummary?.secret_set?.access_token))
+                            : (activeSummary?.secret_set?.access_token_sandbox || (gcEnv(activeConfig) !== 'live' && activeSummary?.secret_set?.access_token)))
+                            ? 'Leave blank to keep current token'
+                            : (gcEnv(activeConfig) === 'live' ? 'live_… read-write token' : 'sandbox_… read-write token')
+                        }
+                      />
                       <div className='muted' style={{ fontSize: 12 }}>
-                        Must be a <strong>Read-write</strong> Access Token (Developers → Create). A read-only token passes “Test” for creditors but fails Direct Debit checkout with 403 insufficient_permissions.
+                        Must be a <strong>Read-write</strong> Access Token (Developers → Create). Sandbox tokens start with sandbox_, live tokens with live_. Paste the token for the selected environment; the other environment is kept.
                       </div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Webhook endpoint URL</label>
-                      <input className='input' value={String(activeConfig.webhook_url || 'http://localhost:8000/webhooks/gocardless')} onChange={(e) => setProviderField('gocardless', 'webhook_url', e.target.value)} />
+                      <input className='input' value={httpsWebhookUrl(activeConfig.webhook_url)} onChange={(e) => setProviderField('gocardless', 'webhook_url', httpsWebhookUrl(e.target.value))} />
+                      <div className='muted' style={{ fontSize: 12 }}>Use this HTTPS URL in both GoCardless sandbox and live dashboards. HTTP localhost URLs are rewritten to production HTTPS.</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Webhook secret</label>
-                      <input className='input' type='password' value={String(activeDraft.webhook_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, gocardless: { ...(s.gocardless || {}), webhook_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.webhook_secret ? 'Leave blank to keep current secret' : 'Paste webhook secret'} />
+                      <input
+                        className='input'
+                        type='password'
+                        value={String(activeDraft.webhook_secret_draft || '')}
+                        onChange={(e) => setProviderDrafts((s) => ({ ...s, gocardless: { ...(s.gocardless || {}), webhook_secret_draft: e.target.value } }))}
+                        placeholder={
+                          (gcEnv(activeConfig) === 'live'
+                            ? (activeSummary?.secret_set?.webhook_secret_live || (gcEnv(activeConfig) === 'live' && activeSummary?.secret_set?.webhook_secret))
+                            : (activeSummary?.secret_set?.webhook_secret_sandbox || (gcEnv(activeConfig) !== 'live' && activeSummary?.secret_set?.webhook_secret)))
+                            ? 'Leave blank to keep current secret'
+                            : 'Paste webhook secret for this environment'
+                        }
+                      />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Success redirect URL</label>
@@ -3109,11 +3197,18 @@ export default function Integrations() {
                       <button className='btn primary' onClick={() => saveIntegrationProvider('gocardless')} disabled={providerSaving}>
                         {providerSaving ? 'Saving…' : 'Save GoCardless'}
                       </button>
-                      <button className='btn soft' onClick={testGocardless} disabled={providerSaving || !activeSummary.configured}>
-                        Test connection
+                      <button className='btn soft' onClick={() => testGocardless('sandbox')} disabled={providerSaving || !gcEnvReady(activeSummary, 'sandbox')}>
+                        Test sandbox
+                      </button>
+                      <button className='btn soft' onClick={() => testGocardless('live')} disabled={providerSaving || !gcEnvReady(activeSummary, 'live')}>
+                        Test live
                       </button>
                     </div>
-                    {gocardlessTestResult ? <div className='note' style={{ marginTop: 8 }}>{gocardlessTestResult}</div> : null}
+                    <div className='muted' style={{ fontSize: 12 }}>
+                      Customer Direct Debit uses <strong>{gcEnv(activeSummary.config) === 'live' ? 'Live' : 'Sandbox'}</strong> until you change Environment and Save. Test sandbox and Test live check each saved token without switching payments.
+                    </div>
+                    {gocardlessTestResults.sandbox ? <div className='note' style={{ marginTop: 8 }}>{gocardlessTestResults.sandbox}</div> : null}
+                    {gocardlessTestResults.live ? <div className='note' style={{ marginTop: 8 }}>{gocardlessTestResults.live}</div> : null}
                   </div>
                 </div>
               </div>

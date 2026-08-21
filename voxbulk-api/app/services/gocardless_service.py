@@ -334,8 +334,9 @@ class BillingService:
     @staticmethod
     def payment_options(db: Session) -> dict[str, Any]:
         gc_cfg, gc_enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
-        token = str((gc_cfg or {}).get("access_token") or "").strip()
-        environment = str((gc_cfg or {}).get("environment") or "sandbox").strip().lower()
+        cfg = ProviderSettingsService.apply_gocardless_active_credentials(gc_cfg or {})
+        token = str(cfg.get("access_token") or "").strip()
+        environment = str(cfg.get("environment") or "sandbox").strip().lower()
         gocardless_available = bool(gc_enabled and token)
         return {
             "cash_available": False,
@@ -346,22 +347,33 @@ class BillingService:
         }
 
     @staticmethod
-    def test_gocardless_connection(db: Session) -> dict[str, Any]:
-        """Verify token can read creditors and create a redirect flow (write scope).
-
-        A read-only access token passes GET /creditors but fails checkout with
-        403 insufficient_permissions — so we probe POST /redirect_flows too.
-        """
-        config = BillingService._get_gocardless_config(db)
-        headers = BillingService._gocardless_headers(config["access_token"])
+    def test_gocardless_connection(db: Session, environment: str | None = None) -> dict[str, Any]:
+        """Verify sandbox or live token. Does not switch the mode used for customer payments."""
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
+        if not cfg:
+            raise GoCardlessConfigError("GoCardless is not configured")
+        requested = ProviderSettingsService.normalize_gocardless_environment(
+            environment if environment else cfg.get("environment"),
+            access_token=str(cfg.get("access_token") or ""),
+        )
+        creds = ProviderSettingsService.gocardless_credentials_for_environment(cfg, requested)
+        token = str(creds.get("access_token") or "").strip()
+        label = "Live" if requested == "live" else "Sandbox"
+        if not token:
+            raise GoCardlessConfigError(
+                f"{label} access token is not saved yet. Select {requested}, paste the token, and Save."
+            )
+        api_base = (
+            "https://api-sandbox.gocardless.com" if requested == "sandbox" else "https://api.gocardless.com"
+        )
+        headers = BillingService._gocardless_headers(token)
         with httpx.Client(timeout=20) as client:
-            response = client.get(f"{config['api_base']}/creditors", headers=headers)
+            response = client.get(f"{api_base}/creditors", headers=headers)
         BillingService._raise_for_gocardless_error(response)
         body = response.json()
         creditors = body.get("creditors") or []
         first = creditors[0] if creditors else {}
 
-        # Write probe: Redirect Flows power dashboard Direct Debit signup.
         success_url = BillingService._gocardless_browser_return_url(
             secrets.token_urlsafe(16), billing="gc_probe"
         )
@@ -378,7 +390,7 @@ class BillingService:
         write_error: str | None = None
         with httpx.Client(timeout=20) as client:
             probe = client.post(
-                f"{config['api_base']}/redirect_flows",
+                f"{api_base}/redirect_flows",
                 headers=headers,
                 json=probe_payload,
             )
@@ -386,7 +398,6 @@ class BillingService:
             write_ok = True
             flow = (probe.json() or {}).get("redirect_flows") or {}
             flow_id = str(flow.get("id") or "").strip()
-            # Best-effort: leave orphaned sandbox flow; no cancel endpoint for incomplete flows.
             _ = flow_id
         else:
             write_error = BillingService._gocardless_error_detail(probe)
@@ -395,7 +406,7 @@ class BillingService:
                 raise GoCardlessProviderError(
                     "GoCardless token can read creditors but cannot create Redirect Flows "
                     "(403 insufficient_permissions). In the GoCardless dashboard create a new "
-                    f"{config['environment']} Access Token with Read-write permissions and paste it "
+                    f"{requested} Access Token with Read-write permissions and paste it "
                     "in Admin → Integrations → GoCardless (do not use a read-only token). "
                     f"Detail: {write_error}"
                 )
@@ -404,9 +415,15 @@ class BillingService:
                 "Checkout will fail until Redirect Flows work for this token."
             )
 
+        active = ProviderSettingsService.normalize_gocardless_environment(
+            cfg.get("environment"),
+            access_token=str(cfg.get("access_token") or ""),
+        )
         return {
             "ok": True,
-            "environment": config["environment"],
+            "environment": requested,
+            "label": label,
+            "active_environment": active,
             "creditor_count": len(creditors),
             "creditor_name": str(first.get("name") or "").strip() or None,
             "creditor_id": str(first.get("id") or "").strip() or None,
@@ -620,10 +637,10 @@ class BillingService:
     @staticmethod
     def _get_gocardless_config(db: Session) -> dict[str, Any]:
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
-        config = cfg or {}
+        config = ProviderSettingsService.apply_gocardless_active_credentials(cfg or {})
         token = str(config.get("access_token") or "").strip()
         if not enabled or not token:
-            raise GoCardlessConfigError("GoCardless sandbox access token is not configured or enabled")
+            raise GoCardlessConfigError("GoCardless access token is not configured or enabled")
         environment = str(config.get("environment") or "sandbox").strip().lower()
         if environment not in {"sandbox", "live"}:
             environment = "sandbox"

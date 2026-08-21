@@ -60,14 +60,25 @@ async def gocardless_webhook(request: Request, db: Session = Depends(get_db)):
     secret = settings.gocardless_webhook_secret
     try:
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="gocardless")
-        if enabled:
-            admin_secret = str((cfg or {}).get("webhook_secret") or "").strip() if isinstance(cfg, dict) else ""
-            if not admin_secret:
+        secrets_to_try: list[str] = []
+        if enabled and isinstance(cfg, dict):
+            for key in ("webhook_secret", "webhook_secret_sandbox", "webhook_secret_live"):
+                admin_secret = str(cfg.get(key) or "").strip()
+                if admin_secret and admin_secret not in secrets_to_try:
+                    secrets_to_try.append(admin_secret)
+            if not secrets_to_try:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="GoCardless is enabled but webhook secret could not be decrypted",
                 )
-            secret = admin_secret
+        fallback = str(secret or "").strip()
+        if fallback and fallback not in secrets_to_try:
+            secrets_to_try.append(fallback)
+        ok = False
+        for candidate in secrets_to_try:
+            if verify_gocardless_signature_hex(secret=candidate, body=body, signature_hex=sig):
+                ok = True
+                break
     except HTTPException:
         raise
     except Exception as exc:
@@ -76,7 +87,6 @@ async def gocardless_webhook(request: Request, db: Session = Depends(get_db)):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="GoCardless webhook configuration is unavailable",
         ) from exc
-    ok = verify_gocardless_signature_hex(secret=secret, body=body, signature_hex=sig)
     if not ok:
         raise _invalid_sig()
     external_event_id = WebhookEventService.extract_external_event_id("gocardless", body)

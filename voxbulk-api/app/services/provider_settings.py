@@ -110,7 +110,14 @@ class ProviderSettingsService:
         "deepgram": {"api_key"},
         "deepinfra": {"api_key"},
         "cartesia": {"api_key"},
-        "gocardless": {"access_token", "webhook_secret"},
+        "gocardless": {
+            "access_token",
+            "webhook_secret",
+            "access_token_sandbox",
+            "access_token_live",
+            "webhook_secret_sandbox",
+            "webhook_secret_live",
+        },
         "stripe": {
             "secret_key",
             "webhook_secret",
@@ -141,6 +148,8 @@ class ProviderSettingsService:
         "apify": {"api_key"},
         "resend": {"api_key"},
     }
+
+    GOCARDLESS_WEBHOOK_URL = "https://api.voxbulk.com/webhooks/gocardless"
 
     @staticmethod
     def _assert_provider(provider: str) -> None:
@@ -245,7 +254,7 @@ class ProviderSettingsService:
         if provider == "airwallex":
             config = ProviderSettingsService._validate_airwallex_config(config)
         if provider == "gocardless":
-            config = ProviderSettingsService._validate_gocardless_config(config)
+            config = ProviderSettingsService._validate_gocardless_config(config, incoming=incoming_patch)
         if provider == "calendly":
             config = ProviderSettingsService._validate_calendly_config(config)
         if provider == "cal_com":
@@ -270,7 +279,7 @@ class ProviderSettingsService:
             config = ProviderSettingsService._validate_deepinfra_config(config)
 
         config = ProviderSettingsService._strip_empty_secrets(config, provider)
-        if provider in {"stripe", "airwallex"} and is_enabled:
+        if provider in {"stripe", "airwallex", "gocardless"} and is_enabled:
             secret = str(config.get("webhook_secret") or "").strip()
             if not secret:
                 raise ValueError(f"{provider} webhook_secret is required before enabling")
@@ -1011,17 +1020,129 @@ class ProviderSettingsService:
         return cfg
 
     @staticmethod
-    def _validate_gocardless_config(config: dict[str, Any]) -> dict[str, Any]:
-        cfg = {**config}
-        access_token = str(cfg.get("access_token") or "").strip()
-        if not access_token:
-            raise ValueError("GoCardless settings validation failed: access_token: Access token is required")
-        env = str(cfg.get("environment") or "").strip().lower()
-        if env not in {"sandbox", "live"}:
-            env = "live" if access_token.startswith("live_") else "sandbox"
-        cfg["access_token"] = access_token
+    def normalize_gocardless_environment(raw: str | None, *, access_token: str = "") -> str:
+        env = str(raw or "").strip().lower()
+        if env in {"sandbox", "test"}:
+            return "sandbox"
+        if env in {"live", "prod", "production"}:
+            return "live"
+        token = str(access_token or "").strip()
+        if token.startswith("live_"):
+            return "live"
+        return "sandbox"
+
+    @staticmethod
+    def _gocardless_token_matches_env(token: str, env: str) -> bool:
+        token = str(token or "").strip()
+        if not token:
+            return False
+        if env == "live":
+            return token.startswith("live_")
+        return not token.startswith("live_")
+
+    @staticmethod
+    def force_https_public_url(raw: str | None, *, default: str = "") -> str:
+        value = str(raw or "").strip()
+        if not value:
+            return str(default or "").strip()
+        lowered = value.lower()
+        if lowered.startswith("http://"):
+            rest = value[7:]
+            host = rest.split("/")[0].split(":")[0].lower()
+            if host in {"localhost", "127.0.0.1"}:
+                return str(default or "").strip()
+            value = "https://" + rest
+            lowered = value.lower()
+        if not lowered.startswith("https://"):
+            return str(default or "").strip()
+        return value
+
+    @staticmethod
+    def apply_gocardless_active_credentials(config: dict[str, Any] | None) -> dict[str, Any]:
+        cfg = dict(config or {})
+        env = ProviderSettingsService.normalize_gocardless_environment(
+            cfg.get("environment"),
+            access_token=str(cfg.get("access_token") or ""),
+        )
         cfg["environment"] = env
+        token_env = str(cfg.get(f"access_token_{env}") or "").strip()
+        token_top = str(cfg.get("access_token") or "").strip()
+        webhook_env = str(cfg.get(f"webhook_secret_{env}") or "").strip()
+        webhook_top = str(cfg.get("webhook_secret") or "").strip()
+        cfg["access_token"] = token_env or (
+            token_top if ProviderSettingsService._gocardless_token_matches_env(token_top, env) else ""
+        )
+        cfg["webhook_secret"] = webhook_env or (webhook_top if not token_env else "")
+        cfg["webhook_url"] = ProviderSettingsService.force_https_public_url(
+            cfg.get("webhook_url"),
+            default=ProviderSettingsService.GOCARDLESS_WEBHOOK_URL,
+        )
+        return cfg
+
+    @staticmethod
+    def gocardless_credentials_for_environment(
+        config: dict[str, Any] | None,
+        environment: str | None,
+    ) -> dict[str, Any]:
+        env = ProviderSettingsService.normalize_gocardless_environment(environment)
+        return ProviderSettingsService.apply_gocardless_active_credentials({**(config or {}), "environment": env})
+
+    @staticmethod
+    def _validate_gocardless_config(
+        config: dict[str, Any],
+        *,
+        incoming: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        cfg = {**config}
+        incoming = incoming or {}
+        env = ProviderSettingsService.normalize_gocardless_environment(
+            incoming.get("environment") if "environment" in incoming else cfg.get("environment"),
+            access_token=str(incoming.get("access_token") or cfg.get("access_token") or ""),
+        )
+        explicit_token = str(incoming.get("access_token") or "").strip()
+        explicit_webhook = str(incoming.get("webhook_secret") or "").strip()
+        if explicit_token and ProviderSettingsService._gocardless_token_matches_env(explicit_token, env):
+            cfg[f"access_token_{env}"] = explicit_token
+        if explicit_webhook:
+            cfg[f"webhook_secret_{env}"] = explicit_webhook
+
+        legacy_token = str(cfg.get("access_token") or "").strip()
+        has_buckets = bool(
+            str(cfg.get("access_token_sandbox") or "").strip() or str(cfg.get("access_token_live") or "").strip()
+        )
+        if legacy_token and not has_buckets:
+            legacy_env = ProviderSettingsService.normalize_gocardless_environment(None, access_token=legacy_token)
+            cfg[f"access_token_{legacy_env}"] = legacy_token
+            legacy_wh = str(cfg.get("webhook_secret") or "").strip()
+            if legacy_wh:
+                cfg[f"webhook_secret_{legacy_env}"] = legacy_wh
+
+        cfg["environment"] = env
+        cfg = ProviderSettingsService.apply_gocardless_active_credentials(cfg)
+
+        token = str(cfg.get("access_token") or "").strip()
+        env_label = "Live" if env == "live" else "Sandbox"
+        if not token:
+            raise ValueError(f"GoCardless settings validation failed: access_token: {env_label} access token is required")
+        if not ProviderSettingsService._gocardless_token_matches_env(token, env):
+            expected = "live_" if env == "live" else "sandbox_"
+            raise ValueError(
+                f"GoCardless settings validation failed: access_token: {env_label} token must start with {expected}"
+            )
+
+        cfg["access_token"] = token
         cfg["webhook_secret"] = str(cfg.get("webhook_secret") or "").strip()
+        cfg["environment"] = env
+        cfg["webhook_url"] = ProviderSettingsService.force_https_public_url(
+            cfg.get("webhook_url"),
+            default=ProviderSettingsService.GOCARDLESS_WEBHOOK_URL,
+        )
+        for key in ("success_redirect_url", "cancel_redirect_url"):
+            upgraded = ProviderSettingsService.force_https_public_url(cfg.get(key), default="")
+            if upgraded:
+                cfg[key] = upgraded
+            else:
+                cfg.pop(key, None)
         return cfg
 
     @staticmethod
@@ -1356,6 +1477,8 @@ class ProviderSettingsService:
             cfg = validate_meta_whatsapp_config(cfg)
         if provider == "stripe":
             cfg = ProviderSettingsService.apply_stripe_active_credentials(cfg)
+        if provider == "gocardless":
+            cfg = ProviderSettingsService.apply_gocardless_active_credentials(cfg)
         secret_keys = ProviderSettingsService._secret_keys(provider)
 
         safe_config: dict[str, Any] = {}
