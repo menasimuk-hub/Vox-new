@@ -56,9 +56,15 @@ class StripePaymentService:
         return str(cfg.get("publishable_key") or "").strip()
 
     @staticmethod
-    def _request(db: Session, method: str, path: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
-        cfg = StripePaymentService.get_config(db)
-        secret = str(cfg.get("secret_key") or "").strip()
+    def _request_with_secret(
+        secret: str,
+        method: str,
+        path: str,
+        data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        secret = str(secret or "").strip()
+        if not secret:
+            raise StripeConfigError("Stripe secret key is not configured")
         try:
             resp = httpx.request(
                 method,
@@ -80,16 +86,48 @@ class StripePaymentService:
         return resp.json()
 
     @staticmethod
-    def test_connection(db: Session) -> dict[str, Any]:
-        """Verify the secret key by reading the account balance."""
+    def _request(db: Session, method: str, path: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         cfg = StripePaymentService.get_config(db)
-        balance = StripePaymentService._request(db, "GET", "/balance")
+        return StripePaymentService._request_with_secret(
+            str(cfg.get("secret_key") or ""), method, path, data
+        )
+
+    @staticmethod
+    def test_connection(db: Session, environment: str | None = None) -> dict[str, Any]:
+        """Verify sandbox or live keys. Does not switch the mode used for customer payments."""
+        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="stripe")
+        if not cfg:
+            raise StripeConfigError("Stripe is not configured")
+        requested = ProviderSettingsService.normalize_stripe_environment(
+            environment if environment else cfg.get("environment"),
+            secret_key=str(cfg.get("secret_key") or ""),
+        )
+        creds = ProviderSettingsService.stripe_credentials_for_environment(cfg, requested)
+        secret = str(creds.get("secret_key") or "").strip()
+        label = "Live" if requested == "live" else "Sandbox (test)"
+        if not secret:
+            raise StripeConfigError(
+                f"{label} secret key is not saved yet. Select {requested}, paste the key, and Save."
+            )
+        balance = StripePaymentService._request_with_secret(secret, "GET", "/balance")
+        livemode = bool(balance.get("livemode"))
+        actual = "live" if livemode else "sandbox"
+        if actual != requested:
+            raise StripeProviderError(
+                f"You tested {label} but Stripe responded in {'Live' if livemode else 'Sandbox (test)'} mode. "
+                f"Paste the matching {'sk_live_' if requested == 'live' else 'sk_test_'} key and Save."
+            )
         available = balance.get("available") or []
-        env = str(cfg.get("environment") or "sandbox")
+        active = ProviderSettingsService.normalize_stripe_environment(
+            cfg.get("environment"),
+            secret_key=str(cfg.get("secret_key") or ""),
+        )
         return {
             "ok": True,
-            "environment": env,
-            "livemode": bool(balance.get("livemode")),
+            "environment": actual,
+            "livemode": livemode,
+            "label": "Live" if livemode else "Sandbox (test)",
+            "active_environment": active,
             "currencies": sorted({str(b.get("currency") or "").upper() for b in available if b.get("currency")}),
         }
 

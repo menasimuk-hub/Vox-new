@@ -902,6 +902,15 @@ class ProviderSettingsService:
         return cfg
 
     @staticmethod
+    def stripe_credentials_for_environment(
+        config: dict[str, Any] | None,
+        environment: str | None,
+    ) -> dict[str, Any]:
+        """Return sandbox or live keys without changing which mode is active for payments."""
+        env = ProviderSettingsService.normalize_stripe_environment(environment)
+        return ProviderSettingsService.apply_stripe_active_credentials({**(config or {}), "environment": env})
+
+    @staticmethod
     def _stripe_secret_matches_env(secret: str, env: str) -> bool:
         secret = str(secret or "").strip()
         if env == "live":

@@ -310,6 +310,14 @@ function stripeEnv(config) {
   return 'sandbox'
 }
 
+function stripeEnvReady(summary, env) {
+  const set = summary?.secret_set || {}
+  if (env === 'live') {
+    return Boolean(set.secret_key_live || (stripeEnv(summary?.config) === 'live' && set.secret_key))
+  }
+  return Boolean(set.secret_key_sandbox || (stripeEnv(summary?.config) !== 'live' && set.secret_key))
+}
+
 function copyText(value) {
   const text = String(value || '')
   if (!text) return
@@ -653,7 +661,7 @@ export default function Integrations() {
   const [deepgramTestResult, setDeepgramTestResult] = useState('')
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
   const [gocardlessTestResult, setGocardlessTestResult] = useState('')
-  const [stripeTestResult, setStripeTestResult] = useState('')
+  const [stripeTestResults, setStripeTestResults] = useState({ sandbox: '', live: '' })
   const [airwallexTestResult, setAirwallexTestResult] = useState('')
   const [subscriptionRouting, setSubscriptionRouting] = useState(null)
   const [vapiTestResult, setVapiTestResult] = useState('')
@@ -1401,16 +1409,19 @@ export default function Integrations() {
     }
   }
 
-  const testStripe = async () => {
+  const testStripe = async (env) => {
+    const target = env === 'live' ? 'live' : 'sandbox'
+    const label = target === 'live' ? 'Live' : 'Sandbox (test)'
     setProviderError('')
-    setStripeTestResult('Testing Stripe…')
+    setStripeTestResults((s) => ({ ...s, [target]: `Testing ${label}…` }))
     try {
-      const result = await apiFetch('/admin/integrations/stripe/test', { method: 'POST' })
+      const result = await apiFetch(`/admin/integrations/stripe/test?environment=${target}`, { method: 'POST' })
       const currencies = (result.currencies || []).join(', ') || 'no balances'
-      setStripeTestResult(`Stripe OK (${result.environment || 'sandbox'}) — ${currencies}`)
+      const mode = result.livemode ? 'Live' : 'Sandbox (test)'
+      setStripeTestResults((s) => ({ ...s, [target]: `${mode} OK — ${currencies}` }))
     } catch (e) {
-      setStripeTestResult('')
-      setProviderError(e?.message || 'Stripe test failed')
+      setStripeTestResults((s) => ({ ...s, [target]: '' }))
+      setProviderError(e?.message || `${label} test failed`)
     }
   }
 
@@ -3225,11 +3236,18 @@ export default function Integrations() {
                       <button className='btn primary' onClick={() => saveIntegrationProvider('stripe')} disabled={providerSaving}>
                         {providerSaving ? 'Saving…' : 'Save Stripe'}
                       </button>
-                      <button className='btn soft' onClick={testStripe} disabled={providerSaving || !activeSummary.configured}>
-                        Test connection
+                      <button className='btn soft' onClick={() => testStripe('sandbox')} disabled={providerSaving || !stripeEnvReady(activeSummary, 'sandbox')}>
+                        Test sandbox
+                      </button>
+                      <button className='btn soft' onClick={() => testStripe('live')} disabled={providerSaving || !stripeEnvReady(activeSummary, 'live')}>
+                        Test live
                       </button>
                     </div>
-                    {stripeTestResult ? <div className='note' style={{ marginTop: 8 }}>{stripeTestResult}</div> : null}
+                    <div className='muted' style={{ fontSize: 12 }}>
+                      Customer payments use <strong>{stripeEnv(activeSummary.config) === 'live' ? 'Live' : 'Sandbox (test)'}</strong> until you change Environment and Save. Test sandbox and Test live check each saved key set without switching payments.
+                    </div>
+                    {stripeTestResults.sandbox ? <div className='note' style={{ marginTop: 8 }}>{stripeTestResults.sandbox}</div> : null}
+                    {stripeTestResults.live ? <div className='note' style={{ marginTop: 8 }}>{stripeTestResults.live}</div> : null}
                   </div>
                 </div>
               </div>

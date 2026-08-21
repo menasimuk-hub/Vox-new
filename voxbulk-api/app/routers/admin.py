@@ -559,11 +559,15 @@ def test_gocardless_connection(db: Session = Depends(get_db), _admin=Depends(req
 
 
 @router.post("/integrations/stripe/test")
-def test_stripe_connection(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+def test_stripe_connection(
+    environment: str | None = None,
+    db: Session = Depends(get_db),
+    _admin=Depends(require_cap(CAP_INTEGRATION)),
+):
     from app.services.stripe_payment_service import StripeConfigError, StripePaymentService, StripeProviderError
 
     try:
-        return StripePaymentService.test_connection(db)
+        return StripePaymentService.test_connection(db, environment=environment)
     except StripeConfigError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except StripeProviderError as e:

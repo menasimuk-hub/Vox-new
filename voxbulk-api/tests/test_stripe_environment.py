@@ -77,6 +77,51 @@ def test_live_environment_rejects_missing_live_keys():
         )
 
 
+def test_credentials_for_sandbox_while_live_is_active():
+    sandbox = ProviderSettingsService._validate_stripe_config(SANDBOX, incoming=SANDBOX)
+    both = ProviderSettingsService._validate_stripe_config(
+        {**sandbox, "environment": "live", **LIVE},
+        incoming={"environment": "live", **LIVE},
+    )
+    creds = ProviderSettingsService.stripe_credentials_for_environment(both, "sandbox")
+    assert creds["environment"] == "sandbox"
+    assert creds["secret_key"] == SANDBOX["secret_key"]
+    live_creds = ProviderSettingsService.stripe_credentials_for_environment(both, "live")
+    assert live_creds["environment"] == "live"
+    assert live_creds["secret_key"] == LIVE["secret_key"]
+    assert both["environment"] == "live"
+
+
+def test_connection_reports_stripe_livemode(monkeypatch):
+    sandbox = ProviderSettingsService._validate_stripe_config(SANDBOX, incoming=SANDBOX)
+    both = ProviderSettingsService._validate_stripe_config(
+        {**sandbox, "environment": "live", **LIVE},
+        incoming={"environment": "live", **LIVE},
+    )
+
+    monkeypatch.setattr(
+        ProviderSettingsService,
+        "get_platform_config_decrypted",
+        staticmethod(lambda _db, provider="stripe": (both, True)),
+    )
+
+    def fake_request(secret, method, path, data=None):
+        return {"livemode": secret.startswith("sk_live_"), "available": [{"currency": "gbp"}]}
+
+    monkeypatch.setattr(StripePaymentService, "_request_with_secret", staticmethod(fake_request))
+
+    sandbox_result = StripePaymentService.test_connection(db=None, environment="sandbox")
+    assert sandbox_result["environment"] == "sandbox"
+    assert sandbox_result["livemode"] is False
+    assert sandbox_result["label"] == "Sandbox (test)"
+    assert sandbox_result["active_environment"] == "live"
+
+    live_result = StripePaymentService.test_connection(db=None, environment="live")
+    assert live_result["environment"] == "live"
+    assert live_result["livemode"] is True
+    assert live_result["label"] == "Live"
+
+
 def test_apply_active_credentials_does_not_mix_envs():
     cfg = ProviderSettingsService.apply_stripe_active_credentials(
         {
