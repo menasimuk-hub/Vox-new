@@ -65,7 +65,9 @@ class StripeBillingService:
             "currency": currency.lower(),
             "customer": customer_id,
             "setup_future_usage": "off_session",
-            "payment_method_types[]": "card",
+            # Card + Stripe Link (email/one-tap); not Klarna/wallets redirects.
+            "payment_method_types[0]": "card",
+            "payment_method_types[1]": "link",
             "metadata[voxbulk_org_id]": org.id,
             "metadata[voxbulk_kind]": "subscription_checkout",
             "metadata[voxbulk_plan_id]": plan_id,
@@ -96,7 +98,8 @@ class StripeBillingService:
         data: dict[str, Any] = {
             "customer": customer_id,
             "usage": "off_session",
-            "payment_method_types[]": "card",
+            "payment_method_types[0]": "card",
+            "payment_method_types[1]": "link",
             "metadata[voxbulk_org_id]": org.id,
             "metadata[voxbulk_kind]": "subscription_checkout",
             "metadata[voxbulk_plan_id]": plan_id,

@@ -107,8 +107,8 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
         const elements = stripe.elements({ clientSecret: intent.client_secret });
         const paymentElement = elements.create("payment", {
           layout: "tabs",
-          wallets: { applePay: "never", googlePay: "never", link: "never" },
-          paymentMethodOrder: ["card"],
+          wallets: { applePay: "never", googlePay: "never", link: "auto" },
+          paymentMethodOrder: ["card", "link"],
         });
         if (mountRef.current) {
           mountRef.current.innerHTML = "";

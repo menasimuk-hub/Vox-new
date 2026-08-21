@@ -117,8 +117,9 @@ export function StripeCardCheckoutDialog({
         const elements = stripe.elements({ clientSecret: session.client_secret });
         const paymentElement = elements.create("payment", {
           layout: "tabs",
-          wallets: { applePay: "never", googlePay: "never", link: "never" },
-          paymentMethodOrder: ["card"],
+          // Allow Card + Stripe Link; keep Apple/Google Pay off.
+          wallets: { applePay: "never", googlePay: "never", link: "auto" },
+          paymentMethodOrder: ["card", "link"],
         });
         if (cancelled || !mountEl.isConnected) return;
         mountEl.innerHTML = "";
