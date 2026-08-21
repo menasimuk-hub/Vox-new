@@ -692,6 +692,7 @@ export default function Integrations() {
   const [cartesiaTestResult, setCartesiaTestResult] = useState('')
   const [gocardlessTestResults, setGocardlessTestResults] = useState({ sandbox: '', live: '' })
   const [stripeTestResults, setStripeTestResults] = useState({ sandbox: '', live: '' })
+  const [stripeActiveModeResult, setStripeActiveModeResult] = useState('')
   const [airwallexTestResult, setAirwallexTestResult] = useState('')
   const [subscriptionRouting, setSubscriptionRouting] = useState(null)
   const [vapiTestResult, setVapiTestResult] = useState('')
@@ -927,18 +928,20 @@ export default function Integrations() {
       if (providerKey === 'stripe') {
         const env = stripeEnv(config)
         config.environment = env
+        // Never send ambiguous top-level keys that could cross-contaminate buckets.
+        delete config.secret_key
+        delete config.publishable_key
+        delete config.webhook_secret
         const secretKey = String(draft.secret_key_draft || '').trim()
         if (secretKey) config.secret_key = secretKey
         const webhookSecret = String(draft.webhook_secret_draft || '').trim()
         if (webhookSecret) config.webhook_secret = webhookSecret
         const pubField = env === 'live' ? 'publishable_key_live' : 'publishable_key_sandbox'
-        const pub = String(config[pubField] || config.publishable_key || '').trim()
-        if (pub) {
-          config[pubField] = pub
-          config.publishable_key = pub
-        } else {
-          delete config.publishable_key
-        }
+        const pub = String(config[pubField] || '').trim()
+        if (pub) config[pubField] = pub
+        // Drop the other mode's publishable from this payload so Save cannot overwrite it by accident.
+        if (env === 'live') delete config.publishable_key_sandbox
+        else delete config.publishable_key_live
       }
       if (providerKey === 'airwallex') {
         const apiKey = String(draft.api_key_draft || '').trim()
@@ -1456,7 +1459,13 @@ export default function Integrations() {
       const result = await apiFetch(`/admin/integrations/stripe/test?environment=${target}`, { method: 'POST' })
       const currencies = (result.currencies || []).join(', ') || 'no balances'
       const mode = result.livemode ? 'Live' : 'Sandbox (test)'
-      setStripeTestResults((s) => ({ ...s, [target]: `${mode} OK — ${currencies}` }))
+      const activeNote = result.active_environment_unchanged === false
+        ? ' · WARNING: active mode changed unexpectedly'
+        : ` · active payments still ${result.active_environment || 'unknown'}`
+      setStripeTestResults((s) => ({
+        ...s,
+        [target]: `${mode} OK (${result.secret_key_prefix || ''}) — ${currencies}${activeNote}`,
+      }))
     } catch (e) {
       setStripeTestResults((s) => ({ ...s, [target]: '' }))
       setProviderError(e?.message || `${label} test failed`)
@@ -3222,22 +3231,35 @@ export default function Integrations() {
                   {renderSubscriptionRoutingNote()}
                   {providerError ? <div className='note' style={{ borderColor: 'rgba(255,0,0,0.35)' }}>{providerError}</div> : null}
                   <div className='stack' style={{ gap: 12 }}>
+                    <div
+                      className='note'
+                      style={{
+                        borderColor: stripeEnv(activeSummary.config) === 'live' ? 'rgba(220,38,38,0.45)' : 'rgba(5,150,105,0.45)',
+                        fontWeight: 600,
+                      }}
+                    >
+                      Active (saved) mode:{' '}
+                      {stripeEnv(activeSummary.config) === 'live' ? 'LIVE' : 'SANDBOX (test)'}
+                      {stripeEnv(activeConfig) !== stripeEnv(activeSummary.config) ? (
+                        <span style={{ fontWeight: 500, marginLeft: 8 }}>
+                          · Unsaved change: dropdown is {stripeEnv(activeConfig) === 'live' ? 'Live' : 'Sandbox'} — click Save Stripe to switch payments
+                        </span>
+                      ) : null}
+                    </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('stripe', e.target.checked)} />
                       <span>Enable Stripe wallet top-ups</span>
                     </label>
-                    <div className='note'>Used for wallet top-ups, invoice card pay, and card subscriptions (Core / Feedback / Smart Card) when Direct Debit is not used. Customers see Stripe at checkout when this is enabled and configured. Save both sandbox and live keys, then switch which one is active.</div>
+                    <div className='note'>Used for wallet top-ups, invoice card pay, and card subscriptions when Direct Debit is not used. Save both sandbox and live key sets. Only Save switches the active payment mode — Test never does.</div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Environment</label>
+                      <label className='label'>Environment (draft — Save to activate)</label>
                       <select
                         className='input'
                         value={stripeEnv(activeConfig)}
                         onChange={(e) => {
                           const next = e.target.value === 'live' ? 'live' : 'sandbox'
-                          const currentPub = String(activeConfig.publishable_key || '')
-                          const pub = next === 'live'
-                            ? String(activeConfig.publishable_key_live || (currentPub.startsWith('pk_live_') ? currentPub : '') || '')
-                            : String(activeConfig.publishable_key_sandbox || (currentPub.startsWith('pk_test_') ? currentPub : '') || '')
+                          const pubField = next === 'live' ? 'publishable_key_live' : 'publishable_key_sandbox'
+                          const pub = String(activeConfig[pubField] || '')
                           setProviderDrafts((s) => ({
                             ...s,
                             stripe: {
@@ -3247,12 +3269,7 @@ export default function Integrations() {
                               config: {
                                 ...((s.stripe || {}).config || {}),
                                 environment: next,
-                                ...(pub
-                                  ? {
-                                      publishable_key: pub,
-                                      [next === 'live' ? 'publishable_key_live' : 'publishable_key_sandbox']: pub,
-                                    }
-                                  : {}),
+                                ...(pub ? { [pubField]: pub } : {}),
                               },
                             },
                           }))
@@ -3262,13 +3279,14 @@ export default function Integrations() {
                         <option value='live'>Live</option>
                       </select>
                       <div className='muted' style={{ fontSize: 12 }}>
-                        Active: <strong>{stripeEnv(activeConfig) === 'live' ? 'Live' : 'Sandbox'}</strong>
-                        {activeSummary?.secret_set?.secret_key_sandbox || (stripeEnv(activeSummary.config) !== 'live' && activeSummary?.secret_set?.secret_key) ? ' · sandbox keys saved' : ''}
-                        {activeSummary?.secret_set?.secret_key_live || (stripeEnv(activeSummary.config) === 'live' && activeSummary?.secret_set?.secret_key) ? ' · live keys saved' : ''}
+                        Saved buckets:
+                        {activeSummary?.secret_set?.secret_key_sandbox || (stripeEnv(activeSummary.config) !== 'live' && activeSummary?.secret_set?.secret_key) ? ' sandbox keys ✓' : ' sandbox keys missing'}
+                        {' · '}
+                        {activeSummary?.secret_set?.secret_key_live || (stripeEnv(activeSummary.config) === 'live' && activeSummary?.secret_set?.secret_key) ? 'live keys ✓' : 'live keys missing'}
                       </div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Secret key</label>
+                      <label className='label'>Secret key ({stripeEnv(activeConfig) === 'live' ? 'Live' : 'Sandbox'})</label>
                       <input
                         className='input'
                         type='password'
@@ -3276,22 +3294,22 @@ export default function Integrations() {
                         onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), secret_key_draft: e.target.value } }))}
                         placeholder={
                           (stripeEnv(activeConfig) === 'live'
-                            ? (activeSummary?.secret_set?.secret_key_live || (stripeEnv(activeConfig) === 'live' && activeSummary?.secret_set?.secret_key))
-                            : (activeSummary?.secret_set?.secret_key_sandbox || (stripeEnv(activeConfig) !== 'live' && activeSummary?.secret_set?.secret_key)))
+                            ? (activeSummary?.secret_set?.secret_key_live || (stripeEnv(activeSummary.config) === 'live' && activeSummary?.secret_set?.secret_key))
+                            : (activeSummary?.secret_set?.secret_key_sandbox || (stripeEnv(activeSummary.config) !== 'live' && activeSummary?.secret_set?.secret_key)))
                             ? 'Leave blank to keep current key'
                             : (stripeEnv(activeConfig) === 'live' ? 'sk_live_…' : 'sk_test_…')
                         }
                       />
-                      <div className='muted' style={{ fontSize: 12 }}>Encrypted in the backend and never returned to the browser. Paste the key for the selected environment; the other environment is kept.</div>
+                      <div className='muted' style={{ fontSize: 12 }}>Encrypted and never returned. Paste only the key for the Environment selected above.</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Publishable key</label>
+                      <label className='label'>Publishable key ({stripeEnv(activeConfig) === 'live' ? 'Live' : 'Sandbox'})</label>
                       <input
                         className='input'
                         value={String(
                           stripeEnv(activeConfig) === 'live'
                             ? (activeConfig.publishable_key_live || '')
-                            : (activeConfig.publishable_key_sandbox || activeConfig.publishable_key || '')
+                            : (activeConfig.publishable_key_sandbox || '')
                         )}
                         onChange={(e) => {
                           const field = stripeEnv(activeConfig) === 'live' ? 'publishable_key_live' : 'publishable_key_sandbox'
@@ -3302,7 +3320,6 @@ export default function Integrations() {
                               config: {
                                 ...((s.stripe || {}).config || {}),
                                 [field]: e.target.value,
-                                publishable_key: e.target.value,
                               },
                             },
                           }))
@@ -3311,7 +3328,7 @@ export default function Integrations() {
                       />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
-                      <label className='label'>Webhook signing secret</label>
+                      <label className='label'>Webhook signing secret ({stripeEnv(activeConfig) === 'live' ? 'Live' : 'Sandbox'})</label>
                       <input
                         className='input'
                         type='password'
@@ -3319,13 +3336,13 @@ export default function Integrations() {
                         onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), webhook_secret_draft: e.target.value } }))}
                         placeholder={
                           (stripeEnv(activeConfig) === 'live'
-                            ? (activeSummary?.secret_set?.webhook_secret_live || (stripeEnv(activeConfig) === 'live' && activeSummary?.secret_set?.webhook_secret))
-                            : (activeSummary?.secret_set?.webhook_secret_sandbox || (stripeEnv(activeConfig) !== 'live' && activeSummary?.secret_set?.webhook_secret)))
+                            ? (activeSummary?.secret_set?.webhook_secret_live || (stripeEnv(activeSummary.config) === 'live' && activeSummary?.secret_set?.webhook_secret))
+                            : (activeSummary?.secret_set?.webhook_secret_sandbox || (stripeEnv(activeSummary.config) !== 'live' && activeSummary?.secret_set?.webhook_secret)))
                             ? 'Leave blank to keep current secret'
                             : 'whsec_…'
                         }
                       />
-                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/stripe — subscribe to payment_intent.succeeded and payment_intent.payment_failed. Use the signing secret from the Stripe Dashboard for this environment. Plan amounts come from Admin pricing (no Stripe Products/Prices required).</div>
+                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/stripe — only the active mode signing secret is accepted.</div>
                     </div>
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('stripe')} disabled={providerSaving}>
@@ -3337,10 +3354,29 @@ export default function Integrations() {
                       <button className='btn soft' onClick={() => testStripe('live')} disabled={providerSaving || !stripeEnvReady(activeSummary, 'live')}>
                         Test live
                       </button>
+                      <button
+                        className='btn soft'
+                        onClick={async () => {
+                          setProviderError('')
+                          try {
+                            const result = await apiFetch('/admin/integrations/stripe/active-mode')
+                            setStripeActiveModeResult(
+                              `Ground truth: ${result.environment} · secret ${result.secret_key_prefix} · publishable ${result.publishable_key_prefix}`
+                            )
+                          } catch (e) {
+                            setStripeActiveModeResult('')
+                            setProviderError(e?.message || 'Active mode check failed')
+                          }
+                        }}
+                        disabled={providerSaving}
+                      >
+                        Check active mode
+                      </button>
                     </div>
                     <div className='muted' style={{ fontSize: 12 }}>
-                      Customer payments use <strong>{stripeEnv(activeSummary.config) === 'live' ? 'Live' : 'Sandbox (test)'}</strong> until you change Environment and Save. Test sandbox and Test live check each saved key set without switching payments.
+                      Test sandbox / Test live only verify keys. They do not change active payments. Save Stripe switches the active mode.
                     </div>
+                    {stripeActiveModeResult ? <div className='note' style={{ marginTop: 8, fontWeight: 600 }}>{stripeActiveModeResult}</div> : null}
                     {stripeTestResults.sandbox ? <div className='note' style={{ marginTop: 8 }}>{stripeTestResults.sandbox}</div> : null}
                     {stripeTestResults.live ? <div className='note' style={{ marginTop: 8 }}>{stripeTestResults.live}</div> : null}
                   </div>

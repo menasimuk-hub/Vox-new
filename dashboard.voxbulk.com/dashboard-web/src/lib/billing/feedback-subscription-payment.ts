@@ -23,6 +23,9 @@ type CardStartResponse = {
   checkout?: Record<string, unknown> & { environment?: string };
   needs_stripe_elements?: boolean;
   return_url?: string;
+  environment?: string;
+  livemode?: boolean;
+  stripe_mode?: string;
 };
 
 export async function fetchFeedbackPaymentProviders() {
@@ -92,6 +95,9 @@ export async function startFeedbackCardSubscription(
     currency: result.currency,
     amount_minor: result.amount_minor,
     billing_interval: result.billing_interval || billingInterval,
+    environment: result.environment,
+    livemode: result.livemode,
+    stripe_mode: result.stripe_mode,
   };
 }
 

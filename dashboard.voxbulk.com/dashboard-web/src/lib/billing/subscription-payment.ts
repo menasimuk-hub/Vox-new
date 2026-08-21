@@ -20,6 +20,9 @@ type CardStartResponse = {
   /** When true, open StripeCardCheckoutDialog — do not call confirmPayment bare. */
   needs_stripe_elements?: boolean;
   return_url?: string;
+  environment?: string;
+  livemode?: boolean;
+  stripe_mode?: string;
 };
 
 /** Payload for Stripe Payment Element dialog (subscription checkout). */
@@ -37,6 +40,10 @@ export type StripeElementsCheckout = {
   /** setup = save card for trial (SetupIntent); payment = charge now */
   mode?: "setup" | "payment";
   trial_days?: number;
+  /** Active Stripe mode from API (sandbox | live) */
+  environment?: string;
+  livemode?: boolean;
+  stripe_mode?: string;
 };
 
 export function isStripeElementsCheckout(
@@ -186,6 +193,9 @@ export async function startCardSubscription(
     currency: result.currency,
     amount_minor: result.amount_minor,
     billing_interval: result.billing_interval || billingInterval,
+    environment: result.environment,
+    livemode: result.livemode,
+    stripe_mode: result.stripe_mode,
   };
 }
 

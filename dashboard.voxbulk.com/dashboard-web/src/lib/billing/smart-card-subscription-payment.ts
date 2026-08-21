@@ -29,6 +29,9 @@ type SeatCheckoutResponse = {
   trial_days?: number;
   mode?: "setup" | "payment";
   after_trial_amount_minor?: number;
+  environment?: string;
+  livemode?: boolean;
+  stripe_mode?: string;
 };
 
 export async function startSmartCardSeatCheckout(
@@ -93,6 +96,9 @@ export async function startSmartCardSeatCheckout(
     billing_interval: result.billing_interval || billingInterval,
     mode: result.mode === "setup" || intentId.startsWith("seti_") ? "setup" : "payment",
     trial_days: result.trial_days || 0,
+    environment: result.environment,
+    livemode: result.livemode,
+    stripe_mode: result.stripe_mode,
   };
 }
 

@@ -562,6 +562,17 @@ def test_gocardless_connection(
     return result
 
 
+@router.get("/integrations/stripe/active-mode")
+def stripe_active_mode(db: Session = Depends(get_db), _admin=Depends(require_cap(CAP_INTEGRATION))):
+    """Ground-truth active Stripe mode from get_config() — not frontend draft state."""
+    from app.services.stripe_payment_service import StripeConfigError, StripePaymentService
+
+    try:
+        return StripePaymentService.active_mode_snapshot(db)
+    except StripeConfigError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
 @router.post("/integrations/stripe/test")
 def test_stripe_connection(
     environment: str | None = None,

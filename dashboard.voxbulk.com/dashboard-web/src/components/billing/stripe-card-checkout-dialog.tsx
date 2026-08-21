@@ -203,6 +203,14 @@ export function StripeCardCheckoutDialog({
             {dialogTitle}
           </DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>
+          {session?.environment || session?.stripe_mode || typeof session?.livemode === "boolean" ? (
+            <p className="text-xs font-medium text-muted-foreground">
+              Stripe mode:{" "}
+              {session.livemode || session.environment === "live" || session.stripe_mode === "live"
+                ? "LIVE"
+                : "SANDBOX (test)"}
+            </p>
+          ) : null}
         </DialogHeader>
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4">

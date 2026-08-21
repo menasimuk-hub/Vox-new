@@ -32,15 +32,84 @@ class StripeProviderError(RuntimeError):
 
 class StripePaymentService:
     @staticmethod
+    def mask_secret_prefix(secret: str) -> str:
+        secret = str(secret or "").strip()
+        for prefix in ("sk_live_", "sk_test_", "rk_live_", "rk_test_", "pk_live_", "pk_test_"):
+            if secret.startswith(prefix):
+                return f"{prefix}…{secret[-4:]}" if len(secret) > len(prefix) + 4 else f"{prefix}…"
+        return "unknown"
+
+    @staticmethod
+    def mode_fields(cfg: dict[str, Any]) -> dict[str, Any]:
+        env = ProviderSettingsService.normalize_stripe_environment(cfg.get("environment"))
+        return {
+            "environment": env,
+            "livemode": env == "live",
+            "stripe_mode": env,
+        }
+
+    @staticmethod
     def get_config(db: Session) -> dict[str, Any]:
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="stripe")
         if not enabled or not cfg:
             raise StripeConfigError("Stripe is not enabled in admin settings")
         cfg = ProviderSettingsService.apply_stripe_active_credentials(cfg)
+        env = str(cfg.get("environment") or "").strip()
+        if env not in {"sandbox", "live"}:
+            raise StripeConfigError(
+                "Stripe environment is not set to sandbox or live. "
+                "Open Admin → Integrations → Stripe, choose Environment, and Save."
+            )
         secret = str(cfg.get("secret_key") or "").strip()
+        publishable = str(cfg.get("publishable_key") or "").strip()
+        webhook = str(cfg.get("webhook_secret") or "").strip()
+        env_label = "Live" if env == "live" else "Sandbox"
+        missing: list[str] = []
         if not secret:
-            raise StripeConfigError("Stripe secret key is not configured")
+            missing.append(f"{env_label} secret key")
+        elif not ProviderSettingsService._stripe_secret_matches_env(secret, env):
+            raise StripeConfigError(
+                f"Active Stripe mode is {env_label} but the {env_label} secret key bucket is wrong or empty. "
+                f"Save a matching {'sk_live_' if env == 'live' else 'sk_test_'} key and Save again."
+            )
+        if not publishable:
+            missing.append(f"{env_label} publishable key")
+        elif not ProviderSettingsService._stripe_publishable_matches_env(publishable, env):
+            raise StripeConfigError(
+                f"Active Stripe mode is {env_label} but the {env_label} publishable key bucket is wrong or empty."
+            )
+        if not webhook:
+            missing.append(f"{env_label} webhook signing secret")
+        if missing:
+            raise StripeConfigError(
+                "Stripe active mode is incomplete: "
+                + ", ".join(missing)
+                + f". Select Environment={env_label}, paste the missing values, and Save. "
+                "The other mode's keys are never used as a fallback."
+            )
+        logger.info(
+            "stripe_mode=%s secret_prefix=%s publishable_prefix=%s",
+            env,
+            StripePaymentService.mask_secret_prefix(secret),
+            StripePaymentService.mask_secret_prefix(publishable),
+        )
         return cfg
+
+    @staticmethod
+    def active_mode_snapshot(db: Session) -> dict[str, Any]:
+        """Fresh resolve of active Stripe mode for Admin ground-truth checks."""
+        cfg = StripePaymentService.get_config(db)
+        env = str(cfg.get("environment") or "")
+        return {
+            "ok": True,
+            "environment": env,
+            "livemode": env == "live",
+            "stripe_mode": env,
+            "secret_key_prefix": StripePaymentService.mask_secret_prefix(str(cfg.get("secret_key") or "")),
+            "publishable_key_prefix": StripePaymentService.mask_secret_prefix(str(cfg.get("publishable_key") or "")),
+            "webhook_secret_set": bool(str(cfg.get("webhook_secret") or "").strip()),
+            "source": "StripePaymentService.get_config",
+        }
 
     @staticmethod
     def is_available(db: Session) -> bool:
@@ -61,10 +130,24 @@ class StripePaymentService:
         method: str,
         path: str,
         data: dict[str, Any] | None = None,
+        *,
+        mode: str | None = None,
     ) -> dict[str, Any]:
         secret = str(secret or "").strip()
         if not secret:
             raise StripeConfigError("Stripe secret key is not configured")
+        mode_label = (
+            ProviderSettingsService.normalize_stripe_environment(mode)
+            if mode
+            else ("live" if secret.startswith(("sk_live_", "rk_live_")) else "sandbox")
+        )
+        logger.info(
+            "stripe_mode=%s request=%s %s secret_prefix=%s",
+            mode_label,
+            method.upper(),
+            path,
+            StripePaymentService.mask_secret_prefix(secret),
+        )
         try:
             resp = httpx.request(
                 method,
@@ -89,27 +172,32 @@ class StripePaymentService:
     def _request(db: Session, method: str, path: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         cfg = StripePaymentService.get_config(db)
         return StripePaymentService._request_with_secret(
-            str(cfg.get("secret_key") or ""), method, path, data
+            str(cfg.get("secret_key") or ""),
+            method,
+            path,
+            data,
+            mode=str(cfg.get("environment") or ""),
         )
 
     @staticmethod
     def test_connection(db: Session, environment: str | None = None) -> dict[str, Any]:
-        """Verify sandbox or live keys. Does not switch the mode used for customer payments."""
-        cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="stripe")
-        if not cfg:
+        """Verify sandbox or live keys. Does not change the mode used for customer payments."""
+        raw_cfg, _enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="stripe")
+        if not raw_cfg:
             raise StripeConfigError("Stripe is not configured")
+        active_before = ProviderSettingsService.normalize_stripe_environment(raw_cfg.get("environment"))
         requested = ProviderSettingsService.normalize_stripe_environment(
-            environment if environment else cfg.get("environment"),
-            secret_key=str(cfg.get("secret_key") or ""),
+            environment if environment else raw_cfg.get("environment"),
         )
-        creds = ProviderSettingsService.stripe_credentials_for_environment(cfg, requested)
+        creds = ProviderSettingsService.stripe_credentials_for_environment(raw_cfg, requested)
         secret = str(creds.get("secret_key") or "").strip()
         label = "Live" if requested == "live" else "Sandbox (test)"
         if not secret:
             raise StripeConfigError(
-                f"{label} secret key is not saved yet. Select {requested}, paste the key, and Save."
+                f"{label} secret key is not saved yet. Select {requested}, paste the key, and Save. "
+                "Test does not switch the active payment mode."
             )
-        balance = StripePaymentService._request_with_secret(secret, "GET", "/balance")
+        balance = StripePaymentService._request_with_secret(secret, "GET", "/balance", mode=requested)
         livemode = bool(balance.get("livemode"))
         actual = "live" if livemode else "sandbox"
         if actual != requested:
@@ -118,17 +206,18 @@ class StripePaymentService:
                 f"Paste the matching {'sk_live_' if requested == 'live' else 'sk_test_'} key and Save."
             )
         available = balance.get("available") or []
-        active = ProviderSettingsService.normalize_stripe_environment(
-            cfg.get("environment"),
-            secret_key=str(cfg.get("secret_key") or ""),
-        )
+        raw_after, _ = ProviderSettingsService.get_platform_config_decrypted(db, provider="stripe")
+        active_after = ProviderSettingsService.normalize_stripe_environment((raw_after or {}).get("environment"))
         return {
             "ok": True,
             "environment": actual,
             "livemode": livemode,
             "label": "Live" if livemode else "Sandbox (test)",
-            "active_environment": active,
+            "active_environment": active_after,
+            "active_environment_unchanged": active_before == active_after,
+            "secret_key_prefix": StripePaymentService.mask_secret_prefix(secret),
             "currencies": sorted({str(b.get("currency") or "").upper() for b in available if b.get("currency")}),
+            "note": "Test does not change active payment mode. Save Stripe with Environment set to switch.",
         }
 
     @staticmethod
@@ -146,6 +235,7 @@ class StripePaymentService:
         from app.services.billing_currency import resolve_org_currency
         from app.services.stripe_billing_service import StripeBillingService
 
+        cfg = StripePaymentService.get_config(db)
         data = StripeBillingService.subscription_checkout_data(
             db,
             org,
@@ -162,11 +252,12 @@ class StripePaymentService:
             "provider": "stripe",
             "payment_intent_id": str(intent.get("id") or ""),
             "client_secret": str(intent.get("client_secret") or ""),
-            "publishable_key": StripePaymentService.publishable_key(db),
+            "publishable_key": str(cfg.get("publishable_key") or ""),
             "amount_minor": int(intent.get("amount") or amount_minor),
             "currency": currency,
             "status": str(intent.get("status") or ""),
             "customer_id": data.get("customer"),
+            **StripePaymentService.mode_fields(cfg),
         }
 
     @staticmethod
@@ -186,6 +277,7 @@ class StripePaymentService:
         from app.services.billing_currency import resolve_org_currency
         from app.services.stripe_billing_service import StripeBillingService
 
+        cfg = StripePaymentService.get_config(db)
         data = StripeBillingService.subscription_setup_data(
             db,
             org,
@@ -204,13 +296,14 @@ class StripePaymentService:
             "setup_intent_id": str(intent.get("id") or ""),
             "payment_intent_id": str(intent.get("id") or ""),
             "client_secret": str(intent.get("client_secret") or ""),
-            "publishable_key": StripePaymentService.publishable_key(db),
+            "publishable_key": str(cfg.get("publishable_key") or ""),
             "amount_minor": 0,
             "currency": currency,
             "status": str(intent.get("status") or ""),
             "customer_id": data.get("customer"),
             "mode": "setup",
             "trial_days": max(0, int(trial_days or 0)),
+            **StripePaymentService.mode_fields(cfg),
         }
 
     @staticmethod
@@ -257,6 +350,7 @@ class StripePaymentService:
         description: str,
         metadata_extra: dict[str, str] | None,
     ) -> dict[str, Any]:
+        cfg = StripePaymentService.get_config(db)
         currency = resolve_org_currency(db, org, persist=True)
         data: dict[str, Any] = {
             "amount": int(amount_minor),
@@ -274,10 +368,11 @@ class StripePaymentService:
             "provider": "stripe",
             "payment_intent_id": str(intent.get("id") or ""),
             "client_secret": str(intent.get("client_secret") or ""),
-            "publishable_key": StripePaymentService.publishable_key(db),
+            "publishable_key": str(cfg.get("publishable_key") or ""),
             "amount_minor": int(intent.get("amount") or amount_minor),
             "currency": currency,
             "status": str(intent.get("status") or ""),
+            **StripePaymentService.mode_fields(cfg),
         }
 
     @staticmethod
@@ -431,14 +526,20 @@ class StripePaymentService:
 
     @staticmethod
     def verify_webhook_signature(db: Session, *, payload: bytes, signature_header: str) -> dict[str, Any]:
+        """Verify using the ACTIVE mode webhook secret only.
+
+        Dual-secret acceptance was removed: accepting both sandbox and live secrets on one
+        endpoint could verify an inactive-mode event and process it while payments use the
+        other mode. Stripe Test and Live dashboards may both POST to /webhooks/stripe; only
+        events signed with the active mode secret are accepted, then livemode is checked.
+        """
         cfg = StripePaymentService.get_config(db)
-        secrets: list[str] = []
-        for key in ("webhook_secret", "webhook_secret_sandbox", "webhook_secret_live"):
-            val = str(cfg.get(key) or "").strip()
-            if val and val not in secrets:
-                secrets.append(val)
-        if not secrets:
-            raise StripeConfigError("Stripe webhook secret is not configured")
+        env = str(cfg.get("environment") or "")
+        secret = str(cfg.get("webhook_secret") or "").strip()
+        if not secret:
+            raise StripeConfigError(
+                f"Stripe {env} webhook secret is not configured for the active mode"
+            )
         pieces = [p.strip() for p in str(signature_header or "").split(",") if "=" in p]
         timestamp = next((p.split("=", 1)[1] for p in pieces if p.startswith("t=")), None)
         v1_sigs = [p.split("=", 1)[1] for p in pieces if p.startswith("v1=")]
@@ -447,15 +548,28 @@ class StripePaymentService:
         if abs(time.time() - int(timestamp)) > 300:
             raise StripeProviderError("Stripe webhook timestamp outside tolerance")
         signed = f"{timestamp}.{payload.decode('utf-8')}"
-        matched = False
-        for secret in secrets:
-            expected = hmac.new(secret.encode("utf-8"), signed.encode("utf-8"), hashlib.sha256).hexdigest()
-            if any(hmac.compare_digest(expected, sig) for sig in v1_sigs):
-                matched = True
-                break
-        if not matched:
-            raise StripeProviderError("Stripe webhook signature mismatch")
-        return json.loads(payload)
+        expected = hmac.new(secret.encode("utf-8"), signed.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not any(hmac.compare_digest(expected, sig) for sig in v1_sigs):
+            raise StripeProviderError(
+                "Stripe webhook signature mismatch for active mode "
+                f"({env}). Use the webhook signing secret from the Stripe Dashboard "
+                f"{'Live' if env == 'live' else 'Test'} endpoint."
+            )
+        event = json.loads(payload)
+        event_live = bool(event.get("livemode"))
+        expected_live = env == "live"
+        if event_live != expected_live:
+            raise StripeProviderError(
+                f"Stripe webhook livemode={event_live} does not match active mode={env}. "
+                "Ignored to prevent cross-mode processing."
+            )
+        logger.info(
+            "stripe_mode=%s request=webhook.verify event_type=%s livemode=%s",
+            env,
+            str(event.get("type") or ""),
+            event_live,
+        )
+        return event
 
     @staticmethod
     def handle_webhook_event(db: Session, event: dict[str, Any]) -> dict[str, Any]:

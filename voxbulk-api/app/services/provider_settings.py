@@ -881,33 +881,36 @@ class ProviderSettingsService:
             return "sandbox"
         if env in {"live", "prod", "production"}:
             return "live"
+        # Infer only when environment is unset (legacy rows). Callers with an explicit
+        # environment must not rely on this path for active payments.
         secret = str(secret_key or "").strip()
         if secret.startswith(("sk_live_", "rk_live_")):
             return "live"
+        if secret.startswith(("sk_test_", "rk_test_")):
+            return "sandbox"
         return "sandbox"
 
     @staticmethod
     def apply_stripe_active_credentials(config: dict[str, Any] | None) -> dict[str, Any]:
-        """Copy the selected sandbox/live bucket onto the keys StripePaymentService already reads."""
+        """Resolve the active sandbox/live bucket only — never fall back to the other mode or stale top-level keys."""
         cfg = dict(config or {})
-        env = ProviderSettingsService.normalize_stripe_environment(
-            cfg.get("environment"),
-            secret_key=str(cfg.get("secret_key") or ""),
-        )
+        raw_env = str(cfg.get("environment") or "").strip()
+        if raw_env:
+            env = ProviderSettingsService.normalize_stripe_environment(raw_env)
+        else:
+            # Legacy: no environment field — infer once from whichever bucket or top-level key exists.
+            if str(cfg.get("secret_key_live") or "").strip():
+                env = "live"
+            elif str(cfg.get("secret_key_sandbox") or "").strip():
+                env = "sandbox"
+            else:
+                env = ProviderSettingsService.normalize_stripe_environment(
+                    None, secret_key=str(cfg.get("secret_key") or "")
+                )
         cfg["environment"] = env
-        secret_env = str(cfg.get(f"secret_key_{env}") or "").strip()
-        secret_top = str(cfg.get("secret_key") or "").strip()
-        publishable_env = str(cfg.get(f"publishable_key_{env}") or "").strip()
-        publishable_top = str(cfg.get("publishable_key") or "").strip()
-        webhook_env = str(cfg.get(f"webhook_secret_{env}") or "").strip()
-        webhook_top = str(cfg.get("webhook_secret") or "").strip()
-        cfg["secret_key"] = secret_env or (
-            secret_top if ProviderSettingsService._stripe_secret_matches_env(secret_top, env) else ""
-        )
-        cfg["publishable_key"] = publishable_env or (
-            publishable_top if ProviderSettingsService._stripe_publishable_matches_env(publishable_top, env) else ""
-        )
-        cfg["webhook_secret"] = webhook_env or (webhook_top if not secret_env else "")
+        cfg["secret_key"] = str(cfg.get(f"secret_key_{env}") or "").strip()
+        cfg["publishable_key"] = str(cfg.get(f"publishable_key_{env}") or "").strip()
+        cfg["webhook_secret"] = str(cfg.get(f"webhook_secret_{env}") or "").strip()
         return cfg
 
     @staticmethod
@@ -915,7 +918,7 @@ class ProviderSettingsService:
         config: dict[str, Any] | None,
         environment: str | None,
     ) -> dict[str, Any]:
-        """Return sandbox or live keys without changing which mode is active for payments."""
+        """Return one environment's bucket without changing the stored active mode."""
         env = ProviderSettingsService.normalize_stripe_environment(environment)
         return ProviderSettingsService.apply_stripe_active_credentials({**(config or {}), "environment": env})
 
@@ -941,36 +944,55 @@ class ProviderSettingsService:
     ) -> dict[str, Any]:
         cfg = {**config}
         incoming = incoming or {}
-        env = ProviderSettingsService.normalize_stripe_environment(
-            incoming.get("environment") if "environment" in incoming else cfg.get("environment"),
-            secret_key=str(incoming.get("secret_key") or cfg.get("secret_key") or ""),
-        )
-        explicit_secret = str(incoming.get("secret_key") or "").strip()
-        explicit_pub = str(incoming.get("publishable_key") or "").strip()
-        explicit_webhook = str(incoming.get("webhook_secret") or "").strip()
-        env_pub = str(incoming.get(f"publishable_key_{env}") or cfg.get(f"publishable_key_{env}") or "").strip()
+        if "environment" in incoming:
+            env = ProviderSettingsService.normalize_stripe_environment(incoming.get("environment"))
+        elif str(cfg.get("environment") or "").strip():
+            env = ProviderSettingsService.normalize_stripe_environment(cfg.get("environment"))
+        else:
+            env = ProviderSettingsService.normalize_stripe_environment(
+                None,
+                secret_key=str(incoming.get("secret_key") or cfg.get("secret_key") or ""),
+            )
 
-        if explicit_secret and ProviderSettingsService._stripe_secret_matches_env(explicit_secret, env):
+        explicit_secret = str(incoming.get("secret_key") or incoming.get(f"secret_key_{env}") or "").strip()
+        explicit_pub = str(incoming.get(f"publishable_key_{env}") or incoming.get("publishable_key") or "").strip()
+        explicit_webhook = str(incoming.get("webhook_secret") or incoming.get(f"webhook_secret_{env}") or "").strip()
+
+        if explicit_secret:
+            if not ProviderSettingsService._stripe_secret_matches_env(explicit_secret, env):
+                expected = "sk_live_" if env == "live" else "sk_test_"
+                raise ValueError(
+                    f"Stripe settings validation failed: secret_key: "
+                    f"{'Live' if env == 'live' else 'Sandbox'} secret key must start with {expected}"
+                )
             cfg[f"secret_key_{env}"] = explicit_secret
         if explicit_webhook:
             cfg[f"webhook_secret_{env}"] = explicit_webhook
-        if env_pub and ProviderSettingsService._stripe_publishable_matches_env(env_pub, env):
-            cfg[f"publishable_key_{env}"] = env_pub
-        elif explicit_pub and ProviderSettingsService._stripe_publishable_matches_env(explicit_pub, env):
+        if explicit_pub:
+            if not ProviderSettingsService._stripe_publishable_matches_env(explicit_pub, env):
+                expected = "pk_live_" if env == "live" else "pk_test_"
+                raise ValueError(
+                    f"Stripe settings validation failed: publishable_key: "
+                    f"{'Live' if env == 'live' else 'Sandbox'} publishable key must start with {expected}"
+                )
             cfg[f"publishable_key_{env}"] = explicit_pub
 
-        # First-time migrate: one key pair becomes the matching sandbox/live bucket.
+        # First-time migrate: single top-level pair → matching bucket only (never into the other mode).
+        has_buckets = bool(
+            str(cfg.get("secret_key_sandbox") or "").strip() or str(cfg.get("secret_key_live") or "").strip()
+        )
         legacy_secret = str(cfg.get("secret_key") or "").strip()
-        has_buckets = bool(str(cfg.get("secret_key_sandbox") or "").strip() or str(cfg.get("secret_key_live") or "").strip())
         if legacy_secret and not has_buckets:
             legacy_env = ProviderSettingsService.normalize_stripe_environment(None, secret_key=legacy_secret)
             cfg[f"secret_key_{legacy_env}"] = legacy_secret
             legacy_pub = str(cfg.get("publishable_key") or "").strip()
-            if legacy_pub:
+            if legacy_pub and ProviderSettingsService._stripe_publishable_matches_env(legacy_pub, legacy_env):
                 cfg[f"publishable_key_{legacy_env}"] = legacy_pub
             legacy_wh = str(cfg.get("webhook_secret") or "").strip()
             if legacy_wh:
                 cfg[f"webhook_secret_{legacy_env}"] = legacy_wh
+            if "environment" not in incoming and not str(cfg.get("environment") or "").strip():
+                env = legacy_env
 
         cfg["environment"] = env
         cfg = ProviderSettingsService.apply_stripe_active_credentials(cfg)
@@ -978,24 +1000,34 @@ class ProviderSettingsService:
         errors: dict[str, str] = {}
         secret_key = str(cfg.get("secret_key") or "").strip()
         publishable_key = str(cfg.get("publishable_key") or "").strip()
+        webhook_secret = str(cfg.get("webhook_secret") or "").strip()
         env_label = "Live" if env == "live" else "Sandbox"
         if not secret_key:
-            errors["secret_key"] = f"{env_label} secret key is required"
+            errors["secret_key"] = (
+                f"{env_label} secret key is required "
+                f"(save sk_{'live' if env == 'live' else 'test'}_… while Environment={env_label})"
+            )
         elif not ProviderSettingsService._stripe_secret_matches_env(secret_key, env):
             expected = "sk_live_" if env == "live" else "sk_test_"
             errors["secret_key"] = f"{env_label} secret key must start with {expected}"
         if not publishable_key:
-            errors["publishable_key"] = f"{env_label} publishable key is required"
+            errors["publishable_key"] = (
+                f"{env_label} publishable key is required "
+                f"(save pk_{'live' if env == 'live' else 'test'}_… while Environment={env_label})"
+            )
         elif not ProviderSettingsService._stripe_publishable_matches_env(publishable_key, env):
             expected = "pk_live_" if env == "live" else "pk_test_"
             errors["publishable_key"] = f"{env_label} publishable key must start with {expected}"
+        if not webhook_secret:
+            errors["webhook_secret"] = f"{env_label} webhook signing secret is required"
         if errors:
             details = "; ".join(f"{field}: {message}" for field, message in errors.items())
             raise ValueError(f"Stripe settings validation failed: {details}")
 
+        # Mirror active bucket onto top-level for older readers; buckets remain source of truth.
         cfg["secret_key"] = secret_key
         cfg["publishable_key"] = publishable_key
-        cfg["webhook_secret"] = str(cfg.get("webhook_secret") or "").strip()
+        cfg["webhook_secret"] = webhook_secret
         cfg["environment"] = env
         return cfg
 
