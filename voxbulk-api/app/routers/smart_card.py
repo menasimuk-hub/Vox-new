@@ -929,6 +929,30 @@ def get_smart_card_seats(db: Session = Depends(get_db), principal=Depends(get_cu
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
+@router.get("/billing/seats/preview")
+def preview_smart_card_seats(
+    seat_quantity: int = Query(..., ge=1, le=500),
+    db: Session = Depends(get_db),
+    principal=Depends(get_current_principal),
+):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        result = SmartCardBillingService.preview_seat_change(
+            db, principal.org_id, int(seat_quantity)
+        )
+        return {"ok": True, **result}
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="Invalid seat_quantity") from e
+
+
 @router.patch("/billing/seats")
 def update_smart_card_seats(payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)):
     _require_smart_card_enabled(db, principal.org_id)
@@ -949,6 +973,28 @@ def update_smart_card_seats(payload: dict, db: Session = Depends(get_db), princi
         raise HTTPException(status_code=400, detail=str(e)) from e
     except (TypeError, ValueError) as e:
         raise HTTPException(status_code=400, detail="Invalid seat_quantity") from e
+
+
+@router.patch("/billing/interval")
+def update_smart_card_billing_interval(
+    payload: dict, db: Session = Depends(get_db), principal=Depends(get_current_principal)
+):
+    _require_smart_card_enabled(db, principal.org_id)
+    try:
+        OrgRbacService.assert_can_access_billing(db, org_id=principal.org_id, user_id=principal.user_id)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    from app.services.smart_card.billing_service import SmartCardBillingError, SmartCardBillingService
+
+    try:
+        result = SmartCardBillingService.update_billing_interval(
+            db,
+            org_id=principal.org_id,
+            billing_interval=str((payload or {}).get("billing_interval") or "").strip(),
+        )
+        return {"ok": True, **result}
+    except SmartCardBillingError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/billing/gocardless/start")

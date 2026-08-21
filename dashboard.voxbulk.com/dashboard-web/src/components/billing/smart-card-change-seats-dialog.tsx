@@ -1,6 +1,7 @@
 import * as React from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,27 @@ type SeatsPayload = {
   next_billing_date?: string | null;
   status?: string;
   is_trial?: boolean;
+  billing_interval?: string | null;
+  remaining_fraction?: number;
+  charge_now_minor?: number;
+  change_kind?: string;
+};
+
+type PreviewPayload = {
+  ok?: boolean;
+  seat_quantity: number;
+  current_seat_quantity: number;
+  seats_added: number;
+  active_representatives: number;
+  min_seats: number;
+  blocked: boolean;
+  block_reason?: string | null;
+  is_trial?: boolean;
+  charge_now_minor: number;
+  estimated_next_amount_minor: number;
+  unit_price_minor: number;
+  currency: string;
+  billing_interval?: string | null;
 };
 
 function money(minor: number, currency: string) {
@@ -92,6 +114,13 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
     }
   }, [open, initialSeats, seatsQ.data?.seat_quantity]);
 
+  const previewQ = useQuery({
+    queryKey: ["smart-card", "billing", "seats", "preview", seats],
+    queryFn: () =>
+      apiFetch<PreviewPayload>(`/smart-card/billing/seats/preview?seat_quantity=${encodeURIComponent(String(seats))}`),
+    enabled: open && step === "edit" && Number.isFinite(seats) && seats >= 1,
+  });
+
   const saveMut = useMutation({
     mutationFn: (seat_quantity: number) =>
       apiFetch<SeatsPayload>("/smart-card/billing/seats", {
@@ -99,8 +128,15 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
         body: JSON.stringify({ seat_quantity }),
       }),
     onSuccess: async (data) => {
+      const charged = Number(data?.charge_now_minor || 0);
       const same = Number(data?.seat_quantity) === Number(seatsQ.data?.seat_quantity);
-      toast.success(same ? "Already on that seat count" : "Seat count updated — next invoice recalculated");
+      if (same) {
+        toast.success("Already on that seat count");
+      } else if (charged > 0) {
+        toast.success(`Seats updated — charged ${money(charged, data.currency || "GBP")} for new seats`);
+      } else {
+        toast.success("Seat count updated — next invoice recalculated");
+      }
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["smart-card"] }),
         qc.invalidateQueries({ queryKey: ["billing"] }),
@@ -112,30 +148,23 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
   });
 
   const data = seatsQ.data;
+  const preview = previewQ.data;
   const currentSeats = Number(data?.seat_quantity || 0);
-  const minSeats = Math.max(1, Number(data?.min_seats || 1));
+  const minSeats = Math.max(1, Number(preview?.min_seats ?? data?.min_seats ?? 1));
   const maxSeats = Math.max(minSeats, Number(data?.max_seats || 500));
-  const unit = Number(data?.unit_price_minor || 0);
-  const currency = String(data?.currency || "GBP");
-  const billable = Number(data?.billable_seat_quantity ?? currentSeats);
+  const unit = Number(preview?.unit_price_minor ?? data?.unit_price_minor ?? 0);
+  const currency = String(preview?.currency || data?.currency || "GBP");
   const sameAsCurrent = seats === currentSeats;
   const added = Math.max(0, seats - currentSeats);
-  const nextBillable = data?.is_trial
-    ? 0
-    : seats > currentSeats
-      ? billable
-      : Math.min(billable, seats);
-  const nextAmount = data?.is_trial ? unit * seats : unit * nextBillable;
-  const laterBillable = data?.is_trial ? seats : seats;
-  const laterAmount = unit * laterBillable;
-  const freeUntilEstimate =
-    added > 0 && !data?.is_trial
-      ? formatDate(
-          data?.added_seats_free_until ||
-            new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        )
-      : formatDate(data?.added_seats_free_until);
+  const belowMin = seats < minSeats;
+  const blocked = Boolean(preview?.blocked) || belowMin;
+  const chargeNow = Number(preview?.charge_now_minor || 0);
+  const nextAmount = Number(preview?.estimated_next_amount_minor ?? data?.estimated_next_amount_minor ?? 0);
   const billingDate = formatDate(data?.next_billing_date);
+  const interval = String(preview?.billing_interval || data?.billing_interval || "monthly");
+  const canContinue = !seatsQ.isLoading && !seatsQ.isError && !sameAsCurrent && !blocked && seats <= maxSeats;
+
+  const clampSeats = (n: number) => Math.max(1, Math.min(maxSeats, Math.floor(n) || 1));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -146,11 +175,11 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
             {step === "edit" ? (
               <>
                 You currently have <strong>{currentSeats || "—"}</strong> seat
-                {currentSeats === 1 ? "" : "s"}. New seats are free for 30 days; existing billable seats keep
-                charging. No mid-cycle charge.
+                {currentSeats === 1 ? "" : "s"} ({interval}). Add seats to pay a prorated amount now; reduce seats
+                to lower the next invoice.
               </>
             ) : (
-              <>Review the next payment amount and date, then confirm.</>
+              <>Review the charge and next payment, then confirm.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -170,6 +199,8 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
                 <strong className="text-foreground">
                   {data?.is_trial ? "Free trial" : "Active subscription"}
                 </strong>
+                {" · "}
+                <strong className="text-foreground capitalize">{interval}</strong>
               </p>
               {data?.is_trial ? (
                 <p>
@@ -184,41 +215,90 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
                 {" · "}
                 {billingDate}
               </p>
-              {!data?.is_trial && Number(data?.free_seat_quantity || 0) > 0 ? (
-                <p>
-                  {data?.free_seat_quantity} new seat(s) free until {formatDate(data?.added_seats_free_until)} (
-                  {billable} billable now)
-                </p>
-              ) : null}
+              <p>
+                Active representatives:{" "}
+                <strong className="text-foreground">{Number(data?.active_representatives || 0)}</strong>
+                {" — "}minimum seats is {minSeats}.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="sc-seats">Seats</Label>
-              <Input
-                id="sc-seats"
-                type="number"
-                min={minSeats}
-                max={maxSeats}
-                value={seats}
-                onChange={(e) => setSeats(Number(e.target.value) || minSeats)}
-              />
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  disabled={seats <= 1}
+                  onClick={() => setSeats((s) => clampSeats(s - 1))}
+                  aria-label="Fewer seats"
+                >
+                  <Minus className="size-4" />
+                </Button>
+                <Input
+                  id="sc-seats"
+                  type="number"
+                  min={1}
+                  max={maxSeats}
+                  value={seats}
+                  onChange={(e) => setSeats(clampSeats(Number(e.target.value) || 1))}
+                  className="text-center"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  disabled={seats >= maxSeats}
+                  onClick={() => setSeats((s) => clampSeats(s + 1))}
+                  aria-label="More seats"
+                >
+                  <Plus className="size-4" />
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Minimum {minSeats} (active representatives). Maximum {maxSeats}.
                 {sameAsCurrent ? " Already on this seat count." : null}
               </p>
             </div>
+            {blocked && !sameAsCurrent ? (
+              <div className="rounded-md border border-amber-300/80 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+                <p>
+                  {preview?.block_reason ||
+                    `You have ${minSeats} active representative(s). Archive extras before downgrading.`}
+                </p>
+                <Link
+                  to="/smart-card"
+                  className="mt-1 inline-block text-sm font-medium underline underline-offset-2"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Open Smart Card to archive representatives
+                </Link>
+              </div>
+            ) : null}
             <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
-              {added > 0 && !data?.is_trial ? (
+              {previewQ.isFetching ? (
+                <span className="inline-flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="size-3.5 animate-spin" /> Calculating…
+                </span>
+              ) : added > 0 && !data?.is_trial ? (
                 <>
-                  Adding {added} seat{added === 1 ? "" : "s"} — free for 30 days. Estimated next payment stays{" "}
-                  <strong>{money(nextAmount, currency)}</strong> ({nextBillable} × {money(unit, currency)}) until
-                  then.
+                  Adding {added} seat{added === 1 ? "" : "s"} — due now{" "}
+                  <strong>{money(chargeNow, currency)}</strong> (prorated for the rest of this {interval} period).
+                  Next renewal: <strong>{money(nextAmount, currency)}</strong> ({seats} × {money(unit, currency)}).
+                </>
+              ) : seats < currentSeats && !blocked ? (
+                <>
+                  Reduce to {seats} seat{seats === 1 ? "" : "s"} — no charge now. Next invoice becomes{" "}
+                  <strong>{money(nextAmount, currency)}</strong>.
+                </>
+              ) : data?.is_trial && !sameAsCurrent ? (
+                <>
+                  During trial there is no charge. After trial:{" "}
+                  <strong>{money(nextAmount, currency)}</strong> ({seats} × {money(unit, currency)}).
                 </>
               ) : (
-                <>
-                  Estimated next payment: <strong>{money(nextAmount, currency)}</strong>
-                  {data?.is_trial ? " after trial" : null} ({seats} × {money(unit, currency)}
-                  {!data?.is_trial && nextBillable !== seats ? `, ${nextBillable} billable now` : null})
-                </>
+                <>Already on this seat count.</>
               )}
             </p>
           </div>
@@ -230,28 +310,15 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
               </p>
               {added > 0 && !data?.is_trial ? (
                 <p>
-                  {added} new seat{added === 1 ? "" : "s"} free until <strong>{freeUntilEstimate}</strong>. Next
-                  payment stays <strong>{money(nextAmount, currency)}</strong> on <strong>{billingDate}</strong> (
-                  {nextBillable} billable).
-                </p>
-              ) : data?.is_trial ? (
-                <p>
-                  During trial you are not charged. After trial, payment will be{" "}
-                  <strong>{money(laterAmount, currency)}</strong> ({seats} × {money(unit, currency)}) from{" "}
-                  <strong>{formatDate(data?.trial_ends_at) || billingDate}</strong>.
-                </p>
-              ) : (
-                <p>
-                  Next payment: <strong>{money(nextAmount, currency)}</strong> on <strong>{billingDate}</strong>.
-                </p>
-              )}
-              {added > 0 && !data?.is_trial ? (
-                <p className="text-xs text-muted-foreground">
-                  After the free window, billing becomes{" "}
-                  <strong className="text-foreground">{money(laterAmount, currency)}</strong> ({laterBillable} ×{" "}
-                  {money(unit, currency)}).
+                  Due now: <strong>{money(chargeNow, currency)}</strong> for {added} new seat
+                  {added === 1 ? "" : "s"} (prorated).
                 </p>
               ) : null}
+              <p>
+                Next payment: <strong>{money(nextAmount, currency)}</strong>
+                {data?.is_trial ? " after trial" : null} on{" "}
+                <strong>{data?.is_trial ? formatDate(data?.trial_ends_at) || billingDate : billingDate}</strong>.
+              </p>
             </div>
             <label className="flex items-start gap-2 text-sm leading-snug">
               <Checkbox
@@ -260,12 +327,15 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
                 className="mt-0.5"
               />
               <span>
-                I understand the next payment will be <strong>{money(nextAmount, currency)}</strong> on{" "}
-                <strong>{data?.is_trial ? formatDate(data?.trial_ends_at) || billingDate : billingDate}</strong>
-                {added > 0 && !data?.is_trial
-                  ? `, and later ${money(laterAmount, currency)} after free seats end`
-                  : null}
-                .
+                I understand
+                {added > 0 && !data?.is_trial ? (
+                  <>
+                    {" "}
+                    I will be charged <strong>{money(chargeNow, currency)}</strong> now, and
+                  </>
+                ) : null}{" "}
+                the next payment will be <strong>{money(nextAmount, currency)}</strong> on{" "}
+                <strong>{data?.is_trial ? formatDate(data?.trial_ends_at) || billingDate : billingDate}</strong>.
               </span>
             </label>
           </div>
@@ -291,19 +361,13 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
           {step === "edit" ? (
             <Button
               type="button"
-              disabled={
-                seatsQ.isLoading ||
-                seatsQ.isError ||
-                seats < minSeats ||
-                seats > maxSeats ||
-                sameAsCurrent
-              }
+              disabled={!canContinue}
               onClick={() => {
                 setAcknowledged(false);
                 setStep("confirm");
               }}
             >
-              {sameAsCurrent ? "Already on these seats" : "Continue"}
+              {sameAsCurrent ? "Already on these seats" : blocked ? "Fix representatives first" : "Continue"}
             </Button>
           ) : (
             <Button
@@ -315,6 +379,8 @@ export function SmartCardChangeSeatsDialog({ open, onOpenChange, initialSeats = 
                 <>
                   <Loader2 className="mr-2 size-4 animate-spin" /> Saving…
                 </>
+              ) : added > 0 && !data?.is_trial && chargeNow > 0 ? (
+                `Pay ${money(chargeNow, currency)} & confirm`
               ) : (
                 "Confirm seat change"
               )}

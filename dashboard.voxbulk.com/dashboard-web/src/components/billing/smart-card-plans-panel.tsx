@@ -11,6 +11,14 @@ import { SERVICE_TINTS } from "@/components/billing/service-package-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,7 +49,7 @@ import {
   type PaymentMethodChoice,
   type StripeElementsCheckout,
 } from "@/lib/billing/subscription-payment";
-import { useBillingSubscriptionsSummary, useOrganisation } from "@/lib/queries";
+import { queryKeys, useBillingSubscriptionsSummary, useOrganisation } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { ActiveSubscriptionHeader } from "@/components/billing/active-subscription-header";
 
@@ -71,9 +79,11 @@ function symbolForCurrency(code: string) {
 function BillingIntervalToggle({
   value,
   onChange,
+  disabled,
 }: {
   value: BillingInterval;
   onChange: (v: BillingInterval) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="mb-3 flex flex-col items-center gap-2">
@@ -81,14 +91,16 @@ function BillingIntervalToggle({
       <div className="flex rounded-full border border-border bg-background p-1 text-xs shadow-sm">
         <button
           type="button"
-          className={`rounded-full px-4 py-2 transition-colors ${value === "monthly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+          disabled={disabled}
+          className={`rounded-full px-4 py-2 transition-colors disabled:opacity-50 ${value === "monthly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => onChange("monthly")}
         >
           Monthly
         </button>
         <button
           type="button"
-          className={`inline-flex items-center gap-2 rounded-full px-4 py-2 transition-colors ${value === "yearly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+          disabled={disabled}
+          className={`inline-flex items-center gap-2 rounded-full px-4 py-2 transition-colors disabled:opacity-50 ${value === "yearly" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => onChange("yearly")}
         >
           Yearly
@@ -122,6 +134,7 @@ export function SmartCardPlansPanel() {
   const [stripeCheckout, setStripeCheckout] = React.useState<StripeElementsCheckout | null>(null);
   const [seatsDialogOpen, setSeatsDialogOpen] = React.useState(false);
   const [pendingSeatCount, setPendingSeatCount] = React.useState<number | null>(null);
+  const [intervalConfirm, setIntervalConfirm] = React.useState<BillingInterval | null>(null);
   const completingRef = React.useRef(false);
 
   const orgCountry = orgQ.data?.country;
@@ -231,6 +244,45 @@ export function SmartCardPlansPanel() {
   const currentSeats = Number(finance?.seat_quantity || 0);
   const hasActiveSub = Boolean(finance?.plan_name || finance?.plan_code || currentSeats > 0);
   const isTrial = Boolean(finance?.is_trial) || String(finance?.status || "").toLowerCase() === "trial";
+  const currentInterval: BillingInterval =
+    String(finance?.billing_interval || "").toLowerCase() === "yearly" ? "yearly" : "monthly";
+
+  React.useEffect(() => {
+    if (hasActiveSub) {
+      setBillingInterval(currentInterval);
+    }
+  }, [hasActiveSub, currentInterval]);
+
+  const intervalMut = useMutation({
+    mutationFn: (billing_interval: BillingInterval) =>
+      apiFetch<{
+        ok?: boolean;
+        charge_now_minor?: number;
+        currency?: string;
+        billing_interval?: string;
+      }>("/smart-card/billing/interval", {
+        method: "PATCH",
+        body: JSON.stringify({ billing_interval }),
+      }),
+    onSuccess: async (data) => {
+      const charged = Number(data?.charge_now_minor || 0);
+      const cur = String(data?.currency || currencyCode || "GBP");
+      if (charged > 0) {
+        toast.success(
+          `Switched to ${data.billing_interval || "new"} billing — charged ${(charged / 100).toFixed(2)} ${cur}`,
+        );
+      } else {
+        toast.success(`Billing period updated to ${data.billing_interval || "new"}`);
+      }
+      setIntervalConfirm(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["smart-card"] }),
+        qc.invalidateQueries({ queryKey: ["billing"] }),
+        qc.invalidateQueries({ queryKey: queryKeys.billingSubscriptionsSummary }),
+      ]);
+    },
+    onError: (e: Error) => toast.error(e.message || "Could not change billing period"),
+  });
 
   React.useEffect(() => {
     if (!hasActiveSub || currentSeats < 1 || items.length === 0) return;
@@ -278,7 +330,7 @@ export function SmartCardPlansPanel() {
               </div>
               <p className="text-sm leading-relaxed text-muted-foreground">
                 {hasActiveSub
-                  ? `You have ${currentSeats} seat${currentSeats === 1 ? "" : "s"} today. New seats you add are free for 30 days; seats already on your bill keep charging as usual.`
+                  ? `You have ${currentSeats} seat${currentSeats === 1 ? "" : "s"} (${currentInterval}). Add seats to pay a prorated amount now; reduce seats to lower the next invoice. Switch Monthly/Yearly below anytime.`
                   : "Pick how many seats you need and add a payment method — nothing is charged today. After the free month, you pay seats × price each billing cycle."}
               </p>
             </div>
@@ -314,11 +366,25 @@ export function SmartCardPlansPanel() {
       </Card>
 
       <p className="text-xs text-muted-foreground">
-        Flat catalog price per seat (see package cards). First month free on signup. New seats added later also get
-        30 days free. Yearly includes 20% off after the trial.
+        Flat catalog price per seat. First month free on signup. After you subscribe, adding seats charges a
+        prorated amount for the rest of the current period. Yearly includes 20% off.
       </p>
 
-      {!hasActiveSub ? <BillingIntervalToggle value={billingInterval} onChange={setBillingInterval} /> : null}
+      <BillingIntervalToggle
+        value={billingInterval}
+        disabled={intervalMut.isPending}
+        onChange={(next) => {
+          if (!hasActiveSub) {
+            setBillingInterval(next);
+            return;
+          }
+          if (next === currentInterval) {
+            setBillingInterval(next);
+            return;
+          }
+          setIntervalConfirm(next);
+        }}
+      />
 
       {packagesQ.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -382,12 +448,13 @@ export function SmartCardPlansPanel() {
                           </>
                         ) : seats > currentSeats ? (
                           <>
-                            Add {seats - currentSeats} seat(s) — free for 30 days; next bill stays based on current
-                            billable seats
+                            Add {seats - currentSeats} seat(s) — pay prorated amount now; next bill uses{" "}
+                            {seats} seats
                           </>
                         ) : (
                           <>
-                            Reduce to {seats} seat{seats === 1 ? "" : "s"} — next invoice updates
+                            Reduce to {seats} seat{seats === 1 ? "" : "s"} — next invoice updates (archive
+                            unused representatives first if needed)
                           </>
                         )
                       ) : (
@@ -514,6 +581,52 @@ export function SmartCardPlansPanel() {
           if (!open) setPendingSeatCount(null);
         }}
       />
+
+      {intervalConfirm ? (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !intervalMut.isPending) {
+              setIntervalConfirm(null);
+              setBillingInterval(currentInterval);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                Switch to {intervalConfirm === "yearly" ? "yearly" : "monthly"} billing?
+              </DialogTitle>
+              <DialogDescription>
+                You are on <strong>{currentInterval}</strong> now.
+                {intervalConfirm === "yearly"
+                  ? " Switching to yearly may charge the difference now (unused monthly time is credited)."
+                  : " Switching to monthly updates your renewal amount; no extra charge now."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={intervalMut.isPending}
+                onClick={() => {
+                  setIntervalConfirm(null);
+                  setBillingInterval(currentInterval);
+                }}
+              >
+                Never mind
+              </Button>
+              <Button
+                type="button"
+                disabled={intervalMut.isPending}
+                onClick={() => intervalMut.mutate(intervalConfirm)}
+              >
+                {intervalMut.isPending ? "Updating…" : `Switch to ${intervalConfirm}`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }
