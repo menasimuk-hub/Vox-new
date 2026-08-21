@@ -65,7 +65,7 @@ class StripeBillingService:
             "currency": currency.lower(),
             "customer": customer_id,
             "setup_future_usage": "off_session",
-            # Card + Stripe Link (email/one-tap); not Klarna/wallets redirects.
+            # Card + Link; Apple/Google Pay wallets attach via card in Payment Element.
             "payment_method_types[0]": "card",
             "payment_method_types[1]": "link",
             "metadata[voxbulk_org_id]": org.id,
