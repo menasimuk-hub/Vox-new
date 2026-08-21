@@ -12,11 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
-import {
-  readSavedPaymentMethod,
-  savePaymentMethod,
-  type PaymentMethodChoice,
-} from "@/lib/billing/subscription-payment";
+import type { PaymentMethodChoice } from "@/lib/billing/subscription-payment";
 import { cn } from "@/lib/utils";
 
 export type CheckoutConfirmDetails = {
@@ -80,21 +76,23 @@ export function CheckoutConfirmDialog({
   const [quote, setQuote] = React.useState<QuoteOut | null>(null);
   const [quoting, setQuoting] = React.useState(false);
   const methods = paymentMethods?.length ? paymentMethods : [];
-  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethodChoice>(
-    defaultPaymentMethod || methods[0] || "gocardless",
-  );
+  // Prefer Card when available; never persist — always show full picker each open.
+  const preferredDefault: PaymentMethodChoice =
+    (methods.includes("stripe") ? "stripe" : null) ||
+    defaultPaymentMethod ||
+    methods[0] ||
+    "gocardless";
+  const [paymentMethod, setPaymentMethod] = React.useState<PaymentMethodChoice>(preferredDefault);
 
   React.useEffect(() => {
     if (!open) return;
-    const saved = readSavedPaymentMethod(details?.serviceKind, methods);
-    const next = saved || defaultPaymentMethod || methods[0] || "gocardless";
+    const next: PaymentMethodChoice =
+      (methods.includes("stripe") ? "stripe" : null) ||
+      defaultPaymentMethod ||
+      methods[0] ||
+      "gocardless";
     setPaymentMethod(next);
-  }, [open, defaultPaymentMethod, details?.serviceKind, methods.join("|")]);
-
-  const selectPaymentMethod = (method: PaymentMethodChoice) => {
-    setPaymentMethod(method);
-    savePaymentMethod(details?.serviceKind, method);
-  };
+  }, [open, defaultPaymentMethod, methods.join("|")]);
 
   const refreshQuote = React.useCallback(async () => {
     if (!details?.amountMinor || details.amountMinor <= 0 || !details.serviceKind) {
@@ -223,25 +221,6 @@ export function CheckoutConfirmDialog({
           <div className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Pay with</p>
             <div className="grid gap-2">
-              {methods.includes("gocardless") ? (
-                <label
-                  className={cn(
-                    "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm",
-                    paymentMethod === "gocardless" ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/30" : "",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="checkout-pay-method"
-                    checked={paymentMethod === "gocardless"}
-                    onChange={() => selectPaymentMethod("gocardless")}
-                  />
-                  <span>
-                    <span className="font-medium">Direct Debit</span>
-                    <span className="block text-xs text-muted-foreground">GoCardless — bank mandate</span>
-                  </span>
-                </label>
-              ) : null}
               {methods.includes("stripe") ? (
                 <label
                   className={cn(
@@ -253,11 +232,30 @@ export function CheckoutConfirmDialog({
                     type="radio"
                     name="checkout-pay-method"
                     checked={paymentMethod === "stripe"}
-                    onChange={() => selectPaymentMethod("stripe")}
+                    onChange={() => setPaymentMethod("stripe")}
                   />
                   <span>
                     <span className="font-medium">Card</span>
                     <span className="block text-xs text-muted-foreground">Stripe — pay by card</span>
+                  </span>
+                </label>
+              ) : null}
+              {methods.includes("gocardless") ? (
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm",
+                    paymentMethod === "gocardless" ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/30" : "",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="checkout-pay-method"
+                    checked={paymentMethod === "gocardless"}
+                    onChange={() => setPaymentMethod("gocardless")}
+                  />
+                  <span>
+                    <span className="font-medium">Direct Debit</span>
+                    <span className="block text-xs text-muted-foreground">GoCardless — bank mandate</span>
                   </span>
                 </label>
               ) : null}
@@ -275,9 +273,6 @@ export function CheckoutConfirmDialog({
             type="button"
             disabled={loading}
             onClick={() => {
-              if (methods.length) {
-                savePaymentMethod(details?.serviceKind, paymentMethod);
-              }
               void onConfirm(methods.length ? paymentMethod : undefined);
             }}
           >

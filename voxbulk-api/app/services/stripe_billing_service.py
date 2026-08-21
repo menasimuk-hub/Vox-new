@@ -65,7 +65,7 @@ class StripeBillingService:
             "currency": currency.lower(),
             "customer": customer_id,
             "setup_future_usage": "off_session",
-            "automatic_payment_methods[enabled]": "true",
+            "payment_method_types[]": "card",
             "metadata[voxbulk_org_id]": org.id,
             "metadata[voxbulk_kind]": "subscription_checkout",
             "metadata[voxbulk_plan_id]": plan_id,
@@ -96,7 +96,7 @@ class StripeBillingService:
         data: dict[str, Any] = {
             "customer": customer_id,
             "usage": "off_session",
-            "automatic_payment_methods[enabled]": "true",
+            "payment_method_types[]": "card",
             "metadata[voxbulk_org_id]": org.id,
             "metadata[voxbulk_kind]": "subscription_checkout",
             "metadata[voxbulk_plan_id]": plan_id,

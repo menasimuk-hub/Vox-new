@@ -116,7 +116,8 @@ export function InvoicePayDialog({ invoice, open, onOpenChange, onPaid }: Props)
           const elements = stripe.elements({ clientSecret: pendingIntent.client_secret });
           const paymentElement = elements.create("payment", {
             layout: "tabs",
-            wallets: { applePay: "never", googlePay: "never" },
+            wallets: { applePay: "never", googlePay: "never", link: "never" },
+            paymentMethodOrder: ["card"],
           });
           if (cancelled || !mountRef.current) return;
           mountRef.current.innerHTML = "";

@@ -243,7 +243,8 @@ export function ExpoPayDialog({ boothId, boothName, open, onOpenChange, onPaid }
         const elements = stripe.elements({ clientSecret: intent.client_secret });
         const paymentElement = elements.create("payment", {
           layout: "tabs",
-          wallets: { applePay: "never", googlePay: "never" },
+          wallets: { applePay: "never", googlePay: "never", link: "never" },
+          paymentMethodOrder: ["card"],
         });
         if (mountRef.current) {
           mountRef.current.innerHTML = "";

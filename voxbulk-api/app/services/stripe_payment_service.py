@@ -355,7 +355,7 @@ class StripePaymentService:
         data: dict[str, Any] = {
             "amount": int(amount_minor),
             "currency": currency.lower(),
-            "automatic_payment_methods[enabled]": "true",
+            "payment_method_types[]": "card",
             "metadata[voxbulk_org_id]": org.id,
             "metadata[voxbulk_kind]": kind,
             "description": description[:255],
