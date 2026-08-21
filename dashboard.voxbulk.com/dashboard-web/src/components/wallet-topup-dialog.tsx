@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
+import { STRIPE_PAYMENT_ELEMENT_OPTIONS } from "@/lib/billing/subscription-payment";
 import { useWalletTopupConfirm, useWalletTopupIntent, useWalletTopupOptions } from "@/lib/queries";
 
 declare global {
@@ -105,11 +106,7 @@ export function WalletTopupDialog({ open, onOpenChange, initialAmountMinor, onTo
         if (!window.Stripe) throw new Error("Stripe.js failed to load");
         const stripe = window.Stripe(String(intent.publishable_key));
         const elements = stripe.elements({ clientSecret: intent.client_secret });
-        const paymentElement = elements.create("payment", {
-          layout: "tabs",
-          wallets: { applePay: "auto", googlePay: "auto", link: "auto" },
-          paymentMethodOrder: ["card", "link"],
-        });
+        const paymentElement = elements.create("payment", STRIPE_PAYMENT_ELEMENT_OPTIONS);
         if (mountRef.current) {
           mountRef.current.innerHTML = "";
           paymentElement.mount(mountRef.current);

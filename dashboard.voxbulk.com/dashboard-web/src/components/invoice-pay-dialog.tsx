@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { redirectToAirwallexHostedCheckout } from "@/lib/billing/airwallex-hpp";
+import { STRIPE_PAYMENT_ELEMENT_OPTIONS } from "@/lib/billing/subscription-payment";
 import { apiFetch } from "@/lib/api";
 import { usePayInvoice } from "@/lib/queries";
 import type { Invoice, InvoicePaymentContext } from "@/lib/types/api";
@@ -114,11 +115,7 @@ export function InvoicePayDialog({ invoice, open, onOpenChange, onPaid }: Props)
           if (!window.Stripe) throw new Error("Stripe.js failed to load");
           const stripe = window.Stripe(pendingIntent.publishable_key);
           const elements = stripe.elements({ clientSecret: pendingIntent.client_secret });
-          const paymentElement = elements.create("payment", {
-            layout: "tabs",
-            wallets: { applePay: "auto", googlePay: "auto", link: "auto" },
-            paymentMethodOrder: ["card", "link"],
-          });
+          const paymentElement = elements.create("payment", STRIPE_PAYMENT_ELEMENT_OPTIONS);
           if (cancelled || !mountRef.current) return;
           mountRef.current.innerHTML = "";
           paymentElement.on("ready", () => {

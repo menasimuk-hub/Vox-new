@@ -53,6 +53,26 @@ export function isStripeElementsCheckout(
   return Boolean(result && (result as StripeElementsCheckout).needs_stripe_elements === true);
 }
 
+/**
+ * Payment Element options: always show Card + Link (+ Apple/Google when available).
+ * Disable redisplay of previously used methods so one Link payment does not own the next screen.
+ */
+export const STRIPE_PAYMENT_ELEMENT_OPTIONS = {
+  layout: {
+    type: "tabs" as const,
+    defaultCollapsed: false,
+  },
+  wallets: {
+    applePay: "auto" as const,
+    googlePay: "auto" as const,
+    link: "auto" as const,
+  },
+  paymentMethodOrder: ["card", "link"] as string[],
+  features: {
+    paymentMethodRedisplay: "disabled" as const,
+  },
+};
+
 declare global {
   interface Window {
     Stripe?: (key: string) => import("@stripe/stripe-js").Stripe;

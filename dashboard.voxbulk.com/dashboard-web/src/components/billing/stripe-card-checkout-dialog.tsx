@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { loadScript, type StripeElementsCheckout } from "@/lib/billing/subscription-payment";
+import { loadScript, STRIPE_PAYMENT_ELEMENT_OPTIONS, type StripeElementsCheckout } from "@/lib/billing/subscription-payment";
 
 declare global {
   interface Window {
@@ -115,11 +115,7 @@ export function StripeCardCheckoutDialog({
         }
         const stripe = window.Stripe(session.publishable_key);
         const elements = stripe.elements({ clientSecret: session.client_secret });
-        const paymentElement = elements.create("payment", {
-          layout: "tabs",
-          wallets: { applePay: "auto", googlePay: "auto", link: "auto" },
-          paymentMethodOrder: ["card", "link"],
-        });
+        const paymentElement = elements.create("payment", STRIPE_PAYMENT_ELEMENT_OPTIONS);
         if (cancelled || !mountEl.isConnected) return;
         mountEl.innerHTML = "";
         paymentElement.on("ready", () => {
