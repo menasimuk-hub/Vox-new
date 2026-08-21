@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export type Currency = "gbp" | "eur" | "aud" | "cad" | "usd";
+import { detectGeoHint, marketFromCountryCode, type Currency } from "@/lib/geo";
+
+export type { Currency };
 
 export const FX: Record<Currency, number> = { gbp: 1, eur: 1.17, aud: 1.95, cad: 1.71, usd: 1.26 };
 export const SYM: Record<Currency, string> = { gbp: "£", eur: "€", aud: "A$", cad: "CA$", usd: "$" };
@@ -18,6 +20,7 @@ export function formatMoney(symbol: string, amount: string | number): string {
 export function sanitizeMoneyLabel(raw: string): string {
   return String(raw || "").replace(/(\$)(\d)/g, (_m, a: string, b: string) => `${a}\u00A0${b}`);
 }
+
 export const MARKETS: { code: Currency; label: string; flag: string; country: string }[] = [
   { code: "gbp", label: "GBP", flag: "🇬🇧", country: "United Kingdom" },
   { code: "eur", label: "EUR", flag: "🇪🇺", country: "European Union" },
@@ -26,54 +29,54 @@ export const MARKETS: { code: Currency; label: string; flag: string; country: st
   { code: "usd", label: "USD", flag: "🇺🇸", country: "United States" },
 ];
 
-const COUNTRY_TO_CUR: Record<string, Currency> = {
-  GB: "gbp",
-  IE: "eur",
-  DE: "eur",
-  FR: "eur",
-  ES: "eur",
-  IT: "eur",
-  NL: "eur",
-  BE: "eur",
-  AT: "eur",
-  PT: "eur",
-  FI: "eur",
-  AU: "aud",
-  CA: "cad",
-  US: "usd",
-};
+const STORAGE_KEY = "vb_currency";
+
+function isCurrency(v: string | null | undefined): v is Currency {
+  return Boolean(v && v in FX);
+}
 
 type Ctx = { currency: Currency; setCurrency: (c: Currency) => void; auto: boolean };
-const CurrencyCtx = createContext<Ctx>({ currency: "gbp", setCurrency: () => {}, auto: true });
+const CurrencyCtx = createContext<Ctx>({ currency: "usd", setCurrency: () => {}, auto: true });
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const [currency, setCurrencyState] = useState<Currency>("gbp");
+  // USD until geo resolves — avoids flashing UK prices worldwide.
+  const [currency, setCurrencyState] = useState<Currency>("usd");
   const [auto, setAuto] = useState(true);
 
   useEffect(() => {
-    const stored = typeof window !== "undefined" ? localStorage.getItem("vb_currency") : null;
-    if (stored && (stored in FX)) {
-      setCurrencyState(stored as Currency);
+    let cancelled = false;
+    const stored = typeof window !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
+    if (isCurrency(stored)) {
+      setCurrencyState(stored);
       setAuto(false);
       return;
     }
-    // Auto-detect by IP
-    fetch("https://ipapi.co/json/")
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        const code = d?.country_code;
-        if (code && COUNTRY_TO_CUR[code]) setCurrencyState(COUNTRY_TO_CUR[code]);
-      })
-      .catch(() => {});
+
+    void (async () => {
+      const hint = await detectGeoHint();
+      if (cancelled) return;
+      setCurrencyState(marketFromCountryCode(hint.country_code));
+      setAuto(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const setCurrency = (c: Currency) => {
     setCurrencyState(c);
     setAuto(false);
-    try { localStorage.setItem("vb_currency", c); } catch {}
+    try {
+      localStorage.setItem(STORAGE_KEY, c);
+    } catch {
+      /* ignore */
+    }
   };
 
   return <CurrencyCtx.Provider value={{ currency, setCurrency, auto }}>{children}</CurrencyCtx.Provider>;
 }
 
-export function useCurrency() { return useContext(CurrencyCtx); }
+export function useCurrency() {
+  return useContext(CurrencyCtx);
+}
