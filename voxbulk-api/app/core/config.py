@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = Field(default=True, alias="CORS_ALLOW_CREDENTIALS")
     # Empty in dev lets FastAPI relax host checks via trusted_hosts resolver (defaults to "*" in development).
     trusted_hosts_raw: str = Field(default="", alias="TRUSTED_HOSTS")
+    # Shared across api./admin./dashboard./apex (e.g. ".voxbulk.com"). Empty = host-only cookie.
+    session_cookie_domain: str = Field(default="", alias="SESSION_COOKIE_DOMAIN")
 
     # Redis / Celery
     redis_url: str = Field(default="redis://127.0.0.1:6379/0", alias="REDIS_URL")

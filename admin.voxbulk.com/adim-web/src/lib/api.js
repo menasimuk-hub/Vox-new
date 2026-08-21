@@ -493,14 +493,14 @@ function isTransientNetworkError(err) {
   )
 }
 
-async function resolveSessionFromToken(token) {
-  if (!token) return null
+async function resolveSessionFromAuthMe(headers = {}, token = '') {
   try {
     const url = joinOriginAndPath(getApiBaseUrl(), '/auth/me')
     const r = await fetchWithTimeout(
       url,
       {
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        credentials: 'include',
+        headers: { Accept: 'application/json', ...headers },
       },
       10000
     )
@@ -516,7 +516,7 @@ async function resolveSessionFromToken(token) {
       }
     }
     if (data?.admin_access || data?.is_superuser) {
-      return { status: 'ready', token, profile: data }
+      return { status: 'ready', token: token || '', profile: data }
     }
     return {
       status: 'blocked',
@@ -524,11 +524,20 @@ async function resolveSessionFromToken(token) {
         'This account is signed in as an organisation user only. Platform admin users (Operations / Billing / Templates roles) use the same sign-in URL but must be explicitly provisioned.',
     }
   } catch (e) {
-    if (isTransientNetworkError(e)) {
+    if (token && isTransientNetworkError(e)) {
       return { status: 'ready', token, offline: true }
     }
-    return { status: 'ready', token, offline: true }
+    if (token) return { status: 'ready', token, offline: true }
+    return {
+      status: 'none',
+      message: 'No session found. Sign in as an admin first.',
+    }
   }
+}
+
+async function resolveSessionFromToken(token) {
+  if (!token) return null
+  return resolveSessionFromAuthMe({ Authorization: `Bearer ${token}` }, token)
 }
 
 export async function ensureAdminSession() {
@@ -546,16 +555,21 @@ export async function ensureAdminSession() {
   }
 
   const shared = getSharedJwtFromStorage()
-  if (!shared) {
-    return { status: 'none', message: 'No session found. Sign in as an admin first.' }
+  if (shared) {
+    const session = await resolveSessionFromToken(shared)
+    if (session?.status === 'ready') {
+      persistPromotedAdminSession(shared)
+      return session
+    }
+    if (session?.status === 'blocked') return session
   }
 
-  const session = await resolveSessionFromToken(shared)
-  if (session?.status === 'ready') {
-    persistPromotedAdminSession(shared)
-    return session
+  // Cookie-only browser login (HttpOnly session; JWT no longer returned in JSON when Origin is set).
+  const cookieSession = await resolveSessionFromAuthMe()
+  if (cookieSession?.status === 'ready' || cookieSession?.status === 'blocked') {
+    return cookieSession
   }
-  return session || { status: 'none', message: 'No session found. Sign in as an admin first.' }
+  return cookieSession || { status: 'none', message: 'No session found. Sign in as an admin first.' }
 }
 
 function formatApiError(data, status, statusText) {

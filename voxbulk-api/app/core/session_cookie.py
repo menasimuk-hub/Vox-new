@@ -37,6 +37,23 @@ def session_cookie_max_age() -> int:
     return max(60, minutes * 60)
 
 
+def resolve_session_cookie_domain(request: Request) -> str | None:
+    """Share the HttpOnly session across api/admin/dashboard/apex subdomains in production."""
+    configured = str(get_settings().session_cookie_domain or "").strip()
+    if configured:
+        return configured
+    host = ""
+    try:
+        host = (request.headers.get("host") or request.url.hostname or "").split(":")[0].strip().lower()
+    except Exception:
+        host = ""
+    if host == "voxbulk.com" or host.endswith(".voxbulk.com"):
+        return ".voxbulk.com"
+    if host == "microgreenia.com" or host.endswith(".microgreenia.com"):
+        return ".microgreenia.com"
+    return None
+
+
 def include_access_token_in_json(request: Request) -> bool:
     """Browsers send Origin — omit the JWT so XSS cannot read it from the login response."""
     return not bool((request.headers.get("origin") or "").strip())
@@ -46,25 +63,33 @@ def set_session_cookie(response: Response, request: Request, token: str) -> None
     raw = str(token or "").strip()
     if not raw:
         return
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=raw,
-        httponly=True,
-        secure=cookie_secure(request),
-        samesite="lax",
-        max_age=session_cookie_max_age(),
-        path="/",
-    )
+    kwargs: dict = {
+        "key": SESSION_COOKIE_NAME,
+        "value": raw,
+        "httponly": True,
+        "secure": cookie_secure(request),
+        "samesite": "lax",
+        "max_age": session_cookie_max_age(),
+        "path": "/",
+    }
+    domain = resolve_session_cookie_domain(request)
+    if domain:
+        kwargs["domain"] = domain
+    response.set_cookie(**kwargs)
 
 
 def clear_session_cookie(response: Response, request: Request) -> None:
-    response.delete_cookie(
-        key=SESSION_COOKIE_NAME,
-        path="/",
-        httponly=True,
-        secure=cookie_secure(request),
-        samesite="lax",
-    )
+    kwargs: dict = {
+        "key": SESSION_COOKIE_NAME,
+        "path": "/",
+        "httponly": True,
+        "secure": cookie_secure(request),
+        "samesite": "lax",
+    }
+    domain = resolve_session_cookie_domain(request)
+    if domain:
+        kwargs["domain"] = domain
+    response.delete_cookie(**kwargs)
 
 
 def read_session_cookie(request: Request) -> str:
