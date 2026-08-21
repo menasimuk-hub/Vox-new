@@ -111,7 +111,14 @@ class ProviderSettingsService:
         "deepinfra": {"api_key"},
         "cartesia": {"api_key"},
         "gocardless": {"access_token", "webhook_secret"},
-        "stripe": {"secret_key", "webhook_secret"},
+        "stripe": {
+            "secret_key",
+            "webhook_secret",
+            "secret_key_sandbox",
+            "secret_key_live",
+            "webhook_secret_sandbox",
+            "webhook_secret_live",
+        },
         "airwallex": {"api_key", "webhook_secret"},
         "telnyx": {"api_key", "media_stream_token"},
         "meta_whatsapp": {"access_token", "app_secret", "webhook_verify_token"},
@@ -234,7 +241,7 @@ class ProviderSettingsService:
 
             config = validate_meta_whatsapp_config(config)
         if provider == "stripe":
-            config = ProviderSettingsService._validate_stripe_config(config)
+            config = ProviderSettingsService._validate_stripe_config(config, incoming=incoming_patch)
         if provider == "airwallex":
             config = ProviderSettingsService._validate_airwallex_config(config)
         if provider == "gocardless":
@@ -859,26 +866,119 @@ class ProviderSettingsService:
         return cfg
 
     @staticmethod
-    def _validate_stripe_config(config: dict[str, Any]) -> dict[str, Any]:
+    def normalize_stripe_environment(raw: str | None, *, secret_key: str = "") -> str:
+        env = str(raw or "").strip().lower()
+        if env in {"sandbox", "test"}:
+            return "sandbox"
+        if env in {"live", "prod", "production"}:
+            return "live"
+        secret = str(secret_key or "").strip()
+        if secret.startswith(("sk_live_", "rk_live_")):
+            return "live"
+        return "sandbox"
+
+    @staticmethod
+    def apply_stripe_active_credentials(config: dict[str, Any] | None) -> dict[str, Any]:
+        """Copy the selected sandbox/live bucket onto the keys StripePaymentService already reads."""
+        cfg = dict(config or {})
+        env = ProviderSettingsService.normalize_stripe_environment(
+            cfg.get("environment"),
+            secret_key=str(cfg.get("secret_key") or ""),
+        )
+        cfg["environment"] = env
+        secret_env = str(cfg.get(f"secret_key_{env}") or "").strip()
+        secret_top = str(cfg.get("secret_key") or "").strip()
+        publishable_env = str(cfg.get(f"publishable_key_{env}") or "").strip()
+        publishable_top = str(cfg.get("publishable_key") or "").strip()
+        webhook_env = str(cfg.get(f"webhook_secret_{env}") or "").strip()
+        webhook_top = str(cfg.get("webhook_secret") or "").strip()
+        cfg["secret_key"] = secret_env or (
+            secret_top if ProviderSettingsService._stripe_secret_matches_env(secret_top, env) else ""
+        )
+        cfg["publishable_key"] = publishable_env or (
+            publishable_top if ProviderSettingsService._stripe_publishable_matches_env(publishable_top, env) else ""
+        )
+        cfg["webhook_secret"] = webhook_env or (webhook_top if not secret_env else "")
+        return cfg
+
+    @staticmethod
+    def _stripe_secret_matches_env(secret: str, env: str) -> bool:
+        secret = str(secret or "").strip()
+        if env == "live":
+            return secret.startswith(("sk_live_", "rk_live_"))
+        return secret.startswith(("sk_test_", "rk_test_"))
+
+    @staticmethod
+    def _stripe_publishable_matches_env(publishable: str, env: str) -> bool:
+        publishable = str(publishable or "").strip()
+        if env == "live":
+            return publishable.startswith("pk_live_")
+        return publishable.startswith("pk_test_")
+
+    @staticmethod
+    def _validate_stripe_config(
+        config: dict[str, Any],
+        *,
+        incoming: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         cfg = {**config}
+        incoming = incoming or {}
+        env = ProviderSettingsService.normalize_stripe_environment(
+            incoming.get("environment") if "environment" in incoming else cfg.get("environment"),
+            secret_key=str(incoming.get("secret_key") or cfg.get("secret_key") or ""),
+        )
+        explicit_secret = str(incoming.get("secret_key") or "").strip()
+        explicit_pub = str(incoming.get("publishable_key") or "").strip()
+        explicit_webhook = str(incoming.get("webhook_secret") or "").strip()
+        env_pub = str(incoming.get(f"publishable_key_{env}") or cfg.get(f"publishable_key_{env}") or "").strip()
+
+        if explicit_secret and ProviderSettingsService._stripe_secret_matches_env(explicit_secret, env):
+            cfg[f"secret_key_{env}"] = explicit_secret
+        if explicit_webhook:
+            cfg[f"webhook_secret_{env}"] = explicit_webhook
+        if env_pub and ProviderSettingsService._stripe_publishable_matches_env(env_pub, env):
+            cfg[f"publishable_key_{env}"] = env_pub
+        elif explicit_pub and ProviderSettingsService._stripe_publishable_matches_env(explicit_pub, env):
+            cfg[f"publishable_key_{env}"] = explicit_pub
+
+        # First-time migrate: one key pair becomes the matching sandbox/live bucket.
+        legacy_secret = str(cfg.get("secret_key") or "").strip()
+        has_buckets = bool(str(cfg.get("secret_key_sandbox") or "").strip() or str(cfg.get("secret_key_live") or "").strip())
+        if legacy_secret and not has_buckets:
+            legacy_env = ProviderSettingsService.normalize_stripe_environment(None, secret_key=legacy_secret)
+            cfg[f"secret_key_{legacy_env}"] = legacy_secret
+            legacy_pub = str(cfg.get("publishable_key") or "").strip()
+            if legacy_pub:
+                cfg[f"publishable_key_{legacy_env}"] = legacy_pub
+            legacy_wh = str(cfg.get("webhook_secret") or "").strip()
+            if legacy_wh:
+                cfg[f"webhook_secret_{legacy_env}"] = legacy_wh
+
+        cfg["environment"] = env
+        cfg = ProviderSettingsService.apply_stripe_active_credentials(cfg)
+
         errors: dict[str, str] = {}
         secret_key = str(cfg.get("secret_key") or "").strip()
         publishable_key = str(cfg.get("publishable_key") or "").strip()
+        env_label = "Live" if env == "live" else "Sandbox"
         if not secret_key:
-            errors["secret_key"] = "Secret key is required"
-        elif not secret_key.startswith(("sk_test_", "sk_live_", "rk_test_", "rk_live_")):
-            errors["secret_key"] = "Secret key must start with sk_test_ or sk_live_"
+            errors["secret_key"] = f"{env_label} secret key is required"
+        elif not ProviderSettingsService._stripe_secret_matches_env(secret_key, env):
+            expected = "sk_live_" if env == "live" else "sk_test_"
+            errors["secret_key"] = f"{env_label} secret key must start with {expected}"
         if not publishable_key:
-            errors["publishable_key"] = "Publishable key is required"
-        elif not publishable_key.startswith(("pk_test_", "pk_live_")):
-            errors["publishable_key"] = "Publishable key must start with pk_test_ or pk_live_"
+            errors["publishable_key"] = f"{env_label} publishable key is required"
+        elif not ProviderSettingsService._stripe_publishable_matches_env(publishable_key, env):
+            expected = "pk_live_" if env == "live" else "pk_test_"
+            errors["publishable_key"] = f"{env_label} publishable key must start with {expected}"
         if errors:
             details = "; ".join(f"{field}: {message}" for field, message in errors.items())
             raise ValueError(f"Stripe settings validation failed: {details}")
+
         cfg["secret_key"] = secret_key
         cfg["publishable_key"] = publishable_key
         cfg["webhook_secret"] = str(cfg.get("webhook_secret") or "").strip()
-        cfg["environment"] = "live" if secret_key.startswith(("sk_live_", "rk_live_")) else "test"
+        cfg["environment"] = env
         return cfg
 
     @staticmethod
@@ -1245,6 +1345,8 @@ class ProviderSettingsService:
             from app.services.meta_whatsapp_config_service import validate_meta_whatsapp_config
 
             cfg = validate_meta_whatsapp_config(cfg)
+        if provider == "stripe":
+            cfg = ProviderSettingsService.apply_stripe_active_credentials(cfg)
         secret_keys = ProviderSettingsService._secret_keys(provider)
 
         safe_config: dict[str, Any] = {}

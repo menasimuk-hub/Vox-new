@@ -304,6 +304,12 @@ function telnyxValidation(config, draft, summary) {
   return { errors, valid: Object.keys(errors).length === 0 }
 }
 
+function stripeEnv(config) {
+  const raw = String(config?.environment || '').trim().toLowerCase()
+  if (raw === 'live' || raw === 'prod' || raw === 'production') return 'live'
+  return 'sandbox'
+}
+
 function copyText(value) {
   const text = String(value || '')
   if (!text) return
@@ -875,10 +881,20 @@ export default function Integrations() {
         }
       }
       if (providerKey === 'stripe') {
+        const env = stripeEnv(config)
+        config.environment = env
         const secretKey = String(draft.secret_key_draft || '').trim()
         if (secretKey) config.secret_key = secretKey
         const webhookSecret = String(draft.webhook_secret_draft || '').trim()
         if (webhookSecret) config.webhook_secret = webhookSecret
+        const pubField = env === 'live' ? 'publishable_key_live' : 'publishable_key_sandbox'
+        const pub = String(config[pubField] || config.publishable_key || '').trim()
+        if (pub) {
+          config[pubField] = pub
+          config.publishable_key = pub
+        } else {
+          delete config.publishable_key
+        }
       }
       if (providerKey === 'airwallex') {
         const apiKey = String(draft.api_key_draft || '').trim()
@@ -1391,7 +1407,7 @@ export default function Integrations() {
     try {
       const result = await apiFetch('/admin/integrations/stripe/test', { method: 'POST' })
       const currencies = (result.currencies || []).join(', ') || 'no balances'
-      setStripeTestResult(`Stripe OK (${result.environment || 'test'}) — ${currencies}`)
+      setStripeTestResult(`Stripe OK (${result.environment || 'sandbox'}) — ${currencies}`)
     } catch (e) {
       setStripeTestResult('')
       setProviderError(e?.message || 'Stripe test failed')
@@ -3104,20 +3120,106 @@ export default function Integrations() {
                       <input type='checkbox' checked={activeEnabled} onChange={(e) => setProviderEnabled('stripe', e.target.checked)} />
                       <span>Enable Stripe wallet top-ups</span>
                     </label>
-                    <div className='note'>Used for wallet top-ups, invoice card pay, and card subscriptions (Core / Feedback / Smart Card) when Direct Debit is not used. Customers see Stripe at checkout when this is enabled and configured.</div>
+                    <div className='note'>Used for wallet top-ups, invoice card pay, and card subscriptions (Core / Feedback / Smart Card) when Direct Debit is not used. Customers see Stripe at checkout when this is enabled and configured. Save both sandbox and live keys, then switch which one is active.</div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      <label className='label'>Environment</label>
+                      <select
+                        className='input'
+                        value={stripeEnv(activeConfig)}
+                        onChange={(e) => {
+                          const next = e.target.value === 'live' ? 'live' : 'sandbox'
+                          const currentPub = String(activeConfig.publishable_key || '')
+                          const pub = next === 'live'
+                            ? String(activeConfig.publishable_key_live || (currentPub.startsWith('pk_live_') ? currentPub : '') || '')
+                            : String(activeConfig.publishable_key_sandbox || (currentPub.startsWith('pk_test_') ? currentPub : '') || '')
+                          setProviderDrafts((s) => ({
+                            ...s,
+                            stripe: {
+                              ...(s.stripe || {}),
+                              secret_key_draft: '',
+                              webhook_secret_draft: '',
+                              config: {
+                                ...((s.stripe || {}).config || {}),
+                                environment: next,
+                                ...(pub
+                                  ? {
+                                      publishable_key: pub,
+                                      [next === 'live' ? 'publishable_key_live' : 'publishable_key_sandbox']: pub,
+                                    }
+                                  : {}),
+                              },
+                            },
+                          }))
+                        }}
+                      >
+                        <option value='sandbox'>Sandbox</option>
+                        <option value='live'>Live</option>
+                      </select>
+                      <div className='muted' style={{ fontSize: 12 }}>
+                        Active: <strong>{stripeEnv(activeConfig) === 'live' ? 'Live' : 'Sandbox'}</strong>
+                        {activeSummary?.secret_set?.secret_key_sandbox || (stripeEnv(activeSummary.config) !== 'live' && activeSummary?.secret_set?.secret_key) ? ' · sandbox keys saved' : ''}
+                        {activeSummary?.secret_set?.secret_key_live || (stripeEnv(activeSummary.config) === 'live' && activeSummary?.secret_set?.secret_key) ? ' · live keys saved' : ''}
+                      </div>
+                    </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Secret key</label>
-                      <input className='input' type='password' value={String(activeDraft.secret_key_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), secret_key_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.secret_key ? 'Leave blank to keep current key' : 'sk_test_… or sk_live_…'} />
-                      <div className='muted' style={{ fontSize: 12 }}>Encrypted in the backend and never returned to the browser. Live/test mode is detected from the key.</div>
+                      <input
+                        className='input'
+                        type='password'
+                        value={String(activeDraft.secret_key_draft || '')}
+                        onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), secret_key_draft: e.target.value } }))}
+                        placeholder={
+                          (stripeEnv(activeConfig) === 'live'
+                            ? (activeSummary?.secret_set?.secret_key_live || (stripeEnv(activeConfig) === 'live' && activeSummary?.secret_set?.secret_key))
+                            : (activeSummary?.secret_set?.secret_key_sandbox || (stripeEnv(activeConfig) !== 'live' && activeSummary?.secret_set?.secret_key)))
+                            ? 'Leave blank to keep current key'
+                            : (stripeEnv(activeConfig) === 'live' ? 'sk_live_…' : 'sk_test_…')
+                        }
+                      />
+                      <div className='muted' style={{ fontSize: 12 }}>Encrypted in the backend and never returned to the browser. Paste the key for the selected environment; the other environment is kept.</div>
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Publishable key</label>
-                      <input className='input' value={String(activeConfig.publishable_key || '')} onChange={(e) => setProviderField('stripe', 'publishable_key', e.target.value)} placeholder='pk_test_… or pk_live_…' />
+                      <input
+                        className='input'
+                        value={String(
+                          stripeEnv(activeConfig) === 'live'
+                            ? (activeConfig.publishable_key_live || '')
+                            : (activeConfig.publishable_key_sandbox || activeConfig.publishable_key || '')
+                        )}
+                        onChange={(e) => {
+                          const field = stripeEnv(activeConfig) === 'live' ? 'publishable_key_live' : 'publishable_key_sandbox'
+                          setProviderDrafts((s) => ({
+                            ...s,
+                            stripe: {
+                              ...(s.stripe || {}),
+                              config: {
+                                ...((s.stripe || {}).config || {}),
+                                [field]: e.target.value,
+                                publishable_key: e.target.value,
+                              },
+                            },
+                          }))
+                        }}
+                        placeholder={stripeEnv(activeConfig) === 'live' ? 'pk_live_…' : 'pk_test_…'}
+                      />
                     </div>
                     <div style={{ display: 'grid', gap: 6 }}>
                       <label className='label'>Webhook signing secret</label>
-                      <input className='input' type='password' value={String(activeDraft.webhook_secret_draft || '')} onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), webhook_secret_draft: e.target.value } }))} placeholder={activeSummary?.secret_set?.webhook_secret ? 'Leave blank to keep current secret' : 'whsec_…'} />
-                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/stripe — subscribe to payment_intent.succeeded and payment_intent.payment_failed. Plan amounts come from Admin pricing (no Stripe Products/Prices required).</div>
+                      <input
+                        className='input'
+                        type='password'
+                        value={String(activeDraft.webhook_secret_draft || '')}
+                        onChange={(e) => setProviderDrafts((s) => ({ ...s, stripe: { ...(s.stripe || {}), webhook_secret_draft: e.target.value } }))}
+                        placeholder={
+                          (stripeEnv(activeConfig) === 'live'
+                            ? (activeSummary?.secret_set?.webhook_secret_live || (stripeEnv(activeConfig) === 'live' && activeSummary?.secret_set?.webhook_secret))
+                            : (activeSummary?.secret_set?.webhook_secret_sandbox || (stripeEnv(activeConfig) !== 'live' && activeSummary?.secret_set?.webhook_secret)))
+                            ? 'Leave blank to keep current secret'
+                            : 'whsec_…'
+                        }
+                      />
+                      <div className='muted' style={{ fontSize: 12 }}>Endpoint: https://api.voxbulk.com/webhooks/stripe — subscribe to payment_intent.succeeded and payment_intent.payment_failed. Use the signing secret from the Stripe Dashboard for this environment. Plan amounts come from Admin pricing (no Stripe Products/Prices required).</div>
                     </div>
                     <div className='actions'>
                       <button className='btn primary' onClick={() => saveIntegrationProvider('stripe')} disabled={providerSaving}>

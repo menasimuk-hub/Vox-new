@@ -36,6 +36,7 @@ class StripePaymentService:
         cfg, enabled = ProviderSettingsService.get_platform_config_decrypted(db, provider="stripe")
         if not enabled or not cfg:
             raise StripeConfigError("Stripe is not enabled in admin settings")
+        cfg = ProviderSettingsService.apply_stripe_active_credentials(cfg)
         secret = str(cfg.get("secret_key") or "").strip()
         if not secret:
             raise StripeConfigError("Stripe secret key is not configured")
@@ -84,9 +85,10 @@ class StripePaymentService:
         cfg = StripePaymentService.get_config(db)
         balance = StripePaymentService._request(db, "GET", "/balance")
         available = balance.get("available") or []
+        env = str(cfg.get("environment") or "sandbox")
         return {
             "ok": True,
-            "environment": str(cfg.get("environment") or "test"),
+            "environment": env,
             "livemode": bool(balance.get("livemode")),
             "currencies": sorted({str(b.get("currency") or "").upper() for b in available if b.get("currency")}),
         }
@@ -392,8 +394,12 @@ class StripePaymentService:
     @staticmethod
     def verify_webhook_signature(db: Session, *, payload: bytes, signature_header: str) -> dict[str, Any]:
         cfg = StripePaymentService.get_config(db)
-        secret = str(cfg.get("webhook_secret") or "").strip()
-        if not secret:
+        secrets: list[str] = []
+        for key in ("webhook_secret", "webhook_secret_sandbox", "webhook_secret_live"):
+            val = str(cfg.get(key) or "").strip()
+            if val and val not in secrets:
+                secrets.append(val)
+        if not secrets:
             raise StripeConfigError("Stripe webhook secret is not configured")
         pieces = [p.strip() for p in str(signature_header or "").split(",") if "=" in p]
         timestamp = next((p.split("=", 1)[1] for p in pieces if p.startswith("t=")), None)
@@ -403,8 +409,13 @@ class StripePaymentService:
         if abs(time.time() - int(timestamp)) > 300:
             raise StripeProviderError("Stripe webhook timestamp outside tolerance")
         signed = f"{timestamp}.{payload.decode('utf-8')}"
-        expected = hmac.new(secret.encode("utf-8"), signed.encode("utf-8"), hashlib.sha256).hexdigest()
-        if not any(hmac.compare_digest(expected, sig) for sig in v1_sigs):
+        matched = False
+        for secret in secrets:
+            expected = hmac.new(secret.encode("utf-8"), signed.encode("utf-8"), hashlib.sha256).hexdigest()
+            if any(hmac.compare_digest(expected, sig) for sig in v1_sigs):
+                matched = True
+                break
+        if not matched:
             raise StripeProviderError("Stripe webhook signature mismatch")
         return json.loads(payload)
 
