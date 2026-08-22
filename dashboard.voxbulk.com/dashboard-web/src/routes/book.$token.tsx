@@ -16,7 +16,21 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { publicApiFetch, getApiBaseUrl } from "@/lib/api";
+import {
+  detectBrowserTimezone,
+  formatTimezoneOption,
+  pickSupportedTimezone,
+  timezoneLabel,
+} from "@/lib/timezone";
 
 export const Route = createFileRoute("/book/$token")({
   head: () => ({ meta: [{ title: "Book your interview — VoxBulk" }] }),
@@ -46,6 +60,7 @@ type BookingPage = {
   display_timezone?: string;
   display_timezone_label?: string;
   calling_hours_label?: string;
+  supported_timezones?: string[];
   channel?: string | null;
   channel_options?: {
     phone_available?: boolean;
@@ -59,15 +74,217 @@ type BookingPage = {
   calendar_ics_url?: string | null;
 };
 
-/** Default when API does not send candidate timezone. */
-const DEFAULT_BOOKING_TZ = "Europe/London";
+function CalendarSlotPicker({
+  data,
+  picked,
+  onPick,
+  actionLabel,
+  busy,
+  error,
+  onSubmit,
+  bookingTz,
+  bookingTzLabel,
+}: {
+  data: BookingPage;
+  picked: string | null;
+  onPick: (slot: string) => void;
+  actionLabel: string;
+  busy?: boolean;
+  error?: string | null;
+  onSubmit: () => void;
+  bookingTz: string;
+  bookingTzLabel: string;
+}) {
+  const slotGroups = React.useMemo(
+    () => (data.available_slots ? groupSlotsByDay(data.available_slots, bookingTz) : []),
+    [data.available_slots, bookingTz],
+  );
 
-function resolveBookingTz(data?: { display_timezone?: string }) {
-  return data?.display_timezone || DEFAULT_BOOKING_TZ;
-}
+  const daysWithSlots = React.useMemo(() => slotGroups.map((g) => g.date), [slotGroups]);
+  const [selectedDay, setSelectedDay] = React.useState<Date | undefined>(undefined);
+  const [dayPart, setDayPart] = React.useState<DayPart>("all");
 
-function resolveBookingTzLabel(data?: { display_timezone_label?: string }) {
-  return data?.display_timezone_label || "UK time (GMT/BST)";
+  React.useEffect(() => {
+    if (!slotGroups.length) {
+      setSelectedDay(undefined);
+      return;
+    }
+    if (picked) {
+      setSelectedDay(localCalendarDate(picked, bookingTz));
+      return;
+    }
+    setSelectedDay((current) => {
+      if (current && slotGroups.some((g) => g.date.toDateString() === current.toDateString())) {
+        return current;
+      }
+      return slotGroups[0]?.date;
+    });
+  }, [slotGroups, picked, bookingTz]);
+
+  const activeGroup = React.useMemo(
+    () => slotGroups.find((g) => selectedDay && g.date.toDateString() === selectedDay.toDateString()),
+    [slotGroups, selectedDay],
+  );
+
+  const filteredSlots = React.useMemo(() => {
+    const slots = activeGroup?.slots || [];
+    if (dayPart === "all") return slots;
+    return slots.filter((slot) => dayPartForSlot(slot, bookingTz) === dayPart);
+  }, [activeGroup, dayPart, bookingTz]);
+
+  const partCounts = React.useMemo(() => {
+    const slots = activeGroup?.slots || [];
+    return {
+      all: slots.length,
+      morning: slots.filter((s) => dayPartForSlot(s, bookingTz) === "morning").length,
+      afternoon: slots.filter((s) => dayPartForSlot(s, bookingTz) === "afternoon").length,
+      evening: slots.filter((s) => dayPartForSlot(s, bookingTz) === "evening").length,
+    };
+  }, [activeGroup, bookingTz]);
+
+  const windowStart = localCalendarDate(data.window_start, bookingTz);
+  const windowEnd = localCalendarDate(data.window_end, bookingTz);
+  const isDayAvailable = (date: Date) => daysWithSlots.some((d) => d.toDateString() === date.toDateString());
+
+  if (data.available_slots.length === 0) {
+    return (
+      <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+        No slots left in this window. Please contact the hiring team.
+      </p>
+    );
+  }
+
+  const partTabs: { id: DayPart; label: string }[] = [
+    { id: "all", label: "All" },
+    { id: "morning", label: "Morning" },
+    { id: "afternoon", label: "Afternoon" },
+    { id: "evening", label: "Evening" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[minmax(280px,320px)_1fr] lg:items-start">
+        <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
+          <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">1. Choose a date</p>
+          <Calendar
+            mode="single"
+            selected={selectedDay}
+            onSelect={(day) => {
+              if (!day) return;
+              setSelectedDay(startOfDay(day));
+              setDayPart("all");
+              onPick("");
+            }}
+            defaultMonth={selectedDay || daysWithSlots[0]}
+            disabled={(date) =>
+              date < startOfDay(windowStart) || date > startOfDay(windowEnd) || !isDayAvailable(date)
+            }
+            modifiers={{ hasSlots: daysWithSlots }}
+            modifiersClassNames={{ hasSlots: "font-semibold text-primary" }}
+            className="mx-auto"
+          />
+          <p className="mt-3 text-center text-[11px] text-muted-foreground">
+            Highlighted days have open times · {bookingTzLabel}
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">2. Choose a time</p>
+            <p className="mt-1 text-base font-semibold text-foreground">
+              {activeGroup ? activeGroup.label : "Select a highlighted date"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {data.slot_minutes}-minute slots · {data.calling_hours_label || "9:00 am – 5:30 pm"}
+            </p>
+          </div>
+
+          {activeGroup ? (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {partTabs.map((tab) => {
+                  const count = partCounts[tab.id];
+                  if (tab.id !== "all" && count === 0) return null;
+                  const active = dayPart === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setDayPart(tab.id)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                        active
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                      }`}
+                    >
+                      {tab.label}
+                      <span className="ml-1 opacity-70">({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filteredSlots.length ? (
+                <div className="grid max-h-[22rem] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4">
+                  {filteredSlots.map((slot) => {
+                    const selected = picked === slot;
+                    return (
+                      <button
+                        key={slot}
+                        type="button"
+                        onClick={() => onPick(slot)}
+                        className={`rounded-xl border px-3 py-3 text-center transition ${
+                          selected
+                            ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                            : "border-border bg-background hover:border-primary/50 hover:bg-primary/5"
+                        }`}
+                      >
+                        <span className="block text-sm font-semibold tabular-nums tracking-tight">
+                          {fmtTime(slot, bookingTz)}
+                        </span>
+                        <span className={`mt-0.5 block text-[10px] ${selected ? "opacity-80" : "text-muted-foreground"}`}>
+                          {bookingTzLabel}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+                  No {dayPart} times on this day — try another period or date.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+              Tap a highlighted date on the calendar to see available times.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {picked ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Selected</p>
+            <p className="mt-0.5 text-sm font-medium">
+              {fmtDate(picked, bookingTz)} · <span className="tabular-nums">{fmtTime(picked, bookingTz)}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock className="size-3.5" />
+            {data.slot_minutes} min
+          </div>
+        </div>
+      ) : null}
+
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+      <Button className="h-12 w-full text-base" disabled={!picked || busy} onClick={onSubmit}>
+        {busy ? "Saving…" : actionLabel}
+      </Button>
+    </div>
+  );
 }
 
 type DayPart = "all" | "morning" | "afternoon" | "evening";
@@ -217,228 +434,23 @@ function CopyLinkRow({ label, href }: { label: string; href: string }) {
   );
 }
 
-function CalendarSlotPicker({
-  data,
-  picked,
-  onPick,
-  actionLabel,
-  busy,
-  error,
-  onSubmit,
-}: {
-  data: BookingPage;
-  picked: string | null;
-  onPick: (slot: string) => void;
-  actionLabel: string;
-  busy?: boolean;
-  error?: string | null;
-  onSubmit: () => void;
-}) {
-  const bookingTz = resolveBookingTz(data);
-  const bookingTzLabel = resolveBookingTzLabel(data);
-  const slotGroups = React.useMemo(
-    () => (data.available_slots ? groupSlotsByDay(data.available_slots, bookingTz) : []),
-    [data.available_slots, bookingTz],
-  );
-
-  const daysWithSlots = React.useMemo(() => slotGroups.map((g) => g.date), [slotGroups]);
-  const [selectedDay, setSelectedDay] = React.useState<Date | undefined>(undefined);
-  const [dayPart, setDayPart] = React.useState<DayPart>("all");
-
-  React.useEffect(() => {
-    if (!slotGroups.length) {
-      setSelectedDay(undefined);
-      return;
-    }
-    if (picked) {
-      setSelectedDay(localCalendarDate(picked, bookingTz));
-      return;
-    }
-    setSelectedDay((current) => {
-      if (current && slotGroups.some((g) => g.date.toDateString() === current.toDateString())) {
-        return current;
-      }
-      return slotGroups[0]?.date;
-    });
-  }, [slotGroups, picked, bookingTz]);
-
-  const activeGroup = React.useMemo(
-    () => slotGroups.find((g) => selectedDay && g.date.toDateString() === selectedDay.toDateString()),
-    [slotGroups, selectedDay],
-  );
-
-  const filteredSlots = React.useMemo(() => {
-    const slots = activeGroup?.slots || [];
-    if (dayPart === "all") return slots;
-    return slots.filter((slot) => dayPartForSlot(slot, bookingTz) === dayPart);
-  }, [activeGroup, dayPart, bookingTz]);
-
-  const partCounts = React.useMemo(() => {
-    const slots = activeGroup?.slots || [];
-    return {
-      all: slots.length,
-      morning: slots.filter((s) => dayPartForSlot(s, bookingTz) === "morning").length,
-      afternoon: slots.filter((s) => dayPartForSlot(s, bookingTz) === "afternoon").length,
-      evening: slots.filter((s) => dayPartForSlot(s, bookingTz) === "evening").length,
-    };
-  }, [activeGroup, bookingTz]);
-
-  const windowStart = localCalendarDate(data.window_start, bookingTz);
-  const windowEnd = localCalendarDate(data.window_end, bookingTz);
-  const isDayAvailable = (date: Date) => daysWithSlots.some((d) => d.toDateString() === date.toDateString());
-
-  if (data.available_slots.length === 0) {
-    return (
-      <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-        No slots left in this window. Please contact the hiring team.
-      </p>
-    );
-  }
-
-  const partTabs: { id: DayPart; label: string }[] = [
-    { id: "all", label: "All" },
-    { id: "morning", label: "Morning" },
-    { id: "afternoon", label: "Afternoon" },
-    { id: "evening", label: "Evening" },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(280px,320px)_1fr] lg:items-start">
-        <div className="rounded-2xl border border-border bg-background p-4 shadow-sm">
-          <p className="mb-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">1. Choose a date</p>
-          <Calendar
-            mode="single"
-            selected={selectedDay}
-            onSelect={(day) => {
-              if (!day) return;
-              setSelectedDay(startOfDay(day));
-              setDayPart("all");
-              onPick("");
-            }}
-            defaultMonth={selectedDay || daysWithSlots[0]}
-            disabled={(date) =>
-              date < startOfDay(windowStart) || date > startOfDay(windowEnd) || !isDayAvailable(date)
-            }
-            modifiers={{ hasSlots: daysWithSlots }}
-            modifiersClassNames={{ hasSlots: "font-semibold text-primary" }}
-            className="mx-auto"
-          />
-          <p className="mt-3 text-center text-[11px] text-muted-foreground">
-            Highlighted days have open times · {bookingTzLabel}
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">2. Choose a time</p>
-            <p className="mt-1 text-base font-semibold text-foreground">
-              {activeGroup ? activeGroup.label : "Select a highlighted date"}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {data.slot_minutes}-minute slots · {data.calling_hours_label || "9:00 am – 5:30 pm UK"}
-            </p>
-          </div>
-
-          {activeGroup ? (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {partTabs.map((tab) => {
-                  const count = partCounts[tab.id];
-                  if (tab.id !== "all" && count === 0) return null;
-                  const active = dayPart === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => setDayPart(tab.id)}
-                      className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
-                        active
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-                      }`}
-                    >
-                      {tab.label}
-                      <span className="ml-1 opacity-70">({count})</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {filteredSlots.length ? (
-                <div className="grid max-h-[22rem] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4">
-                  {filteredSlots.map((slot) => {
-                    const selected = picked === slot;
-                    return (
-                      <button
-                        key={slot}
-                        type="button"
-                        onClick={() => onPick(slot)}
-                        className={`rounded-xl border px-3 py-3 text-center transition ${
-                          selected
-                            ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                            : "border-border bg-background hover:border-primary/50 hover:bg-primary/5"
-                        }`}
-                      >
-                        <span className="block text-sm font-semibold tabular-nums tracking-tight">
-                          {fmtTime(slot, bookingTz)}
-                        </span>
-                        <span className={`mt-0.5 block text-[10px] ${selected ? "opacity-80" : "text-muted-foreground"}`}>
-                          {bookingTzLabel}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                  No {dayPart} times on this day — try another period or date.
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-              Tap a highlighted date on the calendar to see available times.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {picked ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Selected</p>
-            <p className="mt-0.5 text-sm font-medium">
-              {fmtDate(picked, bookingTz)} · <span className="tabular-nums">{fmtTime(picked, bookingTz)}</span>
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="size-3.5" />
-            {data.slot_minutes} min
-          </div>
-        </div>
-      ) : null}
-
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-      <Button className="h-12 w-full text-base" disabled={!picked || busy} onClick={onSubmit}>
-        {busy ? "Saving…" : actionLabel}
-      </Button>
-    </div>
-  );
-}
-
 function PublicBookingPage() {
   const { token } = Route.useParams();
   const { reschedule: openReschedule } = Route.useSearch();
   const qc = useQueryClient();
+  const browserTz = detectBrowserTimezone();
+  const [clientTimezone, setClientTimezone] = React.useState(browserTz);
+  const userChangedTimezone = React.useRef(false);
   const [picked, setPicked] = React.useState<string | null>(null);
   const [channelChoice, setChannelChoice] = React.useState<"phone" | "meeting">("phone");
   const [mode, setMode] = React.useState<"book" | "reschedule">("book");
 
   const pageQ = useQuery({
-    queryKey: ["public-booking", token],
-    queryFn: () => publicApiFetch<BookingPage>(`/public/interview-booking/${encodeURIComponent(token)}`),
+    queryKey: ["public-booking", token, clientTimezone],
+    queryFn: () =>
+      publicApiFetch<BookingPage>(
+        `/public/interview-booking/${encodeURIComponent(token)}?client_timezone=${encodeURIComponent(clientTimezone)}`,
+      ),
   });
 
   const [confirmNotice, setConfirmNotice] = React.useState<string | null>(null);
@@ -450,7 +462,11 @@ function PublicBookingPage() {
         confirmation_email_error?: string;
       }>(`/public/interview-booking/${encodeURIComponent(token)}/confirm`, {
         method: "POST",
-        body: JSON.stringify({ slot_start_at: slot, channel: channelChoice }),
+        body: JSON.stringify({
+          slot_start_at: slot,
+          channel: channelChoice,
+          client_timezone: clientTimezone,
+        }),
       }),
     onSuccess: (res) => {
       setConfirmNotice(
@@ -469,7 +485,7 @@ function PublicBookingPage() {
     mutationFn: (slot: string) =>
       publicApiFetch(`/public/interview-booking/${encodeURIComponent(token)}/reschedule`, {
         method: "POST",
-        body: JSON.stringify({ slot_start_at: slot }),
+        body: JSON.stringify({ slot_start_at: slot, client_timezone: clientTimezone }),
       }),
     onSuccess: () => {
       setMode("book");
@@ -492,8 +508,19 @@ function PublicBookingPage() {
   });
 
   const data = pageQ.data;
-  const bookingTz = resolveBookingTz(data);
-  const bookingTzLabel = resolveBookingTzLabel(data);
+  const bookingTz = clientTimezone;
+  const bookingTzLabel = data?.display_timezone_label || timezoneLabel(clientTimezone);
+  const supportedTimezones = data?.supported_timezones ?? [];
+
+  React.useEffect(() => {
+    if (userChangedTimezone.current || !data?.supported_timezones?.length) return;
+    const next = pickSupportedTimezone(
+      clientTimezone,
+      data.supported_timezones,
+      data.display_timezone || "Europe/London",
+    );
+    if (next !== clientTimezone) setClientTimezone(next);
+  }, [data?.supported_timezones, data?.display_timezone, clientTimezone]);
 
   React.useEffect(() => {
     if (!data?.channel_options) return;
@@ -579,6 +606,32 @@ function PublicBookingPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {supportedTimezones.length ? (
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <Label htmlFor="booking-timezone-cancelled" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Your timezone
+                </Label>
+                <Select
+                  value={clientTimezone}
+                  onValueChange={(value) => {
+                    userChangedTimezone.current = true;
+                    setClientTimezone(value);
+                    setPicked(null);
+                  }}
+                >
+                  <SelectTrigger id="booking-timezone-cancelled" className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supportedTimezones.map((tz) => (
+                      <SelectItem key={tz} value={tz}>
+                        {formatTimezoneOption(tz)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <CalendarSlotPicker
               data={data}
               picked={picked}
@@ -587,6 +640,8 @@ function PublicBookingPage() {
               busy={busy}
               error={activeError}
               onSubmit={() => picked && confirmM.mutate(picked)}
+              bookingTz={bookingTz}
+              bookingTzLabel={bookingTzLabel}
             />
           </CardContent>
         </Card>
@@ -756,8 +811,34 @@ function PublicBookingPage() {
               <p className="mt-1.5 text-sm font-medium">{fmtWindow(data.window_end, bookingTz)}</p>
             </div>
           </div>
+          {supportedTimezones.length ? (
+            <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+              <Label htmlFor="booking-timezone" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Your timezone
+              </Label>
+              <Select
+                value={clientTimezone}
+                onValueChange={(value) => {
+                  userChangedTimezone.current = true;
+                  setClientTimezone(value);
+                  setPicked(null);
+                }}
+              >
+                <SelectTrigger id="booking-timezone" className="mt-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {supportedTimezones.map((tz) => (
+                    <SelectItem key={tz} value={tz}>
+                      {formatTimezoneOption(tz)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
           <p className="text-xs text-muted-foreground">
-            All times are shown in {bookingTzLabel}. AI calls are made between{" "}
+            All times are shown in your timezone ({bookingTzLabel}). AI calls are made between{" "}
             {data.calling_hours_label || "the calling hours shown above"}.
           </p>
           <p className="text-xs text-muted-foreground">No login required — this link is unique to you.</p>
@@ -840,6 +921,8 @@ function PublicBookingPage() {
               if (isReschedule) rescheduleM.mutate(picked);
               else confirmM.mutate(picked);
             }}
+            bookingTz={bookingTz}
+            bookingTzLabel={bookingTzLabel}
           />
         </CardContent>
       </Card>

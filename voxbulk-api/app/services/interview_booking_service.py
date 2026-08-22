@@ -528,23 +528,39 @@ def _filter_slots_to_calling_hours(
     db: Session,
     phone: str | None,
     slots: list[datetime],
+    *,
+    client_timezone: str | None = None,
 ) -> list[datetime]:
-    """Expose booking slots inside platform calling hours (recipient local time)."""
+    """Expose booking slots inside platform calling hours (candidate local time when provided)."""
     if interview_relax_restrictions():
         return list(slots)
     from app.services.contact_time_service import slots_within_calling_window
 
-    return slots_within_calling_window(db, phone, slots, slot_minutes=interview_slot_minutes())
+    validated_tz = _validate_client_timezone(client_timezone)
+    return slots_within_calling_window(
+        db,
+        phone,
+        slots,
+        slot_minutes=interview_slot_minutes(),
+        tz_name=validated_tz,
+    )
 
 
-def _assert_slot_within_booking_hours(db: Session, phone: str | None, slot_start: datetime) -> None:
+def _assert_slot_within_booking_hours(
+    db: Session,
+    phone: str | None,
+    slot_start: datetime,
+    *,
+    client_timezone: str | None = None,
+) -> None:
     if interview_relax_restrictions():
         return
-    allowed = _filter_slots_to_calling_hours(db, phone, [slot_start])
+    allowed = _filter_slots_to_calling_hours(db, phone, [slot_start], client_timezone=client_timezone)
     if not allowed:
         from app.services.contact_time_service import calling_hours_label
 
-        label, _, _ = calling_hours_label(db, phone)
+        validated_tz = _validate_client_timezone(client_timezone)
+        label, _, _ = calling_hours_label(db, phone, tz_name=validated_tz)
         raise ValueError(f"Selected time is outside calling hours ({label})")
 
 
@@ -601,16 +617,61 @@ def _render_template_body(body: str | None, variables: dict[int, str]) -> str:
     return re.sub(r"\{\{(\d+)\}\}", _replace, text)
 
 
-def _format_slot_date(dt: datetime) -> str:
+def _validate_client_timezone(tz: str | None) -> str | None:
+    from app.services.contact_time_service import VALID_TIMEZONES
+
+    raw = str(tz or "").strip()
+    if not raw or raw not in VALID_TIMEZONES:
+        return None
+    return raw
+
+
+def _timezone_label(tz_name: str) -> str:
+    from app.services.contact_time_service import _TZ_LABELS
+
+    return _TZ_LABELS.get(tz_name, tz_name)
+
+
+def _booking_timezone_from_recipient(recipient: ServiceOrderRecipient) -> str | None:
+    merged = _recipient_result(recipient)
+    return _validate_client_timezone(str(merged.get("booking_timezone") or ""))
+
+
+def _resolve_booking_timezone(
+    phone: str | None,
+    client_timezone: str | None = None,
+    *,
+    db: Session | None = None,
+) -> str:
+    validated = _validate_client_timezone(client_timezone)
+    if validated:
+        return validated
+    from app.services.contact_time_service import resolve_recipient_timezone
+
+    return resolve_recipient_timezone(phone, channel="calling", db=db)
+
+
+def _format_slot_date(dt: datetime, tz_name: str = "Europe/London") -> str:
     aware = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
-    local = aware.astimezone(UK_TZ)
+    try:
+        local = aware.astimezone(ZoneInfo(tz_name))
+    except Exception:
+        local = aware.astimezone(UK_TZ)
     return local.strftime("%a %d %b %Y").replace(" 0", " ")
 
 
-def _format_slot_time(dt: datetime) -> str:
+def _format_slot_time(dt: datetime, tz_name: str = "Europe/London", *, with_label: bool = False) -> str:
     aware = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
-    local = aware.astimezone(UK_TZ)
-    return local.strftime("%I:%M %p").lstrip("0")
+    try:
+        local = aware.astimezone(ZoneInfo(tz_name))
+        resolved_tz = tz_name
+    except Exception:
+        local = aware.astimezone(UK_TZ)
+        resolved_tz = "Europe/London"
+    time_str = local.strftime("%I:%M %p").lstrip("0")
+    if with_label:
+        return f"{time_str} ({_timezone_label(resolved_tz)})"
+    return time_str
 
 
 def _iso_utc(dt: datetime | None) -> str | None:
@@ -619,20 +680,30 @@ def _iso_utc(dt: datetime | None) -> str | None:
     return dt.replace(tzinfo=None).isoformat() + "Z"
 
 
-def _booking_display_meta(db: Session, phone: str | None) -> dict[str, str]:
-    if interview_relax_restrictions():
-        return {
-            "display_timezone": "Europe/London",
-            "display_timezone_label": "UK time (GMT/BST)",
-            "calling_hours_label": "Any time UK (testing mode — no hour restrictions)",
-        }
-    from app.services.contact_time_service import calling_hours_label, resolve_recipient_timezone
+def _booking_display_meta(
+    db: Session,
+    phone: str | None,
+    client_timezone: str | None = None,
+) -> dict[str, Any]:
+    from app.services.contact_time_service import calling_hours_label, VALID_TIMEZONES
 
-    hours, tz_name, tz_label = calling_hours_label(db, phone)
+    validated_tz = _validate_client_timezone(client_timezone)
+    supported = sorted(VALID_TIMEZONES)
+    if interview_relax_restrictions():
+        tz = validated_tz or "Europe/London"
+        return {
+            "display_timezone": tz,
+            "display_timezone_label": _timezone_label(tz) if validated_tz else "UK time (GMT/BST)",
+            "calling_hours_label": "Any time UK (testing mode — no hour restrictions)",
+            "supported_timezones": supported,
+        }
+
+    hours, tz_name, tz_label = calling_hours_label(db, phone, tz_name=validated_tz)
     return {
         "display_timezone": tz_name,
         "display_timezone_label": tz_label,
         "calling_hours_label": hours,
+        "supported_timezones": supported,
     }
 
 
@@ -849,6 +920,7 @@ class InterviewBookingService:
         role: str,
         company_name: str,
         slot_start: datetime,
+        tz_name: str = "Europe/London",
     ) -> list[dict[str, Any]] | None:
         built = build_telnyx_components(
             "interview_booking_cancel",
@@ -856,8 +928,8 @@ class InterviewBookingService:
                 "first_name": _first_name(candidate_name),
                 "role": str(role or "Interview").strip(),
                 "company_name": str(company_name or "VOXBULK").strip(),
-                "interview_date": _format_slot_date(slot_start),
-                "interview_time": _format_slot_time(slot_start),
+                "interview_date": _format_slot_date(slot_start, tz_name),
+                "interview_time": _format_slot_time(slot_start, tz_name, with_label=True),
             },
             include_url_button=False,
         )
@@ -869,8 +941,8 @@ class InterviewBookingService:
                 "first_name": _first_name(candidate_name),
                 "role": role,
                 "company_name": company_name,
-                "interview_date": _format_slot_date(slot_start),
-                "interview_time": _format_slot_time(slot_start),
+                "interview_date": _format_slot_date(slot_start, tz_name),
+                "interview_time": _format_slot_time(slot_start, tz_name, with_label=True),
             },
         )
 
@@ -1048,11 +1120,12 @@ class InterviewBookingService:
         slot_start: datetime,
         meeting_url: str | None = None,
         channel: str | None = None,
+        tz_name: str = "Europe/London",
     ) -> list[dict[str, Any]] | None:
         first = _first_name(candidate_name)
         role_line = str(role or "your interview").strip() or "your interview"
-        date_line = _format_slot_date(slot_start)
-        time_line = _format_slot_time(slot_start)
+        date_line = _format_slot_date(slot_start, tz_name)
+        time_line = _format_slot_time(slot_start, tz_name, with_label=True)
         channel_key = str(channel or "").strip().lower()
         meet = str(meeting_url or "").strip()
         if channel_key == MEETING_CHANNEL and meet:
@@ -1221,7 +1294,7 @@ class InterviewBookingService:
         return enriched
 
     @staticmethod
-    def public_page(db: Session, token: str) -> dict[str, Any]:
+    def public_page(db: Session, token: str, client_timezone: str | None = None) -> dict[str, Any]:
         row = db.execute(
             select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
         ).scalar_one_or_none()
@@ -1251,6 +1324,8 @@ class InterviewBookingService:
 
         interview_language = _interview_language_for_order(db, order)
         merged = _recipient_result(recipient)
+        phone = str(recipient.phone or "")
+        display_meta = _booking_display_meta(db, phone, client_timezone=client_timezone)
         if _booking_withdrawn(recipient):
             cancelled_at = merged.get("booking_cancelled_at")
             return {
@@ -1273,7 +1348,7 @@ class InterviewBookingService:
                 "cancelled_at": str(cancelled_at) if cancelled_at else None,
                 "can_reschedule": False,
                 "can_cancel": False,
-                **_booking_display_meta(db, str(recipient.phone or "")),
+                **display_meta,
             }
 
         closed_message = _order_booking_closed_message(order, db)
@@ -1299,7 +1374,7 @@ class InterviewBookingService:
                 "can_cancel": has_booking,
                 "booking_url": booking_url_for_token(row.token),
                 "meeting_url": meeting_url_for_token(row.token) if row.channel == MEETING_CHANNEL else None,
-                **_booking_display_meta(db, str(recipient.phone or "")),
+                **display_meta,
             }
 
         _assert_booking_allowed(recipient)
@@ -1310,7 +1385,7 @@ class InterviewBookingService:
         now = _now()
         win_start, win_end = booking_window_bounds(order, now=now)
         raw_slots = _slot_starts(win_start, win_end, now=now)
-        filtered = _filter_slots_to_calling_hours(db, str(recipient.phone or ""), raw_slots)
+        filtered = _filter_slots_to_calling_hours(db, phone, raw_slots, client_timezone=client_timezone)
         available = [
             start
             for start in filtered
@@ -1341,7 +1416,7 @@ class InterviewBookingService:
             "channel_options": channel_options,
             "booking_url": booking_url_for_token(row.token),
             "meeting_url": meeting_url_for_token(row.token) if row.channel == MEETING_CHANNEL else None,
-            **_booking_display_meta(db, str(recipient.phone or "")),
+            **display_meta,
         }
         if row.booked_start_at is not None:
             from app.services.interview_calendar_service import build_interview_calendar_variables
@@ -1359,7 +1434,13 @@ class InterviewBookingService:
         return payload
 
     @staticmethod
-    def confirm_booking(db: Session, token: str, slot_start_iso: str, channel: str | None = None) -> dict[str, Any]:
+    def confirm_booking(
+        db: Session,
+        token: str,
+        slot_start_iso: str,
+        channel: str | None = None,
+        client_timezone: str | None = None,
+    ) -> dict[str, Any]:
         row = db.execute(
             select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
         ).scalar_one_or_none()
@@ -1395,11 +1476,16 @@ class InterviewBookingService:
         if slot_start < now:
             raise ValueError("Selected time is in the past")
 
+        phone = str(recipient.phone or "")
+        validated_tz = _validate_client_timezone(client_timezone)
+        booking_tz = _resolve_booking_timezone(phone, validated_tz, db=db)
+
         allowed_slots = set(
             _filter_slots_to_calling_hours(
                 db,
-                str(recipient.phone or ""),
+                phone,
                 _slot_starts(win_start, win_end, now=now),
+                client_timezone=validated_tz,
             )
         )
         if slot_start not in allowed_slots:
@@ -1413,16 +1499,16 @@ class InterviewBookingService:
                 )
             from app.services.contact_time_service import calling_hours_label
 
-            label, _, _ = calling_hours_label(db, str(recipient.phone or ""))
+            label, _, _ = calling_hours_label(db, phone, tz_name=validated_tz)
             raise ValueError(f"Selected time is outside calling hours ({label})")
 
-        _assert_slot_within_booking_hours(db, str(recipient.phone or ""), slot_start)
+        _assert_slot_within_booking_hours(db, phone, slot_start, client_timezone=validated_tz)
 
         booked = _booked_starts(db, order.id)
         if slot_start in booked:
             raise ValueError("That slot was just taken — pick another time")
 
-        channel_options = resolve_booking_channel_options(db, str(recipient.phone or ""), order=order)
+        channel_options = resolve_booking_channel_options(db, phone, order=order)
         chosen = str(channel or channel_options.get("default_channel") or PHONE_CHANNEL).strip().lower()
         if chosen == PHONE_CHANNEL and not channel_options.get("phone_available"):
             chosen = MEETING_CHANNEL
@@ -1454,6 +1540,7 @@ class InterviewBookingService:
                 "booked_start_at": _iso_utc(slot_start),
                 "booked_end_at": _iso_utc(slot_end),
                 "booking_confirmed_at": _iso_utc(now),
+                "booking_timezone": booking_tz,
             }
         )
         if str(recipient.status or "").lower() not in {"completed", "done", "calling", "in_progress"}:
@@ -1571,8 +1658,13 @@ class InterviewBookingService:
         config = _order_config(order)
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
-        date_line = _format_slot_date(slot_start)
-        time_line = _format_slot_time(slot_start)
+        booking_tz = _booking_timezone_from_recipient(recipient) or _resolve_booking_timezone(
+            str(recipient.phone or ""),
+            None,
+            db=db,
+        )
+        date_line = _format_slot_date(slot_start, booking_tz)
+        time_line = _format_slot_time(slot_start, booking_tz, with_label=True)
         first = _first_name(recipient.name)
         token = InterviewBookingService._booking_token_for_recipient(db, order, recipient)
         channel = ""
@@ -1728,6 +1820,7 @@ class InterviewBookingService:
             slot_start=slot_start,
             meeting_url=meeting_url or None,
             channel=channel or None,
+            tz_name=booking_tz,
         )
         if meeting_url:
             fallback_body = (
@@ -1824,8 +1917,13 @@ class InterviewBookingService:
         config = _order_config(order)
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
-        date_line = _format_slot_date(slot_start)
-        time_line = _format_slot_time(slot_start)
+        booking_tz = _booking_timezone_from_recipient(recipient) or _resolve_booking_timezone(
+            str(recipient.phone or ""),
+            None,
+            db=db,
+        )
+        date_line = _format_slot_date(slot_start, booking_tz)
+        time_line = _format_slot_time(slot_start, booking_tz, with_label=True)
 
         outreach_email = _persist_recipient_outreach_email(db, recipient)
         if not outreach_email:
@@ -1873,8 +1971,13 @@ class InterviewBookingService:
         role = str(config.get("role") or order.title or "Interview").strip()
         company_name = InterviewBookingService._org_name(db, order)
         first = _first_name(recipient.name)
-        date_line = _format_slot_date(slot_start)
-        time_line = _format_slot_time(slot_start)
+        booking_tz = _booking_timezone_from_recipient(recipient) or _resolve_booking_timezone(
+            str(recipient.phone or ""),
+            None,
+            db=db,
+        )
+        date_line = _format_slot_date(slot_start, booking_tz)
+        time_line = _format_slot_time(slot_start, booking_tz, with_label=True)
         cancel_row = InterviewBookingService.resolve_cancel_template(db, order)
         fallback_body = (
             f"Hi {first}, your {role} interview at {company_name} on {date_line} at {time_line} "
@@ -1890,6 +1993,7 @@ class InterviewBookingService:
                     role=role,
                     company_name=company_name,
                     slot_start=slot_start,
+                    tz_name=booking_tz,
                 )
                 result = InterviewWhatsappSendService.send_template_or_plain(
                     db,
@@ -2222,7 +2326,12 @@ class InterviewBookingService:
         }
 
     @staticmethod
-    def reschedule_booking(db: Session, token: str, slot_start_iso: str) -> dict[str, Any]:
+    def reschedule_booking(
+        db: Session,
+        token: str,
+        slot_start_iso: str,
+        client_timezone: str | None = None,
+    ) -> dict[str, Any]:
         row = db.execute(
             select(InterviewBookingToken).where(InterviewBookingToken.token == str(token).strip()).limit(1)
         ).scalar_one_or_none()
@@ -2258,11 +2367,16 @@ class InterviewBookingService:
         if slot_start < now:
             raise ValueError("Selected time is in the past")
 
+        phone = str(recipient.phone or "")
+        validated_tz = _validate_client_timezone(client_timezone)
+        booking_tz = _resolve_booking_timezone(phone, validated_tz, db=db)
+
         allowed_slots = set(
             _filter_slots_to_calling_hours(
                 db,
-                str(recipient.phone or ""),
+                phone,
                 _slot_starts(win_start, win_end, now=now),
+                client_timezone=validated_tz,
             )
         )
         if slot_start not in allowed_slots:
@@ -2276,10 +2390,10 @@ class InterviewBookingService:
                 )
             from app.services.contact_time_service import calling_hours_label
 
-            label, _, _ = calling_hours_label(db, str(recipient.phone or ""))
+            label, _, _ = calling_hours_label(db, phone, tz_name=validated_tz)
             raise ValueError(f"Selected time is outside calling hours ({label})")
 
-        _assert_slot_within_booking_hours(db, str(recipient.phone or ""), slot_start)
+        _assert_slot_within_booking_hours(db, phone, slot_start, client_timezone=validated_tz)
 
         if row.booked_start_at == slot_start:
             raise ValueError("You are already booked for that time")
@@ -2308,6 +2422,7 @@ class InterviewBookingService:
                 "booked_end_at": _iso_utc(slot_end),
                 "booking_rescheduled_at": _iso_utc(now),
                 "previous_booked_start_at": _iso_utc(previous_start) if previous_start else None,
+                "booking_timezone": booking_tz,
             }
         )
         recipient.result_json = json.dumps(merged, ensure_ascii=False)

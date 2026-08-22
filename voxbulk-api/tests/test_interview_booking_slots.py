@@ -9,7 +9,9 @@ from app.services.interview_booking_service import (
     MEETING_CHANNEL,
     PHONE_CHANNEL,
     _filter_slots_to_calling_hours,
+    _format_slot_time,
     _slot_starts,
+    _validate_client_timezone,
     interview_slot_minutes,
     resolve_booking_channel_options,
 )
@@ -79,6 +81,45 @@ def test_filter_slots_caps_at_calling_window(db):
     uk = last.replace(tzinfo=timezone.utc).astimezone(UK_TZ)
     slot_end = uk + timedelta(minutes=sm)
     assert slot_end.time() <= time(17, 30)
+
+
+def test_filter_slots_uses_client_timezone_not_phone(db):
+    """Client timezone drives calling-hour filtering even when phone prefix is UK."""
+    from app.models.platform_contact_time_settings import PlatformContactTimeSettings
+
+    row = db.get(PlatformContactTimeSettings, "default")
+    if row is None:
+        row = PlatformContactTimeSettings(id="default", updated_at=datetime.utcnow())
+        db.add(row)
+    row.calling_days = "1,2,3,4,5"
+    row.calling_start = "09:00"
+    row.calling_end = "17:30"
+    row.calling_fallback_tz = "Europe/London"
+    db.commit()
+
+    window_start = datetime(2026, 1, 15, 4, 0, 0)
+    window_end = datetime(2026, 1, 15, 20, 0, 0)
+    raw = _slot_starts(window_start, window_end)
+    uk_phone = "+447954823445"
+    filtered_phone_tz = _filter_slots_to_calling_hours(db, uk_phone, raw)
+    filtered_dubai = _filter_slots_to_calling_hours(db, uk_phone, raw, client_timezone="Asia/Dubai")
+
+    dubai_early = datetime(2026, 1, 15, 5, 0, 0)
+    assert dubai_early in filtered_dubai
+    assert dubai_early not in filtered_phone_tz
+    assert len(filtered_dubai) > len(filtered_phone_tz)
+
+
+def test_validate_client_timezone():
+    assert _validate_client_timezone("Asia/Dubai") == "Asia/Dubai"
+    assert _validate_client_timezone("Not/AZone") is None
+    assert _validate_client_timezone(None) is None
+
+
+def test_format_slot_time_with_timezone_label():
+    dt = datetime(2026, 1, 15, 14, 30, 0)
+    formatted = _format_slot_time(dt, "Asia/Dubai", with_label=True)
+    assert "UAE time" in formatted
 
 
 def test_booking_window_extends_to_24h_when_relaxed(monkeypatch):

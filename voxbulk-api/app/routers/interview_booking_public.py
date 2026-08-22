@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -13,9 +13,13 @@ router = APIRouter(prefix="/public/interview-booking", tags=["public-interview-b
 
 
 @router.get("/{token}")
-def get_booking_page(token: str, db: Session = Depends(get_db)):
+def get_booking_page(
+    token: str,
+    client_timezone: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
     try:
-        return InterviewBookingService.public_page(db, token)
+        return InterviewBookingService.public_page(db, token, client_timezone=client_timezone)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -40,7 +44,14 @@ def confirm_booking(token: str, payload: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="slot_start_at is required")
     try:
         channel = payload.get("channel")
-        return InterviewBookingService.confirm_booking(db, token, str(slot), channel=channel)
+        client_timezone = payload.get("client_timezone")
+        return InterviewBookingService.confirm_booking(
+            db,
+            token,
+            str(slot),
+            channel=channel,
+            client_timezone=str(client_timezone or "").strip() or None,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
@@ -59,7 +70,13 @@ def reschedule_booking(token: str, payload: dict, db: Session = Depends(get_db))
     if not slot:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="slot_start_at is required")
     try:
-        return InterviewBookingService.reschedule_booking(db, token, str(slot))
+        client_timezone = payload.get("client_timezone")
+        return InterviewBookingService.reschedule_booking(
+            db,
+            token,
+            str(slot),
+            client_timezone=str(client_timezone or "").strip() or None,
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 

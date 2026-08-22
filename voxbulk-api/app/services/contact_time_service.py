@@ -351,26 +351,31 @@ def slots_within_calling_window(
     slot_starts: list[datetime],
     *,
     slot_minutes: int = 4,
+    tz_name: str | None = None,
 ) -> list[datetime]:
     row = get_settings_row(db)
     window = _window_for_channel(row, "calling")
-    tz_name = resolve_recipient_timezone(phone, channel="calling", db=db)
+    resolved_tz = str(tz_name or "").strip() or resolve_recipient_timezone(phone, channel="calling", db=db)
     eff = _effective_window(window, phone)
     return [
         slot
         for slot in slot_starts
-        if _slot_allowed(slot, slot_minutes=slot_minutes, window=window, eff=eff, tz_name=tz_name)
+        if _slot_allowed(slot, slot_minutes=slot_minutes, window=window, eff=eff, tz_name=resolved_tz)
     ]
 
 
-def calling_hours_label(db: Session, phone: str | None) -> tuple[str, str, str]:
+def calling_hours_label(
+    db: Session,
+    phone: str | None,
+    tz_name: str | None = None,
+) -> tuple[str, str, str]:
     row = get_settings_row(db)
     window = _window_for_channel(row, "calling")
-    tz_name = resolve_recipient_timezone(phone, channel="calling", db=db)
+    resolved_tz = str(tz_name or "").strip() or resolve_recipient_timezone(phone, channel="calling", db=db)
     eff = _effective_window(window, phone)
-    tz_label = _TZ_LABELS.get(tz_name, tz_name)
+    tz_label = _TZ_LABELS.get(resolved_tz, resolved_tz)
     hours = f"{eff.start.strftime('%H:%M')}–{eff.end.strftime('%H:%M')} {tz_label}"
-    return hours, tz_name, tz_label
+    return hours, resolved_tz, tz_label
 
 
 def full_settings_payload(db: Session) -> dict[str, Any]:
