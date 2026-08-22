@@ -1307,6 +1307,7 @@ class InterviewBookingService:
         cancelled_at = merged.get("booking_cancelled_at")
 
         booked = _booked_starts(db, order.id, exclude_token_id=row.id)
+        now = _now()
         win_start, win_end = booking_window_bounds(order, now=now)
         raw_slots = _slot_starts(win_start, win_end, now=now)
         filtered = _filter_slots_to_calling_hours(db, str(recipient.phone or ""), raw_slots)
