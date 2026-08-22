@@ -63,8 +63,14 @@ export const Route = createRootRoute({
       { name: "twitter:title", content: title },
       { name: "twitter:description", content: description },
     ];
-    if (s.google_site_verification) {
-      meta.push({ name: "google-site-verification", content: s.google_site_verification });
+    if ((s.google_site_verification || "").trim()) {
+      const token = String(s.google_site_verification)
+        .trim()
+        .replace(/^google-site-verification\s*=\s*/i, "")
+        .trim();
+      if (token) {
+        meta.push({ name: "google-site-verification", content: token });
+      }
     }
     const ogImage = absoluteSeoUrl(s.default_social_image_url) || DEFAULT_OG_IMAGE;
     const usingBrandIcon = ogImage.includes("/brand/icon-");

@@ -1,4 +1,4 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { SiteHeader, SiteFooter } from "@/components/SiteShell";
 import { frontpageApiFetch } from "@/lib/api";
 import { HelpCircle, ArrowRight } from "lucide-react";
@@ -12,9 +12,6 @@ type FaqItem = {
 };
 
 export const Route = createFileRoute("/faq/")({
-  beforeLoad: () => {
-    throw redirect({ to: "/help", replace: true });
-  },
   loader: async () => {
     try {
       const data = await frontpageApiFetch<{ items: FaqItem[] }>("/frontpage/faq");
@@ -26,12 +23,15 @@ export const Route = createFileRoute("/faq/")({
   head: () => ({
     meta: [
       { title: "FAQ — VoxBulk" },
-      { name: "description", content: "Answers to common questions about VoxBulk products, billing, and support." },
+      {
+        name: "description",
+        content: "Answers to common questions about VoxBulk products, billing, and support.",
+      },
       { property: "og:title", content: "FAQ — VoxBulk" },
-      { property: "og:url", content: "https://voxbulk.com/help" },
-      { name: "robots", content: "noindex,follow" },
+      { property: "og:url", content: "https://voxbulk.com/faq" },
+      { name: "robots", content: "index,follow" },
     ],
-    links: [{ rel: "canonical", href: "https://voxbulk.com/help" }],
+    links: [{ rel: "canonical", href: "https://voxbulk.com/faq" }],
   }),
   component: FaqIndex,
 });
@@ -52,11 +52,11 @@ function FaqIndex() {
               Frequently asked questions
             </h1>
             <p className="mt-5 max-w-[560px] text-[16px] text-navy/70 leading-[1.65]">
-              Moved to the Help centre.{" "}
+              Browse answers below, or visit the{" "}
               <Link to="/help" className="text-gold font-semibold underline-offset-2 hover:underline">
-                Go to Help
-              </Link>
-              .
+                Help centre
+              </Link>{" "}
+              for guides and troubleshooting.
             </p>
           </div>
         </section>

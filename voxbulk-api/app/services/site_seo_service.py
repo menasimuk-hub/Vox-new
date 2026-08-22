@@ -269,11 +269,23 @@ def _dump_marketing_pages(pages: dict[str, Any]) -> str:
     return json.dumps(clean, ensure_ascii=False)
 
 
+def _normalize_google_site_verification(value: str | None) -> str:
+    """Store/emit only the token — strip a mistaken `google-site-verification=` prefix."""
+    raw = str(value or "").strip()
+    if raw.lower().startswith("google-site-verification="):
+        raw = raw.split("=", 1)[1].strip()
+    return raw
+
+
 def ensure_settings(db: Session) -> SiteSeoSettings:
     row = db.execute(select(SiteSeoSettings).where(SiteSeoSettings.id == "default")).scalar_one_or_none()
     if row:
         # Fill empty / legacy homepage SEO only — never overwrite custom Admin copy.
         dirty = False
+        normalized_gsc = _normalize_google_site_verification(row.google_site_verification)
+        if normalized_gsc != str(row.google_site_verification or ""):
+            row.google_site_verification = normalized_gsc
+            dirty = True
         if not str(row.home_title or "").strip():
             row.home_title = _DEFAULT_HOME_TITLE
             dirty = True
@@ -386,7 +398,7 @@ def settings_to_admin(row: SiteSeoSettings) -> dict[str, Any]:
         "schema_website": bool(row.schema_website),
         "schema_breadcrumbs": bool(row.schema_breadcrumbs),
         "schema_content": bool(row.schema_content),
-        "google_site_verification": row.google_site_verification or "",
+        "google_site_verification": _normalize_google_site_verification(row.google_site_verification),
         "google_analytics_id": row.google_analytics_id or "",
         "meta_pixel_id": row.meta_pixel_id or "",
         "linkedin_partner_id": row.linkedin_partner_id or "",
@@ -459,7 +471,7 @@ def settings_to_public(row: SiteSeoSettings) -> dict[str, Any]:
         "schema_website": bool(row.schema_website),
         "schema_breadcrumbs": bool(row.schema_breadcrumbs),
         "schema_content": bool(row.schema_content),
-        "google_site_verification": row.google_site_verification or "",
+        "google_site_verification": _normalize_google_site_verification(row.google_site_verification),
         "google_analytics_id": row.google_analytics_id or "",
         "meta_pixel_id": row.meta_pixel_id or "",
         "linkedin_partner_id": row.linkedin_partner_id or "",
@@ -501,7 +513,10 @@ def update_settings(db: Session, payload: dict[str, Any]) -> SiteSeoSettings:
     ]
     for f in str_fields:
         if f in payload:
-            setattr(row, f, str(payload.get(f) or ""))
+            val = str(payload.get(f) or "")
+            if f == "google_site_verification":
+                val = _normalize_google_site_verification(val)
+            setattr(row, f, val)
     if "default_social_image_url" in payload:
         row.default_social_image_url = payload.get("default_social_image_url") or None
     for f in (
@@ -1138,80 +1153,112 @@ def _xml_escape(value: str) -> str:
     )
 
 
+_LASTMOD_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+
+
+def _sitemap_lastmod(value: object) -> str:
+    """Coerce lastmod to YYYY-MM-DD only; return empty if unusable."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    m = _LASTMOD_RE.match(raw)
+    return m.group(1) if m else ""
+
+
 def render_robots_txt(db: Session) -> str:
     row = ensure_settings(db)
     return (row.robots_txt or DEFAULT_ROBOTS).strip() + "\n"
 
 
 def render_sitemap_xml(db: Session) -> str:
+    """Build sitemap XML. Skip bad entries rather than failing the whole feed."""
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ]
-    for entry in build_sitemap_entries(db):
-        path = str(entry.get("path") or "")
-        if not path.startswith("/"):
-            path = f"/{path}"
-        lines.append("  <url>")
-        lines.append(f"    <loc>{_xml_escape(SITE_ORIGIN + path)}</loc>")
-        changefreq = str(entry.get("changefreq") or "").strip()
-        if changefreq:
-            lines.append(f"    <changefreq>{_xml_escape(changefreq)}</changefreq>")
-        priority = str(entry.get("priority") or "").strip()
-        if priority:
-            lines.append(f"    <priority>{_xml_escape(priority)}</priority>")
-        lastmod = str(entry.get("lastmod") or "").strip()
-        if lastmod:
-            lines.append(f"    <lastmod>{_xml_escape(lastmod[:10])}</lastmod>")
-        lines.append("  </url>")
+    try:
+        entries = build_sitemap_entries(db)
+    except Exception:
+        entries = [{"path": "/", "changefreq": "weekly", "priority": "1.0"}]
+    for entry in entries:
+        try:
+            if not isinstance(entry, dict):
+                continue
+            path = str(entry.get("path") or "").strip()
+            if not path:
+                continue
+            if not path.startswith("/"):
+                path = f"/{path}"
+            lines.append("  <url>")
+            lines.append(f"    <loc>{_xml_escape(SITE_ORIGIN + path)}</loc>")
+            changefreq = str(entry.get("changefreq") or "").strip()
+            if changefreq:
+                lines.append(f"    <changefreq>{_xml_escape(changefreq)}</changefreq>")
+            priority = str(entry.get("priority") or "").strip()
+            if priority:
+                lines.append(f"    <priority>{_xml_escape(priority)}</priority>")
+            lastmod = _sitemap_lastmod(entry.get("lastmod"))
+            if lastmod:
+                lines.append(f"    <lastmod>{_xml_escape(lastmod)}</lastmod>")
+            lines.append("  </url>")
+        except Exception:
+            continue
     lines.append("</urlset>")
     return "\n".join(lines) + "\n"
 
 
 def render_news_sitemap_xml(db: Session) -> str:
-    settings = ensure_settings(db)
     empty = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>\n'
     )
-    if not settings.google_news_enabled:
+    try:
+        settings = ensure_settings(db)
+        if not settings.google_news_enabled:
+            return empty
+        pub_name = settings.google_news_publication or "VoxBulk"
+        lang = settings.google_news_language or "en"
+        cutoff = datetime.utcnow() - timedelta(days=2)
+        lines = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+            'xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">',
+        ]
+        found = False
+        for row in db.execute(select(SiteBlogNewsItem).where(SiteBlogNewsItem.kind == KIND_NEWS)).scalars().all():
+            try:
+                if not row.is_visible or not _is_indexable_robots(row.robots):
+                    continue
+                if not row.published_at:
+                    continue
+                pub = datetime.combine(row.published_at, datetime.min.time())
+                if pub < cutoff:
+                    continue
+                found = True
+                pub_iso = pub.isoformat() + "Z"
+                lines.extend(
+                    [
+                        "  <url>",
+                        f"    <loc>{_xml_escape(SITE_ORIGIN + PATH_PREFIX[KIND_NEWS] + row.slug)}</loc>",
+                        "    <news:news>",
+                        "      <news:publication>",
+                        f"        <news:name>{_xml_escape(pub_name)}</news:name>",
+                        f"        <news:language>{_xml_escape(lang)}</news:language>",
+                        "      </news:publication>",
+                        f"      <news:publication_date>{_xml_escape(pub_iso)}</news:publication_date>",
+                        f"      <news:title>{_xml_escape(row.title)}</news:title>",
+                        "    </news:news>",
+                        "  </url>",
+                    ]
+                )
+            except Exception:
+                continue
+        if not found:
+            return empty
+        lines.append("</urlset>")
+        return "\n".join(lines) + "\n"
+    except Exception:
         return empty
-    pub_name = settings.google_news_publication or "VoxBulk"
-    lang = settings.google_news_language or "en"
-    cutoff = datetime.utcnow() - timedelta(days=2)
-    lines = [
-        '<?xml version="1.0" encoding="UTF-8"?>',
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
-        'xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">',
-    ]
-    found = False
-    for row in db.execute(select(SiteBlogNewsItem).where(SiteBlogNewsItem.kind == KIND_NEWS)).scalars().all():
-        if not row.is_visible or not _is_indexable_robots(row.robots):
-            continue
-        pub = datetime.combine(row.published_at, datetime.min.time()) if row.published_at else None
-        if pub is None or pub < cutoff:
-            continue
-        found = True
-        pub_iso = pub.isoformat() + "Z"
-        lines.extend(
-            [
-                "  <url>",
-                f"    <loc>{_xml_escape(SITE_ORIGIN + PATH_PREFIX[KIND_NEWS] + row.slug)}</loc>",
-                "    <news:news>",
-                "      <news:publication>",
-                f"        <news:name>{_xml_escape(pub_name)}</news:name>",
-                f"        <news:language>{_xml_escape(lang)}</news:language>",
-                "      </news:publication>",
-                f"      <news:publication_date>{_xml_escape(pub_iso)}</news:publication_date>",
-                f"      <news:title>{_xml_escape(row.title)}</news:title>",
-                "    </news:news>",
-                "  </url>",
-            ]
-        )
-    if not found:
-        return empty
-    lines.append("</urlset>")
-    return "\n".join(lines) + "\n"
 
 
 def _indexnow_static_dirs() -> list[Path]:

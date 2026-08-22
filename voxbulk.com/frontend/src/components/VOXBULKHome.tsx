@@ -1379,7 +1379,7 @@ export function PlatformIntro() {
       <div className="max-w-[1080px] mx-auto px-5 md:px-10 text-center">
         <span className="eyebrow">One platform. Five services.</span>
         <h2 className="mt-4 text-[36px] md:text-[52px] font-bold tracking-[-0.03em] text-heading leading-[1.05]">
-          Intelligent screening. <span className="serif-italic text-primary">Instant results.</span>
+          Five services on one <span className="serif-italic text-primary">UK-built platform</span>.
         </h2>
         <p className="mt-5 text-[17px] text-body max-w-[720px] mx-auto">
           VoxBulk automates the conversations your team doesn't have time for — recruitment screening, WhatsApp surveys, customer feedback, exhibition lead capture and smart card QR for sales reps.

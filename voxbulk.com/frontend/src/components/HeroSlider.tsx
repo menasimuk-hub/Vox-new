@@ -401,12 +401,19 @@ function SlideBody({
   s,
   onTalk,
   compact = false,
+  headlineAs = "h1",
+  staticH1,
 }: {
   s: Slide;
   onTalk: () => void;
   compact?: boolean;
+  /** Use "p" on the homepage carousel so only the static h1 is a heading. */
+  headlineAs?: "h1" | "p";
+  /** Homepage-only: one stable h1 that does not rotate with slides. */
+  staticH1?: string;
 }) {
   const a = ACCENT[s.accent];
+  const HeadlineTag = headlineAs;
   return (
     <div className={`grid ${compact ? "lg:grid-cols-[0.9fr_1.1fr]" : "lg:grid-cols-[0.85fr_1.15fr]"} gap-10 lg:gap-12 items-center`}>
       <div key={s.key} className="relative text-left min-w-0 animate-float-up">
@@ -429,9 +436,17 @@ function SlideBody({
           {s.badge}
         </div>
 
-        <h1 className="relative mt-5 text-[30px] sm:text-[42px] lg:text-[52px] font-bold tracking-[-0.035em] leading-[1.08] text-white break-words">
+        {staticH1 ? (
+          <h1 className="relative mt-5 text-[30px] sm:text-[42px] lg:text-[52px] font-bold tracking-[-0.035em] leading-[1.08] text-white break-words">
+            {staticH1}
+          </h1>
+        ) : null}
+
+        <HeadlineTag
+          className={`relative ${staticH1 ? "mt-3 text-[22px] sm:text-[28px] lg:text-[34px]" : "mt-5 text-[30px] sm:text-[42px] lg:text-[52px]"} font-bold tracking-[-0.035em] leading-[1.08] text-white break-words`}
+        >
           {s.headline}
-        </h1>
+        </HeadlineTag>
 
         <p className="relative mt-5 max-w-[520px] text-[15px] sm:text-[16px] md:text-[17px] text-white/70 leading-[1.6]">
           {s.sub}
@@ -604,7 +619,12 @@ export function HeroSlider({ platformVisual }: { platformVisual: ReactNode }) {
       <SlideBackdrop accent={s.accent} pattern={s.pattern} />
 
       <div className="relative max-w-[1320px] mx-auto px-5 md:px-10">
-        <SlideBody s={s} onTalk={talk.open} />
+        <SlideBody
+          s={s}
+          onTalk={talk.open}
+          headlineAs="p"
+          staticH1="AI-Powered WhatsApp Surveys, Feedback & Interviews"
+        />
 
         {/* Slider controls */}
         <div className="mt-10 md:mt-12 pt-5 border-t border-white/10 flex flex-col md:flex-row md:items-center gap-4">

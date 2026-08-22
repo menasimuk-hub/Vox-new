@@ -2631,7 +2631,6 @@ export default function SeoControl() {
             {[
               ['schema_organization', 'Organization schema', 'Adds your logo and social profiles to Google\'s knowledge panel'],
               ['schema_website', 'WebSite + Sitelinks search box', 'Lets Google show a search box under your site in results'],
-              ['schema_breadcrumbs', 'Breadcrumbs', 'Shows the page path in search results'],
               ['schema_content', 'Article / NewsArticle / FAQPage schema', 'Applied automatically to Blog, News, and FAQ entries'],
             ].map(([key, title, desc]) => (
               <div className="sc-settings-row" key={key}>

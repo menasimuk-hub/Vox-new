@@ -1,6 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /onboarding
-Disallow: /signin
-
-Sitemap: https://voxbulk.com/sitemap.xml

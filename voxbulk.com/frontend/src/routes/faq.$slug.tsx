@@ -18,7 +18,21 @@ export const Route = createFileRoute("/faq/$slug")({
     if (!loaderData) {
       return { meta: [{ title: "FAQ not found — VoxBulk" }, { name: "robots", content: "noindex" }] };
     }
-    return buildHeadFromSeo(loaderData.item, loaderData.settings, { schemaType: "FAQPage" });
+    const item = loaderData.item;
+    const slug = item.slug || "";
+    const path = `/faq/${slug}`;
+    const url = `https://voxbulk.com${path}`;
+    return buildHeadFromSeo(
+      {
+        ...item,
+        path,
+        url,
+        canonical_url: (item.canonical_url || "").trim() || url,
+        robots: (item.robots || "").trim() || "index,follow",
+      },
+      loaderData.settings || {},
+      { schemaType: "FAQPage" },
+    );
   },
   notFoundComponent: () => (
     <div className="bg-beige min-h-screen flex flex-col">

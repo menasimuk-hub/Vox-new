@@ -3,7 +3,7 @@ from __future__ import annotations
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
-from fastapi.responses import PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -433,12 +433,20 @@ def public_robots_plain(db: Session = Depends(get_db)):
 
 @public_router.get("/seo/sitemap.xml")
 def public_sitemap_xml(db: Session = Depends(get_db)):
-    return Response(content=svc.render_sitemap_xml(db), media_type="application/xml")
+    # PlainTextResponse (like robots-plain) — bare Response(media_type=application/xml)
+    # has produced HTTP 500 on production while sitemap-entries JSON stays 200.
+    return PlainTextResponse(
+        svc.render_sitemap_xml(db),
+        media_type="application/xml; charset=utf-8",
+    )
 
 
 @public_router.get("/seo/news-sitemap.xml")
 def public_news_sitemap_xml(db: Session = Depends(get_db)):
-    return Response(content=svc.render_news_sitemap_xml(db), media_type="application/xml")
+    return PlainTextResponse(
+        svc.render_news_sitemap_xml(db),
+        media_type="application/xml; charset=utf-8",
+    )
 
 
 @public_router.get("/seo/sitemap-entries")

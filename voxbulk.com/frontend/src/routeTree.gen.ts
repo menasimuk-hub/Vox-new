@@ -9,183 +9,62 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as KeyDottxtRouteImport } from './routes/$key[.]txt'
-import { Route as BlogRouteImport } from './routes/blog'
-import { Route as ContactRouteImport } from './routes/contact'
-import { Route as CookiesRouteImport } from './routes/cookies'
-import { Route as DemoRouteImport } from './routes/demo'
-import { Route as DpaRouteImport } from './routes/dpa'
-import { Route as ExpoRouteImport } from './routes/expo'
-import { Route as FaqRouteImport } from './routes/faq'
-import { Route as FeedbackRouteImport } from './routes/feedback'
-import { Route as GdprRouteImport } from './routes/gdpr'
-import { Route as HelpRouteImport } from './routes/help'
-import { Route as LegalRouteImport } from './routes/legal'
-import { Route as LegalPoliciesRouteImport } from './routes/legal-policies'
-import { Route as NewsRouteImport } from './routes/news'
-import { Route as NewsSitemapDotxmlRouteImport } from './routes/news-sitemap[.]xml'
-import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as PricingRouteImport } from './routes/pricing'
-import { Route as PrivacyRouteImport } from './routes/privacy'
-import { Route as RecruitmentRouteImport } from './routes/recruitment'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as RobotsDottxtRouteImport } from './routes/robots[.]txt'
-import { Route as SigninRouteImport } from './routes/signin'
-import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
-import { Route as SmartCardRouteImport } from './routes/smart-card'
-import { Route as SurveysRouteImport } from './routes/surveys'
 import { Route as TermsRouteImport } from './routes/terms'
-import { Route as BlogIndexRouteImport } from './routes/blog.index'
-import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
-import { Route as DemoIndexRouteImport } from './routes/demo.index'
-import { Route as DemoLiveExpoRouteImport } from './routes/demo.live-expo'
-import { Route as DemoLiveFeedbackRouteImport } from './routes/demo.live-feedback'
-import { Route as DemoLiveSmartCardRouteImport } from './routes/demo.live-smart-card'
-import { Route as DemoResendRouteImport } from './routes/demo.resend'
-import { Route as DemoSessionRouteImport } from './routes/demo.session'
-import { Route as DemoThanksRouteImport } from './routes/demo.thanks'
-import { Route as ExpoIndexRouteImport } from './routes/expo.index'
-import { Route as ExpoTokenRouteImport } from './routes/expo.$token'
-import { Route as FaqIndexRouteImport } from './routes/faq.index'
-import { Route as FaqSlugRouteImport } from './routes/faq.$slug'
-import { Route as HelpIndexRouteImport } from './routes/help.index'
-import { Route as HelpArticlesRouteImport } from './routes/help.articles'
-import { Route as HelpZohoRecruitRouteImport } from './routes/help.zoho-recruit'
-import { Route as NewsIndexRouteImport } from './routes/news.index'
-import { Route as NewsSlugRouteImport } from './routes/news.$slug'
+import { Route as SurveysRouteImport } from './routes/surveys'
+import { Route as SmartCardRouteImport } from './routes/smart-card'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as SigninRouteImport } from './routes/signin'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as RecruitmentRouteImport } from './routes/recruitment'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PricingRouteImport } from './routes/pricing'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as NewsSitemapDotxmlRouteImport } from './routes/news-sitemap[.]xml'
+import { Route as NewsRouteImport } from './routes/news'
+import { Route as LegalPoliciesRouteImport } from './routes/legal-policies'
+import { Route as LegalRouteImport } from './routes/legal'
+import { Route as HelpRouteImport } from './routes/help'
+import { Route as GdprRouteImport } from './routes/gdpr'
+import { Route as FeedbackRouteImport } from './routes/feedback'
+import { Route as FaqRouteImport } from './routes/faq'
+import { Route as ExpoRouteImport } from './routes/expo'
+import { Route as DpaRouteImport } from './routes/dpa'
+import { Route as DemoRouteImport } from './routes/demo'
+import { Route as CookiesRouteImport } from './routes/cookies'
+import { Route as ContactRouteImport } from './routes/contact'
+import { Route as BlogRouteImport } from './routes/blog'
+import { Route as KeyDottxtRouteImport } from './routes/$key[.]txt'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as SmartCardIndexRouteImport } from './routes/smart-card.index'
-import { Route as SmartCardTokenRouteImport } from './routes/smart-card.$token'
-import { Route as SmartcardTokenRouteImport } from './routes/smartcard.$token'
+import { Route as NewsIndexRouteImport } from './routes/news.index'
+import { Route as HelpIndexRouteImport } from './routes/help.index'
+import { Route as FaqIndexRouteImport } from './routes/faq.index'
+import { Route as ExpoIndexRouteImport } from './routes/expo.index'
+import { Route as DemoIndexRouteImport } from './routes/demo.index'
+import { Route as BlogIndexRouteImport } from './routes/blog.index'
 import { Route as SurveyTokenRouteImport } from './routes/survey.$token'
+import { Route as SmartcardTokenRouteImport } from './routes/smartcard.$token'
+import { Route as SmartCardTokenRouteImport } from './routes/smart-card.$token'
+import { Route as NewsSlugRouteImport } from './routes/news.$slug'
+import { Route as HelpZohoRecruitRouteImport } from './routes/help.zoho-recruit'
+import { Route as HelpArticlesRouteImport } from './routes/help.articles'
+import { Route as FaqSlugRouteImport } from './routes/faq.$slug'
+import { Route as ExpoTokenRouteImport } from './routes/expo.$token'
+import { Route as DemoThanksRouteImport } from './routes/demo.thanks'
+import { Route as DemoSessionRouteImport } from './routes/demo.session'
+import { Route as DemoResendRouteImport } from './routes/demo.resend'
+import { Route as DemoLiveSmartCardRouteImport } from './routes/demo.live-smart-card'
+import { Route as DemoLiveFeedbackRouteImport } from './routes/demo.live-feedback'
+import { Route as DemoLiveExpoRouteImport } from './routes/demo.live-expo'
+import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as HelpArticlesIndexRouteImport } from './routes/help.articles.index'
-import { Route as HelpArticlesSlugRouteImport } from './routes/help.articles.$slug'
-import { Route as SmartcardPreviewThemeIdRouteImport } from './routes/smartcard.preview.$themeId'
 import { Route as SurveyPreviewThemeIdRouteImport } from './routes/survey.preview.$themeId'
+import { Route as SmartcardPreviewThemeIdRouteImport } from './routes/smartcard.preview.$themeId'
+import { Route as HelpArticlesSlugRouteImport } from './routes/help.articles.$slug'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const KeyDottxtRoute = KeyDottxtRouteImport.update({
-  id: '/$key.txt',
-  path: '/$key.txt',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const BlogRoute = BlogRouteImport.update({
-  id: '/blog',
-  path: '/blog',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ContactRoute = ContactRouteImport.update({
-  id: '/contact',
-  path: '/contact',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CookiesRoute = CookiesRouteImport.update({
-  id: '/cookies',
-  path: '/cookies',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DemoRoute = DemoRouteImport.update({
-  id: '/demo',
-  path: '/demo',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DpaRoute = DpaRouteImport.update({
-  id: '/dpa',
-  path: '/dpa',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ExpoRoute = ExpoRouteImport.update({
-  id: '/expo',
-  path: '/expo',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FaqRoute = FaqRouteImport.update({
-  id: '/faq',
-  path: '/faq',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FeedbackRoute = FeedbackRouteImport.update({
-  id: '/feedback',
-  path: '/feedback',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const GdprRoute = GdprRouteImport.update({
-  id: '/gdpr',
-  path: '/gdpr',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HelpRoute = HelpRouteImport.update({
-  id: '/help',
-  path: '/help',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LegalRoute = LegalRouteImport.update({
-  id: '/legal',
-  path: '/legal',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LegalPoliciesRoute = LegalPoliciesRouteImport.update({
-  id: '/legal-policies',
-  path: '/legal-policies',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const NewsRoute = NewsRouteImport.update({
-  id: '/news',
-  path: '/news',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const NewsSitemapDotxmlRoute = NewsSitemapDotxmlRouteImport.update({
-  id: '/news-sitemap.xml',
-  path: '/news-sitemap.xml',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OnboardingRoute = OnboardingRouteImport.update({
-  id: '/onboarding',
-  path: '/onboarding',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PricingRoute = PricingRouteImport.update({
-  id: '/pricing',
-  path: '/pricing',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrivacyRoute = PrivacyRouteImport.update({
-  id: '/privacy',
-  path: '/privacy',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RecruitmentRoute = RecruitmentRouteImport.update({
-  id: '/recruitment',
-  path: '/recruitment',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RobotsDottxtRoute = RobotsDottxtRouteImport.update({
-  id: '/robots.txt',
-  path: '/robots.txt',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SigninRoute = SigninRouteImport.update({
-  id: '/signin',
-  path: '/signin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
-  id: '/sitemap.xml',
-  path: '/sitemap.xml',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SmartCardRoute = SmartCardRouteImport.update({
-  id: '/smart-card',
-  path: '/smart-card',
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SurveysRoute = SurveysRouteImport.update({
@@ -193,79 +72,184 @@ const SurveysRoute = SurveysRouteImport.update({
   path: '/surveys',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TermsRoute = TermsRouteImport.update({
-  id: '/terms',
-  path: '/terms',
+const SmartCardRoute = SmartCardRouteImport.update({
+  id: '/smart-card',
+  path: '/smart-card',
   getParentRoute: () => rootRouteImport,
 } as any)
-const BlogIndexRoute = BlogIndexRouteImport.update({
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SigninRoute = SigninRouteImport.update({
+  id: '/signin',
+  path: '/signin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RecruitmentRoute = RecruitmentRouteImport.update({
+  id: '/recruitment',
+  path: '/recruitment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PricingRoute = PricingRouteImport.update({
+  id: '/pricing',
+  path: '/pricing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NewsSitemapDotxmlRoute = NewsSitemapDotxmlRouteImport.update({
+  id: '/news-sitemap.xml',
+  path: '/news-sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NewsRoute = NewsRouteImport.update({
+  id: '/news',
+  path: '/news',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LegalPoliciesRoute = LegalPoliciesRouteImport.update({
+  id: '/legal-policies',
+  path: '/legal-policies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LegalRoute = LegalRouteImport.update({
+  id: '/legal',
+  path: '/legal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GdprRoute = GdprRouteImport.update({
+  id: '/gdpr',
+  path: '/gdpr',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FeedbackRoute = FeedbackRouteImport.update({
+  id: '/feedback',
+  path: '/feedback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FaqRoute = FaqRouteImport.update({
+  id: '/faq',
+  path: '/faq',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExpoRoute = ExpoRouteImport.update({
+  id: '/expo',
+  path: '/expo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DpaRoute = DpaRouteImport.update({
+  id: '/dpa',
+  path: '/dpa',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CookiesRoute = CookiesRouteImport.update({
+  id: '/cookies',
+  path: '/cookies',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContactRoute = ContactRouteImport.update({
+  id: '/contact',
+  path: '/contact',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlogRoute = BlogRouteImport.update({
+  id: '/blog',
+  path: '/blog',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KeyDottxtRoute = KeyDottxtRouteImport.update({
+  id: '/$key.txt',
+  path: '/$key.txt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => BlogRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
-const BlogSlugRoute = BlogSlugRouteImport.update({
-  id: '/$slug',
-  path: '/$slug',
-  getParentRoute: () => BlogRoute,
-} as any)
-const DemoIndexRoute = DemoIndexRouteImport.update({
+const SmartCardIndexRoute = SmartCardIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => DemoRoute,
+  getParentRoute: () => SmartCardRoute,
 } as any)
-const DemoLiveExpoRoute = DemoLiveExpoRouteImport.update({
-  id: '/live-expo',
-  path: '/live-expo',
-  getParentRoute: () => DemoRoute,
-} as any)
-const DemoLiveFeedbackRoute = DemoLiveFeedbackRouteImport.update({
-  id: '/live-feedback',
-  path: '/live-feedback',
-  getParentRoute: () => DemoRoute,
-} as any)
-const DemoLiveSmartCardRoute = DemoLiveSmartCardRouteImport.update({
-  id: '/live-smart-card',
-  path: '/live-smart-card',
-  getParentRoute: () => DemoRoute,
-} as any)
-const DemoResendRoute = DemoResendRouteImport.update({
-  id: '/resend',
-  path: '/resend',
-  getParentRoute: () => DemoRoute,
-} as any)
-const DemoSessionRoute = DemoSessionRouteImport.update({
-  id: '/session',
-  path: '/session',
-  getParentRoute: () => DemoRoute,
-} as any)
-const DemoThanksRoute = DemoThanksRouteImport.update({
-  id: '/thanks',
-  path: '/thanks',
-  getParentRoute: () => DemoRoute,
-} as any)
-const ExpoIndexRoute = ExpoIndexRouteImport.update({
+const NewsIndexRoute = NewsIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => ExpoRoute,
+  getParentRoute: () => NewsRoute,
 } as any)
-const ExpoTokenRoute = ExpoTokenRouteImport.update({
-  id: '/$token',
-  path: '/$token',
-  getParentRoute: () => ExpoRoute,
+const HelpIndexRoute = HelpIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => HelpRoute,
 } as any)
 const FaqIndexRoute = FaqIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => FaqRoute,
 } as any)
-const FaqSlugRoute = FaqSlugRouteImport.update({
-  id: '/$slug',
-  path: '/$slug',
-  getParentRoute: () => FaqRoute,
-} as any)
-const HelpIndexRoute = HelpIndexRouteImport.update({
+const ExpoIndexRoute = ExpoIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ExpoRoute,
+} as any)
+const DemoIndexRoute = DemoIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DemoRoute,
+} as any)
+const BlogIndexRoute = BlogIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BlogRoute,
+} as any)
+const SurveyTokenRoute = SurveyTokenRouteImport.update({
+  id: '/survey/$token',
+  path: '/survey/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SmartcardTokenRoute = SmartcardTokenRouteImport.update({
+  id: '/smartcard/$token',
+  path: '/smartcard/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SmartCardTokenRoute = SmartCardTokenRouteImport.update({
+  id: '/$token',
+  path: '/$token',
+  getParentRoute: () => SmartCardRoute,
+} as any)
+const NewsSlugRoute = NewsSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => NewsRoute,
+} as any)
+const HelpZohoRecruitRoute = HelpZohoRecruitRouteImport.update({
+  id: '/zoho-recruit',
+  path: '/zoho-recruit',
   getParentRoute: () => HelpRoute,
 } as any)
 const HelpArticlesRoute = HelpArticlesRouteImport.update({
@@ -273,60 +257,70 @@ const HelpArticlesRoute = HelpArticlesRouteImport.update({
   path: '/articles',
   getParentRoute: () => HelpRoute,
 } as any)
-const HelpZohoRecruitRoute = HelpZohoRecruitRouteImport.update({
-  id: '/zoho-recruit',
-  path: '/zoho-recruit',
-  getParentRoute: () => HelpRoute,
-} as any)
-const NewsIndexRoute = NewsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => NewsRoute,
-} as any)
-const NewsSlugRoute = NewsSlugRouteImport.update({
+const FaqSlugRoute = FaqSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
-  getParentRoute: () => NewsRoute,
+  getParentRoute: () => FaqRoute,
 } as any)
-const SmartCardIndexRoute = SmartCardIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => SmartCardRoute,
-} as any)
-const SmartCardTokenRoute = SmartCardTokenRouteImport.update({
+const ExpoTokenRoute = ExpoTokenRouteImport.update({
   id: '/$token',
   path: '/$token',
-  getParentRoute: () => SmartCardRoute,
+  getParentRoute: () => ExpoRoute,
 } as any)
-const SmartcardTokenRoute = SmartcardTokenRouteImport.update({
-  id: '/smartcard/$token',
-  path: '/smartcard/$token',
-  getParentRoute: () => rootRouteImport,
+const DemoThanksRoute = DemoThanksRouteImport.update({
+  id: '/thanks',
+  path: '/thanks',
+  getParentRoute: () => DemoRoute,
 } as any)
-const SurveyTokenRoute = SurveyTokenRouteImport.update({
-  id: '/survey/$token',
-  path: '/survey/$token',
-  getParentRoute: () => rootRouteImport,
+const DemoSessionRoute = DemoSessionRouteImport.update({
+  id: '/session',
+  path: '/session',
+  getParentRoute: () => DemoRoute,
+} as any)
+const DemoResendRoute = DemoResendRouteImport.update({
+  id: '/resend',
+  path: '/resend',
+  getParentRoute: () => DemoRoute,
+} as any)
+const DemoLiveSmartCardRoute = DemoLiveSmartCardRouteImport.update({
+  id: '/live-smart-card',
+  path: '/live-smart-card',
+  getParentRoute: () => DemoRoute,
+} as any)
+const DemoLiveFeedbackRoute = DemoLiveFeedbackRouteImport.update({
+  id: '/live-feedback',
+  path: '/live-feedback',
+  getParentRoute: () => DemoRoute,
+} as any)
+const DemoLiveExpoRoute = DemoLiveExpoRouteImport.update({
+  id: '/live-expo',
+  path: '/live-expo',
+  getParentRoute: () => DemoRoute,
+} as any)
+const BlogSlugRoute = BlogSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => BlogRoute,
 } as any)
 const HelpArticlesIndexRoute = HelpArticlesIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => HelpArticlesRoute,
 } as any)
-const HelpArticlesSlugRoute = HelpArticlesSlugRouteImport.update({
-  id: '/$slug',
-  path: '/$slug',
-  getParentRoute: () => HelpArticlesRoute,
+const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
+  id: '/survey/preview/$themeId',
+  path: '/survey/preview/$themeId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const SmartcardPreviewThemeIdRoute = SmartcardPreviewThemeIdRouteImport.update({
   id: '/smartcard/preview/$themeId',
   path: '/smartcard/preview/$themeId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SurveyPreviewThemeIdRoute = SurveyPreviewThemeIdRouteImport.update({
-  id: '/survey/preview/$themeId',
-  path: '/survey/preview/$themeId',
-  getParentRoute: () => rootRouteImport,
+const HelpArticlesSlugRoute = HelpArticlesSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => HelpArticlesRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -351,7 +345,6 @@ export interface FileRoutesByFullPath {
   '/privacy': typeof PrivacyRoute
   '/recruitment': typeof RecruitmentRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/robots.txt': typeof RobotsDottxtRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/smart-card': typeof SmartCardRouteWithChildren
@@ -400,7 +393,6 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/recruitment': typeof RecruitmentRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/robots.txt': typeof RobotsDottxtRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/surveys': typeof SurveysRoute
@@ -454,7 +446,6 @@ export interface FileRoutesById {
   '/privacy': typeof PrivacyRoute
   '/recruitment': typeof RecruitmentRoute
   '/reset-password': typeof ResetPasswordRoute
-  '/robots.txt': typeof RobotsDottxtRoute
   '/signin': typeof SigninRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/smart-card': typeof SmartCardRouteWithChildren
@@ -511,7 +502,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/recruitment'
     | '/reset-password'
-    | '/robots.txt'
     | '/signin'
     | '/sitemap.xml'
     | '/smart-card'
@@ -560,7 +550,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/recruitment'
     | '/reset-password'
-    | '/robots.txt'
     | '/signin'
     | '/sitemap.xml'
     | '/surveys'
@@ -613,7 +602,6 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/recruitment'
     | '/reset-password'
-    | '/robots.txt'
     | '/signin'
     | '/sitemap.xml'
     | '/smart-card'
@@ -669,7 +657,6 @@ export interface RootRouteChildren {
   PrivacyRoute: typeof PrivacyRoute
   RecruitmentRoute: typeof RecruitmentRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
-  RobotsDottxtRoute: typeof RobotsDottxtRoute
   SigninRoute: typeof SigninRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   SmartCardRoute: typeof SmartCardRouteWithChildren
@@ -683,179 +670,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$key.txt': {
-      id: '/$key.txt'
-      path: '/$key.txt'
-      fullPath: '/$key.txt'
-      preLoaderRoute: typeof KeyDottxtRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/blog': {
-      id: '/blog'
-      path: '/blog'
-      fullPath: '/blog'
-      preLoaderRoute: typeof BlogRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/contact': {
-      id: '/contact'
-      path: '/contact'
-      fullPath: '/contact'
-      preLoaderRoute: typeof ContactRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/cookies': {
-      id: '/cookies'
-      path: '/cookies'
-      fullPath: '/cookies'
-      preLoaderRoute: typeof CookiesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/demo': {
-      id: '/demo'
-      path: '/demo'
-      fullPath: '/demo'
-      preLoaderRoute: typeof DemoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/dpa': {
-      id: '/dpa'
-      path: '/dpa'
-      fullPath: '/dpa'
-      preLoaderRoute: typeof DpaRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/expo': {
-      id: '/expo'
-      path: '/expo'
-      fullPath: '/expo'
-      preLoaderRoute: typeof ExpoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/faq': {
-      id: '/faq'
-      path: '/faq'
-      fullPath: '/faq'
-      preLoaderRoute: typeof FaqRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/feedback': {
-      id: '/feedback'
-      path: '/feedback'
-      fullPath: '/feedback'
-      preLoaderRoute: typeof FeedbackRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/gdpr': {
-      id: '/gdpr'
-      path: '/gdpr'
-      fullPath: '/gdpr'
-      preLoaderRoute: typeof GdprRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/help': {
-      id: '/help'
-      path: '/help'
-      fullPath: '/help'
-      preLoaderRoute: typeof HelpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/legal': {
-      id: '/legal'
-      path: '/legal'
-      fullPath: '/legal'
-      preLoaderRoute: typeof LegalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/legal-policies': {
-      id: '/legal-policies'
-      path: '/legal-policies'
-      fullPath: '/legal-policies'
-      preLoaderRoute: typeof LegalPoliciesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/news': {
-      id: '/news'
-      path: '/news'
-      fullPath: '/news'
-      preLoaderRoute: typeof NewsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/news-sitemap.xml': {
-      id: '/news-sitemap.xml'
-      path: '/news-sitemap.xml'
-      fullPath: '/news-sitemap.xml'
-      preLoaderRoute: typeof NewsSitemapDotxmlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/onboarding': {
-      id: '/onboarding'
-      path: '/onboarding'
-      fullPath: '/onboarding'
-      preLoaderRoute: typeof OnboardingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/pricing': {
-      id: '/pricing'
-      path: '/pricing'
-      fullPath: '/pricing'
-      preLoaderRoute: typeof PricingRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/privacy': {
-      id: '/privacy'
-      path: '/privacy'
-      fullPath: '/privacy'
-      preLoaderRoute: typeof PrivacyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/recruitment': {
-      id: '/recruitment'
-      path: '/recruitment'
-      fullPath: '/recruitment'
-      preLoaderRoute: typeof RecruitmentRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/robots.txt': {
-      id: '/robots.txt'
-      path: '/robots.txt'
-      fullPath: '/robots.txt'
-      preLoaderRoute: typeof RobotsDottxtRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/signin': {
-      id: '/signin'
-      path: '/signin'
-      fullPath: '/signin'
-      preLoaderRoute: typeof SigninRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sitemap.xml': {
-      id: '/sitemap.xml'
-      path: '/sitemap.xml'
-      fullPath: '/sitemap.xml'
-      preLoaderRoute: typeof SitemapDotxmlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/smart-card': {
-      id: '/smart-card'
-      path: '/smart-card'
-      fullPath: '/smart-card'
-      preLoaderRoute: typeof SmartCardRouteImport
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/surveys': {
@@ -865,89 +684,194 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SurveysRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/terms': {
-      id: '/terms'
-      path: '/terms'
-      fullPath: '/terms'
-      preLoaderRoute: typeof TermsRouteImport
+    '/smart-card': {
+      id: '/smart-card'
+      path: '/smart-card'
+      fullPath: '/smart-card'
+      preLoaderRoute: typeof SmartCardRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/blog/': {
-      id: '/blog/'
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signin': {
+      id: '/signin'
+      path: '/signin'
+      fullPath: '/signin'
+      preLoaderRoute: typeof SigninRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/recruitment': {
+      id: '/recruitment'
+      path: '/recruitment'
+      fullPath: '/recruitment'
+      preLoaderRoute: typeof RecruitmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pricing': {
+      id: '/pricing'
+      path: '/pricing'
+      fullPath: '/pricing'
+      preLoaderRoute: typeof PricingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/news-sitemap.xml': {
+      id: '/news-sitemap.xml'
+      path: '/news-sitemap.xml'
+      fullPath: '/news-sitemap.xml'
+      preLoaderRoute: typeof NewsSitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/news': {
+      id: '/news'
+      path: '/news'
+      fullPath: '/news'
+      preLoaderRoute: typeof NewsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/legal-policies': {
+      id: '/legal-policies'
+      path: '/legal-policies'
+      fullPath: '/legal-policies'
+      preLoaderRoute: typeof LegalPoliciesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/legal': {
+      id: '/legal'
+      path: '/legal'
+      fullPath: '/legal'
+      preLoaderRoute: typeof LegalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gdpr': {
+      id: '/gdpr'
+      path: '/gdpr'
+      fullPath: '/gdpr'
+      preLoaderRoute: typeof GdprRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/feedback': {
+      id: '/feedback'
+      path: '/feedback'
+      fullPath: '/feedback'
+      preLoaderRoute: typeof FeedbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/faq': {
+      id: '/faq'
+      path: '/faq'
+      fullPath: '/faq'
+      preLoaderRoute: typeof FaqRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/expo': {
+      id: '/expo'
+      path: '/expo'
+      fullPath: '/expo'
+      preLoaderRoute: typeof ExpoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dpa': {
+      id: '/dpa'
+      path: '/dpa'
+      fullPath: '/dpa'
+      preLoaderRoute: typeof DpaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cookies': {
+      id: '/cookies'
+      path: '/cookies'
+      fullPath: '/cookies'
+      preLoaderRoute: typeof CookiesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contact': {
+      id: '/contact'
+      path: '/contact'
+      fullPath: '/contact'
+      preLoaderRoute: typeof ContactRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blog': {
+      id: '/blog'
+      path: '/blog'
+      fullPath: '/blog'
+      preLoaderRoute: typeof BlogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$key.txt': {
+      id: '/$key.txt'
+      path: '/$key.txt'
+      fullPath: '/$key.txt'
+      preLoaderRoute: typeof KeyDottxtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
       path: '/'
-      fullPath: '/blog/'
-      preLoaderRoute: typeof BlogIndexRouteImport
-      parentRoute: typeof BlogRoute
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/blog/$slug': {
-      id: '/blog/$slug'
-      path: '/$slug'
-      fullPath: '/blog/$slug'
-      preLoaderRoute: typeof BlogSlugRouteImport
-      parentRoute: typeof BlogRoute
-    }
-    '/demo/': {
-      id: '/demo/'
+    '/smart-card/': {
+      id: '/smart-card/'
       path: '/'
-      fullPath: '/demo/'
-      preLoaderRoute: typeof DemoIndexRouteImport
-      parentRoute: typeof DemoRoute
+      fullPath: '/smart-card/'
+      preLoaderRoute: typeof SmartCardIndexRouteImport
+      parentRoute: typeof SmartCardRoute
     }
-    '/demo/live-expo': {
-      id: '/demo/live-expo'
-      path: '/live-expo'
-      fullPath: '/demo/live-expo'
-      preLoaderRoute: typeof DemoLiveExpoRouteImport
-      parentRoute: typeof DemoRoute
-    }
-    '/demo/live-feedback': {
-      id: '/demo/live-feedback'
-      path: '/live-feedback'
-      fullPath: '/demo/live-feedback'
-      preLoaderRoute: typeof DemoLiveFeedbackRouteImport
-      parentRoute: typeof DemoRoute
-    }
-    '/demo/live-smart-card': {
-      id: '/demo/live-smart-card'
-      path: '/live-smart-card'
-      fullPath: '/demo/live-smart-card'
-      preLoaderRoute: typeof DemoLiveSmartCardRouteImport
-      parentRoute: typeof DemoRoute
-    }
-    '/demo/resend': {
-      id: '/demo/resend'
-      path: '/resend'
-      fullPath: '/demo/resend'
-      preLoaderRoute: typeof DemoResendRouteImport
-      parentRoute: typeof DemoRoute
-    }
-    '/demo/session': {
-      id: '/demo/session'
-      path: '/session'
-      fullPath: '/demo/session'
-      preLoaderRoute: typeof DemoSessionRouteImport
-      parentRoute: typeof DemoRoute
-    }
-    '/demo/thanks': {
-      id: '/demo/thanks'
-      path: '/thanks'
-      fullPath: '/demo/thanks'
-      preLoaderRoute: typeof DemoThanksRouteImport
-      parentRoute: typeof DemoRoute
-    }
-    '/expo/': {
-      id: '/expo/'
+    '/news/': {
+      id: '/news/'
       path: '/'
-      fullPath: '/expo/'
-      preLoaderRoute: typeof ExpoIndexRouteImport
-      parentRoute: typeof ExpoRoute
+      fullPath: '/news/'
+      preLoaderRoute: typeof NewsIndexRouteImport
+      parentRoute: typeof NewsRoute
     }
-    '/expo/$token': {
-      id: '/expo/$token'
-      path: '/$token'
-      fullPath: '/expo/$token'
-      preLoaderRoute: typeof ExpoTokenRouteImport
-      parentRoute: typeof ExpoRoute
+    '/help/': {
+      id: '/help/'
+      path: '/'
+      fullPath: '/help/'
+      preLoaderRoute: typeof HelpIndexRouteImport
+      parentRoute: typeof HelpRoute
     }
     '/faq/': {
       id: '/faq/'
@@ -956,18 +880,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FaqIndexRouteImport
       parentRoute: typeof FaqRoute
     }
-    '/faq/$slug': {
-      id: '/faq/$slug'
-      path: '/$slug'
-      fullPath: '/faq/$slug'
-      preLoaderRoute: typeof FaqSlugRouteImport
-      parentRoute: typeof FaqRoute
-    }
-    '/help/': {
-      id: '/help/'
+    '/expo/': {
+      id: '/expo/'
       path: '/'
-      fullPath: '/help/'
-      preLoaderRoute: typeof HelpIndexRouteImport
+      fullPath: '/expo/'
+      preLoaderRoute: typeof ExpoIndexRouteImport
+      parentRoute: typeof ExpoRoute
+    }
+    '/demo/': {
+      id: '/demo/'
+      path: '/'
+      fullPath: '/demo/'
+      preLoaderRoute: typeof DemoIndexRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/blog/': {
+      id: '/blog/'
+      path: '/'
+      fullPath: '/blog/'
+      preLoaderRoute: typeof BlogIndexRouteImport
+      parentRoute: typeof BlogRoute
+    }
+    '/survey/$token': {
+      id: '/survey/$token'
+      path: '/survey/$token'
+      fullPath: '/survey/$token'
+      preLoaderRoute: typeof SurveyTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/smartcard/$token': {
+      id: '/smartcard/$token'
+      path: '/smartcard/$token'
+      fullPath: '/smartcard/$token'
+      preLoaderRoute: typeof SmartcardTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/smart-card/$token': {
+      id: '/smart-card/$token'
+      path: '/$token'
+      fullPath: '/smart-card/$token'
+      preLoaderRoute: typeof SmartCardTokenRouteImport
+      parentRoute: typeof SmartCardRoute
+    }
+    '/news/$slug': {
+      id: '/news/$slug'
+      path: '/$slug'
+      fullPath: '/news/$slug'
+      preLoaderRoute: typeof NewsSlugRouteImport
+      parentRoute: typeof NewsRoute
+    }
+    '/help/zoho-recruit': {
+      id: '/help/zoho-recruit'
+      path: '/zoho-recruit'
+      fullPath: '/help/zoho-recruit'
+      preLoaderRoute: typeof HelpZohoRecruitRouteImport
       parentRoute: typeof HelpRoute
     }
     '/help/articles': {
@@ -977,54 +943,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HelpArticlesRouteImport
       parentRoute: typeof HelpRoute
     }
-    '/help/zoho-recruit': {
-      id: '/help/zoho-recruit'
-      path: '/zoho-recruit'
-      fullPath: '/help/zoho-recruit'
-      preLoaderRoute: typeof HelpZohoRecruitRouteImport
-      parentRoute: typeof HelpRoute
-    }
-    '/news/': {
-      id: '/news/'
-      path: '/'
-      fullPath: '/news/'
-      preLoaderRoute: typeof NewsIndexRouteImport
-      parentRoute: typeof NewsRoute
-    }
-    '/news/$slug': {
-      id: '/news/$slug'
+    '/faq/$slug': {
+      id: '/faq/$slug'
       path: '/$slug'
-      fullPath: '/news/$slug'
-      preLoaderRoute: typeof NewsSlugRouteImport
-      parentRoute: typeof NewsRoute
+      fullPath: '/faq/$slug'
+      preLoaderRoute: typeof FaqSlugRouteImport
+      parentRoute: typeof FaqRoute
     }
-    '/smart-card/': {
-      id: '/smart-card/'
-      path: '/'
-      fullPath: '/smart-card/'
-      preLoaderRoute: typeof SmartCardIndexRouteImport
-      parentRoute: typeof SmartCardRoute
-    }
-    '/smart-card/$token': {
-      id: '/smart-card/$token'
+    '/expo/$token': {
+      id: '/expo/$token'
       path: '/$token'
-      fullPath: '/smart-card/$token'
-      preLoaderRoute: typeof SmartCardTokenRouteImport
-      parentRoute: typeof SmartCardRoute
+      fullPath: '/expo/$token'
+      preLoaderRoute: typeof ExpoTokenRouteImport
+      parentRoute: typeof ExpoRoute
     }
-    '/smartcard/$token': {
-      id: '/smartcard/$token'
-      path: '/smartcard/$token'
-      fullPath: '/smartcard/$token'
-      preLoaderRoute: typeof SmartcardTokenRouteImport
-      parentRoute: typeof rootRouteImport
+    '/demo/thanks': {
+      id: '/demo/thanks'
+      path: '/thanks'
+      fullPath: '/demo/thanks'
+      preLoaderRoute: typeof DemoThanksRouteImport
+      parentRoute: typeof DemoRoute
     }
-    '/survey/$token': {
-      id: '/survey/$token'
-      path: '/survey/$token'
-      fullPath: '/survey/$token'
-      preLoaderRoute: typeof SurveyTokenRouteImport
-      parentRoute: typeof rootRouteImport
+    '/demo/session': {
+      id: '/demo/session'
+      path: '/session'
+      fullPath: '/demo/session'
+      preLoaderRoute: typeof DemoSessionRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/demo/resend': {
+      id: '/demo/resend'
+      path: '/resend'
+      fullPath: '/demo/resend'
+      preLoaderRoute: typeof DemoResendRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/demo/live-smart-card': {
+      id: '/demo/live-smart-card'
+      path: '/live-smart-card'
+      fullPath: '/demo/live-smart-card'
+      preLoaderRoute: typeof DemoLiveSmartCardRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/demo/live-feedback': {
+      id: '/demo/live-feedback'
+      path: '/live-feedback'
+      fullPath: '/demo/live-feedback'
+      preLoaderRoute: typeof DemoLiveFeedbackRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/demo/live-expo': {
+      id: '/demo/live-expo'
+      path: '/live-expo'
+      fullPath: '/demo/live-expo'
+      preLoaderRoute: typeof DemoLiveExpoRouteImport
+      parentRoute: typeof DemoRoute
+    }
+    '/blog/$slug': {
+      id: '/blog/$slug'
+      path: '/$slug'
+      fullPath: '/blog/$slug'
+      preLoaderRoute: typeof BlogSlugRouteImport
+      parentRoute: typeof BlogRoute
     }
     '/help/articles/': {
       id: '/help/articles/'
@@ -1033,12 +1013,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HelpArticlesIndexRouteImport
       parentRoute: typeof HelpArticlesRoute
     }
-    '/help/articles/$slug': {
-      id: '/help/articles/$slug'
-      path: '/$slug'
-      fullPath: '/help/articles/$slug'
-      preLoaderRoute: typeof HelpArticlesSlugRouteImport
-      parentRoute: typeof HelpArticlesRoute
+    '/survey/preview/$themeId': {
+      id: '/survey/preview/$themeId'
+      path: '/survey/preview/$themeId'
+      fullPath: '/survey/preview/$themeId'
+      preLoaderRoute: typeof SurveyPreviewThemeIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/smartcard/preview/$themeId': {
       id: '/smartcard/preview/$themeId'
@@ -1047,12 +1027,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SmartcardPreviewThemeIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/survey/preview/$themeId': {
-      id: '/survey/preview/$themeId'
-      path: '/survey/preview/$themeId'
-      fullPath: '/survey/preview/$themeId'
-      preLoaderRoute: typeof SurveyPreviewThemeIdRouteImport
-      parentRoute: typeof rootRouteImport
+    '/help/articles/$slug': {
+      id: '/help/articles/$slug'
+      path: '/$slug'
+      fullPath: '/help/articles/$slug'
+      preLoaderRoute: typeof HelpArticlesSlugRouteImport
+      parentRoute: typeof HelpArticlesRoute
     }
   }
 }
@@ -1191,7 +1171,6 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacyRoute: PrivacyRoute,
   RecruitmentRoute: RecruitmentRoute,
   ResetPasswordRoute: ResetPasswordRoute,
-  RobotsDottxtRoute: RobotsDottxtRoute,
   SigninRoute: SigninRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   SmartCardRoute: SmartCardRouteWithChildren,
@@ -1205,3 +1184,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

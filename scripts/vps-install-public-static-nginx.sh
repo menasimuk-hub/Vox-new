@@ -78,7 +78,7 @@ static_locations = f"""
 {proxy_headers}    }}
 
     location / {{
-        try_files $uri $uri/ /index.html;
+        try_files $uri $uri/ $uri/index.html /index.html;
     }}
 
     location ~ .*\\.(gif|jpg|jpeg|png|bmp|swf|ico|webp|svg)$ {{
