@@ -68,6 +68,10 @@ vox_git_sync() {
     voxbulk.com/frontend/package-lock.json
     voxbox.voxbulk.com/voxbox-web/package-lock.json
     package-lock.json
+    # Local edits left behind when these install/verify scripts were run on the VPS
+    scripts/vps-install-dual-api-nginx.sh
+    scripts/vps-install-public-static-nginx.sh
+    scripts/vps-verify-deploy.sh
   )
   local gen_path
   for gen_path in "${gen_paths[@]}"; do
